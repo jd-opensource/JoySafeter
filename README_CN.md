@@ -989,6 +989,7 @@ bun run dev
 | [Docker 部署指南](deploy/README.md) | 完整的部署指南，包含安装脚本、场景说明和故障排查 |
 | [开发指南](DEVELOPMENT.md) | 本地开发环境搭建和工作流程 |
 | [贡献指南](CONTRIBUTING.md) | 如何参与项目贡献 |
+| [Pre-commit 设置](.pre-commit-setup.md) | 代码质量检查与 Git Hooks 配置 |
 | [安全策略](SECURITY.md) | 安全策略与漏洞报告 |
 | [行为准则](CODE_OF_CONDUCT.md) | 社区行为规范 |
 

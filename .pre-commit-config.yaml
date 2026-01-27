@@ -29,6 +29,19 @@ repos:
       - id: ruff-format
         files: ^backend/
 
+  # Backend - Ruff check (强制检查，不允许错误)
+  # 注意：此 hook 会检查整个 backend 目录，确保没有 lint 错误
+  - repo: local
+    hooks:
+      - id: backend-ruff-check
+        name: Backend Ruff Check (strict)
+        entry: bash -c 'cd backend && uv run ruff check . || exit 1'
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: false
+        always_run: false  # 只在有 Python 文件更改时运行
+        stages: [commit]
+
   # Python - Type checking
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.13.0
@@ -47,6 +60,19 @@ repos:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: (\.lock$|package-lock\.json$|pnpm-lock\.yaml$)
+
+  # Frontend - ESLint (强制检查，不允许错误)
+  # 注意：此 hook 会检查整个 frontend 目录，确保没有 lint 错误
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: Frontend ESLint
+        entry: bash -c 'cd frontend && pnpm run lint || exit 1'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx)$
+        pass_filenames: false
+        always_run: false  # 只在有前端文件更改时运行
+        stages: [commit]
 
 # CI configuration
 ci:

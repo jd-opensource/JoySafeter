@@ -133,17 +133,46 @@ Unsure where to begin? Look for issues labeled:
    cd backend && ruff check . && mypy .
    
    # Frontend
-   cd frontend && npm run lint
+   cd frontend && pnpm run lint
    ```
 
-6. **Commit your changes** following our commit guidelines
+6. **Set up Pre-commit Hooks (推荐)**:
+   
+   项目配置了 pre-commit hooks，会在提交前自动运行代码检查。强烈建议安装：
+   
+   ```bash
+   # 安装 pre-commit
+   pip install pre-commit
+   # 或使用 uv
+   uv pip install pre-commit
+   
+   # 安装 Git hooks
+   pre-commit install
+   
+   # 验证配置
+   pre-commit validate-config
+   
+   # 测试运行（检查所有文件）
+   pre-commit run --all-files
+   ```
+   
+   安装后，每次 `git commit` 时会自动：
+   - 运行后端 Ruff 检查（`uv run ruff check .`）
+   - 运行前端 ESLint 检查（`pnpm run lint`）
+   - 运行其他代码质量检查
+   
+   如果检查失败，提交会被阻止，需要先修复错误。
+   
+   更多信息请参考 [Development Guide - Pre-commit Hooks](DEVELOPMENT.md#using-pre-commit-hooks)。
 
-7. **Push to your fork**:
+7. **Commit your changes** following our commit guidelines
+
+8. **Push to your fork**:
    ```bash
    git push origin feature/your-feature-name
    ```
 
-8. **Open a Pull Request** with:
+9. **Open a Pull Request** with:
    - Clear description of changes
    - Link to related issue(s)
    - Screenshots for UI changes

@@ -123,16 +123,118 @@ npm run type-check  # TypeScript
 
 ### Using Pre-commit Hooks
 
-```bash
-# Install pre-commit
-pip install pre-commit
+项目使用 pre-commit hooks 来确保代码质量。在提交代码之前，会自动运行代码检查。
 
-# Set up hooks
+#### 安装 Pre-commit Hooks
+
+```bash
+# 1. 安装 pre-commit
+pip install pre-commit
+# 或使用 uv
+uv pip install pre-commit
+
+# 2. 安装 Git hooks
 pre-commit install
 
-# Run on all files
+# 3. 验证配置
+pre-commit validate-config
+
+# 4. 测试运行（可选）
 pre-commit run --all-files
 ```
+
+#### 检查内容
+
+**后端检查：**
+- **Ruff Lint** - 自动修复可修复的代码问题
+- **Ruff Format** - 检查代码格式
+- **Ruff Check (严格模式)** - 强制检查，不允许任何 lint 错误 (`uv run ruff check .`)
+- **MyPy** - Python 类型检查
+
+**前端检查：**
+- **ESLint** - JavaScript/TypeScript 代码检查 (`pnpm run lint`)
+
+**通用检查：**
+- 行尾空白检查
+- 文件末尾换行检查
+- YAML/JSON 格式检查
+- 大文件检查
+- 合并冲突检查
+- 私钥检测
+
+#### 使用说明
+
+**正常提交流程：**
+
+当你执行 `git commit` 时，pre-commit hooks 会自动运行：
+
+```bash
+git add .
+git commit -m "your message"
+```
+
+如果检查失败，提交会被阻止。你需要：
+1. 修复报告的错误
+2. 重新添加文件 (`git add .`)
+3. 再次提交
+
+**手动运行检查：**
+
+```bash
+# 检查所有文件
+pre-commit run --all-files
+
+# 检查暂存的文件
+pre-commit run
+
+# 检查特定 hook
+pre-commit run ruff --all-files
+pre-commit run frontend-lint --all-files
+```
+
+**跳过 Hooks（不推荐）：**
+
+如果确实需要跳过 hooks（例如紧急修复），可以使用：
+
+```bash
+git commit --no-verify -m "emergency fix"
+```
+
+**注意：** 跳过 hooks 会绕过代码质量检查，可能导致 CI 失败。
+
+#### 故障排除
+
+**问题：`uv run ruff check` 找不到命令**
+
+解决方案：
+1. 确保已安装 uv：`curl -LsSf https://astral.sh/uv/install.sh | sh`
+2. 确保 backend 目录下有虚拟环境：`cd backend && uv venv`
+3. 确保已安装依赖：`cd backend && uv sync --dev`
+
+**问题：`pnpm run lint` 找不到命令**
+
+解决方案：
+1. 确保已安装 pnpm：`npm install -g pnpm`
+2. 确保 frontend 目录下已安装依赖：`cd frontend && pnpm install`
+
+**问题：Hooks 运行太慢**
+
+解决方案：
+- Hooks 默认只检查更改的文件
+- 如果需要跳过某些检查，可以临时使用 `--no-verify`
+- 考虑优化检查配置，排除不需要检查的文件
+
+#### 更新 Hooks
+
+```bash
+# 更新 hooks 到最新版本
+pre-commit autoupdate
+
+# 然后重新安装
+pre-commit install
+```
+
+更多详细信息请参考 [Pre-commit Setup Guide](.pre-commit-setup.md)。
 
 ### Database Migrations
 
