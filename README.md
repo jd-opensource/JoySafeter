@@ -1005,30 +1005,6 @@ git push origin feature/amazing-feature
 
 ---
 
-## Team
-
-<table>
-<tr>
-<td align="center"><strong>Geng Zhifeng</strong><br/><sub>Project Lead</sub></td>
-<td align="center"><strong>Duan Yangyang</strong><br/><sub>Core Developer</sub></td>
-<td align="center"><strong>Yu Zhenjiang</strong><br/><sub>Architect</sub></td>
-<td align="center"><strong>Wu Xiaohan</strong><br/><sub>Scenario Developer</sub></td>
-</tr>
-<tr>
-<td align="center"><strong>Li Jinqi</strong><br/><sub>AI Engineer</sub></td>
-<td align="center"><strong>Wen Gaolei</strong><br/><sub>AI Engineer</sub></td>
-<td align="center"><strong>Sun Yaofei</strong><br/><sub>AI Engineer</sub></td>
-<td align="center"><strong>Bai Xin</strong><br/><sub>Developer</sub></td>
-</tr>
-<tr>
-<td align="center"><strong>He Qidan</strong><br/><sub>Security Expert</sub></td>
-<td align="center"><strong>Zhang Qing</strong><br/><sub>Developer</sub></td>
-<td align="center" colspan="2"></td>
-</tr>
-</table>
-
----
-
 ## License
 
 This project is licensed under the **Apache License 2.0** — see the [LICENSE](LICENSE) file for details.

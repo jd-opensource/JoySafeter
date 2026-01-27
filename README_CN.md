@@ -1012,31 +1012,6 @@ git commit -m 'feat: add amazing feature'
 # 推送并创建 PR
 git push origin feature/amazing-feature
 ```
-
----
-
-## 团队
-
-<table>
-<tr>
-<td align="center"><strong>耿志峰</strong><br/><sub>项目负责人</sub></td>
-<td align="center"><strong>段阳阳</strong><br/><sub>核心开发</sub></td>
-<td align="center"><strong>于震江</strong><br/><sub>架构师</sub></td>
-<td align="center"><strong>吴霄瀚</strong><br/><sub>场景开发</sub></td>
-</tr>
-<tr>
-<td align="center"><strong>黎谨旗</strong><br/><sub>AI 工程师</sub></td>
-<td align="center"><strong>温高磊</strong><br/><sub>AI 工程师</sub></td>
-<td align="center"><strong>孙要飞</strong><br/><sub>AI 工程师</sub></td>
-<td align="center"><strong>白鑫</strong><br/><sub>开发工程师</sub></td>
-</tr>
-<tr>
-<td align="center"><strong>何淇丹</strong><br/><sub>安全专家</sub></td>
-<td align="center"><strong>张清</strong><br/><sub>开发工程师</sub></td>
-<td align="center" colspan="2"></td>
-</tr>
-</table>
-
 ---
 
 ## 许可证
