@@ -19,13 +19,12 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.core.database import get_db
-from app.models.auth import AuthUser as User
 from app.core.copilot.action_types import CopilotRequest
 from app.core.copilot_deepagents.streaming import stream_deepagents_actions
-from app.services.copilot_service import CopilotService
+from app.core.database import get_db
 from app.core.model.utils.credential_resolver import LLMCredentialResolver
-
+from app.models.auth import AuthUser as User
+from app.services.copilot_service import CopilotService
 
 router = APIRouter(prefix="/v1/graphs", tags=["Graphs"])
 
@@ -47,16 +46,16 @@ async def deepagents_copilot_actions_stream(
 ) -> StreamingResponse:
     """
     Generate Agent workflow graph using DeepAgents mode (streaming).
-    
+
     Uses SSE (Server-Sent Events) streaming for DeepAgents workflow.
-    Note: Standard Copilot uses WebSocket + async tasks, but DeepAgents 
+    Note: Standard Copilot uses WebSocket + async tasks, but DeepAgents
     maintains SSE for its specialized multi-stage processing pipeline.
-    
+
     Event format compatible with standard Copilot:
     - Accepts the same CopilotRequest input
     - Returns SSE events in the same format
     - Frontend can reuse event handling logic
-    
+
     SSE Event Types:
     - status: Stage progress {stage, message}
     - content: Streaming content
@@ -65,22 +64,22 @@ async def deepagents_copilot_actions_stream(
     - result: Final result {message, actions}
     - done: Completion
     - error: Error
-    
+
     DeepAgents Mode Advantages:
     - Sub-agent collaboration: Analysis → Design → Validation → Generation
     - Artifact persistence: /analysis.json, /blueprint.json, /validation.json
     - Auditable: Complete decision process is traceable
-    
+
     Args:
         payload: CopilotRequest with prompt, graph_context, graph_id
         current_user: Authenticated user
         db: Database session
-    
+
     Returns:
         StreamingResponse: SSE stream of progress events
     """
     log = _bind_log(request, user_id=str(current_user.id))
-    
+
     # Get credentials using unified CredentialManager (same as standard Copilot)
     api_key, base_url, llm_model = await LLMCredentialResolver.get_credentials(
         db=db,
@@ -88,20 +87,20 @@ async def deepagents_copilot_actions_stream(
         base_url=None,
         llm_model=None,
     )
-    
+
     if not api_key:
         log.warning("No API key found in database, will try OPENAI_API_KEY environment variable")
 
     async def event_generator():
         try:
             log.info(f"copilot.deepagents.stream start graph_id={payload.graph_id}")
-            
+
             # Collect data for persistence (same as standard copilot)
             collected_thought_steps: List[Dict[str, Any]] = []
             collected_tool_calls: List[Dict[str, Any]] = []
             final_message = ""
             final_actions: List[Dict[str, Any]] = []
-            
+
             async for event in stream_deepagents_actions(
                 prompt=payload.prompt,
                 graph_context=payload.graph_context,
@@ -114,7 +113,7 @@ async def deepagents_copilot_actions_stream(
             ):
                 # Collect data for persistence
                 event_type = event.get("type")
-                
+
                 if event_type == "thought_step":
                     step = event.get("step", {})
                     collected_thought_steps.append(step)
@@ -126,9 +125,9 @@ async def deepagents_copilot_actions_stream(
                 elif event_type == "result":
                     final_message = event.get("message", "")
                     final_actions = event.get("actions", [])
-                
+
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            
+
             # Save messages to database if graph_id is provided
             if payload.graph_id:
                 try:
@@ -147,9 +146,9 @@ async def deepagents_copilot_actions_stream(
                         log.warning(f"copilot.deepagents.stream failed to save messages for graph_id={payload.graph_id}")
                 except Exception as save_error:
                     log.error(f"copilot.deepagents.stream save error: {save_error}")
-            
+
             log.info(f"copilot.deepagents.stream success graph_id={payload.graph_id}")
-            
+
         except Exception as e:
             log.error(f"copilot.deepagents.stream failed error={e}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"

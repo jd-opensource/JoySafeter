@@ -4,9 +4,9 @@ MCP Tool Builder - 从工具定义创建 EnhancedTool
 使用 lazy entrypoint，在执行时从 toolkit manager 获取 toolkit。
 """
 from typing import List, Optional
-from pydantic import BaseModel
 
 from loguru import logger
+from pydantic import BaseModel
 
 try:
     from mcp.types import Tool as MCPTool
@@ -21,12 +21,16 @@ def _json_schema_to_pydantic_model(schema: any, name: str) -> Optional[type[Base
     """
     Convert a JSON Schema dict from MCP into a Pydantic BaseModel for validation.
     Handles common primitive types, arrays, and objects. Falls back to None if unsupported.
-    
+
     This is a standalone version matching the logic in MCPTools._json_schema_to_pydantic_model
     to avoid duplication while maintaining consistency.
     """
+    from typing import Any
+    from typing import Dict as TypingDict
+    from typing import List as TypingList
+    from typing import Optional as TypingOptional
+
     from pydantic import create_model
-    from typing import Any, Dict as TypingDict, List as TypingList, Optional as TypingOptional
 
     try:
         if not isinstance(schema, dict):
@@ -80,7 +84,7 @@ def create_mcp_tools_from_definitions(
 ) -> List[EnhancedTool]:
     """从 MCP 工具定义创建 EnhancedTool 列表"""
     enhanced_tools = []
-    
+
     for tool in mcp_tools:
         try:
             entrypoint = create_lazy_mcp_entrypoint(
@@ -88,9 +92,9 @@ def create_mcp_tools_from_definitions(
                 server_name=server_name,
                 user_id=user_id,
             )
-            
+
             args_schema_model = _json_schema_to_pydantic_model(tool.inputSchema, tool.name)
-            
+
             metadata = ToolMetadata(
                 source_type=ToolSourceType.MCP,
                 tags={"mcp"},
@@ -98,7 +102,7 @@ def create_mcp_tools_from_definitions(
                 mcp_tool_name=tool.name,
             )
             metadata.custom_attrs["execution_timeout"] = timeout_seconds
-            
+
             enhanced_tool = EnhancedTool.from_entrypoint(
                 name=tool.name,
                 description=tool.description or "",
@@ -106,13 +110,13 @@ def create_mcp_tools_from_definitions(
                 entrypoint=entrypoint,
                 tool_metadata=metadata,
             )
-            
+
             enhanced_tools.append(enhanced_tool)
             logger.debug(f"Created EnhancedTool for MCP tool: {tool.name} from server: {server_name}")
-            
+
         except Exception as e:
             logger.error(f"Failed to create EnhancedTool for MCP tool {tool.name}: {e}")
             continue
-    
+
     return enhanced_tools
 

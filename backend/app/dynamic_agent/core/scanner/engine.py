@@ -2,11 +2,12 @@
 Regex-based Scanning Engine
 """
 
-import re
 import os
-from typing import List, Dict, Any, Iterator, Tuple
+import re
 from pathlib import Path
-from .rules import VulnerabilityRule, Finding
+from typing import Dict, List
+
+from .rules import Finding, VulnerabilityRule
 
 
 class RegexEngine:
@@ -71,8 +72,7 @@ class RegexEngine:
             Context string
         """
         # Find line numbers
-        line_start = 0
-        line_end = len(lines)
+        len(lines)
 
         # Count lines up to match_start
         line_num_start = 0

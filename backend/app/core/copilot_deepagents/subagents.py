@@ -40,12 +40,12 @@ VALIDATION_FILE = "/validation.json"
 def get_subagent_specs() -> List[Dict[str, Any]]:
     """
     返回子代理配置列表。
-    
+
     注意：这个函数已弃用，实际的 specs 在 manager.py 的 _build_subagents 中定义。
     保留此函数用于向后兼容。
     """
-    from .manager import REQUIREMENTS_ANALYST_PROMPT, WORKFLOW_ARCHITECT_PROMPT, VALIDATOR_PROMPT
-    
+    from .manager import REQUIREMENTS_ANALYST_PROMPT, VALIDATOR_PROMPT, WORKFLOW_ARCHITECT_PROMPT
+
     return [
         {
             "name": SUBAGENT_REQUIREMENTS_ANALYST,

@@ -1,5 +1,6 @@
 from langchain.agents.middleware import AgentMiddleware
 
+
 class TaggingMiddleware(AgentMiddleware):
     priority = 100  # 最低优先级，标签添加在最后执行
 

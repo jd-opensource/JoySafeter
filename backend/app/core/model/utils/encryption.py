@@ -4,19 +4,21 @@
 import base64
 import json
 from typing import Any, Dict
+
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
 from app.core.settings import settings
 
 
 class CredentialEncryption:
     """凭据加密类"""
-    
+
     def __init__(self, key: str | None = None):
         """
         初始化加密器
-        
+
         Args:
             key: 加密密钥，如果为None则从settings获取或生成
         """
@@ -26,10 +28,10 @@ class CredentialEncryption:
             if key is None:
                 # 生成一个默认密钥（仅用于开发环境）
                 key = Fernet.generate_key().decode()
-        
+
         if isinstance(key, str):
             key = key.encode()
-        
+
         # 如果密钥不是Fernet格式，使用PBKDF2派生
         try:
             self.fernet = Fernet(key)
@@ -43,28 +45,28 @@ class CredentialEncryption:
             )
             key = base64.urlsafe_b64encode(kdf.derive(key))
             self.fernet = Fernet(key)
-    
+
     def encrypt(self, data: Dict[str, Any]) -> str:
         """
         加密凭据数据
-        
+
         Args:
             data: 要加密的凭据字典
-            
+
         Returns:
             加密后的字符串（base64编码）
         """
         json_str = json.dumps(data, ensure_ascii=False)
         encrypted = self.fernet.encrypt(json_str.encode())
         return base64.urlsafe_b64encode(encrypted).decode()
-    
+
     def decrypt(self, encrypted_data: str) -> Dict[str, Any]:
         """
         解密凭据数据
-        
+
         Args:
             encrypted_data: 加密后的字符串（base64编码）
-            
+
         Returns:
             解密后的凭据字典
         """
@@ -88,11 +90,11 @@ def get_encryption() -> CredentialEncryption:
 def encrypt_credentials(credentials: Dict[str, Any], key: str | None = None) -> str:
     """
     加密凭据
-    
+
     Args:
         credentials: 凭据字典
         key: 加密密钥，如果为None则使用默认密钥
-        
+
     Returns:
         加密后的字符串
     """
@@ -103,11 +105,11 @@ def encrypt_credentials(credentials: Dict[str, Any], key: str | None = None) -> 
 def decrypt_credentials(encrypted_data: str, key: str | None = None) -> Dict[str, Any]:
     """
     解密凭据
-    
+
     Args:
         encrypted_data: 加密后的字符串
         key: 加密密钥，如果为None则使用默认密钥
-        
+
     Returns:
         解密后的凭据字典
     """

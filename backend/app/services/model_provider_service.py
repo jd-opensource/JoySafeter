@@ -303,7 +303,7 @@ class ModelProviderService(BaseService):
             始终返回 0
         """
         from loguru import logger
-        
+
         logger.warning("_sync_credentials() 已废弃，所有凭据应通过前端页面配置")
         return 0
 

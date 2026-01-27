@@ -1,22 +1,20 @@
 # agent/tools/core/agent_tool/summarizer.py
 # Summary generation and plan update helpers
 
-import logging
 from typing import Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
+from loguru import logger
 
 from app.dynamic_agent.models.execution_plan import ExecutionPlan, PlanStep
 from app.dynamic_agent.models.subagent_summary import SubagentSummary, create_summary_from_result
-
-from loguru import logger
 
 
 def _stream_plan_update(plan: ExecutionPlan, metadata: dict) -> None:
     """
     Stream plan update to response queue if available.
-    
+
     Args:
         plan: The ExecutionPlan to output
         metadata: Metadata context containing response_queue
@@ -41,12 +39,12 @@ async def _generate_alternative_steps(
 ) -> list:
     """
     Generate alternative steps when retry exhausted.
-    
+
     Args:
         error: The error that caused failure
         context: Task context
         llm_instance: LLM for generating alternatives
-        
+
     Returns:
         List of PlanStep objects for alternative approach
     """
@@ -58,7 +56,7 @@ Error: {error}
 Suggest 2-3 alternative steps to achieve the same goal using a different approach.
 Format each step as a single line description.
 Be specific and actionable."""
-    
+
     try:
         response = await llm_instance.ainvoke([HumanMessage(content=prompt)])
         lines = response.content.strip().split('\n')
@@ -83,10 +81,10 @@ async def _generate_summary(
 ) -> SubagentSummary:
     """
     Generate a structured summary from subagent execution result.
-    
+
     Uses LLM to extract key information and format as SubagentSummary.
     Falls back to text extraction if LLM fails.
-    
+
     Args:
         result: Raw execution result
         task_detail: Original task description
@@ -94,18 +92,18 @@ async def _generate_summary(
         error: Error message if failed
         duration_ms: Execution duration
         llm_instance: LLM for summary generation
-        
+
     Returns:
         SubagentSummary instance
     """
     # First try simple extraction (faster, no LLM call)
     summary = create_summary_from_result(result, success, error, duration_ms)
-    
+
     # If we have good coverage, skip LLM call
     # Also skip if result is already XML format (Sub-Agent output)
     if summary.get_coverage_score() > 0.3 or len(result) < 200 or '<result>' in result:
         return summary
-    
+
     # Use LLM for better extraction on complex results (rare case)
     try:
         prompt = f"""Summarize this execution result as XML:
@@ -137,7 +135,7 @@ Rules:
 
         response = await llm_instance.ainvoke([HumanMessage(content=prompt)])
         llm_summary = SubagentSummary.from_llm_response(response.content, duration_ms)
-        
+
         # Merge with simple extraction to ensure nothing is lost
         if llm_summary.extracted_values:
             summary.extracted_values.update(llm_summary.extracted_values)
@@ -149,7 +147,7 @@ Rules:
                     summary.key_findings.append(finding)
         if llm_summary.next_hint and not summary.next_hint:
             summary.next_hint = llm_summary.next_hint
-            
+
         return summary
     except Exception as e:
         logger.warning(f"LLM summary generation failed: {e}, using simple extraction")
@@ -164,13 +162,13 @@ async def _consolidate_results(
 ) -> str:
     """
     Use LLM to consolidate multiple Sub-Agent task results into a single summary.
-    
+
     Args:
         raw_results: Combined raw results from all tasks
         task_count: Total number of tasks
         success_count: Number of successful tasks
         llm_instance: LLM for consolidation
-        
+
     Returns:
         Consolidated summary string
     """
@@ -199,17 +197,17 @@ Output format:
 def _request_user_guidance(plan: ExecutionPlan, error: str) -> str:
     """
     Generate a message requesting user guidance after replan failure.
-    
+
     Args:
         plan: The failed execution plan
         error: The final error
-        
+
     Returns:
         Formatted message for user
     """
     completed = [s for s in plan.steps if s.status == "completed"]
     failed = [s for s in plan.steps if s.status == "failed"]
-    
+
     msg_lines = [
         "## ⚠️ User Guidance Required",
         "",
@@ -225,7 +223,7 @@ def _request_user_guidance(plan: ExecutionPlan, error: str) -> str:
         "2. Additional context information",
         "3. Confirmation to skip this step",
     ]
-    
+
     if plan.replan_history:
         msg_lines.extend([
             "",
@@ -233,5 +231,5 @@ def _request_user_guidance(plan: ExecutionPlan, error: str) -> str:
         ])
         for rp in plan.replan_history:
             msg_lines.append(f"- {rp['reason']}")
-    
+
     return "\n".join(msg_lines)

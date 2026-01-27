@@ -14,22 +14,22 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from .base import CodeOutput, FinalAnswerException, PythonExecutor
+from .base import CodeOutput, PythonExecutor
 
 
 class DockerPythonExecutor(PythonExecutor):
     """
     Docker-based Python executor for secure code execution.
-    
+
     This executor runs Python code inside a Docker container, providing:
     - Full filesystem isolation
     - Network isolation (optional)
     - Resource limits (CPU, memory)
     - Support for packages not available in AST interpreter
-    
+
     Note: This executor does NOT maintain state across executions like
     LocalPythonExecutor. Each execution is independent.
-    
+
     Example:
         >>> executor = DockerPythonExecutor(
         ...     image="python:3.12-slim",
@@ -39,7 +39,7 @@ class DockerPythonExecutor(PythonExecutor):
         >>> result = executor("print('Hello from Docker!')")
         >>> print(result.logs)  # "Hello from Docker!\\n"
     """
-    
+
     def __init__(
         self,
         image: str = "python:3.12-slim",
@@ -53,7 +53,7 @@ class DockerPythonExecutor(PythonExecutor):
     ):
         """
         Initialize the Docker Python executor.
-        
+
         Args:
             image: Docker image to use.
             memory_limit: Memory limit (e.g., "512m", "1g").
@@ -72,35 +72,35 @@ class DockerPythonExecutor(PythonExecutor):
         self.command_timeout = command_timeout
         self.max_output_size = max_output_size
         self.install_packages = install_packages or []
-        
+
         # Backend will be lazily initialized
         self._backend = None
         self._tools: dict[str, Callable] = {}
         self._variables: dict[str, Any] = {}
-        
+
         # Special marker for final answer detection
         self.FINAL_ANSWER_MARKER = "__FINAL_ANSWER_MARKER__:"
-        
+
         logger.info(
             f"DockerPythonExecutor initialized with image={image}, "
             f"memory={memory_limit}, network={network_mode}"
         )
-    
+
     def _get_backend(self):
         """Lazily initialize Docker backend."""
         if self._backend is None:
             try:
                 from app.core.agent.backends.pydantic_adapter import (
-                    PydanticSandboxAdapter,
                     PYDANTIC_BACKEND_AVAILABLE,
+                    PydanticSandboxAdapter,
                 )
-                
+
                 if not PYDANTIC_BACKEND_AVAILABLE:
                     raise ImportError(
                         "pydantic-ai-backend[docker] is required for DockerPythonExecutor. "
                         "Install with: pip install pydantic-ai-backend[docker]"
                     )
-                
+
                 self._backend = PydanticSandboxAdapter(
                     image=self.image,
                     memory_limit=self.memory_limit,
@@ -110,11 +110,11 @@ class DockerPythonExecutor(PythonExecutor):
                     command_timeout=self.command_timeout,
                     max_output_size=self.max_output_size,
                 )
-                
+
                 # Install packages if specified
                 if self.install_packages:
                     self._install_packages()
-                
+
             except ImportError as e:
                 logger.error(f"Failed to import PydanticSandboxAdapter: {e}")
                 raise RuntimeError(
@@ -126,58 +126,58 @@ class DockerPythonExecutor(PythonExecutor):
                 raise RuntimeError(
                     f"Failed to initialize Docker backend: {e}"
                 ) from e
-        
+
         return self._backend
-    
+
     def _install_packages(self) -> None:
         """Install Python packages in the container."""
         if not self.install_packages:
             return
-        
+
         packages = " ".join(self.install_packages)
         logger.info(f"Installing packages in container: {packages}")
-        
+
         result = self._get_backend().execute(f"pip install -q {packages}")
         if result["exit_code"] != 0:
             logger.warning(f"Failed to install packages: {result['output']}")
-    
+
     def send_tools(self, tools: dict[str, Callable]) -> None:
         """
         Register tools for use in code execution.
-        
+
         Note: In Docker executor, tools are made available as JSON-serializable
         functions that communicate via stdin/stdout.
-        
+
         Args:
             tools: Dictionary mapping tool names to callable functions.
         """
         self._tools = tools
         logger.debug(f"Registered {len(tools)} tools for Docker executor")
-    
+
     def send_variables(self, variables: dict[str, Any]) -> None:
         """
         Send variables to be available in code execution.
-        
+
         Note: Variables are serialized to JSON and injected into the code.
-        
+
         Args:
             variables: Dictionary mapping variable names to values.
         """
         self._variables = variables
         logger.debug(f"Registered {len(variables)} variables for Docker executor")
-    
+
     def _prepare_code(self, code: str) -> str:
         """
         Prepare code for execution in Docker.
-        
+
         Adds:
         - Variable injection
         - final_answer wrapper
         - Output capture
-        
+
         Args:
             code: Original Python code
-            
+
         Returns:
             Prepared code with wrapper
         """
@@ -187,7 +187,7 @@ class DockerPythonExecutor(PythonExecutor):
             variables=self._variables,
             final_answer_marker=self.FINAL_ANSWER_MARKER,
         )
-    
+
     def __call__(
         self,
         code: str,
@@ -195,26 +195,26 @@ class DockerPythonExecutor(PythonExecutor):
     ) -> CodeOutput:
         """
         Execute Python code in Docker container.
-        
+
         Args:
             code: The Python code to execute.
             additional_tools: Optional additional tools (not supported in Docker).
-        
+
         Returns:
             CodeOutput containing the result, logs, and status.
         """
         start_time = time.time()
-        
+
         try:
             backend = self._get_backend()
-            
+
             # Prepare code with wrapper
             prepared_code = self._prepare_code(code)
-            
+
             # Write code to container
             code_path = f"{self.working_dir}/code_{int(time.time())}.py"
             write_result = backend.write(code_path, prepared_code)
-            
+
             if write_result.get("error"):
                 # File might exist, try a new name
                 code_path = f"{self.working_dir}/code_{int(time.time()*1000)}.py"
@@ -225,17 +225,17 @@ class DockerPythonExecutor(PythonExecutor):
                         error=f"Failed to write code: {write_result.get('error')}",
                         execution_time=time.time() - start_time,
                     )
-            
+
             # Execute code
             result = backend.execute(f"python {code_path}")
-            
+
             output = result.get("output", "")
             exit_code = result.get("exit_code", -1)
-            
+
             # Check for final answer marker
             is_final_answer = False
             final_answer_value = None
-            
+
             if self.FINAL_ANSWER_MARKER in output:
                 is_final_answer = True
                 try:
@@ -249,31 +249,31 @@ class DockerPythonExecutor(PythonExecutor):
                     output = output[:marker_pos].strip()
                 except Exception as e:
                     logger.warning(f"Failed to parse final answer: {e}")
-            
+
             # Cleanup code file
             backend.execute(f"rm -f {code_path}")
-            
+
             if exit_code != 0 and not is_final_answer:
                 return CodeOutput(
                     error=output if output else f"Execution failed with exit code {exit_code}",
                     logs=output,
                     execution_time=time.time() - start_time,
                 )
-            
+
             return CodeOutput(
                 output=final_answer_value if is_final_answer else None,
                 logs=output,
                 is_final_answer=is_final_answer,
                 execution_time=time.time() - start_time,
             )
-        
+
         except Exception as e:
             logger.exception(f"Docker execution error: {e}")
             return CodeOutput(
                 error=str(e),
                 execution_time=time.time() - start_time,
             )
-    
+
     def reset(self) -> None:
         """Reset the executor by cleaning up the container."""
         if self._backend is not None:
@@ -282,10 +282,10 @@ class DockerPythonExecutor(PythonExecutor):
                 self._backend.execute(f"rm -rf {self.working_dir}/*")
             except Exception as e:
                 logger.warning(f"Failed to reset Docker executor: {e}")
-        
+
         self._variables = {}
         logger.debug("Docker executor reset")
-    
+
     def cleanup(self) -> None:
         """Clean up Docker resources."""
         if self._backend is not None:
@@ -296,11 +296,11 @@ class DockerPythonExecutor(PythonExecutor):
             finally:
                 self._backend = None
         logger.debug("Docker executor cleaned up")
-    
+
     def __del__(self):
         """Cleanup on garbage collection."""
         self.cleanup()
-    
+
     def __repr__(self) -> str:
         return (
             f"DockerPythonExecutor("
@@ -317,17 +317,17 @@ def create_docker_executor(
 ) -> DockerPythonExecutor:
     """
     Factory function to create a configured DockerPythonExecutor.
-    
+
     Args:
         install_packages: Python packages to install.
         enable_network: Enable network access in container.
         **kwargs: Additional arguments for DockerPythonExecutor.
-    
+
     Returns:
         Configured DockerPythonExecutor instance.
     """
     network_mode = "bridge" if enable_network else "none"
-    
+
     return DockerPythonExecutor(
         install_packages=install_packages,
         network_mode=network_mode,

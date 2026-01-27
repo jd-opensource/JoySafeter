@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -8,14 +8,14 @@ logger = logging.getLogger(__name__)
 
 class Enum4linuxNgHandler(AbstractHandler):
     """Handler for enum4linux_ng functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['enum4linux-ng']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute enum4linux_ng with enhanced logging"""
         try:

@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -8,14 +8,14 @@ logger = logging.getLogger(__name__)
 
 class NetexecHandler(AbstractHandler):
     """Handler for netexec functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['nxc']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute netexec with enhanced logging"""
         try:
@@ -29,9 +29,9 @@ class NetexecHandler(AbstractHandler):
             if not target:
                 logger.warning("🎯 NetExec called without target parameter")
                 return {
-    
+
                     "error": "Target parameter is required"
-                
+
                 }
             command = f"nxc {protocol} {target}"
             if username:
@@ -51,7 +51,7 @@ class NetexecHandler(AbstractHandler):
         except Exception as e:
             logger.error(f"💥 Error in netexec endpoint: {str(e)}")
             return {
-    
+
                 "error": f"Server error: {str(e)}"
-            
+
             }

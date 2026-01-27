@@ -5,7 +5,7 @@ the Agent Skills specification (https://agentskills.io/specification).
 """
 
 import re
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 # Agent Skills specification constraints
 MAX_SKILL_NAME_LENGTH = 64
@@ -14,7 +14,7 @@ MAX_COMPATIBILITY_LENGTH = 500
 
 
 def validate_skill_name(
-    name: str, 
+    name: str,
     directory_name: Optional[str] = None
 ) -> Tuple[bool, str]:
     """Validate skill name per Agent Skills specification.
@@ -35,17 +35,17 @@ def validate_skill_name(
     """
     if not name:
         return False, "name is required"
-    
+
     if len(name) > MAX_SKILL_NAME_LENGTH:
         return False, f"name exceeds {MAX_SKILL_NAME_LENGTH} characters (got: {name!r})"
-    
+
     # Pattern: lowercase alphanumeric, single hyphens between segments, no start/end hyphen
     if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", name):
         return False, f"name must be lowercase alphanumeric with single hyphens only (got: {name!r})"
-    
+
     if directory_name and name != directory_name:
         return False, f"name '{name}' must match directory name '{directory_name}'"
-    
+
     return True, ""
 
 
@@ -63,10 +63,10 @@ def validate_skill_description(description: str) -> Tuple[bool, str]:
     """
     if not description:
         return False, "description is required"
-    
+
     if len(description) > MAX_SKILL_DESCRIPTION_LENGTH:
         return False, f"description exceeds {MAX_SKILL_DESCRIPTION_LENGTH} characters"
-    
+
     return True, ""
 
 
@@ -84,10 +84,10 @@ def validate_compatibility(compatibility: Optional[str]) -> Tuple[bool, str]:
     """
     if compatibility is None:
         return True, ""  # Optional field
-    
+
     if len(compatibility) > MAX_COMPATIBILITY_LENGTH:
         return False, f"compatibility exceeds {MAX_COMPATIBILITY_LENGTH} characters"
-    
+
     return True, ""
 
 
@@ -116,7 +116,7 @@ def truncate_compatibility(compatibility: Optional[str]) -> Optional[str]:
     """
     if compatibility is None:
         return None
-    
+
     if len(compatibility) > MAX_COMPATIBILITY_LENGTH:
         return compatibility[:MAX_COMPATIBILITY_LENGTH]
     return compatibility

@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -8,14 +8,14 @@ logger = logging.getLogger(__name__)
 
 class X8Handler(AbstractHandler):
     """Handler for x8 functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['x8']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute x8 with enhanced logging"""
         try:

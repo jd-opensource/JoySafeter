@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-from pathlib import Path
 import logging
 import subprocess
 import venv
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class PythonEnvironmentManager:
 
     def install_package(self, env_name: str, package: str) -> bool:
         """Install a package in the specified environment.
-        
+
         Uses the configured PyPI index URL from settings (default: Tsinghua mirror).
         The index URL can be customized via UV_INDEX_URL or PIP_INDEX_URL environment variable.
         """
@@ -64,7 +64,7 @@ class PythonEnvironmentManager:
 
     def get_python_path(self, env_name: str = None) -> str:
         """Get Python executable path for environment.
-        
+
         If env_name is None or empty, returns system python3.
         """
         if not env_name:

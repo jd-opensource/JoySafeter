@@ -1,7 +1,8 @@
 import uuid
-
-from pydantic import BaseModel as PydanticBaseModel, Field
 from typing import Any
+
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import Field
 
 
 class ChatRequest(PydanticBaseModel):

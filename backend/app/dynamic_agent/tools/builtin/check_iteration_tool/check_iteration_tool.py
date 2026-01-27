@@ -1,10 +1,8 @@
 import os
-from typing import Optional
 from uuid import UUID
 
 from langchain_core.tools import tool
 from loguru import logger
-
 
 # Default iteration limit
 DEFAULT_ITERATION_LIMIT = int(os.getenv("DEFAULT_ITERATION_LIMIT", "30"))
@@ -45,8 +43,7 @@ def check_iterations() -> str:
 
 
 def build_iteration_info() -> str:
-    from app.dynamic_agent.observability.tracking import get_task_iteration_count, _get_current_task_id
-    from app.dynamic_agent.infra.metadata_context import MetadataContext
+    from app.dynamic_agent.observability.tracking import _get_current_task_id, get_task_iteration_count
     task_id = _get_current_task_id()
 
     if task_id is None:

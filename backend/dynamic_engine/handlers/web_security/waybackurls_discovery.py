@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class WaybackurlsHandler(AbstractHandler):
     """Handler for waybackurls functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['waybackurls']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute waybackurls with enhanced logging"""
         try:

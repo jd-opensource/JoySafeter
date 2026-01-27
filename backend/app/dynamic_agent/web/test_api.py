@@ -5,24 +5,22 @@ Tests all endpoints with mock data
 """
 
 import logging
-import sys
 import os
+import sys
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from app.dynamic_agent.web.mock_data import (
+    generate_execution_tree,
+    generate_sessions_for_user,
+    generate_tasks_for_session,
+    get_mock_tool_by_name,
+    get_mock_tools,
+)
 from app.dynamic_agent.web.models import (
     SessionResponse,
     TaskSummaryResponse,
-    ExecutionTreeResponse,
-    ToolInfo,
-)
-from app.dynamic_agent.web.mock_data import (
-    generate_sessions_for_user,
-    generate_tasks_for_session,
-    generate_execution_tree,
-    get_mock_tools,
-    get_mock_tool_by_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,7 +65,7 @@ def test_tools():
     print(f"✓ Found {len(tools)} tools:")
     for tool in tools:
         print(f"  - {tool.name}: {tool.description}")
-    
+
     # Test specific tool
     print("\n🔧 Testing Specific Tool...")
     tool = get_mock_tool_by_name("nmap_scan")
@@ -82,7 +80,7 @@ def test_tools():
 def test_data_models():
     """Test data model validation"""
     print("\n📊 Testing Data Model Validation...")
-    
+
     # Test SessionResponse
     session = SessionResponse(
         id="test_session",
@@ -93,7 +91,7 @@ def test_data_models():
         task_count=3,
     )
     print(f"✓ SessionResponse validated: {session.id}")
-    
+
     # Test TaskSummaryResponse
     task = TaskSummaryResponse(
         id="test_task",
@@ -118,37 +116,37 @@ def main():
     print("=" * 60)
     print("🧪 Web Visualization API Test Suite")
     print("=" * 60)
-    
+
     try:
         # Test data models
         test_data_models()
-        
+
         # Test session generation
         session_id = test_session_generation()
         if not session_id:
             print("✗ Failed to generate sessions")
             return False
-        
+
         # Test task generation
         task_id = test_task_generation(session_id)
         if not task_id:
             print("✗ Failed to generate tasks")
             return False
-        
+
         # Test execution tree
         execution = test_execution_tree(task_id)
         if not execution:
             print("✗ Failed to generate execution tree")
             return False
-        
+
         # Test tools
         test_tools()
-        
+
         print("\n" + "=" * 60)
         print("✅ All tests passed!")
         print("=" * 60)
         return True
-        
+
     except Exception as e:
         logger.error(f"Test failed with error: {e}")
         logger.exception("Test traceback")

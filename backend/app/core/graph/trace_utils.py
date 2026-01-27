@@ -5,8 +5,9 @@ Provides utilities to record node execution context, input/output snapshots,
 and state history for debugging complex graphs.
 """
 
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from loguru import logger
 
 from app.core.graph.graph_state import GraphState
@@ -14,7 +15,7 @@ from app.core.graph.graph_state import GraphState
 
 class NodeExecutionTrace:
     """Trace record for a single node execution."""
-    
+
     def __init__(
         self,
         node_id: str,
@@ -35,14 +36,14 @@ class NodeExecutionTrace:
         self.error_message: Optional[str] = None
         if error:
             self.error_message = str(error)
-    
+
     def finish(self, end_time: float, output: Optional[Dict[str, Any]] = None):
         """Mark trace as finished and record output."""
         self.end_time = end_time
         self.duration_ms = (end_time - self.start_time) * 1000
         if output:
             self.output_snapshot = output
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert trace to dictionary for logging/storage."""
         return {
@@ -55,7 +56,7 @@ class NodeExecutionTrace:
             "output_snapshot": self._sanitize_snapshot(self.output_snapshot),
             "error": self.error_message,
         }
-    
+
     def _sanitize_snapshot(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitize snapshot to remove sensitive data and limit size."""
         sanitized = {}
@@ -76,18 +77,18 @@ class NodeExecutionTrace:
 
 class GraphExecutionTrace:
     """Trace for entire graph execution."""
-    
+
     def __init__(self, graph_id: str, graph_name: str):
         self.graph_id = graph_id
         self.graph_name = graph_name
         self.start_time = datetime.now().isoformat()
         self.node_traces: List[NodeExecutionTrace] = []
         self.state_history: List[Dict[str, Any]] = []
-    
+
     def add_node_trace(self, trace: NodeExecutionTrace):
         """Add a node execution trace."""
         self.node_traces.append(trace)
-    
+
     def add_state_snapshot(self, state: GraphState, node_id: Optional[str] = None):
         """Add a state snapshot to history."""
         snapshot = {
@@ -96,7 +97,7 @@ class GraphExecutionTrace:
             "state": self._sanitize_state(state),
         }
         self.state_history.append(snapshot)
-    
+
     def _sanitize_state(self, state: GraphState) -> Dict[str, Any]:
         """Create a sanitized snapshot of state."""
         return {
@@ -107,7 +108,7 @@ class GraphExecutionTrace:
             "context_keys": list(state.get("context", {}).keys()),
             "task_results_count": len(state.get("task_results", [])),
         }
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert trace to dictionary."""
         return {
@@ -126,7 +127,7 @@ def create_node_trace(
 ) -> NodeExecutionTrace:
     """Create a trace for node execution with input snapshot."""
     import time
-    
+
     # Create input snapshot
     input_snapshot = {
         "current_node": state.get("current_node"),
@@ -135,7 +136,7 @@ def create_node_trace(
         "messages_count": len(state.get("messages", [])),
         "context_keys": list(state.get("context", {}).keys()),
     }
-    
+
     return NodeExecutionTrace(
         node_id=node_id,
         node_type=node_type,

@@ -7,11 +7,11 @@ import pkgutil
 from pathlib import Path
 from typing import List, Type
 
+from .AiSafety import AiSafetyProvider
 from .base import BaseProvider, ModelType
 
 # 向后兼容：显式导入现有 provider（避免破坏现有代码）
 from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
-from .AiSafety import AiSafetyProvider
 
 # Provider 类缓存
 _provider_classes_cache: List[Type[BaseProvider]] = None
@@ -20,35 +20,35 @@ _provider_classes_cache: List[Type[BaseProvider]] = None
 def _discover_provider_classes() -> List[Type[BaseProvider]]:
     """
     自动发现所有继承自 BaseProvider 的类
-    
+
     Returns:
         所有发现的 Provider 类列表
     """
     global _provider_classes_cache
-    
+
     if _provider_classes_cache is not None:
         return _provider_classes_cache
-    
+
     provider_classes: List[Type[BaseProvider]] = []
-    
+
     # 获取当前包路径
     package_path = Path(__file__).parent
     package_name = __name__
-    
+
     # 遍历目录中的所有模块
     for importer, modname, ispkg in pkgutil.iter_modules([str(package_path)]):
         # 跳过 __init__ 和 base 模块
         if modname in ('__init__', 'base'):
             continue
-        
+
         try:
             # 动态导入模块
             module = importlib.import_module(f".{modname}", package=package_name)
-            
+
             # 遍历模块中的所有成员
             for name, obj in inspect.getmembers(module, inspect.isclass):
                 # 检查是否是 BaseProvider 的子类（排除 BaseProvider 本身）
-                if (issubclass(obj, BaseProvider) and 
+                if (issubclass(obj, BaseProvider) and
                     obj is not BaseProvider and
                     obj.__module__ == module.__name__):
                     provider_classes.append(obj)
@@ -56,7 +56,7 @@ def _discover_provider_classes() -> List[Type[BaseProvider]]:
             # 导入失败时记录警告，但不中断程序
             import warnings
             warnings.warn(f"Failed to import provider module '{modname}': {e}", ImportWarning)
-    
+
     _provider_classes_cache = provider_classes
     return provider_classes
 
@@ -64,7 +64,7 @@ def _discover_provider_classes() -> List[Type[BaseProvider]]:
 def get_all_provider_classes() -> List[Type[BaseProvider]]:
     """
     获取所有 Provider 类
-    
+
     Returns:
         所有 Provider 类的列表
     """
@@ -74,7 +74,7 @@ def get_all_provider_classes() -> List[Type[BaseProvider]]:
 def get_all_provider_instances() -> List[BaseProvider]:
     """
     获取所有 Provider 实例
-    
+
     Returns:
         所有 Provider 实例的列表
     """

@@ -1,10 +1,8 @@
-import logging
 
 from langchain_core.tools import tool
 
 from app.dynamic_agent.core.shared_constants import WORKSPACE
 
-from loguru import logger
 
 @tool()
 def workspace_tool() -> str:

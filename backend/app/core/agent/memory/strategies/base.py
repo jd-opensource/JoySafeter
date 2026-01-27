@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from app.schemas.memory import UserMemory
 from langchain_core.language_models.llms import LLM
+
+from app.schemas.memory import UserMemory
 from app.utils.tokens import count_tokens as count_text_tokens
 
 

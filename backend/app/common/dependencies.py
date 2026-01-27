@@ -2,21 +2,21 @@
 公共依赖项
 """
 import uuid
-from typing import Annotated, Optional, Callable, Awaitable
+from typing import Annotated, Optional
 
-from fastapi import Depends, Request, Header
+from fastapi import Depends, Header, Request
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.database import get_db
 from app.core.security import decode_token, verify_csrf_token
 from app.core.settings import settings
 from app.models.auth import AuthUser as User
+from app.models.organization import Member as OrgMember
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
-from app.models.organization import Member as OrgMember
-from app.common.exceptions import UnauthorizedException, ForbiddenException, NotFoundException
 from app.services.auth_session_service import AuthSessionService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)

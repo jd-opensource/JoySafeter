@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class FalcoHandler(AbstractHandler):
     """Handler for falco functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['falco']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute falco with enhanced logging"""
         try:
@@ -36,7 +36,7 @@ class FalcoHandler(AbstractHandler):
                 command += f" {additional_args}"
             logger.info(f"🛡️  Starting Falco runtime monitoring for {duration}s")
             result = execute_command(command)
-            logger.info(f"📊 Falco monitoring completed")
+            logger.info("📊 Falco monitoring completed")
             return result
         except Exception as e:
             logger.error(f"💥 Error in falco endpoint: {str(e)}")

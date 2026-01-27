@@ -12,39 +12,33 @@ Features:
 - Collapsible long outputs
 """
 import json
-import logging
 import re
 import threading
-import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from langchain_core.callbacks import BaseCallbackHandler
-
 from loguru import logger
 
-from app.dynamic_agent.core.config import conf
-from app.dynamic_agent.core.constants import THINK_TOOL_NAME, AGENT_TOOL_NAME
-from app.dynamic_agent.observability.langfuse import write_json_log
+from app.dynamic_agent.core.constants import AGENT_TOOL_NAME, THINK_TOOL_NAME
 from app.dynamic_agent.models.display_models import (
-    ToolStatus,
-    ToolCallDisplay,
-    ThinkingDisplay,
     DisplayState,
+    ToolCallDisplay,
+    ToolStatus,
 )
 
 # Rich imports with graceful fallback
 try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.syntax import Syntax
-    from rich.text import Text
-    from rich.spinner import Spinner
-    from rich.live import Live
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-    from rich.table import Table
-    from rich.style import Style
     from rich import box
+    from rich.console import Console
+    from rich.live import Live
+    from rich.panel import Panel
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+    from rich.spinner import Spinner
+    from rich.style import Style
+    from rich.syntax import Syntax
+    from rich.table import Table
+    from rich.text import Text
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -84,27 +78,27 @@ def strip_ansi(text: str) -> str:
 def truncate_content(content: str, max_lines: int = MAX_LINES, max_chars: int = MAX_CHARS) -> tuple[str, bool]:
     """
     Truncate content if it exceeds thresholds.
-    
+
     Returns:
         Tuple of (truncated_content, was_truncated)
     """
     if not content:
         return "", False
-    
+
     lines = content.split('\n')
     total_lines = len(lines)
-    
+
     if total_lines <= max_lines and len(content) <= max_chars:
         return content, False
-    
+
     # Truncate by lines first
     truncated_lines = lines[:max_lines]
     result = '\n'.join(truncated_lines)
-    
+
     # Then truncate by chars if needed
     if len(result) > max_chars:
         result = result[:max_chars]
-    
+
     return f"{result}\n... ({total_lines} lines, {len(content)} chars total)", True
 
 
@@ -115,31 +109,31 @@ def detect_language(content: str, tool_name: str = "") -> str:
         return "python"
     if "shell" in tool_name.lower() or "command" in tool_name.lower() or "bash" in tool_name.lower():
         return "shell"
-    
+
     # Check content patterns
     content_lower = content.lower()[:500] if content else ""
-    
+
     if content.strip().startswith('{') or content.strip().startswith('['):
         return "json"
     if "def " in content_lower or "import " in content_lower or "class " in content_lower:
         return "python"
     if content.strip().startswith('$') or "bash" in content_lower or "#!" in content[:20]:
         return "shell"
-    
+
     return ""  # No syntax highlighting
 
 
 class RichConsoleCallback(BaseCallbackHandler):
     """
     Rich Console Callback for structured CLI output.
-    
+
     Provides visual feedback for Agent execution including:
     - Spinner during LLM thinking
     - Panels for tool calls with syntax highlighting
     - Status icons for success/failure
     - Content truncation for long outputs
     """
-    
+
     def __init__(self):
         """Initialize the Rich console callback."""
         self.console = Console(force_terminal=None)  # Auto-detect TTY
@@ -147,27 +141,27 @@ class RichConsoleCallback(BaseCallbackHandler):
         self.depth = 0
         self.tool_start_times: Dict[str, datetime] = {}
         self._live: Optional[Live] = None
-        
+
     def _is_tty(self) -> bool:
         """Check if output is a TTY (for graceful fallback)."""
         return self.console.is_terminal
-    
+
     def _convert_messages_to_log_format(self, messages: List) -> List[Dict]:
         """
         Convert LangChain messages to log format.
-        
+
         This directly extracts info from LangChain message objects,
         ensuring the log matches exactly what the LLM receives.
-        
+
         Args:
             messages: List of LangChain message objects
-            
+
         Returns:
             List of dicts with role, content, tool_calls, tool_call_id
         """
         ROLE_MAP = {'human': 'user', 'ai': 'assistant'}
         result = []
-        
+
         for msg in messages:
             # Extract basic info
             if hasattr(msg, 'type'):
@@ -181,9 +175,9 @@ class RichConsoleCallback(BaseCallbackHandler):
                 content = msg.get('content', '')
             else:
                 continue
-            
+
             entry = {'role': role, 'content': content}
-            
+
             # Extract tool_calls (for assistant messages)
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
                 entry['tool_calls'] = [
@@ -196,17 +190,17 @@ class RichConsoleCallback(BaseCallbackHandler):
                 ]
             elif isinstance(msg, dict) and msg.get('tool_calls'):
                 entry['tool_calls'] = msg['tool_calls']
-            
+
             # Extract tool_call_id (for tool messages)
             if hasattr(msg, 'tool_call_id') and msg.tool_call_id:
                 entry['tool_call_id'] = msg.tool_call_id
             elif isinstance(msg, dict) and msg.get('tool_call_id'):
                 entry['tool_call_id'] = msg['tool_call_id']
-            
+
             result.append(entry)
-        
+
         return result
-    
+
     # =========================================================================
     # T014: LLM Start - Show spinner
     # =========================================================================
@@ -214,7 +208,7 @@ class RichConsoleCallback(BaseCallbackHandler):
         """Called when LLM starts processing."""
         self.state.current_phase = "thinking"
         # Note: JSON logging is handled by JsonFileLoggingCallback
-        
+
         if not self._is_tty():
             # Fallback for non-TTY
             logger.info("🤔 Thinking...")
@@ -232,7 +226,7 @@ class RichConsoleCallback(BaseCallbackHandler):
         """
         self.state.current_phase = "thinking"
         # Note: JSON logging is handled by JsonFileLoggingCallback
-        
+
         if not self._is_tty():
             logger.info("🤔 Thinking...")
             return
@@ -240,7 +234,7 @@ class RichConsoleCallback(BaseCallbackHandler):
         self.console.print()
         self.console.print("[dim]🤔 Thinking...[/dim]", end="\r")
         self.depth += 1
-    
+
     # =========================================================================
     # T015: LLM End - Stop spinner, show decision
     # =========================================================================
@@ -252,13 +246,13 @@ class RichConsoleCallback(BaseCallbackHandler):
         self.depth = max(0, self.depth - 1)
         self.state.current_phase = "idle"
         # Note: JSON logging is handled by JsonFileLoggingCallback
-        
+
         if not self._is_tty():
             return
-        
+
         # Clear thinking indicator
         self.console.print(" " * 50, end="\r")  # Clear line
-        
+
         # Extract tool calls if any
         try:
             if hasattr(response, 'generations') and response.generations:
@@ -273,15 +267,15 @@ class RichConsoleCallback(BaseCallbackHandler):
                             self.console.print(f"[cyan]🎯 Decision: {display_name}[/cyan]")
         except Exception as e:
             logger.debug(f"Failed to display LLM end event: {e}")
-    
+
     def on_llm_error(self, error: Exception, **kwargs) -> None:
         """Called when LLM encounters an error."""
         self.depth = max(0, self.depth - 1)
         self.state.current_phase = "idle"
         # Note: JSON logging is handled by JsonFileLoggingCallback
-        
+
         self._show_error_panel("LLM Error", str(error))
-    
+
     # =========================================================================
     # T016: Tool Start - Show Panel with input
     # =========================================================================
@@ -291,17 +285,17 @@ class RichConsoleCallback(BaseCallbackHandler):
         if _seen_before(_SEEN_TOOL_STARTS, run_id):
             return
         name = serialized.get("name", serialized.get("id", "<tool>"))
-        
+
         self.state.current_phase = "tool_call"
         self.tool_start_times[run_id] = datetime.now()
-        
+
         # Parse input
         try:
             input_obj = eval(input_str) if isinstance(input_str, str) else input_str
         except (SyntaxError, ValueError, NameError) as e:
             logger.debug(f"Failed to parse tool input: {e}")
             input_obj = {"raw": input_str}
-        
+
         # Store in state
         self.state.active_tools[run_id] = ToolCallDisplay(
             run_id=run_id,
@@ -310,24 +304,24 @@ class RichConsoleCallback(BaseCallbackHandler):
             status=ToolStatus.RUNNING,
         )
         # Note: JSON logging is handled by JsonFileLoggingCallback
-        
+
         # Handle think tool specially
         if name == THINK_TOOL_NAME:
             thought = input_obj.get('thought', '') if isinstance(input_obj, dict) else str(input_obj)
             self._show_thinking_panel(thought)
             self.depth += 1
             return
-        
+
         # Handle agent tool specially
         if name == AGENT_TOOL_NAME:
             self._show_agent_panel(input_obj)
             self.depth += 1
             return
-        
+
         # Regular tool - show input panel
         self._show_tool_start_panel(name, input_obj)
         self.depth += 1
-    
+
     # =========================================================================
     # T017: Tool End - Show status and output Panel
     # =========================================================================
@@ -338,20 +332,20 @@ class RichConsoleCallback(BaseCallbackHandler):
         if _seen_before(_SEEN_TOOL_ENDS, run_id):
             return
         name = kwargs.get("name", "<tool>")
-        
+
         # Calculate duration
         start_time = self.tool_start_times.pop(run_id, None)
         duration_str = ""
         if start_time:
             duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
             duration_str = f"{duration_ms}ms" if duration_ms < 1000 else f"{duration_ms/1000:.1f}s"
-        
+
         # Get output content - handle various types (string, list, dict, ToolMessage)
         if hasattr(output, 'content'):
             content = output.content
         else:
             content = output
-        
+
         # Convert non-string content to string
         if isinstance(content, (list, dict)):
             try:
@@ -361,7 +355,7 @@ class RichConsoleCallback(BaseCallbackHandler):
                 content = str(content)
         elif not isinstance(content, str):
             content = str(content)
-        
+
         # Update state
         if run_id in self.state.active_tools:
             tool_display = self.state.active_tools[run_id]
@@ -369,21 +363,21 @@ class RichConsoleCallback(BaseCallbackHandler):
             tool_display.output_data = content
             tool_display.end_time = datetime.now()
         # Note: JSON logging is handled by JsonFileLoggingCallback
-        
+
         # Skip output panel for think tool
         if name == THINK_TOOL_NAME:
             return
-        
+
         # Show output panel
         self._show_tool_end_panel(name, content, duration_str, success=True)
         self.state.current_phase = "idle"
-    
+
     def on_tool_error(self, error: Exception, **kwargs) -> None:
         """Called when a tool encounters an error."""
         self.depth = max(0, self.depth - 1)
         run_id = str(kwargs.get("run_id", ""))
         name = kwargs.get("name", "<tool>")
-        
+
         # Update state
         if run_id in self.state.active_tools:
             tool_display = self.state.active_tools[run_id]
@@ -391,30 +385,30 @@ class RichConsoleCallback(BaseCallbackHandler):
             tool_display.error_message = str(error)
             tool_display.end_time = datetime.now()
         # Note: JSON logging is handled by JsonFileLoggingCallback
-        
+
         self._show_error_panel(f"Tool Error: {name}", str(error))
         self.state.current_phase = "idle"
-    
+
     # =========================================================================
     # Chain callbacks
     # =========================================================================
     def on_chain_start(self, serialized: Dict[str, Any], inputs: Dict[str, Any], **kwargs) -> None:
         """Called when a chain starts."""
         pass  # Minimal logging for chains
-    
+
     def on_chain_end(self, outputs: Dict[str, Any], **kwargs) -> None:
         """Called when a chain completes."""
         pass  # Minimal logging for chains
-    
+
     def on_chain_error(self, error: Exception, **kwargs) -> None:
         """Called when a chain encounters an error."""
         # Note: JSON logging is handled by JsonFileLoggingCallback
         self._show_error_panel("Chain Execution Error", str(error))
-    
+
     # =========================================================================
     # Helper methods for rendering panels
     # =========================================================================
-    
+
     def _show_thinking_panel(self, thought: str) -> None:
         """Show thinking content in a dim, collapsed style."""
         if not self._is_tty():
@@ -427,7 +421,7 @@ class RichConsoleCallback(BaseCallbackHandler):
         title = "💭 Reasoning"
         if was_truncated:
             title += " [dim](truncated)[/dim]"
-        
+
         panel = Panel(
             Text(truncated, style="dim italic"),
             title=title,
@@ -435,17 +429,17 @@ class RichConsoleCallback(BaseCallbackHandler):
             box=box.ROUNDED,
         )
         self.console.print(panel)
-    
+
     def _show_agent_panel(self, input_obj: Dict[str, Any]) -> None:
         """Show agent tool invocation."""
         if not self._is_tty():
             task_count = len(input_obj.get('task_details', []))
             logger.info(f"🤖 Agent: Spawning {task_count} sub-task(s)")
             return
-        
+
         context = input_obj.get('context', '')[:200]
         task_details = input_obj.get('task_details', [])
-        
+
         # Build content - simplified display without level
         content = f"[bold]Context:[/bold] {context}...\n\n"
         content += f"[bold]Tasks ({len(task_details)}):[/bold]\n"
@@ -453,7 +447,7 @@ class RichConsoleCallback(BaseCallbackHandler):
             content += f"  {i}. {task[:80]}...\n" if len(task) > 80 else f"  {i}. {task}\n"
         if len(task_details) > 5:
             content += f"  ... and {len(task_details) - 5} more\n"
-        
+
         panel = Panel(
             content,
             title="🤖 Agent Sub-tasks",
@@ -461,7 +455,7 @@ class RichConsoleCallback(BaseCallbackHandler):
             box=box.ROUNDED,
         )
         self.console.print(panel)
-    
+
     def _show_tool_start_panel(self, name: str, input_obj: Dict[str, Any]) -> None:
         """Show tool start with input parameters."""
         # Special handling for agent_tool - show as sub-task delegation
@@ -480,10 +474,10 @@ class RichConsoleCallback(BaseCallbackHandler):
             )
             self.console.print(panel)
             return
-        
+
         # Simplify tool name for display
         display_name = name.replace('seclens_', '').replace('_', ' ')
-        
+
         if not self._is_tty():
             logger.info(f"🔧 Tool Execution: {display_name}")
             return
@@ -504,7 +498,7 @@ class RichConsoleCallback(BaseCallbackHandler):
         title = f"🔧 Tool Execution: {display_name}"
         if was_truncated:
             title += " [dim](truncated)[/dim]"
-        
+
         panel = Panel(
             syntax,
             title=title,
@@ -529,10 +523,10 @@ class RichConsoleCallback(BaseCallbackHandler):
             panel = Panel(content, title=title, border_style="green" if success else "red", box=box.ROUNDED)
             self.console.print(panel)
             return
-        
+
         # Simplify tool name for display
         display_name = name.replace('seclens_', '').replace('_', ' ')
-        
+
         if not self._is_tty():
             status = "✅" if success else "❌"
             logger.info(f"{status} Tool Result: {display_name} ({duration})")
@@ -540,17 +534,17 @@ class RichConsoleCallback(BaseCallbackHandler):
 
         # Clean ANSI sequences
         output = strip_ansi(output)
-        
+
         # T018: Truncate if needed
         truncated, was_truncated = truncate_content(output)
-        
+
         # T025: Detect and apply syntax highlighting
         lang = detect_language(output, name)
         if lang:
             content = Syntax(truncated, lang, theme="monokai", word_wrap=True)
         else:
             content = Text(truncated)
-        
+
         # Status styling
         if success:
             status_icon = "✅"
@@ -558,13 +552,13 @@ class RichConsoleCallback(BaseCallbackHandler):
         else:
             status_icon = "❌"
             border_style = "red"
-        
+
         title = f"{status_icon} Tool Result: {display_name}"
         if duration:
             title += f" [dim]({duration})[/dim]"
         if was_truncated:
             title += " [dim](truncated)[/dim]"
-        
+
         panel = Panel(
             content,
             title=title,
@@ -572,13 +566,13 @@ class RichConsoleCallback(BaseCallbackHandler):
             box=box.ROUNDED,
         )
         self.console.print(panel)
-    
+
     def _show_error_panel(self, title: str, error: str) -> None:
         """Show error in red panel."""
         if not self._is_tty():
             logger.error(f"❌ {title}: {error}")
             return
-        
+
         panel = Panel(
             Text(error, style="red"),
             title=f"❌ {title}",
@@ -586,4 +580,4 @@ class RichConsoleCallback(BaseCallbackHandler):
             box=box.HEAVY,
         )
         self.console.print(panel)
-    
+

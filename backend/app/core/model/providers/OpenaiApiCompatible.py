@@ -2,6 +2,7 @@
 OpenAI供应商实现
 """
 from typing import Any, Dict, List, Optional
+
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
@@ -11,7 +12,7 @@ from .base import BaseProvider, ModelType
 
 class OpenAIAPICompatibleProvider(BaseProvider):
     """OpenAI供应商"""
-    
+
     # 预定义的Chat模型列表
     PREDEFINED_CHAT_MODELS = [
         {
@@ -35,17 +36,17 @@ class OpenAIAPICompatibleProvider(BaseProvider):
             "description": "Qwen 最新的代码模型",
         },
     ]
-    
+
     def __init__(self):
         super().__init__(
             provider_name="openaiapicompatible",
             display_name="OpenAI's API Compatible"
         )
-    
+
     def get_supported_model_types(self) -> List[ModelType]:
         """获取支持的模型类型"""
         return [ModelType.CHAT]
-    
+
     def get_credential_schema(self) -> Dict[str, Any]:
         """获取凭据表单规则"""
         return {
@@ -66,7 +67,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
             },
             "required": ["api_key", "base_url"],
         }
-    
+
     def get_config_schema(self, model_type: ModelType) -> Optional[Dict[str, Any]]:
         """获取模型参数配置规则"""
         if model_type == ModelType.CHAT:
@@ -129,16 +130,16 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                 },
             }
         return None
-    
+
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """验证凭据"""
         try:
             api_key = credentials.get("api_key")
             if not api_key:
                 return False, "API Key不能为空"
-            
+
             base_url = credentials.get("base_url")
-            
+
             # 创建一个临时模型实例进行测试
             model = ChatOpenAI(
                 model=self.PREDEFINED_CHAT_MODELS[0]["name"],
@@ -147,7 +148,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                 max_retries=3,
                 timeout=5.0,
             )
-            
+
             # 尝试调用API
             response = await model.ainvoke("Hello, how are you?")
             if response and response.content:
@@ -156,7 +157,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                 return False, "API调用失败：未收到有效响应"
         except Exception as e:
             return False, f"凭据验证失败：{str(e)}"
-    
+
     def get_model_list(self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """获取模型列表"""
         if model_type == ModelType.CHAT:
@@ -171,13 +172,13 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                 models.append(model_info)
             return models
         return []
-    
+
     def get_predefined_models(self, model_type: ModelType) -> List[Dict[str, Any]]:
         """获取预定义模型列表"""
         if model_type == ModelType.CHAT:
             return self.PREDEFINED_CHAT_MODELS.copy()
         return []
-    
+
     def create_model_instance(
         self,
         model_name: str,
@@ -188,23 +189,23 @@ class OpenAIAPICompatibleProvider(BaseProvider):
         """创建模型实例"""
         if model_type != ModelType.CHAT:
             raise ValueError(f"OpenAI供应商不支持模型类型: {model_type}")
-        
+
         api_key = credentials.get("api_key")
         if not api_key:
             raise ValueError("API Key不能为空")
-        
+
         base_url = credentials.get("base_url")
-        
+
         # 构建模型参数
         model_kwargs = {
             "model": model_name,
             "api_key": SecretStr(api_key),
             "streaming": True,  # 默认启用流式输出
         }
-        
+
         if base_url:
             model_kwargs["base_url"] = base_url
-        
+
         # 添加模型参数
         if model_parameters:
             if "temperature" in model_parameters:
@@ -221,7 +222,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                 model_kwargs["timeout"] = model_parameters["timeout"]
             if "max_retries" in model_parameters:
                 model_kwargs["max_retries"] = model_parameters["max_retries"]
-        
+
         return ChatOpenAI(**model_kwargs)
 
     def test_output(self, instance_dict: Dict[str, Any],input: str) -> str:

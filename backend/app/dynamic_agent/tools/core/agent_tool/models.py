@@ -10,15 +10,16 @@ dependencies on other agent_tool modules (leaf node in dependency graph).
 """
 
 from typing import Annotated, List, Optional
-from typing_extensions import TypedDict
-from pydantic import BaseModel, Field
+
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
+from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 
 class AgentResult(BaseModel):
     """Result from Sub-Agent execution."""
-    
+
     name: str = Field(description="Agent name")
     level: int = Field(description="Agent level")
     duration_ms: int = Field(description="Execution duration in milliseconds")

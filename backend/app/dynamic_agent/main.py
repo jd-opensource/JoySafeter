@@ -13,10 +13,8 @@ to keep the codebase DRY and reduce confusion.
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import queue
-import sys
 import traceback
 import uuid
 from datetime import datetime
@@ -30,37 +28,41 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
+from loguru import logger
 from mcp import ClientSession
 
 from app.dynamic_agent.agent_core.task_manager import TaskManager
 from app.dynamic_agent.core.config import conf
-from app.dynamic_agent.core.constants import CtfDetectionSource, MCP_TOOL_JOINER
+from app.dynamic_agent.core.constants import MCP_TOOL_JOINER, CtfDetectionSource
 from app.dynamic_agent.infra.context import docker_manager, tool_registry
 from app.dynamic_agent.infra.llm import create_llm_instance
 from app.dynamic_agent.infra.metadata_context import MetadataContext
 from app.dynamic_agent.infra.tool_registry import ToolMetadata
 from app.dynamic_agent.observability.langfuse import callbacks
+from app.dynamic_agent.observability.tracking_processor import TrackingEventProcessor, set_tracking_processor
 from app.dynamic_agent.prompts.system_prompts import (
     SceneType,
     detect_scene,
-    get_static_system_prompt,
     get_system_prompt_with_scene,
 )
 from app.dynamic_agent.storage import StorageManager, get_ctf_session_store, initialize_storage
 from app.dynamic_agent.storage.context_manager import SessionContext
 from app.dynamic_agent.storage.memory.store import MemoryType
-from app.dynamic_agent.tools import TODO_TOOLS, agent_tool, knowledge_search, python_coder_tool, think_tool, \
-    final_response, check_iterations
+from app.dynamic_agent.tools import (
+    TODO_TOOLS,
+    agent_tool,
+    check_iterations,
+    final_response,
+    knowledge_search,
+    python_coder_tool,
+    think_tool,
+)
 from app.dynamic_agent.tools.awares import get_current_time
 from app.dynamic_agent.tools.awares.workspace import workspace_tool
 from app.dynamic_agent.tools.base import base_tools, base_tools_for_selection
 from app.dynamic_agent.tools.builtin.ask_human_tool import ask_human
 from app.dynamic_agent.tools.valid_tools.json_valid_tools import valid_json_array, valid_json_dict
 from app.dynamic_agent.utils.mcp_client_helper import MultiMCP
-from app.dynamic_agent.observability.tracking_processor import TrackingEventProcessor, set_tracking_processor
-
-from loguru import logger
-
 
 ENABLE_EAGER_RAG = os.getenv("ENABLE_EAGER_RAG", "false").lower() == "true"
 
@@ -207,7 +209,7 @@ def validate_tool_call_pairs(history: List[Dict[str, Any]]) -> List[Dict[str, An
 async def run(user_message: str, metadata: Dict[str, Any]) -> str:
     """
     Main agent execution loop with context management.
-    
+
     Handles:
     1. Session context loading (history, container, tasks)
     2. Scenario identification
@@ -333,7 +335,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
         metadata['task_id_event'].set()
         logger.info(f"✅ Task created and event triggered immediately: {task_id}")
     else:
-        logger.warning(f"⚠️ Cannot notify task_id - missing event/holder in metadata")
+        logger.warning("⚠️ Cannot notify task_id - missing event/holder in metadata")
 
     # todo: more external mcp servers
     SERVER_CONFIGS = [
@@ -497,7 +499,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
 
             # Save conversation to context(User message already saved)
             await storage.context.add_message(session_id, 'assistant', reply)
-            logger.info(f"✓ Saved conversation to context")
+            logger.info("✓ Saved conversation to context")
 
             # Store important findings (if any)
             # todo
@@ -531,7 +533,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
 
             # Send completion signal
             response_queue.put({"status": "complete"})
-            logger.info(f"✓ Response stream completed")
+            logger.info("✓ Response stream completed")
 
             return reply
         except Exception as e:
@@ -669,7 +671,7 @@ async def do_main():
                         data_type = response_data.get("type", "")
 
                         if status == "complete":
-                            logger.info(f"✓ Stream completed")
+                            logger.info("✓ Stream completed")
                             stream_complete = True
                             break
                         elif status == "error":

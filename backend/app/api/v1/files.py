@@ -31,22 +31,20 @@ Error codes:
 - 500: File upload/read/delete failed
 """
 
-import os
-import re
-import uuid
 import base64
 import mimetypes
+import os
+import uuid
 from pathlib import Path
-from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
-from app.core.agent.backends import FilesystemSandboxBackend
 from app.common.dependencies import CurrentUser
-from app.schemas import BaseResponse
+from app.core.agent.backends import FilesystemSandboxBackend
 from app.core.rate_limit import rate_limit
+from app.schemas import BaseResponse
 from app.utils.path_utils import sanitize_filename as _sanitize_filename
 
 # File storage root directory (configurable via environment variable)
@@ -98,10 +96,10 @@ class UploadResponse(BaseModel):
 def sanitize_filename(filename: str) -> str:
     """
     Sanitize filename by removing dangerous characters.
-    
+
     Args:
         filename: Original filename
-        
+
     Returns:
         str: Sanitized filename
     """
@@ -135,32 +133,32 @@ def validate_file_content(filename: str, content: bytes) -> None:
     """
     Validate file content using magic number (file signature) check.
     This helps prevent file type spoofing by checking actual file content.
-    
+
     Args:
         filename: Filename with extension
         content: File content bytes
-        
+
     Raises:
         HTTPException: If file content doesn't match expected signature
     """
     if len(content) == 0:
         return  # Empty files are handled elsewhere
-    
+
     file_ext = Path(filename).suffix.lower()
-    
+
     # Only validate binary file types that have magic numbers
     if file_ext not in MAGIC_NUMBERS:
         # For text files and other types without magic numbers, skip validation
         # (they can be validated by extension and content analysis)
         return
-    
+
     # Get expected magic numbers for this file type
     expected_signatures = MAGIC_NUMBERS[file_ext]
-    
+
     # Check if content starts with any expected signature
     content_start = content[:max(len(sig) for sig in expected_signatures)]
     matches = any(content_start.startswith(sig) for sig in expected_signatures)
-    
+
     if not matches:
         logger.warning(
             f"File content validation failed for {filename}: "
@@ -176,23 +174,23 @@ def validate_file_content(filename: str, content: bytes) -> None:
 def validate_file_type(filename: str, content_type: str | None) -> None:
     """
     Validate file type (extension and MIME type).
-    
+
     Args:
         filename: Filename with extension
         content_type: MIME type from upload request (optional)
-        
+
     Raises:
         HTTPException: If file type is not allowed
     """
     file_ext = Path(filename).suffix.lower()
-    
+
     # Validate extension
     if file_ext and file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
             detail=f"File type {file_ext} is not supported"
         )
-    
+
     # Validate MIME type if provided (log warning if mismatch but allow, as some clients may be inaccurate)
     if content_type:
         inferred_type, _ = mimetypes.guess_type(filename)
@@ -206,10 +204,10 @@ def validate_file_type(filename: str, content_type: str | None) -> None:
 def get_user_storage_usage(backend: FilesystemSandboxBackend) -> int:
     """
     Get the current storage usage for a user's backend directory.
-    
+
     Args:
         backend: The user's filesystem backend
-        
+
     Returns:
         int: Current storage usage in bytes
     """
@@ -233,7 +231,7 @@ def validate_file_upload(
 ) -> tuple[str, None] | tuple[None, HTTPException]:
     """
     Validate file upload (size, type, content, storage quota).
-    
+
     Args:
         filename: Original filename
         content: File content bytes
@@ -241,7 +239,7 @@ def validate_file_upload(
         backend: User's filesystem backend
         current_user_id: Current user ID
         client_ip: Client IP address
-        
+
     Returns:
         Tuple of (safe_filename, None) if valid, or (None, HTTPException) if invalid
     """
@@ -255,7 +253,7 @@ def validate_file_upload(
             status_code=400,
             detail="File cannot be empty"
         )
-    
+
     # Validate file size
     if len(content) > MAX_FILE_SIZE_BYTES:
         logger.warning(
@@ -267,22 +265,22 @@ def validate_file_upload(
             status_code=413,
             detail=f"File size exceeds maximum allowed size ({MAX_FILE_SIZE_BYTES / 1024 / 1024}MB)"
         )
-    
+
     # Sanitize filename
     safe_filename = sanitize_filename(filename)
-    
+
     # Validate file type (extension and MIME type)
     try:
         validate_file_type(safe_filename, content_type)
     except HTTPException as e:
         return None, e
-    
+
     # Validate file content (magic number check)
     try:
         validate_file_content(safe_filename, content)
     except HTTPException as e:
         return None, e
-    
+
     # Check storage quota
     current_usage = get_user_storage_usage(backend)
     if current_usage + len(content) > MAX_STORAGE_PER_USER:
@@ -296,7 +294,7 @@ def validate_file_upload(
             detail=f"Storage quota exceeded. Current usage: {current_usage / 1024 / 1024 / 1024:.2f}GB, "
             f"maximum allowed: {MAX_STORAGE_PER_USER / 1024 / 1024 / 1024}GB. Please delete some files first."
         )
-    
+
     return safe_filename, None
 
 
@@ -308,19 +306,19 @@ def write_file_to_backend(
 ) -> Path:
     """
     Write file to backend directory (unified for both text and binary files).
-    
+
     Args:
         backend: User's filesystem backend
         filename: Safe filename
         content: File content bytes
         is_text: Whether the file is text (can be decoded as UTF-8)
-        
+
     Returns:
         Path: Path to the written file
     """
     file_path = Path(backend.cwd) / filename
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     if is_text:
         # For text files, try to use backend.write() if possible
         # Otherwise, write directly
@@ -331,11 +329,11 @@ def write_file_to_backend(
         except Exception:
             # Fallback to direct write if backend.write fails
             pass
-    
+
     # Write directly to filesystem (for binary files or as fallback)
     with open(file_path, "wb") as f:
         f.write(content)
-    
+
     return file_path
 
 
@@ -351,14 +349,14 @@ def get_user_backend(user_id: uuid.UUID | str | None = None) -> FilesystemSandbo
     """
     # 如果 user_id 为 None，使用 "default"
     user_id = user_id or "default"
-    
+
     # 使用环境变量配置的存储根目录，支持 Docker volume 映射
     # 默认使用 /tmp（开发环境），生产环境通过环境变量配置为 /app/data/files 等
     root_dir = Path(FILE_STORAGE_ROOT) / str(user_id)
-    
+
     # 确保目录存在
     root_dir.mkdir(parents=True, exist_ok=True)
-    
+
     return FilesystemSandboxBackend(
         root_dir=str(root_dir),
         virtual_mode=True,  # Use virtual mode, consistent with Agent
@@ -400,9 +398,9 @@ async def upload_file(
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
         client_ip = forwarded_for.split(",")[0].strip()
-    
+
     original_filename = file.filename or "unnamed"
-    
+
     try:
         # Read file content
         content = await file.read()
@@ -571,7 +569,7 @@ async def read_file(
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
         client_ip = forwarded_for.split(",")[0].strip()
-    
+
     try:
         backend = get_user_backend(current_user.id)
 
@@ -580,15 +578,15 @@ async def read_file(
 
         # Read file - try as binary first, then fallback to text
         file_path = Path(backend.cwd) / safe_filename
-        
+
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {safe_filename}")
-        
+
         # Try to read as binary first to handle both text and binary files
         try:
             with open(file_path, "rb") as f:
                 content_bytes = f.read()
-            
+
             # Try to decode as UTF-8 for text files
             try:
                 content = content_bytes.decode("utf-8")
@@ -671,7 +669,7 @@ async def delete_file(
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
         client_ip = forwarded_for.split(",")[0].strip()
-    
+
     try:
         backend = get_user_backend(current_user.id)
 
@@ -680,17 +678,17 @@ async def delete_file(
 
         # Delete file using Python file operations instead of shell command (prevents command injection)
         file_path = Path(backend.cwd) / safe_filename
-        
+
         if not file_path.exists():
             logger.warning(
                 f"File delete failed - not found: user={current_user.id}, "
                 f"filename={filename}, ip={client_ip}"
             )
             raise HTTPException(status_code=404, detail=f"File not found: {filename}")
-        
+
         # Get file size before deletion for logging
         file_size = file_path.stat().st_size if file_path.exists() else 0
-        
+
         try:
             file_path.unlink()
         except OSError as e:
@@ -751,7 +749,7 @@ async def clear_all_files(
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
         client_ip = forwarded_for.split(",")[0].strip()
-    
+
     try:
         backend = get_user_backend(current_user.id)
 

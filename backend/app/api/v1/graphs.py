@@ -1,39 +1,32 @@
 """
 Graph API（路径 /api/v1/graphs）
 """
-import json
 import uuid
 from typing import Any, Dict, List, Optional
-from loguru import logger
 
-from fastapi import APIRouter, Depends, Body, Query, Request, HTTPException, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from loguru import logger
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import NotFoundException, ForbiddenException
-from app.core.database import get_db
-from app.core.settings import settings
-from app.core.redis import RedisClient
-from app.models.auth import AuthUser as User
-from app.models.graph import AgentGraph, GraphNode
-from app.services.graph_service import GraphService
-from app.models.workspace import WorkspaceMemberRole
-from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
+from app.common.exceptions import ForbiddenException, NotFoundException
 
 # Import Copilot types from the new module
 from app.core.copilot import (
-    GraphActionType,
-    GraphAction,
     CopilotRequest,
     CopilotResponse,
-    CopilotMessage,
-    CopilotThoughtStep,
-    CopilotToolCall,
-    CopilotHistoryResponse,
 )
+from app.core.database import get_db
+from app.core.redis import RedisClient
+from app.core.settings import settings
+from app.models.auth import AuthUser as User
+from app.models.graph import AgentGraph, GraphNode
+from app.models.workspace import WorkspaceMemberRole
+from app.repositories.workspace import WorkspaceRepository
 from app.services.copilot_service import CopilotService
+from app.services.graph_service import GraphService
 
 router = APIRouter(prefix="/v1/graphs", tags=["Graphs"])
 
@@ -84,25 +77,25 @@ async def _ensure_workspace_member(
 ) -> None:
     """
     确保用户是工作空间成员且有足够权限
-    
+
     Args:
         db: 数据库会话
         workspace_id: 工作空间ID
         current_user: 当前用户
         min_role: 所需的最低角色
-    
+
     Raises:
         NotFoundException: 如果工作空间不存在
         ForbiddenException: 如果用户不是成员或权限不足
     """
     from app.services.workspace_permission import check_workspace_access
-    
+
     # 检查工作空间是否存在
     workspace_repo = WorkspaceRepository(db)
     workspace = await workspace_repo.get(workspace_id)
     if not workspace:
         raise NotFoundException("Workspace not found")
-    
+
     # 检查访问权限
     has_access = await check_workspace_access(db, workspace_id, current_user, min_role)
     if not has_access:
@@ -147,7 +140,7 @@ async def list_graphs(
 ):
     """
     列出图列表
-    
+
     过滤逻辑：
     - 默认（无 workspace_id）：列出当前用户拥有的所有 graphs（personal graphs）
     - 若传 workspace_id：
@@ -157,11 +150,11 @@ async def list_graphs(
     - 若传 parentId：列出指定父图下的子图
     """
     service = GraphService(db)
-    
+
     log = _bind_log(request, user_id=str(current_user.id))
 
     log.info(f"graph.list start workspace_id={workspace_id} parent_id={parent_id}")
-    
+
     # 如果有 workspace_id，需要检查权限并返回工作空间的所有 graphs
     if workspace_id:
         # 检查用户是否有访问该工作空间的权限（至少 viewer 权限）
@@ -217,39 +210,40 @@ async def list_deployed_graphs(
 ):
     """
     获取当前用户可访问的已发布的图列表
-    
+
     包括：
     1. 用户自己创建的已发布图
     2. 用户有权限访问的工作空间中已发布的图（至少 viewer 权限）
-    
+
     过滤条件：
     - is_deployed = True
     - 用户是图的所有者，或者用户有工作空间的访问权限
     """
     from sqlalchemy import or_
+
+    from app.models.workspace import WorkspaceMemberRole
     from app.repositories.workspace import WorkspaceRepository
     from app.services.workspace_permission import check_workspace_access
-    from app.models.workspace import WorkspaceMemberRole
-    
+
     log = _bind_log(request, user_id=str(current_user.id))
     log.info("graph.list_deployed start")
-    
+
     workspace_repo = WorkspaceRepository(db)
     user_workspaces = await workspace_repo.list_for_user(current_user.id)
     accessible_workspace_ids = [ws.id for ws in user_workspaces]
-    
-    conditions = [AgentGraph.is_deployed == True]
-    
+
+    conditions = [AgentGraph.is_deployed]
+
     user_owned_condition = AgentGraph.user_id == str(current_user.id)
-    
+
     if accessible_workspace_ids:
         workspace_condition = AgentGraph.workspace_id.in_(accessible_workspace_ids)
         graph_condition = or_(user_owned_condition, workspace_condition)
     else:
         graph_condition = user_owned_condition
-    
+
     conditions.append(graph_condition)
-    
+
     query = (
         select(AgentGraph)
         .where(*conditions)
@@ -257,7 +251,7 @@ async def list_deployed_graphs(
     )
     result = await db.execute(query)
     all_graphs = list(result.scalars().all())
-    
+
     filtered_graphs = []
     for graph in all_graphs:
         if graph.user_id == str(current_user.id):
@@ -271,9 +265,9 @@ async def list_deployed_graphs(
             )
             if has_access:
                 filtered_graphs.append(graph)
-    
+
     graphs = filtered_graphs
-    
+
     graph_ids = [graph.id for graph in graphs]
     node_counts = {}
     if graph_ids:
@@ -285,7 +279,7 @@ async def list_deployed_graphs(
         result = await db.execute(count_query)
         for row in result:
             node_counts[row.graph_id] = row.count
-    
+
     log.info(f"graph.list_deployed success count={len(graphs)}")
     return {
         "data": [
@@ -304,7 +298,7 @@ async def create_graph(
 ):
     """
     创建新图
-    
+
     - personal graph：当前用户创建
     - workspace graph：要求 workspace write（member+）
     """
@@ -348,7 +342,7 @@ async def get_graph(
 ):
     """
     获取图的详细信息（包括节点和边）
-    
+
     返回格式：
     {
         "data": {
@@ -466,7 +460,7 @@ async def load_graph_state(
 ):
     """
     加载图的状态（节点和边）
-    
+
     返回格式：
     {
         "success": true,
@@ -492,9 +486,9 @@ async def save_graph_state(
 ):
     """
     保存图的状态（节点和边）- 支持 upsert 模式
-    
+
     如果图不存在，会自动创建新图（需要提供 name 参数）。
-    
+
     接收前端格式：
     {
         "nodes": [...],
@@ -506,10 +500,10 @@ async def save_graph_state(
     """
     log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
     service = GraphService(db)
-    
+
     # workspace_id 可能为 None（personal graph）
     workspace_id = payload.workspaceId
-    
+
     result = await service.save_graph_state(
         graph_id=graph_id,
         nodes=payload.nodes,
@@ -521,11 +515,11 @@ async def save_graph_state(
         name=payload.name,
         workspace_id=workspace_id,
     )
-    
+
     # 显式提交事务，确保数据保存到数据库
     # 注意：get_db() 不会自动提交，需要显式调用 commit()
     await db.commit()
-    
+
     log.info(
         f"graph.state.save success nodes={len(payload.nodes)} edges={len(payload.edges)}"
     )
@@ -555,23 +549,23 @@ async def get_copilot_history(
 ):
     """
     Get Copilot conversation history for a specific graph.
-    
+
     Returns all previous messages with their actions, thought steps, and tool calls.
     This enables the frontend to restore the conversation when re-entering the graph.
-    
+
     Args:
         graph_id: The graph ID to get history for
         current_user: Authenticated user
-        
+
     Returns:
         CopilotHistoryResponse with messages array
     """
     log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
     log.info("copilot.history.get start")
-    
+
     service = CopilotService(user_id=str(current_user.id), db=db)
     history = await service.get_history(str(graph_id))
-    
+
     if history:
         log.info(f"copilot.history.get success messages_count={len(history.messages)}")
         return {
@@ -710,22 +704,22 @@ async def generate_graph_actions(
 ) -> CopilotResponse:
     """
     Generate graph actions using AI Copilot ("God Mode" Engine)
-    
+
     This endpoint uses an Agent-based approach with tools to generate
     graph modification actions (CREATE_NODE, CONNECT_NODES, etc.)
-    
+
     Args:
         payload: CopilotRequest with user prompt and graph context
         current_user: Authenticated user
-    
+
     Returns:
         CopilotResponse: Message to the user and array of actions to execute
     """
     log = _bind_log(request, user_id=str(current_user.id))
-    
+
     nodes = payload.graph_context.get("nodes", [])
     log.info(f"copilot.actions start nodes={len(nodes)}")
-    
+
     # Use CopilotService for action generation
     service = CopilotService(user_id=str(current_user.id), db=db)
     response = await service.generate_actions(
@@ -733,7 +727,7 @@ async def generate_graph_actions(
         graph_context=payload.graph_context,
         conversation_history=payload.conversation_history,
     )
-    
+
     log.info(f"copilot.actions success actions_count={len(response.actions)}")
     return response
 
@@ -748,23 +742,23 @@ async def create_copilot_task(
 ):
     """
     Create a new Copilot task and return immediately with session_id.
-    
+
     The actual generation runs asynchronously in the background.
     Frontend should subscribe to WebSocket to receive real-time updates.
-    
+
     Args:
         payload: CopilotRequest with user prompt, graph context, and optional graph_id
         current_user: Authenticated user
         background_tasks: FastAPI background tasks
-    
+
     Returns:
         {session_id, status, created_at}
     """
-    from datetime import datetime
     import uuid as uuid_lib
-    
+    from datetime import datetime
+
     log = _bind_log(request, user_id=str(current_user.id))
-    
+
     # Check Redis availability
     if not RedisClient.is_available():
         from app.core.copilot.exceptions import CopilotSessionError
@@ -777,14 +771,14 @@ async def create_copilot_task(
                 "has_redis_url": bool(settings.redis_url)
             }
         )
-    
+
     # Generate session ID
     session_id = f"copilot_{uuid_lib.uuid4().hex[:16]}"
     created_at = datetime.utcnow()
-    
+
     # Initialize session in Redis
     await RedisClient.set_copilot_status(session_id, "generating")
-    
+
     # Start background task
     service = CopilotService(user_id=str(current_user.id), db=db)
     background_tasks.add_task(
@@ -795,9 +789,9 @@ async def create_copilot_task(
         graph_context=payload.graph_context,
         conversation_history=payload.conversation_history,
     )
-    
+
     log.info(f"copilot.actions.create session_id={session_id} graph_id={payload.graph_id}")
-    
+
     return {
         "session_id": session_id,
         "status": "generating",
@@ -814,16 +808,16 @@ async def get_copilot_session(
 ):
     """
     Get Copilot session status and current content.
-    
+
     Returns:
         {session_id, status, content?, created_at, updated_at}
         - If status="generating": returns Redis content (real-time)
         - If status="completed" or not found: returns None (check database history)
     """
     from datetime import datetime
-    
+
     log = _bind_log(request, user_id=str(current_user.id))
-    
+
     # Check Redis availability
     if not RedisClient.is_available():
         from app.core.copilot.exceptions import CopilotSessionError
@@ -833,10 +827,10 @@ async def get_copilot_session(
             f"Redis {redis_status}. Copilot feature requires Redis to be running.",
             data={"redis_status": redis_status}
         )
-    
+
     # Get session data from Redis
     session_data = await RedisClient.get_copilot_session(session_id)
-    
+
     if not session_data:
         # Session not found in Redis (either completed or never existed)
         return {
@@ -846,7 +840,7 @@ async def get_copilot_session(
             "created_at": None,
             "updated_at": None,
         }
-    
+
     # For generating sessions, return Redis content
     if session_data["status"] == "generating":
         return {
@@ -856,7 +850,7 @@ async def get_copilot_session(
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
         }
-    
+
     # For completed/failed sessions, Redis data is temporary
     # History should be loaded from database via graph_id
     return {

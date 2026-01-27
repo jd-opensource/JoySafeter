@@ -3,14 +3,15 @@ Skill Repository
 """
 from __future__ import annotations
 
-from typing import List, Optional
 import uuid
+from typing import List, Optional
 
-from sqlalchemy import select, and_, or_
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.skill import Skill, SkillFile
+
 from .base import BaseRepository
 
 
@@ -56,7 +57,7 @@ class SkillRepository(BaseRepository[Skill]):
             # 使用 JSONB 数组查询
             for tag in tags:
                 conditions.append(Skill.tags.contains([tag]))
-        
+
         if conditions:
             query = query.where(and_(*conditions))
 

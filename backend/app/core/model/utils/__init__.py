@@ -1,8 +1,8 @@
 """
 模型工具模块
 """
-from .encryption import encrypt_credentials, decrypt_credentials, CredentialEncryption
 from .credential_resolver import LLMCredentialResolver
+from .encryption import CredentialEncryption, decrypt_credentials, encrypt_credentials
 
 __all__ = [
     "encrypt_credentials",

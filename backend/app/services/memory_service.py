@@ -12,23 +12,23 @@ Async operations for Memory table:
 Designed to be SQLite-compatible (uses generic casts/LIKE for search).
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
 import json
-
+import time
 from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional, Tuple, Union
+from uuid import uuid4
+
 import sqlalchemy as sa
-from sqlalchemy import String, select, func, cast, text
-from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
+from sqlalchemy import String, cast, func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, engine
 from app.models.memory import Memory
 from app.schemas.memory import UserMemory
-from uuid import uuid4
-import time
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError
 
 
 def log_debug(msg: str) -> None:
@@ -172,10 +172,10 @@ class MemoryService:
             # SQLite-compatible approach: fetch topics column and flatten in Python
             async with self._session() as sess:
                 stmt = select(table.c.topics).where(table.c.topics.is_not(None))
-                
+
                 # Always filter by user_id for security (prevent data leakage)
                 stmt = stmt.where(table.c.user_id == user_id)
-                
+
                 result = await sess.execute(stmt)
                 records = result.fetchall()
 

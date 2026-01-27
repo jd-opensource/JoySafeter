@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -8,14 +8,14 @@ logger = logging.getLogger(__name__)
 
 class KubeBenchHandler(AbstractHandler):
     """Handler for kube_bench functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['kube-bench']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute kube_bench with enhanced logging"""
         try:
@@ -35,9 +35,9 @@ class KubeBenchHandler(AbstractHandler):
                 command += f" --outputfile /tmp/kube-bench-results.{output_format} --json"
             if additional_args:
                 command += f" {additional_args}"
-            logger.info(f"☁️  Starting kube-bench CIS benchmark")
+            logger.info("☁️  Starting kube-bench CIS benchmark")
             result = execute_command(command)
-            logger.info(f"📊 kube-bench benchmark completed")
+            logger.info("📊 kube-bench benchmark completed")
             return result
         except Exception as e:
             logger.error(f"💥 Error in kube-bench endpoint: {str(e)}")

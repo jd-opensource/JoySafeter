@@ -1,5 +1,4 @@
-import os
-from typing import Any, Literal
+from typing import Any
 
 import dotenv
 import requests

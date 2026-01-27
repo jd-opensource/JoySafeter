@@ -16,7 +16,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.settings import Environment, WorkspaceEnvironment
-from app.common.exceptions import NotFoundException
 
 
 class EnvironmentService:

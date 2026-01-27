@@ -5,8 +5,8 @@ Handles path setup and starts the FastAPI server
 """
 
 import logging
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Add backend directory to path
@@ -25,6 +25,7 @@ os.environ.setdefault('LOG_LEVEL', 'INFO')
 
 if __name__ == '__main__':
     import uvicorn
+
     from app.dynamic_agent.server import app
 
     logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ if __name__ == '__main__':
 
     logger.info(f"Starting Agent FastAPI Server on {host}:{port}, reload={reload}")
     logger.info(f"API Docs: http://{host}:{port}/docs")
-    
+
     uvicorn.run(
         app,
         host=host,

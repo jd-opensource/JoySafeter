@@ -3,18 +3,18 @@
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
-import uuid
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
-from app.models.workspace import WorkspaceFolder
-from app.models.workspace import WorkspaceMemberRole
 from app.models.auth import AuthUser as User
+from app.models.workspace import WorkspaceFolder, WorkspaceMemberRole
+from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
 from app.repositories.workspace_folder import WorkflowFolderRepository
-from app.repositories.workspace import WorkspaceRepository, WorkspaceMemberRepository
+
 from .base import BaseService
 
 # 文件夹最大深度限制：只能有两层（根目录深度为0，第一层深度为1）
@@ -137,7 +137,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         """
         depth = 0
         current_id: Optional[uuid.UUID] = folder_id
-        
+
         while current_id is not None:
             folder = await self.folder_repo.ensure_same_workspace(current_id, workspace_id)
             if folder.parent_id is None:
@@ -146,14 +146,14 @@ class FolderService(BaseService[WorkspaceFolder]):
             current_id = folder.parent_id
             if depth > MAX_FOLDER_DEPTH:
                 break
-        
+
         return depth
 
     async def _check_depth_limit(self, parent_id: Optional[uuid.UUID], workspace_id: uuid.UUID) -> None:
         """检查在指定父文件夹下创建子文件夹是否会超过深度限制"""
         if parent_id is None:
             return
-        
+
         parent_depth = await self._calculate_depth(parent_id, workspace_id)
         if parent_depth >= MAX_FOLDER_DEPTH:
             raise BadRequestException(f"Maximum folder depth ({MAX_FOLDER_DEPTH + 1}) would be exceeded")
@@ -174,9 +174,8 @@ class FolderService(BaseService[WorkspaceFolder]):
         await self._ensure_permission(workspace_id, current_user, "write")
         await self._check_depth_limit(parent_id, workspace_id)
 
-        parent = None
         if parent_id:
-            parent = await self.folder_repo.ensure_same_workspace(parent_id, workspace_id)
+            await self.folder_repo.ensure_same_workspace(parent_id, workspace_id)
 
         next_sort = (await self.folder_repo.max_sort_order(workspace_id, parent_id)) + 1
         folder = await self.folder_repo.create(
@@ -268,7 +267,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         deleted_at = datetime.now(timezone.utc)
         for folder_id_to_delete in target_ids:
             await self.folder_repo.update(folder_id_to_delete, {"deleted_at": deleted_at})
-        
+
         await self.commit()
         return {"folders": len(target_ids), "workflows": 0}
 

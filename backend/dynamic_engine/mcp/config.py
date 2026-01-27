@@ -6,7 +6,7 @@ Centralized configuration management
 import importlib.util
 import logging
 import os
-from typing import Dict, Any, Optional, Callable
+from typing import Any, Callable, Dict, Optional
 
 import yaml
 

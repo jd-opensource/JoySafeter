@@ -21,6 +21,7 @@ from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
 from app.repositories.workspace_file import WorkspaceStoredFileRepository
 from app.utils.path_utils import sanitize_filename
+
 from .base import BaseService
 
 
@@ -47,7 +48,7 @@ class WorkspaceFileService(BaseService):
 
     def _sanitize_filename(self, filename: str) -> str:
         """清理文件名，避免路径穿越
-        
+
         使用统一的 sanitize_filename 工具函数。
         """
         return sanitize_filename(filename or "unnamed")

@@ -4,19 +4,20 @@ Function Registry - Predefined function registry for FunctionNodeExecutor.
 Provides a safe way to execute predefined functions instead of arbitrary code.
 """
 
-from typing import Dict, Callable, Optional, Any
+from typing import Any, Callable, Dict, Optional
+
 from loguru import logger
 
 
 class FunctionRegistry:
     """预定义函数注册表，提供安全的函数执行。"""
-    
+
     _functions: Dict[str, Callable] = {}
-    
+
     @classmethod
     def register(cls, name: str, func: Callable) -> None:
         """注册一个预定义函数。
-        
+
         Args:
             name: 函数名称
             func: 函数对象
@@ -25,36 +26,36 @@ class FunctionRegistry:
             raise ValueError(f"Function '{name}' must be callable")
         cls._functions[name] = func
         logger.debug(f"[FunctionRegistry] Registered function: {name}")
-    
+
     @classmethod
     def get(cls, name: str) -> Optional[Callable]:
         """获取预定义函数。
-        
+
         Args:
             name: 函数名称
-            
+
         Returns:
             函数对象，如果不存在返回 None
         """
         return cls._functions.get(name)
-    
+
     @classmethod
     def list_all(cls) -> Dict[str, Callable]:
         """列出所有注册的函数。"""
         return cls._functions.copy()
-    
+
     @classmethod
     def execute(cls, name: str, *args, **kwargs) -> Any:
         """执行预定义函数。
-        
+
         Args:
             name: 函数名称
             *args: 位置参数
             **kwargs: 关键字参数
-            
+
         Returns:
             函数执行结果
-            
+
         Raises:
             ValueError: 如果函数不存在
         """

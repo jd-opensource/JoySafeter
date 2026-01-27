@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.services.http_test_framework import http_framework
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class HttpFrameworkEndpointHandler(AbstractHandler):
     """Handler for http_framework_endpoint functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return []
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute http_framework_endpoint with enhanced logging"""
         try:
@@ -29,7 +29,6 @@ class HttpFrameworkEndpointHandler(AbstractHandler):
             if action == "request":
                 if not url:
                     return {"error": "URL parameter is required for request action"}
-                request_command = f"{method} {url}"
                 result = http_framework.intercept_request(url, method, request_data, headers, cookies)
                 return result
         except Exception as e:

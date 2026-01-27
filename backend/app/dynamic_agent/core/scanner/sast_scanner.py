@@ -4,11 +4,7 @@ SAST Scanner - Integrates Semgrep for source code analysis
 This module provides a unified interface to run SAST tools and collect findings.
 """
 
-import json
-import logging
-import os
-import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from loguru import logger
 
@@ -16,7 +12,7 @@ from loguru import logger
 class SASTScanner:
     """
     SAST (Static Application Security Testing) scanner.
-    
+
     Uses Semgrep to provide comprehensive source code security analysis.
     """
 
@@ -98,7 +94,7 @@ class SASTScanner:
                 finding.get('file_path', ''),
                 finding.get('line_number', 0),
             )
-            
+
             if key not in seen:
                 seen.add(key)
                 unique.append(finding)

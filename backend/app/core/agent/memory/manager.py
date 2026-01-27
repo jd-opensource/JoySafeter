@@ -1,30 +1,26 @@
 from dataclasses import dataclass
-from os import getenv
 from textwrap import dedent
 from typing import Any, Callable, Dict, List, Literal, Optional, Type, Union
 
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages.chat import ChatMessage as Message
+from loguru import logger
 from pydantic import BaseModel, Field
 
-from app.services.memory_service import MemoryService
-from app.schemas.memory import UserMemory
 from app.core.agent.memory.strategies import (
     MemoryOptimizationStrategy,
     MemoryOptimizationStrategyFactory,
     MemoryOptimizationStrategyType,
 )
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages.chat import ChatMessage as Message
-from app.core.tools.tool import EnhancedTool
-from app.utils.datetime import utc_now
-
-from app.utils.prompts import get_json_output_prompt
-from app.utils.string import parse_response_model_str
-
-from loguru import logger
 
 # Import DEFAULT_USER_ID for consistent user_id handling
 from app.core.constants import DEFAULT_USER_ID
-
+from app.core.tools.tool import EnhancedTool
+from app.schemas.memory import UserMemory
+from app.services.memory_service import MemoryService
+from app.utils.datetime import utc_now
+from app.utils.prompts import get_json_output_prompt
+from app.utils.string import parse_response_model_str
 
 
 class MemorySearchResponse(BaseModel):
@@ -110,7 +106,7 @@ class MemoryManager:
 
     def _get_message_content_string(self, msg: Message) -> str:
         """Extract content string from message, supporting both get_content_string() and content attribute.
-        
+
         This method handles different message types:
         - Messages with get_content_string() method (e.g., app.models.message.Message)
         - Messages with content attribute (e.g., langchain_core.messages.chat.ChatMessage)
@@ -188,7 +184,7 @@ class MemoryManager:
 
     def _build_tool_map(self, tools: List[Callable]) -> Dict[str, Callable]:
         """Build a mapping from tool name to tool callable.
-        
+
         Supports both:
         - EnhancedTool/BaseTool objects (with .name attribute)
         - Regular functions (with __name__ attribute)
@@ -203,32 +199,32 @@ class MemoryManager:
 
     def _execute_tool_calls(self, tool_calls: List[Dict], tool_map: Dict[str, Callable]) -> bool:
         """Execute tool calls synchronously.
-        
+
         Args:
             tool_calls: List of tool call dicts with 'name' and 'args' keys
             tool_map: Mapping from tool name to tool callable
-            
+
         Returns:
             True if any tools were executed
         """
         if not tool_calls:
             return False
-            
+
         logger.info(f"Executing {len(tool_calls)} tool calls...")
         executed = False
-        
+
         for tool_call in tool_calls:
             tool_name = tool_call.get("name")
             tool_args = tool_call.get("args", {})
-            
+
             if tool_name not in tool_map:
                 logger.warning(f"Unknown tool: {tool_name}")
                 continue
-                
+
             try:
                 logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
                 tool = tool_map[tool_name]
-                
+
                 # Handle different tool types
                 if hasattr(tool, 'invoke'):
                     result = tool.invoke(tool_args)
@@ -238,42 +234,42 @@ class MemoryManager:
                     result = tool(**tool_args)
                 else:
                     result = f"Tool {tool_name} is not callable"
-                    
+
                 logger.info(f"Tool {tool_name} result: {result}")
                 executed = True
             except Exception as e:
                 logger.error(f"Error executing tool {tool_name}: {e}")
-                
+
         return executed
 
     async def _aexecute_tool_calls(self, tool_calls: List[Dict], tool_map: Dict[str, Callable]) -> bool:
         """Execute tool calls asynchronously.
-        
+
         Args:
             tool_calls: List of tool call dicts with 'name' and 'args' keys
             tool_map: Mapping from tool name to tool callable
-            
+
         Returns:
             True if any tools were executed
         """
         if not tool_calls:
             return False
-            
+
         logger.info(f"Executing {len(tool_calls)} tool calls (async)...")
         executed = False
-        
+
         for tool_call in tool_calls:
             tool_name = tool_call.get("name")
             tool_args = tool_call.get("args", {})
-            
+
             if tool_name not in tool_map:
                 logger.warning(f"Unknown tool: {tool_name}")
                 continue
-                
+
             try:
                 logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
                 tool = tool_map[tool_name]
-                
+
                 # Handle different tool types - prefer async methods
                 if hasattr(tool, 'ainvoke'):
                     result = await tool.ainvoke(tool_args)
@@ -285,12 +281,12 @@ class MemoryManager:
                     result = tool(**tool_args)
                 else:
                     result = f"Tool {tool_name} is not callable"
-                    
+
                 logger.info(f"Tool {tool_name} result: {result}")
                 executed = True
             except Exception as e:
                 logger.error(f"Error executing tool {tool_name}: {e}")
-                
+
         return executed
 
     # -*- Public Functions
@@ -768,7 +764,7 @@ class MemoryManager:
 
     def _get_response_format(self) -> Union[Dict[str, Any], Type[BaseModel]]:
         """Get response format for structured output.
-        
+
         Note: This method is deprecated for LangChain models.
         Use with_structured_output() instead.
         """
@@ -1381,11 +1377,11 @@ class MemoryManager:
                     tool_map[tool.name] = tool
                 elif hasattr(tool, '__name__'):  # Regular function
                     tool_map[tool.__name__] = tool
-            
+
             for tool_call in response.tool_calls:
                 tool_name = tool_call.get("name")
                 tool_args = tool_call.get("args", {})
-                
+
                 if tool_name in tool_map:
                     try:
                         logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
@@ -1404,11 +1400,11 @@ class MemoryManager:
                         logger.error(f"Error executing tool {tool_name}: {e}")
                 else:
                     logger.warning(f"Unknown tool: {tool_name}")
-            
+
             self.memories_updated = True
         else:
             logger.debug("Model did not return any tool calls")
-        
+
         logger.debug("MemoryManager End", center=True)
 
         return response.content or "No response from model"
@@ -1495,11 +1491,11 @@ class MemoryManager:
                     tool_map[tool.name] = tool
                 elif hasattr(tool, '__name__'):  # Regular function
                     tool_map[tool.__name__] = tool
-            
+
             for tool_call in response.tool_calls:
                 tool_name = tool_call.get("name")
                 tool_args = tool_call.get("args", {})
-                
+
                 if tool_name in tool_map:
                     try:
                         logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
@@ -1520,11 +1516,11 @@ class MemoryManager:
                         logger.error(f"Error executing tool {tool_name}: {e}")
                 else:
                     logger.warning(f"Unknown tool: {tool_name}")
-            
+
             self.memories_updated = True
         else:
             logger.debug("Model did not return any tool calls")
-        
+
         logger.debug("MemoryManager End", center=True)
 
         return response.content or "No response from model"
@@ -1590,11 +1586,11 @@ class MemoryManager:
                     tool_map[tool.name] = tool
                 elif hasattr(tool, '__name__'):  # Regular function
                     tool_map[tool.__name__] = tool
-            
+
             for tool_call in response.tool_calls:
                 tool_name = tool_call.get("name")
                 tool_args = tool_call.get("args", {})
-                
+
                 if tool_name in tool_map:
                     try:
                         logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
@@ -1613,11 +1609,11 @@ class MemoryManager:
                         logger.error(f"Error executing tool {tool_name}: {e}")
                 else:
                     logger.warning(f"Unknown tool: {tool_name}")
-            
+
             self.memories_updated = True
         else:
             logger.debug("Model did not return any tool calls")
-        
+
         logger.debug("MemoryManager End", center=True)
 
         return response.content or "No response from model"
@@ -1696,11 +1692,11 @@ class MemoryManager:
                     tool_map[tool.name] = tool
                 elif hasattr(tool, '__name__'):  # Regular function
                     tool_map[tool.__name__] = tool
-            
+
             for tool_call in response.tool_calls:
                 tool_name = tool_call.get("name")
                 tool_args = tool_call.get("args", {})
-                
+
                 if tool_name in tool_map:
                     try:
                         logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
@@ -1721,11 +1717,11 @@ class MemoryManager:
                         logger.error(f"Error executing tool {tool_name}: {e}")
                 else:
                     logger.warning(f"Unknown tool: {tool_name}")
-            
+
             self.memories_updated = True
         else:
             logger.debug("Model did not return any tool calls")
-        
+
         logger.debug("MemoryManager End", center=True)
 
         return response.content or "No response from model"

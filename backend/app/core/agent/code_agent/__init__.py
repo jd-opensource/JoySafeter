@@ -19,30 +19,30 @@ Key Features:
 
 Usage:
     >>> from app.core.agent.code_agent import CodeAgent, get_code_agent, tool
-    >>> 
+    >>>
     >>> # Quick start
     >>> agent = get_code_agent(model_name="gpt-4")
     >>> result = await agent.run("Calculate the sum of primes under 100")
-    >>> 
+    >>>
     >>> # With custom tools using @tool decorator
     >>> @tool
     ... def search(query: str) -> str:
     ...     '''Search the web.
-    ...     
+    ...
     ...     Args:
     ...         query: Search query
     ...     '''
     ...     return web_search(query)
-    >>> 
+    >>>
     >>> agent = CodeAgent(
     ...     llm=my_llm_function,
     ...     tools={"search": search},
     ... )
-    >>> 
+    >>>
     >>> # With streaming
     >>> async for event in agent.run_stream("Analyze this data"):
     ...     print(f"{event.event_type}: {event.content}")
-    >>> 
+    >>>
     >>> # Multi-agent setup
     >>> research_agent = CodeAgent(llm=llm, name="researcher", ...)
     >>> main_agent = CodeAgent(llm=llm, managed_agents=[research_agent])
@@ -65,15 +65,14 @@ Architecture:
 
 from .agent import CodeAgent, DataAnalysisAgent, get_code_agent
 from .compensator import (
+    FALLBACK_TEMPLATES,
     CompensationResult,
     ToolCompensator,
     create_compensator,
-    FALLBACK_TEMPLATES,
 )
 from .data_analysis import (
     ALL_DATA_ANALYSIS_MODULES,
     CORE_DATA_MODULES,
-    DataAnalysisPreset,
     ML_MODULES,
     PRESET_BASIC,
     PRESET_FULL,
@@ -81,6 +80,7 @@ from .data_analysis import (
     PRESET_VISUALIZATION,
     STATISTICS_MODULES,
     VISUALIZATION_MODULES,
+    DataAnalysisPreset,
     create_data_analysis_tools,
     get_preset,
 )
@@ -101,13 +101,13 @@ from .executor import (
 from .interpreter import (
     BASE_BUILTIN_MODULES,
     BASE_PYTHON_TOOLS,
-    DATA_ANALYSIS_MODULES,
     DANGEROUS_FUNCTIONS,
     DANGEROUS_MODULES,
-    InterpreterError,
+    DATA_ANALYSIS_MODULES,
     MAX_OPERATIONS,
     MAX_WHILE_ITERATIONS,
     NETWORK_MODULES,
+    InterpreterError,
     PrintContainer,
     check_import_authorized,
     check_safer_result,
@@ -117,11 +117,11 @@ from .interpreter import (
     validate_import_statement,
 )
 from .loop import (
+    CODEAGENT_RESPONSE_SCHEMA,
     CodeAgentLoop,
     LoopConfig,
     StepEvent,
     create_simple_llm_call,
-    CODEAGENT_RESPONSE_SCHEMA,
 )
 from .memory import (
     ActionStep,
@@ -175,7 +175,6 @@ from .utils import (
     is_transient_error,
     retry,
 )
-
 
 __version__ = "1.0.0"
 

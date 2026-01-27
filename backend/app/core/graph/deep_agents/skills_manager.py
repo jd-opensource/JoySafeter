@@ -8,8 +8,8 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from app.models.graph import GraphNode
 from app.core.skill.sandbox_loader import SkillSandboxLoader
+from app.models.graph import GraphNode
 
 LOG_PREFIX = "[SkillsManager]"
 
@@ -19,7 +19,7 @@ class DeepAgentsSkillsManager:
 
     def __init__(self, user_id: Optional[str] = None):
         """Initialize skills manager.
-        
+
         Args:
             user_id: User ID for permission checking
         """
@@ -28,16 +28,16 @@ class DeepAgentsSkillsManager:
     @staticmethod
     def has_valid_skills_config(skill_ids_raw: Any) -> bool:
         """Check if skills configuration is valid and non-empty.
-        
+
         Args:
             skill_ids_raw: Raw skills configuration from node config
-            
+
         Returns:
             True if skills are configured and valid
         """
         return bool(
-            skill_ids_raw 
-            and isinstance(skill_ids_raw, list) 
+            skill_ids_raw
+            and isinstance(skill_ids_raw, list)
             and len(skill_ids_raw) > 0
         )
 
@@ -47,11 +47,11 @@ class DeepAgentsSkillsManager:
         backend: Any,
     ) -> None:
         """Pre-load skills into sandbox backend.
-        
+
         Args:
             node: GraphNode containing skill configuration
             backend: Backend instance implementing BackendProtocol
-            
+
         Raises:
             TypeError: If backend does not implement BackendProtocol
             ValueError: If skill configuration is invalid
@@ -109,10 +109,10 @@ class DeepAgentsSkillsManager:
         try:
             async with async_session_factory() as db:
                 skill_service = SkillService(db)
-                
+
                 # Try to get skills_path from node config
                 skills_path = config.get("skills_path")
-                
+
                 loader = SkillSandboxLoader(
                     skill_service=skill_service,
                     user_id=self.user_id,
@@ -128,14 +128,14 @@ class DeepAgentsSkillsManager:
 
                 successful = sum(1 for v in results.values() if v)
                 failed = len(skill_ids) - successful
-                
+
                 try:
                     from app.core.skill.sandbox_loader import SkillSandboxLoader
                     # Get effective skills path from loader
                     effective_skills_path = loader._get_skills_base_dir(backend, override_dir=skills_path)
                     # Ensure path ends with / for diagnosis
                     source_path = effective_skills_path.rstrip('/') + '/'
-                    
+
                     # Check if diagnose_skills_in_backend method exists
                     if hasattr(SkillSandboxLoader, 'diagnose_skills_in_backend'):
                         diagnosis = await SkillSandboxLoader.diagnose_skills_in_backend(
@@ -145,15 +145,15 @@ class DeepAgentsSkillsManager:
                     else:
                         # Skip diagnosis if method doesn't exist
                         diagnosis = {}
-                    
+
                     if diagnosis.get("errors"):
                         logger.warning(
                             f"{LOG_PREFIX} Skills diagnosis found errors: {diagnosis['errors']}"
                         )
-                    
+
                     directories = diagnosis.get("directories", [])
                     skills_with_md = sum(1 for d in directories if d.get("has_skill_md", False))
-                    
+
                     if skills_with_md > 0:
                         logger.info(
                             f"{LOG_PREFIX} Skills diagnosis for node '{node_label}': "
@@ -171,7 +171,7 @@ class DeepAgentsSkillsManager:
                         f"{LOG_PREFIX} Pre-loaded {successful}/{len(skill_ids)} skills "
                         f"to backend for node '{node_label}'"
                     )
-                
+
                 if failed > 0:
                     logger.warning(
                         f"{LOG_PREFIX} Failed to pre-load {failed}/{len(skill_ids)} skills "
@@ -187,30 +187,30 @@ class DeepAgentsSkillsManager:
     @staticmethod
     def get_skills_paths(has_skills: bool, backend: Optional[Any], skills_path: Optional[str] = None) -> Optional[list[str]]:
         """Get skills paths if skills are configured and backend is available.
-        
+
         This method uses SkillSandboxLoader.resolve_skills_base_dir() to resolve
         the skills path, ensuring consistency across the codebase.
-        
+
         Args:
             has_skills: Whether skills are configured
             backend: Backend instance or None
             skills_path: Optional custom skills path from config (highest priority)
-            
+
         Returns:
             Skills paths list or None
         """
         if not (has_skills and backend):
             return None
-        
+
         # Use unified path resolution from SkillSandboxLoader
         effective_path = SkillSandboxLoader.resolve_skills_base_dir(
             backend=backend,
             override_dir=skills_path,
             instance_dir=None,  # SkillsManager doesn't have instance-level setting
         )
-        
+
         # Ensure path ends with /
         if not effective_path.endswith('/'):
             effective_path = effective_path + '/'
-        
+
         return [effective_path]

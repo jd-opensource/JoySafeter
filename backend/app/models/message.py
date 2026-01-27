@@ -5,16 +5,17 @@
 """
 import json
 from typing import Any, Dict, List, Optional, Sequence, Union
-from loguru import logger
 
+from loguru import logger
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import ConfigDict
 from sqlalchemy import JSON, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import BaseModel as SQLAlchemyBaseModel, SoftDeleteMixin
+from app.models.base import BaseModel as SQLAlchemyBaseModel
+from app.models.base import SoftDeleteMixin
+from app.utils.media import Audio, File, Image, Video
 
-from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field
-
-from app.utils.media import Image, Audio, Video, File
 
 class MessageReferences(PydanticBaseModel):
     """References added to user message"""
@@ -154,7 +155,7 @@ class Message(SQLAlchemyBaseModel, SoftDeleteMixin):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Message":
-        
+
         # Handle image reconstruction properly
         if "images" in data and data["images"]:
             reconstructed_images = []

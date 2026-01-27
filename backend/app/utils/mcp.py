@@ -1,9 +1,10 @@
 import json
 from functools import partial
+from typing import List, Optional
 from uuid import uuid4
-from  loguru import logger
+
+from loguru import logger
 from pydantic import BaseModel
-from typing import Optional, List
 
 try:
     from mcp import ClientSession
@@ -13,10 +14,7 @@ except (ImportError, ModuleNotFoundError):
     raise ImportError("`mcp` not installed. Please install using `pip install mcp`")
 
 
-from app.utils import Image
-from app.utils import Video
-from app.utils import Audio
-from app.utils import File
+from app.utils import Audio, File, Image, Video
 
 
 class ToolResult(BaseModel):
@@ -33,10 +31,10 @@ class ToolResult(BaseModel):
 def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
     """
     DEPRECATED: This function is kept for backward compatibility.
-    
+
     Note: MCPTools.build_tools() still uses this for internal tool registration.
     For registering tools to ToolRegistry, use create_lazy_mcp_entrypoint instead.
-    
+
     Return an entrypoint for an MCP tool that captures a session.
     """
     async def call_tool(tool_name: str, **kwargs) -> ToolResult:
@@ -52,17 +50,17 @@ def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
             if 'filepath' in kwargs:
                 logger.warning(f"[MCP Tool Call] 🔍 文件路径参数: {kwargs['filepath']}")
             result: CallToolResult = await session.call_tool(tool_name, kwargs)  # type: ignore
-            
+
             # Return an error if the tool call failed
             if result.isError:
                 return ToolResult(content=f"Error from MCP tool '{tool_name}': {result.content}")
-            
+
             # Process the result content (simplified version)
             response_str = ""
             for content_item in result.content:
                 if hasattr(content_item, 'text'):
                     response_str += content_item.text + "\n"
-            
+
             return ToolResult(content=response_str.strip())
         except Exception as e:
             logger.exception(f"Failed to call MCP tool '{tool_name}': {e}")
@@ -106,33 +104,34 @@ def create_lazy_mcp_entrypoint(
     """创建 MCP 工具的 lazy entrypoint"""
     async def call_tool(**kwargs) -> ToolResult:
         import asyncio
-        from app.services.mcp_toolkit_manager import get_toolkit_manager
+
         from app.core.database import async_session_factory
         from app.services.mcp_server_service import McpServerService
-        
+        from app.services.mcp_toolkit_manager import get_toolkit_manager
+
         # Get toolkit from toolkit manager
         toolkit_manager = get_toolkit_manager()
-        
+
         # Look up server config (cache this if possible in future)
         async with async_session_factory() as db:
             server_service = McpServerService(db)
             server = await server_service.repo.get_by_name(user_id, server_name)
-            
+
             if not server:
                 error_msg = f"MCP server '{server_name}' not found for user '{user_id}'"
                 logger.error(f"[MCP Tool Execution] {error_msg}")
                 return ToolResult(content=f"Error: {error_msg}")
-            
+
             if not server.enabled:
                 error_msg = f"MCP server '{server_name}' is disabled"
                 logger.warning(f"[MCP Tool Execution] {error_msg}")
                 return ToolResult(content=f"Error: {error_msg}")
-            
+
             # Get toolkit from manager (will create if not exists)
             try:
                 toolkit = await toolkit_manager.get_toolkit(server, user_id)
                 session = toolkit.session
-                
+
                 if not session:
                     error_msg = f"Toolkit session not initialized for server '{server_name}'"
                     logger.error(f"[MCP Tool Execution] {error_msg}")
@@ -141,7 +140,7 @@ def create_lazy_mcp_entrypoint(
                 error_msg = f"Failed to get toolkit for server '{server_name}': {e}"
                 logger.error(f"[MCP Tool Execution] {error_msg}", exc_info=True)
                 return ToolResult(content=f"Error: {error_msg}")
-        
+
         # Retry logic for tool execution
         last_error = None
         for attempt in range(max_retries + 1):
@@ -249,11 +248,11 @@ def create_lazy_mcp_entrypoint(
                     content=response_str.strip(),
                     images=images if images else None,
                 )
-                
+
             except Exception as e:
                 last_error = e
                 is_retryable = _is_retryable_error(e)
-                
+
                 if attempt < max_retries and is_retryable:
                     delay = retry_delay * (2 ** attempt)  # Exponential backoff
                     logger.warning(
@@ -272,10 +271,10 @@ def create_lazy_mcp_entrypoint(
                     continue
                 else:
                     # Non-retryable error or max retries reached
-                    error_type = "timeout" if "timeout" in str(e).lower() else "unknown"
+                    "timeout" if "timeout" in str(e).lower() else "unknown"
                     if not is_retryable:
-                        error_type = "config" if "not found" in str(e).lower() or "disabled" in str(e).lower() else "unknown"
-                    
+                        "config" if "not found" in str(e).lower() or "disabled" in str(e).lower() else "unknown"
+
                     error_msg = f"Failed to execute MCP tool '{tool_name}' from server '{server_name}': {e}"
                     logger.error(
                         f"[MCP Tool Execution] {error_msg}",

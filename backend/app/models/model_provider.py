@@ -1,10 +1,9 @@
 """
 模型供应商模型
 """
-import uuid
-from typing import Optional, TYPE_CHECKING
-from sqlalchemy import JSON, String, Index
-from sqlalchemy.dialects.postgresql import UUID
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import JSON, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import BaseModel
@@ -21,19 +20,19 @@ class ModelProvider(BaseModel):
     display_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="显示名称，如 'OpenAI', 'Anthropic'")
     icon: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="图标URL")
     description: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="供应商描述")
-    
+
     # 支持的模型类型列表，如 ["llm", "chat", "embedding", "rerank", "speech_to_text", "text_to_speech", "moderation"]
     supported_model_types: Mapped[dict] = mapped_column(JSON, nullable=False, default=list, comment="支持的模型类型列表")
-    
+
     # 凭据表单规则（JSON Schema格式）
     credential_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, comment="凭据表单规则，定义需要哪些字段")
-    
+
     # 配置规则（参数规则）
     config_schema: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="模型参数配置规则")
-    
+
     # 是否启用
     is_enabled: Mapped[bool] = mapped_column(default=True, nullable=False, comment="是否启用该供应商")
-    
+
     # 关系
     credentials: Mapped[list["ModelCredential"]] = relationship(
         "ModelCredential",

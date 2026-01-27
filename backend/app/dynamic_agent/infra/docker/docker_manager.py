@@ -3,32 +3,30 @@ Docker container management system
 Supports dynamic creation, execution, resource limits and monitoring
 """
 
-import logging
 import os
 import shutil
-from typing import Optional, List, Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
+from loguru import logger
+
+from app.dynamic_agent.core.constants import DOCKER_RUN_CAPS, DOCKER_RUN_GROUP, DOCKER_RUN_USER
 
 from .exceptions import (
-    DockerConnectionError,
-    ContainerCreationError,
     ContainerExecutionError,
     ContainerNotFoundError,
     ContainerStateError,
+    DockerConnectionError,
 )
 from .resource_limiter import ResourceLimits
-from .resource_monitor import ResourceMonitor, ResourceMetrics
-from app.dynamic_agent.core.constants import DOCKER_RUN_USER, DOCKER_RUN_GROUP, DOCKER_RUN_CAPS
-
-from loguru import logger
+from .resource_monitor import ResourceMetrics, ResourceMonitor
 
 
 class ContainerInfo:
     """Container information"""
-    
+
     def __init__(self, container: Container):
         self.container = container
         self.id = container.id
@@ -38,7 +36,7 @@ class ContainerInfo:
         self.status = container.status
         self.created = container.attrs.get('Created')
         self.started = container.attrs.get('State', {}).get('StartedAt')
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary"""
         return {
@@ -55,14 +53,14 @@ class ContainerInfo:
 class DockerManager:
     """
     Docker container manager
-    
+
     Supports:
     - Dynamic container creation
     - Container command execution
     - Resource limits (CPU, memory, disk, process count)
     - Resource monitoring
     - Container lifecycle management
-    
+
     Example:
         >>> manager = DockerManager()
         >>> container = manager.create_container(
@@ -77,14 +75,14 @@ class DockerManager:
         >>> metrics = manager.monitor_resources(container.id, duration=10)
         >>> manager.stop_container(container.id)
     """
-    
+
     def __init__(self, base_url: Optional[str] = None):
         """
         Initialize Docker manager
-        
+
         Args:
             base_url: Docker daemon URL, defaults to Unix socket
-        
+
         Raises:
             DockerConnectionError: Cannot connect to Docker daemon
         """
@@ -108,20 +106,20 @@ class DockerManager:
                                 self.client = None
                     else:
                         logger.warning("Colima not found, cannot initialize Docker connection")
-            
+
             # Test connection - only if client was successfully initialized
             if self.client is None:
                 raise DockerConnectionError("Docker client not initialized. Cannot connect to Docker daemon. "
                                          "If running in a container, you may need to mount Docker socket: "
                                          "-v /var/run/docker.sock:/var/run/docker.sock")
-            
+
             self.client.ping()
             logger.info("Docker connection successful")
         except DockerConnectionError:
             raise
         except Exception as e:
             raise DockerConnectionError(f"Cannot connect to Docker daemon: {e}")
-        
+
         self.monitor = ResourceMonitor(self.client)
         self.containers: Dict[str, ContainerInfo] = {}
 
@@ -198,7 +196,7 @@ class DockerManager:
     ) -> ContainerInfo:
         """
         Create Docker container
-        
+
         Args:
             image: Image name (e.g., 'ubuntu:20.04')
             command: Start command (e.g., 'bash -c "echo hello"')
@@ -211,13 +209,13 @@ class DockerManager:
             detach: Whether to run in background
             auto_remove: Whether to auto-remove when stopped
             **kwargs: Other Docker API parameters
-        
+
         Returns:
             ContainerInfo: Container information
-        
+
         Raises:
             ContainerCreationError: Container creation failed
-        
+
         Example:
             >>> limits = ResourceLimits.from_human_readable(
             ...     cpu='1',
@@ -240,7 +238,7 @@ class DockerManager:
             except ImageNotFound:
                 logger.info(f"Image {image} not found, pulling...")
                 self.client.images.pull(image)
-            
+
             # Build container parameters
             container_kwargs = {
                 'image': image,
@@ -249,20 +247,20 @@ class DockerManager:
                 'auto_remove': auto_remove,
                 'network_mode': network_mode,
             }
-            
+
             if name:
                 container_kwargs['name'] = name
-            
+
             if environment:
                 container_kwargs['environment'] = environment
-            
+
             if volumes:
                 container_kwargs['volumes'] = volumes
-            
+
             # host network mode is incompatible with port bindings
             if ports and network_mode != 'host':
                 container_kwargs['ports'] = ports
-            
+
             # macOS/Colima: Add extra_hosts to allow container to access host network
             # This maps 'host.docker.internal' to the host gateway IP
             container_kwargs['extra_hosts'] = {
@@ -275,10 +273,10 @@ class DockerManager:
             # Add resource limits
             if resource_limits:
                 container_kwargs.update(resource_limits.to_docker_kwargs())
-            
+
             # Add other parameters
             container_kwargs.update(kwargs)
-            
+
             # Create container
             container = self.client.containers.create(**container_kwargs)
 
@@ -292,14 +290,14 @@ class DockerManager:
                     logger.warning(f"Failed to cleanup failed container: {cleanup_error}")
                 raise e
 
-            
+
             # Save container information
             info = ContainerInfo(container)
             self.containers[container.id] = info
-            
+
             logger.info(f"Container created successfully: {info.name} ({info.short_id})")
             return info
-        
+
         except Exception as e:
             # raise ContainerCreationError(f"Container creation failed: {e}")
             raise e
@@ -313,20 +311,20 @@ class DockerManager:
     ) -> Tuple[int, str, str]:
         """
         Execute command in container
-        
+
         Args:
             container_id: Container ID or name
             command: Command to execute
             timeout: Execution timeout in seconds
             privileged: Whether to execute in privileged mode
-        
+
         Returns:
             Tuple[int, str, str]: (exit_code, stdout, stderr)
-        
+
         Raises:
             ContainerNotFoundError: Container not found
             ContainerExecutionError: Command execution failed
-        
+
         Example:
             >>> exit_code, stdout, stderr = manager.execute_command(
             ...     container_id='abc123',
@@ -340,13 +338,13 @@ class DockerManager:
             container = self.client.containers.get(container_id)
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
-        
+
         try:
             # Check container status
             container.reload()
             if container.status != 'running':
                 raise ContainerStateError(f"Container not running: {container.status}")
-            
+
             # Execute command
             result = container.exec_run(
                 cmd=command,
@@ -354,27 +352,27 @@ class DockerManager:
                 stderr=True,
                 privileged=privileged,
             )
-            
+
             exit_code = result.exit_code
             stdout = result.output.decode('utf-8', errors='ignore') if result.output else ''
             stderr = ''  # Docker exec_run mixes stderr into stdout
-            
+
             logger.debug(f"Command execution completed: {command} (exit_code={exit_code})")
             return exit_code, stdout, stderr
-        
+
         except docker.errors.APIError as e:
             raise ContainerExecutionError(f"Command execution failed: {e}")
-    
+
     def get_container_info(self, container_id: str) -> ContainerInfo:
         """
         Get container information
-        
+
         Args:
             container_id: Container ID or name
-        
+
         Returns:
             ContainerInfo: Container information
-        
+
         Raises:
             ContainerNotFoundError: Container not found
         """
@@ -383,20 +381,20 @@ class DockerManager:
             return ContainerInfo(container)
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
-    
+
     def list_containers(self, all: bool = False) -> List[ContainerInfo]:
         """
         List containers
-        
+
         Args:
             all: Whether to list all containers (including stopped)
-        
+
         Returns:
             List[ContainerInfo]: List of container information
         """
         containers = self.client.containers.list(all=all)
         return [ContainerInfo(c) for c in containers]
-    
+
     def stop_container(
         self,
         container_id: str,
@@ -405,31 +403,31 @@ class DockerManager:
     ) -> None:
         """
         Stop container
-        
+
         Args:
             container_id: Container ID or name
             timeout: Stop timeout in seconds
             force: Whether to force stop (SIGKILL)
-        
+
         Raises:
             ContainerNotFoundError: Container not found
             ContainerExecutionError: Stop failed
         """
         try:
             container = self.client.containers.get(container_id)
-            
+
             if force:
                 container.kill()
                 logger.info(f"Container force stopped: {container.name}")
             else:
                 container.stop(timeout=timeout)
                 logger.info(f"Container stopped: {container.name}")
-        
+
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
         except docker.errors.APIError as e:
             raise ContainerExecutionError(f"Stop container failed: {e}")
-    
+
     def remove_container(
         self,
         container_id: str,
@@ -438,12 +436,12 @@ class DockerManager:
     ) -> None:
         """
         Remove container
-        
+
         Args:
             container_id: Container ID or name
             force: Whether to force remove (stop first then remove)
             volumes: Whether to remove associated volumes
-        
+
         Raises:
             ContainerNotFoundError: Container not found
             ContainerExecutionError: Remove failed
@@ -451,17 +449,17 @@ class DockerManager:
         try:
             container = self.client.containers.get(container_id)
             container.remove(force=force, v=volumes)
-            
+
             # Remove from cache
             self.containers.pop(container.id, None)
-            
+
             logger.info(f"Container removed: {container.name}")
-        
+
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
         except docker.errors.APIError as e:
             raise ContainerExecutionError(f"Remove container failed: {e}")
-    
+
     def restart_container(
         self,
         container_id: str,
@@ -469,11 +467,11 @@ class DockerManager:
     ) -> None:
         """
         Restart container
-        
+
         Args:
             container_id: Container ID or name
             timeout: Restart timeout in seconds
-        
+
         Raises:
             ContainerNotFoundError: Container not found
             ContainerExecutionError: Restart failed
@@ -482,19 +480,19 @@ class DockerManager:
             container = self.client.containers.get(container_id)
             container.restart(timeout=timeout)
             logger.info(f"Container restarted: {container.name}")
-        
+
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
         except docker.errors.APIError as e:
             raise ContainerExecutionError(f"Restart container failed: {e}")
-    
+
     def pause_container(self, container_id: str) -> None:
         """
         Pause container
-        
+
         Args:
             container_id: Container ID or name
-        
+
         Raises:
             ContainerNotFoundError: Container not found
             ContainerExecutionError: Pause failed
@@ -503,19 +501,19 @@ class DockerManager:
             container = self.client.containers.get(container_id)
             container.pause()
             logger.info(f"Container paused: {container.name}")
-        
+
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
         except docker.errors.APIError as e:
             raise ContainerExecutionError(f"Pause container failed: {e}")
-    
+
     def unpause_container(self, container_id: str) -> None:
         """
         Resume container
-        
+
         Args:
             container_id: Container ID or name
-        
+
         Raises:
             ContainerNotFoundError: Container not found
             ContainerExecutionError: Resume failed
@@ -524,12 +522,12 @@ class DockerManager:
             container = self.client.containers.get(container_id)
             container.unpause()
             logger.info(f"Container resumed: {container.name}")
-        
+
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
         except docker.errors.APIError as e:
             raise ContainerExecutionError(f"Resume container failed: {e}")
-    
+
     def monitor_resources(
         self,
         container_id: str,
@@ -538,18 +536,18 @@ class DockerManager:
     ) -> ResourceMetrics:
         """
         Monitor container resource usage
-        
+
         Args:
             container_id: Container ID
             duration: Monitoring duration in seconds
             interval: Monitoring interval in seconds
-        
+
         Returns:
             ResourceMetrics: Resource metrics
-        
+
         Raises:
             ContainerNotFoundError: Container not found
-        
+
         Example:
             >>> metrics = manager.monitor_resources(
             ...     container_id='abc123',
@@ -565,7 +563,7 @@ class DockerManager:
             duration=duration,
             interval=interval,
         )
-    
+
     def get_container_logs(
         self,
         container_id: str,
@@ -574,15 +572,15 @@ class DockerManager:
     ) -> str:
         """
         Get container logs
-        
+
         Args:
             container_id: Container ID
             tail: Get last N lines of logs
             follow: Whether to stream output
-        
+
         Returns:
             str: Container logs
-        
+
         Raises:
             ContainerNotFoundError: Container not found
         """
@@ -592,7 +590,7 @@ class DockerManager:
             return logs.decode('utf-8', errors='ignore')
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
-    
+
     def cleanup(self):
         """Clean up resources"""
         self.containers.clear()

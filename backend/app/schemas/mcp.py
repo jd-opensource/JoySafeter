@@ -8,8 +8,8 @@ MCP 相关的 Pydantic Schemas
 - ConnectionTestResult: 连接测试结果
 """
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ==================== MCP Server ====================
 
@@ -54,7 +54,7 @@ class McpServerResponse(BaseModel):
     tool_count: int = 0
     created_at: str
     updated_at: str
-    
+
     @classmethod
     def from_model(cls, server) -> "McpServerResponse":
         """从数据库模型创建"""
@@ -93,7 +93,7 @@ class ConnectionTestResult(BaseModel):
 class ToolInfo(BaseModel):
     """
     工具信息 (Service 层)
-    
+
     包含所有权信息，用于权限控制
     """
     id: str
@@ -108,7 +108,7 @@ class ToolInfo(BaseModel):
     owner_user_id: Optional[str] = None
     owner_workspace_id: Optional[str] = None
     enabled: bool = True
-    
+
     def to_response(self) -> "ToolResponse":
         """转换为 API 响应"""
         # 使用 label_name 作为显示名称

@@ -1,13 +1,15 @@
 """
 组织与成员 Repository
 """
-from typing import Optional, List
 import uuid
-from sqlalchemy import select, func
+from typing import List, Optional
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.organization import Organization, Member
+from app.models.organization import Member, Organization
+
 from .base import BaseRepository
 
 

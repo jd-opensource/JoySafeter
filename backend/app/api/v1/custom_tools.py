@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +26,7 @@ class CustomToolCreate(BaseModel):
     json_schema: Dict[str, Any] = Field(default_factory=dict, alias="schema")
     runtime: str = Field(default="python", max_length=50)
     enabled: bool = True
-    
+
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -36,7 +36,7 @@ class CustomToolUpdate(BaseModel):
     json_schema: Optional[Dict[str, Any]] = Field(None, alias="schema")
     runtime: Optional[str] = Field(None, max_length=50)
     enabled: Optional[bool] = None
-    
+
     model_config = ConfigDict(populate_by_name=True)
 
 

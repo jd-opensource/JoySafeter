@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class CheckovHandler(AbstractHandler):
     """Handler for checkov functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['checkov']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute checkov with enhanced logging"""
         try:
@@ -39,7 +39,7 @@ class CheckovHandler(AbstractHandler):
                 command += f" {additional_args}"
             logger.info(f"🔍 Starting Checkov IaC scan: {directory}")
             result = execute_command(command)
-            logger.info(f"📊 Checkov scan completed")
+            logger.info("📊 Checkov scan completed")
             return result
         except Exception as e:
             logger.error(f"💥 Error in checkov endpoint: {str(e)}")

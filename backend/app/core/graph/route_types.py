@@ -5,8 +5,8 @@ Provides type-safe route key definitions and validation utilities.
 """
 
 from typing import Literal, Set, Union
-from typing_extensions import TypedDict
 
+from typing_extensions import TypedDict
 
 # Common route keys used in conditional routing
 RouteKey = Union[
@@ -19,7 +19,7 @@ RouteKey = Union[
 
 class RouteConfig(TypedDict, total=False):
     """Configuration for a route in conditional edges.
-    
+
     Attributes:
         route_key: The route key identifier
         target_node: The target node name
@@ -32,11 +32,11 @@ class RouteConfig(TypedDict, total=False):
 
 def validate_route_key(route_key: str, allowed_keys: Set[str]) -> bool:
     """Validate that a route key is in the allowed set.
-    
+
     Args:
         route_key: The route key to validate
         allowed_keys: Set of allowed route keys
-        
+
     Returns:
         True if route_key is valid, False otherwise
     """
@@ -45,7 +45,7 @@ def validate_route_key(route_key: str, allowed_keys: Set[str]) -> bool:
 
 def get_standard_route_keys() -> Set[str]:
     """Get the set of standard route keys used in the system.
-    
+
     Returns:
         Set of standard route key strings
     """

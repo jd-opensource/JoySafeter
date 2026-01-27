@@ -7,11 +7,11 @@ Defines the fundamental types used throughout the agent system:
 - Context and validation types
 """
 
-from typing import Any, AsyncGenerator, Dict, List, Optional, Protocol, Union
-from enum import Enum
-from pydantic import BaseModel, Field
 import asyncio
+from enum import Enum
+from typing import Any, AsyncGenerator, Dict, List, Optional, Protocol, Union
 
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # Message Types
@@ -150,41 +150,41 @@ ToolResult = Union[ToolResultProgress, ToolResultFinal]
 class Tool(Protocol):
     """
     Tool protocol defining the interface all tools must implement.
-    
+
     This is the core abstraction that allows the agent to work with
     different tools in a uniform way.
     """
-    
+
     name: str
     """Unique tool name."""
-    
+
     input_schema: type[BaseModel]
     """Pydantic model class for input validation."""
-    
+
     async def is_enabled(self) -> bool:
         """Check if tool is currently enabled."""
         ...
-    
+
     def is_read_only(self) -> bool:
         """Check if tool only reads data (allows concurrent execution)."""
         ...
-    
+
     def needs_permissions(self, input: BaseModel) -> bool:
         """Check if this tool invocation requires user permission."""
         ...
-    
+
     async def validate_input(
-        self, 
-        input: BaseModel, 
+        self,
+        input: BaseModel,
         ctx: ToolUseContext
     ) -> ValidationResult:
         """
         Validate tool input beyond schema validation.
-        
+
         This can check file existence, path boundaries, etc.
         """
         ...
-    
+
     async def call(
         self,
         input: BaseModel,
@@ -193,15 +193,15 @@ class Tool(Protocol):
     ) -> AsyncGenerator[ToolResult, None]:
         """
         Execute the tool and yield results.
-        
+
         Can yield multiple progress updates before final result.
         """
         ...
-    
+
     def user_facing_name(self, input: Optional[BaseModel] = None) -> str:
         """Get user-friendly name for this tool invocation."""
         ...
-    
+
     def render_result_for_assistant(self, data: Any) -> Any:
         """Format result for assistant consumption."""
         ...
@@ -224,10 +224,10 @@ class LLMProviderOptions(BaseModel):
 class LLMProvider(Protocol):
     """
     LLM Provider protocol for model API abstraction.
-    
+
     Allows swapping between Anthropic, OpenAI, etc.
     """
-    
+
     async def complete(
         self,
         messages: List[MessageParam],
@@ -238,7 +238,7 @@ class LLMProvider(Protocol):
     ) -> AssistantMessage:
         """
         Get completion from LLM.
-        
+
         Returns a complete assistant message with tool uses if any.
         """
         ...
@@ -257,10 +257,10 @@ class PermissionResult(BaseModel):
 class PermissionStrategy(Protocol):
     """
     Permission strategy for tool access control.
-    
+
     Can be implemented to integrate with UI permission dialogs.
     """
-    
+
     async def check(
         self,
         tool: Tool,
@@ -278,19 +278,19 @@ class PermissionStrategy(Protocol):
 
 class Logger(Protocol):
     """Logger protocol for observability."""
-    
+
     def event(self, name: str, props: Optional[Dict[str, str]] = None) -> None:
         """Log an event."""
         ...
-    
+
     def error(self, err: Exception) -> None:
         """Log an error."""
         ...
-    
+
     def info(self, message: str, **kwargs: Any) -> None:
         """Log info message."""
         ...
-    
+
     def write_sidechain(self, path: str, messages: List[Message]) -> None:
         """Write sidechain log (optional)."""
         ...

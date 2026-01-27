@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class FeroxbusterHandler(AbstractHandler):
     """Handler for feroxbuster functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['feroxbuster']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute feroxbuster with enhanced logging"""
         try:
@@ -27,9 +27,9 @@ class FeroxbusterHandler(AbstractHandler):
             if not url:
                 logger.warning("🌐 Feroxbuster called without URL parameter")
                 return {
-    
+
                     "error": "URL parameter is required"
-                
+
                 }
             command = f"feroxbuster -u {url} -w {wordlist} -t {threads}"
             if additional_args:
@@ -41,7 +41,7 @@ class FeroxbusterHandler(AbstractHandler):
         except Exception as e:
             logger.error(f"💥 Error in feroxbuster endpoint: {str(e)}")
             return {
-    
+
                 "error": f"Server error: {str(e)}"
-            
+
             }

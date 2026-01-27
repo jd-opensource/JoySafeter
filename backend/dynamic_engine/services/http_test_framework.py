@@ -1,11 +1,10 @@
 import logging
 import re
 from datetime import datetime
-from urllib.parse import urljoin, urlparse, parse_qsl, urlencode, urlunparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
-
 
 logger = logging.getLogger(__name__)
 

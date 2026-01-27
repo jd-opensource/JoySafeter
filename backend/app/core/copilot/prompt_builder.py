@@ -12,12 +12,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.core.copilot.graph_analyzer import (
-    normalize_node,
     analyze_graph_topology,
-    generate_topology_description,
-    build_enhanced_node_data,
     calculate_next_position,
     calculate_positions_for_deepagents,
+    generate_topology_description,
+    normalize_node,
 )
 
 
@@ -28,19 +27,19 @@ def build_llm_messages(
 ) -> List[Dict[str, str]]:
     """
     Build messages list for LLM API calls with conversation history.
-    
+
     Args:
         system_prompt: System prompt content
         user_prompt: Current user prompt
-        conversation_history: Optional list of previous messages in format 
+        conversation_history: Optional list of previous messages in format
                              [{"role": "user"|"assistant", "content": "..."}, ...]
                              Can also include "actions" field for context
-    
+
     Returns:
         List of message dictionaries ready for OpenAI API
     """
     messages = [{"role": "system", "content": system_prompt}]
-    
+
     # Add conversation history if provided
     if conversation_history:
         for msg in conversation_history:
@@ -48,7 +47,7 @@ def build_llm_messages(
                 role = msg["role"]
                 content = msg.get("content", "")
                 actions = msg.get("actions", [])
-                
+
                 # Only include user and assistant messages, skip invalid roles
                 if role in ("user", "assistant") and content:
                     # For assistant messages, append action summary if actions exist
@@ -56,10 +55,10 @@ def build_llm_messages(
                         action_summary = _format_actions_summary(actions)
                         content = f"{content}\n\n[Previous Actions Created: {action_summary}]"
                     messages.append({"role": role, "content": content})
-    
+
     # Add current user prompt
     messages.append({"role": "user", "content": user_prompt})
-    
+
     return messages
 
 
@@ -67,12 +66,12 @@ def _format_actions_summary(actions: List[Dict[str, Any]]) -> str:
     """Format actions into a brief summary for conversation context."""
     if not actions:
         return "None"
-    
+
     summaries = []
     for action in actions:
         action_type = action.get("type", "")
         payload = action.get("payload", {})
-        
+
         if action_type == "CREATE_NODE":
             node_id = payload.get("id", "unknown")
             label = payload.get("label", "")
@@ -86,7 +85,7 @@ def _format_actions_summary(actions: List[Dict[str, Any]]) -> str:
             summaries.append(f"Deleted node {payload.get('id', '')}")
         elif action_type == "UPDATE_CONFIG":
             summaries.append(f"Updated config for {payload.get('id', '')}")
-    
+
     return "; ".join(summaries[:5])  # Limit to 5 actions for brevity
 
 
@@ -96,56 +95,56 @@ def build_copilot_system_prompt(
 ) -> str:
     """
     Build the comprehensive system prompt for Copilot.
-    
+
     This prompt guides the AI in:
     - Understanding current graph structure
     - Making decisions about node creation/modification
     - Following best practices for workflow design
     - Selecting appropriate models for agent nodes
-    
+
     Args:
         graph_context: Current graph state with nodes and edges
         available_models: Optional list of available models for model selection
-        
+
     Returns:
         Complete system prompt string
     """
     # Extract nodes and edges from graph context
     nodes = graph_context.get("nodes", [])
     edges = graph_context.get("edges", [])
-    
+
     # Normalize all nodes to extract data structure
     normalized_nodes = [normalize_node(node) for node in nodes]
-    
+
     # Analyze graph topology
     topology = analyze_graph_topology(normalized_nodes, edges)
-    
+
     # Build enhanced context data for each node (simplified)
     existing_nodes = _build_simplified_node_data(normalized_nodes, topology)
-    
+
     # Pre-calculate next available position - DIRECT VALUES
     next_pos = calculate_next_position(normalized_nodes)
-    
+
     # Build node map for topology description
     node_map = {node["id"]: node for node in normalized_nodes}
-    
+
     # Generate structured topology description
     topology_description = generate_topology_description(
         normalized_nodes, topology, node_map
     )
-    
+
     # Build available models summary for context
     models_summary = _build_models_summary(available_models or [])
-    
+
     # Get current time for temporal context in search operations
     current_time = datetime.utcnow().isoformat()
-    
+
     # Detect if graph has DeepAgents (to conditionally load those instructions)
     has_deep_agents = any(
         node.get("config", {}).get("useDeepAgents", False)
         for node in normalized_nodes
     )
-    
+
     # Build optimized prompt with direct values
     return _get_optimized_system_prompt(
         topology_description=topology_description,
@@ -169,57 +168,57 @@ def _build_simplified_node_data(
     Only includes essential information for decision making.
     """
     existing_nodes = []
-    
+
     for node in normalized_nodes:
         node_id = node["id"]
         config = node.get("config", {})
-        
+
         # Check if DeepAgents is enabled
         is_deep_agent = config.get("useDeepAgents", False) is True
-        
+
         # Get DeepAgents role from topology analysis
         deep_agent_info = topology["deepAgentsHierarchy"].get(node_id, {})
         role = deep_agent_info.get("role") if is_deep_agent else None
-        
+
         # Simplified node data - only essential fields
         node_data = {
             "id": node_id,
             "type": node.get("type", "agent"),
             "label": node.get("label", ""),
         }
-        
+
         # Only add optional fields if they exist and are meaningful
         if is_deep_agent:
             node_data["isDeepAgent"] = True
             node_data["role"] = role
-        
+
         if config.get("description"):
             node_data["description"] = config["description"]
-        
+
         existing_nodes.append(node_data)
-    
+
     return existing_nodes
 
 
 def _build_models_summary(models: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Build a summary of available models for the context.
-    
+
     Args:
         models: List of model info dicts from ModelService
-        
+
     Returns:
         Summarized model info for prompt context
     """
     if not models:
         return {"count": 0, "models": [], "defaultModel": None}
-    
+
     # Filter to only available models
     available = [m for m in models if m.get("is_available", False)]
-    
+
     # Find default model
     default_model = next((m.get("name") for m in available if m.get("is_default")), None)
-    
+
     # Build simplified model list
     model_list = [
         {
@@ -230,7 +229,7 @@ def _build_models_summary(models: List[Dict[str, Any]]) -> Dict[str, Any]:
         }
         for m in available
     ]
-    
+
     return {
         "count": len(model_list),
         "models": model_list,
@@ -251,7 +250,7 @@ def _get_optimized_system_prompt(
 ) -> str:
     """
     Build an optimized system prompt with direct value injection.
-    
+
     Key optimizations:
     1. Direct position values (no JSON parsing needed)
     2. Modular sections based on context
@@ -261,11 +260,11 @@ def _get_optimized_system_prompt(
     # Build node list string (simplified)
     nodes_str = json.dumps(existing_nodes, indent=2, ensure_ascii=False) if existing_nodes else "[]"
     edges_str = json.dumps([{"source": e.get("source"), "target": e.get("target")} for e in edges], indent=2) if edges else "[]"
-    
+
     # Build model list (simplified)
     model_names = [m["name"] for m in models_summary.get("models", [])][:5]
     default_model = models_summary.get("defaultModel", "system default")
-    
+
     # Base prompt (always included) - Optimized with XML structure
     prompt = f"""You are an AI Agent Builder Copilot that creates professional workflow graphs.
 
@@ -340,13 +339,13 @@ Note: Parameter name in create_node tool is "use_deep_agents" (maps to useDeepAg
         x_spacing=250,
         y_spacing=150
     )
-    
+
     # Extract calculated positions (use unified function results, no hardcoded fallbacks)
     manager_pos = deepagents_positions["manager"][0] if deepagents_positions["manager"] else {"x": next_position_x, "y": next_position_y}
     subagent1_pos = deepagents_positions["subagents"][0] if len(deepagents_positions["subagents"]) > 0 else {"x": next_position_x + 250, "y": next_position_y}
     subagent2_pos = deepagents_positions["subagents"][1] if len(deepagents_positions["subagents"]) > 1 else {"x": next_position_x + 250, "y": next_position_y + 150}
     subagent3_pos = deepagents_positions["subagents"][2] if len(deepagents_positions["subagents"]) > 2 else {"x": next_position_x + 250, "y": next_position_y + 300}
-    
+
     # Execution workflow - Optimized with clear algorithms
     prompt += f"""
 <execution-workflow>
@@ -377,7 +376,7 @@ For single nodes (non-DeepAgents): Use nextPosition from <context> section above
 <systemprompt-checklist>
 For EVERY agent node:
 - [ ] Clear ROLE definition
-- [ ] Specific TASK description  
+- [ ] Specific TASK description
 - [ ] OUTPUT FORMAT specification
 - [ ] DO NOT / constraints section
 - [ ] Manager lists ALL SubAgents
@@ -435,7 +434,7 @@ def _get_system_prompt_template(topology_description: str, context_str: str, cur
         edges = []
         topology = {}
         has_deep_agents = False
-    
+
     return _get_optimized_system_prompt(
         topology_description=topology_description,
         existing_nodes=existing_nodes,

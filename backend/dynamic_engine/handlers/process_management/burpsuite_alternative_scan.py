@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.services.browser import browser_agent
@@ -10,14 +10,14 @@ logger = logging.getLogger(__name__)
 
 class BurpsuiteAlternativeHandler(AbstractHandler):
     """Handler for burpsuite_alternative functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return []
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute burpsuite_alternative with enhanced logging"""
         try:
@@ -28,7 +28,6 @@ class BurpsuiteAlternativeHandler(AbstractHandler):
             max_pages = data.get("max_pages", 50)
             if not target:
                 return {"error": "Target parameter is required"}
-            scan_message = f'Starting {scan_type} scan of {target}'
             results = {
                 'target': target,
                 'scan_type': scan_type,

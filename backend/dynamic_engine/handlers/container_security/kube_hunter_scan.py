@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class KubeHunterHandler(AbstractHandler):
     """Handler for kube_hunter functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['kube-hunter']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute kube_hunter with enhanced logging"""
         try:
@@ -44,9 +44,9 @@ class KubeHunterHandler(AbstractHandler):
                 command += f" --report {report}"
             if additional_args:
                 command += f" {additional_args}"
-            logger.info(f"☁️  Starting kube-hunter Kubernetes scan")
+            logger.info("☁️  Starting kube-hunter Kubernetes scan")
             result = execute_command(command)
-            logger.info(f"📊 kube-hunter scan completed")
+            logger.info("📊 kube-hunter scan completed")
             return result
         except Exception as e:
             logger.error(f"💥 Error in kube-hunter endpoint: {str(e)}")

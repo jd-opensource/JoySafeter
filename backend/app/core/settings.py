@@ -6,7 +6,7 @@ import socket
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine.url import make_url
 
@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         """
         从 POSTGRES_* 环境变量构建数据库连接 URL
-        
+
         自动处理两种场景：
         1. Backend 在本机启动：使用 localhost + POSTGRES_PORT_HOST（如果设置）或 5432
         2. 在同一个 docker-compose：使用服务名（如 "db"）+ 容器内部端口 5432
@@ -129,7 +129,7 @@ class Settings(BaseSettings):
             url = make_url(database_url)
             host = url.host
             port = url.port
-            
+
             if host in ("localhost", "127.0.0.1", "::1") and port:
                 if not _is_tcp_port_open(host, port):
                     # 如果当前配置的端口不通，但 5432 通，则自动切换
@@ -139,7 +139,7 @@ class Settings(BaseSettings):
                         print(f"   ⚠️  Database connection to {host}:{port} failed, auto-switched to 5432")
         except Exception:
             pass
-        
+
         return database_url
 
     # Sync database URL for Alembic

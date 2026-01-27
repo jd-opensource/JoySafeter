@@ -4,10 +4,9 @@
 用于 LangGraph 对话系统的会话管理
 """
 
-import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, UUID, ForeignKey, Integer, String
+from sqlalchemy import JSON, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel, SoftDeleteMixin

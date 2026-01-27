@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class FfufHandler(AbstractHandler):
     """Handler for ffuf functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['ffuf']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute ffuf with enhanced logging"""
         try:
@@ -28,11 +28,11 @@ class FfufHandler(AbstractHandler):
             if not url:
                 logger.warning("🌐 FFuf called without URL parameter")
                 return {
-    
+
                     "error": "URL parameter is required"
-                
+
                 }
-            command = f"ffuf"
+            command = "ffuf"
             if mode == "directory":
                 command += f" -u {url}/FUZZ -w {wordlist}"
             elif mode == "vhost":
@@ -51,7 +51,7 @@ class FfufHandler(AbstractHandler):
         except Exception as e:
             logger.error(f"💥 Error in ffuf endpoint: {str(e)}")
             return {
-    
+
                 "error": f"Server error: {str(e)}"
-            
+
             }

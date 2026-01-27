@@ -5,16 +5,13 @@ Manages Docker container state and execution history.
 Supports both local and remote Docker daemon management via Remote API + TLS.
 """
 
-import logging
-import os
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 from datetime import datetime
-
-from app.dynamic_agent.core.constants import DOCKER_HOST_IP
-from app.dynamic_agent.infra.docker import UnifiedDockerManager
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
+
+from app.dynamic_agent.infra.docker import UnifiedDockerManager
 
 
 @dataclass
@@ -31,31 +28,31 @@ class ContainerContext:
     """Container runtime context."""
     container_id: str
     session_id: str
-    
+
     # Container information
     image: str
     status: str  # running, stopped, paused
-    
+
     # Remote host information (for cross-host management)
     remote_host: Optional[RemoteHostInfo] = None
-    
+
     # File system state
     working_directory: str = "/"
     mounted_volumes: Dict[str, str] = field(default_factory=dict)
-    
+
     # Environment variables
     environment: Dict[str, str] = field(default_factory=dict)
-    
+
     # Installed tools
     installed_tools: List[str] = field(default_factory=list)
-    
+
     # Execution history
     command_history: List[Dict[str, Any]] = field(default_factory=list)
-    
+
     # Resource usage
     cpu_usage: Optional[float] = None
     memory_usage: Optional[int] = None
-    
+
     created_at: datetime = field(default_factory=datetime.now)
     last_accessed: datetime = field(default_factory=datetime.now)
 
@@ -63,7 +60,7 @@ class ContainerContext:
 class ContainerContextManager:
     """
     Container context manager with Remote API support.
-    
+
     Supports both local Docker daemon and remote Docker daemon via TLS.
     Enables cross-host container management.
     """
@@ -84,21 +81,21 @@ class ContainerContextManager:
     ) -> ContainerContext:
         """
         Create container context.
-        
+
         Args:
             session_id: Session ID
             image: Container image
             remote_host_name: Remote host name for cross-host management
             **kwargs: Additional parameters (cpu_cores, memory_gb, disk_gb, environment, etc.)
-        
+
         Returns:
             ContainerContext: Created container context
         """
         from app.dynamic_agent.infra.docker import ResourceLimits
-        
+
         # Create resource limits
         # todo put in config
-        limits = ResourceLimits.from_human_readable(
+        ResourceLimits.from_human_readable(
             cpu=str(kwargs.get('cpu_cores', 2)),
             memory=f"{kwargs.get('memory_gb', 4)}G",
             disk=f"{kwargs.get('disk_gb', 20)}G"
@@ -159,24 +156,24 @@ class ContainerContextManager:
             remote_host=remote_host_info,
             environment=kwargs.get('environment', {})
         )
-        
+
         self._contexts[container_id] = context
         await self.backend.save_container_context(context)
-        
+
         logger.info(f"Container context created: {container_id} on {remote_host_info.host_name}")
         return context
-    
+
     async def get_container_context(self, container_id: str) -> Optional[ContainerContext]:
         """Get container context."""
         if container_id in self._contexts:
             return self._contexts[container_id]
-        
+
         context = await self.backend.load_container_context(container_id)
         if context:
             self._contexts[container_id] = context
-        
+
         return context
-    
+
     async def execute_in_container(
         self,
         container_id: str,
@@ -186,22 +183,22 @@ class ContainerContextManager:
     ) -> Dict[str, Any]:
         """
         Execute command in container.
-        
+
         Supports both local and remote containers.
-        
+
         Args:
             container_id: Container ID
             command: Command to execute
             working_dir: Working directory (optional)
             timeout: Command execution timeout in seconds
-        
+
         Returns:
             Execution record with exit_code, stdout, stderr
         """
         context = await self.get_container_context(container_id)
         if not context:
             raise ValueError(f"Container context {container_id} not found")
-        
+
         # Execute command based on host type
         if context.remote_host and not context.remote_host.is_local:
             logger.info(f"Executing command on remote host: {context.remote_host.host_name}")
@@ -211,10 +208,10 @@ class ContainerContextManager:
                 command=command,
                 timeout=timeout
             )
-            
+
             if not result:
                 raise RuntimeError(f"Failed to execute command on remote container {container_id}")
-            
+
             exit_code, stdout, stderr = result
         else:
             logger.info(f"Executing command on local container: {container_id}")
@@ -222,7 +219,7 @@ class ContainerContextManager:
                 container_id,
                 command
             )
-        
+
         # Record execution
         execution_record = {
             "command": command,
@@ -233,14 +230,14 @@ class ContainerContextManager:
             "working_dir": working_dir or context.working_directory,
             "host": context.remote_host.host_name if context.remote_host else "local"
         }
-        
+
         context.command_history.append(execution_record)
         context.last_accessed = datetime.now()
         await self.backend.save_container_context(context)
-        
+
         logger.debug(f"Command executed: {command} (exit_code={exit_code})")
         return execution_record
-    
+
     async def update_working_directory(
         self,
         container_id: str,
@@ -252,7 +249,7 @@ class ContainerContextManager:
             context.working_directory = directory
             context.last_accessed = datetime.now()
             await self.backend.save_container_context(context)
-    
+
     async def add_installed_tool(
         self,
         container_id: str,
@@ -264,7 +261,7 @@ class ContainerContextManager:
             context.installed_tools.append(tool_name)
             context.last_accessed = datetime.now()
             await self.backend.save_container_context(context)
-    
+
     async def get_command_history(
         self,
         container_id: str,
@@ -274,13 +271,13 @@ class ContainerContextManager:
         context = await self.get_container_context(container_id)
         if not context:
             return []
-        
+
         history = context.command_history
         if limit:
             history = history[-limit:]
-        
+
         return history
-    
+
     async def update_resource_usage(
         self,
         container_id: str,
@@ -296,11 +293,11 @@ class ContainerContextManager:
                 context.memory_usage = memory_usage
             context.last_accessed = datetime.now()
             await self.backend.save_container_context(context)
-    
+
     async def stop_container(self, container_id: str):
         """
         Stop container.
-        
+
         Supports both local and remote containers.
         """
         context = await self.get_container_context(container_id)
@@ -314,14 +311,14 @@ class ContainerContextManager:
             else:
                 logger.info(f"Stopping local container: {container_id}")
                 self.docker_manager.stop_container(container_id)
-            
+
             context.status = "stopped"
             await self.backend.save_container_context(context)
-    
+
     async def remove_container(self, container_id: str):
         """
         Remove container.
-        
+
         Supports both local and remote containers.
         """
         context = await self.get_container_context(container_id)
@@ -335,10 +332,10 @@ class ContainerContextManager:
             else:
                 logger.info(f"Removing local container: {container_id}")
                 self.docker_manager.remove_container(container_id)
-            
+
             if container_id in self._contexts:
                 del self._contexts[container_id]
-    
+
     async def get_container_logs(
         self,
         container_id: str,
@@ -346,20 +343,20 @@ class ContainerContextManager:
     ) -> Optional[str]:
         """
         Get container logs.
-        
+
         Supports both local and remote containers.
-        
+
         Args:
             container_id: Container ID
             tail: Number of log lines
-        
+
         Returns:
             Log content or None if failed
         """
         context = await self.get_container_context(container_id)
         if not context:
             return None
-        
+
         if context.remote_host and not context.remote_host.is_local:
             logger.info(f"Getting logs from remote container: {container_id}")
             logs = self.remote_api_manager.get_container_logs(
@@ -373,33 +370,33 @@ class ContainerContextManager:
                 container_id,
                 tail=tail
             )
-        
+
         return logs
-    
+
     async def get_host_info(self, container_id: str) -> Optional[Dict[str, Any]]:
         """
         Get host information for a container.
-        
+
         Args:
             container_id: Container ID
-        
+
         Returns:
             Host information dict or None if failed
         """
         context = await self.get_container_context(container_id)
         if not context or not context.remote_host:
             return None
-        
+
         if context.remote_host.is_local:
             return {
                 "host_name": "localhost",
                 "host_ip": "127.0.0.1",
                 "is_local": True
             }
-        
+
         logger.info(f"Getting host info for remote container: {container_id}")
         host_info = self.remote_api_manager.get_host_info(
             host_name=context.remote_host.host_name
         )
-        
+
         return host_info

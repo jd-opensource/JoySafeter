@@ -107,12 +107,12 @@ async def update_skill(
 ):
     """更新 Skill"""
     service = SkillService(db)
-    
+
     # Convert files to dict format if provided
     files_data = None
     if payload.files is not None:
         files_data = [f.model_dump() for f in payload.files]
-    
+
     skill = await service.update_skill(
         skill_id,
         current_user.id,

@@ -4,8 +4,9 @@
 import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Any
-from jose import jwt, JWTError
+from typing import Any, Optional
+
+from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from .settings import settings
@@ -48,26 +49,26 @@ class Token(BaseModel):
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     验证密码（只支持 SHA-256 格式）
-    
+
     接收的 plain_password 和 hashed_password 都必须是 SHA-256 哈希值
     （64个字符的十六进制字符串）
-    
+
     使用安全的字符串比较防止时序攻击
     """
     if not plain_password or not hashed_password:
         return False
-    
+
     # 标准化输入（小写）
     plain_password = plain_password.lower().strip()
     hashed_password = hashed_password.lower().strip()
-    
+
     # 验证格式（必须是 SHA-256）
     if len(plain_password) != 64 or not all(c in '0123456789abcdef' for c in plain_password):
         return False
-    
+
     if len(hashed_password) != 64 or not all(c in '0123456789abcdef' for c in hashed_password):
         return False
-    
+
     # 直接比较两个 SHA-256 哈希值
     # 使用 hmac.compare_digest 防止时序攻击
     return hmac.compare_digest(plain_password, hashed_password)
@@ -76,16 +77,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """
     获取密码哈希（只支持 SHA-256 格式）
-    
+
     接收的 password 必须是 SHA-256 哈希值（64个字符的十六进制字符串）
     直接返回标准化后的 SHA-256 哈希值
     """
     password = password.strip().lower()
-    
+
     # 验证格式（必须是 SHA-256）
     if len(password) != 64 or not all(c in '0123456789abcdef' for c in password):
         raise ValueError("Password must be a SHA-256 hash (64 hex characters)")
-    
+
     return password
 
 
@@ -100,14 +101,14 @@ def create_access_token(
         expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.access_token_expire_minutes
         )
-    
+
     to_encode = {
         "sub": str(subject),
         "exp": expire,
         "iat": datetime.now(timezone.utc),
         "type": "access",
     }
-    
+
     encoded_jwt = jwt.encode(
         to_encode,
         settings.secret_key,
@@ -126,14 +127,14 @@ def create_csrf_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.access_token_expire_minutes
     )
-    
+
     to_encode = {
         "sub": str(user_id),
         "exp": expire,
         "iat": datetime.now(timezone.utc),
         "type": "csrf",
     }
-    
+
     encoded_jwt = jwt.encode(
         to_encode,
         settings.secret_key,

@@ -3,23 +3,24 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, UnauthorizedException, NotFoundException
+from app.common.exceptions import BadRequestException, UnauthorizedException
 from app.core.security import (
-    verify_password,
-    get_password_hash,
-    generate_password_reset_token,
     generate_email_verify_token,
+    generate_password_reset_token,
+    get_password_hash,
+    verify_password,
 )
 from app.core.settings import settings
-from app.models.auth import AuthUser, AuthSession
+from app.models.auth import AuthSession, AuthUser
 from app.repositories.auth_user import AuthUserRepository
 from app.services.auth_session_service import AuthSessionService
 from app.services.base import BaseService
 from app.services.email_service import email_service
 from app.services.security_audit_service import SecurityAuditService
-from loguru import logger
+
 
 class AuthService(BaseService):
     """用户认证服务"""
@@ -39,7 +40,7 @@ class AuthService(BaseService):
     async def _issue_jwt_tokens(self, user_id: str) -> tuple[str, str, str, datetime, datetime]:
         """生成 JWT access token、refresh token 和 CSRF token"""
         from app.core.redis import RedisClient
-        from app.core.security import generate_refresh_token, create_csrf_token, create_access_token
+        from app.core.security import create_access_token, create_csrf_token, generate_refresh_token
 
         access_expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
         refresh_expires = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
@@ -71,7 +72,7 @@ class AuthService(BaseService):
     async def _delete_refresh_token(self, refresh_token: str, user_id: str) -> None:
         """删除 Redis 中的 refresh token"""
         from app.core.redis import RedisClient
-        
+
         redis_client = RedisClient.get_client()
         if redis_client:
             refresh_token_key = f"refresh_token:{refresh_token}"
@@ -116,7 +117,7 @@ class AuthService(BaseService):
         session: Optional[AuthSession] = None,
     ) -> dict:
         """构建登录响应（对齐 better-auth 格式）"""
-        
+
         response = {
             "user": {
                 "id": user.id,
@@ -365,12 +366,11 @@ class AuthService(BaseService):
             verify_token=token,
         )
         return True
-    
+
     # ---------------------------------------------------------------- refresh token
     async def refresh_token(self, refresh_token: str) -> dict:
         """刷新 access token"""
         from app.core.redis import RedisClient
-        from app.core.security import generate_refresh_token, create_csrf_token
 
         if not RedisClient.is_available():
             raise UnauthorizedException(
@@ -416,7 +416,7 @@ class AuthService(BaseService):
                 "Token refresh failed. Please login again.",
                 code=500
             )
-    
+
     # ---------------------------------------------------------------- misc
     async def get_user_by_id(self, user_id: str) -> Optional[AuthUser]:
         return await self.user_repo.get_by(id=user_id)

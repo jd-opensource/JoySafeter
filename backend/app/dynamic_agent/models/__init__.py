@@ -16,56 +16,56 @@ Intent-First Clean Context Architecture (007):
 - SessionContext: Dynamic context for Intent Persistence
 """
 
+from app.dynamic_agent.models.display_models import (
+    DisplayState,
+    ExecutionStep,
+    StepStatus,
+    ThinkingDisplay,
+    ToolCallDisplay,
+    ToolStatus,
+)
 from app.dynamic_agent.models.execution_plan import ExecutionPlan, PlanStep
+from app.dynamic_agent.models.extracted_state import ExtractedState, extract_key_state
+from app.dynamic_agent.models.hint_tracker import HintExecutionState, HintTracker
 from app.dynamic_agent.models.retry_strategy import (
-    RetryStrategy, 
-    RETRY_STRATEGIES, 
+    RETRY_STRATEGIES,
+    RetryAdjustment,
+    RetryStrategy,
     classify_error,
     generate_adjustments,
-    RetryAdjustment,
-)
-from app.dynamic_agent.models.extracted_state import ExtractedState, extract_key_state
-from app.dynamic_agent.models.hint_tracker import HintTracker, HintExecutionState
-from app.dynamic_agent.models.display_models import (
-    ToolStatus,
-    StepStatus,
-    ToolCallDisplay,
-    ThinkingDisplay,
-    ExecutionStep,
-    DisplayState,
 )
 
-# 006: Single Subagent Clean Architecture models
-from app.dynamic_agent.models.subagent_summary import (
-    SubagentSummary,
-    create_summary_from_result,
-    KEY_INFO_CATEGORIES,
-)
-from app.dynamic_agent.models.todo_panel import (
-    TodoItem,
-    TodoPanel,
-    TodoStatus,
-    STATUS_ICONS,
-    STATUS_COLORS,
-)
-from app.dynamic_agent.models.trace_logger import (
-    TraceLogEntry,
-    TraceLogger,
-    get_trace_logger,
-    close_trace_logger,
+# 005: Whitebox Scan models
+from app.dynamic_agent.models.scan import (
+    AgentVerificationStatus,
+    Finding,
+    ScanJobResponse,
+    ScanJobStatus,
+    ScanReport,
+    ScanStatus,
 )
 
 # 007: Intent-First Clean Context Architecture models
 from app.dynamic_agent.models.session_context import SessionContext
 
-# 005: Whitebox Scan models
-from app.dynamic_agent.models.scan import (
-    ScanJobResponse,
-    ScanJobStatus,
-    ScanReport,
-    Finding,
-    ScanStatus,
-    AgentVerificationStatus,
+# 006: Single Subagent Clean Architecture models
+from app.dynamic_agent.models.subagent_summary import (
+    KEY_INFO_CATEGORIES,
+    SubagentSummary,
+    create_summary_from_result,
+)
+from app.dynamic_agent.models.todo_panel import (
+    STATUS_COLORS,
+    STATUS_ICONS,
+    TodoItem,
+    TodoPanel,
+    TodoStatus,
+)
+from app.dynamic_agent.models.trace_logger import (
+    TraceLogEntry,
+    TraceLogger,
+    close_trace_logger,
+    get_trace_logger,
 )
 
 # Note: ExecutionPlan is already defined in execution_plan.py,

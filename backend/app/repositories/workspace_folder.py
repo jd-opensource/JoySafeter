@@ -1,13 +1,14 @@
 """
 工作流文件夹 Repository
 """
-from typing import List, Optional, Tuple
 import uuid
+from typing import List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.workspace import WorkspaceFolder
+
 from .base import BaseRepository
 
 
@@ -39,7 +40,7 @@ class WorkflowFolderRepository(BaseRepository[WorkspaceFolder]):
             WorkspaceFolder.parent_id.is_(None) if parent_id is None else WorkspaceFolder.parent_id == parent_id,
             WorkspaceFolder.deleted_at.is_(None),
         ]
-        
+
         query = (
             select(WorkspaceFolder.sort_order)
             .where(*conditions)
@@ -72,7 +73,7 @@ class WorkflowFolderRepository(BaseRepository[WorkspaceFolder]):
                 WorkspaceFolder.deleted_at.is_(None),
             )
         )
-        
+
         result = await self.db.execute(query)
         return [(row[0], row[1]) for row in result.fetchall()]
 

@@ -5,13 +5,14 @@ Provides a generic utility for fetching LLM credentials from the database,
 replacing service-specific credential retrieval logic.
 """
 
-from typing import Optional, Tuple, Any, Dict
+from typing import Any, Dict, Optional, Tuple
+
 from loguru import logger
 
 
 class LLMCredentialResolver:
     """Resolver for fetching LLM credentials from database."""
-    
+
     @staticmethod
     async def get_credentials(
         db: Any,
@@ -21,7 +22,7 @@ class LLMCredentialResolver:
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Get credentials from database if not provided.
-        
+
         Logic:
         1. If api_key is already provided, return it (with base_url and llm_model if provided)
         2. If db is available, fetch credentials from database:
@@ -29,40 +30,40 @@ class LLMCredentialResolver:
            - If default model exists, get its provider credentials
            - If no default model, try to get first available valid credential
         3. Return (api_key, base_url, model_name) tuple
-        
+
         Args:
             db: Database session
             api_key: Optional pre-provided API key
             base_url: Optional pre-provided base URL
             llm_model: Optional pre-provided model name
-            
+
         Returns:
             Tuple of (api_key, base_url, model_name)
         """
         default_instance = None
         model_name: Optional[str] = None
-        
+
         # If api_key is already provided, return early with provided values (no DB query needed)
         if api_key:
             return api_key, base_url, llm_model
-        
+
         # Try to get credentials from database if db is available and api_key is not provided
         if db:
             try:
+                from app.core.model import ModelType
                 from app.services.model_credential_service import ModelCredentialService
                 from app.services.model_service import ModelService
-                from app.core.model import ModelType
-                
+
                 model_service = ModelService(db)
                 credential_service = ModelCredentialService(db)
-                
+
                 # Try to get default model
                 default_instance = await model_service.repo.get_default()
                 if default_instance:
                     provider_name = default_instance.provider.name
                     model_name = default_instance.model_name
                     model_type = ModelType.CHAT  # Simplified: assume Chat model
-                    
+
                     credentials = await credential_service.get_current_credentials(
                         provider_name=provider_name,
                         model_type=model_type,
@@ -96,16 +97,16 @@ class LLMCredentialResolver:
                                         break
             except Exception as e:
                 logger.warning(f"[LLMCredentialResolver] Failed to get credentials from DB: {e}")
-        
+
         # Determine final model name (prioritize DB-fetched model)
         final_model_name = model_name if model_name else llm_model
         if not final_model_name:
             # If still no model name, get from default instance
             if default_instance:
                 final_model_name = default_instance.model_name
-        
+
         return api_key, base_url, final_model_name
-    
+
     @staticmethod
     async def get_llm_params(
         db: Any,
@@ -116,7 +117,7 @@ class LLMCredentialResolver:
     ) -> Dict[str, Any]:
         """
         Get LLM parameters in dict format.
-        
+
         Returns credentials in the format expected by LLM initialization:
         {
             "llm_model": str,
@@ -124,14 +125,14 @@ class LLMCredentialResolver:
             "base_url": Optional[str],
             "max_tokens": int
         }
-        
+
         Args:
             db: Database session
             api_key: Optional pre-provided API key
             base_url: Optional pre-provided base URL
             llm_model: Optional pre-provided model name
             max_tokens: Maximum tokens for completion
-            
+
         Returns:
             Dict with llm_model, api_key, base_url, max_tokens
         """
@@ -141,7 +142,7 @@ class LLMCredentialResolver:
             base_url=base_url,
             llm_model=llm_model,
         )
-        
+
         return {
             "llm_model": model_name or llm_model or "",
             "api_key": api_key,

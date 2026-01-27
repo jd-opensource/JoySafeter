@@ -5,26 +5,27 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.graph_deployment_version import GraphDeploymentVersion
-from app.models.graph import AgentGraph
+from app.common.exceptions import ForbiddenException, NotFoundException
 from app.models.auth import AuthUser
+from app.models.graph import AgentGraph
+from app.models.graph_deployment_version import GraphDeploymentVersion
 from app.models.workspace import WorkspaceMemberRole
-from app.repositories.graph_deployment_version import GraphDeploymentVersionRepository
-from app.repositories.graph import GraphRepository, GraphNodeRepository, GraphEdgeRepository
 from app.repositories.auth_user import AuthUserRepository
-from app.common.exceptions import NotFoundException, ForbiddenException
+from app.repositories.graph import GraphEdgeRepository, GraphNodeRepository, GraphRepository
+from app.repositories.graph_deployment_version import GraphDeploymentVersionRepository
 from app.schemas.graph_deployment_version import (
+    GraphDeploymentVersionListResponse,
     GraphDeploymentVersionResponseCamel,
     GraphDeploymentVersionStateResponse,
-    GraphDeploymentVersionListResponse,
     GraphDeployResponse,
     GraphRevertResponse,
 )
+
 from .base import BaseService
 from .workspace_permission import check_workspace_access
 
@@ -83,37 +84,37 @@ class GraphDeploymentVersionService(BaseService):
         self, nodes: List, edges: List, variables: Dict[str, Any]
     ) -> Dict[str, Any]:
         """规范化图状态 - 存储到 deployment_version.state
-        
+
         重要：需要深拷贝 node.data，否则 SQLAlchemy 代理对象可能导致序列化问题。
         同时确保 config 中包含所有必要的配置（如 model、temp 等），
         这样回滚时能完整恢复。
         """
         import copy
-        
+
         normalized_nodes = {}
         for node in nodes:
             node_id = str(node.id)
-            
+
             # 深拷贝 data，避免 SQLAlchemy 代理对象序列化问题
             node_data = copy.deepcopy(dict(node.data)) if node.data else {}
-            
+
             # 确保 config 存在
             if "config" not in node_data:
                 node_data["config"] = {}
-            
+
             config = node_data.get("config", {})
             if isinstance(config, dict):
                 # 同步数据库字段到 config（确保回滚时能恢复）
                 # prompt -> systemPrompt
                 if node.prompt and (not config.get("systemPrompt")):
                     config["systemPrompt"] = node.prompt
-                
+
                 # tools
                 if node.tools and (not config.get("tools")):
                     config["tools"] = copy.deepcopy(dict(node.tools)) if node.tools else {}
-                
+
                 node_data["config"] = config
-            
+
             normalized_nodes[node_id] = {
                 "id": node_id,
                 "type": node.type,
@@ -329,7 +330,7 @@ class GraphDeploymentVersionService(BaseService):
     ) -> GraphDeploymentVersionStateResponse:
         """获取特定版本的完整状态（包含 nodes, edges 等用于预览）"""
         import copy
-        
+
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -344,14 +345,14 @@ class GraphDeploymentVersionService(BaseService):
 
         # 深拷贝状态，转换为前端期望的格式
         state = copy.deepcopy(deployment_version.state) if deployment_version.state else {}
-        
+
         # 将 state 中的 nodes 转换为前端格式（ReactFlow 格式）
         frontend_nodes = []
         nodes_data = state.get("nodes", {})
         for node_id, node_data in nodes_data.items():
             position = node_data.get("position", {"x": 0, "y": 0})
             position_absolute = node_data.get("position_absolute", position)
-            
+
             frontend_node = {
                 "id": node_id,
                 "type": "custom",  # ReactFlow 使用 custom 类型
@@ -367,7 +368,7 @@ class GraphDeploymentVersionService(BaseService):
                 "dragging": False,
             }
             frontend_nodes.append(frontend_node)
-        
+
         # 转换 edges 格式
         frontend_edges = []
         edges_data = state.get("edges", [])
@@ -380,7 +381,7 @@ class GraphDeploymentVersionService(BaseService):
                 "style": {"stroke": "#cbd5e1", "strokeWidth": 1.5},
             }
             frontend_edges.append(frontend_edge)
-        
+
         frontend_state = {
             "nodes": frontend_nodes,
             "edges": frontend_edges,
@@ -423,11 +424,11 @@ class GraphDeploymentVersionService(BaseService):
         self, graph_id: uuid.UUID, version: int, current_user: AuthUser
     ) -> GraphRevertResponse:
         """回滚到指定版本
-        
+
         从部署版本中恢复完整的节点状态，包括 data.config 中的所有配置。
         """
         import copy
-        
+
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -455,20 +456,20 @@ class GraphDeploymentVersionService(BaseService):
         for node_id, node_data in nodes_data.items():
             position = node_data.get("position", {})
             position_absolute = node_data.get("position_absolute")
-            
+
             # 深拷贝 data，确保数据完整性
             restored_data = copy.deepcopy(node_data.get("data", {}))
-            
+
             # 从 data.config 中提取配置，用于填充数据库字段
             config = restored_data.get("config", {}) if isinstance(restored_data, dict) else {}
-            
+
             # 优先使用 config 中的值，否则使用顶层的值
             prompt = ""
             if isinstance(config, dict) and config.get("systemPrompt"):
                 prompt = config["systemPrompt"]
             elif node_data.get("prompt"):
                 prompt = node_data["prompt"]
-            
+
             # tools: 优先使用 config 中的，否则使用顶层的
             tools = {}
             if isinstance(config, dict) and config.get("tools"):
@@ -514,7 +515,7 @@ class GraphDeploymentVersionService(BaseService):
         })
 
         # 5. 激活版本
-        activated_version = await self.version_repo.activate_version(graph_id, version)
+        await self.version_repo.activate_version(graph_id, version)
 
         await self.graph_repo.update(graph_id, {
             "deployed_at": datetime.now(timezone.utc),

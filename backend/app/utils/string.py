@@ -2,12 +2,11 @@ import hashlib
 import json
 import re
 import uuid
-from typing import Optional, Type, Tuple
+from typing import Optional, Tuple, Type
 from uuid import uuid4
 
-from pydantic import BaseModel, ValidationError
-
 from loguru import logger
+from pydantic import BaseModel, ValidationError
 
 
 def is_valid_uuid(uuid_str: str) -> bool:

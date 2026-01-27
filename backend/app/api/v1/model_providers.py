@@ -2,11 +2,12 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.response import success_response
+
 # from app.common.dependencies import get_current_user
 # from app.models.auth import AuthUser as User
 from app.core.database import get_db
 from app.services.model_provider_service import ModelProviderService
-from app.common.response import success_response
 
 router = APIRouter(prefix="/v1/model-providers", tags=["ModelProviders"])
 
@@ -18,7 +19,7 @@ async def list_providers(
 ):
     """
     获取所有供应商列表
-    
+
     Returns:
         供应商列表，包含：
         - provider_name: 供应商名称
@@ -41,20 +42,20 @@ async def get_provider(
 ):
     """
     获取单个供应商详情
-    
+
     Args:
         provider_name: 供应商名称
-        
+
     Returns:
         供应商详情
     """
     service = ModelProviderService(db)
     provider = await service.get_provider(provider_name)
-    
+
     if not provider:
         from app.common.exceptions import NotFoundException
         raise NotFoundException(f"供应商不存在: {provider_name}")
-    
+
     return success_response(data=provider, message="获取供应商详情成功")
 
 
@@ -65,11 +66,11 @@ async def sync_providers(
 ):
     """
     同步供应商、模型和认证信息到数据库
-    
+
     功能:
     - 同步供应商信息（从工厂同步）
     - 同步模型信息（从工厂同步到 model_instance 表，全局记录）
-    
+
     Returns:
         同步结果统计
     """

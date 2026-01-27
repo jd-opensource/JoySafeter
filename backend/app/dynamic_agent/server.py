@@ -3,37 +3,31 @@ FastAPI Server for Agent Backend
 Provides REST API endpoints for chat, session management, and tool execution
 """
 
+import asyncio
 import json
-import logging
 import os
 import queue
 import sys
-import traceback
-from datetime import datetime
-from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, Request, APIRouter
-from fastapi.responses import StreamingResponse, RedirectResponse, Response
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, FastAPI, HTTPException, WebSocket
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel
-import asyncio
-
-from starlette.staticfiles import StaticFiles
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     # Try absolute import first (when running as module)
-    from app.dynamic_agent.main import run, startup, init_storage
+    from app.dynamic_agent.main import init_storage, run, startup
     from app.dynamic_agent.storage import initialize_storage
 except ImportError:
     # Fallback to relative import (when running from backend directory)
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from app.dynamic_agent.main import run, startup, init_storage
-    from app.dynamic_agent.storage import initialize_storage
+    from app.dynamic_agent.main import init_storage, run, startup
 
 from loguru import logger
 
@@ -241,7 +235,7 @@ async def detect_mode(request: DetectModeRequest):
         Detected mode and confidence level
     """
     try:
-        from app.dynamic_agent.prompts.system_prompts import detect_scene, SceneType
+        from app.dynamic_agent.prompts.system_prompts import SceneType, detect_scene
 
         # Use detect_scene which does keyword + LLM detection
         detected_scene = detect_scene(request.message, use_llm=True)
@@ -336,7 +330,7 @@ async def chat(request: ChatRequest):
                 data = response_data.get("data", "")
 
                 if status == "complete":
-                    logger.info(f"✓ Stream completed")
+                    logger.info("✓ Stream completed")
                     break
                 elif status == "error":
                     logger.error(f"❌ Agent error: {data}")
@@ -516,7 +510,7 @@ async def chat_stream(request: ChatRequest):
                         data_type = response_data.get("type", "")
 
                         if status == "complete":
-                            logger.info(f"✓ Stream completed")
+                            logger.info("✓ Stream completed")
                             yield f"data: {json.dumps({'type': 'complete', 'total_length': total_length})}\n\n"
                             break
                         elif status == "error":
@@ -724,7 +718,7 @@ async def delete_session(session_id: str):
         Deletion confirmation
     """
     try:
-        storage = await init_storage()
+        await init_storage()
         # Implement session deletion in storage
         # await storage.context.delete_session(session_id)
 
@@ -814,14 +808,14 @@ async def execute_tool(tool_name: str, params: Dict[str, Any]):
 async def websocket_chat(websocket: WebSocket, session_id: str):
     """
     WebSocket endpoint for real-time chat
-    
+
     Args:
         websocket: WebSocket connection
         session_id: Session ID
     """
     await websocket.accept()
     logger.info(f"WebSocket connected: {session_id}")
-    
+
     try:
         while True:
             # Receive message from client
@@ -829,11 +823,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
             message_data = json.loads(data)
             user_message = message_data.get("message", "")
             user_id = message_data.get("user_id", "default_user")
-            
+
             if not user_message:
                 await websocket.send_json({"error": "Empty message"})
                 continue
-            
+
             # Prepare metadata with response_queue
             response_queue_obj = queue.Queue()
             metadata = {
@@ -841,24 +835,24 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 "langfuse_user_id": user_id,
                 "response_queue": response_queue_obj,
             }
-            
+
             try:
                 # Send processing indicator
                 await websocket.send_json({"type": "processing"})
-                
+
                 # Run agent in background task
                 run_task = asyncio.create_task(run(user_message, metadata))
-                
+
                 # Stream responses from queue as they arrive (both intermediate and final)
                 timeout_per_chunk = 300
                 total_timeout = 2*3600  # 2 hours total timeout
                 start_time = asyncio.get_event_loop().time()
-                
+
                 while True:
                     try:
                         elapsed = asyncio.get_event_loop().time() - start_time
                         remaining_timeout = total_timeout - elapsed
-                        
+
                         if remaining_timeout <= 0:
                             logger.error("❌ Total timeout exceeded")
                             await websocket.send_json({
@@ -866,7 +860,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                                 "message": "Agent response timeout",
                             })
                             break
-                        
+
                         # Get next chunk from queue with per-chunk timeout
                         chunk_timeout = min(timeout_per_chunk, int(remaining_timeout))
                         try:
@@ -880,12 +874,12 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         except queue.Empty:
                             logger.info("Queue empty, waiting for more data...")
                             continue
-                        
+
                         status = response_data.get("status", "")
                         data = response_data.get("data", "")
-                        
+
                         if status == "complete":
-                            logger.info(f"✓ Stream completed")
+                            logger.info("✓ Stream completed")
                             await websocket.send_json({
                                 "type": "complete",
                                 "message": user_message,
@@ -919,7 +913,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                                         "timestamp": datetime.now().isoformat(),
                                     })
                                     logger.info(f"✓ Sent chunk: {len(data)} chars")
-                            
+
                     except Exception as e:
                         logger.error(f"❌ Unexpected error in websocket loop: {e}")
                         await websocket.send_json({
@@ -927,20 +921,20 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                             "message": str(e),
                         })
                         break
-                
+
                 # Wait for run task to complete
                 try:
                     await asyncio.wait_for(run_task, timeout=300)
                 except asyncio.TimeoutError:
                     logger.warning("Run task did not complete within timeout")
-                
+
             except Exception as e:
                 logger.error(f"Agent error: {e}")
                 await websocket.send_json({
                     "type": "error",
                     "message": str(e),
                 })
-    
+
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
@@ -965,34 +959,34 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     # Get configuration from environment
     host = os.getenv("AGENT_HOST", "0.0.0.0")
     port = int(os.getenv("AGENT_PORT", 8888))
     reload = os.getenv("AGENT_RELOAD", "false").lower() == "true"
     workers = int(os.getenv("AGENT_WORKERS", 1))
-    
+
     # Check if running in debugger (PyCharm sets this)
     in_debugger = os.getenv("PYCHARM_HOSTED") == "1" or "pydevd" in sys.modules
-    
+
     if in_debugger:
         # Debug mode: use simple HTTP server to avoid uvicorn conflicts
         logger.info(f"🐛 Debug mode detected: using simple HTTP server on {host}:{port}")
-        
+
         # Use hypercorn as alternative that works better with debuggers
         try:
-            import hypercorn.config
             import hypercorn.asyncio
-            
+            import hypercorn.config
+
             config = hypercorn.config.Config()
             config.bind = [f"{host}:{port}"]
             config.loglevel = os.getenv("LOG_LEVEL", "info").lower()
-            
+
             asyncio.run(hypercorn.asyncio.serve(app, config))
         except ImportError:
             # Fallback to uvicorn with minimal configuration
             logger.info("🐛 Hypercorn not available, using uvicorn with minimal config")
-            
+
             import uvicorn
             uvicorn.run(
                 app,
@@ -1007,9 +1001,9 @@ if __name__ == "__main__":
         # Force workers=1 in reload mode
         if reload:
             workers = 1
-        
+
         logger.info(f"Starting server on {host}:{port} with {workers} worker(s), reload={reload}")
-        
+
         uvicorn.run(
             "server:app",
             host=host,

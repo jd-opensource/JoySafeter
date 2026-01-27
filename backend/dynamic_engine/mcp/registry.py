@@ -7,13 +7,13 @@ import logging
 import os
 import traceback
 from pathlib import Path
-from typing import Dict, Any, List, Callable, Tuple, Type
+from typing import Any, Callable, Dict, List, Tuple, Type
 
 from fastmcp import FastMCP
 
-from app.dynamic_agent.core.shared_constants import KNOWLEDGE_TOOL, COMMAND_TOOL
-from dynamic_engine.mcp.handler import AbstractHandler
+from app.dynamic_agent.core.shared_constants import COMMAND_TOOL, KNOWLEDGE_TOOL
 from dynamic_engine.mcp.config import ToolOriginConf
+from dynamic_engine.mcp.handler import AbstractHandler
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +276,7 @@ class ToolRegistry:
                     success.append(config)
                 else:
                     fail.append(config)
-            except Exception as e:
+            except Exception:
                 logger.exception("Failed to register tool")
                 fail.append(config)
 

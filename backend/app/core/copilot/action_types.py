@@ -50,7 +50,7 @@ class CopilotMessage(BaseModel):
     role: str = Field(..., description="Message role: 'user' or 'assistant'")
     content: str = Field(..., description="Message text content")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Message creation time")
-    
+
     # Fields only for assistant messages
     actions: Optional[List[Dict[str, Any]]] = Field(default=None, description="Graph actions executed")
     thought_steps: Optional[List[CopilotThoughtStep]] = Field(default=None, description="AI thinking process")
@@ -69,7 +69,7 @@ class CopilotRequest(BaseModel):
     """Copilot request for generating graph actions."""
     prompt: str = Field(..., description="User prompt")
     graph_context: Dict[str, Any] = Field(
-        default_factory=dict, 
+        default_factory=dict,
         description="Current graph state (nodes, edges)"
     )
     graph_id: Optional[str] = Field(
@@ -86,7 +86,7 @@ class CopilotResponse(BaseModel):
     """Copilot response with message and actions."""
     message: str = Field(..., description="Chat message to the user")
     actions: List[GraphAction] = Field(
-        default_factory=list, 
+        default_factory=list,
         description="Array of actions to execute"
     )
 

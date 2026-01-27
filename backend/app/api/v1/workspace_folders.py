@@ -182,9 +182,10 @@ async def list_folder_graphs(
     current_user: User = Depends(get_current_user),
 ):
     """获取文件夹下的所有 graphs"""
-    from app.repositories.graph import GraphRepository
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
+
     from app.models.graph import AgentGraph, GraphNode
+    from app.repositories.graph import GraphRepository
 
     # 验证 folder 存在并获取 workspace_id
     repo = WorkflowFolderRepository(db)
@@ -198,7 +199,7 @@ async def list_folder_graphs(
     await service._ensure_permission(folder.workspace_id, current_user, "read")
 
     # 查询该 folder 下的所有 graphs
-    graph_repo = GraphRepository(db)
+    GraphRepository(db)
     stmt = select(AgentGraph).where(
         AgentGraph.folder_id == folder_id,
         AgentGraph.user_id == current_user.id

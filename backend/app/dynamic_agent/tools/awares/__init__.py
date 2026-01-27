@@ -6,17 +6,13 @@ Exports all awareness tools for Agent use, including:
 2. Task autonomy tools - Guide Agent to complete tasks autonomously, exhausting all methods
 """
 
+from app.dynamic_agent.tools.awares.task_autonomy import TaskState, should_continue_task
 from app.dynamic_agent.tools.awares.time_awares import (
     ExecutionTimeTracker,
     get_current_time,
     get_execution_elapsed_time,
+    get_time_aware_guidance,
     should_continue_analysis,
-    get_time_aware_guidance
-)
-
-from app.dynamic_agent.tools.awares.task_autonomy import (
-    TaskState,
-    should_continue_task
 )
 
 __all__ = [

@@ -5,10 +5,9 @@ This module provides AI-powered verification of SAST findings to reduce false po
 """
 
 import json
-import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 from loguru import logger
 
@@ -16,7 +15,7 @@ from loguru import logger
 class LLMAgentReviewer:
     """
     LLM-powered reviewer for SAST findings.
-    
+
     Loads the vulnerability_review.md prompt template and uses LLM to analyze
     each finding in context of the actual source code.
     """
@@ -35,7 +34,7 @@ class LLMAgentReviewer:
     def _load_prompt_template(self) -> str:
         """Load the vulnerability review prompt template."""
         prompt_path = Path(__file__).parent.parent.parent / "prompts" / "scenes" / "source_code_audit" / "vulnerability_review.md"
-        
+
         try:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 template = f.read()
@@ -213,12 +212,12 @@ Respond with JSON:
                 return default_result
 
             result = json.loads(json_str)
-            
+
             # Normalize verdict
             verdict = result.get('verdict', 'UNCERTAIN').upper().replace(' ', '_')
             if verdict not in ['TRUE_POSITIVE', 'FALSE_POSITIVE', 'UNCERTAIN']:
                 verdict = 'UNCERTAIN'
-            
+
             return {
                 "verdict": verdict,
                 "confidence": result.get('confidence', 'MEDIUM').upper(),

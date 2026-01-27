@@ -7,21 +7,21 @@ Endpoints:
 - POST /api/graph/{graph_id}/validate-variables - Validate variable usage
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from typing import Dict, Any, List
+from typing import Any, Dict
 from uuid import UUID
 
-from app.core.graph.state_variable_tracker import StateVariableTracker
-from app.models.graph import AgentGraph, GraphNode, GraphEdge
-from app.models.auth import AuthUser as User
-from app.core.database import get_db
-from app.common.dependencies import get_current_user
-from app.common.exceptions import NotFoundException, ForbiddenException
-from app.repositories.workspace import WorkspaceMemberRepository
-from app.services.workspace_permission import check_workspace_access
-from app.models.workspace import WorkspaceMemberRole
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.common.dependencies import get_current_user
+from app.common.exceptions import ForbiddenException, NotFoundException
+from app.core.database import get_db
+from app.core.graph.state_variable_tracker import StateVariableTracker
+from app.models.auth import AuthUser as User
+from app.models.graph import AgentGraph, GraphEdge, GraphNode
+from app.models.workspace import WorkspaceMemberRole
+from app.services.workspace_permission import check_workspace_access
 
 router = APIRouter(prefix="/graph", tags=["graph-variables"])
 
@@ -33,7 +33,7 @@ async def get_graph_variables(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """获取图中所有变量的信息。
-    
+
     Returns:
         {
             "variables": [
@@ -57,7 +57,7 @@ async def get_graph_variables(
     graph = result.scalar_one_or_none()
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
-    
+
     # 检查权限
     if not current_user.is_superuser:
         if graph.user_id != current_user.id:
@@ -69,22 +69,22 @@ async def get_graph_variables(
                     raise ForbiddenException("No access to graph")
             else:
                 raise ForbiddenException("No access to graph")
-    
+
     # 获取节点和边
     nodes_result = await db.execute(
         select(GraphNode).where(GraphNode.graph_id == graph_id).order_by(GraphNode.position_x)
     )
     nodes = nodes_result.scalars().all()
-    
+
     edges_result = await db.execute(
         select(GraphEdge).where(GraphEdge.graph_id == graph_id)
     )
     edges = edges_result.scalars().all()
-    
+
     # 分析变量
     tracker = StateVariableTracker(nodes, edges)
     variables_info = tracker.analyze_graph()
-    
+
     # 转换为 API 响应格式
     variables_list = []
     for var_name, var_info in variables_info.items():
@@ -107,7 +107,7 @@ async def get_graph_variables(
                 for usage in var_info.usages
             ],
         })
-    
+
     return {"variables": variables_list}
 
 
@@ -119,7 +119,7 @@ async def get_node_available_variables(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """获取节点可用的变量列表。
-    
+
     Returns:
         {
             "variables": [
@@ -139,7 +139,7 @@ async def get_node_available_variables(
     graph = result.scalar_one_or_none()
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
-    
+
     # 检查权限
     if not current_user.is_superuser:
         if graph.user_id != current_user.id:
@@ -151,27 +151,27 @@ async def get_node_available_variables(
                     raise ForbiddenException("No access to graph")
             else:
                 raise ForbiddenException("No access to graph")
-    
+
     # 获取节点和边
     nodes_result = await db.execute(
         select(GraphNode).where(GraphNode.graph_id == graph_id).order_by(GraphNode.position_x)
     )
     nodes = nodes_result.scalars().all()
-    
+
     edges_result = await db.execute(
         select(GraphEdge).where(GraphEdge.graph_id == graph_id)
     )
     edges = edges_result.scalars().all()
-    
+
     # 检查节点是否存在
     target_node = next((n for n in nodes if n.id == node_id), None)
     if not target_node:
         raise NotFoundException("Node not found")
-    
+
     # 获取可用变量
     tracker = StateVariableTracker(nodes, edges)
     available_vars = tracker.get_available_variables_for_node(str(node_id))
-    
+
     return {"variables": available_vars}
 
 
@@ -183,13 +183,13 @@ async def validate_variables(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """验证表达式中使用的变量。
-    
+
     Request:
         {
             "node_id": "node_123",
             "expression": "state.get('user_id', 0) > 10"
         }
-    
+
     Returns:
         {
             "valid": true,
@@ -205,16 +205,16 @@ async def validate_variables(
     """
     node_id = request.get("node_id")
     expression = request.get("expression", "")
-    
+
     if not node_id:
         raise HTTPException(status_code=400, detail="node_id is required")
-    
+
     # 获取图
     result = await db.execute(select(AgentGraph).where(AgentGraph.id == graph_id))
     graph = result.scalar_one_or_none()
     if not graph:
         raise NotFoundException("Graph not found")
-    
+
     # 检查权限
     if not current_user.is_superuser:
         if graph.user_id != current_user.id:
@@ -226,27 +226,27 @@ async def validate_variables(
                     raise ForbiddenException("No access to graph")
             else:
                 raise ForbiddenException("No access to graph")
-    
+
     # 获取节点和边
     nodes_result = await db.execute(
         select(GraphNode).where(GraphNode.graph_id == graph_id).order_by(GraphNode.position_x)
     )
     nodes = nodes_result.scalars().all()
-    
+
     edges_result = await db.execute(
         select(GraphEdge).where(GraphEdge.graph_id == graph_id)
     )
     edges = edges_result.scalars().all()
-    
+
     # 验证变量
     tracker = StateVariableTracker(nodes, edges)
     errors = tracker.validate_variable_usage(str(node_id), expression)
-    
+
     # 获取使用的变量
     used_vars = tracker._extract_variables_from_expression(expression)
     available_vars = tracker.get_available_variables_for_node(str(node_id))
     available_var_names = {v["name"] for v in available_vars}
-    
+
     variables_info = []
     for var_name, var_path in used_vars.items():
         variables_info.append({
@@ -256,7 +256,7 @@ async def validate_variables(
                 v["path"] == var_path for v in available_vars
             ),
         })
-    
+
     return {
         "valid": len(errors) == 0,
         "errors": errors,

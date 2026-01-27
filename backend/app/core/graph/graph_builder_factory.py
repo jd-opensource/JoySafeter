@@ -15,19 +15,19 @@ from loguru import logger
 from app.core.graph.base_graph_builder import DEEPAGENTS_AVAILABLE, BaseGraphBuilder
 from app.core.graph.deep_agents_builder import DeepAgentsGraphBuilder
 from app.core.graph.standard_graph_builder import LanggraphModelBuilder
-from app.models.graph import AgentGraph, GraphNode, GraphEdge
+from app.models.graph import AgentGraph, GraphEdge, GraphNode
 
 
 class GraphBuilder:
     """
     Factory class that selects appropriate builder based on graph configuration.
-    
+
     Automatically detects if DeepAgents mode should be used and delegates
     to the appropriate builder implementation.
-    
+
     使用方式：await builder.build()
     """
-    
+
     def __init__(
         self,
         graph: AgentGraph,
@@ -50,7 +50,7 @@ class GraphBuilder:
         self.user_id = user_id
         # 可选：传入 ModelService，便于在 Builder 中按 model_name 解析模型
         self.model_service = model_service
-    
+
     def _has_deep_agents_nodes(self) -> bool:
         """Check if any node has DeepAgents enabled."""
         if not DEEPAGENTS_AVAILABLE:
@@ -61,7 +61,7 @@ class GraphBuilder:
             if config.get("useDeepAgents", False) is True:
                 return True
         return False
-    
+
     def _create_builder(self) -> BaseGraphBuilder:
         """创建合适的构建器实例。"""
         if self._has_deep_agents_nodes():
@@ -80,19 +80,19 @@ class GraphBuilder:
                 self.max_tokens, self.user_id,
                 self.model_service,
             )
-    
+
     async def build(self) -> CompiledStateGraph:
         """
         异步构建并编译 StateGraph。
-        
+
         自动选择 LanggraphModelBuilder 或 DeepAgentsGraphBuilder。
-        
+
         使用方式：await builder.build()
         """
         logger.info(
             f"[GraphBuilder] ========== Starting graph build ========== | "
             f"graph='{self.graph.name}' | graph_id={self.graph.id}"
         )
-        
+
         builder = self._create_builder()
         return await builder.build()

@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import os
 import time
 from typing import List
@@ -10,6 +9,7 @@ from app.dynamic_agent.core.shared_constants import AGENT_TOOL
 from app.dynamic_agent.infra.llm import create_llm_instance
 from app.dynamic_agent.infra.metadata_context import MetadataContext
 from app.dynamic_agent.models.extracted_state import extract_key_state
+
 from .agent_tool_prompts import AGENT_TOOL_DESCRIPTION
 from .models import AgentResult
 from .retry_handler import _process_one_with_retry
@@ -32,10 +32,11 @@ MAX_GOAL_LENGTH = 10000
 
 from loguru import logger
 
+
 @tool(AGENT_TOOL, description=AGENT_TOOL_DESCRIPTION)
 async def agent_tool(context: str, task_details: List[str], level: int) -> str:
     """Delegate tasks to Sub-Agent for autonomous execution.
-    
+
     Args:
         context: Background info - what you discovered, why you suspect this attack vector
         task_details: task details
@@ -61,18 +62,18 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
     accumulated_state = extract_key_state(context)
     if accumulated_state.target_url:
         logger.info(f"🎯 Target URL extracted: {accumulated_state.target_url}")
-    
+
     # Generate unique context ID for this SubAgent to isolate used tricks
     # New SubAgents don't share context with previous ones, so they shouldn't
     # inherit the "used tricks" from previous SubAgents
     import uuid
     subagent_context_id = f"subagent_{uuid.uuid4().hex[:8]}_{int(time.time())}"
-    
+
     # Set context ID and inject available tricks from knowledge base (if any)
     from app.dynamic_agent.tools.builtin.knowledge_search_tool import format_tricks_for_planning, set_context_id
     set_context_id(subagent_context_id)
     tricks_hint = format_tricks_for_planning()
-    
+
     # Inject all findings from report_finding into sub-agent context
     # This ensures sub-agent has access to cookies, credentials, endpoints discovered during recon
     from app.dynamic_agent.tools.builtin.report_finding_tool import get_findings_store
@@ -80,7 +81,7 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
     findings_context = ""
     if findings:
         findings_lines = [f"  - {k}: {v}" for k, v in findings.items()]
-        findings_context = f"\n\n**Recon Findings (use these in your requests):**\n" + "\n".join(findings_lines)
+        findings_context = "\n\n**Recon Findings (use these in your requests):**\n" + "\n".join(findings_lines)
         logger.info(f"📋 Injecting {len(findings)} findings into sub-agent context: {list(findings.keys())}")
 
     task_details_enhanced = []
@@ -191,7 +192,7 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
 
     from app.dynamic_agent.tools.builtin.check_iteration_tool.check_iteration_tool import build_iteration_info
     return f"""{ret}.
-    
+
     ------
     extra info about iteration limit:
     {build_iteration_info()}

@@ -10,6 +10,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.auth import AuthSession
+
 from .base import BaseRepository
 
 

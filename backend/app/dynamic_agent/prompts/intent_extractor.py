@@ -4,11 +4,9 @@ Intent Extractor - 007: Intent-First Clean Context Architecture
 Extract core intent from user messages for Intent Persistence.
 """
 
-import logging
 from typing import Any
 
 from loguru import logger
-
 
 INTENT_EXTRACTION_PROMPT = """
 Summarize the user's core goal in one sentence (no more than 50 words). Only output the summary, no explanation.
@@ -36,12 +34,12 @@ async def extract_intent(user_message: str, llm: Any) -> str:
     """
     # Truncate overly long messages
     truncated_message = user_message[:500]
-    
+
     prompt = INTENT_EXTRACTION_PROMPT.format(message=truncated_message)
-    
+
     try:
         response = await llm().ainvoke([{"role": "user", "content": prompt}])
-        
+
         # Handle different response formats
         if hasattr(response, 'content'):
             intent = response.content.strip()
@@ -51,14 +49,14 @@ async def extract_intent(user_message: str, llm: Any) -> str:
             intent = response['content'].strip()
         else:
             intent = str(response).strip()
-        
+
         # Limit length
         if len(intent) > 100:
             intent = intent[:97] + "..."
-        
+
         logger.info(f"Extracted intent: {intent}")
         return intent
-        
+
     except Exception as e:
         logger.warning(f"Failed to extract intent via LLM: {e}")
         # Fallback: Use first 100 characters of message
@@ -81,22 +79,22 @@ def extract_intent_sync(user_message: str, llm: Any) -> str:
     """
     truncated_message = user_message[:500]
     prompt = INTENT_EXTRACTION_PROMPT.format(message=truncated_message)
-    
+
     try:
         response = llm().invoke([{"role": "user", "content": prompt}])
-        
+
         if hasattr(response, 'content'):
             intent = response.content.strip()
         elif isinstance(response, str):
             intent = response.strip()
         else:
             intent = str(response).strip()
-        
+
         if len(intent) > 100:
             intent = intent[:97] + "..."
-        
+
         return intent
-        
+
     except Exception as e:
         logger.warning(f"Failed to extract intent via LLM: {e}")
         fallback = user_message[:100].strip()
@@ -119,9 +117,9 @@ def extract_intent_simple(user_message: str) -> str:
     """
     # Remove extra whitespace
     message = " ".join(user_message.split())
-    
+
     # Truncate
     if len(message) > 100:
         message = message[:97] + "..."
-    
+
     return message

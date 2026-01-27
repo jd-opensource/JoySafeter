@@ -3,12 +3,11 @@
 HexStrike AI - File Manager
 File operations with safety checks and logging
 """
-from datetime import datetime
-from typing import Dict, Any, List
-from pathlib import Path
 import logging
-import os
 import shutil
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 

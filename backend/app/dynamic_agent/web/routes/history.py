@@ -6,18 +6,14 @@ including detailed step information and filtering capabilities.
 Uses raw SQL DAO implementation via asyncpg.
 """
 
-import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from uuid import UUID
-from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
-
-from app.dynamic_agent.storage import get_storage_manager
-from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
-
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
+
+from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
 
 router = APIRouter(prefix="/history", tags=["history"])
 
@@ -65,7 +61,7 @@ async def list_tasks_with_filters(
     """List tasks with filtering and pagination."""
     try:
         dao = TaskDAO(pool)
-        
+
         if session_id:
             # Use DAO method
             tasks, total = await dao.get_tasks_by_session(
@@ -164,13 +160,13 @@ async def get_task_statistics(
         step_map = {s.id: s for s in steps}
         children_map = {s.id: [] for s in steps}
         roots = []
-        
+
         for s in steps:
             if s.parent_step_id and s.parent_step_id in step_map:
                 children_map[s.parent_step_id].append(s)
             else:
                 roots.append(s)
-                
+
         max_depth = 0
         def calculate_depth(step_id, depth=0):
             nonlocal max_depth

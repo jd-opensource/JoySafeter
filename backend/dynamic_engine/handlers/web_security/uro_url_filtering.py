@@ -10,14 +10,14 @@ logger = logging.getLogger(__name__)
 
 class UroHandler(AbstractHandler):
     """Handler for uro functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['uro']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute uro with enhanced logging"""
         try:

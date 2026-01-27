@@ -2,11 +2,11 @@
 AI Agent Reviewer - Verifies high-severity findings to reduce false positives
 """
 
-import logging
-from typing import List, Dict, Any
-from .rules import Finding, load_rules
+from typing import List
 
 from loguru import logger
+
+from .rules import Finding, load_rules
 
 
 class AgentReviewer:

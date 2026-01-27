@@ -1,19 +1,17 @@
 """上下文增强中间件 - 增强对话上下文和提示词质量"""
 
-import json
 import os
-import re
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
-    from langgraph.runtime import Runtime
+    pass
 
 from deepagents.backends.protocol import BackendProtocol
-from langchain.agents.middleware.types import (AgentMiddleware, AgentState,
-                                               ModelRequest, ModelResponse)
-from typing_extensions import NotRequired, TypedDict
+from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from typing_extensions import NotRequired
 
 
 class ContextEnhancementState(AgentState):
@@ -573,7 +571,3 @@ class ContextEnhancementMiddleware(AgentMiddleware):
 
         # 执行原始请求
         return await handler(request)
-
-
-# 添加缺少的import
-import time

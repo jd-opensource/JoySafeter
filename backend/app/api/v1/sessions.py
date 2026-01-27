@@ -37,10 +37,10 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
-from app.schemas.common import SessionMessageResponse, SessionCreate, SessionResponse
-from app.services.session_service import SessionService
 from app.common.dependencies import CurrentUser
+from app.core.database import get_db
+from app.schemas.common import SessionCreate, SessionMessageResponse, SessionResponse
+from app.services.session_service import SessionService
 
 router = APIRouter()
 

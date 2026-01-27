@@ -4,23 +4,22 @@ Database Manager Module.
 Handles asyncpg connection pool lifecycle management.
 """
 
-import logging
-import asyncpg
 from typing import Optional
 
+import asyncpg
 from loguru import logger
 
 
 class DatabaseManager:
     """Manages PostgreSQL connection pool."""
-    
+
     _instance = None
-    
+
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super(DatabaseManager, cls).__new__(cls)
         return cls._instance
-    
+
     def __init__(
         self,
         host: str = "localhost",
@@ -40,7 +39,7 @@ class DatabaseManager:
             self.min_pool_size = min_pool_size
             self.max_pool_size = max_pool_size
             self.pool: Optional[asyncpg.Pool] = None
-    
+
     async def initialize(self):
         """Initialize database connection pool with pre-warming."""
         if self.pool:
@@ -137,16 +136,16 @@ class DatabaseManager:
 
         if success_count != self.min_pool_size:
             logger.warning(f"⚠️  Expected {self.min_pool_size} connections, but only {success_count} were successfully created")
-            logger.warning(f"⚠️  This may cause connection errors under high load")
-            logger.warning(f"⚠️  Check database connection limits, network stability, and PostgreSQL max_connections setting")
-    
+            logger.warning("⚠️  This may cause connection errors under high load")
+            logger.warning("⚠️  Check database connection limits, network stability, and PostgreSQL max_connections setting")
+
     async def close(self):
         """Close database connection pool."""
         if self.pool:
             await self.pool.close()
             self.pool = None
             logger.info("Database connection pool closed")
-    
+
     def get_pool(self) -> asyncpg.Pool:
         """Get the connection pool."""
         if not self.pool:

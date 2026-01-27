@@ -2,6 +2,7 @@ import os
 from typing import Optional
 
 from langchain_openai import ChatOpenAI
+
 from app.core.settings import get_default_model_config
 
 
@@ -17,13 +18,13 @@ class LLMManager:
         config = get_default_model_config()
         if config:
             return config
-        
+
         # 2. Fallback: Get from environment variables
         base_url = os.getenv("DEFAULT_OPENAI_COMPATIBLE_API_BASE")
         api_key = os.getenv("DEFAULT_OPENAI_COMPATIBLE_API_KEY")
         model = os.getenv("DEFAULT_OPENAI_COMPATIBLE_MODEL")
         timeout_str = os.getenv("DEFAULT_OPENAI_COMPATIBLE_MODEL_TIMEOUT", "300")
-        
+
         if base_url and api_key and model:
             return {
                 "base_url": base_url,
@@ -31,7 +32,7 @@ class LLMManager:
                 "model": model,
                 "timeout": int(timeout_str),
             }
-        
+
         # 3. Error if neither is available
         raise ValueError(
             "Default model configuration not found. Please configure via one of the following methods:\n"

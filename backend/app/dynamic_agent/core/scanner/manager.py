@@ -4,20 +4,18 @@ Scanner Manager - Orchestrates file extraction, scanning, and agent review
 
 import os
 import tempfile
-import zipfile
-import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional
 import time
 import uuid
-
-from .engine import RegexEngine
-from .rules import VulnerabilityRule, Finding, load_rules
-from .agent import AgentReviewer
-from .sast_scanner import SASTScanner
-from .llm_reviewer import LLMAgentReviewer
+import zipfile
+from typing import Any, Dict, List
 
 from loguru import logger
+
+from .agent import AgentReviewer
+from .engine import RegexEngine
+from .llm_reviewer import LLMAgentReviewer
+from .rules import load_rules
+from .sast_scanner import SASTScanner
 
 
 class FileManager:
@@ -182,7 +180,7 @@ class ScannerManager:
                 logger.info(f"Scan {scan_id}: Running SAST scanner (Semgrep + Gitleaks)...")
                 sast_result = self.sast_scanner.scan_directory(temp_dir)
                 findings_dicts = sast_result.get('findings', [])
-                
+
                 # Step 3: LLM-based review for high-severity findings
                 if self.use_llm_review and self.llm_reviewer:
                     logger.info(f"Scan {scan_id}: Running LLM verification on {len(findings_dicts)} findings...")
@@ -196,7 +194,7 @@ class ScannerManager:
 
                 # Calculate statistics
                 stats = self._calculate_stats(verified_findings)
-                
+
                 # Step 4: Prepare result
                 end_time = time.time()
                 scan_duration_ms = int((end_time - start_time) * 1000)

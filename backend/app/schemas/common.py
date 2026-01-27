@@ -1,10 +1,12 @@
 """
 通用 Schema
 """
-from typing import Any, Generic, List, Optional, TypeVar
-from pydantic import BaseModel, Field, ConfigDict
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import Any, Generic, List, Optional, TypeVar
+
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.schemas.base import BaseResponse
 
 T = TypeVar("T")
@@ -27,7 +29,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
 class BaseSchema(BaseModel):
     """基础 Schema"""
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 

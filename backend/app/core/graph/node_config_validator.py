@@ -5,7 +5,8 @@ This module now uses the unified validation system for consistency
 between frontend and backend validation logic.
 """
 
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
 from loguru import logger
 
 from .unified_validator import validate_node_config_as_strings

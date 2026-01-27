@@ -4,13 +4,12 @@ MCP 工具 → Skills 转换器（带分类优化）
 用法: python scripts/convert_mcp_to_skills.py
 """
 
-import os
 import json
-import yaml
-from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional
+from pathlib import Path
+from typing import List, Optional
 
+import yaml
 
 # 分类优化映射
 CATEGORY_OPTIMIZATION = {

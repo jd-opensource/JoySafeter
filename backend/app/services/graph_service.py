@@ -8,15 +8,16 @@ from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.graph.graph_builder_factory import GraphBuilder
-from app.models.graph import AgentGraph, GraphNode, GraphEdge
 from app.models.auth import AuthUser
+from app.models.graph import AgentGraph, GraphNode
 from app.models.workspace import WorkspaceMemberRole
-from app.repositories.graph import GraphRepository, GraphNodeRepository, GraphEdgeRepository
-from app.common.exceptions import NotFoundException, ForbiddenException, BadRequestException
+from app.repositories.graph import GraphEdgeRepository, GraphNodeRepository, GraphRepository
+
 from .base import BaseService
-from .workspace_permission import check_workspace_access
 from .model_service import ModelService
+from .workspace_permission import check_workspace_access
 
 
 class GraphService(BaseService):
@@ -36,12 +37,12 @@ class GraphService(BaseService):
     ) -> None:
         """
         确保用户有访问图的权限
-        
+
         Args:
             graph: 要访问的图
             current_user: 当前用户
             required_role: 所需的最低工作空间角色（仅对工作空间图有效）
-        
+
         Raises:
             ForbiddenException: 如果用户没有访问权限
         """
@@ -77,14 +78,14 @@ class GraphService(BaseService):
     ) -> AgentGraph:
         """
         使用指定的 ID 创建图（用于 upsert 场景）
-        
+
         Args:
             graph_id: 指定的图ID
             name: 图名称
             user_id: 用户ID
             workspace_id: 工作空间ID（可选）
             description: 描述（可选）
-        
+
         Returns:
             创建的图对象
         """
@@ -214,7 +215,7 @@ class GraphService(BaseService):
                     name=name,
                     workspace_id=workspace_id,
                 )
-    
+
     async def _save_graph_state_internal(
         self,
         graph_id: uuid.UUID,
@@ -304,7 +305,7 @@ class GraphService(BaseService):
         # 还要包含已更新的节点（这些节点会保留，不应该删除）
         for db_node_id, _ in nodes_to_update:
             existing_db_node_ids.add(db_node_id)
-        
+
         nodes_to_delete = [
             node.id for node_id_str, node in existing_node_map.items()
             if node.id not in existing_db_node_ids
@@ -454,7 +455,7 @@ class GraphService(BaseService):
     ) -> Dict[str, Any]:
         """
         加载图的完整状态（节点和边）
-        
+
         返回前端期望的格式：
         {
             "nodes": [...],
@@ -489,19 +490,19 @@ class GraphService(BaseService):
             # 注意：ReactFlow 的 type 字段应该是 "custom"（所有节点都使用 BuilderNode 组件）
             # 而实际的节点类型（如 "agent", "condition" 等）存储在 data.type 中
             node_data = node.data or {}
-            
+
             # 确保 data.type 存在（用于从 nodeRegistry 获取颜色等信息）
             # 如果 node.data 中没有 type，则使用数据库的 node.type 字段
             if "type" not in node_data:
                 node_data["type"] = node.type
-            
+
             # 恢复位置信息：使用保存的 position 和 positionAbsolute
             # 如果 position_absolute_x/y 不存在（旧数据），则使用 position_x/y 作为回退
             pos_x = float(node.position_x)
             pos_y = float(node.position_y)
             pos_abs_x = float(node.position_absolute_x) if node.position_absolute_x is not None else pos_x
             pos_abs_y = float(node.position_absolute_y) if node.position_absolute_y is not None else pos_y
-            
+
             frontend_node = {
                 "id": frontend_id,
                 "type": "custom",  # ReactFlow 节点类型，所有节点都使用 BuilderNode
@@ -557,7 +558,7 @@ class GraphService(BaseService):
             # 从数据库恢复边的 data 字段
             edge_data = edge.data or {}
             edge_type = edge_data.get("edge_type", "normal")
-            
+
             # 根据 edge_type 设置样式和类型
             if edge_type == "loop_back":
                 edge_style = {
@@ -648,10 +649,10 @@ class GraphService(BaseService):
     ) -> CompiledStateGraph:
         """
         Create a LangGraph StateGraph from a graph stored in the database.
-        
+
         Fetches the graph, nodes, and edges from the database and builds
         a compiled StateGraph where each node is an Agent.
-        
+
         Args:
             graph_id: The UUID of the graph to build
             llm_model: Optional LLM model name
@@ -660,35 +661,34 @@ class GraphService(BaseService):
             max_tokens: Maximum tokens for LLM responses
             user_id: User ID for workspace isolation
             current_user: Current authenticated user for permission checks
-        
+
         Returns:
             CompiledStateGraph: The compiled graph ready for execution
-        
+
         Raises:
             NotFoundException: If the graph is not found
             ForbiddenException: If the user doesn't have access to the graph
         """
-        from loguru import logger
         import time
-        
+
         start_time = time.time()
         logger.info(
             f"[GraphService] ===== create_graph_by_graph_id START ===== | "
             f"graph_id={graph_id} | user_id={user_id} | llm_model={llm_model}"
         )
-        
+
         # Fetch the graph
         logger.debug(f"[GraphService] Fetching graph from database | graph_id={graph_id}")
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             logger.error(f"[GraphService] Graph not found | graph_id={graph_id}")
             raise NotFoundException(f"Graph with id {graph_id} not found")
-        
+
         logger.info(
             f"[GraphService] Graph found | name='{graph.name}' | "
             f"is_deployed={graph.is_deployed} | workspace_id={graph.workspace_id}"
         )
-        
+
         # Check access permissions if current_user is provided
         if current_user:
             logger.debug(
@@ -697,23 +697,23 @@ class GraphService(BaseService):
             )
             await self._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
             logger.debug("[GraphService] Access permission check passed")
-        
+
         # Load nodes and edges
         logger.debug(f"[GraphService] Loading nodes and edges for graph_id={graph_id}")
         nodes = await self.node_repo.list_by_graph(graph_id)
         edges = await self.edge_repo.list_by_graph(graph_id)
-        
+
         logger.info(
             f"[GraphService] Loaded graph data | nodes_count={len(nodes)} | edges_count={len(edges)}"
         )
-        
+
         # Log node details
         for idx, node in enumerate(nodes):
             logger.debug(
                 f"[GraphService] Node [{idx + 1}/{len(nodes)}] | "
                 f"id={node.id} | type={node.type} | has_prompt={bool(node.prompt)}"
             )
-        
+
         # Build the graph
         logger.info("[GraphService] Starting GraphBuilder...")
         # 为当前请求构建一个 ModelService，用于在图执行中按 model_name 解析模型
@@ -729,16 +729,16 @@ class GraphService(BaseService):
             user_id=user_id,
             model_service=model_service,
         )
-        
+
         # 异步构建
         compiled_graph = await builder.build()
-        
+
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(
             f"[GraphService] ===== create_graph_by_graph_id COMPLETE ===== | user_id={user_id} | "
             f"graph_id={graph_id} | graph_name='{graph.name}' | "
             f"nodes={len(nodes)} | edges={len(edges)} | elapsed={elapsed_ms:.2f}ms"
         )
-        
+
         return compiled_graph
 

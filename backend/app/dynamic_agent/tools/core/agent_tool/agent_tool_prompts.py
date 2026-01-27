@@ -9,7 +9,6 @@ All prompt content is stored in:
 
 from app.dynamic_agent.prompts.registry import get_registry
 from app.dynamic_agent.prompts.system_prompts import SceneType
-from app.common.constants import MAX_SUBAGENT_NUM_ONCE, MAX_AGENT_DEPTH
 
 
 def _load_prompt(prompt_id: str, **kwargs) -> str:
@@ -31,10 +30,10 @@ SUB_AGENT_SYSTEM_PROMPT_MAP = {
 }
 def get_sub_agent_prompt(scene: str = None) -> str:
     """Get Sub-Agent prompt with optional scene-specific suffix.
-    
+
     Args:
         scene: The detected scene type (CTF, PENTEST, etc.)
-        
+
     Returns:
         Combined prompt: sub_agent.md + sub_agent_{scene}_mode.md
     """

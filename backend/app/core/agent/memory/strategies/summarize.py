@@ -4,12 +4,13 @@ from textwrap import dedent
 from typing import List
 from uuid import uuid4
 
-from app.schemas.memory import UserMemory
-from app.core.agent.memory.strategies import MemoryOptimizationStrategy
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages.chat import ChatMessage as Message
-from app.utils.datetime import utc_now
 from loguru import logger
+
+from app.core.agent.memory.strategies import MemoryOptimizationStrategy
+from app.schemas.memory import UserMemory
+from app.utils.datetime import utc_now
 
 
 class SummarizeStrategy(MemoryOptimizationStrategy):

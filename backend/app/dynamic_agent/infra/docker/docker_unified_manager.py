@@ -5,34 +5,33 @@ Provides a single interface for managing containers on both local and remote Doc
 Automatically routes operations to the appropriate backend (local or remote).
 """
 
-import logging
 import os
-import traceback
-from time import sleep
-from typing import Optional, Dict, Any, Tuple, List
 from dataclasses import dataclass
+from time import sleep
+from typing import Any, Dict, List, Optional, Tuple
 
-import docker
-from docker.errors import ImageNotFound, APIError
+from docker.errors import APIError
+from loguru import logger
+
+from app.dynamic_agent.core.constants import (
+    AGENT_CONTAINER_PATH,
+    AGENT_HOST_PATH,
+    CTF_KNOWLEDGE_CONTAINER_PATH,
+    CTF_KNOWLEDGE_HOST_PATH,
+    DEV_MODE_ENV,
+    DOCKER_HOST_IP,
+    ENGINE_CONTAINER_PATH,
+    ENGINE_HOST_PATH,
+    LOCALHOST,
+)
 
 from . import ResourceLimits
-from .docker_manager import DockerManager, ContainerInfo
-from .docker_remote_api import DockerRemoteAPIManager, RemoteDockerHost, TLSConfig
+from .docker_manager import DockerManager
+from .docker_remote_api import DockerRemoteAPIManager, RemoteDockerHost
 from .exceptions import (
-    DockerConnectionError,
-    ContainerCreationError,
     ContainerExecutionError,
-    ContainerNotFoundError,
     ContainerStateError,
 )
-from app.dynamic_agent.core.constants import (
-    LOCALHOST, DOCKER_HOST_IP,
-    CTF_KNOWLEDGE_HOST_PATH, CTF_KNOWLEDGE_CONTAINER_PATH,
-    DEV_MODE_ENV, ENGINE_HOST_PATH, AGENT_HOST_PATH,
-    ENGINE_CONTAINER_PATH, AGENT_CONTAINER_PATH, DOCKER_HOST_PORT
-)
-
-from loguru import logger
 
 
 @dataclass
@@ -46,21 +45,21 @@ class HostConfig:
 class UnifiedDockerManager:
     """
     Unified Docker Manager for local and remote container management.
-    
+
     Provides a single interface for managing containers on both local and remote
     Docker daemons. Automatically routes operations to the appropriate backend.
-    
+
     Features:
     - Unified API for local and remote operations
     - Automatic host detection and routing
     - Support for multiple remote hosts
     - Seamless fallback between local and remote
     - Comprehensive error handling
-    
+
     Example:
         >>> # Initialize with local Docker
         >>> manager = UnifiedDockerManager()
-        
+
         >>> # Add remote hosts
         >>> tls = TLSConfig(
         ...     client_cert='~/.docker/client.pem',
@@ -74,20 +73,20 @@ class UnifiedDockerManager:
         ...     name='production-server'
         ... )
         >>> manager.add_remote_host(remote_host)
-        
+
         >>> # Create container on local host
         >>> container = manager.create_container(
         ...     image='ubuntu:20.04',
         ...     command='sleep 3600'
         ... )
-        
+
         >>> # Create container on remote host
         >>> remote_container = manager.create_container(
         ...     image='ubuntu:20.04',
         ...     command='sleep 3600',
         ...     host_name='production-server'
         ... )
-        
+
         >>> # Execute command (auto-routes to correct host)
         >>> exit_code, stdout, stderr = manager.execute_command(
         ...     container_id=container.id,
@@ -98,7 +97,7 @@ class UnifiedDockerManager:
     def __init__(self, local_base_url: Optional[str] = None):
         """
         Initialize Unified Docker Manager.
-        
+
         Args:
             local_base_url: Optional base URL for local Docker daemon
         """
@@ -141,10 +140,10 @@ class UnifiedDockerManager:
     def add_remote_host(self, host: RemoteDockerHost) -> bool:
         """
         Add a remote Docker host.
-        
+
         Args:
             host: Remote Docker host configuration
-        
+
         Returns:
             True if connection successful, False otherwise
         """
@@ -164,10 +163,10 @@ class UnifiedDockerManager:
     def remove_remote_host(self, host_name: str) -> bool:
         """
         Remove a remote Docker host.
-        
+
         Args:
             host_name: Host name or identifier
-        
+
         Returns:
             True if successful, False otherwise
         """
@@ -185,7 +184,7 @@ class UnifiedDockerManager:
     def list_hosts(self) -> List[HostConfig]:
         """
         List all available hosts.
-        
+
         Returns:
             List of host configurations
         """
@@ -205,17 +204,17 @@ class UnifiedDockerManager:
     ) -> Dict[str, Any]:
         """
         Create a container on specified host.
-        
+
         Args:
             image: Container image
             command: Container command
             name: Container name
             host_name: Target host (defaults to LOCALHOST)
             **kwargs: Additional parameters
-        
+
         Returns:
             Container information dict
-        
+
         Raises:
             ContainerCreationError: If creation fails
         """
@@ -234,20 +233,20 @@ class UnifiedDockerManager:
         # Auto-mount volumes
         if volumes is None:
             volumes = {}
-        
+
         # Get backend root for default paths (backend/ directory containing engine/ and agent/)
         # __file__ is docker_unified_manager.py in agent/runtime/docker/
         # Go up 3 levels to get to backend/
         backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-        
+
         # Check if dev mode is enabled
         dev_mode_value = os.environ.get(DEV_MODE_ENV, '')
         dev_mode = dev_mode_value.lower() in ('1', 'true', 'yes')
         logger.info(f"🔍 DEV_MODE check: env={DEV_MODE_ENV}, value='{dev_mode_value}', enabled={dev_mode}")
-        
+
         if dev_mode:
             logger.info("🔧 Dev mode enabled - mounting source code directories")
-            
+
             # Mount engine directory
             engine_host = os.environ.get(ENGINE_HOST_PATH)
             if not engine_host:
@@ -257,7 +256,7 @@ class UnifiedDockerManager:
                 logger.info(f"📦 Mounting engine: {engine_host} -> {ENGINE_CONTAINER_PATH}")
             else:
                 logger.warning(f"⚠️ Engine path not found: {engine_host}")
-            
+
             # Mount agent directory
             agent_host = os.environ.get(AGENT_HOST_PATH)
             if not agent_host:
@@ -267,7 +266,7 @@ class UnifiedDockerManager:
                 logger.info(f"📦 Mounting agent: {agent_host} -> {AGENT_CONTAINER_PATH}")
             else:
                 logger.warning(f"⚠️ Agent path not found: {agent_host}")
-        
+
             # Always mount CTF knowledge base (read-only)
             ctf_knowledge_host = os.environ.get(CTF_KNOWLEDGE_HOST_PATH)
             if not ctf_knowledge_host:
@@ -359,17 +358,17 @@ class UnifiedDockerManager:
     ) -> Tuple[int, str, str]:
         """
         Execute command in container.
-        
+
         Args:
             container_id: Container ID
             command: Command to execute
             host_name: Target host (defaults to LOCALHOST)
             timeout: Execution timeout
             **kwargs: Additional parameters
-        
+
         Returns:
             Tuple of (exit_code, stdout, stderr)
-        
+
         Raises:
             ContainerExecutionError: If execution fails
         """
@@ -414,13 +413,13 @@ class UnifiedDockerManager:
     ) -> None:
         """
         Stop a container.
-        
+
         Args:
             container_id: Container ID
             host_name: Target host (defaults to LOCALHOST)
             timeout: Stop timeout
             force: Force stop
-        
+
         Raises:
             ContainerStateError: If stop fails
         """
@@ -457,11 +456,11 @@ class UnifiedDockerManager:
     ) -> None:
         """
         Start a stopped container.
-        
+
         Args:
             container_id: Container ID
             host_name: Target host (defaults to LOCALHOST)
-        
+
         Raises:
             ContainerStateError: If start fails
         """
@@ -497,13 +496,13 @@ class UnifiedDockerManager:
     ) -> None:
         """
         Remove a container.
-        
+
         Args:
             container_id: Container ID
             host_name: Target host (defaults to LOCALHOST)
             force: Force remove
             volumes: Remove volumes
-        
+
         Raises:
             ContainerStateError: If removal fails
         """
@@ -540,11 +539,11 @@ class UnifiedDockerManager:
     ) -> List[Dict[str, Any]]:
         """
         List containers on specified host.
-        
+
         Args:
             host_name: Target host (defaults to LOCALHOST)
             all: List all containers (including stopped)
-        
+
         Returns:
             List of container information dicts
         """
@@ -558,7 +557,7 @@ class UnifiedDockerManager:
 
         try:
             if host_config.is_local:
-                logger.debug(f"Listing local containers")
+                logger.debug("Listing local containers")
                 containers = self.local_manager.list_containers(all=all)
                 return [c.to_dict() for c in containers]
             else:
@@ -579,11 +578,11 @@ class UnifiedDockerManager:
     ) -> Optional[Dict[str, Any]]:
         """
         Get container information.
-        
+
         Args:
             container_id: Container ID
             host_name: Target host (defaults to LOCALHOST)
-        
+
         Returns:
             Container information dict or None if failed
         """
@@ -619,12 +618,12 @@ class UnifiedDockerManager:
     ) -> Optional[str]:
         """
         Get container logs.
-        
+
         Args:
             container_id: Container ID
             host_name: Target host (defaults to LOCALHOST)
             tail: Number of log lines
-        
+
         Returns:
             Log content or None if failed
         """
@@ -658,10 +657,10 @@ class UnifiedDockerManager:
     def get_host_info(self, host_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Get host information.
-        
+
         Args:
             host_name: Target host (defaults to LOCALHOST)
-        
+
         Returns:
             Host information dict or None if failed
         """
@@ -675,7 +674,7 @@ class UnifiedDockerManager:
 
         try:
             if host_config.is_local:
-                logger.debug(f"Getting info from local host")
+                logger.debug("Getting info from local host")
                 # Get info from local Docker daemon
                 info = self.local_manager.client.info()
                 return {
@@ -697,10 +696,10 @@ class UnifiedDockerManager:
     def ping(self, host_name: Optional[str] = None) -> bool:
         """
         Test connection to host.
-        
+
         Args:
             host_name: Target host (defaults to LOCALHOST)
-        
+
         Returns:
             True if connection successful, False otherwise
         """
@@ -714,7 +713,7 @@ class UnifiedDockerManager:
 
         try:
             if host_config.is_local:
-                logger.debug(f"Pinging local Docker daemon")
+                logger.debug("Pinging local Docker daemon")
                 self.local_manager.client.ping()
                 return True
             else:

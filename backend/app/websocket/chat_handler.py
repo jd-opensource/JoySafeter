@@ -1,14 +1,13 @@
 """WebSocket chat handler for real-time AI communication."""
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from fastapi import Depends, WebSocket, WebSocketDisconnect
+from fastapi import WebSocket, WebSocketDisconnect
+from loguru import logger
 
 from app.services.session_service import SessionService
 from app.websocket.connection_manager import manager
-
-from loguru import logger
 
 
 class ChatHandler:

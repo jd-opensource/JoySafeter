@@ -1,16 +1,17 @@
 """
 工作空间 Repository
 """
-from typing import List, Optional
 import uuid
+from typing import List, Optional
 
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.workspace import Workspace, WorkspaceMember, WorkspaceMemberRole
-from app.models.access_control import WorkspaceInvitation, WorkspaceInvitationStatus
 from app.common.exceptions import NotFoundException
+from app.models.access_control import WorkspaceInvitation, WorkspaceInvitationStatus
+from app.models.workspace import Workspace, WorkspaceMember, WorkspaceMemberRole
+
 from .base import BaseRepository
 
 
@@ -67,7 +68,6 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
 
     async def list_by_workspace(self, workspace_id: uuid.UUID) -> List[WorkspaceMember]:
         """获取工作空间的所有成员，包含用户信息"""
-        from app.models.auth import AuthUser
         query = (
             select(WorkspaceMember)
             .where(WorkspaceMember.workspace_id == workspace_id)

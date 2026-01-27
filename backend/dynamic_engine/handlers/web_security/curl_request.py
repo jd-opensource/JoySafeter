@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -41,35 +41,35 @@ class CurlRequestHandler(AbstractHandler):
 
             # Build curl command
             command = "curl"
-            
+
             # Add method
             if method != "GET":
                 command += f" -X {method}"
-            
+
             # Add verbose flag
             if verbose:
                 command += " -v"
-            
+
             # Add follow redirects
             if follow_redirects:
                 command += " -L"
-            
+
             # Add timeout
             command += f" --max-time {timeout}"
-            
+
             # Add custom headers
             if headers:
                 for header in headers.split(","):
                     header = header.strip()
                     if header:
                         command += f' -H "{header}"'
-            
+
             # Add request body
             if request_data:
                 # Escape quotes in data
                 escaped_data = request_data.replace('"', '\\"')
                 command += f' -d "{escaped_data}"'
-            
+
             # Add URL (must be last)
             command += f' "{url}"'
 

@@ -5,23 +5,21 @@ from typing import TYPE_CHECKING, Any, Optional
 from loguru import logger
 
 if TYPE_CHECKING:
-    from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+    pass
+# DeepAgents library imports - required
+from deepagents import create_deep_agent
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from app.core.graph.base_graph_builder import (
     BaseGraphBuilder,
-    DEFAULT_RECURSION_LIMIT,
 )
-from app.models.graph import GraphNode
-from app.core.graph.deep_agents.backend_manager import DeepAgentsBackendManager
-from app.core.graph.deep_agents.skills_manager import DeepAgentsSkillsManager
-from app.core.graph.deep_agents.node_factory import DeepAgentsNodeBuilder
 from app.core.graph.deep_agents.backend_factory import BackendFactory
+from app.core.graph.deep_agents.backend_manager import DeepAgentsBackendManager
 from app.core.graph.deep_agents.node_config import AgentConfig
-
-# DeepAgents library imports - required
-from deepagents import create_deep_agent, CompiledSubAgent
+from app.core.graph.deep_agents.node_factory import DeepAgentsNodeBuilder
+from app.core.graph.deep_agents.skills_manager import DeepAgentsSkillsManager
+from app.models.graph import GraphNode
 
 # Constants
 LOG_PREFIX = "[DeepAgentsBuilder]"
@@ -85,7 +83,7 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         root_node = self._select_root_node(root_nodes)
         if not root_node:
             raise ValueError("Cannot select root node - multiple roots without DeepAgents enabled")
-        
+
         return root_node
 
     async def _build_graph(self, root_node: GraphNode) -> Any:
@@ -95,7 +93,7 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         logger.info(f"{LOG_PREFIX} Building from root: '{root_label}'")
 
         children = self._get_direct_children(root_node)
-        
+
         if not children:
             # Root without children: build as standalone DeepAgent
             if not self._is_deep_agents_enabled(root_node):
@@ -105,8 +103,7 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
             # Root with children: build workers first, then manager
             subagents = []
             for child in children:
-                child_config = await AgentConfig.from_node(child, self, self._node_id_to_name)
-                child_label = child_config.label or child_config.name
+                await AgentConfig.from_node(child, self, self._node_id_to_name)
                 subagents.append(await self._node_builder.build_worker_node(child))
             final_agent = await self._node_builder.build_manager_node(
                 root_node, root_label, subagents, is_root=True
@@ -148,20 +145,20 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         # Compile StateGraph if needed
         if isinstance(agent, StateGraph):
             agent = self._compile_state_graph(agent)
-        
+
         # Apply runtime configuration
         if isinstance(agent, CompiledStateGraph):
             agent = self._configure_agent(agent)
         elif isinstance(agent, dict):
             raise ValueError("Received dict instead of Runnable - DeepAgents build failed")
-        
+
         # Attach cleanup if shared backend exists
         if agent and self._backend_manager.shared_backend:
             backend_manager = self._backend_manager
             async def cleanup():
                 await backend_manager.cleanup_shared_backend()
             agent._cleanup_backend = cleanup
-        
+
         return agent
 
     # ==================== Node Configuration Helpers ====================
@@ -228,18 +225,18 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
 
     async def _create_backend_for_node(self, node: GraphNode) -> Any:
         """Create backend with fallback - used by backend_manager.get_backend_for_node().
-        
+
         从节点配置中读取 workspace_dir 或 workspaceSubdir，如果没有配置则使用 graph.name。
         """
         # 从节点配置读取自定义子目录名称
         data = node.data or {}
         config = data.get("config", {})
         workspace_subdir = config.get("workspace_dir") or config.get("workspaceSubdir")
-        
+
         # 如果没有配置，使用 graph.name 作为默认值
         if not workspace_subdir:
             workspace_subdir = self.graph.name if hasattr(self.graph, 'name') and self.graph.name else None
-        
+
         return BackendFactory.create_backend_with_fallback(
             node,
             user_id=self.user_id,

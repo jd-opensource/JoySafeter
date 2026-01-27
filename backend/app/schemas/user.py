@@ -2,9 +2,8 @@
 用户 Schema
 """
 from typing import Optional
+
 from pydantic import BaseModel, EmailStr
-import uuid
-from datetime import datetime
 
 from .common import IDSchema
 
@@ -38,7 +37,7 @@ class UserResponse(IDSchema, UserBase):
     is_active: bool
     is_superuser: bool
     is_verified: bool
-    
+
     @property
     def full_name(self) -> str:
         if self.first_name and self.last_name:

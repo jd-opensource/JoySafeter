@@ -11,7 +11,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-
 ErrorType = Literal["network", "auth", "param", "timeout", "unknown"]
 
 
@@ -59,30 +58,30 @@ ERROR_PATTERNS: Dict[ErrorType, List[str]] = {
 def classify_error(error_message: str) -> ErrorType:
     """
     Classify error message into error type.
-    
+
     Args:
         error_message: The error message to classify
-        
+
     Returns:
         ErrorType: One of network, auth, param, timeout, unknown
     """
     if not error_message:
         return "unknown"
-    
+
     error_lower = error_message.lower()
-    
+
     for error_type, patterns in ERROR_PATTERNS.items():
         for pattern in patterns:
             if re.search(pattern, error_lower):
                 return error_type
-    
+
     return "unknown"
 
 
 @dataclass
 class RetryAdjustment:
     """Suggested adjustment for retry attempt."""
-    
+
     type: str  # header, payload, method, etc.
     action: str  # add, modify, remove
     key: str
@@ -94,35 +93,35 @@ class RetryAdjustment:
 class RetryStrategy:
     """
     Retry strategy for a specific error type.
-    
+
     Defines retry behavior including:
     - Maximum retry attempts
     - Backoff timing
     - Suggested adjustments
     """
-    
+
     error_type: ErrorType
     max_retries: int = 3
     base_delay_ms: int = 1000
     backoff_multiplier: float = 2.0
     adjustments: List[RetryAdjustment] = field(default_factory=list)
-    
+
     def get_delay(self, attempt: int) -> float:
         """
         Calculate delay for given attempt number (0-indexed).
-        
+
         Uses exponential backoff: base_delay * (multiplier ^ attempt)
-        
+
         Returns:
             Delay in seconds
         """
         delay_ms = self.base_delay_ms * (self.backoff_multiplier ** attempt)
         return delay_ms / 1000
-    
+
     def should_retry(self, attempt: int) -> bool:
         """Check if another retry should be attempted."""
         return attempt < self.max_retries
-    
+
     def get_adjustment_suggestions(self) -> List[str]:
         """Get human-readable adjustment suggestions."""
         return [
@@ -175,10 +174,10 @@ RETRY_STRATEGIES: Dict[ErrorType, RetryStrategy] = {
 def get_retry_strategy(error_message: str) -> RetryStrategy:
     """
     Get appropriate retry strategy for an error message.
-    
+
     Args:
         error_message: The error message
-        
+
     Returns:
         RetryStrategy for the classified error type
     """
@@ -189,10 +188,10 @@ def get_retry_strategy(error_message: str) -> RetryStrategy:
 def generate_adjustments(error_type: ErrorType) -> List[RetryAdjustment]:
     """
     Generate specific adjustment suggestions based on error type.
-    
+
     Args:
         error_type: The classified error type
-        
+
     Returns:
         List of RetryAdjustment suggestions
     """
@@ -292,18 +291,18 @@ def generate_error_report(
 ) -> str:
     """
     Generate detailed error report after max retries exhausted.
-    
+
     Args:
         error_message: Final error message
         attempts: Number of attempts made
         error_history: List of error messages from each attempt
-        
+
     Returns:
         Formatted error report string
     """
     error_type = classify_error(error_message)
     strategy = RETRY_STRATEGIES[error_type]
-    
+
     lines = [
         "## ❌ Retry Failure Report",
         "",
@@ -314,16 +313,16 @@ def generate_error_report(
         "### Error History",
         "",
     ]
-    
+
     for i, err in enumerate(error_history, 1):
         lines.append(f"{i}. {err}")
-    
+
     lines.extend([
         "",
         "### Suggested Actions",
         "",
     ])
-    
+
     suggestions = strategy.get_adjustment_suggestions()
     if suggestions:
         for suggestion in suggestions:
@@ -331,5 +330,5 @@ def generate_error_report(
     else:
         lines.append("- Check if target service is available")
         lines.append("- Verify request parameters are correct")
-    
+
     return "\n".join(lines)

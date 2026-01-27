@@ -14,9 +14,9 @@ from .ast_evaluator import (
 )
 from .security import (
     BASE_BUILTIN_MODULES,
-    DATA_ANALYSIS_MODULES,
     DANGEROUS_FUNCTIONS,
     DANGEROUS_MODULES,
+    DATA_ANALYSIS_MODULES,
     NETWORK_MODULES,
     InterpreterError,
     SecurityError,

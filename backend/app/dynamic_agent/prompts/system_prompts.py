@@ -7,13 +7,11 @@ System Prompts - Loads prompts from centralized registry.
 - Removed BASIC_GUIDELINES_PROMPT and TOOL_USAGE_GUIDE_PROMPT (merged into main_agent)
 """
 
-import logging
 from enum import Enum
-
-from .registry import get_registry
 
 from loguru import logger
 
+from .registry import get_registry
 
 # =============================================================================
 # Scene Types - Define supported scene modes
@@ -61,7 +59,6 @@ def _classify_scene_with_llm(user_input: str) -> str:
     Returns:
         Scene type string: "ctf", "pentest", or "general"
     """
-    import logging
 
     from loguru import logger
 
@@ -161,7 +158,7 @@ def _get_scene_prompt_content(scene: str) -> str:
     # (e.g., JSON examples like {"key": "value"} or URL patterns like /api/{id})
     if scene_content:
         try:
-            from app.common.constants import KNOWLEDGE_TOOL, COMMAND_TOOL, AGENT_TOOL, THINK_TOOL, COMMAND_HELP_TOOL
+            from app.common.constants import AGENT_TOOL, COMMAND_HELP_TOOL, COMMAND_TOOL, KNOWLEDGE_TOOL, THINK_TOOL
             scene_content = scene_content.replace("{KNOWLEDGE_TOOL}", KNOWLEDGE_TOOL)
             scene_content = scene_content.replace("{COMMAND_TOOL}", COMMAND_TOOL)
             scene_content = scene_content.replace("{AGENT_TOOL}", AGENT_TOOL)

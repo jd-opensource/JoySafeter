@@ -1,16 +1,14 @@
-import logging
 
 from langchain_core.tools import tool
+from loguru import logger
 
 from app.dynamic_agent.tools.builtin.think_tool.think_prompts import THINK_PROMPT
-
-from loguru import logger
 
 
 @tool(description=THINK_PROMPT)
 def think_tool(thought: str) -> str:
     """Strategic reasoning tool for analyzing results and planning next steps.
-    
+
     Args:
         thought: Your analysis, hypothesis, or reasoning about current situation
     """

@@ -12,10 +12,9 @@ import signal
 import subprocess
 import threading
 import time
-from typing import Dict, Any
+from typing import Any, Dict
 
 import psutil
-
 
 logger = logging.getLogger(__name__)
 
@@ -587,7 +586,7 @@ class EnhancedProcessManager:
 
             if current_workers < self.process_pool.max_workers:
                 # self.process_pool._scale_up(1)
-                logger.info(f"📈 Auto-scaled up due to available resources and demand")
+                logger.info("📈 Auto-scaled up due to available resources and demand")
 
     def get_comprehensive_stats(self) -> Dict[str, Any]:
         """Get comprehensive system and process statistics"""

@@ -1,8 +1,10 @@
 # engine/mcp/server.py
 # MCP Server instance - centralized location
 
-from fastmcp import FastMCP
 from typing import List
+
+from fastmcp import FastMCP
+
 from dynamic_engine.mcp.config import ToolOriginConf
 
 # MCP Server singleton

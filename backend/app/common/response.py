@@ -1,9 +1,10 @@
 """
 统一响应格式
 """
-from typing import Any, Optional, List, TypeVar, Generic
-from pydantic import BaseModel
 from datetime import datetime
+from typing import Any, Generic, List, Optional, TypeVar
+
+from pydantic import BaseModel
 
 T = TypeVar("T")
 
@@ -15,7 +16,7 @@ class ApiResponse(BaseModel, Generic[T]):
     message: str = "Success"
     data: Optional[T] = None
     timestamp: str = ""
-    
+
     def __init__(self, **data):
         if "timestamp" not in data or not data["timestamp"]:
             data["timestamp"] = datetime.utcnow().isoformat() + "Z"

@@ -9,11 +9,10 @@ utilities for agent execution.
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     from rich import box
@@ -22,7 +21,6 @@ try:
     from rich.rule import Rule
     from rich.syntax import Syntax
     from rich.table import Table
-    from rich.text import Text
     from rich.tree import Tree
     HAS_RICH = True
 except ImportError:
@@ -45,7 +43,7 @@ BLUE_HEX = "#1E90FF"
 class TokenUsage:
     """
     Token usage information for a step or entire run.
-    
+
     Attributes:
         input_tokens: Number of tokens in the input/prompt.
         output_tokens: Number of tokens in the output/response.
@@ -54,17 +52,17 @@ class TokenUsage:
     input_tokens: int
     output_tokens: int
     total_tokens: int = field(init=False)
-    
+
     def __post_init__(self):
         self.total_tokens = self.input_tokens + self.output_tokens
-    
+
     def __add__(self, other: "TokenUsage") -> "TokenUsage":
         """Add two TokenUsage instances together."""
         return TokenUsage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
         )
-    
+
     def dict(self) -> dict[str, int]:
         """Convert to dictionary."""
         return {
@@ -72,7 +70,7 @@ class TokenUsage:
             "output_tokens": self.output_tokens,
             "total_tokens": self.total_tokens,
         }
-    
+
     def __repr__(self) -> str:
         return f"TokenUsage(input={self.input_tokens}, output={self.output_tokens}, total={self.total_tokens})"
 
@@ -81,36 +79,36 @@ class TokenUsage:
 class Timing:
     """
     Timing information for a step or run.
-    
+
     Attributes:
         start_time: Unix timestamp when the operation started.
         end_time: Unix timestamp when the operation ended (None if still running).
     """
     start_time: float
     end_time: float | None = None
-    
+
     @classmethod
     def start_now(cls) -> "Timing":
         """Create a new Timing starting now."""
         return cls(start_time=time.time())
-    
+
     def stop(self) -> None:
         """Mark the timing as complete."""
         self.end_time = time.time()
-    
+
     @property
     def duration(self) -> float | None:
         """Get the duration in seconds (None if not complete)."""
         if self.end_time is None:
             return None
         return self.end_time - self.start_time
-    
+
     @property
     def duration_ms(self) -> float | None:
         """Get the duration in milliseconds (None if not complete)."""
         duration = self.duration
         return duration * 1000 if duration is not None else None
-    
+
     def dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -118,7 +116,7 @@ class Timing:
             "end_time": self.end_time,
             "duration": self.duration,
         }
-    
+
     def __repr__(self) -> str:
         return f"Timing(duration={self.duration:.3f}s)" if self.duration else "Timing(running)"
 
@@ -126,20 +124,20 @@ class Timing:
 class Monitor:
     """
     Monitors agent execution, tracking step durations and token usage.
-    
+
     The monitor collects metrics during agent execution and can provide
     summary statistics at the end.
-    
+
     Attributes:
         step_durations: List of durations for each step.
         total_input_token_count: Total input tokens across all steps.
         total_output_token_count: Total output tokens across all steps.
     """
-    
+
     def __init__(self, logger: "AgentLogger | None" = None):
         """
         Initialize the monitor.
-        
+
         Args:
             logger: Optional logger for output. If None, metrics are tracked silently.
         """
@@ -149,30 +147,30 @@ class Monitor:
         self.total_output_token_count: int = 0
         self._start_time: float | None = None
         self._end_time: float | None = None
-    
+
     def start(self) -> None:
         """Start monitoring a new run."""
         self._start_time = time.time()
         self._end_time = None
-    
+
     def stop(self) -> None:
         """Stop monitoring the current run."""
         self._end_time = time.time()
-    
+
     def get_total_token_counts(self) -> TokenUsage:
         """Get the total token usage across all steps."""
         return TokenUsage(
             input_tokens=self.total_input_token_count,
             output_tokens=self.total_output_token_count,
         )
-    
+
     def get_total_duration(self) -> float | None:
         """Get the total run duration in seconds."""
         if self._start_time is None:
             return None
         end = self._end_time or time.time()
         return end - self._start_time
-    
+
     def reset(self) -> None:
         """Reset all metrics."""
         self.step_durations = []
@@ -180,7 +178,7 @@ class Monitor:
         self.total_output_token_count = 0
         self._start_time = None
         self._end_time = None
-    
+
     def update_metrics(
         self,
         step_log: "ActionStep | PlanningStep | None" = None,
@@ -189,7 +187,7 @@ class Monitor:
     ) -> None:
         """
         Update metrics with a new step's data.
-        
+
         Args:
             step_log: A memory step with timing and token_usage attributes.
             duration: Alternatively, provide duration directly.
@@ -203,10 +201,10 @@ class Monitor:
                 step_duration = duration
         else:
             step_duration = duration
-        
+
         if step_duration is not None:
             self.step_durations.append(step_duration)
-        
+
         # Update token counts
         if token_usage is not None:
             self.total_input_token_count += token_usage.input_tokens
@@ -215,7 +213,7 @@ class Monitor:
             if hasattr(step_log, "metrics") and step_log.metrics is not None:
                 self.total_input_token_count += step_log.metrics.input_tokens
                 self.total_output_token_count += step_log.metrics.output_tokens
-        
+
         # Log if logger is available
         if self.logger is not None:
             step_num = len(self.step_durations)
@@ -226,7 +224,7 @@ class Monitor:
                 console_outputs += f" | Tokens: {self.total_input_token_count:,} in, {self.total_output_token_count:,} out"
             console_outputs += "]"
             self.logger.log(console_outputs, level=LogLevel.DEBUG)
-    
+
     def get_summary(self) -> dict[str, Any]:
         """Get a summary of all metrics."""
         return {
@@ -239,7 +237,7 @@ class Monitor:
             ),
             "token_usage": self.get_total_token_counts().dict(),
         }
-    
+
     def __repr__(self) -> str:
         return f"Monitor(steps={len(self.step_durations)}, tokens={self.get_total_token_counts()})"
 
@@ -255,11 +253,11 @@ class LogLevel(IntEnum):
 class AgentLogger:
     """
     Logger for agent execution with rich formatting support.
-    
+
     Provides methods for logging various types of content including
     code, markdown, tasks, and structured data with optional rich formatting.
     """
-    
+
     def __init__(
         self,
         level: LogLevel = LogLevel.INFO,
@@ -268,7 +266,7 @@ class AgentLogger:
     ):
         """
         Initialize the logger.
-        
+
         Args:
             level: Minimum log level to display.
             console: Optional rich Console instance.
@@ -276,7 +274,7 @@ class AgentLogger:
         """
         self.level = level
         self._use_rich = use_rich and HAS_RICH
-        
+
         if self._use_rich:
             if console is not None:
                 self.console = console
@@ -284,7 +282,7 @@ class AgentLogger:
                 self.console = Console(highlight=False)
         else:
             self.console = None
-    
+
     def log(
         self,
         *args,
@@ -293,7 +291,7 @@ class AgentLogger:
     ) -> None:
         """
         Log a message.
-        
+
         Args:
             *args: Arguments to print.
             level: Log level for this message.
@@ -302,17 +300,17 @@ class AgentLogger:
         # Convert string level to LogLevel
         if isinstance(level, str):
             level = LogLevel[level.upper()]
-        
+
         # Check if we should log
         if level > self.level:
             return
-        
+
         if self._use_rich and self.console:
             self.console.print(*args, **kwargs)
         else:
             # Strip rich markup for plain output
             print(*args)
-    
+
     def log_error(self, error_message: str) -> None:
         """Log an error message."""
         if self._use_rich and self.console:
@@ -322,7 +320,7 @@ class AgentLogger:
             )
         else:
             print(f"ERROR: {error_message}")
-    
+
     def log_code(
         self,
         title: str,
@@ -331,7 +329,7 @@ class AgentLogger:
     ) -> None:
         """
         Log a code block with syntax highlighting.
-        
+
         Args:
             title: Title for the code block.
             content: The code content.
@@ -339,7 +337,7 @@ class AgentLogger:
         """
         if level > self.level:
             return
-        
+
         if self._use_rich and self.console:
             self.console.print(
                 Panel(
@@ -358,7 +356,7 @@ class AgentLogger:
             print(f"\n=== {title} ===")
             print(content)
             print("=" * (len(title) + 8))
-    
+
     def log_markdown(
         self,
         content: str,
@@ -368,7 +366,7 @@ class AgentLogger:
     ) -> None:
         """
         Log markdown content.
-        
+
         Args:
             content: Markdown content to log.
             title: Optional title.
@@ -377,7 +375,7 @@ class AgentLogger:
         """
         if level > self.level:
             return
-        
+
         if self._use_rich and self.console:
             markdown_content = Syntax(
                 content,
@@ -402,7 +400,7 @@ class AgentLogger:
             if title:
                 print(f"\n--- {title} ---")
             print(content)
-    
+
     def log_task(
         self,
         content: str,
@@ -412,7 +410,7 @@ class AgentLogger:
     ) -> None:
         """
         Log a new task.
-        
+
         Args:
             content: Task description.
             subtitle: Subtitle text.
@@ -421,12 +419,12 @@ class AgentLogger:
         """
         if level > self.level:
             return
-        
+
         if self._use_rich and self.console:
             panel_title = "[bold]New run"
             if title:
                 panel_title += f" - {title}"
-            
+
             self.console.print(
                 Panel(
                     f"\n[bold]{_escape_brackets(content)}\n",
@@ -447,18 +445,18 @@ class AgentLogger:
             if subtitle:
                 print(f"({subtitle})")
             print()
-    
+
     def log_rule(self, title: str, level: LogLevel = LogLevel.INFO) -> None:
         """
         Log a horizontal rule with title.
-        
+
         Args:
             title: Text to display in the rule.
             level: Log level.
         """
         if level > self.level:
             return
-        
+
         if self._use_rich and self.console:
             self.console.print(
                 Rule(
@@ -469,7 +467,7 @@ class AgentLogger:
             )
         else:
             print(f"\n{'━'*20} {title} {'━'*20}")
-    
+
     def log_step(
         self,
         step_number: int,
@@ -480,7 +478,7 @@ class AgentLogger:
     ) -> None:
         """
         Log a complete agent step.
-        
+
         Args:
             step_number: The step number.
             thought: The agent's reasoning.
@@ -490,18 +488,18 @@ class AgentLogger:
         """
         if level > self.level:
             return
-        
+
         self.log_rule(f"Step {step_number}", level=level)
-        
+
         if thought:
             self.log_markdown(thought, title="Thought", level=level)
-        
+
         if code:
             self.log_code("Code", code, level=level)
-        
+
         if observation:
             self.log_markdown(observation, title="Observation", level=level)
-    
+
     def log_final_answer(
         self,
         answer: Any,
@@ -509,14 +507,14 @@ class AgentLogger:
     ) -> None:
         """
         Log the final answer.
-        
+
         Args:
             answer: The final answer.
             level: Log level.
         """
         if level > self.level:
             return
-        
+
         if self._use_rich and self.console:
             self.console.print(
                 Panel(
@@ -530,11 +528,11 @@ class AgentLogger:
             print("FINAL ANSWER:")
             print(answer)
             print(f"{'='*50}\n")
-    
+
     def visualize_agent_tree(self, agent) -> None:
         """
         Visualize the agent hierarchy as a tree.
-        
+
         Args:
             agent: The root agent to visualize.
         """
@@ -546,29 +544,29 @@ class AgentLogger:
                 for name in agent.tools:
                     print(f"    - {name}")
             return
-        
+
         def create_tools_section(tools_dict):
             table = Table(show_header=True, header_style="bold")
             table.add_column("Name", style=BLUE_HEX)
             table.add_column("Description")
-            
+
             for name, tool in tools_dict.items():
                 description = getattr(tool, "description", str(tool))
                 if len(description) > 80:
                     description = description[:77] + "..."
                 table.add_row(name, description)
-            
+
             return Group(f"🛠️ [italic {BLUE_HEX}]Tools:", table)
-        
+
         def get_agent_headline(agent, name: str | None = None):
             name_part = f"{name} | " if name else ""
             class_name = agent.__class__.__name__
             return f"[bold {YELLOW_HEX}]{name_part}{class_name}"
-        
+
         def build_agent_tree(parent_tree, agent_obj):
             if hasattr(agent_obj, "tools") and agent_obj.tools:
                 parent_tree.add(create_tools_section(agent_obj.tools))
-            
+
             if hasattr(agent_obj, "managed_agents") and agent_obj.managed_agents:
                 agents_branch = parent_tree.add(f"🤖 [italic {BLUE_HEX}]Managed agents:")
                 for name, managed_agent in agent_obj.managed_agents.items():
@@ -576,7 +574,7 @@ class AgentLogger:
                     if hasattr(managed_agent, "description"):
                         agent_tree.add(f"📝 Description: {managed_agent.description}")
                     build_agent_tree(agent_tree, managed_agent)
-        
+
         main_tree = Tree(get_agent_headline(agent))
         if hasattr(agent, "description") and agent.description:
             main_tree.add(f"📝 Description: {agent.description}")

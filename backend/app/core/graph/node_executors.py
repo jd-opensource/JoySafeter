@@ -8,7 +8,6 @@ and implements the execution logic for that node type.
 import ast
 import asyncio
 import time
-from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.messages import AIMessage, BaseMessage
@@ -26,7 +25,7 @@ except ImportError:
 from app.core.agent.node_tools import resolve_tools_for_node
 from app.core.agent.sample_agent import get_agent
 from app.core.graph.graph_state import GraphState
-from app.core.graph.route_types import RouteKey, validate_route_key
+from app.core.graph.route_types import RouteKey
 from app.models.graph import GraphNode
 
 
@@ -131,7 +130,7 @@ def validate_condition_expression(expr: str) -> bool:
 
 class StateWrapper:
     """Wrapper that allows both dot notation and dict access to state.
-    
+
     This class enables expressions like 'state.loop_count>1' to work,
     while still supporting dict-style access like 'state.get("loop_count")'.
     """
@@ -144,17 +143,17 @@ class StateWrapper:
                 setattr(self, key, StateWrapper(value))
             else:
                 setattr(self, key, value)
-    
+
     def __getattr__(self, name: str) -> Any:
         """Handle attribute access for keys that may not exist in the dict.
-        
+
         This allows accessing optional fields like loop_count even if they
         weren't in the original dict when StateWrapper was created.
         """
         if name.startswith('_'):
             # Don't interfere with private attributes
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-        
+
         # Try to get from the underlying dict
         if name in self._state:
             value = self._state[name]
@@ -162,35 +161,35 @@ class StateWrapper:
             if isinstance(value, dict):
                 return StateWrapper(value)
             return value
-        
+
         # Return None for missing attributes (allows expressions like state.loop_count > 1)
         # This is safer than raising AttributeError for optional fields
         return None
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """Support dict.get() method for backward compatibility."""
         return self._state.get(key, default)
-    
+
     def __getitem__(self, key: str) -> Any:
         """Support dict[] access for backward compatibility."""
         return self._state[key]
-    
+
     def __contains__(self, key: str) -> bool:
         """Support 'in' operator."""
         return key in self._state
-    
+
     def keys(self):
         """Support dict.keys() method."""
         return self._state.keys()
-    
+
     def values(self):
         """Support dict.values() method."""
         return self._state.values()
-    
+
     def items(self):
         """Support dict.items() method."""
         return self._state.items()
-    
+
     def __len__(self) -> int:
         """Support len() function."""
         return len(self._state)
@@ -199,11 +198,11 @@ class StateWrapper:
 class AgentNodeExecutor:
     """
     Executor for an Agent node in the graph.
-    
+
     Wraps a LangChain `create_agent` graph (tools + middleware) using the same
     implementation approach as `app.core.agent.sample_agent.get_agent`.
     """
-    
+
     def __init__(
         self,
         node: GraphNode,
@@ -235,7 +234,7 @@ class AgentNodeExecutor:
         self._agent: Runnable | None = None
         self._agent_lock = asyncio.Lock()
         node_data = node.data or {}
-        node_type = node_data.get("type") or node.type
+        node_data.get("type") or node.type
     def _get_system_prompt(self) -> str:
         """Extract system prompt from node configuration."""
         if self.node.prompt:
@@ -253,7 +252,7 @@ class AgentNodeExecutor:
                 return self._agent
 
             node_tools = await resolve_tools_for_node(self.node, user_id=self.user_id)
-            
+
             # 检查 node_tools 中是否有 ToolMetadata 对象
             if isinstance(node_tools, list):
                 from app.core.tools.tool import ToolMetadata
@@ -342,22 +341,22 @@ class AgentNodeExecutor:
 
         last = output_messages[-1] if output_messages else AIMessage(content="(no output)")
         return [last] if isinstance(last, BaseMessage) else [AIMessage(content=str(last))]
-    
+
     async def __call__(self, state: GraphState) -> Union[Dict[str, Any], Command]:
         """Execute the agent node.
-        
+
         Returns:
             Union[Dict[str, Any], Command]: State update dict or Command object for routing.
             Command mode can be enabled via node config: config.useCommandMode = true
         """
         start_time = time.time()
         messages: List[BaseMessage] = state.get("messages", []) or []
-        
+
         # Check if Command mode is enabled for this node
         data = self.node.data or {}
         config = data.get("config", {})
         use_command_mode = config.get("useCommandMode", False) and COMMAND_AVAILABLE
-        
+
         logger.info(
             f"[AgentNodeExecutor] >>> Executing node '{self.node_id}' | "
             f"input_messages_count={len(messages)} | command_mode={use_command_mode}"
@@ -369,7 +368,7 @@ class AgentNodeExecutor:
 
         try:
             agent = await self._ensure_agent()
-            
+
             result = await agent.ainvoke(
                 {"messages": input_messages},
             )
@@ -377,13 +376,13 @@ class AgentNodeExecutor:
                 result.get("messages") if isinstance(result, dict) else result
             )
             new_messages = self._extract_new_messages(input_messages, output_messages)
-            
+
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(
                 f"[AgentNodeExecutor] <<< Node '{self.node_id}' completed | "
                 f"elapsed={elapsed_ms:.2f}ms | new_messages={len(new_messages)}"
             )
-            
+
             # Return Command object if Command mode is enabled
             if use_command_mode:
                 # In Command mode, determine next node from config or use default routing
@@ -400,13 +399,13 @@ class AgentNodeExecutor:
                         },
                         goto=goto_node
                     )
-            
+
             # Default: return dict (backward compatible)
             return_dict = {
                 "messages": new_messages,
                 "current_node": self.node_id,
             }
-            
+
             return return_dict
         except Exception as e:
             elapsed_ms = (time.time() - start_time) * 1000
@@ -415,7 +414,7 @@ class AgentNodeExecutor:
                 f"elapsed={elapsed_ms:.2f}ms | error={type(e).__name__}: {e}"
             )
             error_message = AIMessage(content=f"Error in node {self.node_id}: {str(e)}")
-            
+
             # In Command mode, can route to error handler node
             if use_command_mode:
                 error_goto = config.get("commandErrorGoto")
@@ -427,7 +426,7 @@ class AgentNodeExecutor:
                         },
                         goto=error_goto
                     )
-            
+
             return {
                 "messages": [error_message],
                 "current_node": self.node_id,
@@ -458,27 +457,27 @@ class ConditionNodeExecutor:
         config = data.get("config", {})
         self.trueLabel = config.get("trueLabel", "Yes")
         self.falseLabel = config.get("falseLabel", "No")
-    
+
     def _get_expression(self) -> str:
         """Extract condition expression from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("expression", "")
-    
+
     def set_handle_to_route_map(self, handle_map: Dict[str, str]) -> None:
         """Set the mapping from React Flow handle IDs to route keys."""
         self.handle_to_route_map = handle_map
-    
+
     def _evaluate_expression(self, state: GraphState) -> bool:
         """Safely evaluate the condition expression."""
         if not self.expression:
             logger.warning(f"[ConditionNodeExecutor] No expression provided for node '{self.node_id}'")
             return False
-        
+
         try:
             # Convert state to dict for debugging and wrapping
             state_dict = dict(state)
-            
+
             # Debug: Print state keys and loop_count value
             logger.debug(
                 f"[ConditionNodeExecutor] State keys | "
@@ -486,7 +485,7 @@ class ConditionNodeExecutor:
                 f"loop_count={state_dict.get('loop_count', 'NOT_PRESENT')} | "
                 f"loop_count_type={type(state_dict.get('loop_count'))}"
             )
-            
+
             # Create a safe evaluation context
             # Use StateWrapper to support dot notation access (e.g., state.loop_count)
             wrapped_state = StateWrapper(state_dict)
@@ -498,7 +497,7 @@ class ConditionNodeExecutor:
                 "loop_count": state.get("loop_count", 0),
                 "route_decision": state.get("route_decision"),
             }
-            
+
             # Debug: Test attribute access before evaluation
             try:
                 loop_count_attr = getattr(wrapped_state, 'loop_count', 'NOT_FOUND')
@@ -512,17 +511,17 @@ class ConditionNodeExecutor:
                     f"[ConditionNodeExecutor] Failed to access loop_count attribute | "
                     f"node_id={self.node_id} | error={attr_e}"
                 )
-            
+
             # Evaluate the expression
             result = eval(self.expression, {"__builtins__": {}}, eval_context)
             bool_result = bool(result)
-            
+
             # Print expression and result for debugging
             logger.info(
                 f"[ConditionNodeExecutor] Expression evaluation | "
                 f"node_id={self.node_id} | expression='{self.expression}' | result={bool_result} | raw_result={result}"
             )
-            
+
             return bool_result
         except Exception as e:
             logger.error(
@@ -530,30 +529,30 @@ class ConditionNodeExecutor:
                 f"node_id={self.node_id} | error={type(e).__name__}: {e}"
             )
             return False
-    
+
     async def __call__(self, state: GraphState) -> Union[Dict[str, Any], RouteKey, Command]:
         """Evaluate the condition and return route decision.
-        
+
         Returns:
-            Union[Dict[str, Any], RouteKey, Command]: 
+            Union[Dict[str, Any], RouteKey, Command]:
             - Dict with route_decision (default mode, for conditional edges)
             - RouteKey (when used as router function)
             - Command object (if Command mode enabled)
         """
         start_time = time.time()
-        
+
         # Check if Command mode is enabled
         data = self.node.data or {}
         config = data.get("config", {})
         use_command_mode = config.get("useCommandMode", False) and COMMAND_AVAILABLE
-        
+
         logger.info(
             f"[ConditionNodeExecutor] >>> Evaluating condition node '{self.node_id}' | "
             f"expression='{self.expression}' | command_mode={use_command_mode}"
         )
-        
+
         condition_result = self._evaluate_expression(state)
-        
+
         # Determine route key based on condition result
         # Default: "true" for True, "false" for False
         # Can be customized via handle_to_route_map
@@ -561,7 +560,7 @@ class ConditionNodeExecutor:
             route_key = self.handle_to_route_map.get("true", "true")
         else:
             route_key = self.handle_to_route_map.get("false", "false")
-        
+
         elapsed_ms = (time.time() - start_time) * 1000
         label = self.trueLabel if condition_result else self.falseLabel
         logger.info(
@@ -569,13 +568,13 @@ class ConditionNodeExecutor:
             f"node_id={self.node_id} | result={condition_result} | "
             f"route_key={route_key} | label={label} | elapsed={elapsed_ms:.2f}ms"
         )
-        
+
         # Return Command object if Command mode is enabled
         if use_command_mode:
             # Get target nodes from config
             true_goto = config.get("commandTrueGoto")
             false_goto = config.get("commandFalseGoto")
-            
+
             goto_node = true_goto if condition_result else false_goto
             if goto_node:
                 logger.debug(
@@ -590,7 +589,7 @@ class ConditionNodeExecutor:
                     },
                     goto=goto_node
                 )
-        
+
         # Default: return dict (for conditional edges)
         return {
             "current_node": self.node_id,
@@ -601,25 +600,25 @@ class ConditionNodeExecutor:
 
 class DirectReplyNodeExecutor:
     """Executor for a Direct Reply node in the graph."""
-    
+
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
         self.template = self._get_template()
-    
+
     def _get_template(self) -> str:
         """Extract template from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("template", "")
-    
+
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Return the template message."""
         content = self.template
         context = state.get("context", {})
         for key, value in context.items():
             content = content.replace(f"{{{{{key}}}}}", str(value))
-        
+
         return {
             "messages": [AIMessage(content=content)],
             "current_node": self.node_id,
@@ -628,11 +627,11 @@ class DirectReplyNodeExecutor:
 
 class RouterNodeExecutor:
     """Executor for a Router node in the graph.
-    
+
     Evaluates multiple routing rules and returns a route_key that maps to
     React Flow's source_handle_id. This ensures UI connections match logical routing.
     """
-    
+
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
@@ -646,10 +645,10 @@ class RouterNodeExecutor:
 
         # Map handle IDs to route keys (set during graph building)
         self.handle_to_route_map: Dict[str, str] = {}
-    
+
     def _get_rules(self) -> List[Dict[str, Any]]:
         """Extract routing rules from node configuration.
-        
+
         Rules are sorted by priority if available (lower priority number = higher priority).
         """
         data = self.node.data or {}
@@ -661,17 +660,17 @@ class RouterNodeExecutor:
         if rules and isinstance(rules[0].get("priority"), int):
             rules = sorted(rules, key=lambda r: r.get("priority", 999))
         return rules
-    
+
     def set_handle_to_route_map(self, handle_map: Dict[str, str]) -> None:
         """Set the mapping from React Flow handle IDs to route keys."""
         self.handle_to_route_map = handle_map
-    
+
     def _evaluate_rule(self, rule: Dict[str, Any], state: GraphState) -> bool:
         """Evaluate a single routing rule condition."""
         condition = rule.get("condition", "")
         if not condition:
             return False
-        
+
         try:
             # Create a safe evaluation context
             # Use StateWrapper to support dot notation access (e.g., state.loop_count)
@@ -683,7 +682,7 @@ class RouterNodeExecutor:
                 "loop_count": state.get("loop_count", 0),
                 "route_decision": state.get("route_decision"),
             }
-            
+
             # Evaluate the condition
             result = eval(condition, {"__builtins__": {}}, eval_context)
             return bool(result)
@@ -693,28 +692,28 @@ class RouterNodeExecutor:
                 f"node_id={self.node_id} | error={type(e).__name__}: {e}"
             )
             return False
-    
+
     async def __call__(self, state: GraphState) -> Union[RouteKey, Command]:
         """Evaluate routing rules and return route_key or Command.
-        
+
         Returns:
             Union[RouteKey, Command]:
             - RouteKey: Route key that maps to source_handle_id in React Flow edges (default mode)
             - Command: Command object with goto target (if Command mode enabled)
         """
         start_time = time.time()
-        
+
         # Check if Command mode is enabled
         data = self.node.data or {}
         config = data.get("config", {})
         use_command_mode = config.get("useCommandMode", False) and COMMAND_AVAILABLE
         default_route = config.get("defaultRoute", "default")
-        
+
         logger.info(
             f"[RouterNodeExecutor] >>> Evaluating router node '{self.node_id}' | "
             f"rules_count={len(self.rules)} | command_mode={use_command_mode}"
         )
-        
+
         # Evaluate rules in order, return first matching route_key
         for rule in self.rules:
             if self._evaluate_rule(rule, state):
@@ -747,7 +746,7 @@ class RouterNodeExecutor:
                         # Try to find target node from conditional_map (would need access to it)
                         # For now, use route_key as goto (assuming node names match route keys)
                         goto_node = route_key
-                    
+
                     if goto_node:
                         logger.debug(
                             f"[RouterNodeExecutor] Returning Command with goto={goto_node} | "
@@ -763,14 +762,14 @@ class RouterNodeExecutor:
                         )
 
                 return route_key
-        
+
         # No rule matched, return default
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(
             f"[RouterNodeExecutor] <<< No rule matched, using default | "
             f"node_id={self.node_id} | route_key={default_route} | elapsed={elapsed_ms:.2f}ms"
         )
-        
+
         # Return Command if Command mode is enabled
         if use_command_mode:
             default_goto = config.get("commandDefaultGoto", default_route)
@@ -783,16 +782,16 @@ class RouterNodeExecutor:
                     },
                     goto=default_goto
                 )
-        
+
         return default_route
 
 
 class ToolNodeExecutor:
     """Executor for a Tool node in the graph.
-    
+
     Executes a tool with parameters mapped from state.
     """
-    
+
     def __init__(self, node: GraphNode, node_id: str, user_id: Optional[str] = None):
         self.node = node
         self.node_id = node_id
@@ -800,16 +799,16 @@ class ToolNodeExecutor:
         self.tool_name = self._get_tool_name()
         self.input_mapping = self._get_input_mapping()
         self._tool: Optional[Any] = None
-    
+
     def _get_tool_name(self) -> str:
         """Extract tool name from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("tool_name", "")
-    
+
     def _get_input_mapping(self) -> Dict[str, str]:
         """Extract input parameter mapping from node configuration.
-        
+
         Returns:
             Dict mapping tool parameter names to state access expressions.
             Example: {"query": "state.context.get('user_query')"}
@@ -817,28 +816,28 @@ class ToolNodeExecutor:
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("input_mapping", {})
-    
+
     async def _resolve_tool(self) -> Any:
         """Resolve the tool instance from the registry."""
         if self._tool is not None:
             return self._tool
-        
+
         if not self.tool_name:
             logger.error(f"[ToolNodeExecutor] No tool_name specified for node '{self.node_id}'")
             return None
-        
+
         try:
             from app.core.tools.tool_registry import get_global_registry
             registry = get_global_registry()
             tool = registry.get_tool(self.tool_name)
-            
+
             if not tool:
                 logger.error(
                     f"[ToolNodeExecutor] Tool '{self.tool_name}' not found in registry | "
                     f"node_id={self.node_id}"
                 )
                 return None
-            
+
             self._tool = tool
             return tool
         except Exception as e:
@@ -847,7 +846,7 @@ class ToolNodeExecutor:
                 f"node_id={self.node_id} | error={type(e).__name__}: {e}"
             )
             return None
-    
+
     def _map_inputs(self, state: GraphState) -> Dict[str, Any]:
         """Map state values to tool input parameters."""
         tool_inputs = {}
@@ -855,7 +854,7 @@ class ToolNodeExecutor:
             "state": dict(state),
             "context": state.get("context", {}),
         }
-        
+
         for param_name, expression in self.input_mapping.items():
             try:
                 value = eval(expression, {"__builtins__": {}}, eval_context)
@@ -865,9 +864,9 @@ class ToolNodeExecutor:
                     f"[ToolNodeExecutor] Error evaluating input mapping '{expression}' | "
                     f"param={param_name} | node_id={self.node_id} | error={type(e).__name__}: {e}"
                 )
-        
+
         return tool_inputs
-    
+
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Execute the tool node."""
         start_time = time.time()
@@ -875,7 +874,7 @@ class ToolNodeExecutor:
             f"[ToolNodeExecutor] >>> Executing tool node '{self.node_id}' | "
             f"tool_name={self.tool_name}"
         )
-        
+
         try:
             tool = await self._resolve_tool()
             if not tool:
@@ -885,14 +884,14 @@ class ToolNodeExecutor:
                     "current_node": self.node_id,
                     "messages": [AIMessage(content=f"Error: {error_msg}")],
                 }
-            
+
             # Map inputs from state
             tool_inputs = self._map_inputs(state)
             logger.debug(
                 f"[ToolNodeExecutor] Tool inputs mapped | "
                 f"node_id={self.node_id} | inputs={tool_inputs}"
             )
-            
+
             # Execute the tool
             if hasattr(tool, "ainvoke"):
                 result = await tool.ainvoke(tool_inputs)
@@ -901,13 +900,13 @@ class ToolNodeExecutor:
             else:
                 # Try calling directly
                 result = tool(**tool_inputs)
-            
+
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(
                 f"[ToolNodeExecutor] <<< Tool executed | "
                 f"node_id={self.node_id} | elapsed={elapsed_ms:.2f}ms"
             )
-            
+
             return {
                 "current_node": self.node_id,
                 "messages": [AIMessage(content=f"Tool '{self.tool_name}' executed: {str(result)}")],
@@ -929,29 +928,29 @@ class ToolNodeExecutor:
 
 class FunctionNodeExecutor:
     """Executor for a Function node in the graph.
-    
+
     Executes custom Python code or a predefined function.
     WARNING: Code execution should be sandboxed in production.
     """
-    
+
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
         self.function_code = self._get_function_code()
         self.function_name = self._get_function_name()
-    
+
     def _get_function_code(self) -> str:
         """Extract function code from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("function_code", "")
-    
+
     def _get_function_name(self) -> Optional[str]:
         """Extract predefined function name from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("function_name")
-    
+
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Execute the function node."""
         start_time = time.time()
@@ -959,14 +958,14 @@ class FunctionNodeExecutor:
             f"[FunctionNodeExecutor] >>> Executing function node '{self.node_id}' | "
             f"has_code={bool(self.function_code)} | function_name={self.function_name}"
         )
-        
+
         try:
             result = {}
-            
+
             if self.function_name:
                 # Execute predefined function from registry
                 from app.core.graph.function_registry import FunctionRegistry
-                
+
                 func = FunctionRegistry.get(self.function_name)
                 if func:
                     try:
@@ -987,28 +986,28 @@ class FunctionNodeExecutor:
             elif self.function_code:
                 # Execute custom code with sandboxing
                 from app.core.graph.sandbox_executor import SandboxExecutor
-                
+
                 execution_context = {
                     "state": state,
                     "context": state.get("context", {}),
                     "messages": state.get("messages", []),
                 }
-                
+
                 # Use sandbox executor for safe execution
                 result = SandboxExecutor.execute_safe(self.function_code, execution_context)
-                
+
                 # Ensure result is a dict
                 if not isinstance(result, dict):
                     result = {"result": result, "status": "success"}
             else:
                 result = {"status": "error", "error_msg": "No function code or name provided"}
-            
+
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(
                 f"[FunctionNodeExecutor] <<< Function executed | "
                 f"node_id={self.node_id} | elapsed={elapsed_ms:.2f}ms"
             )
-            
+
             return {
                 "current_node": self.node_id,
                 "function_results": [result],
@@ -1033,22 +1032,22 @@ def update_loop_state(
 ) -> Dict[str, Any]:
     """
     Helper function to update scoped loop state.
-    
+
     Args:
         state: Current graph state
         loop_node_id: ID of the loop node
         updates: Dictionary of updates to apply to loop state
-        
+
     Returns:
         State update dictionary with updated loop_states
     """
     loop_states = state.get("loop_states", {})
     loop_state = loop_states.get(loop_node_id, {}).copy()
     loop_state.update(updates)
-    
+
     updated_loop_states = loop_states.copy()
     updated_loop_states[loop_node_id] = loop_state
-    
+
     return {"loop_states": updated_loop_states}
 
 
@@ -1058,33 +1057,33 @@ def increment_loop_count(
 ) -> Dict[str, Any]:
     """
     Helper function to increment loop count in scoped state.
-    
+
     Args:
         state: Current graph state
         loop_node_id: ID of the loop node
-        
+
     Returns:
         State update dictionary with incremented loop_count
     """
     loop_states = state.get("loop_states", {})
     loop_state = loop_states.get(loop_node_id, {})
     current_count = loop_state.get("loop_count", 0)
-    
+
     return update_loop_state(state, loop_node_id, {"loop_count": current_count + 1})
 
 
 class LoopConditionNodeExecutor:
     """Executor for a Loop Condition node in the graph.
-    
+
     Evaluates loop condition and returns 'continue_loop' or 'exit_loop'.
     Manages loop count in scoped state to avoid conflicts with parallel loops.
-    
+
     Supports different loop types:
     - forEach: Iterate over a list variable
     - while: Check condition first, then execute
     - doWhile: Execute first, then check condition
     """
-    
+
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
@@ -1101,17 +1100,17 @@ class LoopConditionNodeExecutor:
         if self.conditionType in ["while", "doWhile"] and self.condition:
             if not validate_condition_expression(self.condition):
                 raise ValueError(f"Invalid loop condition expression in node '{node_id}': {self.condition}")
-    
+
     def _evaluate_condition(self, state: GraphState) -> bool:
         """Evaluate the loop condition using scoped state."""
         if not self.condition:
             return False
-        
+
         try:
             # Get scoped loop state for this node
             loop_states = state.get("loop_states", {})
             loop_state = loop_states.get(self.node_id, {})
-            
+
             # Create evaluation context with scoped state
             # Use StateWrapper to support dot notation access (e.g., state.loop_count)
             eval_context = {
@@ -1120,7 +1119,7 @@ class LoopConditionNodeExecutor:
                 "loop_count": loop_state.get("loop_count", 0),
                 "loop_state": StateWrapper(loop_state) if loop_state else {},
             }
-            
+
             result = eval(self.condition, {"__builtins__": {}}, eval_context)
             return bool(result)
         except Exception as e:
@@ -1129,32 +1128,32 @@ class LoopConditionNodeExecutor:
                 f"node_id={self.node_id} | error={type(e).__name__}: {e}"
             )
             return False
-    
+
     async def __call__(self, state: GraphState) -> str:
         """Evaluate loop condition and return route decision.
-        
+
         Supports different loop types:
         - forEach: Iterate over list variable, continue until list is exhausted
         - while: Check condition first, then execute
         - doWhile: Execute first, then check condition
-        
+
         Returns:
             'continue_loop' if condition is met and max iterations not reached
             'exit_loop' otherwise
         """
         start_time = time.time()
-        
+
         # Get scoped loop state
         loop_states = state.get("loop_states", {})
         loop_state = loop_states.get(self.node_id, {})
         current_count = loop_state.get("loop_count", 0)
-        
+
         logger.info(
             f"[LoopConditionNodeExecutor] >>> Evaluating loop condition | "
             f"node_id={self.node_id} | conditionType={self.conditionType} | "
             f"loop_count={current_count} | maxIterations={self.maxIterations}"
         )
-        
+
         # Check max iterations (safety limit for all loop types)
         if current_count >= self.maxIterations:
             logger.warning(
@@ -1162,7 +1161,7 @@ class LoopConditionNodeExecutor:
                 f"node_id={self.node_id} | count={current_count} | max={self.maxIterations}"
             )
             return "exit_loop"
-        
+
         # Handle different loop types
         if self.conditionType == "forEach":
             # For forEach: check if there are more items to process
@@ -1173,24 +1172,24 @@ class LoopConditionNodeExecutor:
                     f"is not a list, got {type(items).__name__}"
                 )
                 return "exit_loop"
-            
+
             # Continue if there are more items to process
             # Note: The actual iteration index should be tracked in loop_state
             current_index = loop_state.get("current_index", 0)
             condition_met = current_index < len(items)
-            
+
             logger.info(
                 f"[LoopConditionNodeExecutor] forEach: current_index={current_index} | "
                 f"total_items={len(items)} | condition_met={condition_met}"
             )
-            
+
         elif self.conditionType == "doWhile":
             # For doWhile: condition is evaluated after execution
             # On first call, always continue (execute first)
             if current_count == 0:
                 condition_met = True
                 logger.info(
-                    f"[LoopConditionNodeExecutor] doWhile: First iteration, executing loop body"
+                    "[LoopConditionNodeExecutor] doWhile: First iteration, executing loop body"
                 )
             else:
                 # After first execution, evaluate condition
@@ -1201,46 +1200,46 @@ class LoopConditionNodeExecutor:
         else:
             # Default: while loop - check condition first
             condition_met = self._evaluate_condition(state)
-        
+
         route_decision = "continue_loop" if condition_met else "exit_loop"
-        
+
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(
             f"[LoopConditionNodeExecutor] <<< Loop condition evaluated | "
             f"node_id={self.node_id} | conditionType={self.conditionType} | "
             f"condition_met={condition_met} | route={route_decision} | elapsed={elapsed_ms:.2f}ms"
         )
-        
+
         return route_decision
 
 
 class AggregatorNodeExecutor:
     """Executor for an Aggregator node in the graph (Fan-In).
-    
+
     Waits for all upstream nodes to complete and aggregates their results.
     Supports error handling strategies: fail_fast or best_effort.
     """
-    
+
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
         self.error_strategy = self._get_error_strategy()
-    
+
     def _get_error_strategy(self) -> str:
         """Extract error handling strategy from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("error_strategy", "fail_fast")  # 'fail_fast' or 'best_effort'
-    
+
     def _aggregate_results(self, state: GraphState) -> Dict[str, Any]:
         """Aggregate results from parallel branches."""
         task_results = state.get("task_results", [])
-        parallel_results = state.get("parallel_results", [])
-        
+        state.get("parallel_results", [])
+
         # Check for errors
         errors = [r for r in task_results if r.get("status") == "error"]
         successes = [r for r in task_results if r.get("status") == "success"]
-        
+
         if self.error_strategy == "fail_fast" and errors:
             # One failure causes all to fail
             error_msg = f"Aggregation failed: {len(errors)} error(s) found"
@@ -1253,7 +1252,7 @@ class AggregatorNodeExecutor:
                 "error_msg": error_msg,
                 "errors": errors,
             }
-        
+
         # Best-effort: collect successes, mark failures
         aggregated = {
             "status": "success",
@@ -1262,9 +1261,9 @@ class AggregatorNodeExecutor:
             "results": [r.get("result") for r in successes],
             "errors": errors if errors else None,
         }
-        
+
         return aggregated
-    
+
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Aggregate results from all upstream nodes."""
         start_time = time.time()
@@ -1272,17 +1271,17 @@ class AggregatorNodeExecutor:
             f"[AggregatorNodeExecutor] >>> Aggregating results | "
             f"node_id={self.node_id} | strategy={self.error_strategy}"
         )
-        
+
         try:
             aggregated = self._aggregate_results(state)
-            
+
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(
                 f"[AggregatorNodeExecutor] <<< Aggregation complete | "
                 f"node_id={self.node_id} | status={aggregated.get('status')} | "
                 f"elapsed={elapsed_ms:.2f}ms"
             )
-            
+
             return {
                 "current_node": self.node_id,
                 "messages": [
@@ -1311,31 +1310,31 @@ class AggregatorNodeExecutor:
 
 class JSONParserNodeExecutor:
     """JSON parser and transformer node.
-    
+
     Supports:
     - JSONPath queries
     - JSON Schema validation (optional)
     - JSON transformation
     """
-    
+
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
         self.jsonpath_query = self._get_jsonpath_query()
         self.schema_validation = self._get_schema_validation()
-    
+
     def _get_jsonpath_query(self) -> Optional[str]:
         """Extract JSONPath query from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("jsonpath_query")
-    
+
     def _get_schema_validation(self) -> Optional[Dict[str, Any]]:
         """Extract JSON Schema for validation."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("json_schema")
-    
+
     def _parse_json(self, input_data: Any) -> Any:
         """Parse JSON from various input formats."""
         if isinstance(input_data, str):
@@ -1349,7 +1348,7 @@ class JSONParserNodeExecutor:
             return input_data
         else:
             return input_data
-    
+
     def _apply_jsonpath(self, data: Any, query: str) -> Any:
         """Apply JSONPath query to data."""
         try:
@@ -1359,7 +1358,7 @@ class JSONParserNodeExecutor:
             return matches[0] if len(matches) == 1 else matches
         except ImportError:
             logger.warning(
-                f"[JSONParserNodeExecutor] jsonpath-ng not installed, skipping JSONPath query"
+                "[JSONParserNodeExecutor] jsonpath-ng not installed, skipping JSONPath query"
             )
             return data
         except Exception as e:
@@ -1368,7 +1367,7 @@ class JSONParserNodeExecutor:
                 f"error={type(e).__name__}: {e}"
             )
             return data
-    
+
     def _validate_schema(self, data: Any, schema: Dict[str, Any]) -> bool:
         """Validate data against JSON Schema."""
         try:
@@ -1377,7 +1376,7 @@ class JSONParserNodeExecutor:
             return True
         except ImportError:
             logger.warning(
-                f"[JSONParserNodeExecutor] jsonschema not installed, skipping validation"
+                "[JSONParserNodeExecutor] jsonschema not installed, skipping validation"
             )
             return True
         except Exception as e:
@@ -1386,19 +1385,19 @@ class JSONParserNodeExecutor:
                 f"error={type(e).__name__}: {e}"
             )
             return False
-    
+
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Execute JSON parser node."""
         start_time = time.time()
         logger.info(
             f"[JSONParserNodeExecutor] >>> Executing JSON parser node '{self.node_id}'"
         )
-        
+
         try:
             # Get input data from state
             context = state.get("context", {})
             input_data = context.get("json_input") or context.get("input")
-            
+
             if input_data is None:
                 # Try to get from last message
                 messages = state.get("messages", [])
@@ -1406,13 +1405,13 @@ class JSONParserNodeExecutor:
                     last_message = messages[-1]
                     if hasattr(last_message, "content"):
                         input_data = last_message.content
-            
+
             if input_data is None:
                 return {
                     "current_node": self.node_id,
                     "messages": [AIMessage(content="No input data found for JSON parsing")],
                 }
-            
+
             # Parse JSON
             parsed_data = self._parse_json(input_data)
             if parsed_data is None:
@@ -1420,11 +1419,11 @@ class JSONParserNodeExecutor:
                     "current_node": self.node_id,
                     "messages": [AIMessage(content="Failed to parse JSON")],
                 }
-            
+
             # Apply JSONPath if specified
             if self.jsonpath_query:
                 parsed_data = self._apply_jsonpath(parsed_data, self.jsonpath_query)
-            
+
             # Validate schema if specified
             if self.schema_validation:
                 if not self._validate_schema(parsed_data, self.schema_validation):
@@ -1432,17 +1431,17 @@ class JSONParserNodeExecutor:
                         "current_node": self.node_id,
                         "messages": [AIMessage(content="JSON Schema validation failed")],
                     }
-            
+
             # Store result in context
             import json
             result_str = json.dumps(parsed_data, ensure_ascii=False, indent=2)
-            
+
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(
                 f"[JSONParserNodeExecutor] <<< JSON parser completed | "
                 f"node_id={self.node_id} | elapsed={elapsed_ms:.2f}ms"
             )
-            
+
             return {
                 "current_node": self.node_id,
                 "messages": [AIMessage(content=f"JSON parsed: {result_str[:200]}...")],
@@ -1463,7 +1462,7 @@ class JSONParserNodeExecutor:
 
 class HttpRequestNodeExecutor:
     """Enhanced HTTP request node.
-    
+
     Supports:
     - Authentication
     - Retry logic
@@ -1471,7 +1470,7 @@ class HttpRequestNodeExecutor:
     - Response parsing
     - Error handling
     """
-    
+
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
@@ -1481,31 +1480,31 @@ class HttpRequestNodeExecutor:
         self.auth_config = self._get_auth_config()
         self.retry_config = self._get_retry_config()
         self.timeout = self._get_timeout()
-    
+
     def _get_method(self) -> str:
         """Extract HTTP method from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("method", "GET").upper()
-    
+
     def _get_url_template(self) -> str:
         """Extract URL template from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("url", "")
-    
+
     def _get_headers(self) -> Dict[str, str]:
         """Extract headers from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("headers", {})
-    
+
     def _get_auth_config(self) -> Dict[str, Any]:
         """Extract authentication configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("auth", {})
-    
+
     def _get_retry_config(self) -> Dict[str, Any]:
         """Extract retry configuration."""
         data = self.node.data or {}
@@ -1515,23 +1514,23 @@ class HttpRequestNodeExecutor:
             "retry_delay": config.get("retry_delay", 1.0),
             "retry_on": config.get("retry_on", [500, 502, 503, 504]),
         }
-    
+
     def _get_timeout(self) -> float:
         """Extract timeout configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
         return config.get("timeout", 30.0)
-    
+
     def _substitute_url(self, template: str, state: GraphState) -> str:
         """Substitute URL template variables."""
         context = state.get("context", {})
         result = template
-        
+
         for key, value in context.items():
             result = result.replace(f"{{{{{key}}}}}", str(value))
-        
+
         return result
-    
+
     async def _make_request(
         self,
         url: str,
@@ -1541,12 +1540,12 @@ class HttpRequestNodeExecutor:
     ) -> Dict[str, Any]:
         """Make HTTP request with retry logic."""
         import aiohttp
-        
+
         retry_config = self.retry_config
         max_retries = retry_config["max_retries"]
         retry_delay = retry_config["retry_delay"]
         retry_on = retry_config["retry_on"]
-        
+
         for attempt in range(max_retries + 1):
             try:
                 timeout = aiohttp.ClientTimeout(total=self.timeout)
@@ -1559,14 +1558,14 @@ class HttpRequestNodeExecutor:
                         data=data if not isinstance(data, dict) else None,
                     ) as response:
                         response_data = await response.text()
-                        
+
                         # Try to parse as JSON
                         try:
                             import json
                             response_data = json.loads(response_data)
                         except (json.JSONDecodeError, TypeError):
                             pass
-                        
+
                         if response.status in retry_on and attempt < max_retries:
                             logger.warning(
                                 f"[HttpRequestNodeExecutor] Request failed with status {response.status}, "
@@ -1574,7 +1573,7 @@ class HttpRequestNodeExecutor:
                             )
                             await asyncio.sleep(retry_delay)
                             continue
-                        
+
                         return {
                             "status": response.status,
                             "headers": dict(response.headers),
@@ -1597,10 +1596,10 @@ class HttpRequestNodeExecutor:
                     await asyncio.sleep(retry_delay)
                     continue
                 raise
-        
+
         # Should not reach here, but just in case
         return {"status": 500, "data": "Max retries exceeded", "success": False}
-    
+
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Execute HTTP request node."""
         start_time = time.time()
@@ -1608,14 +1607,14 @@ class HttpRequestNodeExecutor:
             f"[HttpRequestNodeExecutor] >>> Executing HTTP request node '{self.node_id}' | "
             f"method={self.method} | url={self.url_template[:50]}..."
         )
-        
+
         try:
             # Substitute URL template
             url = self._substitute_url(self.url_template, state)
-            
+
             # Prepare headers
             headers = self.headers.copy()
-            
+
             # Add authentication if configured
             auth_config = self.auth_config
             if auth_config.get("type") == "bearer":
@@ -1627,28 +1626,28 @@ class HttpRequestNodeExecutor:
                 password = auth_config.get("password", "")
                 credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
                 headers["Authorization"] = f"Basic {credentials}"
-            
+
             # Get request body from context if POST/PUT/PATCH
             request_data = None
             if self.method in ["POST", "PUT", "PATCH"]:
                 context = state.get("context", {})
                 request_data = context.get("request_body") or context.get("body")
-            
+
             # Make request
             result = await self._make_request(url, self.method, headers, request_data)
-            
+
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(
                 f"[HttpRequestNodeExecutor] <<< HTTP request completed | "
                 f"node_id={self.node_id} | status={result.get('status')} | "
                 f"elapsed={elapsed_ms:.2f}ms"
             )
-            
+
             response_message = (
                 f"HTTP {self.method} {url}: Status {result.get('status')}\n"
                 f"Response: {str(result.get('data'))[:200]}"
             )
-            
+
             return {
                 "current_node": self.node_id,
                 "messages": [AIMessage(content=response_message)],
@@ -1670,20 +1669,20 @@ class HttpRequestNodeExecutor:
 class CodeAgentNodeExecutor:
     """
     Executor for CodeAgent nodes in the graph.
-    
+
     Wraps the CodeAgent module for executing Python code through the
     Thought → Code → Observation iterative pattern.
-    
+
     Supports two modes:
     - autonomous: Self-planning agent that iterates until completion
     - tool_executor: Simple code execution as a passive tool
-    
+
     Supports three executor types:
     - local: Secure AST-based Python interpreter
     - docker: Docker sandbox for unrestricted code
     - auto: Smart routing based on code analysis
     """
-    
+
     def __init__(
         self,
         node: GraphNode,
@@ -1708,11 +1707,11 @@ class CodeAgentNodeExecutor:
         self.checkpointer = checkpointer
         self.resolved_model = resolved_model
         self.builder = builder
-        
+
         # Parse configuration
         data = node.data or {}
         self.config = data.get("config", {})
-        
+
         self.executor_type = self.config.get("executor_type", "local")
         self.agent_mode = self.config.get("agent_mode", "autonomous")
         self.max_steps = self.config.get("max_steps", 20)
@@ -1720,21 +1719,21 @@ class CodeAgentNodeExecutor:
         self.enable_data_analysis = self.config.get("enable_data_analysis", True)
         self.additional_imports = self.config.get("additional_imports", [])
         self.docker_image = self.config.get("docker_image", "python:3.11-slim")
-        
+
         self._code_agent = None
         self._agent_lock = asyncio.Lock()
-        
+
         logger.info(
             f"[CodeAgentNodeExecutor] Initialized | node_id={node_id} | "
             f"executor_type={self.executor_type} | agent_mode={self.agent_mode} | "
             f"max_steps={self.max_steps}"
         )
-    
+
     def _create_llm_function(self):
         """Create an LLM call function for the CodeAgent."""
         async def llm_call(prompt: str) -> str:
             from langchain_core.messages import HumanMessage
-            
+
             # Get or create LLM
             if self.resolved_model:
                 llm = self.resolved_model
@@ -1746,34 +1745,34 @@ class CodeAgentNodeExecutor:
                     base_url=self.base_url,
                     max_tokens=self.max_tokens,
                 )
-            
+
             # Call LLM
             response = await llm.ainvoke([HumanMessage(content=prompt)])
             return response.content
-        
+
         return llm_call
-    
+
     async def _ensure_code_agent(self):
         """Lazily create the CodeAgent instance."""
         if self._code_agent is not None:
             return self._code_agent
-        
+
         async with self._agent_lock:
             if self._code_agent is not None:
                 return self._code_agent
-            
+
             try:
                 from app.core.agent.code_agent import (
                     CodeAgent,
-                    LocalPythonExecutor,
                     DockerPythonExecutor,
                     ExecutorRouter,
+                    LocalPythonExecutor,
                     LoopConfig,
                 )
-                
+
                 # Create LLM function
                 llm_func = self._create_llm_function()
-                
+
                 # Create executor based on type
                 if self.executor_type == "docker":
                     executor = DockerPythonExecutor(
@@ -1798,14 +1797,14 @@ class CodeAgentNodeExecutor:
                         enable_data_analysis=self.enable_data_analysis,
                         additional_authorized_imports=self.additional_imports,
                     )
-                
+
                 # Create loop config
                 loop_config = LoopConfig(
                     max_steps=self.max_steps,
                     enable_planning=self.enable_planning,
                     max_observation_length=10000,
                 )
-                
+
                 # Resolve tools for this node
                 node_tools = await resolve_tools_for_node(self.node, user_id=self.user_id)
                 tools_dict = {}
@@ -1815,7 +1814,7 @@ class CodeAgentNodeExecutor:
                             tools_dict[tool.name] = tool
                         elif hasattr(tool, "__name__"):
                             tools_dict[tool.__name__] = tool
-                
+
                 # Create CodeAgent
                 self._code_agent = CodeAgent(
                     llm=llm_func,
@@ -1827,32 +1826,32 @@ class CodeAgentNodeExecutor:
                     enable_data_analysis=self.enable_data_analysis,
                     additional_authorized_imports=self.additional_imports,
                 )
-                
+
                 logger.info(
                     f"[CodeAgentNodeExecutor] CodeAgent created | node_id={self.node_id} | "
                     f"tools_count={len(tools_dict)}"
                 )
-                
+
                 return self._code_agent
-                
+
             except ImportError as e:
                 logger.error(f"[CodeAgentNodeExecutor] Failed to import CodeAgent: {e}")
                 raise RuntimeError(f"CodeAgent module not available: {e}")
-    
+
     async def _execute_as_tool(self, task: str) -> tuple[str, list[dict]]:
         """Execute code task in tool_executor mode (simple, single execution).
-        
+
         Returns:
             Tuple of (result, events) where events is a list of CodeAgent step events.
         """
         code_agent = await self._ensure_code_agent()
-        
+
         # For tool mode, we run with a simpler prompt
         tool_task = f"Execute the following task and return the result directly:\n\n{task}"
-        
+
         events = []
         result = None
-        
+
         try:
             async for event in code_agent.run_stream(tool_task):
                 # Collect all events for streaming to frontend
@@ -1863,15 +1862,15 @@ class CodeAgentNodeExecutor:
                     "metadata": event.metadata or {},
                 }
                 events.append(event_dict)
-                
+
                 logger.debug(
                     f"[CodeAgentNodeExecutor] Tool event | type={event.event_type} | "
                     f"step={event.step_number}"
                 )
-                
+
                 if event.event_type == "final_answer":
                     result = event.content
-            
+
             result_str = str(result) if result is not None else "Execution completed successfully."
             return result_str, events
         except Exception as e:
@@ -1882,18 +1881,18 @@ class CodeAgentNodeExecutor:
                 "metadata": {},
             })
             return f"Code execution error: {str(e)}", events
-    
+
     async def _execute_as_agent(self, task: str) -> tuple[str, list[dict]]:
         """Execute task in autonomous agent mode with full reasoning loop.
-        
+
         Returns:
             Tuple of (result, events) where events is a list of CodeAgent step events.
         """
         code_agent = await self._ensure_code_agent()
-        
+
         events = []
         result = None
-        
+
         try:
             async for event in code_agent.run_stream(task):
                 # Collect all events for streaming to frontend
@@ -1904,15 +1903,15 @@ class CodeAgentNodeExecutor:
                     "metadata": event.metadata or {},
                 }
                 events.append(event_dict)
-                
+
                 logger.debug(
                     f"[CodeAgentNodeExecutor] Agent event | type={event.event_type} | "
                     f"step={event.step_number} | content_preview={str(event.content)[:100]}..."
                 )
-                
+
                 if event.event_type == "final_answer":
                     result = event.content
-            
+
             result_str = str(result) if result is not None else "Task completed."
             return result_str, events
         except Exception as e:
@@ -1924,20 +1923,20 @@ class CodeAgentNodeExecutor:
                 "metadata": {},
             })
             return f"Agent execution error: {str(e)}", events
-    
+
     def _extract_task_from_state(self, state: GraphState) -> str:
         """Extract the task/query from the graph state."""
         messages = state.get("messages", [])
         context = state.get("context", {})
-        
+
         # Priority 1: Check for explicit code_task in context
         if "code_task" in context:
             return str(context["code_task"])
-        
+
         # Priority 2: Check for task in context
         if "task" in context:
             return str(context["task"])
-        
+
         # Priority 3: Use the last human message
         if messages:
             for msg in reversed(messages):
@@ -1946,45 +1945,45 @@ class CodeAgentNodeExecutor:
                 if hasattr(msg, "content") and not hasattr(msg, "type"):
                     # Fallback to last message content
                     return msg.content
-        
+
         # Priority 4: Fallback
         return "Analyze the current context and provide a helpful response."
-    
+
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Execute the CodeAgent node.
-        
+
         Returns state updates including:
         - messages: The final response message
         - context: Execution metadata including code_agent_events for streaming
         - code_agent_events: List of step events for frontend process tracking
         """
         start_time = time.time()
-        
+
         logger.info(
             f"[CodeAgentNodeExecutor] >>> Executing node '{self.node_id}' | "
             f"mode={self.agent_mode} | executor={self.executor_type}"
         )
-        
+
         try:
             # Extract task from state
             task = self._extract_task_from_state(state)
-            
+
             # Execute based on mode - now returns (result, events)
             if self.agent_mode == "tool_executor":
                 result, events = await self._execute_as_tool(task)
             else:
                 result, events = await self._execute_as_agent(task)
-            
+
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(
                 f"[CodeAgentNodeExecutor] <<< Node '{self.node_id}' completed | "
                 f"elapsed={elapsed_ms:.2f}ms | result_length={len(str(result))} | "
                 f"events_count={len(events)}"
             )
-            
+
             # Create response message
             response_message = AIMessage(content=result)
-            
+
             return {
                 "current_node": self.node_id,
                 "messages": [response_message],
@@ -1996,14 +1995,14 @@ class CodeAgentNodeExecutor:
                 # Include events for StreamEventHandler to process
                 "code_agent_events": events,
             }
-            
+
         except Exception as e:
             elapsed_ms = (time.time() - start_time) * 1000
             logger.error(
                 f"[CodeAgentNodeExecutor] !!! Error in node '{self.node_id}' | "
                 f"elapsed={elapsed_ms:.2f}ms | error={type(e).__name__}: {e}"
             )
-            
+
             error_message = f"CodeAgent error: {str(e)}"
             return {
                 "current_node": self.node_id,

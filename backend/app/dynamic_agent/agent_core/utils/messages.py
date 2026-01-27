@@ -4,22 +4,22 @@ from typing import Any, List, Set
 from uuid import uuid4
 
 from app.dynamic_agent.agent_core.types import (
-    Message,
-    UserMessage,
     AssistantMessage,
-    ProgressMessage,
+    Message,
     MessageParam,
     MessageRole,
+    ProgressMessage,
     TextBlock,
     ToolResultBlock,
     Usage,
+    UserMessage,
 )
 
 
 def normalize_messages_for_api(messages: List[Message]) -> List[MessageParam]:
     """
     Normalize messages for API consumption.
-    
+
     Filters out progress messages and converts to MessageParam format.
     """
     result = []

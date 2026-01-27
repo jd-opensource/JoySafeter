@@ -2,19 +2,17 @@
 Graph 相关模型
 """
 import uuid
-from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     Boolean,
+    DateTime,
     ForeignKey,
     Index,
     Numeric,
     String,
     Text,
-    UniqueConstraint,
-    DateTime,
-    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -148,7 +146,7 @@ class GraphNode(BaseModel):
 
 class GraphEdge(BaseModel):
     """图边模型
-    
+
     支持条件路由和复杂流程模式：
     - data.route_key: 路由键，用于条件路由（对应 RouterNodeExecutor 的返回值）
     - data.source_handle_id: React Flow 的 Handle ID（如 "Yes", "No", "Unknown"）

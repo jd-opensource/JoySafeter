@@ -6,7 +6,6 @@ from enum import Enum
 from typing import Any, Dict, List, Set
 
 from fastapi import WebSocket
-from loguru import logger
 
 
 class NotificationType(str, Enum):

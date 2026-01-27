@@ -3,9 +3,7 @@ Vulnerability Rules Definition
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
-import json
-import os
+from typing import Any, Dict, List
 
 
 @dataclass

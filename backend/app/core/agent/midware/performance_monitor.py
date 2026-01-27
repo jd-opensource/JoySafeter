@@ -8,19 +8,18 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import psutil
 
 if TYPE_CHECKING:
-    from langgraph.runtime import Runtime
+    pass
 
 from deepagents.backends.protocol import BackendProtocol
-from langchain.agents.middleware.types import (AgentMiddleware, AgentState,
-                                               ModelRequest, ModelResponse)
-from typing_extensions import NotRequired, TypedDict
+from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from typing_extensions import NotRequired
 
 
 @dataclass
@@ -194,7 +193,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
             try:
                 self._cpu_usage = self.process.cpu_percent(interval=1.0)
                 self._memory_usage = self.process.memory_info().rss / 1024 / 1024  # MB
-            except:
+            except Exception:
                 pass
             time.sleep(1)
 
@@ -290,12 +289,12 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
             self.collector.add_record(record)
 
             # 更新状态
-            request_count = request.state.get("request_count", 0) + 1
-            total_time = request.state.get("total_response_time", 0.0) + response_time
+            request.state.get("request_count", 0) + 1
+            request.state.get("total_response_time", 0.0) + response_time
 
             return response
 
-        except Exception as e:
+        except Exception:
             # 记录错误指标
             end_time = time.time()
             response_time = end_time - start_time
@@ -382,7 +381,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
 
             return response
 
-        except Exception as e:
+        except Exception:
             end_time = time.time()
             response_time = end_time - start_time
 

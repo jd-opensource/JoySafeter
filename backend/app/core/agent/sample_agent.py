@@ -4,7 +4,6 @@ Example Agent implementation.
 Implements a sample chatbot node using LangChain v1 create_agent API.
 """
 
-import os
 from typing import Any
 
 from deepagents.middleware import FilesystemMiddleware
@@ -17,7 +16,6 @@ from langchain.tools import tool
 from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
-from app.core.settings import settings
 
 from app.core.agent.backends.filesystem_sandbox import FilesystemSandboxBackend
 from app.core.agent.midware import LoggingMiddleware
@@ -51,38 +49,38 @@ def get_default_model(
 ) -> ChatOpenAI:
     """
     Create and return a default ChatOpenAI model instance.
-    
+
     This function resolves configuration from function parameters.
     Note: Credentials should be provided via parameters or fetched from database.
-    
+
     Args:
         llm_model: Optional LLM model name. Defaults to "gpt-4o-mini".
         api_key: Optional API key for authentication (required if not provided via database).
         base_url: Optional base URL for the API endpoint.
         max_tokens: Maximum completion tokens. Defaults to 4096.
         timeout: Optional timeout in seconds. Defaults to 120 seconds.
-    
+
     Returns:
         ChatOpenAI: Configured ChatOpenAI model instance with streaming enabled.
     """
     # Use provided parameters (credentials should be fetched from database by caller)
     api_key_value = api_key
     base_url_value = base_url
-    
+
     # Resolve model name from parameter (不再使用 settings.openai_model)
     # 注意：调用者应该从数据库获取默认模型并传递 llm_model 参数
     model_name = llm_model or "gpt-4o-mini"  # 最后的硬编码后备（应该尽量避免）
-    
+
     # Convert API key to SecretStr if provided
     secret_api_key: SecretStr | None = (
         SecretStr(api_key_value) if api_key_value else None
     )
-    
+
     # Set default timeout to 120 seconds if not provided
     # This helps prevent "No generations found in stream" errors
     # that occur when the default 60s timeout is exceeded
     timeout_value = timeout if timeout is not None else 120
-    
+
     # Create and return ChatOpenAI instance
     model = ChatOpenAI(
         model=model_name,
@@ -92,7 +90,7 @@ def get_default_model(
         streaming=True,  # Enable streaming output
         timeout=timeout_value,  # Set timeout to prevent premature stream termination
     )
-    
+
     return model
 
 
@@ -124,7 +122,7 @@ async def get_agent(
         user_id: User ID (UUID), used to create an isolated workspace directory.
         system_prompt: System prompt for the agent.
         tools: List of tools for the agent.
-        enable_todo_list: Whether to enable TodoListMiddleware. 
+        enable_todo_list: Whether to enable TodoListMiddleware.
                          Set to False for DeepAgents subagents to avoid state conflicts.
         enable_skills: Whether to enable SkillMiddleware for progressive skill disclosure.
         skill_user_id: User ID for skill filtering (defaults to user_id).
@@ -151,9 +149,10 @@ async def get_agent(
     #   Try to get tools from ToolRegistry first, then use provided tools as fallback.
     # - Otherwise, return empty list (tools should be explicitly provided via resolve_tools_for_node).
     from loguru import logger
+
+    from app.core.tools.tool import EnhancedTool, ToolMetadata
     from app.core.tools.tool_registry import get_global_registry
-    from app.core.tools.tool import ToolMetadata, EnhancedTool
-    
+
     if tools is None:
         tools = []
     else:
@@ -170,25 +169,25 @@ async def get_agent(
             except Exception as e:
                 logger.error(f"[get_agent] Failed to convert tools to list: {e}")
                 tools = []
-        
+
         # 从 ToolRegistry 获取工具（如果已注册）
         registry = get_global_registry()
         resolved_tools = []
         for tool in tools:
             if isinstance(tool, ToolMetadata):
                 continue
-            
+
             if isinstance(tool, EnhancedTool):
                 resolved_tools.append(tool)
                 continue
-            
+
             if isinstance(tool, str):
                 # 先尝试直接获取（内置工具）
                 registry_tool = registry.get_tool(tool)
                 if registry_tool:
                     resolved_tools.append(registry_tool)
                     continue
-                
+
                 # 尝试解析为 MCP 工具（格式: server_name::tool_name）
                 if "::" in tool:
                     from app.core.tools.mcp_tool_utils import parse_mcp_tool_name
@@ -198,13 +197,13 @@ async def get_agent(
                         if mcp_tool:
                             resolved_tools.append(mcp_tool)
                             continue
-                
+
                 # 无法解析，保留原始值
                 resolved_tools.append(tool)
                 continue
-            
+
             resolved_tools.append(tool)
-        
+
         tools = resolved_tools
 
     # Create per-user isolated workspace directory
@@ -216,7 +215,7 @@ async def get_agent(
         root_dir=root_dir,
         virtual_mode=True,  # Use virtual filesystem (in-memory)
     )
-    
+
     # Build middleware list
     middleware = [
         FilesystemMiddleware(backend=backend),
@@ -224,11 +223,11 @@ async def get_agent(
         SummarizationMiddleware(model=model, max_tokens_before_summary=170000, messages_to_keep=10),
         LoggingMiddleware(backend=backend),
     ]
-    
+
     # Only add TodoListMiddleware if enabled (disabled for DeepAgents subagents)
     if enable_todo_list:
         middleware.insert(0, TodoListMiddleware())
-    
+
     # Add SkillsMiddleware if enabled
     if enable_skills:
         # Use deepagents SkillsMiddleware if backend is available
@@ -237,7 +236,7 @@ async def get_agent(
         if backend:
             try:
                 from deepagents.middleware.skills import SkillsMiddleware
-                
+
                 skills_middleware = SkillsMiddleware(
                     backend=backend,
                     sources=["/workspace/skills/"],  # Path where skills should be preloaded
@@ -248,9 +247,9 @@ async def get_agent(
                 else:
                     middleware.insert(0, skills_middleware)
                 logger.debug(
-                    f"[get_agent] Added deepagents SkillsMiddleware (backend available, "
-                    f"reading from /workspace/skills/). "
-                    f"Agents can read skill files directly from the sandbox."
+                    "[get_agent] Added deepagents SkillsMiddleware (backend available, "
+                    "reading from /workspace/skills/). "
+                    "Agents can read skill files directly from the sandbox."
                 )
             except ImportError:
                 logger.warning(
@@ -268,7 +267,7 @@ async def get_agent(
                 "Skills descriptions will not be injected. "
                 "Ensure skills are preloaded via SkillSandboxLoader if backend is needed."
             )
-    
+
     # Add node-specific middleware (from resolve_middleware_for_node)
     # These are middleware instances created from node configuration (e.g., MemoryMiddleware)
     if node_middleware:
@@ -283,7 +282,7 @@ async def get_agent(
             f"[get_agent] Added {len(node_middleware)} node middleware instance(s) "
             f"for agent '{agent_name or 'unknown'}' (sorted by priority)"
         )
-    
+
     # Create agent (callbacks will be configured at invoke time)
     agent_config = {"recursion_limit": 1000}
     if agent_name:
@@ -296,7 +295,7 @@ async def get_agent(
         checkpointer=checkpointer,
         middleware=middleware,
     ).with_config(agent_config)
-    
+
     return agent
 
 

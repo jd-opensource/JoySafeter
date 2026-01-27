@@ -1,20 +1,21 @@
 """Auth controller endpoints (reworked for auth.user & auth.session)."""
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, Body, Header, HTTPException, Request, Response
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.common.exceptions import UnauthorizedException
+from app.common.response import success_response
 from app.core.database import get_db
+from app.core.rate_limit import auth_rate_limit, strict_rate_limit
 from app.core.security import Token, decode_token
 from app.core.settings import settings
-from app.core.rate_limit import auth_rate_limit, strict_rate_limit
+from app.models.auth import AuthUser
 from app.services.auth_service import AuthService
 from app.services.auth_session_service import AuthSessionService
-from app.common.response import success_response
-from app.common.exceptions import UnauthorizedException
-from app.models.auth import AuthUser
 
 router = APIRouter(prefix="/v1/auth", tags=["Auth"])
 
@@ -53,7 +54,7 @@ class SearchUsersResponse(BaseModel):
 
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
     email: str
     name: str
@@ -87,9 +88,9 @@ async def sign_up_with_email(
     # 用户需要手动登录
     # 只返回用户信息，不返回 token
     user_data = data.get("user", {})
-    
+
     return success_response(
-        data={"user": user_data}, 
+        data={"user": user_data},
         message="Registration successful. Please sign in to continue."
     )
 
@@ -289,7 +290,7 @@ async def verify_email(
     """Verify email ownership using the provided token."""
     service = AuthService(db)
     await service.verify_email(token)
-    
+
     return success_response(message="Email verified successfully")
 
 
@@ -302,7 +303,7 @@ async def resend_verification(
     current_user = await _get_current_auth_user(token, db)
     service = AuthService(db)
     await service.resend_verification_email(current_user)
-    
+
     return success_response(message="Verification email sent")
 
 
@@ -329,10 +330,9 @@ async def refresh_token(
     token: Optional[str] = Header(None, alias="Authorization"),
 ):
     """Refresh access token using refresh token from Cookie or Authorization header."""
-    from app.core.redis import RedisClient
-    
+
     service = AuthService(db)
-    
+
     # 尝试从 Cookie 中获取 refresh token
     refresh_token_value = None
     try:
@@ -380,8 +380,8 @@ def _extract_bearer(auth_header: Optional[str]) -> str:
 
 
 async def _get_current_auth_user(
-    auth_header: Optional[str], 
-    db: AsyncSession, 
+    auth_header: Optional[str],
+    db: AsyncSession,
     request: Optional[Request] = None
 ) -> AuthUser:
     """从 Bearer token 或 Cookie 校验并返回 AuthUser（支持 JWT token 和 session token）。"""
@@ -425,7 +425,7 @@ async def _get_current_auth_user(
         if user and user.is_active:
             return user
         raise UnauthorizedException("User not found or inactive")
-    
+
     raise UnauthorizedException("Invalid or expired token")
 
 

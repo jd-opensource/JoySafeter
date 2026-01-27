@@ -9,8 +9,9 @@ try:
 except ImportError:
     raise ImportError("`psycopg` not installed. Please install using `pip install 'psycopg[binary]'`.")
 
-from app.core.tools.toolkit import Toolkit
 from loguru import logger
+
+from app.core.tools.toolkit import Toolkit
 
 
 class PostgresTools(Toolkit):

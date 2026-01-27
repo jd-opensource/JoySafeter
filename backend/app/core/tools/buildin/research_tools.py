@@ -62,7 +62,7 @@ def tavily_search(
     """
     if tavily_client is None:
         return "Error: Tavily client is not available. Please install tavily-python package."
-    
+
     # Use Tavily to discover URLs
     search_results = tavily_client.search(
         query,

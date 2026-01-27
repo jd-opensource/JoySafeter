@@ -4,18 +4,17 @@ Container Binding Manager - Manages user-container relationships.
 Ensures that each user has at most one active container at a time,
 enabling container reuse across sessions.
 """
-import logging
 import os
-import re
 import random
+import re
 import time
 import uuid
 from dataclasses import dataclass, fields
-from typing import Optional, Dict, Any, List
-
-from app.dynamic_agent.infra.docker import UnifiedDockerManager, ResourceLimits
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
+
+from app.dynamic_agent.infra.docker import ResourceLimits, UnifiedDockerManager
 
 
 @dataclass
@@ -39,7 +38,7 @@ class ContainerBindingInfo:
         # Filter unknown parameters
         filtered = {k: v for k, v in data.items() if k in valid_fields}
         return cls(**filtered)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -54,7 +53,7 @@ class ContainerBindingInfo:
             'command': self.command,
             'working_directory': self.working_directory,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ContainerBindingInfo':
         """Create from dictionary."""
@@ -76,23 +75,23 @@ class ContainerBindingInfo:
 class ContainerBindingManager:
     """
     Manages container-user-session bindings.
-    
+
     Features:
     - One active container per user (default)
     - Container reuse across sessions
     - Automatic cleanup of inactive containers
     - Session switching support
     """
-    
+
     def __init__(self, backend):
         """
         Initialize container binding manager.
-        
+
         Args:
             backend: PostgreSQL backend instance
         """
         self.backend = backend
-    
+
     async def get_or_create_container(
         self,
         user_id: str,
@@ -104,7 +103,7 @@ class ContainerBindingManager:
     ) -> ContainerBindingInfo:
         """
         Get existing container for user or create a new one.
-        
+
         Args:
             user_id: User ID
             session_id: Current session ID
@@ -114,13 +113,12 @@ class ContainerBindingManager:
             force_new: Force creation of new container
             host_ip: Host IP for HTTP service (e.g., start from 8000)
             host_port: Host port for HTTP service
-        
+
         Returns:
             Container info dict with binding details
         """
-        import logging
         from loguru import logger
-        
+
         # Check for existing active container
         logger.info(f"🔍 [get_or_create_container] Checking for existing container for user {user_id}...")
         if not force_new:
@@ -129,12 +127,12 @@ class ContainerBindingManager:
             if existing:
                 # Reuse existing container
                 container_id = existing['container_id']
-                
+
                 # Update session binding
                 await self.backend.update_container_binding_session(
                     container_id, session_id
                 )
-                
+
                 # Check if container is still running
                 try:
                     container_info = docker_manager.get_container_info(container_id)
@@ -150,7 +148,7 @@ class ContainerBindingManager:
                                 # Extract old host from URL to check if it's a problematic IP
                                 host_match = re.search(r'://([^:]+):', mcp_api)
                                 old_host = host_match.group(1) if host_match else None
-                                
+
                                 # Force use localhost if old host is not localhost/127.0.0.1
                                 # This handles cases where VPN or network changes cause IP address issues
                                 # if old_host and old_host not in ('localhost', '127.0.0.1'):
@@ -161,11 +159,11 @@ class ContainerBindingManager:
                                 # Use DOCKER_HOST_IP env var if set, otherwise use localhost
                                 docker_host_ip = os.environ.get('DOCKER_HOST_IP')
                                 mcp_host = docker_host_ip if docker_host_ip else 'localhost'
-                                
+
                                 old_mcp_api = mcp_api
                                 mcp_api = f'http://{mcp_host}:{port}/sse'
                                 logger.info(f"🔧 [get_or_create_container] Recalculated mcp_api: {old_mcp_api} -> {mcp_api}")
-                        
+
                         return ContainerBindingInfo(**{
                             'container_id': container_id,
                             'container_name': existing['container_name'],
@@ -191,7 +189,7 @@ class ContainerBindingManager:
                                 # Extract old host from URL to check if it's a problematic IP
                                 host_match = re.search(r'://([^:]+):', mcp_api)
                                 old_host = host_match.group(1) if host_match else None
-                                
+
                                 # Force use localhost if old host is not localhost/127.0.0.1
                                 # This handles cases where VPN or network changes cause IP address issues
                                 if old_host and old_host not in ('localhost', '127.0.0.1'):
@@ -201,11 +199,11 @@ class ContainerBindingManager:
                                     # Use DOCKER_HOST_IP env var if set, otherwise use localhost
                                     docker_host_ip = os.environ.get('DOCKER_HOST_IP')
                                     mcp_host = docker_host_ip if docker_host_ip else 'localhost'
-                                
+
                                 old_mcp_api = mcp_api
                                 mcp_api = f'http://{mcp_host}:{port}/sse'
                                 logger.info(f"🔧 [get_or_create_container] Recalculated mcp_api: {old_mcp_api} -> {mcp_api}")
-                        
+
                         return ContainerBindingInfo(**{
                             'container_id': container_id,
                             'container_name': existing['container_name'],
@@ -218,13 +216,13 @@ class ContainerBindingManager:
                             'command': command,
                             'working_directory': os.environ['DOCKER_WORKSPACE'],
                         })
-                except Exception as e:
+                except Exception:
                     # Container no longer exists, deactivate binding and create new
                     await self.backend.deactivate_container_binding(container_id)
-        
+
         # Deactivate all existing containers for this user
         await self.backend.deactivate_user_containers(user_id)
-        
+
         # Create new container
         user_id_part = user_id[:8]
         user_id_part = re.sub(r'[^a-zA-Z0-9_.-]', '', user_id_part)
@@ -250,7 +248,7 @@ class ContainerBindingManager:
             auto_remove=False,
             # volumes are auto-configured in create_container based on env vars
         )
-        
+
         # Create binding in database
         binding_id = str(uuid.uuid4())
         await self.backend.create_container_binding(
@@ -267,7 +265,7 @@ class ContainerBindingManager:
                 'force_new': force_new
             }
         )
-        
+
         return  ContainerBindingInfo.from_dict({
             **container_info,
             'image': image,
@@ -277,7 +275,7 @@ class ContainerBindingManager:
             'reused': False,
             'status': 'created',
         })
-    
+
     async def switch_session(
         self,
         container_id: str,
@@ -285,7 +283,7 @@ class ContainerBindingManager:
     ):
         """
         Switch container to a new session.
-        
+
         Args:
             container_id: Container ID
             new_session_id: New session ID
@@ -293,7 +291,7 @@ class ContainerBindingManager:
         await self.backend.update_container_binding_session(
             container_id, new_session_id
         )
-    
+
     async def release_container(
         self,
         container_id: str,
@@ -303,7 +301,7 @@ class ContainerBindingManager:
     ):
         """
         Release a container (deactivate binding).
-        
+
         Args:
             container_id: Container ID
             docker_manager: Docker manager instance
@@ -312,14 +310,14 @@ class ContainerBindingManager:
         """
         # Deactivate binding
         await self.backend.deactivate_container_binding(container_id)
-        
+
         # Optionally stop container
         if stop:
             try:
                 docker_manager.stop_container(container_id)
             except Exception as e:
                 logger.warning(f"Failed to stop container {container_id}: {e}")
-        
+
         # Optionally remove container
         if remove:
             try:
@@ -327,7 +325,7 @@ class ContainerBindingManager:
                 await self.backend.delete_container_binding(container_id)
             except Exception as e:
                 logger.warning(f"Failed to remove container {container_id}: {e}")
-    
+
     async def cleanup_user_containers(
         self,
         user_id: str,
@@ -336,7 +334,7 @@ class ContainerBindingManager:
     ):
         """
         Cleanup containers for a user.
-        
+
         Args:
             user_id: User ID
             docker_manager: Docker manager instance
@@ -345,7 +343,7 @@ class ContainerBindingManager:
         containers = await self.backend.list_user_containers(
             user_id, active_only=not remove_all
         )
-        
+
         for container in containers:
             container_id = container['container_id']
             try:
@@ -359,31 +357,31 @@ class ContainerBindingManager:
                     await self.backend.delete_container_binding(container_id)
                 except Exception as db_error:
                     logger.error(f"Failed to delete container binding {container_id}: {db_error}")
-    
+
     async def get_user_container(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
         Get active container for a user.
-        
+
         Args:
             user_id: User ID
-        
+
         Returns:
             Container binding dict or None
         """
         return await self.backend.get_active_container_for_user(user_id)
-    
+
     async def get_container_info(self, container_id: str) -> Optional[Dict[str, Any]]:
         """
         Get container binding info.
-        
+
         Args:
             container_id: Container ID
-        
+
         Returns:
             Container binding dict or None
         """
         return await self.backend.get_container_binding(container_id)
-    
+
     async def list_user_containers(
         self,
         user_id: str,
@@ -391,16 +389,16 @@ class ContainerBindingManager:
     ) -> List[Dict[str, Any]]:
         """
         List all containers for a user.
-        
+
         Args:
             user_id: User ID
             active_only: Only return active containers
-        
+
         Returns:
             List of container binding dicts
         """
         return await self.backend.list_user_containers(user_id, active_only)
-    
+
     async def update_container_status(
         self,
         container_id: str,
@@ -408,7 +406,7 @@ class ContainerBindingManager:
     ):
         """
         Update container status.
-        
+
         Args:
             container_id: Container ID
             status: New status (e.g., 'running', 'stopped', 'error')

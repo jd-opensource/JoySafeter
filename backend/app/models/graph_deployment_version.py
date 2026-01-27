@@ -2,10 +2,10 @@
 Graph 部署版本模型
 """
 import uuid
-from typing import Optional, TYPE_CHECKING
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, Index, String, UniqueConstraint, func, DateTime
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

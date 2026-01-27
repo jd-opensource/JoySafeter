@@ -16,14 +16,12 @@ Design:
 """
 
 import json
-import logging
 from typing import Any, Dict, List, Optional, Set
 
 from langchain_core.tools import tool
+from loguru import logger
 
 from app.dynamic_agent.infra.metadata_context import MetadataContext
-
-from loguru import logger
 
 # Keys for storing tricks in MetadataContext
 _TRICKS_KEY = 'knowledge_tricks'      # Current available tricks
@@ -39,24 +37,24 @@ def normalize_results_to_xml(
 ) -> str:
     """
     Normalize search results to XML format for LLM consumption.
-    
+
     XML format is more token-efficient and easier for LLM to parse.
     """
     if not matches:
         return "<knowledge_search>\n<note>No similar problems found in knowledge base. Suggest continuing with basic methods.</note>\n</knowledge_search>"
-    
+
     lines = [
         "<knowledge_search>",
         "<note>⚠️ Try tricks in order, check if the 'when' condition matches the current state!</note>",
     ]
-    
+
     for match in matches[:max_matches]:
         name = match.get("name", "unknown")
         category = match.get("category", "misc")
         relevance = match.get("relevance", 0.5)
-        
+
         lines.append(f'<match name="{name}" category="{category}" relevance="{relevance}">')
-        
+
         # Extract tricks
         tricks = match.get("tricks", [])
         for trick in tricks[:max_tricks_per_match]:
@@ -74,7 +72,7 @@ def normalize_results_to_xml(
                 t_payload = trick.get("payload", "")
             else:
                 continue
-            
+
             lines.append(f'  <trick name="{t_name}">')
             lines.append(f'    <when>{t_when}</when>')
             lines.append(f'    <how>{t_how}</how>')
@@ -83,9 +81,9 @@ def normalize_results_to_xml(
                 t_payload = t_payload.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 lines.append(f'    <payload>{t_payload}</payload>')
             lines.append('  </trick>')
-        
+
         lines.append('</match>')
-    
+
     lines.append("</knowledge_search>")
     return "\n".join(lines)
 
@@ -117,10 +115,10 @@ def _get_current_context_id() -> Optional[str]:
 def set_context_id(context_id: str) -> None:
     """
     Set the current context ID for trick tracking.
-    
+
     Call this when creating a new SubAgent to isolate its used tricks
     from other SubAgents that don't share the same conversation context.
-    
+
     Args:
         context_id: Unique identifier for the current context/conversation
     """
@@ -136,7 +134,7 @@ def _get_used_files() -> Set[str]:
     metadata = MetadataContext.get()
     if metadata is None:
         return set()
-    
+
     # Session-level: all SubAgents share the same used_files set
     # This ensures each knowledge file is only recalled ONCE per session
     return metadata.get(_USED_FILES_KEY, set())
@@ -147,7 +145,7 @@ def _mark_file_as_used(file_name: str) -> None:
     metadata = MetadataContext.get()
     if metadata is None:
         return
-    
+
     # Session-level: all SubAgents share the same used_files set
     used_files = metadata.get(_USED_FILES_KEY, set())
     used_files.add(file_name)
@@ -160,7 +158,7 @@ def _store_tricks(tricks: List[Dict[str, Any]]) -> None:
     metadata = MetadataContext.get()
     if metadata is None:
         return
-    
+
     # Append to existing tricks (don't overwrite)
     existing = metadata.get(_TRICKS_KEY, [])
     existing.extend(tricks)
@@ -171,10 +169,10 @@ def _store_tricks(tricks: List[Dict[str, Any]]) -> None:
 def get_available_tricks() -> List[Dict[str, Any]]:
     """
     Get available tricks from shared state.
-    
+
     Call this in Main Agent or Sub-Agent to access retrieved tricks
     without them being in the LLM context.
-    
+
     Returns:
         List of trick dicts with keys: name, when, how, payload
     """
@@ -187,14 +185,14 @@ def get_available_tricks() -> List[Dict[str, Any]]:
 def clear_tricks(context_id: Optional[str] = None) -> None:
     """
     Clear stored tricks and used files.
-    
+
     Args:
         context_id: Deprecated, kept for backward compatibility. Always clears session-level state.
     """
     metadata = MetadataContext.get()
     if metadata is None:
         return
-    
+
     # Session-level: clear all tricks and used files
     metadata[_TRICKS_KEY] = []
     metadata[_USED_FILES_KEY] = set()
@@ -205,22 +203,22 @@ def clear_tricks(context_id: Optional[str] = None) -> None:
 def format_tricks_for_planning() -> str:
     """
     Format available tricks as a concise string for planning.
-    
+
     Use this to inject tricks into agent_tool context parameter.
-    
+
     Returns:
         Formatted string of tricks, or empty string if none
     """
     tricks = get_available_tricks()
     if not tricks:
         return ""
-    
+
     lines = ["\n💡 Available tricks from knowledge base:"]
     for t in tricks[-5:]:  # Only show last 5 to keep it concise
         lines.append(f"- {t.get('name', 'unknown')}: {t.get('how', '')[:100]}")
         if t.get('payload'):
             lines.append(f"  Payload: {t.get('payload', '')}")
-    
+
     return "\n".join(lines)
 
 
@@ -228,60 +226,60 @@ def format_tricks_for_planning() -> str:
 def knowledge_search(query: str) -> str:
     """
     Search CTF knowledge base for relevant tricks and techniques.
-    
+
     Tricks are stored in shared state (not in LLM context) and can be
     accessed via get_available_tricks(). Used tricks won't be retrieved again.
-    
+
     Args:
         query: Search query describing the problem (e.g. "SSTI bypass WAF", "JWT signature bypass")
-        
+
     Returns:
         Brief confirmation message (tricks are stored separately, not returned here)
     """
     import time
     start_time = time.time()
     node_id = f"ks_{int(start_time * 1000)}"
-    
+
     logger.info(f"🔍 Knowledge search: {query}")
-    
+
     # T021: Emit search start event
     _emit_search_event("knowledge_search_start", {
         "node_id": node_id,
         "query": query
     })
-    
+
     try:
         from app.dynamic_agent.core.knowledge import get_knowledge_loader
-        
+
         loader = get_knowledge_loader()
-        
+
         # Search using the query
         matches = loader.search_by_query(query)
-        
+
         # Get already used files to filter them out
         used_files = _get_used_files()
-        
+
         # Extract tricks - ONE FILE AT A TIME
         new_tricks = []
         selected_file = None
         selected_knowledge_name = None
-        
+
         # Try to find a file we haven't used yet
         for match in matches:
             # Use file_name if available, fallback to name (knowledge base name)
             file_name = match.get("file_name") or match.get("name", "")
             knowledge_name = match.get("name", "")
-            
+
             # Skip files we've already used in this context
             if file_name in used_files:
                 logger.debug(f"⏭️ Skipping used file: {file_name}")
                 continue
-            
+
             # Found an unused file! Use ALL tricks from this file
             selected_file = file_name
             selected_knowledge_name = knowledge_name
             tricks = match.get("tricks", [])
-            
+
             for trick in tricks:
                 # Handle both dataclass and dict formats
                 if hasattr(trick, 'name'):
@@ -300,18 +298,18 @@ def knowledge_search(query: str) -> str:
                     }
                 else:
                     continue
-                
+
                 new_tricks.append(t_dict)
-            
+
             # Found tricks from this file, stop here (one file per search)
             if new_tricks:
                 break
-        
+
         # Store new tricks in shared state and mark file as used
         if new_tricks and selected_file:
             _store_tricks(new_tricks)
             _mark_file_as_used(selected_file)
-        
+
         duration_ms = int((time.time() - start_time) * 1000)
         # Log with both filename and knowledge name for clarity
         if selected_file:
@@ -320,7 +318,7 @@ def knowledge_search(query: str) -> str:
                 log_msg += f" (knowledge: {selected_knowledge_name})"
             log_msg += f" in {duration_ms}ms (filtered {len(used_files)} used files)"
             logger.info(log_msg)
-        
+
         # T021: Emit search complete event
         _emit_search_event("knowledge_search_complete", {
             "node_id": node_id,
@@ -332,7 +330,7 @@ def knowledge_search(query: str) -> str:
             "selected_knowledge_name": selected_knowledge_name,
             "duration_ms": duration_ms
         })
-        
+
         # Return actionable summary - tricks will be auto-injected to Sub-Agent
         if new_tricks:
             # Show both filename and knowledge name in the response
@@ -357,17 +355,17 @@ def knowledge_search(query: str) -> str:
                 return f"❌ No new tricks found. Already tried {len(used_files)} knowledge files. Try a different query or continue with current approach."
             else:
                 return "❌ No relevant tricks found in knowledge base. Continue with current approach."
-        
+
     except Exception as e:
         logger.error(f"Knowledge search failed: {e}")
-        
+
         # T021: Emit search failed event
         _emit_search_event("knowledge_search_failed", {
             "node_id": node_id,
             "query": query,
             "error": str(e)
         })
-        
+
         return "⚠️ Knowledge search unavailable. Continue with current approach."
 
 

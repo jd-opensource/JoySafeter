@@ -3,14 +3,15 @@ Graph 部署版本 Repository
 """
 from __future__ import annotations
 
-from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, select, update, delete, func
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.graph_deployment_version import GraphDeploymentVersion
+
 from .base import BaseRepository
 
 
@@ -40,7 +41,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         query = select(GraphDeploymentVersion).where(
             and_(
                 GraphDeploymentVersion.graph_id == graph_id,
-                GraphDeploymentVersion.is_active == True,
+                GraphDeploymentVersion.is_active,
             )
         ).order_by(GraphDeploymentVersion.created_at.desc())
         result = await self.db.execute(query)
@@ -55,7 +56,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         )
 
         if not include_inactive:
-            query = query.where(GraphDeploymentVersion.is_active == True)
+            query = query.where(GraphDeploymentVersion.is_active)
 
         query = query.order_by(GraphDeploymentVersion.version.desc())
 
@@ -70,7 +71,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         include_inactive: bool = True,
     ) -> tuple[List[GraphDeploymentVersion], int]:
         """获取指定 graph 的版本（分页）
-        
+
         Returns:
             tuple: (版本列表, 总数量)
         """
@@ -79,14 +80,14 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         )
 
         if not include_inactive:
-            base_query = base_query.where(GraphDeploymentVersion.is_active == True)
+            base_query = base_query.where(GraphDeploymentVersion.is_active)
 
         # 获取总数
         count_query = select(func.count()).where(
             GraphDeploymentVersion.graph_id == graph_id
         )
         if not include_inactive:
-            count_query = count_query.where(GraphDeploymentVersion.is_active == True)
+            count_query = count_query.where(GraphDeploymentVersion.is_active)
         count_result = await self.db.execute(count_query)
         total = count_result.scalar() or 0
 

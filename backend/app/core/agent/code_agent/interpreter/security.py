@@ -10,9 +10,8 @@ This module implements multi-layer security controls:
 4. Result safety verification
 """
 
-from collections.abc import Callable, Mapping
-from importlib.util import find_spec
-from types import BuiltinFunctionType, FunctionType, ModuleType
+from collections.abc import Callable
+from types import BuiltinFunctionType, ModuleType
 from typing import Any
 
 from loguru import logger
@@ -233,11 +232,11 @@ NETWORK_MODULES = [
 def check_import_authorized(import_to_check: str, authorized_imports: list[str]) -> bool:
     """
     Check if an import is authorized.
-    
+
     Args:
         import_to_check: The module/submodule to import.
         authorized_imports: List of authorized import paths.
-    
+
     Returns:
         True if the import is authorized, False otherwise.
     """
@@ -246,7 +245,7 @@ def check_import_authorized(import_to_check: str, authorized_imports: list[str])
         if import_to_check == dangerous or import_to_check.startswith(f"{dangerous}."):
             logger.warning(f"Blocked dangerous import: {import_to_check}")
             return False
-    
+
     # Check if module is in the whitelist
     for authorized in authorized_imports:
         # Exact match
@@ -258,7 +257,7 @@ def check_import_authorized(import_to_check: str, authorized_imports: list[str])
         # Child module match (e.g., 'pandas.DataFrame' authorizes 'pandas')
         if authorized.startswith(f"{import_to_check}."):
             return True
-    
+
     logger.warning(f"Import not authorized: {import_to_check}")
     return False
 
@@ -270,12 +269,12 @@ def check_safer_result(
 ) -> None:
     """
     Check if the result of an operation is safe.
-    
+
     Args:
         result: The result to check.
         static_tools: Allowed static tools.
         authorized_imports: List of authorized imports.
-    
+
     Raises:
         SecurityError: If the result is unsafe.
     """
@@ -286,16 +285,16 @@ def check_safer_result(
             raise SecurityError(f"Access to dangerous module '{module_name}' is forbidden")
         if not check_import_authorized(result.__name__, authorized_imports):
             raise SecurityError(f"Access to unauthorized module '{result.__name__}' is forbidden")
-    
+
     # Check for dangerous function types
     if isinstance(result, BuiltinFunctionType):
         func_module = getattr(result, "__module__", "") or ""
         func_name = getattr(result, "__name__", "") or ""
         full_name = f"{func_module}.{func_name}"
-        
+
         if full_name in DANGEROUS_FUNCTIONS:
             raise SecurityError(f"Access to dangerous function '{full_name}' is forbidden")
-    
+
     # Check for callable with dangerous attributes
     if callable(result) and hasattr(result, "__self__"):
         self_obj = result.__self__
@@ -313,45 +312,45 @@ def get_allowed_imports(
 ) -> list[str]:
     """
     Get the list of allowed imports based on configuration.
-    
+
     Args:
         base: Include base builtin modules.
         data_analysis: Include data analysis modules (pandas, numpy, etc.).
         network: Include network modules (requests, etc.).
         custom: Additional custom modules to allow.
-    
+
     Returns:
         List of authorized import paths.
     """
     allowed = []
-    
+
     if base:
         allowed.extend(BASE_BUILTIN_MODULES)
-    
+
     if data_analysis:
         allowed.extend(DATA_ANALYSIS_MODULES)
-    
+
     if network:
         allowed.extend(NETWORK_MODULES)
-    
+
     if custom:
         allowed.extend(custom)
-    
+
     return allowed
 
 
 def is_safe_code(code: str) -> tuple[bool, str | None]:
     """
     Quick static analysis to check if code might be unsafe.
-    
+
     Args:
         code: The Python code to check.
-    
+
     Returns:
         Tuple of (is_safe, error_message).
     """
     import re
-    
+
     # Patterns that indicate potentially dangerous code
     dangerous_patterns = [
         (r"\b__\w+__\b(?!\s*\()", "Access to dunder attributes"),
@@ -368,32 +367,32 @@ def is_safe_code(code: str) -> tuple[bool, str | None]:
         (r"\bsubprocess\s*\.", "Use of subprocess module"),
         (r"\bsocket\s*\.", "Use of socket module"),
     ]
-    
+
     for pattern, message in dangerous_patterns:
         if re.search(pattern, code):
             return False, message
-    
+
     return True, None
 
 
 def validate_import_statement(code: str, authorized_imports: list[str]) -> tuple[bool, str | None]:
     """
     Validate import statements in code.
-    
+
     Args:
         code: The Python code to validate.
         authorized_imports: List of authorized imports.
-    
+
     Returns:
         Tuple of (is_valid, error_message).
     """
     import ast
-    
+
     try:
         tree = ast.parse(code)
     except SyntaxError:
         return True, None  # Let the interpreter handle syntax errors
-    
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -402,7 +401,7 @@ def validate_import_statement(code: str, authorized_imports: list[str]) -> tuple
         elif isinstance(node, ast.ImportFrom):
             if node.module and not check_import_authorized(node.module, authorized_imports):
                 return False, f"Import from '{node.module}' is not allowed"
-    
+
     return True, None
 
 

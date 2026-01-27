@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class BinwalkHandler(AbstractHandler):
     """Handler for binwalk functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['binwalk']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute binwalk with enhanced logging"""
         try:
@@ -26,11 +26,11 @@ class BinwalkHandler(AbstractHandler):
             if not file_path:
                 logger.warning("🔧 Binwalk called without file_path parameter")
                 return {
-    
+
                     "error": "File path parameter is required"
-                
+
                 }
-            command = f"binwalk"
+            command = "binwalk"
             if extract:
                 command += " -e"
             if additional_args:
@@ -43,7 +43,7 @@ class BinwalkHandler(AbstractHandler):
         except Exception as e:
             logger.error(f"💥 Error in binwalk endpoint: {str(e)}")
             return {
-    
+
                 "error": f"Server error: {str(e)}"
-            
+
             }

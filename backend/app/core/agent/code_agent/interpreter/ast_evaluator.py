@@ -20,20 +20,17 @@ import math
 from collections.abc import Callable, Generator, Mapping
 from functools import wraps
 from importlib import import_module
-from importlib.util import find_spec
-from types import BuiltinFunctionType, FunctionType, ModuleType
+from types import ModuleType
 from typing import Any
 
 from loguru import logger
 
 from .security import (
     BASE_BUILTIN_MODULES,
-    DANGEROUS_FUNCTIONS,
     InterpreterError,
     check_import_authorized,
     check_safer_result,
 )
-
 
 # Error types that can be raised in user code
 ERRORS = {
@@ -136,24 +133,24 @@ BASE_PYTHON_TOOLS = {
 
 class PrintContainer:
     """Container for capturing print outputs."""
-    
+
     def __init__(self):
         self.value = ""
-    
+
     def append(self, text):
         self.value += text
         return self
-    
+
     def __iadd__(self, other):
         self.value += str(other)
         return self
-    
+
     def __str__(self):
         return self.value
-    
+
     def __repr__(self):
         return f"PrintContainer({self.value})"
-    
+
     def __len__(self):
         return len(self.value)
 
@@ -210,10 +207,10 @@ def safer_func(
         static_tools = BASE_PYTHON_TOOLS
     if authorized_imports is None:
         authorized_imports = BASE_BUILTIN_MODULES
-    
+
     if isinstance(func, type):
         return func
-    
+
     @wraps(func)
     def _check_return(*args, **kwargs):
         result = func(*args, **kwargs)
@@ -239,28 +236,28 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
     """Create a safe copy of a module."""
     if not isinstance(raw_module, ModuleType):
         return raw_module
-    
+
     if visited is None:
         visited = set()
-    
+
     module_id = id(raw_module)
     if module_id in visited:
         return raw_module
     visited.add(module_id)
-    
+
     safe_module = ModuleType(raw_module.__name__)
-    
+
     for attr_name in dir(raw_module):
         try:
             attr_value = getattr(raw_module, attr_name)
         except (ImportError, AttributeError) as e:
             logger.debug(f"Skipping {raw_module.__name__}.{attr_name}: {e}")
             continue
-        
+
         if isinstance(attr_value, ModuleType):
             attr_value = get_safe_module(attr_value, authorized_imports, visited=visited)
         setattr(safe_module, attr_name, attr_value)
-    
+
     return safe_module
 
 
@@ -312,7 +309,7 @@ def evaluate_lambda(
 ) -> Callable:
     """Evaluate lambda expressions."""
     args = [arg.arg for arg in lambda_expression.args.args]
-    
+
     def lambda_func(*values: Any) -> Any:
         new_state = state.copy()
         for arg, value in zip(args, values):
@@ -320,7 +317,7 @@ def evaluate_lambda(
         return evaluate_ast(
             lambda_expression.body, new_state, static_tools, custom_tools, authorized_imports,
         )
-    
+
     return lambda_func
 
 
@@ -356,7 +353,7 @@ def create_function(
 ) -> Callable:
     """Create a function from a FunctionDef AST node."""
     source_code = ast.unparse(func_def)
-    
+
     def new_func(*args: Any, **kwargs: Any) -> Any:
         func_state = state.copy()
         arg_names = [arg.arg for arg in func_def.args.args]
@@ -364,41 +361,41 @@ def create_function(
             evaluate_ast(d, state, static_tools, custom_tools, authorized_imports)
             for d in func_def.args.defaults
         ]
-        
+
         defaults = dict(zip(arg_names[-len(default_values):], default_values)) if default_values else {}
-        
+
         for name, value in zip(arg_names, args):
             func_state[name] = value
-        
+
         for name, value in kwargs.items():
             func_state[name] = value
-        
+
         if func_def.args.vararg:
             func_state[func_def.args.vararg.arg] = args[len(arg_names):]
-        
+
         if func_def.args.kwarg:
             func_state[func_def.args.kwarg.arg] = kwargs
-        
+
         for name, value in defaults.items():
             if name not in func_state:
                 func_state[name] = value
-        
+
         if func_def.args.args and func_def.args.args[0].arg == "self":
             if args:
                 func_state["self"] = args[0]
                 func_state["__class__"] = args[0].__class__
-        
+
         result = None
         try:
             for stmt in func_def.body:
                 result = evaluate_ast(stmt, func_state, static_tools, custom_tools, authorized_imports)
         except ReturnException as e:
             result = e.value
-        
+
         if func_def.name == "__init__":
             return None
         return result
-    
+
     new_func.__ast__ = func_def
     new_func.__source__ = source_code
     new_func.__name__ = func_def.name
@@ -427,19 +424,19 @@ def evaluate_class_def(
     """Evaluate class definitions."""
     class_name = class_def.name
     bases = [evaluate_ast(base, state, static_tools, custom_tools, authorized_imports) for base in class_def.bases]
-    
+
     metaclass = type
     for base in bases:
         base_metaclass = type(base)
         if base_metaclass is not type:
             metaclass = base_metaclass
             break
-    
+
     if hasattr(metaclass, "__prepare__"):
         class_dict = metaclass.__prepare__(class_name, bases)
     else:
         class_dict = {}
-    
+
     for stmt in class_def.body:
         if isinstance(stmt, ast.FunctionDef):
             class_dict[stmt.name] = evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
@@ -458,7 +455,7 @@ def evaluate_class_def(
         elif isinstance(stmt, ast.Expr) and stmt == class_def.body[0]:
             if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
                 class_dict["__doc__"] = stmt.value.value
-    
+
     new_class = metaclass(class_name, tuple(bases), class_dict)
     state[class_name] = new_class
     return new_class
@@ -499,10 +496,10 @@ def evaluate_augassign(
             return getattr(obj, target.attr)
         else:
             raise InterpreterError(f"AugAssign not supported for {type(target)} targets.")
-    
+
     current_value = get_current_value(expression.target)
     value_to_add = evaluate_ast(expression.value, state, static_tools, custom_tools, authorized_imports)
-    
+
     op_map = {
         ast.Add: lambda a, b: a + b,
         ast.Sub: lambda a, b: a - b,
@@ -517,13 +514,13 @@ def evaluate_augassign(
         ast.LShift: lambda a, b: a << b,
         ast.RShift: lambda a, b: a >> b,
     }
-    
+
     op_type = type(expression.op)
     if op_type in op_map:
         current_value = op_map[op_type](current_value, value_to_add)
     else:
         raise InterpreterError(f"Operation {op_type.__name__} is not supported.")
-    
+
     set_value(expression.target, current_value, state, static_tools, custom_tools, authorized_imports)
     return current_value
 
@@ -537,7 +534,7 @@ def evaluate_boolop(
 ) -> Any:
     """Evaluate boolean operations (and, or)."""
     is_short_circuit_value = (lambda x: not x) if isinstance(node.op, ast.And) else (lambda x: bool(x))
-    
+
     for value in node.values:
         result = evaluate_ast(value, state, static_tools, custom_tools, authorized_imports)
         if is_short_circuit_value(result):
@@ -555,7 +552,7 @@ def evaluate_binop(
     """Evaluate binary operations."""
     left_val = evaluate_ast(binop.left, state, static_tools, custom_tools, authorized_imports)
     right_val = evaluate_ast(binop.right, state, static_tools, custom_tools, authorized_imports)
-    
+
     op_map = {
         ast.Add: lambda a, b: a + b,
         ast.Sub: lambda a, b: a - b,
@@ -571,7 +568,7 @@ def evaluate_binop(
         ast.RShift: lambda a, b: a >> b,
         ast.MatMult: lambda a, b: a @ b,
     }
-    
+
     op_type = type(binop.op)
     if op_type in op_map:
         return op_map[op_type](left_val, right_val)
@@ -588,13 +585,13 @@ def evaluate_assign(
 ) -> Any:
     """Evaluate assignment statements."""
     result = evaluate_ast(assign.value, state, static_tools, custom_tools, authorized_imports)
-    
+
     if len(assign.targets) == 1:
         set_value(assign.targets[0], result, state, static_tools, custom_tools, authorized_imports)
     else:
         for tgt in assign.targets:
             set_value(tgt, result, state, static_tools, custom_tools, authorized_imports)
-    
+
     return result
 
 
@@ -642,7 +639,7 @@ def evaluate_call(
 ) -> Any:
     """Evaluate function calls."""
     func, func_name = None, None
-    
+
     if isinstance(call.func, ast.Call):
         func = evaluate_ast(call.func, state, static_tools, custom_tools, authorized_imports)
     elif isinstance(call.func, ast.Lambda):
@@ -671,10 +668,10 @@ def evaluate_call(
         func = evaluate_ast(call.func, state, static_tools, custom_tools, authorized_imports)
     else:
         raise InterpreterError(f"This is not a correct function: {call.func}")
-    
+
     if not callable(func):
         raise InterpreterError(f"This is not callable: {call.func}")
-    
+
     # Evaluate arguments
     args = []
     for arg in call.args:
@@ -682,7 +679,7 @@ def evaluate_call(
             args.extend(evaluate_ast(arg.value, state, static_tools, custom_tools, authorized_imports))
         else:
             args.append(evaluate_ast(arg, state, static_tools, custom_tools, authorized_imports))
-    
+
     kwargs = {}
     for keyword in call.keywords:
         if keyword.arg is None:
@@ -692,7 +689,7 @@ def evaluate_call(
             kwargs.update(starred_dict)
         else:
             kwargs[keyword.arg] = evaluate_ast(keyword.value, state, static_tools, custom_tools, authorized_imports)
-    
+
     # Handle special cases
     if func_name == "super":
         if not args:
@@ -717,7 +714,7 @@ def evaluate_call(
             raise InterpreterError(
                 f"Invoking a builtin function that has not been explicitly added as a tool is not allowed ({func_name})."
             )
-        
+
         if (
             hasattr(func, "__name__")
             and func.__name__.startswith("__")
@@ -726,7 +723,7 @@ def evaluate_call(
             and (func.__name__ not in ALLOWED_DUNDER_METHODS)
         ):
             raise InterpreterError(f"Forbidden call to dunder function: {func.__name__}")
-        
+
         return func(*args, **kwargs)
 
 
@@ -767,7 +764,7 @@ def evaluate_name(
         return custom_tools[name.id]
     elif name.id in ERRORS:
         return ERRORS[name.id]
-    
+
     close_matches = difflib.get_close_matches(name.id, list(state.keys()))
     if close_matches:
         return state[close_matches[0]]
@@ -783,10 +780,10 @@ def evaluate_condition(
 ) -> bool:
     """Evaluate comparison operations."""
     left = evaluate_ast(condition.left, state, static_tools, custom_tools, authorized_imports)
-    
+
     for op, comparator in zip(condition.ops, condition.comparators):
         right = evaluate_ast(comparator, state, static_tools, custom_tools, authorized_imports)
-        
+
         op_type = type(op)
         if op_type == ast.Eq:
             result = left == right
@@ -810,11 +807,11 @@ def evaluate_condition(
             result = left not in right
         else:
             raise InterpreterError(f"Unsupported comparison operator: {op_type}")
-        
+
         if not result:
             return False
         left = right
-    
+
     return True
 
 
@@ -828,14 +825,14 @@ def evaluate_if(
     """Evaluate if statements."""
     result = None
     test_result = evaluate_ast(if_statement.test, state, static_tools, custom_tools, authorized_imports)
-    
+
     if test_result:
         for line in if_statement.body:
             result = evaluate_ast(line, state, static_tools, custom_tools, authorized_imports)
     else:
         for line in if_statement.orelse:
             result = evaluate_ast(line, state, static_tools, custom_tools, authorized_imports)
-    
+
     return result
 
 
@@ -849,7 +846,7 @@ def evaluate_for(
     """Evaluate for loops."""
     result = None
     iterator = evaluate_ast(for_loop.iter, state, static_tools, custom_tools, authorized_imports)
-    
+
     for counter in iterator:
         set_value(for_loop.target, counter, state, static_tools, custom_tools, authorized_imports)
         for node in for_loop.body:
@@ -861,7 +858,7 @@ def evaluate_for(
                 return result
             except ContinueException:
                 break
-    
+
     return result
 
 
@@ -877,14 +874,14 @@ def _evaluate_comprehensions(
     if not comprehensions:
         yield evaluate_element(state)
         return
-    
+
     comprehension = comprehensions[0]
     iter_value = evaluate_ast(comprehension.iter, state, static_tools, custom_tools, authorized_imports)
-    
+
     for value in iter_value:
         new_state = state.copy()
         set_value(comprehension.target, value, new_state, static_tools, custom_tools, authorized_imports)
-        
+
         if all(
             evaluate_ast(if_clause, new_state, static_tools, custom_tools, authorized_imports)
             for if_clause in comprehension.ifs
@@ -995,12 +992,12 @@ def evaluate_raise(
         exc = evaluate_ast(raise_node.exc, state, static_tools, custom_tools, authorized_imports)
     else:
         exc = None
-    
+
     if raise_node.cause is not None:
         cause = evaluate_ast(raise_node.cause, state, static_tools, custom_tools, authorized_imports)
     else:
         cause = None
-    
+
     if exc is not None:
         if cause is not None:
             raise exc from cause
@@ -1045,7 +1042,7 @@ def evaluate_with(
         else:
             context_var = context_expr.__enter__()
             contexts.append(context_var)
-    
+
     try:
         for stmt in with_node.body:
             evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
@@ -1074,7 +1071,7 @@ def evaluate_import(expression, state, authorized_imports):
         if check_import_authorized(expression.module, authorized_imports):
             raw_module = __import__(expression.module, fromlist=[alias.name for alias in expression.names])
             module = get_safe_module(raw_module, authorized_imports)
-            
+
             if expression.names[0].name == "*":
                 if hasattr(module, "__all__"):
                     for name in module.__all__:
@@ -1115,7 +1112,7 @@ def evaluate_generatorexp(
                     for if_clause in gen.ifs
                 ):
                     yield evaluate_ast(genexp.elt, new_state, static_tools, custom_tools, authorized_imports)
-    
+
     return generator()
 
 
@@ -1155,20 +1152,20 @@ def evaluate_ast(
     """
     Evaluate an abstract syntax tree using the content of the variables stored in a state
     and only evaluating a given set of functions.
-    
+
     Args:
         expression: The AST node to evaluate.
         state: A dictionary mapping variable names to values.
         static_tools: Functions that may be called (cannot be overwritten).
         custom_tools: Functions that may be called (can be overwritten).
         authorized_imports: List of modules that can be imported.
-    
+
     Returns:
         The result of evaluating the expression.
     """
     if authorized_imports is None:
         authorized_imports = BASE_BUILTIN_MODULES
-    
+
     # Check operation count
     if state.setdefault("_operations_count", {"counter": 0})["counter"] >= MAX_OPERATIONS:
         raise InterpreterError(
@@ -1176,9 +1173,9 @@ def evaluate_ast(
             "Maybe there is an infinite loop somewhere in the code."
         )
     state["_operations_count"]["counter"] += 1
-    
+
     common_params = (state, static_tools, custom_tools, authorized_imports)
-    
+
     # Assignment nodes
     if isinstance(expression, ast.Assign):
         return evaluate_assign(expression, *common_params)
@@ -1186,11 +1183,11 @@ def evaluate_ast(
         return evaluate_annassign(expression, *common_params)
     elif isinstance(expression, ast.AugAssign):
         return evaluate_augassign(expression, *common_params)
-    
+
     # Call nodes
     elif isinstance(expression, ast.Call):
         return evaluate_call(expression, *common_params)
-    
+
     # Literal nodes
     elif isinstance(expression, ast.Constant):
         return expression.value
@@ -1204,7 +1201,7 @@ def evaluate_ast(
         return dict(zip(keys, values))
     elif isinstance(expression, ast.Set):
         return set(evaluate_ast(elt, *common_params) for elt in expression.elts)
-    
+
     # Comprehensions
     elif isinstance(expression, ast.GeneratorExp):
         return evaluate_generatorexp(expression, *common_params)
@@ -1214,7 +1211,7 @@ def evaluate_ast(
         return evaluate_dictcomp(expression, *common_params)
     elif isinstance(expression, ast.SetComp):
         return evaluate_setcomp(expression, *common_params)
-    
+
     # Operations
     elif isinstance(expression, ast.UnaryOp):
         return evaluate_unaryop(expression, *common_params)
@@ -1224,7 +1221,7 @@ def evaluate_ast(
         return evaluate_binop(expression, *common_params)
     elif isinstance(expression, ast.Compare):
         return evaluate_condition(expression, *common_params)
-    
+
     # Control flow
     elif isinstance(expression, ast.Break):
         raise BreakException()
@@ -1234,13 +1231,13 @@ def evaluate_ast(
         raise ReturnException(evaluate_ast(expression.value, *common_params) if expression.value else None)
     elif isinstance(expression, ast.Pass):
         return None
-    
+
     # Functions and lambdas
     elif isinstance(expression, ast.Lambda):
         return evaluate_lambda(expression, *common_params)
     elif isinstance(expression, ast.FunctionDef):
         return evaluate_function_def(expression, *common_params)
-    
+
     # Expressions and names
     elif isinstance(expression, ast.Expr):
         return evaluate_ast(expression.value, *common_params)
@@ -1252,7 +1249,7 @@ def evaluate_ast(
         return evaluate_subscript(expression, *common_params)
     elif isinstance(expression, ast.Starred):
         return evaluate_ast(expression.value, *common_params)
-    
+
     # Control structures
     elif isinstance(expression, ast.For):
         return evaluate_for(expression, *common_params)
@@ -1266,7 +1263,7 @@ def evaluate_ast(
             return evaluate_ast(expression.body, *common_params)
         else:
             return evaluate_ast(expression.orelse, *common_params)
-    
+
     # Formatted strings
     elif isinstance(expression, ast.FormattedValue):
         value = evaluate_ast(expression.value, *common_params)
@@ -1276,7 +1273,7 @@ def evaluate_ast(
         return format(value, format_spec)
     elif isinstance(expression, ast.JoinedStr):
         return "".join(str(evaluate_ast(v, *common_params)) for v in expression.values)
-    
+
     # Slices
     elif isinstance(expression, ast.Slice):
         return slice(
@@ -1284,15 +1281,15 @@ def evaluate_ast(
             evaluate_ast(expression.upper, *common_params) if expression.upper else None,
             evaluate_ast(expression.step, *common_params) if expression.step else None,
         )
-    
+
     # Imports
     elif isinstance(expression, (ast.Import, ast.ImportFrom)):
         return evaluate_import(expression, state, authorized_imports)
-    
+
     # Classes
     elif isinstance(expression, ast.ClassDef):
         return evaluate_class_def(expression, *common_params)
-    
+
     # Exception handling
     elif isinstance(expression, ast.Try):
         return evaluate_try(expression, *common_params)
@@ -1300,19 +1297,19 @@ def evaluate_ast(
         return evaluate_raise(expression, *common_params)
     elif isinstance(expression, ast.Assert):
         return evaluate_assert(expression, *common_params)
-    
+
     # With statements
     elif isinstance(expression, ast.With):
         return evaluate_with(expression, *common_params)
-    
+
     # Delete
     elif isinstance(expression, ast.Delete):
         return evaluate_delete(expression, *common_params)
-    
+
     # Legacy Python 3.8 Index node
     elif hasattr(ast, "Index") and isinstance(expression, ast.Index):
         return evaluate_ast(expression.value, *common_params)
-    
+
     else:
         raise InterpreterError(f"{expression.__class__.__name__} is not supported.")
 

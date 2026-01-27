@@ -14,10 +14,9 @@ Update skills table to comply with Agent Skills specification:
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "000000000002"
@@ -33,85 +32,85 @@ def upgrade() -> None:
         DO $$
         BEGIN
             IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns 
+                SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'skills' AND column_name = 'compatibility'
             ) THEN
                 ALTER TABLE skills ADD COLUMN compatibility VARCHAR(500);
             END IF;
-            
+
             IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns 
+                SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'skills' AND column_name = 'metadata'
             ) THEN
                 ALTER TABLE skills ADD COLUMN metadata JSONB;
             END IF;
-            
+
             IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns 
+                SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'skills' AND column_name = 'allowed_tools'
             ) THEN
                 ALTER TABLE skills ADD COLUMN allowed_tools JSONB;
             END IF;
         END $$;
     """)
-    
+
     # Step 2: Set default values for new columns
     op.execute("UPDATE skills SET metadata = '{}'::jsonb WHERE metadata IS NULL")
     op.execute("UPDATE skills SET allowed_tools = '[]'::jsonb WHERE allowed_tools IS NULL")
-    
+
     # Step 3: Make new columns NOT NULL with defaults (only if they're still nullable)
     op.execute("""
         DO $$
         BEGIN
             IF EXISTS (
-                SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'skills' 
-                AND column_name = 'metadata' 
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'skills'
+                AND column_name = 'metadata'
                 AND is_nullable = 'YES'
             ) THEN
-                ALTER TABLE skills 
+                ALTER TABLE skills
                 ALTER COLUMN metadata SET NOT NULL,
                 ALTER COLUMN metadata SET DEFAULT '{}'::jsonb;
             END IF;
-            
+
             IF EXISTS (
-                SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'skills' 
-                AND column_name = 'allowed_tools' 
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'skills'
+                AND column_name = 'allowed_tools'
                 AND is_nullable = 'YES'
             ) THEN
-                ALTER TABLE skills 
+                ALTER TABLE skills
                 ALTER COLUMN allowed_tools SET NOT NULL,
                 ALTER COLUMN allowed_tools SET DEFAULT '[]'::jsonb;
             END IF;
         END $$;
     """)
-    
+
     # Step 4: Truncate name and description if they exceed new limits
     # This is safe because we're only truncating, not removing data
     op.execute("""
-        UPDATE skills 
-        SET name = LEFT(name, 64) 
+        UPDATE skills
+        SET name = LEFT(name, 64)
         WHERE LENGTH(name) > 64
     """)
     op.execute("""
-        UPDATE skills 
-        SET description = LEFT(description, 1024) 
+        UPDATE skills
+        SET description = LEFT(description, 1024)
         WHERE LENGTH(description) > 1024
     """)
-    
+
     # Step 5: Change column types
     # For name: String(255) -> String(64)
     op.alter_column('skills', 'name',
                     existing_type=sa.String(255),
                     type_=sa.String(64),
                     existing_nullable=False)
-    
+
     # For description: Text -> String(1024)
     # First convert to VARCHAR(1024), then we can change the type
     op.execute("""
-        ALTER TABLE skills 
-        ALTER COLUMN description TYPE VARCHAR(1024) 
+        ALTER TABLE skills
+        ALTER COLUMN description TYPE VARCHAR(1024)
         USING LEFT(description, 1024)
     """)
 
@@ -123,46 +122,46 @@ def downgrade() -> None:
         BEGIN
             -- Check if name column exists and is VARCHAR(64)
             IF EXISTS (
-                SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'skills' 
-                AND column_name = 'name' 
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'skills'
+                AND column_name = 'name'
                 AND character_maximum_length = 64
             ) THEN
                 ALTER TABLE skills ALTER COLUMN name TYPE VARCHAR(255);
             END IF;
-            
+
             -- Check if description column exists and is VARCHAR(1024)
             IF EXISTS (
-                SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'skills' 
-                AND column_name = 'description' 
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'skills'
+                AND column_name = 'description'
                 AND character_maximum_length = 1024
             ) THEN
                 ALTER TABLE skills ALTER COLUMN description TYPE TEXT;
             END IF;
         END $$;
     """)
-    
+
     # Remove new columns (only if they exist)
     op.execute("""
         DO $$
         BEGIN
             IF EXISTS (
-                SELECT 1 FROM information_schema.columns 
+                SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'skills' AND column_name = 'allowed_tools'
             ) THEN
                 ALTER TABLE skills DROP COLUMN allowed_tools;
             END IF;
-            
+
             IF EXISTS (
-                SELECT 1 FROM information_schema.columns 
+                SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'skills' AND column_name = 'metadata'
             ) THEN
                 ALTER TABLE skills DROP COLUMN metadata;
             END IF;
-            
+
             IF EXISTS (
-                SELECT 1 FROM information_schema.columns 
+                SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'skills' AND column_name = 'compatibility'
             ) THEN
                 ALTER TABLE skills DROP COLUMN compatibility;

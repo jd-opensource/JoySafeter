@@ -4,8 +4,8 @@ from app.core.agent.backends.state_sandbox import StateSandboxBackend
 
 try:
     from app.core.agent.backends.pydantic_adapter import (
-        PydanticSandboxAdapter,
         PYDANTIC_BACKEND_AVAILABLE,
+        PydanticSandboxAdapter,
     )
 except ImportError:
     PydanticSandboxAdapter = None  # type: ignore

@@ -14,7 +14,8 @@ from app.common.exceptions import BadRequestException, ForbiddenException, NotFo
 from app.models.api_key import ApiKey
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.api_key import ApiKeyRepository
-from app.repositories.workspace import WorkspaceRepository, WorkspaceMemberRepository
+from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
+
 from .base import BaseService
 
 

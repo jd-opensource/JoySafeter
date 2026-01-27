@@ -4,10 +4,10 @@ Long-term memory storage.
 Stores facts, procedures, and episodic memories for agent sessions.
 """
 
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 
@@ -25,23 +25,23 @@ class Memory:
     memory_id: str
     session_id: str
     memory_type: MemoryType
-    
+
     # Memory content
     key: str  # namespace/key
     value: Any
-    
+
     # Metadata
     created_at: datetime
     accessed_count: int = 0
     last_accessed: Optional[datetime] = None
-    
+
     # Importance score (0-1)
     importance: float = 0.5
-    
+
     # Tags and categorization
     tags: List[str] = field(default_factory=list)
     category: Optional[str] = None
-    
+
     # Related information
     related_memories: List[str] = field(default_factory=list)
     source: Optional[str] = None  # Source (tool_result, user_input, inference)
@@ -49,11 +49,11 @@ class Memory:
 
 class MemoryStore:
     """Long-term memory storage system."""
-    
+
     def __init__(self, persistence_backend):
         self.backend = persistence_backend
         self._cache: Dict[str, Memory] = {}
-    
+
     async def store(
         self,
         session_id: str,
@@ -78,13 +78,13 @@ class MemoryStore:
             category=category,
             source=source
         )
-        
+
         cache_key = f"{session_id}:{key}"
         self._cache[cache_key] = memory
         await self.backend.save_memory(memory)
-        
+
         return memory
-    
+
     async def retrieve(
         self,
         session_id: str,
@@ -92,7 +92,7 @@ class MemoryStore:
     ) -> Optional[Memory]:
         """Retrieve a memory."""
         cache_key = f"{session_id}:{key}"
-        
+
         # Check cache first
         if cache_key in self._cache:
             memory = self._cache[cache_key]
@@ -101,15 +101,15 @@ class MemoryStore:
             memory = await self.backend.load_memory(session_id, key)
             if memory:
                 self._cache[cache_key] = memory
-        
+
         if memory:
             # Update access statistics
             memory.accessed_count += 1
             memory.last_accessed = datetime.now()
             await self.backend.update_memory_stats(memory)
-        
+
         return memory
-    
+
     async def search(
         self,
         session_id: str,
@@ -130,7 +130,7 @@ class MemoryStore:
             min_importance=min_importance,
             limit=limit
         )
-    
+
     async def store_target_info(
         self,
         session_id: str,
@@ -148,7 +148,7 @@ class MemoryStore:
             category="target_info",
             source="tool_result"
         )
-    
+
     async def store_vulnerability(
         self,
         session_id: str,
@@ -166,7 +166,7 @@ class MemoryStore:
             category="vulnerability",
             source="tool_result"
         )
-    
+
     async def store_successful_attack_path(
         self,
         session_id: str,
@@ -184,7 +184,7 @@ class MemoryStore:
             category="methodology",
             source="execution_result"
         )
-    
+
     async def get_target_history(
         self,
         session_id: str,
@@ -193,31 +193,31 @@ class MemoryStore:
         """Get complete target history."""
         # Get target info
         target_info = await self.retrieve(session_id, f"target:{target}")
-        
+
         # Get vulnerabilities
         vulnerabilities = await self.search(
             session_id=session_id,
             category="vulnerability",
             tags=["vulnerability"]
         )
-        
+
         # Get attack paths
         attack_paths = await self.search(
             session_id=session_id,
             category="methodology"
         )
-        
+
         return {
             "target": target,
             "info": target_info.value if target_info else {},
             "vulnerabilities": [v.value for v in vulnerabilities],
             "attack_paths": [a.value for a in attack_paths]
         }
-    
+
     async def delete_memory(self, memory_id: str):
         """Delete a memory."""
         await self.backend.delete_memory(memory_id)
-        
+
         # Remove from cache
         for key, memory in list(self._cache.items()):
             if memory.memory_id == memory_id:

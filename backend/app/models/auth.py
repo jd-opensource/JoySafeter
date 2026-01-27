@@ -3,10 +3,9 @@ Auth 用户与会话表模型
 """
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -50,7 +49,7 @@ class AuthUser(Base, TimestampMixin):
     image: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_super_user: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    
+
     # 安全增强字段
     failed_login_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -73,28 +72,28 @@ class AuthUser(Base, TimestampMixin):
         "WorkspaceMember",
         back_populates="user",
     )
-    
+
     @property
     def full_name(self) -> str:
         """返回用户全名（兼容性属性）"""
         return self.name
-    
+
     @property
     def is_superuser(self) -> bool:
         """兼容性属性：映射 is_super_user"""
         return self.is_super_user
-    
+
     @is_superuser.setter
     def is_superuser(self, value: bool) -> None:
         """兼容性属性设置器"""
         self.is_super_user = value
-    
+
     def is_locked(self) -> bool:
         """检查账户是否被锁定"""
         if not self.locked_until:
             return False
         return datetime.now(timezone.utc) < self.locked_until
-    
+
     def unlock(self) -> None:
         """解锁账户"""
         self.locked_until = None
@@ -136,7 +135,7 @@ class AuthSession(Base, TimestampMixin):
         ForeignKey("organization.id", ondelete="SET NULL"),
         nullable=True,
     )
-    
+
     # 安全增强字段
     last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     device_fingerprint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

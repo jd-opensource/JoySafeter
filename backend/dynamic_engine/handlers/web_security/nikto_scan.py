@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class NiktoHandler(AbstractHandler):
     """Handler for nikto functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['nikto']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute nikto with enhanced logging"""
         try:
@@ -25,9 +25,9 @@ class NiktoHandler(AbstractHandler):
             if not target:
                 logger.warning("🎯 Nikto called without target parameter")
                 return {
-    
+
                     "error": "Target parameter is required"
-                
+
                 }
             command = f"nikto -h {target}"
             if additional_args:
@@ -39,7 +39,7 @@ class NiktoHandler(AbstractHandler):
         except Exception as e:
             logger.error(f"💥 Error in nikto endpoint: {str(e)}")
             return {
-    
+
                 "error": f"Server error: {str(e)}"
-            
+
             }

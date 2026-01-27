@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class NmapAdvancedHandler(AbstractHandler):
     """Handler for nmap_advanced functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['nmap']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute nmap_advanced with enhanced logging"""
         try:

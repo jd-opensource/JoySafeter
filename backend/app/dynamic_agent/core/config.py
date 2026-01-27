@@ -1,12 +1,8 @@
-import json
 import os
 import re
-import sys
 from pathlib import Path
-from dotenv import load_dotenv
-import logging
 
-from loguru import logger
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 # .env is in agent/ directory (parent of core/)

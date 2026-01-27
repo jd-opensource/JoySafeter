@@ -18,14 +18,14 @@ class StorageConfig:
     POSTGRES_DB: str = os.getenv('POSTGRES_DB', 'agent_storage')
     POSTGRES_USER: str = os.getenv('POSTGRES_USER', 'agent_user')
     POSTGRES_PASSWORD: str = os.getenv('POSTGRES_PASSWORD', '')
-    
+
     # Connection pool settings
     POSTGRES_MIN_POOL_SIZE: int = int(os.getenv('POSTGRES_MIN_POOL_SIZE', '10'))
     POSTGRES_MAX_POOL_SIZE: int = int(os.getenv('POSTGRES_MAX_POOL_SIZE', '50'))
-    
+
     # SSL settings
     POSTGRES_SSL: Optional[str] = os.getenv('POSTGRES_SSL', None)  # 'require', 'prefer', 'disable'
-    
+
     @classmethod
     def get_backend_config(cls) -> dict:
         """Get PostgreSQL backend configuration."""

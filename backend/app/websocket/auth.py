@@ -31,7 +31,7 @@ async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[s
         )
     except Exception as e:
         logger.warning(f"WebSocket cookie extraction failed: {e}")
-    
+
     if not token:
         token = websocket.query_params.get("token")
 
@@ -46,7 +46,7 @@ async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[s
 
 
 async def authenticate_websocket_with_user(
-    websocket: WebSocket, 
+    websocket: WebSocket,
     db: AsyncSession
 ) -> Tuple[bool, Optional[User]]:
     is_authenticated, user_id = await authenticate_websocket(websocket)
@@ -67,8 +67,8 @@ async def authenticate_websocket_with_user(
 
 
 async def reject_websocket(
-    websocket: WebSocket, 
-    code: int = WebSocketCloseCode.UNAUTHORIZED, 
+    websocket: WebSocket,
+    code: int = WebSocketCloseCode.UNAUTHORIZED,
     reason: str = "Unauthorized"
 ) -> None:
     try:

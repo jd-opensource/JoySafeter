@@ -7,16 +7,16 @@ Simple demonstration of using MCP client to connect to server and call tools.
 import asyncio
 import json
 import sys
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
 
 # Add backend to path
 backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
 from mcp import ClientSession
-from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 
@@ -77,7 +77,7 @@ async def demo_sse(host: str = "http://localhost:8000/sse"):
                     kwargs = {}
                     try:
                         kwargs = json.loads(input_json)
-                    except Exception as e:
+                    except Exception:
                         try:
                             kwargs = eval(input_json)
                         except Exception as e:

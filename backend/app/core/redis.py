@@ -1,9 +1,9 @@
 """
 Redis 配置 - 缓存和分布式锁
 """
-from typing import Optional, Any, Dict
 import json
 from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
 
 import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool
@@ -37,7 +37,7 @@ class RedisClient:
             except Exception as e:
                 cls._is_available = False
                 print(f"   ⚠️  Redis connection failed: {e}")
-                print(f"   ⚠️  Refresh token and rate limiting features will be degraded")
+                print("   ⚠️  Refresh token and rate limiting features will be degraded")
                 # 不抛出异常，允许应用启动（降级模式）
 
     @classmethod
@@ -73,14 +73,14 @@ class RedisClient:
         except Exception:
             cls._is_available = False
             return False
-    
+
     @classmethod
     async def get(cls, key: str) -> Optional[str]:
         """获取值"""
         if not cls._client:
             return None
         return await cls._client.get(key)
-    
+
     @classmethod
     async def set(
         cls,
@@ -91,13 +91,13 @@ class RedisClient:
         """设置值"""
         if not cls._client:
             return False
-        
+
         if not isinstance(value, str):
             value = json.dumps(value, ensure_ascii=False)
-        
+
         await cls._client.set(key, value, ex=expire)
         return True
-    
+
     @classmethod
     async def delete(cls, key: str) -> bool:
         """删除键"""
@@ -105,28 +105,28 @@ class RedisClient:
             return False
         await cls._client.delete(key)
         return True
-    
+
     @classmethod
     async def exists(cls, key: str) -> bool:
         """检查键是否存在"""
         if not cls._client:
             return False
         return await cls._client.exists(key) > 0
-    
+
     @classmethod
     async def incr(cls, key: str, amount: int = 1) -> int:
         """增加计数"""
         if not cls._client:
             return 0
         return await cls._client.incrby(key, amount)
-    
+
     @classmethod
     async def expire(cls, key: str, seconds: int) -> bool:
         """设置过期时间"""
         if not cls._client:
             return False
         return await cls._client.expire(key, seconds)
-    
+
     @classmethod
     @asynccontextmanager
     async def lock(cls, name: str, timeout: int = 10):
@@ -134,16 +134,16 @@ class RedisClient:
         if not cls._client:
             yield True
             return
-        
+
         lock = cls._client.lock(name, timeout=timeout)
         try:
             await lock.acquire()
             yield True
         finally:
             await lock.release()
-    
+
     # ==================== Copilot Session Methods ====================
-    
+
     @classmethod
     async def append_copilot_content(cls, session_id: str, content: str, ttl: int = 86400) -> bool:
         """追加 Copilot 会话的实时内容"""
@@ -153,7 +153,7 @@ class RedisClient:
         await cls._client.append(key, content)
         await cls._client.expire(key, ttl)
         return True
-    
+
     @classmethod
     async def publish_copilot_event(cls, session_id: str, event: Dict[str, Any]) -> bool:
         """发布 Copilot 事件到 Pub/Sub"""
@@ -173,7 +173,7 @@ class RedisClient:
         key = f"copilot:session:{session_id}:status"
         await cls._client.set(key, status, ex=ttl)
         return True
-    
+
     @classmethod
     async def get_copilot_status(cls, session_id: str) -> Optional[str]:
         """获取 Copilot 会话状态"""
@@ -181,7 +181,7 @@ class RedisClient:
             return None
         key = f"copilot:session:{session_id}:status"
         return await cls._client.get(key)
-    
+
     @classmethod
     async def get_copilot_content(cls, session_id: str) -> Optional[str]:
         """获取 Copilot 会话的累积内容"""
@@ -189,7 +189,7 @@ class RedisClient:
             return None
         key = f"copilot:session:{session_id}:content"
         return await cls._client.get(key)
-    
+
     @classmethod
     async def get_copilot_session(cls, session_id: str) -> Optional[Dict[str, Any]]:
         """获取 Copilot 会话数据（状态和内容）"""
@@ -204,7 +204,7 @@ class RedisClient:
             "status": status,
             "content": content,
         }
-    
+
     @classmethod
     async def cleanup_copilot_session(cls, session_id: str) -> bool:
         """清理 Copilot 会话的临时数据"""

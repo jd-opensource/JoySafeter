@@ -5,13 +5,11 @@ import os
 import sys
 from typing import List
 
-
-from dynamic_engine.mcp.registry import ToolRegistry, ToolOriginConf
-from dynamic_engine.mcp.server import mcp_server, dynamic_tools_conf
-from dynamic_engine.mcp.log_config import setup_logging
-
 # Import core_tools to register execute_shell_command and execute_python_script
 import dynamic_engine.admin.core_tools  # noqa: F401 - side effect import for tool registration
+from dynamic_engine.mcp.log_config import setup_logging
+from dynamic_engine.mcp.registry import ToolOriginConf, ToolRegistry
+from dynamic_engine.mcp.server import dynamic_tools_conf, mcp_server
 
 
 class Colors:
@@ -80,14 +78,14 @@ def setup_mcp_server(debug: bool = True, host="0.0.0.0", port=8000):
         for tool_config in tools:
             cat = tool_config.get('category', 'unknown')
             category_stats[cat] = category_stats.get(cat, 0) + 1
-        
+
         logger.debug(f"{Colors.INFO}📈 Tools by category:{Colors.RESET}")
         for cat, count in sorted(category_stats.items(), key=lambda x: x[1], reverse=True):
             # cat_name = categories.get(cat, {}).get('name', cat)
             logger.debug(f"{Colors.DEBUG}  - {cat}: {count} tools{Colors.RESET}")
-    
+
     logger.info(f"{Colors.SUCCESS}🎉 MCP server ready! All tools generated dynamically from configuration.{Colors.RESET}")
-    
+
     return mcp_server
 
 # ============================================================================
@@ -105,18 +103,18 @@ def main():
         action='store_true',
         help='Enable debug logging'
     )
-    
+
     args = parser.parse_args()
-    
+
     try:
         # Setup and run MCP server
         mcp = setup_mcp_server(args.debug)
         mcp.run(transport='sse')
-    
+
     except KeyboardInterrupt:
         print(f"\n{Colors.WARNING}⚠️  Interrupted by user{Colors.RESET}")
         sys.exit(0)
-    
+
     except Exception as e:
         print(f"{Colors.ERROR}❌ Fatal error: {e}{Colors.RESET}")
         import traceback

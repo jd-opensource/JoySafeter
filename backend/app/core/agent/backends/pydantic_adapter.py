@@ -7,7 +7,7 @@ DockerSandbox implementation with deepAgents' SandboxBackendProtocol interface.
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from deepagents.backends.protocol import (
     EditResult,
@@ -24,6 +24,7 @@ from deepagents.backends.utils import (
     perform_string_replacement,
 )
 from loguru import logger
+
 from app.utils.backend_utils import create_execute_response
 
 if TYPE_CHECKING:
@@ -76,10 +77,10 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             tools=tools,
             middleware=[FilesystemMiddleware(backend=adapter)]
         )
-        
+
         # Cleanup when done (or use context manager)
         adapter.cleanup()
-        
+
         # Or use as context manager:
         with PydanticSandboxAdapter(image="python:3.12-slim") as adapter:
             # Use adapter...
@@ -117,7 +118,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         Raises:
             ImportError: If pydantic-ai-backend is not installed
             RuntimeError: If DockerSandbox creation fails
-            
+
         Note:
             The sandbox container is automatically started during initialization.
             Call `cleanup()` when done to stop and remove the container.
@@ -174,13 +175,13 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                         workdir=working_dir,
                     )
                     logger.debug(
-                        f"DockerSandbox created with alternative parameter names"
+                        "DockerSandbox created with alternative parameter names"
                     )
                 except TypeError:
                     # Final fallback: use only image parameter
                     logger.warning(
-                        f"DockerSandbox only supports image parameter, "
-                        f"ignoring memory_limit, cpu_quota, network_mode, working_dir"
+                        "DockerSandbox only supports image parameter, "
+                        "ignoring memory_limit, cpu_quota, network_mode, working_dir"
                     )
                     self._sandbox: "DockerSandbox" = DockerSandbox(image=image)
             logger.info(
@@ -202,27 +203,27 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
     def id(self) -> str:
         """Unique identifier for this backend instance."""
         return self._id
-    
+
     def is_started(self) -> bool:
         """Check if the sandbox container is started.
-        
+
         Returns:
             True if the sandbox is started, False otherwise.
         """
         return self._started
-    
+
     def start(self) -> None:
         """Start the Docker sandbox container.
-        
+
         This method is called automatically in __init__,
         but can also be called manually if needed.
-        
+
         The method is idempotent - safe to call multiple times.
         """
         if self._started:
             logger.debug(f"Sandbox {self._id} already started, skipping start()")
             return
-        
+
         logger.info(f"Attempting to start sandbox {self._id}...")
         try:
             if hasattr(self._sandbox, "start"):
@@ -282,7 +283,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                     return content
                 logger.debug(f"[{self._id}] File read failed: {file_path} (exit_code={result[1]})")
                 return None
-            
+
             if result is None:
                 logger.debug(f"[{self._id}] File not found: {file_path}")
                 return None
@@ -319,7 +320,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         try:
             # Try different possible API methods
             content_bytes = content.encode("utf-8") if isinstance(content, str) else content
-            
+
             if hasattr(self._sandbox, "write"):
                 # Try with path and content
                 try:
@@ -356,7 +357,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 else:
                     logger.debug(f"[{self._id}] File write failed: {file_path} (exit_code={result[1]})")
                 return success
-            
+
             logger.warning(f"[{self._id}] All write methods failed for: {file_path}")
             return False
         except Exception as e:
@@ -390,7 +391,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                     f"[{self._id}] DockerSandbox does not have execute/run/exec method"
                 )
                 return "Error: No execute method available", -1
-            
+
             # Adapt result format to our expected format
             # pydantic-ai-backend may return different format
             if hasattr(result, "stdout") and hasattr(result, "returncode"):
@@ -507,7 +508,6 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             return f"Error: File '{file_path}' not found"
 
         # Create file data structure
-        from datetime import datetime
 
         lines = content.splitlines()
         file_data = {
@@ -701,13 +701,13 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 exit_code=exit_code,
                 max_output_size=self.max_output_size,
             )
-            
+
             if response.truncated:
                 logger.debug(
                     f"[{self._id}] Output truncated: {len(output)} -> "
                     f"{len(response.output)} chars (max={self.max_output_size})"
                 )
-            
+
             logger.debug(
                 f"[{self._id}] Command execution completed: "
                 f"exit_code={exit_code}, truncated={response.truncated}"
@@ -751,7 +751,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                     result = self._sandbox.get_file(path)
                     if result is not None:
                         content_bytes = result if isinstance(result, bytes) else result.encode("utf-8")
-                
+
                 if content_bytes is None:
                     # Fallback: use execute to read file
                     result = self.execute(f"cat {path}")
@@ -762,7 +762,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                             FileDownloadResponse(path=path, content=None, error="file_not_found")
                         )
                         continue
-                
+
                 responses.append(
                     FileDownloadResponse(path=path, content=content_bytes, error=None)
                 )
@@ -771,7 +771,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 responses.append(
                     FileDownloadResponse(path=path, content=None, error="permission_denied")
                 )
-        
+
         return responses
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
@@ -802,7 +802,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                     self._sandbox.put_file(path, content)
                     responses.append(FileUploadResponse(path=path, error=None))
                     continue
-                
+
                 # Fallback: use execute to write file
                 import shlex
                 content_str = content.decode("utf-8", errors="replace")
@@ -819,23 +819,23 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 responses.append(
                     FileUploadResponse(path=path, error="permission_denied")
                 )
-        
+
         return responses
 
     def cleanup(self) -> None:
         """Stop and remove the Docker container.
-        
+
         This method follows the pydantic-ai-backend lifecycle pattern:
         - Calls stop() if available (preferred)
         - Falls back to cleanup() if stop() is not available
         - Manages _started state to ensure idempotency
-        
+
         The method is idempotent - safe to call multiple times.
         """
         if not self._started:
             logger.debug(f"Sandbox {self._id} not started, skipping cleanup")
             return
-        
+
         logger.info(f"Cleaning up sandbox {self._id}...")
         try:
             # Prefer stop() method (pydantic-ai-backend standard)

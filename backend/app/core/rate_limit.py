@@ -4,9 +4,9 @@ Rate limiting decorator for API endpoints
 """
 import time
 from functools import wraps
-from typing import Optional, Callable
-from fastapi import Request, HTTPException
-from app.core.settings import settings
+from typing import Callable, Optional
+
+from fastapi import HTTPException, Request
 
 
 class RateLimiter:

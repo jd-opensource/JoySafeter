@@ -6,61 +6,58 @@ graph actions based on user requests.
 """
 
 import copy
-import json
 import uuid as uuid_lib
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from langchain_core.messages import HumanMessage, AIMessage
 from loguru import logger
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.copilot.action_applier import apply_actions_to_graph_state
 from app.core.copilot.action_types import (
-    GraphAction,
-    GraphActionType,
-    CopilotResponse,
+    CopilotHistoryResponse,
     CopilotMessage,
+    CopilotResponse,
     CopilotThoughtStep,
     CopilotToolCall,
-    CopilotHistoryResponse,
+    GraphAction,
+    GraphActionType,
 )
-from app.core.copilot.agent import get_copilot_agent
-from app.core.copilot.response_parser import (
-    try_extract_thought_field,
-    parse_thought_to_steps,
-)
-from app.core.copilot.tools import reset_node_registry
 from app.core.copilot.action_validator import (
-    validate_actions,
     extract_existing_node_ids,
     filter_invalid_actions,
+    validate_actions,
+)
+from app.core.copilot.agent import get_copilot_agent
+from app.core.copilot.exceptions import (
+    CopilotAgentError,
+    CopilotCredentialError,
+    CopilotLLMError,
+    CopilotValidationError,
+)
+from app.core.copilot.message_builder import build_langchain_messages
+from app.core.copilot.response_parser import (
+    expand_action_payload,
+    extract_actions_from_agent_result,
+    parse_thought_to_steps,
+    try_extract_thought_field,
 )
 from app.core.copilot.tool_output_parser import parse_tool_output
-from app.core.copilot.message_builder import build_langchain_messages
-from app.core.copilot.response_parser import expand_action_payload, extract_actions_from_agent_result
-from app.core.copilot.exceptions import (
-    CopilotLLMError,
-    CopilotCredentialError,
-    CopilotAgentError,
-    CopilotValidationError,
-    CopilotStreamError,
-)
-from app.models.chat import CopilotChat
+from app.core.copilot.tools import reset_node_registry
 from app.core.model.utils.credential_resolver import LLMCredentialResolver
-from app.core.copilot.action_applier import apply_actions_to_graph_state
-from app.services.graph_service import GraphService
+from app.models.chat import CopilotChat
 from app.repositories.auth_user import AuthUserRepository
+from app.services.graph_service import GraphService
 
 
 class CopilotService:
     """
     Service for Copilot graph action generation.
-    
+
     Supports both streaming (SSE) and non-streaming modes.
     Uses the Agent-based approach with tools for structured output.
     """
-    
+
     def __init__(
         self,
         user_id: Optional[str] = None,
@@ -71,7 +68,7 @@ class CopilotService:
     ):
         """
         Initialize the Copilot service.
-        
+
         Args:
             user_id: User ID for workspace isolation
             llm_model: Optional LLM model name override
@@ -95,23 +92,23 @@ class CopilotService:
     ) -> CopilotResponse:
         """
         Generate graph actions (non-streaming).
-        
+
         Creates an agent, invokes it with the user prompt, and collects
         all tool call results as actions.
-        
+
         Args:
             prompt: User's request
             graph_context: Current graph state with nodes and edges
             conversation_history: Optional previous conversation messages
-            
+
         Returns:
             CopilotResponse with message and actions
         """
         logger.info(f"[CopilotService] generate_actions start user_id={self.user_id}")
-        
+
         # Reset node registry for fresh semantic ID tracking
         reset_node_registry()
-        
+
         try:
             # Get credentials using unified CredentialManager
             try:
@@ -134,7 +131,7 @@ class CopilotService:
                     "Failed to retrieve credentials",
                     original_error=e
                 )
-            
+
             # Create the Copilot agent (with db for model preloading)
             try:
                 agent = await get_copilot_agent(
@@ -151,10 +148,10 @@ class CopilotService:
                     "Failed to create Copilot agent",
                     original_error=e
                 )
-            
+
             # Build messages
             messages = self._build_messages(prompt, conversation_history)
-            
+
             # Invoke the agent with explicit recursion limit
             try:
                 result = await agent.ainvoke(
@@ -167,7 +164,7 @@ class CopilotService:
                     "Failed to process request with LLM",
                     original_error=e
                 )
-            
+
             # Extract actions from result
             try:
                 actions = self._extract_actions_from_result(result)
@@ -178,14 +175,14 @@ class CopilotService:
                     "Failed to extract actions from agent result",
                     original_error=e
                 )
-            
+
             logger.info(f"[CopilotService] generate_actions success actions_count={len(actions)}")
-            
+
             return CopilotResponse(
                 message=final_message,
                 actions=actions,
             )
-            
+
         except (CopilotCredentialError, CopilotLLMError, CopilotAgentError, CopilotValidationError):
             # Re-raise known exceptions
             raise
@@ -204,7 +201,7 @@ class CopilotService:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Generate graph actions with streaming (SSE events).
-        
+
         Yields SSE event dicts with the following types:
         - status: Progress updates (stage, message)
         - content: Streaming AI response content
@@ -214,24 +211,24 @@ class CopilotService:
         - result: Final result with message and actions
         - done: Stream finished
         - error: Error occurred
-        
+
         Args:
             prompt: User's request
             graph_context: Current graph state with nodes and edges
             conversation_history: Optional previous conversation messages
-            
+
         Yields:
             Dict with event type and data
         """
         logger.info(f"[CopilotService] generate_actions_stream start user_id={self.user_id}")
-        
+
         # Reset node registry for fresh semantic ID tracking
         reset_node_registry()
-        
+
         try:
             # Single status: Thinking
             yield {"type": "status", "stage": "thinking", "message": "正在思考..."}
-            
+
             # Get credentials using unified CredentialManager
             try:
                 api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
@@ -261,7 +258,7 @@ class CopilotService:
                     "code": "CREDENTIAL_ERROR"
                 }
                 return
-            
+
             # Create the Copilot agent (with db for model preloading)
             try:
                 agent = await get_copilot_agent(
@@ -280,10 +277,10 @@ class CopilotService:
                     "code": "AGENT_ERROR"
                 }
                 return
-            
+
             # Build messages
             messages = self._build_messages(prompt, conversation_history)
-            
+
             # Track state for streaming
             accumulated_content = ""
             last_streamed_thought = None
@@ -292,7 +289,7 @@ class CopilotService:
             final_message = ""
 
             # Use the unified _expand_action_payload method
-            
+
             # Stream events from the agent with explicit recursion limit
             async for event in agent.astream_events(
                 {"messages": messages},
@@ -300,7 +297,7 @@ class CopilotService:
                 config={"recursion_limit": 300}
             ):
                 event_kind = event.get("event", "")
-                
+
                 # Handle different event types
                 if event_kind == "on_chat_model_stream":
                     # Streaming content from the LLM - use extracted method
@@ -308,20 +305,20 @@ class CopilotService:
                     if chunk and hasattr(chunk, "content") and chunk.content:
                         content = chunk.content
                         yield {"type": "content", "content": content}
-                    
+
                     # Handle thought step extraction
                     accumulated_content, last_streamed_thought, last_streamed_steps_count, thought_step_event = \
                         self._handle_chat_model_stream_event(
                             event, accumulated_content, last_streamed_thought, last_streamed_steps_count
                         )
-                    
+
                     # Yield thought step event if extracted
                     if thought_step_event:
                         yield thought_step_event
                         # Note: _handle_chat_model_stream_event returns only the first new step
                         # If multiple steps are detected, we may need to yield all of them
                         # This could be enhanced in the future
-                
+
                 elif event_kind == "on_tool_start":
                     # Tool invocation started
                     tool_name = event.get("name", "")
@@ -332,16 +329,16 @@ class CopilotService:
                         "tool": tool_name,
                         "input": tool_input,
                     }
-                
+
                 elif event_kind == "on_tool_end":
                     # Tool execution completed
                     tool_name = event.get("name", "")
                     tool_output_raw = event.get("data", {}).get("output")
                     logger.info(f"[CopilotService] Tool ended: {tool_name}, output type: {type(tool_output_raw)}")
-                    
+
                     # Parse tool output to extract action data
                     action_data = self._parse_tool_output(tool_output_raw, tool_name)
-                    
+
                     if action_data:
                         # Extract actions (single or batch) using unified method
                         expanded = expand_action_payload(action_data, filter_non_actions=True)
@@ -356,19 +353,19 @@ class CopilotService:
                                 f"[CopilotService] Tool output is not an action payload. tool={tool_name} "
                                 f"keys={list(action_data.keys()) if isinstance(action_data, dict) else type(action_data)}"
                             )
-                
+
                 elif event_kind == "on_chat_model_end":
                     # LLM finished generating
                     output = event.get("data", {}).get("output")
                     if output and hasattr(output, "content"):
                         final_message = output.content
-            
+
             # Stage 6: Processing results
             yield {"type": "status", "stage": "processing", "message": "处理结果..."}
-            
+
             # Convert collected actions to GraphAction format and validate
             actions = self._convert_and_validate_actions(collected_actions, graph_context)
-            
+
             # Send final result
             yield {
                 "type": "result",
@@ -382,13 +379,13 @@ class CopilotService:
                     for action in actions
                 ],
             }
-            
+
             # Done
             yield {"type": "done"}
             logger.info(f"[CopilotService] generate_actions_stream success actions_count={len(actions)}")
-            
+
         except KeyboardInterrupt:
-            logger.warning(f"[CopilotService] Stream interrupted by user")
+            logger.warning("[CopilotService] Stream interrupted by user")
             yield {"type": "error", "message": "Request cancelled by user", "code": "CANCELLED"}
         except (CopilotLLMError, CopilotAgentError) as e:
             logger.error(f"[CopilotService] Stream failed: {e}")
@@ -414,29 +411,29 @@ class CopilotService:
     ) -> tuple[str, Optional[str], int, Optional[Dict[str, Any]]]:
         """
         Handle streaming content event from chat model.
-        
+
         Args:
             event: Event dict from agent.astream_events
             accumulated_content: Previously accumulated content
             last_streamed_thought: Last thought content that was streamed
             last_streamed_steps_count: Count of thought steps already streamed
-            
+
         Returns:
-            Tuple of (new_accumulated_content, new_last_streamed_thought, 
+            Tuple of (new_accumulated_content, new_last_streamed_thought,
                      new_last_streamed_steps_count, optional_thought_step_event)
         """
         chunk = event.get("data", {}).get("chunk")
         if not chunk or not hasattr(chunk, "content") or not chunk.content:
             return accumulated_content, last_streamed_thought, last_streamed_steps_count, None
-        
+
         content = chunk.content
         new_accumulated_content = accumulated_content + content
-        
+
         # Try to extract and stream thought steps
         thought_step_event = None
         new_last_streamed_thought = last_streamed_thought
         new_last_streamed_steps_count = last_streamed_steps_count
-        
+
         thought_content = try_extract_thought_field(new_accumulated_content)
         if thought_content and thought_content != last_streamed_thought:
             if len(thought_content) > 20:
@@ -451,7 +448,7 @@ class CopilotService:
                             new_last_streamed_thought = thought_content
                 except Exception:
                     pass
-        
+
         return new_accumulated_content, new_last_streamed_thought, new_last_streamed_steps_count, thought_step_event
 
     def _convert_and_validate_actions(
@@ -461,11 +458,11 @@ class CopilotService:
     ) -> List[GraphAction]:
         """
         Convert action dicts to GraphAction objects and validate them.
-        
+
         Args:
             collected_actions: List of action dicts collected from tool outputs
             graph_context: Current graph state for validation
-            
+
         Returns:
             List of validated GraphAction objects
         """
@@ -481,7 +478,7 @@ class CopilotService:
                 ))
             except (ValueError, KeyError):
                 pass
-        
+
         # Validate actions before returning
         if actions:
             existing_ids = extract_existing_node_ids(graph_context)
@@ -490,13 +487,13 @@ class CopilotService:
                 for a in actions
             ]
             validation_result = validate_actions(action_dicts, existing_ids)
-            
+
             # Log validation results
             if validation_result.errors:
                 logger.warning(f"[CopilotService] Action validation errors: {validation_result.errors}")
             if validation_result.warnings:
                 logger.info(f"[CopilotService] Action validation warnings: {validation_result.warnings}")
-            
+
             # Filter out invalid actions if there are errors
             if not validation_result.is_valid:
                 valid_actions, removed = filter_invalid_actions(action_dicts, existing_ids)
@@ -513,19 +510,19 @@ class CopilotService:
                         ))
                     except (ValueError, KeyError):
                         pass
-        
+
         return actions
 
     def _parse_tool_output(self, tool_output_raw: Any, tool_name: str) -> Optional[Dict[str, Any]]:
         """
         Parse tool output to extract action data.
-        
+
         Delegates to unified parse_tool_output function.
-        
+
         Args:
             tool_output_raw: Raw tool output (any type)
             tool_name: Name of the tool (for logging)
-            
+
         Returns:
             Parsed action data dict, or None if parsing fails
         """
@@ -539,18 +536,18 @@ class CopilotService:
     ) -> List:
         """
         Build messages list for agent invocation.
-        
+
         Delegates to unified build_langchain_messages function.
         """
         return build_langchain_messages(prompt, conversation_history)
 
     def _extract_actions_from_result(
-        self, 
+        self,
         result: Dict[str, Any]
     ) -> List[GraphAction]:
         """
         Extract GraphAction objects from agent result.
-        
+
         Delegates to unified extract_actions_from_agent_result function.
         """
         return extract_actions_from_agent_result(result, filter_non_actions=False)
@@ -558,7 +555,7 @@ class CopilotService:
     def _extract_final_message(self, result: Dict[str, Any]) -> str:
         """Extract the final AI message from agent result."""
         output_messages = result.get("messages", [])
-        
+
         # Get the last AI message
         for msg in reversed(output_messages):
             if hasattr(msg, "content") and isinstance(msg.content, str):
@@ -567,7 +564,7 @@ class CopilotService:
                 # Check for AIMessage
                 if msg.__class__.__name__ == "AIMessage":
                     return msg.content
-        
+
         return ""
 
     def _process_actions(
@@ -578,28 +575,28 @@ class CopilotService:
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Process graph actions to compute final nodes and edges.
-        
+
         Similar to frontend ActionProcessor.processActions.
         This method applies actions to initial graph state and returns the final state.
-        
+
         Args:
             actions: List of action dictionaries with 'type' and 'payload' keys
             initial_nodes: Initial nodes in the graph
             initial_edges: Initial edges in the graph
-            
+
         Returns:
             Tuple of (final_nodes, final_edges) after processing all actions
         """
         processed_nodes = [copy.deepcopy(node) for node in initial_nodes]
         processed_edges = [copy.deepcopy(edge) for edge in initial_edges]
-        
+
         # Create node index for O(1) lookups when updating/deleting nodes
         node_index: Dict[str, int] = {node.get("id"): i for i, node in enumerate(processed_nodes)}
-        
+
         for action in actions:
             action_type = action.get("type")
             payload = action.get("payload", {})
-            
+
             if action_type == "CREATE_NODE":
                 node_id = payload.get("id") or f"ai_{int(datetime.utcnow().timestamp() * 1000)}"
                 new_node = {
@@ -614,7 +611,7 @@ class CopilotService:
                 }
                 processed_nodes.append(new_node)
                 node_index[node_id] = len(processed_nodes) - 1
-                
+
             elif action_type == "CONNECT_NODES":
                 source = payload.get("source")
                 target = payload.get("target")
@@ -629,7 +626,7 @@ class CopilotService:
                             "source": source,
                             "target": target,
                         })
-                        
+
             elif action_type == "DELETE_NODE":
                 node_id = payload.get("id")
                 if node_id:
@@ -640,7 +637,7 @@ class CopilotService:
                     ]
                     # Rebuild index after deletion
                     node_index = {node.get("id"): i for i, node in enumerate(processed_nodes)}
-                    
+
             elif action_type == "UPDATE_CONFIG":
                 node_id = payload.get("id")
                 config = payload.get("config", {})
@@ -653,7 +650,7 @@ class CopilotService:
                         node_data["config"] = {**existing_config, **config}
                     else:
                         logger.warning(f"[CopilotService] Node {node_id} not found for UPDATE_CONFIG action")
-                        
+
             elif action_type == "UPDATE_POSITION":
                 node_id = payload.get("id")
                 position = payload.get("position")
@@ -664,11 +661,11 @@ class CopilotService:
                         processed_nodes[node_idx]["position"] = position
                     else:
                         logger.warning(f"[CopilotService] Node {node_id} not found for UPDATE_POSITION action")
-                        
+
             else:
                 # Unknown action type - log warning but don't fail
                 logger.warning(f"[CopilotService] Unknown action type: {action_type}")
-        
+
         return processed_nodes, processed_edges
 
     # ==================== History Persistence Methods ====================
@@ -676,20 +673,20 @@ class CopilotService:
     async def get_history(self, graph_id: str) -> Optional[CopilotHistoryResponse]:
         """
         Get Copilot conversation history for a specific graph.
-        
+
         Args:
             graph_id: The graph ID to get history for
-            
+
         Returns:
             CopilotHistoryResponse with messages, or None if no history exists
         """
         if not self.db:
             logger.warning("[CopilotService] No database session, cannot get history")
             return None
-        
+
         try:
             graph_uuid = uuid_lib.UUID(graph_id)
-            
+
             # Query for existing CopilotChat by graph_id and user_id
             stmt = select(CopilotChat).where(
                 CopilotChat.agent_graph_id == graph_uuid,
@@ -697,11 +694,11 @@ class CopilotService:
             )
             result = await self.db.execute(stmt)
             chat = result.scalar_one_or_none()
-            
+
             if not chat:
                 logger.debug(f"[CopilotService] No history found for graph_id={graph_id}")
                 return None
-            
+
             # Convert stored messages to CopilotMessage objects
             messages = []
             for msg_data in chat.messages or []:
@@ -713,7 +710,7 @@ class CopilotService:
                             CopilotThoughtStep(index=s.get("index", 0), content=s.get("content", ""))
                             for s in msg_data["thought_steps"]
                         ]
-                    
+
                     # Parse tool_calls if present
                     tool_calls = None
                     if msg_data.get("tool_calls"):
@@ -725,7 +722,7 @@ class CopilotService:
                             )
                             for tc in msg_data["tool_calls"]
                         ]
-                    
+
                     # Parse created_at
                     created_at = datetime.utcnow()
                     if msg_data.get("created_at"):
@@ -733,7 +730,7 @@ class CopilotService:
                             created_at = datetime.fromisoformat(msg_data["created_at"].replace("Z", "+00:00"))
                         except (ValueError, AttributeError):
                             pass
-                    
+
                     messages.append(CopilotMessage(
                         id=msg_data.get("id", f"msg_{uuid_lib.uuid4().hex[:12]}"),
                         role=msg_data.get("role", "user"),
@@ -746,16 +743,16 @@ class CopilotService:
                 except Exception as e:
                     logger.warning(f"[CopilotService] Failed to parse message: {e}")
                     continue
-            
+
             logger.info(f"[CopilotService] Retrieved {len(messages)} messages for graph_id={graph_id}")
-            
+
             return CopilotHistoryResponse(
                 graph_id=graph_id,
                 messages=messages,
                 created_at=chat.created_at,
                 updated_at=chat.updated_at,
             )
-            
+
         except Exception as e:
             logger.error(f"[CopilotService] get_history failed: {e}")
             return None
@@ -771,11 +768,11 @@ class CopilotService:
     ) -> bool:
         """
         Save conversation messages from streaming data.
-        
+
         This is a convenience method that creates CopilotMessage objects
         from streaming data and saves them. Use this instead of manually
         creating messages in API endpoints.
-        
+
         Args:
             graph_id: The graph ID to save messages for
             prompt: User's prompt
@@ -783,14 +780,14 @@ class CopilotService:
             collected_thought_steps: List of thought step dicts
             collected_tool_calls: List of tool call dicts
             final_actions: List of action dicts
-            
+
         Returns:
             True if save was successful, False otherwise
         """
         if not self.db:
             logger.warning("[CopilotService] No database session, cannot save messages")
             return False
-        
+
         try:
             # Create user message
             user_msg = CopilotMessage(
@@ -798,7 +795,7 @@ class CopilotService:
                 content=prompt,
                 created_at=datetime.utcnow(),
             )
-            
+
             # Create assistant message with all collected data
             assistant_msg = CopilotMessage(
                 role="assistant",
@@ -814,10 +811,10 @@ class CopilotService:
                     for tc in collected_tool_calls
                 ] if collected_tool_calls else None,
             )
-            
+
             # Save using the existing save_messages method
             return await self.save_messages(graph_id, user_msg, assistant_msg)
-            
+
         except Exception as e:
             logger.error(f"[CopilotService] save_conversation_from_stream failed: {e}")
             return False
@@ -830,24 +827,24 @@ class CopilotService:
     ) -> bool:
         """
         Save user and assistant messages to the conversation history.
-        
+
         This method either creates a new CopilotChat record or appends to existing one.
-        
+
         Args:
             graph_id: The graph ID to save messages for
             user_message: The user's message
             assistant_message: The assistant's response with actions, thought_steps, etc.
-            
+
         Returns:
             True if save was successful, False otherwise
         """
         if not self.db:
             logger.warning("[CopilotService] No database session, cannot save messages")
             return False
-        
+
         try:
             graph_uuid = uuid_lib.UUID(graph_id)
-            
+
             # Query for existing CopilotChat
             stmt = select(CopilotChat).where(
                 CopilotChat.agent_graph_id == graph_uuid,
@@ -855,7 +852,7 @@ class CopilotService:
             )
             result = await self.db.execute(stmt)
             chat = result.scalar_one_or_none()
-            
+
             # Serialize messages to dict
             def message_to_dict(msg: CopilotMessage) -> Dict[str, Any]:
                 data = {
@@ -877,10 +874,10 @@ class CopilotService:
                         for tc in msg.tool_calls
                     ]
                 return data
-            
+
             user_msg_dict = message_to_dict(user_message)
             assistant_msg_dict = message_to_dict(assistant_message)
-            
+
             if chat:
                 # Append to existing messages
                 existing_messages = list(chat.messages or [])
@@ -900,10 +897,10 @@ class CopilotService:
                 )
                 self.db.add(chat)
                 logger.info(f"[CopilotService] Created new chat for graph_id={graph_id}")
-            
+
             await self.db.commit()
             return True
-            
+
         except Exception as e:
             logger.error(f"[CopilotService] save_messages failed: {e}")
             await self.db.rollback()
@@ -912,20 +909,20 @@ class CopilotService:
     async def clear_history(self, graph_id: str) -> bool:
         """
         Clear Copilot conversation history for a specific graph.
-        
+
         Args:
             graph_id: The graph ID to clear history for
-            
+
         Returns:
             True if successful, False otherwise
         """
         if not self.db:
             logger.warning("[CopilotService] No database session, cannot clear history")
             return False
-        
+
         try:
             graph_uuid = uuid_lib.UUID(graph_id)
-            
+
             # Query and delete
             stmt = select(CopilotChat).where(
                 CopilotChat.agent_graph_id == graph_uuid,
@@ -933,14 +930,14 @@ class CopilotService:
             )
             result = await self.db.execute(stmt)
             chat = result.scalar_one_or_none()
-            
+
             if chat:
                 await self.db.delete(chat)
                 await self.db.commit()
                 logger.info(f"[CopilotService] Cleared history for graph_id={graph_id}")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"[CopilotService] clear_history failed: {e}")
             await self.db.rollback()
@@ -958,13 +955,13 @@ class CopilotService:
     ) -> None:
         """
         Generate graph actions asynchronously and store results in Redis.
-        
+
         This method runs as a background task:
         1. Calls generate_actions_stream to get events
         2. Writes each event to Redis (content and Pub/Sub)
         3. Saves final result to database when complete
         4. Cleans up Redis temporary data
-        
+
         Args:
             session_id: Unique session ID for this generation task
             graph_id: Optional graph ID for saving to database
@@ -972,20 +969,20 @@ class CopilotService:
             graph_context: Current graph state
             conversation_history: Optional previous conversation messages
         """
-        from app.core.redis import RedisClient
-        from datetime import datetime
         import time
-        
+
+        from app.core.redis import RedisClient
+
         # Record task start time
         start_time = time.time()
-        
+
         # Log task start
         logger.info(
             f"[CopilotService] Async task started session_id={session_id} "
             f"graph_id={graph_id} user_id={self.user_id} "
             f"prompt_length={len(prompt) if prompt else 0}"
         )
-        
+
         if not RedisClient.is_available():
             logger.error(f"[CopilotService] Redis not available for async task session_id={session_id}")
             await RedisClient.set_copilot_status(session_id, "failed")
@@ -994,7 +991,7 @@ class CopilotService:
                 {"type": "error", "message": "Redis not available"}
             )
             return
-        
+
         try:
             # Set initial status
             await RedisClient.set_copilot_status(session_id, "generating")
@@ -1002,13 +999,13 @@ class CopilotService:
                 session_id,
                 {"type": "status", "stage": "thinking", "message": "正在思考..."}
             )
-            
+
             # Collect data for persistence
             collected_thought_steps: List[Dict[str, Any]] = []
             collected_tool_calls: List[Dict[str, Any]] = []
             final_message = ""
             final_actions: List[Dict[str, Any]] = []
-            
+
             # Stream events and publish to Redis
             async for event in self.generate_actions_stream(
                 prompt=prompt,
@@ -1016,16 +1013,16 @@ class CopilotService:
                 conversation_history=conversation_history,
             ):
                 event_type = event.get("type")
-                
+
                 # Publish event to Pub/Sub
                 await RedisClient.publish_copilot_event(session_id, event)
-                
+
                 # Accumulate content for Redis storage
                 if event_type == "content":
                     content = event.get("content", "")
                     if content:
                         await RedisClient.append_copilot_content(session_id, content)
-                
+
                 # Collect data for database persistence
                 if event_type == "thought_step":
                     step = event.get("step", {})
@@ -1038,16 +1035,16 @@ class CopilotService:
                 elif event_type == "result":
                     final_message = event.get("message", "")
                     final_actions = event.get("actions", [])
-            
+
             # Save to database if graph_id is provided
             logger.info(f"[CopilotService] generate_actions_async: graph_id={graph_id}, final_actions_count={len(final_actions) if final_actions else 0}, graph_context={'present' if graph_context else 'missing'}")
-            
+
             if graph_id:
                 # Create new database session for background task (original session may be closed)
                 from app.core.database import async_session_factory
-                
-                logger.info(f"[CopilotService] Entering graph_id save block, creating new DB session")
-                
+
+                logger.info("[CopilotService] Entering graph_id save block, creating new DB session")
+
                 # 事务 1: 保存对话历史（独立事务）
                 async with async_session_factory() as new_db:
                     try:
@@ -1075,7 +1072,7 @@ class CopilotService:
                             f"graph_id={graph_id}: {e}",
                             exc_info=True
                         )
-                
+
                 # 事务 2: 保存图状态（独立事务，使用新的 session）
                 if final_actions and len(final_actions) > 0:
                     async with async_session_factory() as new_db2:
@@ -1085,7 +1082,7 @@ class CopilotService:
                             if self.user_id:
                                 user_repo = AuthUserRepository(new_db2)
                                 current_user = await user_repo.get_by(id=self.user_id)
-                            
+
                             # Load current graph state
                             graph_service = GraphService(new_db2)
                             graph_uuid = uuid_lib.UUID(graph_id)
@@ -1093,21 +1090,21 @@ class CopilotService:
                                 graph_id=graph_uuid,
                                 current_user=current_user,
                             )
-                            
+
                             current_nodes = current_state.get("nodes", [])
                             current_edges = current_state.get("edges", [])
-                            
+
                             # Apply actions to graph state
                             updated_nodes, updated_edges = apply_actions_to_graph_state(
                                 current_nodes=current_nodes,
                                 current_edges=current_edges,
                                 actions=final_actions,
                             )
-                            
+
                             # Save updated graph state
                             viewport = current_state.get("viewport")
                             variables = current_state.get("variables")
-                            
+
                             await graph_service.save_graph_state(
                                 graph_id=graph_uuid,
                                 nodes=updated_nodes,
@@ -1116,10 +1113,10 @@ class CopilotService:
                                 variables=variables,
                                 current_user=current_user,
                             )
-                            
+
                             # 显式提交事务，确保 graph state 保存到数据库
                             await new_db2.commit()
-                            
+
                             logger.info(
                                 f"[CopilotService] Async task saved graph state for session_id={session_id}, "
                                 f"graph_id={graph_id}, nodes={len(updated_nodes)}, edges={len(updated_edges)}"
@@ -1139,11 +1136,11 @@ class CopilotService:
             # Calculate execution time
             execution_time = time.time() - start_time
             execution_time_ms = int(execution_time * 1000)
-            
+
             # Update status to completed
             await RedisClient.set_copilot_status(session_id, "completed")
             await RedisClient.publish_copilot_event(session_id, {"type": "done"})
-            
+
             # Enhanced completion log with detailed information
             logger.info(
                 f"[CopilotService] Async task completed successfully "
@@ -1154,12 +1151,12 @@ class CopilotService:
                 f"execution_time_ms={execution_time_ms} "
                 f"user_id={self.user_id}"
             )
-            
+
         except Exception as e:
             # Calculate execution time even on failure
             execution_time = time.time() - start_time
             execution_time_ms = int(execution_time * 1000)
-            
+
             # Enhanced error log with stack trace and context
             logger.error(
                 f"[CopilotService] Async task failed "

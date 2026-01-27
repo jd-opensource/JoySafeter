@@ -28,7 +28,7 @@ def load_env_file() -> Optional[str]:
     """
     try:
         from dotenv import load_dotenv
-        
+
         # 自动检测 .env 文件位置
         script_dir = os.path.dirname(os.path.abspath(__file__))
         env_paths = [
@@ -36,32 +36,32 @@ def load_env_file() -> Optional[str]:
             "/app/.env",  # Docker 容器内
             ".env",  # 当前目录
         ]
-        
+
         for env_path in env_paths:
             if os.path.exists(env_path):
                 load_dotenv(env_path, override=False)
                 return env_path
     except ImportError:
         pass
-    
+
     return None
 
 
 def get_db_config(require_all: bool = True) -> DBConfig:
     """
     从环境变量获取数据库配置
-    
+
     从 POSTGRES_* 环境变量构建配置
-    
+
     Args:
         require_all: 是否要求所有配置项必须存在，否则报错退出
-        
+
     Returns:
         DBConfig: 数据库配置字典
     """
     # 从分项环境变量获取
     is_in_container = os.path.exists("/app")
-    
+
     if is_in_container:
         host = os.getenv("POSTGRES_HOST", "db")
         port = int(os.getenv("POSTGRES_PORT", "5432"))
@@ -69,16 +69,16 @@ def get_db_config(require_all: bool = True) -> DBConfig:
         host = os.getenv("POSTGRES_HOST", "localhost")
         # 本地运行优先使用 POSTGRES_PORT_HOST（Docker 映射端口）
         port = int(os.getenv("POSTGRES_PORT_HOST") or os.getenv("POSTGRES_PORT", "5432"))
-    
+
     # 本地运行且配置了容器内主机名时，自动纠正
     if (not is_in_container) and host == "db":
         print("⚠️  本地运行但 POSTGRES_HOST=db，自动改为 localhost")
         host = "localhost"
-    
+
     user = os.getenv("POSTGRES_USER")
     password = os.getenv("POSTGRES_PASSWORD")
     db_name = os.getenv("POSTGRES_DB")
-    
+
     # 检查必要的配置是否存在
     if require_all:
         missing = []
@@ -88,12 +88,12 @@ def get_db_config(require_all: bool = True) -> DBConfig:
             missing.append("POSTGRES_PASSWORD")
         if not db_name:
             missing.append("POSTGRES_DB")
-        
+
         if missing:
             print(f"❌ 错误：未设置以下环境变量：{', '.join(missing)}")
             print("   请在 backend/.env 文件中配置数据库信息")
             sys.exit(1)
-    
+
     return DBConfig(
         user=user or "",
         password=password or "",
@@ -110,26 +110,26 @@ def wait_for_db(
 ) -> bool:
     """
     等待数据库连接可用
-    
+
     Args:
         config: 数据库配置，如果为 None 则自动获取
         max_retries: 最大重试次数
         retry_interval: 重试间隔（秒）
-        
+
     Returns:
         bool: 连接是否成功
     """
     if config is None:
         config = get_db_config()
-    
+
     host = config["host"]
     port = config["port"]
     user = config["user"]
     password = config["password"]
     database = config["db_name"]
-    
+
     print(f"🔍 等待数据库就绪 ({host}:{port})...")
-    
+
     for i in range(max_retries):
         try:
             conn = psycopg2.connect(
@@ -150,7 +150,7 @@ def wait_for_db(
             else:
                 print(f"❌ 数据库连接失败: {e}")
                 return False
-    
+
     return False
 
 

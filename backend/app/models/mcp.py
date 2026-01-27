@@ -5,12 +5,11 @@ MCP Server 配置模型
 - user_id 必填：MCP 服务器的所有者
 """
 
-import uuid
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import BaseModel, SoftDeleteMixin
@@ -28,7 +27,7 @@ class McpServer(BaseModel, SoftDeleteMixin):
         ForeignKey("user.id", ondelete="CASCADE"),
         nullable=False,
     )
-    
+
     # Audit field - who created this record (may differ from owner in some cases)
     created_by: Mapped[Optional[str]] = mapped_column(
         String(255),
@@ -56,19 +55,19 @@ class McpServer(BaseModel, SoftDeleteMixin):
     # Tool statistics
     tool_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
     last_tools_refresh: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-    
+
     # Usage statistics
     total_requests: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
     last_used: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
     # Relationships
     owner: Mapped["AuthUser"] = relationship(
-        "AuthUser", 
+        "AuthUser",
         foreign_keys=[user_id],
         lazy="selectin"
     )
     creator: Mapped[Optional["AuthUser"]] = relationship(
-        "AuthUser", 
+        "AuthUser",
         foreign_keys=[created_by],
         lazy="selectin"
     )

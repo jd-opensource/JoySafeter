@@ -1,16 +1,17 @@
 """base_tables
 
 Revision ID: 000000000000
-Revises: 
+Revises:
 Create Date: 2025-12-25 00:00:00.000000+00:00
 
 初始迁移：创建所有核心数据库表
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '000000000000'
@@ -32,7 +33,7 @@ def upgrade() -> None:
     # ===========================================
     # 2. 创建核心用户表 (无外键依赖)
     # ===========================================
-    
+
     # user 表
     op.create_table('user',
         sa.Column('id', sa.String(255), primary_key=True),
@@ -75,7 +76,7 @@ def upgrade() -> None:
     # ===========================================
     # 3. 创建依赖用户表的表
     # ===========================================
-    
+
     # session 表
     op.create_table('session',
         sa.Column('id', sa.String(255), primary_key=True),
@@ -154,7 +155,7 @@ def upgrade() -> None:
     # ===========================================
     # 4. 创建 graphs 相关表
     # ===========================================
-    
+
     # graphs 表
     op.create_table('graphs',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
@@ -232,7 +233,7 @@ def upgrade() -> None:
     # ===========================================
     # 5. 创建对话相关表
     # ===========================================
-    
+
     # conversations 表
     op.create_table('conversations',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
@@ -302,7 +303,7 @@ def upgrade() -> None:
     # ===========================================
     # 6. 创建权限和邀请相关表
     # ===========================================
-    
+
     # workspace_invitation 表
     op.create_table('workspace_invitation',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
@@ -342,7 +343,7 @@ def upgrade() -> None:
     # ===========================================
     # 7. 创建设置相关表
     # ===========================================
-    
+
     # environment 表
     op.create_table('environment',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
@@ -386,7 +387,7 @@ def upgrade() -> None:
     # ===========================================
     # 8. 创建文件存储相关表
     # ===========================================
-    
+
     # workspace_file 表
     op.create_table('workspace_file',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
@@ -425,7 +426,7 @@ def upgrade() -> None:
     # ===========================================
     # 9. 创建 API Key 和工具相关表
     # ===========================================
-    
+
     # api_key 表
     op.create_table('api_key',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
@@ -491,7 +492,7 @@ def upgrade() -> None:
     # ===========================================
     # 10. 创建模型相关表
     # ===========================================
-    
+
     # model_provider 表
     op.create_table('model_provider',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
@@ -549,7 +550,7 @@ def upgrade() -> None:
     # ===========================================
     # 11. 创建 Skill 相关表
     # ===========================================
-    
+
     # skills 表
     op.create_table('skills',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
@@ -593,7 +594,7 @@ def upgrade() -> None:
     # ===========================================
     # 12. 创建安全审计和记忆相关表
     # ===========================================
-    
+
     # memories 表
     op.create_table('memories',
         sa.Column('memory_id', sa.String(), primary_key=True),
@@ -639,7 +640,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # 按依赖关系反向删除表
-    
+
     # 12. 安全审计和记忆相关表
     op.drop_index('audit_log_created_at_idx', table_name='security_audit_log')
     op.drop_index('audit_log_event_status_idx', table_name='security_audit_log')
@@ -650,7 +651,7 @@ def downgrade() -> None:
     op.drop_index('ix_security_audit_log_event_type', table_name='security_audit_log')
     op.drop_index('ix_security_audit_log_user_id', table_name='security_audit_log')
     op.drop_table('security_audit_log')
-    
+
     op.drop_index('ix_memories_created_at', table_name='memories')
     op.drop_index('ix_memories_updated_at', table_name='memories')
     op.drop_index('ix_memories_user_id', table_name='memories')
@@ -660,7 +661,7 @@ def downgrade() -> None:
     op.drop_index('skill_files_path_idx', table_name='skill_files')
     op.drop_index('skill_files_skill_idx', table_name='skill_files')
     op.drop_table('skill_files')
-    
+
     op.drop_index('skills_tags_idx', table_name='skills')
     op.drop_index('skills_public_idx', table_name='skills')
     op.drop_index('skills_created_by_idx', table_name='skills')
@@ -673,13 +674,13 @@ def downgrade() -> None:
     op.drop_index('model_instance_workspace_id_idx', table_name='model_instance')
     op.drop_index('model_instance_user_id_idx', table_name='model_instance')
     op.drop_table('model_instance')
-    
+
     op.drop_index('model_credential_user_provider_idx', table_name='model_credential')
     op.drop_index('model_credential_provider_id_idx', table_name='model_credential')
     op.drop_index('model_credential_workspace_id_idx', table_name='model_credential')
     op.drop_index('model_credential_user_id_idx', table_name='model_credential')
     op.drop_table('model_credential')
-    
+
     op.drop_index('model_provider_enabled_idx', table_name='model_provider')
     op.drop_index('model_provider_name_idx', table_name='model_provider')
     op.drop_table('model_provider')
@@ -689,10 +690,10 @@ def downgrade() -> None:
     op.drop_index('mcp_servers_user_enabled_idx', table_name='mcp_servers')
     op.drop_index('mcp_servers_user_id_idx', table_name='mcp_servers')
     op.drop_table('mcp_servers')
-    
+
     op.drop_index('custom_tools_owner_idx', table_name='custom_tools')
     op.drop_table('custom_tools')
-    
+
     op.drop_index('api_key_key_idx', table_name='api_key')
     op.drop_index('api_key_workspace_id_idx', table_name='api_key')
     op.drop_index('api_key_user_id_idx', table_name='api_key')
@@ -704,7 +705,7 @@ def downgrade() -> None:
     op.drop_index('workspace_files_user_id_idx', table_name='workspace_files')
     op.drop_index('workspace_files_key_idx', table_name='workspace_files')
     op.drop_table('workspace_files')
-    
+
     op.drop_index('workspace_file_key_idx', table_name='workspace_file')
     op.drop_index('workspace_file_workspace_id_idx', table_name='workspace_file')
     op.drop_table('workspace_file')
@@ -722,7 +723,7 @@ def downgrade() -> None:
     op.drop_index('permissions_entity_idx', table_name='permissions')
     op.drop_index('permissions_user_id_idx', table_name='permissions')
     op.drop_table('permissions')
-    
+
     op.drop_index('workspace_invitation_workspace_id_idx', table_name='workspace_invitation')
     op.drop_index('workspace_invitation_expires_at_idx', table_name='workspace_invitation')
     op.drop_index('workspace_invitation_email_status_idx', table_name='workspace_invitation')
@@ -734,10 +735,10 @@ def downgrade() -> None:
     op.drop_index('copilot_chats_user_id_idx', table_name='copilot_chats')
     op.drop_table('copilot_chats')
     op.drop_table('chat')
-    
+
     op.drop_index('ix_messages_thread_id', table_name='messages')
     op.drop_table('messages')
-    
+
     op.drop_index('ix_conversations_user_id', table_name='conversations')
     op.drop_index('ix_conversations_thread_id', table_name='conversations')
     op.drop_table('conversations')
@@ -746,18 +747,18 @@ def downgrade() -> None:
     op.drop_index('graph_deployment_version_created_at_idx', table_name='graph_deployment_version')
     op.drop_index('graph_deployment_version_graph_active_idx', table_name='graph_deployment_version')
     op.drop_table('graph_deployment_version')
-    
+
     op.drop_index('graph_edges_graph_target_idx', table_name='graph_edges')
     op.drop_index('graph_edges_graph_source_idx', table_name='graph_edges')
     op.drop_index('graph_edges_target_node_id_idx', table_name='graph_edges')
     op.drop_index('graph_edges_source_node_id_idx', table_name='graph_edges')
     op.drop_index('graph_edges_graph_id_idx', table_name='graph_edges')
     op.drop_table('graph_edges')
-    
+
     op.drop_index('graph_nodes_type_idx', table_name='graph_nodes')
     op.drop_index('graph_nodes_graph_id_idx', table_name='graph_nodes')
     op.drop_table('graph_nodes')
-    
+
     op.drop_index('graphs_parent_id_idx', table_name='graphs')
     op.drop_index('graphs_folder_id_idx', table_name='graphs')
     op.drop_index('graphs_workspace_id_idx', table_name='graphs')
@@ -772,11 +773,11 @@ def downgrade() -> None:
     op.drop_table('workspace_folder')
     op.drop_table('workspace_members')
     op.drop_table('workspaces')
-    
+
     op.drop_index('member_organization_id_idx', table_name='member')
     op.drop_index('member_user_id_idx', table_name='member')
     op.drop_table('member')
-    
+
     op.drop_index('session_token_idx', table_name='session')
     op.drop_index('session_user_id_idx', table_name='session')
     op.drop_table('session')

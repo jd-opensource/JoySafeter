@@ -7,13 +7,11 @@ TraceLogger - JSONL debug logging for agent execution.
 """
 
 import json
-import os
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
-
 
 # Log directory
 LOG_DIR = Path(__file__).parent.parent / "logs"
@@ -29,7 +27,7 @@ LevelType = Literal["main_agent", "subagent", "tool"]
 class TraceLogEntry:
     """
     Individual trace log entry.
-    
+
     Attributes:
         id: Unique entry identifier
         timestamp: ISO format timestamp
@@ -48,11 +46,11 @@ class TraceLogEntry:
     content: Dict[str, Any]
     parent_id: Optional[str] = None
     duration_ms: Optional[int] = None
-    
+
     def to_jsonl(self) -> str:
         """
         Convert entry to JSONL format (single line JSON).
-        
+
         Returns:
             JSON string without newlines
         """
@@ -69,17 +67,17 @@ class TraceLogEntry:
             data["parent_id"] = self.parent_id
         if self.duration_ms is not None:
             data["duration_ms"] = self.duration_ms
-        
+
         return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-    
+
     @classmethod
     def from_jsonl(cls, line: str) -> "TraceLogEntry":
         """
         Parse JSONL line into TraceLogEntry.
-        
+
         Args:
             line: Single JSON line
-            
+
         Returns:
             TraceLogEntry instance
         """
@@ -99,15 +97,15 @@ class TraceLogEntry:
 class TraceLogger:
     """
     Session-based JSONL trace logger.
-    
+
     Creates and writes to `logs/{session_id}.jsonl` files.
     Supports hierarchical logging with parent-child relationships.
     """
-    
+
     def __init__(self, session_id: str, log_dir: Optional[Path] = None):
         """
         Initialize TraceLogger.
-        
+
         Args:
             session_id: Session identifier
             log_dir: Custom log directory (default: backend/agent/logs/)
@@ -115,17 +113,17 @@ class TraceLogger:
         self.session_id = session_id
         self.log_dir = log_dir or LOG_DIR
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.log_file = self.log_dir / f"session_{session_id}.jsonl"
         self._file_handle = None
         self._entry_count = 0
         self._current_parent_id: Optional[str] = None
-    
+
     def _ensure_open(self) -> None:
         """Ensure file handle is open."""
         if self._file_handle is None:
             self._file_handle = open(self.log_file, "a", encoding="utf-8")
-    
+
     def log(
         self,
         level: LevelType,
@@ -136,20 +134,20 @@ class TraceLogger:
     ) -> str:
         """
         Log an entry.
-        
+
         Args:
             level: Agent level
             event_type: Event type
             content: Event content
             parent_id: Parent entry ID (for tree structure)
             duration_ms: Execution duration
-            
+
         Returns:
             Entry ID
         """
         entry_id = f"{self.session_id[:8]}_{self._entry_count:04d}"
         self._entry_count += 1
-        
+
         entry = TraceLogEntry(
             id=entry_id,
             timestamp=datetime.now().isoformat(),
@@ -160,23 +158,23 @@ class TraceLogger:
             parent_id=parent_id or self._current_parent_id,
             duration_ms=duration_ms,
         )
-        
+
         self._ensure_open()
         self._file_handle.write(entry.to_jsonl() + "\n")
         self._file_handle.flush()
-        
+
         return entry_id
-    
+
     def set_parent(self, parent_id: Optional[str]) -> None:
         """Set current parent ID for subsequent entries."""
         self._current_parent_id = parent_id
-    
+
     def clear_parent(self) -> None:
         """Clear current parent ID."""
         self._current_parent_id = None
-    
+
     # Convenience methods
-    
+
     def log_prompt(
         self,
         system_prompt: str,
@@ -187,14 +185,14 @@ class TraceLogger:
     ) -> str:
         """
         Log LLM prompt/call.
-        
+
         Args:
             system_prompt: System prompt text
             messages: Conversation messages
             model: Model name
             temperature: Temperature setting
             max_tokens: Max tokens setting
-            
+
         Returns:
             Entry ID
         """
@@ -207,9 +205,9 @@ class TraceLogger:
             content["temperature"] = temperature
         if max_tokens is not None:
             content["max_tokens"] = max_tokens
-        
+
         return self.log("main_agent", "LLM_CALL", content)
-    
+
     def log_tool_call(
         self,
         tool_name: str,
@@ -220,14 +218,14 @@ class TraceLogger:
     ) -> str:
         """
         Log tool call.
-        
+
         Args:
             tool_name: Name of the tool
             tool_input: Tool input parameters
             phase: Execution phase
             run_id: Run identifier
             parent_id: Parent entry ID
-            
+
         Returns:
             Entry ID
         """
@@ -238,9 +236,9 @@ class TraceLogger:
         }
         if run_id:
             content["run_id"] = run_id
-        
+
         return self.log("tool", "TOOL_CALL", content, parent_id=parent_id)
-    
+
     def log_tool_result(
         self,
         tool_name: str,
@@ -251,14 +249,14 @@ class TraceLogger:
     ) -> str:
         """
         Log tool result.
-        
+
         Args:
             tool_name: Name of the tool
             output: Tool output
             success: Whether tool succeeded
             duration_ms: Execution duration
             parent_id: Parent entry ID
-            
+
         Returns:
             Entry ID
         """
@@ -267,9 +265,9 @@ class TraceLogger:
             "output": str(output)[:5000] if output else "",  # Truncate large outputs
             "success": success,
         }
-        
+
         return self.log("tool", "TOOL_CALL", content, parent_id=parent_id, duration_ms=duration_ms)
-    
+
     def log_llm_response(
         self,
         content_text: Optional[str],
@@ -279,13 +277,13 @@ class TraceLogger:
     ) -> str:
         """
         Log LLM response.
-        
+
         Args:
             content_text: Response text content
             tool_calls: Tool calls in response
             usage: Token usage stats
             parent_id: Parent entry ID
-            
+
         Returns:
             Entry ID
         """
@@ -296,9 +294,9 @@ class TraceLogger:
             content["tool_calls"] = tool_calls
         if usage:
             content["usage"] = usage
-        
+
         return self.log("main_agent", "LLM_RESPONSE", content, parent_id=parent_id)
-    
+
     def log_summary(
         self,
         summary: str,
@@ -309,14 +307,14 @@ class TraceLogger:
     ) -> str:
         """
         Log subagent summary.
-        
+
         Args:
             summary: Summary text
             success: Whether task succeeded
             key_findings: Key findings list
             duration_ms: Execution duration
             parent_id: Parent entry ID
-            
+
         Returns:
             Entry ID
         """
@@ -326,9 +324,9 @@ class TraceLogger:
         }
         if key_findings:
             content["key_findings"] = key_findings
-        
+
         return self.log("subagent", "summary", content, parent_id=parent_id, duration_ms=duration_ms)
-    
+
     def log_error(
         self,
         error_type: str,
@@ -338,13 +336,13 @@ class TraceLogger:
     ) -> str:
         """
         Log error.
-        
+
         Args:
             error_type: Error type/class
             message: Error message
             stacktrace: Stack trace
             parent_id: Parent entry ID
-            
+
         Returns:
             Entry ID
         """
@@ -354,34 +352,34 @@ class TraceLogger:
         }
         if stacktrace:
             content["stacktrace"] = stacktrace
-        
+
         return self.log("main_agent", "ERROR", content, parent_id=parent_id)
-    
+
     def close(self) -> None:
         """Close file handle."""
         if self._file_handle:
             self._file_handle.close()
             self._file_handle = None
-    
+
     def __enter__(self) -> "TraceLogger":
         """Context manager entry."""
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Context manager exit."""
         self.close()
-    
+
     @classmethod
     def get_or_create(cls, session_id: str) -> "TraceLogger":
         """
         Get or create a TraceLogger for a session.
-        
+
         This is a simple factory method. For production use,
         consider implementing a registry/cache.
-        
+
         Args:
             session_id: Session identifier
-            
+
         Returns:
             TraceLogger instance
         """
@@ -395,10 +393,10 @@ _loggers: Dict[str, TraceLogger] = {}
 def get_trace_logger(session_id: str) -> TraceLogger:
     """
     Get or create a TraceLogger for a session.
-    
+
     Args:
         session_id: Session identifier
-        
+
     Returns:
         TraceLogger instance
     """
@@ -410,7 +408,7 @@ def get_trace_logger(session_id: str) -> TraceLogger:
 def close_trace_logger(session_id: str) -> None:
     """
     Close and remove a TraceLogger.
-    
+
     Args:
         session_id: Session identifier
     """

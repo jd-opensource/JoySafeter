@@ -7,7 +7,6 @@ Integrates with reference_search to provide context-aware keyword searches.
 Task: T008 - Load/register CTF keyword-guided recon knowledge pack
 """
 
-import logging
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -57,7 +56,7 @@ def normalize_knowledge(yaml_data: dict[str, Any]) -> dict[str, Any]:
 class CtfKnowledgeLoader:
     """
     Loads and manages CTF knowledge packs.
-    
+
     Provides:
     - Loading CTF knowledge from YAML files
     - Keyword-guided reference search
@@ -117,12 +116,12 @@ class CtfKnowledgeLoader:
     ) -> dict[str, list[SearchResult]]:
         """
         Perform keyword-guided search based on context.
-        
+
         Args:
             context: Search context with challenge type and hints
             search_paths: Paths to search (uses defaults if None)
             max_results_per_keyword: Max results per keyword
-            
+
         Returns:
             Dict mapping keywords to their search results
         """
@@ -154,14 +153,14 @@ class CtfKnowledgeLoader:
     ) -> list[str]:
         """
         Legacy method for ENABLE_EAGER_RAG=true mode.
-        
+
         In Lazy RAG mode (default), Agent uses knowledge_search tool directly.
         This method is only called when ENABLE_EAGER_RAG=true.
-        
+
         Args:
             user_message: The original user message/challenge description
             search_paths: Paths to search for references
-            
+
         Returns:
             List of actionable hints from knowledge base
         """
@@ -184,7 +183,7 @@ class CtfKnowledgeLoader:
     def _search_yaml_with_keywords(self, keywords: list[str]) -> list[str]:
         """
         Search YAML knowledge files using LLM-extracted keywords.
-        
+
         NOTE: Implementation moved to `agent.core.knowledge.search` to keep this file small.
         """
         return _search_yaml_with_keywords_impl(
@@ -248,10 +247,10 @@ _loader_lock = Lock()
 def get_knowledge_loader() -> CtfKnowledgeLoader:
     """
     Get the application-level CTF knowledge loader singleton (thread-safe).
-    
+
     Returns:
         CtfKnowledgeLoader instance with pre-loaded CTF knowledge base.
-        
+
     Note:
         This singleton is justified because:
         1. Knowledge base is read-only reference data (immutable after loading)
@@ -277,12 +276,12 @@ def search_ctf_references(
 ) -> list[str]:
     """
     Convenience function to search CTF references.
-    
+
     Args:
         challenge_type: Type of CTF challenge
         user_hints: User-provided hints
         file_signals: File types in workspace
-        
+
     Returns:
         List of actionable hints
     """

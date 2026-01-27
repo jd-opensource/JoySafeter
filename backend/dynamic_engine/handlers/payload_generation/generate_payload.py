@@ -1,6 +1,6 @@
+import logging
 import time
 from typing import Any, Dict
-import logging
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.file_manager import file_manager
@@ -10,14 +10,14 @@ logger = logging.getLogger(__name__)
 
 class GeneratePayloadHandler(AbstractHandler):
     """Handler for generate_payload functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['msfvenom']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute generate_payload with enhanced logging"""
         try:

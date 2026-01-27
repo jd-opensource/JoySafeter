@@ -4,9 +4,8 @@ Context Management - Thread-safe context variables for Copilot tools.
 Provides per-request isolation for graph context and preloaded models.
 """
 
-from typing import Any, Dict, List
 import contextvars
-
+from typing import Any, Dict, List
 
 # Thread-safe context variable for graph context (per-request isolation)
 _current_graph_context: contextvars.ContextVar[Dict[str, Any]] = \

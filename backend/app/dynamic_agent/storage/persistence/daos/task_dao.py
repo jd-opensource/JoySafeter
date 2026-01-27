@@ -5,23 +5,17 @@ Handles Task and ExecutionStep database operations using raw SQL and asyncpg.
 Replaces the previous SQLAlchemy-based TaskRepository and ExecutionStepRepository.
 """
 
-import logging
-import random
-import json
 import asyncio
-import asyncpg
-from uuid import UUID
-from typing import List, Optional, Dict, Any, Callable, TypeVar
+import json
+import random
 from datetime import datetime, timezone
+from typing import Callable, Dict, List, Optional, TypeVar
+from uuid import UUID
 
-from app.dynamic_agent.storage.models import (
-    TaskStatus,
-    ExecutionStepStatus,
-    TaskResponse,
-    ExecutionStepResponse
-)
-
+import asyncpg
 from loguru import logger
+
+from app.dynamic_agent.storage.models import ExecutionStepResponse, ExecutionStepStatus, TaskResponse, TaskStatus
 
 T = TypeVar('T')
 
@@ -523,7 +517,7 @@ class TaskDAO:
                         idx += 1
 
                         if status in (ExecutionStepStatus.COMPLETED, ExecutionStepStatus.FAILED):
-                            fields.append(f"end_time = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'")
+                            fields.append("end_time = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'")
 
                     if output_data is not None:
                         fields.append(f"output_data = ${idx}")
@@ -606,21 +600,21 @@ class TaskDAO:
                 import uuid
                 session_id_value = uuid.uuid5(uuid.NAMESPACE_DNS, session_id_value)
                 logger.debug(f"Converted non-UUID session_id '{row['session_id']}' to UUID: {session_id_value}")
-        
+
         # Convert naive datetime to UTC-aware datetime
         # Database stores UTC time without timezone info
         created_at = row['created_at']
         if created_at and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
-        
+
         updated_at = row['updated_at']
         if updated_at and updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=timezone.utc)
-        
+
         completed_at = row['completed_at']
         if completed_at and completed_at.tzinfo is None:
             completed_at = completed_at.replace(tzinfo=timezone.utc)
-        
+
         return TaskResponse(
             id=row['id'],
             parent_id=row.get('parent_id'),  # Parent task ID for subtasks
@@ -644,15 +638,15 @@ class TaskDAO:
         start_time = row['start_time']
         if start_time and start_time.tzinfo is None:
             start_time = start_time.replace(tzinfo=timezone.utc)
-        
+
         end_time = row['end_time']
         if end_time and end_time.tzinfo is None:
             end_time = end_time.replace(tzinfo=timezone.utc)
-        
+
         created_at = row['created_at']
         if created_at and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
-        
+
         return ExecutionStepResponse(
             id=row['id'],
             task_id=row['task_id'],

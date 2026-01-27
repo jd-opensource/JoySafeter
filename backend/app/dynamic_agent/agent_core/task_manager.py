@@ -5,16 +5,15 @@ This module provides a high-level interface for creating tasks and integrating
 the LangChain callback handler for execution tracking.
 """
 
-import logging
-from typing import Optional, Dict, Any, List
-from uuid import UUID
 from datetime import datetime
-
-from app.dynamic_agent.observability.tracking import TaskExecutionTrackingHandler
-from app.dynamic_agent.storage.models import TaskStatus, ExecutionStepResponse
-from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from loguru import logger
+
+from app.dynamic_agent.observability.tracking import TaskExecutionTrackingHandler
+from app.dynamic_agent.storage.models import ExecutionStepResponse, TaskStatus
+from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
 
 
 class TaskManager:
@@ -65,10 +64,10 @@ class TaskManager:
                 parent_id=parent_id,
                 created_by_step_id=created_by_step_id,
             )
-            
+
             # Ideally create_task sets it to PENDING, we update to RUNNING immediately?
             # Or just rely on the agent to start. But tracking handler assumes task exists.
-            
+
             await self.task_dao.update_task(
                 task_id=task.id,
                 status=TaskStatus.RUNNING

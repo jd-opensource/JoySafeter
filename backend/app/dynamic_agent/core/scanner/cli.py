@@ -10,6 +10,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
 from .manager import ScannerManager
 
 
@@ -42,7 +43,7 @@ def cmd_scan(args):
         print(f"Scan ID: {result['scan_id']}")
         print(f"Files scanned: {result['scanned_files']}")
         print(f"Duration: {result['scan_duration_ms']}ms")
-        print(f"\nFindings Summary:")
+        print("\nFindings Summary:")
         print(f"  Total: {result['summary']['total']}")
         print(f"  High: {result['summary']['high']}")
         print(f"  Medium: {result['summary']['medium']}")

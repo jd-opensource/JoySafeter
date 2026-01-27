@@ -1,10 +1,8 @@
 import asyncio
 import logging
+from typing import Any, Dict, List, Optional, Set
 
-from typing import Set, Dict, Any, Optional, List
-
-from dynamic_engine.mcp.server import mcp_server, dynamic_tools_conf
-from dynamic_engine.mcp.config import ToolOriginConf
+from dynamic_engine.mcp.server import dynamic_tools_conf, mcp_server
 from dynamic_engine.runtime.command.command_executor import execute_command
 from dynamic_engine.runtime.file_manager import file_manager
 from dynamic_engine.utils.python_env import env_manager
@@ -44,7 +42,7 @@ def build_basic_tools() -> list[Any]:
 
     try:
         # Check if we're in an existing event loop
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         # We're in an async context - use nest_asyncio or run in thread
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -234,8 +232,6 @@ r = session.post("http://target/login", data={"user": "test", "pass": "test"})
 print(r.text)
 '''
     """
-    import tempfile
-    import os
 
     try:
         if not script:
@@ -251,7 +247,7 @@ print(r.text)
         file_manager.delete_file(file_name)
         result["env_name"] = env_name
         result["script_filename"] = file_name
-        logger.info(f"📊 Python script execution completed")
+        logger.info("📊 Python script execution completed")
         return result
     except Exception as e:
         logger.error(f"💥 Error executing Python script: {str(e)}")
@@ -261,8 +257,8 @@ print(r.text)
 # todo
 def execute_python_script_backup(script: str, file_name: str = "script.py", env_name: str = None,
                                  cwd: Optional[str] = None) -> Dict[str, Any]:
-    import tempfile
     import os
+    import tempfile
 
     try:
         if not script:
@@ -283,7 +279,7 @@ def execute_python_script_backup(script: str, file_name: str = "script.py", env_
         # Clean up
         try:
             os.unlink(script_path)
-        except:
+        except Exception:
             pass
 
         result["env_name"] = env_name or "system"

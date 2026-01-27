@@ -5,17 +5,18 @@ into sandbox file systems (e.g., Docker containers) for agent execution.
 """
 
 import uuid
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Optional
 
 from deepagents.backends.protocol import BackendProtocol
 from loguru import logger
-from app.utils.path_utils import sanitize_skill_name
+
 from app.core.skill.exceptions import (
+    SkillFileWriteError,
     SkillNotFoundError,
     SkillPermissionDeniedError,
-    SkillFileWriteError,
 )
+from app.utils.path_utils import sanitize_skill_name
 
 if TYPE_CHECKING:
     from app.models.skill import Skill
@@ -50,10 +51,10 @@ class SkillSandboxLoader:
             skill_ids=[uuid1, uuid2],
             backend=backend
         )
-        
+
         # With custom path
         loader = SkillSandboxLoader(
-            skill_service, 
+            skill_service,
             user_id="user123",
             skills_base_dir="/custom/skills/path"
         )
@@ -62,7 +63,7 @@ class SkillSandboxLoader:
 
     # Default base directory (can be overridden via constructor or backend config)
     DEFAULT_SKILLS_BASE_DIR = "/workspace/skills"
-    
+
     # Paths that should be ignored for filesystem backends to avoid read-only filesystem errors
     FILESYSTEM_FORBIDDEN_PATHS = {"/workspace/skills"}
 
@@ -206,17 +207,17 @@ class SkillSandboxLoader:
     @staticmethod
     def _resolve_override_path(override_dir: Optional[str], backend_type: str) -> Optional[str]:
         """Resolve path from explicit override_dir parameter (Priority 1).
-        
+
         Args:
             override_dir: Optional override directory (highest priority)
             backend_type: Detected backend type
-            
+
         Returns:
             Override directory path if valid, None if should be ignored or not provided
         """
         if not override_dir:
             return None
-        
+
         # Check if override_dir should be ignored for filesystem backends
         if SkillSandboxLoader._should_ignore_override_path(override_dir, backend_type):
             logger.warning(
@@ -224,17 +225,17 @@ class SkillSandboxLoader:
                 f"to avoid read-only filesystem errors - will use default logic instead"
             )
             return None
-        
+
         logger.debug(f"[resolve_skills_base_dir] Using override_dir: {override_dir!r}")
         return override_dir
 
     @staticmethod
     def _resolve_instance_path(instance_dir: Optional[str]) -> Optional[str]:
         """Resolve path from instance-level setting (Priority 2).
-        
+
         Args:
             instance_dir: Optional instance-level directory setting
-            
+
         Returns:
             Instance directory path if provided, None otherwise
         """
@@ -243,10 +244,10 @@ class SkillSandboxLoader:
     @staticmethod
     def _resolve_backend_path(backend: BackendProtocol) -> Optional[str]:
         """Resolve path from backend's skills_path attribute (Priority 3).
-        
+
         Args:
             backend: Backend instance implementing BackendProtocol
-            
+
         Returns:
             Backend's skills_path if available, None otherwise
         """
@@ -257,16 +258,16 @@ class SkillSandboxLoader:
     @staticmethod
     def _resolve_node_config_path(backend: BackendProtocol) -> Optional[str]:
         """Resolve path from node config skills_path (Priority 4).
-        
+
         Args:
             backend: Backend instance implementing BackendProtocol
-            
+
         Returns:
             Node config skills_path if available, None otherwise
         """
         if not hasattr(backend, 'node_config'):
             return None
-        
+
         node_config = backend.node_config
         if isinstance(node_config, dict):
             config = node_config.get('config', {})
@@ -277,11 +278,11 @@ class SkillSandboxLoader:
     @staticmethod
     def _resolve_default_path(backend_type: str, backend_class_name: str) -> str:
         """Resolve default path based on backend type (Priority 5).
-        
+
         Args:
             backend_type: Detected backend type ("filesystem", "docker", or "unknown")
             backend_class_name: Name of the backend class for logging
-            
+
         Returns:
             Default skills base directory path
         """
@@ -306,18 +307,18 @@ class SkillSandboxLoader:
     @staticmethod
     def _should_ignore_override_path(override_dir: str, backend_type: str) -> bool:
         """Check if override_dir should be ignored for filesystem backends.
-        
+
         This prevents writing to read-only filesystem paths that would cause errors.
-        
+
         Args:
             override_dir: The override directory path to check
             backend_type: The detected backend type ("filesystem", "docker", or "unknown")
-            
+
         Returns:
             True if the override_dir should be ignored, False otherwise
         """
         return (
-            backend_type == "filesystem" 
+            backend_type == "filesystem"
             and override_dir in SkillSandboxLoader.FILESYSTEM_FORBIDDEN_PATHS
         )
 
@@ -367,19 +368,19 @@ class SkillSandboxLoader:
             SkillSandboxLoader._resolve_node_config_path(backend) or
             SkillSandboxLoader._resolve_default_path(backend_type, backend_class_name)
         )
-        
+
         return path
 
     def _get_skills_base_dir(self, backend: BackendProtocol, override_dir: Optional[str] = None) -> str:
         """Get skills base directory with priority order.
-        
+
         This method delegates to the static resolve_skills_base_dir method,
         passing the instance-level skills_base_dir setting.
-        
+
         Args:
             backend: Backend instance implementing BackendProtocol
             override_dir: Optional override directory (highest priority)
-            
+
         Returns:
             Skills base directory path
         """
@@ -420,7 +421,7 @@ class SkillSandboxLoader:
 
         # Get effective skills base directory
         effective_base_dir = self._get_skills_base_dir(backend, override_dir=skills_base_dir)
-        
+
         # Calculate skill directory using PurePosixPath for POSIX-style paths
         skill_dir_path = PurePosixPath(effective_base_dir) / self._sanitize_skill_name(skill.name)
         skill_dir = str(skill_dir_path)
@@ -457,7 +458,7 @@ class SkillSandboxLoader:
         # BackendProtocol.write() automatically creates parent directories
         success_count = 0
         write_errors = []
-        
+
         for skill_file in skill.files:
             if not skill_file.content:
                 logger.debug(f"Skipping file {skill_file.path} (no content)")
@@ -513,8 +514,8 @@ class SkillSandboxLoader:
         return sanitize_skill_name(name)
 
     def get_skill_path_in_sandbox(
-        self, 
-        skill_name: str, 
+        self,
+        skill_name: str,
         backend: Optional[BackendProtocol] = None,
         skills_base_dir: Optional[str] = None,
     ) -> str:
@@ -529,7 +530,7 @@ class SkillSandboxLoader:
             Full path where the skill files should be located (POSIX style)
         """
         sanitized_name = self._sanitize_skill_name(skill_name)
-        
+
         # Get effective base directory
         if backend:
             effective_base_dir = self._get_skills_base_dir(backend, override_dir=skills_base_dir)
@@ -539,6 +540,6 @@ class SkillSandboxLoader:
             effective_base_dir = self._skills_base_dir
         else:
             effective_base_dir = self.DEFAULT_SKILLS_BASE_DIR
-        
+
         skill_path = PurePosixPath(effective_base_dir) / sanitized_name
         return str(skill_path)

@@ -3,16 +3,17 @@
 """
 import uuid
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
-from sqlalchemy import JSON, String, Boolean, DateTime, ForeignKey, Index, CheckConstraint
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import BaseModel
 
 if TYPE_CHECKING:
-    from .model_provider import ModelProvider
     from .auth import AuthUser
+    from .model_provider import ModelProvider
     from .workspace import Workspace
 
 
@@ -38,14 +39,14 @@ class ModelCredential(BaseModel):
         nullable=False,
         comment="供应商ID"
     )
-    
+
     # 加密存储的凭据（加密字符串）
     credentials: Mapped[str] = mapped_column(
         String(4096),
         nullable=False,
         comment="加密存储的凭据（base64编码）",
     )
-    
+
     # 凭据验证状态
     is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="凭据是否有效")
     last_validated_at: Mapped[Optional[datetime]] = mapped_column(
@@ -58,7 +59,7 @@ class ModelCredential(BaseModel):
         nullable=True,
         comment="验证错误信息"
     )
-    
+
     # 关系
     provider: Mapped["ModelProvider"] = relationship("ModelProvider", back_populates="credentials", lazy="selectin")
     user: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")

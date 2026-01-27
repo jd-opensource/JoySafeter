@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.models.custom_tool import CustomTool
 from app.repositories.custom_tool import CustomToolRepository
+
 from .base import BaseService
 
 MAX_TOOLS_PER_USER = 100
@@ -70,7 +71,7 @@ class CustomToolService(BaseService[CustomTool]):
         tool = await self.repo.get(tool_id)
         if not tool:
             raise NotFoundException("Custom tool not found")
-        
+
         # 验证所有权
         if tool.owner_id != current_user_id:
             raise ForbiddenException("You can only update your own tools")
@@ -98,11 +99,11 @@ class CustomToolService(BaseService[CustomTool]):
         tool = await self.repo.get(tool_id)
         if not tool:
             raise NotFoundException("Custom tool not found")
-        
+
         # 验证所有权
         if tool.owner_id != current_user_id:
             raise ForbiddenException("You can only delete your own tools")
-        
+
         await self.repo.delete_by_id(tool_id)
         await self.db.commit()
 

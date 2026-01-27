@@ -7,18 +7,15 @@ Uses raw SQL DAO implementation via asyncpg.
 
 import asyncio
 import json
-import logging
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
-
-from app.dynamic_agent.storage import get_storage_manager
-from app.dynamic_agent.storage.models import TaskResponse, ExecutionStepResponse, TaskWithStepsResponse
-from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
-
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
+
+from app.dynamic_agent.storage.models import ExecutionStepResponse, TaskResponse, TaskWithStepsResponse
+from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -55,7 +52,7 @@ async def get_execution_steps(
 ) -> List[ExecutionStepResponse]:
     """Get execution steps for a task."""
     dao = TaskDAO(pool)
-    
+
     # Verify task exists
     task = await dao.get_task_by_id(task_id)
     if not task:
@@ -77,6 +74,7 @@ async def get_task_with_steps(
 ) -> TaskWithStepsResponse:
     """Get task with all execution steps (flat list)."""
     from datetime import datetime, timezone
+
     from app.dynamic_agent.storage.models import ExecutionStepStatus
 
     dao = TaskDAO(pool)
@@ -191,7 +189,7 @@ async def stream_task_updates(
 
 @router.get("/sessions/{session_id}/tasks")
 async def get_session_tasks(
-    session_id: str, 
+    session_id: str,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     pool: asyncpg.Pool = Depends(get_db_pool),
@@ -225,6 +223,7 @@ async def get_task_subtasks(
         List of subtasks with steps (timeout-checked)
     """
     from datetime import datetime, timezone
+
     from app.dynamic_agent.storage.models import ExecutionStepStatus
 
     dao = TaskDAO(pool)
@@ -302,20 +301,20 @@ async def get_tasks_batch(
     pool: asyncpg.Pool = Depends(get_db_pool),
 ):
     """Get multiple tasks with their steps in a single request.
-    
+
     Args:
         task_ids: List of task IDs to fetch
         pool: Database connection pool
-        
+
     Returns:
         Dictionary mapping task_id to task data with steps
     """
     dao = TaskDAO(pool)
-    
+
     # Fetch tasks and steps in batch
     tasks_dict = await dao.get_tasks_batch(task_ids)
     steps_dict = await dao.get_steps_batch(task_ids)
-    
+
     # Build response
     result = {}
     for task_id in task_ids:
@@ -326,24 +325,24 @@ async def get_tasks_batch(
                 **task.model_dump(),
                 "steps": [step.model_dump() for step in steps]
             }
-    
+
     return result
 
 
 def _build_tree_response(steps: List[ExecutionStepResponse]) -> List[ExecutionStepResponse]:
     """Build execution tree from flat list of Pydantic models.
-    
+
     Args:
         steps: Flat list of ExecutionStepResponse objects
-        
+
     Returns:
         List of root ExecutionStepResponse with nested children
     """
     # Create map of steps by ID
     step_map = {step.id: step for step in steps}
-    
+
     root_steps = []
-    
+
     # Link children to parents
     for step in steps:
         if step.parent_step_id and step.parent_step_id in step_map:
@@ -351,5 +350,5 @@ def _build_tree_response(steps: List[ExecutionStepResponse]) -> List[ExecutionSt
             parent.children.append(step)
         else:
             root_steps.append(step)
-            
+
     return root_steps

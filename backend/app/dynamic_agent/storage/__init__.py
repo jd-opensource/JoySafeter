@@ -14,22 +14,22 @@ Backend:
 - PostgreSQL: Production-ready with async connection pooling, JSONB indexing, and full-text search
 """
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from langchain_core.language_models import BaseChatModel
 
 from app.dynamic_agent.infra.docker import UnifiedDockerManager
 from app.dynamic_agent.storage.config import StorageConfig
 from app.dynamic_agent.storage.persistence import PostgreSQLBackend
-from app.dynamic_agent.storage.storage_manage import StorageManager
 from app.dynamic_agent.storage.session.ctf import (
+    AttemptStep,
     CtfSession,
     CtfSessionStore,
-    UserHint,
     ReferenceHit,
-    AttemptStep,
+    UserHint,
     get_ctf_session_store,
 )
+from app.dynamic_agent.storage.storage_manage import StorageManager
 
 #
 # from .container_binding import ContainerBindingManager
@@ -83,13 +83,13 @@ _storage_lock = asyncio.Lock()
 def get_storage_manager() -> StorageManager:
     """
     Get the application-level storage manager singleton.
-    
+
     Returns:
         StorageManager instance managing infrastructure and session-scoped data.
-        
+
     Raises:
         RuntimeError: If storage manager not initialized via initialize_storage().
-        
+
     Note:
         This singleton is justified because:
         1. StorageManager manages infrastructure (DB pools, Docker, LLM)
@@ -111,23 +111,23 @@ async def initialize_storage(
 ) -> StorageManager:
     """
     Initialize application-level storage manager with PostgreSQL backend (idempotent).
-    
+
     This should be called once at application startup. Subsequent calls will
     return the existing instance if already initialized.
-    
+
     Args:
         docker_manager: Docker manager instance
         llm_provider: LLM provider instance
         backend: Custom PostgreSQL backend instance (optional)
         config: Storage configuration (uses environment variables if not provided)
-    
+
     Returns:
         StorageManager instance
-    
+
     Examples:
         # Use PostgreSQL from environment variables
         storage = await initialize_storage(docker_manager, llm_provider)
-        
+
         # Use custom PostgreSQL backend
         pg_backend = PostgreSQLBackend(
             host="db.example.com",
@@ -139,12 +139,12 @@ async def initialize_storage(
         storage = await initialize_storage(docker_manager, llm_provider, backend=pg_backend)
     """
     global _global_storage
-    
+
     # Idempotent initialization with async lock
     async with _storage_lock:
         if _global_storage is not None:
             return _global_storage
-        
+
         # If no backend provided, create one from config
         if backend is None:
             if config is None:

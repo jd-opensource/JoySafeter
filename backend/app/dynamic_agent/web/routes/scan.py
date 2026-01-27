@@ -3,21 +3,18 @@ Scan routes for whitebox scanning feature
 """
 
 import io
-import logging
 import os
 import shutil
 import tempfile
 import zipfile
 from datetime import datetime
-from uuid import uuid4, UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, File, Query, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from loguru import logger
 
 from app.dynamic_agent.core.scanner.manager import ScannerManager
 from app.dynamic_agent.models.scan import ScanJobResponse, ScanJobStatus, ScanStatus
-
-from loguru import logger
 
 router = APIRouter(prefix="/scan", tags=["scan"])
 
@@ -56,7 +53,7 @@ async def upload_and_scan(
 
     # Check file size
     # Read first chunk to check size
-    chunk = await file.read(1024)
+    await file.read(1024)
     await file.seek(0)
 
     # For simplicity, we'll check size after reading the entire file

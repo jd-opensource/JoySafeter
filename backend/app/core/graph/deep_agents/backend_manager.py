@@ -19,7 +19,7 @@ class DeepAgentsBackendManager:
 
     def __init__(self, nodes: list["GraphNode"]):
         """Initialize backend manager.
-        
+
         Args:
             nodes: List of graph nodes to analyze for backend requirements
         """
@@ -30,54 +30,54 @@ class DeepAgentsBackendManager:
 
     def should_create_shared_backend(self, has_valid_skills_config: callable) -> bool:
         """Check if shared Docker backend should be created.
-        
+
         Args:
             has_valid_skills_config: Function to check if skills config is valid
-            
+
         Returns:
             True if shared backend should be created
         """
         for node in self.nodes:
             data = node.data or {}
             config = data.get("config", {})
-            
+
             # Check if node explicitly configured filesystem backend
             # If so, don't create shared Docker backend for this node
             backend_type = config.get("backend_type")
             if backend_type == "filesystem":
                 continue  # Skip this node, use filesystem backend instead
-            
+
             if has_valid_skills_config(config.get("skills")):
                 return True
-            
+
             if data.get("type") == "code_agent":
                 executor_type = config.get("executor_type", "local")
                 if executor_type in ("docker", "auto"):
                     return True
-        
+
         return False
 
     async def create_shared_backend(self) -> "PydanticSandboxAdapter":
         """Create shared Docker backend for the entire graph.
-        
+
         Returns:
             PydanticSandboxAdapter instance ready for use
-            
+
         Raises:
             ImportError: If pydantic-ai-backend[docker] is not available
             RuntimeError: If Docker backend creation fails
         """
         from app.core.agent.backends.pydantic_adapter import (
-            PydanticSandboxAdapter,
             PYDANTIC_BACKEND_AVAILABLE,
+            PydanticSandboxAdapter,
         )
-        
+
         if not PYDANTIC_BACKEND_AVAILABLE:
             raise ImportError(
                 "pydantic-ai-backend[docker] is required for shared Docker backend. "
                 "Install with: pip install pydantic-ai-backend[docker]"
             )
-        
+
         docker_image = "python:3.12-slim"
         for node in self.nodes:
             data = node.data or {}
@@ -85,7 +85,7 @@ class DeepAgentsBackendManager:
                 config = data.get("config", {})
                 docker_image = config.get("docker_image", docker_image)
                 break
-        
+
         try:
             backend = PydanticSandboxAdapter(
                 image=docker_image,
@@ -105,7 +105,7 @@ class DeepAgentsBackendManager:
         """Clean up shared Docker backend."""
         if self._backend_cleaned_up:
             return
-        
+
         if self._shared_backend:
             try:
                 if hasattr(self._shared_backend, 'cleanup'):
@@ -124,25 +124,25 @@ class DeepAgentsBackendManager:
         create_backend_for_node: callable,
     ) -> Optional[Any]:
         """Get backend for a node (shared or node-specific).
-        
+
         Priority logic:
         1. If node has explicit backend_type configuration, ALWAYS use node-specific backend (respect user's choice)
         2. If node has skills but no explicit backend_type, prefer shared backend (if available) for data persistence
         3. If no shared backend but has skills, create node-specific backend
         4. Otherwise return None
-        
+
         Args:
             node: GraphNode to get backend for
             has_skills: Whether node has skills configured
             create_backend_for_node: Async function to create node-specific backend
-            
+
         Returns:
             Backend instance or None
         """
         data = node.data or {}
         config = data.get("config", {})
         backend_type = config.get("backend_type")
-        
+
         # Priority 1: If node has explicit backend_type configuration, ALWAYS respect it
         # This ensures user's choice (filesystem or docker) is honored, even if skills are configured
         if backend_type:
@@ -151,7 +151,7 @@ class DeepAgentsBackendManager:
                 f"using node-specific backend (has_skills={has_skills})"
             )
             return await create_backend_for_node(node)
-        
+
         # Priority 2: For nodes with skills but no explicit backend_type,
         # prefer shared backend for data persistence
         if has_skills:
@@ -168,7 +168,7 @@ class DeepAgentsBackendManager:
                     "creating node-specific backend"
                 )
                 return await create_backend_for_node(node)
-        
+
         # No skills and no explicit backend_type, return None
         return None
 

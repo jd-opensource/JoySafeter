@@ -10,35 +10,26 @@ Implements the main query loop that:
 
 import asyncio
 from typing import AsyncGenerator, List, Set
-from uuid import uuid4
 
 from app.dynamic_agent.agent_core.types import (
-    Tool,
-    ToolResult,
-    ToolUseContext,
-    Message,
-    AssistantMessage,
-    UserMessage,
-    ProgressMessage,
-    MessageParam,
-    MessageRole,
-    ToolUseBlock,
-    ToolResultBlock,
-    TextBlock,
-    ValidationResult,
-    LLMProvider,
-    PermissionStrategy,
-    Logger,
     AgentRuntimeOptions,
+    AssistantMessage,
+    LLMProvider,
     LLMProviderOptions,
+    Logger,
+    Message,
+    PermissionStrategy,
+    Tool,
+    ToolUseBlock,
+    ToolUseContext,
+    UserMessage,
 )
 from app.dynamic_agent.agent_core.utils.messages import (
-    normalize_messages_for_api,
-    create_user_message,
     create_assistant_message,
     create_progress_message,
+    create_user_message,
+    normalize_messages_for_api,
 )
-
 
 MAX_TOOL_USE_CONCURRENCY = 10
 INTERRUPT_MESSAGE = "<<INTERRUPT>>"
@@ -47,11 +38,11 @@ INTERRUPT_MESSAGE = "<<INTERRUPT>>"
 class AgentRuntime:
     """
     Core agent runtime that orchestrates LLM calls and tool execution.
-    
+
     This is the heart of the agent system, implementing the recursive
     query loop that enables multi-turn conversations with tool use.
     """
-    
+
     def __init__(
         self,
         provider: LLMProvider,
@@ -61,7 +52,7 @@ class AgentRuntime:
     ):
         """
         Initialize agent runtime.
-        
+
         Args:
             provider: LLM provider for completions
             permissions: Permission strategy for tool access
@@ -72,7 +63,7 @@ class AgentRuntime:
         self.permissions = permissions
         self.logger = logger
         self.concurrency = concurrency
-    
+
     async def run(
         self,
         messages: List[Message],
@@ -84,13 +75,13 @@ class AgentRuntime:
     ) -> AsyncGenerator[Message, None]:
         """
         Run agent conversation loop.
-        
+
         This is the main entry point that:
         1. Gets LLM response
         2. Yields assistant message
         3. Detects and executes tool uses
         4. Recursively continues if tools were used
-        
+
         Args:
             messages: Conversation history
             system_prompt: System prompt parts
@@ -98,7 +89,7 @@ class AgentRuntime:
             abort_event: Event to signal abort
             options: Runtime options
             read_file_timestamps: File modification tracking
-            
+
         Yields:
             Messages (assistant, progress, user with tool results)
         """
@@ -106,13 +97,13 @@ class AgentRuntime:
         if abort_event.is_set():
             yield create_assistant_message(INTERRUPT_MESSAGE)
             return
-        
+
         # Format system prompt
         full_system_prompt = self._format_system_prompt(system_prompt)
-        
+
         # Normalize messages for API
         api_messages = normalize_messages_for_api(messages)
-        
+
         # Get assistant response
         try:
             assistant_message = await self.provider.complete(
@@ -130,35 +121,35 @@ class AgentRuntime:
             self.logger.error(e)
             yield create_assistant_message(f"Error: {str(e)}", is_error=True)
             return
-        
+
         # Yield assistant message
         yield assistant_message
-        
+
         # Extract tool use blocks
         tool_use_blocks = [
             block for block in assistant_message.content
             if isinstance(block, ToolUseBlock)
         ]
-        
+
         # If no tool use, we're done
         if not tool_use_blocks:
             return
-        
+
         # Check for abort before tool execution
         if abort_event.is_set():
             yield create_assistant_message(INTERRUPT_MESSAGE)
             return
-        
+
         # Execute tools
         tool_results: List[UserMessage] = []
-        
+
         # Decide concurrent vs serial execution
         all_read_only = all(
             self._find_tool(tools, block.name).is_read_only()
             for block in tool_use_blocks
             if self._find_tool(tools, block.name) is not None
         )
-        
+
         if all_read_only:
             # Concurrent execution for read-only tools
             async for message in self._run_tools_concurrently(
@@ -191,12 +182,12 @@ class AgentRuntime:
                 yield message
                 if isinstance(message, UserMessage):
                     tool_results.append(message)
-        
+
         # Check for abort after tool execution
         if abort_event.is_set():
             yield create_assistant_message(INTERRUPT_MESSAGE)
             return
-        
+
         # Recursively continue conversation with tool results
         async for message in self.run(
             messages=[*messages, assistant_message, *tool_results],
@@ -207,7 +198,7 @@ class AgentRuntime:
             read_file_timestamps=read_file_timestamps
         ):
             yield message
-    
+
     async def _run_tools_concurrently(
         self,
         tool_use_blocks: List[ToolUseBlock],
@@ -218,7 +209,7 @@ class AgentRuntime:
     ) -> AsyncGenerator[Message, None]:
         """Execute tools concurrently with semaphore."""
         semaphore = asyncio.Semaphore(self.concurrency)
-        
+
         async def run_with_semaphore(block: ToolUseBlock):
             async with semaphore:
                 results = []
@@ -232,16 +223,16 @@ class AgentRuntime:
                 ):
                     results.append(msg)
                 return results
-        
+
         # Gather all tool executions
         tasks = [run_with_semaphore(block) for block in tool_use_blocks]
         results = await asyncio.gather(*tasks)
-        
+
         # Yield all messages
         for tool_results in results:
             for msg in tool_results:
                 yield msg
-    
+
     async def _run_tools_serially(
         self,
         tool_use_blocks: List[ToolUseBlock],
@@ -261,7 +252,7 @@ class AgentRuntime:
                 skip_permissions
             ):
                 yield msg
-    
+
     async def _run_tool_use(
         self,
         tool_use: ToolUseBlock,
@@ -273,7 +264,7 @@ class AgentRuntime:
     ) -> AsyncGenerator[Message, None]:
         """Execute a single tool use."""
         tool = self._find_tool(tools, tool_use.name)
-        
+
         # Check if tool exists
         if tool is None:
             self.logger.event("tool_use_error", {
@@ -287,7 +278,7 @@ class AgentRuntime:
                 is_error=True
             )
             return
-        
+
         # Check for abort
         if context.abort_event.is_set():
             self.logger.event("tool_use_cancelled", {
@@ -296,7 +287,7 @@ class AgentRuntime:
             })
             yield create_user_message(tool_use.id, "Cancelled", is_error=True)
             return
-        
+
         # Execute with permission checks and validation
         async for msg in self._check_permissions_and_call_tool(
             tool,
@@ -308,7 +299,7 @@ class AgentRuntime:
             skip_permissions
         ):
             yield msg
-    
+
     async def _check_permissions_and_call_tool(
         self,
         tool: Tool,
@@ -320,7 +311,7 @@ class AgentRuntime:
         skip_permissions: bool
     ) -> AsyncGenerator[Message, None]:
         """Validate input, check permissions, and call tool."""
-        
+
         # 1. Schema validation
         try:
             validated_input = tool.input_schema(**input_data)
@@ -336,7 +327,7 @@ class AgentRuntime:
                 is_error=True
             )
             return
-        
+
         # 2. Tool-specific validation
         validation = await tool.validate_input(validated_input, context)
         if not validation.result:
@@ -351,7 +342,7 @@ class AgentRuntime:
                 is_error=True
             )
             return
-        
+
         # 3. Permission check
         if not skip_permissions and tool.needs_permissions(validated_input):
             permission = await self.permissions.check(
@@ -367,7 +358,7 @@ class AgentRuntime:
                     is_error=True
                 )
                 return
-        
+
         # 4. Execute tool
         try:
             async for result in tool.call(validated_input, context, None):
@@ -407,18 +398,18 @@ class AgentRuntime:
                 f"Error: {str(e)}",
                 is_error=True
             )
-    
+
     def _format_system_prompt(self, parts: List[str]) -> List[str]:
         """Format system prompt parts."""
         return parts
-    
+
     def _find_tool(self, tools: List[Tool], name: str) -> Tool | None:
         """Find tool by name."""
         for tool in tools:
             if tool.name == name:
                 return tool
         return None
-    
+
     def _tool_to_dict(self, tool: Tool) -> dict:
         """Convert tool to dict for API."""
         return {

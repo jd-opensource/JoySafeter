@@ -17,15 +17,15 @@ import os
 from operator import add
 
 logger = logging.getLogger(__name__)
-from typing import TypedDict, List, Dict, Any, Optional, Annotated
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
-from app.dynamic_agent.observability.langfuse import callbacks
+from app.common.constants import COMMAND_TOOL, KNOWLEDGE_TOOL
 from app.dynamic_agent.infra.metadata_context import MetadataContext
-from app.common.constants import KNOWLEDGE_TOOL, COMMAND_TOOL
+from app.dynamic_agent.observability.langfuse import callbacks
 from app.dynamic_agent.prompts.registry import get_registry
 
 
@@ -91,11 +91,11 @@ def create_initial_state(user_input: str) -> AgentState:
 class DynamicToolSelectionAgent:
     """
     Agent that dynamically selects and uses tools based on user goals.
-    
+
     This agent follows a two-phase approach:
     1. Tool Discovery: Uses helper tools to discover available categories and tools
     2. Task Execution: Uses selected tools to accomplish the user's goal
-    
+
     The agent uses LangGraph's prebuilt ReAct agent for reasoning and tool execution.
     """
 
@@ -164,7 +164,7 @@ class DynamicToolSelectionAgent:
         :param verbose:
         """
         """
-        
+
         Args:
             llm: Language model to use (defaults to GPT-4)
             max_iterations: Maximum number of agent iterations
@@ -194,10 +194,10 @@ class DynamicToolSelectionAgent:
     def run(self, messages: List[Dict[str,str]], metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Run the agent with user input.
-        
+
         Args:
             user_input: User's goal description or direct input
-            
+
         Returns:
             Dictionary containing:
             - output: Final response
@@ -230,7 +230,7 @@ class DynamicToolSelectionAgent:
 
             if self.verbose:
                 print(f"\n{'=' * 70}")
-                print(f"Agent Execution Complete")
+                print("Agent Execution Complete")
                 print(f"{'=' * 70}\n")
 
             # Extract the final message
@@ -271,10 +271,10 @@ class DynamicToolSelectionAgent:
     async def arun(self, messages: List[Dict[str,str]], metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Async version of run().
-        
+
         Args:
             user_input: User's goal description or direct input
-            
+
         Returns:
             Dictionary containing execution results
         """
@@ -300,7 +300,7 @@ class DynamicToolSelectionAgent:
 
             if self.verbose:
                 print(f"\n{'=' * 70}")
-                print(f"Agent Execution Complete")
+                print("Agent Execution Complete")
                 print(f"{'=' * 70}\n")
 
             # Extract the final message
@@ -331,11 +331,11 @@ def create_select_agent(
 ) -> DynamicToolSelectionAgent:
     """
     Factory function to create a dynamic tool selection agent.
-    
+
     Args:
         llm: Language model to use (defaults to GPT-4)
         verbose: Whether to print verbose output
-        
+
     Returns:
         Configured DynamicToolSelectionAgent instance
     """

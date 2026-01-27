@@ -5,26 +5,25 @@ Each sub-router is expected to declare its own `prefix` and `tags`.
 """
 from fastapi import APIRouter
 
-from .auth import router as auth_router
-from .organizations import router as organizations_router
-from .workspaces import router as workspaces_router
-from .workspace_folders import router as workspace_folders_router
-from .workspace_files import router as workspace_files_router
-from .custom_tools import router as custom_tools_router
 from .api_keys import router as api_keys_router
-from .tools import router as tools_router
-from .mcp import router as mcp_router
-from .model_providers import router as model_providers_router
-from .model_credentials import router as model_credentials_router
-from .models import router as models_router
-from .graph_deployments import router as graph_deployments_router
-from .skills import router as skills_router
+from .auth import router as auth_router
 from .chat import router as chat_router
-from .graphs import router as graphs_router
 from .copilot_deepagents import router as copilot_deepagents_router
-from .users import router as users_router
+from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
-
+from .graph_deployments import router as graph_deployments_router
+from .graphs import router as graphs_router
+from .mcp import router as mcp_router
+from .model_credentials import router as model_credentials_router
+from .model_providers import router as model_providers_router
+from .models import router as models_router
+from .organizations import router as organizations_router
+from .skills import router as skills_router
+from .tools import router as tools_router
+from .users import router as users_router
+from .workspace_files import router as workspace_files_router
+from .workspace_folders import router as workspace_folders_router
+from .workspaces import router as workspaces_router
 
 ROUTERS = [
     auth_router,

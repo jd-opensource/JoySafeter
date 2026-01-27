@@ -3,9 +3,10 @@ import runpy
 from pathlib import Path
 from typing import Any, List, Optional
 
+from loguru import logger
+
 from app.core.settings import settings
 from app.core.tools.toolkit import Toolkit
-from loguru import logger
 
 
 @functools.lru_cache(maxsize=None)
@@ -185,7 +186,7 @@ class PythonTools(Toolkit):
             # Use configured index URL
             index_url = settings.uv_index_url
             cmd = [sys.executable, "-m", "pip", "install", "--index-url", index_url, package_name]
-            
+
             logger.debug(f"Using PyPI index: {index_url}")
             subprocess.check_call(cmd)
             return f"successfully installed package {package_name} using pip with index {index_url}"
@@ -197,7 +198,7 @@ class PythonTools(Toolkit):
         """This function installs a package using uv and pip in the current environment.
         If successful, returns a success message.
         If failed, returns an error message.
-        
+
         The PyPI index URL is configured via:
         1. UV_INDEX_URL or PIP_INDEX_URL environment variable (highest priority)
         2. uv.toml configuration file
@@ -215,7 +216,7 @@ class PythonTools(Toolkit):
 
             # Use configured index URL from settings
             index_url = settings.uv_index_url
-            
+
             # 构建命令，使用 --index-url 参数指定镜像源
             # Build command with --index-url parameter to specify mirror
             cmd = [
@@ -223,7 +224,7 @@ class PythonTools(Toolkit):
                 "--index-url", index_url,
                 package_name
             ]
-            
+
             logger.debug(f"Using PyPI index: {index_url}")
             subprocess.check_call(cmd)
             return f"successfully installed package {package_name} using uv with index {index_url}"

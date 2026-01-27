@@ -4,30 +4,30 @@ Skill 服务：权限校验 + CRUD
 from __future__ import annotations
 
 import uuid
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
+from loguru import logger
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.skill.formatter import SkillFormatter
 from app.core.skill.validators import (
-    validate_skill_name,
-    validate_skill_description,
-    validate_compatibility,
-    truncate_description,
     truncate_compatibility,
+    truncate_description,
+    validate_compatibility,
+    validate_skill_description,
+    validate_skill_name,
 )
 from app.core.skill.yaml_parser import (
-    parse_skill_md,
-    generate_skill_md,
     extract_metadata_from_frontmatter,
-    validate_file_extension,
     is_system_file,
     is_valid_text_content,
+    parse_skill_md,
+    validate_file_extension,
 )
 from app.models.skill import Skill, SkillFile
-from app.repositories.skill import SkillRepository, SkillFileRepository
-from .base import BaseService
+from app.repositories.skill import SkillFileRepository, SkillRepository
 
-from loguru import logger
+from .base import BaseService
 
 
 class SkillService(BaseService[Skill]):
@@ -59,11 +59,11 @@ class SkillService(BaseService[Skill]):
         skill = await self.repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        
+
         # 权限检查：只有拥有者或公开的 Skill 可以访问
         if skill.owner_id and skill.owner_id != current_user_id and not skill.is_public:
             raise ForbiddenException("You don't have permission to access this skill")
-        
+
         return skill
 
     async def get_skill_by_name(
@@ -72,11 +72,11 @@ class SkillService(BaseService[Skill]):
         current_user_id: Optional[str] = None,
     ) -> Optional[Skill]:
         """根据名称获取 Skill（不区分大小写）
-        
+
         Args:
             skill_name: 技能名称
             current_user_id: 当前用户ID，用于权限检查
-            
+
         Returns:
             Skill 对象，如果未找到或无权访问则返回 None
         """
@@ -85,21 +85,21 @@ class SkillService(BaseService[Skill]):
             current_user_id=current_user_id,
             include_public=True,
         )
-        
+
         # 按名称查找（不区分大小写）
         for skill in all_skills:
             if skill.name.lower() == skill_name.lower():
                 # 获取完整信息（包括文件）
                 return await self.repo.get_with_files(skill.id)
-        
+
         return None
 
     async def format_skill_content(self, skill: Skill) -> str:
         """格式化技能内容为字符串
-        
+
         Args:
             skill: Skill 对象（应包含 files 关系）
-            
+
         Returns:
             格式化后的技能内容字符串
         """
@@ -121,8 +121,8 @@ class SkillService(BaseService[Skill]):
         files: Optional[List[Dict[str, Any]]] = None,
     ) -> Skill:
         """创建 Skill
-        
-        If files contain a SKILL.md file with YAML frontmatter, the name and 
+
+        If files contain a SKILL.md file with YAML frontmatter, the name and
         description will be extracted from the frontmatter (overriding provided values).
         """
         # 如果没有指定 owner_id，则使用创建者 ID
@@ -133,7 +133,7 @@ class SkillService(BaseService[Skill]):
         compatibility = None
         skill_metadata = {}
         allowed_tools = []
-        
+
         # Parse SKILL.md frontmatter if present to sync name/description
         if files:
             skill_md_file = next(
@@ -144,24 +144,24 @@ class SkillService(BaseService[Skill]):
                 frontmatter, body = parse_skill_md(skill_md_file["content"])
                 # Extract all metadata using extract_metadata_from_frontmatter
                 metadata = extract_metadata_from_frontmatter(frontmatter)
-                
+
                 # Override name and description from frontmatter if present
                 if metadata.get("name"):
                     name = metadata["name"]
                 if metadata.get("description"):
                     description = metadata["description"]
-                
+
                 # Extract additional metadata from frontmatter
                 if metadata.get("tags") and isinstance(metadata["tags"], list):
                     tags = metadata["tags"]
                 if metadata.get("license"):
                     license = metadata["license"]
-                
+
                 # Extract new fields per Agent Skills specification
                 compatibility = metadata.get("compatibility")
                 skill_metadata = metadata.get("metadata", {})
                 allowed_tools = metadata.get("allowed_tools", [])
-                
+
                 # Store the markdown body as content
                 content = body.strip() if body else content
 
@@ -231,19 +231,19 @@ class SkillService(BaseService[Skill]):
                 file_path = file_data.get("path", "")
                 file_name = file_data.get("file_name", "")
                 content = file_data.get("content")
-                
+
                 # Check if it's a system file
                 if is_system_file(file_path) or is_system_file(file_name):
                     invalid_files.append(f"{file_path} (system file)")
                     continue
-                
+
                 # Validate content if provided
                 if content is not None:
                     is_valid, error_msg = is_valid_text_content(content)
                     if not is_valid:
                         invalid_files.append(f"{file_path} ({error_msg})")
                         continue
-                
+
                 file_obj = SkillFile(
                     skill_id=skill.id,
                     path=file_path,
@@ -255,7 +255,7 @@ class SkillService(BaseService[Skill]):
                     size=file_data.get("size", 0),
                 )
                 self.db.add(file_obj)
-            
+
             # If there are invalid files, raise an error
             if invalid_files:
                 invalid_list = "\n".join(f"  - {f}" for f in invalid_files)
@@ -263,7 +263,7 @@ class SkillService(BaseService[Skill]):
                     f"The following files cannot be imported (binary files or system files):\n{invalid_list}\n\n"
                     f"Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
                 )
-        
+
         await self.db.commit()
         await self.db.refresh(skill)
         return skill
@@ -289,13 +289,13 @@ class SkillService(BaseService[Skill]):
         files: Optional[List[Dict[str, Any]]] = None,
     ) -> Skill:
         """更新 Skill
-        
+
         If files are provided, they will replace all existing files for this skill.
         """
         skill = await self.repo.get(skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        
+
         # 权限检查：只有拥有者可以更新
         if skill.owner_id != current_user_id:
             raise ForbiddenException("You can only update your own skills")
@@ -310,7 +310,7 @@ class SkillService(BaseService[Skill]):
                 frontmatter, body = parse_skill_md(skill_md_file["content"])
                 # Extract all metadata using extract_metadata_from_frontmatter
                 metadata_dict = extract_metadata_from_frontmatter(frontmatter)
-                
+
                 # Override fields from frontmatter if not explicitly provided
                 if metadata_dict.get("name") and name is None:
                     name = metadata_dict["name"]
@@ -326,7 +326,7 @@ class SkillService(BaseService[Skill]):
                     metadata = metadata_dict["metadata"]
                 if metadata_dict.get("allowed_tools") and allowed_tools is None:
                     allowed_tools = metadata_dict["allowed_tools"]
-                
+
                 # Store the markdown body as content if not explicitly provided
                 if content is None:
                     content = body.strip() if body else None
@@ -349,7 +349,7 @@ class SkillService(BaseService[Skill]):
             if existing:
                 raise BadRequestException("Skill name already exists for this owner")
             skill.name = name
-        
+
         # Validate and update description if provided
         if description is not None:
             is_valid, error = validate_skill_description(description)
@@ -376,7 +376,7 @@ class SkillService(BaseService[Skill]):
             skill.is_public = is_public
         if license is not None:
             skill.license = license
-        
+
         # Validate and update compatibility if provided
         if compatibility is not None:
             is_valid, error = validate_compatibility(compatibility)
@@ -388,7 +388,7 @@ class SkillService(BaseService[Skill]):
                 )
                 compatibility = truncate_compatibility(compatibility)
             skill.compatibility = compatibility
-        
+
         # Update metadata if provided
         if metadata is not None:
             # Ensure all values are strings (per spec)
@@ -396,7 +396,7 @@ class SkillService(BaseService[Skill]):
                 skill.meta_data = {k: str(v) for k, v in metadata.items() if isinstance(k, str)}
             else:
                 skill.meta_data = {}
-        
+
         # Update allowed_tools if provided
         if allowed_tools is not None:
             if isinstance(allowed_tools, list):
@@ -408,26 +408,26 @@ class SkillService(BaseService[Skill]):
         if files is not None:
             # Delete existing files
             await self.file_repo.delete_by_skill(skill_id)
-            
+
             # Create new files
             invalid_files = []
             for file_data in files:
                 file_path = file_data.get("path", "")
                 file_name = file_data.get("file_name", "")
                 content = file_data.get("content")
-                
+
                 # Check if it's a system file
                 if is_system_file(file_path) or is_system_file(file_name):
                     invalid_files.append(f"{file_path} (system file)")
                     continue
-                
+
                 # Validate content if provided
                 if content is not None:
                     is_valid, error_msg = is_valid_text_content(content)
                     if not is_valid:
                         invalid_files.append(f"{file_path} ({error_msg})")
                         continue
-                
+
                 file_obj = SkillFile(
                     skill_id=skill_id,
                     path=file_path,
@@ -439,7 +439,7 @@ class SkillService(BaseService[Skill]):
                     size=file_data.get("size", 0),
                 )
                 self.db.add(file_obj)
-            
+
             # If there are invalid files, raise an error
             if invalid_files:
                 invalid_list = "\n".join(f"  - {f}" for f in invalid_files)
@@ -461,14 +461,14 @@ class SkillService(BaseService[Skill]):
         skill = await self.repo.get(skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        
+
         # 权限检查：只有拥有者可以删除
         if skill.owner_id != current_user_id:
             raise ForbiddenException("You can only delete your own skills")
-        
+
         # 删除关联的文件
         await self.file_repo.delete_by_skill(skill_id)
-        
+
         # 删除 Skill
         await self.repo.delete(skill_id)
         await self.db.commit()
@@ -489,28 +489,28 @@ class SkillService(BaseService[Skill]):
         skill = await self.repo.get(skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        
+
         # 权限检查
         if skill.owner_id != current_user_id:
             raise ForbiddenException("You can only add files to your own skills")
-        
+
         # Check if it's a system file
         if is_system_file(path) or is_system_file(file_name):
             raise BadRequestException(f"File '{path}' is a system file and cannot be imported")
-        
+
         # Validate content if provided
         if content is not None:
             is_valid, error_msg = is_valid_text_content(content)
             if not is_valid:
                 raise BadRequestException(f"File '{path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)")
-        
+
         # Log warning for uncommon file extensions (but don't reject)
         if path:
             is_common, warning = validate_file_extension(path)
             if warning:
                 import logging
                 logging.getLogger(__name__).warning(f"Skill file warning: {warning}")
-        
+
         file_obj = SkillFile(
             skill_id=skill_id,
             path=path,
@@ -524,11 +524,11 @@ class SkillService(BaseService[Skill]):
         self.db.add(file_obj)
         await self.db.commit()
         await self.db.refresh(file_obj)
-        
+
         # If adding/updating SKILL.md, sync metadata to skill
         if path == "SKILL.md" or file_name == "SKILL.md":
             await self._sync_skill_from_skill_md(skill, content)
-        
+
         return file_obj
 
     async def delete_file(
@@ -540,15 +540,15 @@ class SkillService(BaseService[Skill]):
         file_obj = await self.file_repo.get(file_id)
         if not file_obj:
             raise NotFoundException("Skill file not found")
-        
+
         skill = await self.repo.get(file_obj.skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        
+
         # 权限检查
         if skill.owner_id != current_user_id:
             raise ForbiddenException("You can only delete files from your own skills")
-        
+
         await self.file_repo.delete(file_id)
         await self.db.commit()
 
@@ -564,46 +564,46 @@ class SkillService(BaseService[Skill]):
         file_obj = await self.file_repo.get(file_id)
         if not file_obj:
             raise NotFoundException("Skill file not found")
-        
+
         skill = await self.repo.get(file_obj.skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        
+
         # 权限检查
         if skill.owner_id != current_user_id:
             raise ForbiddenException("You can only update files in your own skills")
-        
+
         # Check if it's a system file (if path is being updated)
         if path is not None:
             if is_system_file(path) or is_system_file(file_obj.file_name):
                 raise BadRequestException(f"File '{path}' is a system file and cannot be imported")
-            
+
             # Log warning for uncommon file extensions (but don't reject)
             is_common, warning = validate_file_extension(path)
             if warning:
                 import logging
                 logging.getLogger(__name__).warning(f"Skill file warning: {warning}")
-        
+
         if content is not None:
             # Validate content
             is_valid, error_msg = is_valid_text_content(content)
             if not is_valid:
                 raise BadRequestException(f"File '{file_obj.path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)")
-            
+
             file_obj.content = content
             file_obj.size = len(content) if content else 0
         if path is not None:
             file_obj.path = path
         if file_name is not None:
             file_obj.file_name = file_name
-        
+
         await self.db.commit()
         await self.db.refresh(file_obj)
-        
+
         # If updating SKILL.md, sync metadata to skill
         if file_obj.path == "SKILL.md" or file_obj.file_name == "SKILL.md":
             await self._sync_skill_from_skill_md(skill, file_obj.content)
-        
+
         return file_obj
 
     async def _sync_skill_from_skill_md(
@@ -612,16 +612,16 @@ class SkillService(BaseService[Skill]):
         content: Optional[str],
     ) -> None:
         """Sync skill metadata from SKILL.md frontmatter.
-        
+
         Args:
             skill: The skill to update
             content: The SKILL.md content with YAML frontmatter
         """
         if not content:
             return
-        
+
         frontmatter, body = parse_skill_md(content)
-        
+
         # Update skill fields from frontmatter
         if frontmatter.get("name"):
             skill.name = frontmatter["name"]
@@ -631,26 +631,26 @@ class SkillService(BaseService[Skill]):
             skill.tags = frontmatter["tags"]
         if frontmatter.get("license"):
             skill.license = frontmatter["license"]
-        
+
         # Update content with markdown body
         if body:
             skill.content = body.strip()
-        
+
         await self.db.commit()
         await self.db.refresh(skill)
 
     def get_skill_md_file(self, skill: Skill) -> Optional[SkillFile]:
         """Get the SKILL.md file from a skill.
-        
+
         Args:
             skill: The skill with loaded files
-            
+
         Returns:
             The SKILL.md file if found, None otherwise
         """
         if not skill.files:
             return None
-        
+
         return next(
             (f for f in skill.files if f.path == "SKILL.md" or f.file_name == "SKILL.md"),
             None

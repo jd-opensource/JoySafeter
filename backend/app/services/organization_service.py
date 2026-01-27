@@ -1,8 +1,8 @@
 """
 组织与成员服务
 """
-from typing import Dict, List, Optional
 import uuid
+from typing import Dict, List, Optional
 
 from pydantic import EmailStr
 
@@ -12,10 +12,11 @@ from app.common.exceptions import (
     ForbiddenException,
     NotFoundException,
 )
-from app.models.organization import Organization, Member
 from app.models.auth import AuthUser as User
-from app.repositories.organization import OrganizationRepository, MemberRepository
+from app.models.organization import Member, Organization
+from app.repositories.organization import MemberRepository, OrganizationRepository
 from app.repositories.user import UserRepository
+
 from .base import BaseService
 
 

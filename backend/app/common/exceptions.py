@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Dict, Iterable, List, Mapping
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError

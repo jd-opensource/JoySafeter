@@ -33,7 +33,7 @@ class AgentConfig:
         default_description: Optional[str] = None,
     ) -> "AgentConfig":
         """Parse and resolve all node properties into unified config.
-        
+
         Args:
             node: GraphNode to parse
             builder: DeepAgentsGraphBuilder instance
@@ -147,7 +147,7 @@ class CodeAgentConfig(AgentConfig):
         # Get base config
         base_config = await AgentConfig.from_node(
             node, builder, node_id_to_name,
-            default_description=f"Python code execution agent"
+            default_description="Python code execution agent"
         )
 
         data = node.data or {}

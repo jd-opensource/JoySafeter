@@ -1,15 +1,13 @@
 """CTF Knowledge Search (side-effect free: no caches / singletons)."""
 
-import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import yaml
+from loguru import logger
 
 from .parser import normalize_knowledge
-
-from loguru import logger
 
 
 def search_yaml_with_keywords(

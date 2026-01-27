@@ -3,9 +3,10 @@
 """
 import uuid
 from enum import Enum as PyEnum
-from typing import Optional, List, TYPE_CHECKING
-from sqlalchemy import Boolean, String, Text, Enum, ForeignKey, Integer, Index
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import BaseModel, SoftDeleteMixin
@@ -38,7 +39,7 @@ class WorkspaceMemberRole(str, PyEnum):
 class Workspace(BaseModel, SoftDeleteMixin):
     """工作空间"""
     __tablename__ = "workspaces"
-    
+
     # 基本信息
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -53,7 +54,7 @@ class Workspace(BaseModel, SoftDeleteMixin):
         default=WorkspaceType.personal,
     )
     settings: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    
+
     # 所有者（使用 text 类型对齐 User.id）
     owner_id: Mapped[str] = mapped_column(
         String(255),
@@ -63,7 +64,7 @@ class Workspace(BaseModel, SoftDeleteMixin):
 
     # 是否允许个人 API Key
     allow_personal_api_keys: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    
+
     # 关系
     owner: Mapped["AuthUser"] = relationship(
         "AuthUser",
@@ -80,7 +81,7 @@ class Workspace(BaseModel, SoftDeleteMixin):
 class WorkspaceMember(BaseModel):
     """工作空间成员"""
     __tablename__ = "workspace_members"
-    
+
     # 关联
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -92,14 +93,14 @@ class WorkspaceMember(BaseModel):
         ForeignKey("user.id", ondelete="CASCADE"),
         nullable=False,
     )
-    
+
     # 角色
     role: Mapped[WorkspaceMemberRole] = mapped_column(
         Enum(WorkspaceMemberRole, name="workspacememberrole", create_type=False),
         nullable=False,
         default=WorkspaceMemberRole.member,
     )
-    
+
     # 关系
     workspace: Mapped["Workspace"] = relationship(
         "Workspace",

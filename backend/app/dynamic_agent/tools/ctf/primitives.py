@@ -7,22 +7,18 @@ Provides shell/Python action templates and risk guards for CTF challenges:
 - Action generation from reference hits and user hints
 """
 
-import logging
 import re
 import shlex
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.dynamic_agent.core.constants import (
-    CtfToolType,
-    CtfRiskLevel,
-    CTF_SHELL_TOOL_PATTERNS,
     CTF_PYTHON_TOOL_PATTERNS,
+    CTF_SHELL_TOOL_PATTERNS,
+    CtfRiskLevel,
+    CtfToolType,
 )
-from app.dynamic_agent.storage.session.ctf import ReferenceHit, UserHint, AttemptStep
-
-from loguru import logger
-
+from app.dynamic_agent.storage.session.ctf import ReferenceHit, UserHint
 
 # =============================================================================
 # Risk Assessment
@@ -77,20 +73,20 @@ DANGEROUS_PATTERNS = [
 def assess_command_risk(command: str) -> Tuple[CtfRiskLevel, str]:
     """
     Assess the risk level of a shell command.
-    
+
     Args:
         command: Shell command to assess
-        
+
     Returns:
         Tuple of (risk_level, reason)
     """
     command_lower = command.lower().strip()
-    
+
     # Check for dangerous patterns first
     for pattern in DANGEROUS_PATTERNS:
         if re.search(pattern, command_lower):
             return CtfRiskLevel.HIGH, f"Dangerous pattern detected: {pattern}"
-    
+
     # Extract the base command
     try:
         parts = shlex.split(command)
@@ -100,17 +96,17 @@ def assess_command_risk(command: str) -> Tuple[CtfRiskLevel, str]:
     except ValueError:
         # Shlex parsing failed, try simple split
         base_cmd = command.split()[0].split('/')[-1] if command.split() else ""
-    
+
     # Check risk levels
     if base_cmd in HIGH_RISK_COMMANDS:
         return CtfRiskLevel.HIGH, f"High-risk command: {base_cmd}"
-    
+
     if base_cmd in MEDIUM_RISK_COMMANDS:
         return CtfRiskLevel.MEDIUM, f"Medium-risk command: {base_cmd}"
-    
+
     if base_cmd in SAFE_COMMANDS:
         return CtfRiskLevel.LOW, f"Safe command: {base_cmd}"
-    
+
     # Unknown command - default to medium risk
     return CtfRiskLevel.MEDIUM, f"Unknown command: {base_cmd}"
 
@@ -118,15 +114,15 @@ def assess_command_risk(command: str) -> Tuple[CtfRiskLevel, str]:
 def assess_python_risk(code: str) -> Tuple[CtfRiskLevel, str]:
     """
     Assess the risk level of Python code.
-    
+
     Args:
         code: Python code to assess
-        
+
     Returns:
         Tuple of (risk_level, reason)
     """
     code_lower = code.lower()
-    
+
     # High-risk patterns
     high_risk_patterns = [
         (r'\bos\.system\b', "os.system call"),
@@ -140,11 +136,11 @@ def assess_python_risk(code: str) -> Tuple[CtfRiskLevel, str]:
         (r'\bos\.remove\b', "os.remove"),
         (r'\bos\.unlink\b', "os.unlink"),
     ]
-    
+
     for pattern, reason in high_risk_patterns:
         if re.search(pattern, code_lower):
             return CtfRiskLevel.HIGH, reason
-    
+
     # Medium-risk patterns
     medium_risk_patterns = [
         (r'\brequests\.(post|put|delete)\b', "HTTP mutation request"),
@@ -152,11 +148,11 @@ def assess_python_risk(code: str) -> Tuple[CtfRiskLevel, str]:
         (r'\bparamiko\b', "SSH operations"),
         (r'\bftplib\b', "FTP operations"),
     ]
-    
+
     for pattern, reason in medium_risk_patterns:
         if re.search(pattern, code_lower):
             return CtfRiskLevel.MEDIUM, reason
-    
+
     # Safe patterns (common CTF operations)
     safe_patterns = [
         r'\bbase64\b',
@@ -168,11 +164,11 @@ def assess_python_risk(code: str) -> Tuple[CtfRiskLevel, str]:
         r'\brequests\.get\b',
         r'\bprint\s*\(',
     ]
-    
+
     for pattern in safe_patterns:
         if re.search(pattern, code_lower):
             return CtfRiskLevel.LOW, "Common CTF operation"
-    
+
     # Default to low risk for simple code
     return CtfRiskLevel.LOW, "No risky patterns detected"
 
@@ -241,7 +237,7 @@ CTF_ACTION_TEMPLATES: Dict[str, ActionTemplate] = {
         parameters=["input", "key"],
         category="crypto",
     ),
-    
+
     # Web templates
     "curl_get": ActionTemplate(
         name="curl_get",
@@ -270,7 +266,7 @@ CTF_ACTION_TEMPLATES: Dict[str, ActionTemplate] = {
         parameters=["url"],
         category="web",
     ),
-    
+
     # Pwn templates
     "nc_connect": ActionTemplate(
         name="nc_connect",
@@ -299,7 +295,7 @@ CTF_ACTION_TEMPLATES: Dict[str, ActionTemplate] = {
         parameters=["host", "port"],
         category="pwn",
     ),
-    
+
     # Misc templates
     "strings_extract": ActionTemplate(
         name="strings_extract",
@@ -353,11 +349,11 @@ def get_templates_by_category(category: str) -> List[ActionTemplate]:
 def render_template(template: ActionTemplate, **params) -> str:
     """
     Render an action template with parameters.
-    
+
     Args:
         template: Action template to render
         **params: Parameter values
-        
+
     Returns:
         Rendered command/code string
     """
@@ -379,25 +375,25 @@ def render_template(template: ActionTemplate, **params) -> str:
 def classify_tool_type(tool_name: str) -> CtfToolType:
     """
     Classify a tool name into CTF tool type.
-    
+
     Args:
         tool_name: Name of the tool
-        
+
     Returns:
         CtfToolType classification
     """
     tool_lower = tool_name.lower()
-    
+
     # Check shell patterns
     for pattern in CTF_SHELL_TOOL_PATTERNS:
         if pattern in tool_lower:
             return CtfToolType.SHELL
-    
+
     # Check python patterns
     for pattern in CTF_PYTHON_TOOL_PATTERNS:
         if pattern in tool_lower:
             return CtfToolType.PYTHON
-    
+
     return CtfToolType.OTHER
 
 
@@ -407,59 +403,59 @@ def generate_action_from_hint(
 ) -> Optional[Dict[str, Any]]:
     """
     Generate an action from a user hint.
-    
+
     Args:
         hint: User hint to process
         challenge_type: Type of CTF challenge
-        
+
     Returns:
         Action dict with tool_type, command, and risk_level, or None
     """
     content = hint.content.lower()
-    
+
     # Try to match hint to templates
     template_matches = []
-    
+
     # Check for encoding/decoding hints
     if any(kw in content for kw in ['base64', 'decode', 'encode']):
         if 'decode' in content:
             template_matches.append(('base64_decode', {}))
         else:
             template_matches.append(('base64_encode', {}))
-    
+
     if any(kw in content for kw in ['hex', 'hexadecimal']):
         template_matches.append(('hex_decode', {}))
-    
+
     if any(kw in content for kw in ['rot13', 'caesar', 'rotate']):
         template_matches.append(('rot13', {}))
-    
+
     if any(kw in content for kw in ['xor', 'exclusive or']):
         template_matches.append(('xor_decrypt', {}))
-    
+
     # Check for web hints
     if any(kw in content for kw in ['curl', 'http', 'get', 'request', 'url']):
         if 'post' in content:
             template_matches.append(('curl_post', {}))
         else:
             template_matches.append(('curl_get', {}))
-    
+
     # Check for pwn hints
     if any(kw in content for kw in ['nc', 'netcat', 'connect', 'port']):
         template_matches.append(('nc_connect', {}))
-    
+
     # Check for misc hints
     if any(kw in content for kw in ['strings', 'extract']):
         template_matches.append(('strings_extract', {}))
-    
+
     if any(kw in content for kw in ['file', 'type', 'info']):
         template_matches.append(('file_info', {}))
-    
+
     if any(kw in content for kw in ['binwalk', 'embedded']):
         template_matches.append(('binwalk_extract', {}))
-    
+
     if any(kw in content for kw in ['exif', 'metadata']):
         template_matches.append(('exiftool_metadata', {}))
-    
+
     # Return first match
     if template_matches:
         template_name, params = template_matches[0]
@@ -472,7 +468,7 @@ def generate_action_from_hint(
                 'risk_level': template.risk_level,
                 'category': template.category,
             }
-    
+
     return None
 
 
@@ -482,19 +478,19 @@ def generate_action_from_reference(
 ) -> Optional[Dict[str, Any]]:
     """
     Generate an action suggestion from a reference hit.
-    
+
     Args:
         reference: Reference hit to process
         challenge_type: Type of CTF challenge
-        
+
     Returns:
         Action suggestion dict or None
     """
     if not reference.snippet:
         return None
-    
+
     snippet = reference.snippet.lower()
-    
+
     # Look for command patterns in snippet
     command_patterns = [
         (r'curl\s+[^\n]+', 'curl_get', CtfToolType.SHELL),
@@ -503,7 +499,7 @@ def generate_action_from_reference(
         (r'strings\s+', 'strings_extract', CtfToolType.SHELL),
         (r'python.*-c', 'python_code', CtfToolType.PYTHON),
     ]
-    
+
     for pattern, template_name, tool_type in command_patterns:
         match = re.search(pattern, snippet)
         if match:
@@ -514,7 +510,7 @@ def generate_action_from_reference(
                 'source': reference.location,
                 'confidence': reference.confidence,
             }
-    
+
     return None
 
 
@@ -524,22 +520,22 @@ def prioritize_tools(
 ) -> List[str]:
     """
     Prioritize tools for CTF mode.
-    
+
     Args:
         available_tools: List of available tool names
         is_ctf: Whether CTF mode is active
-        
+
     Returns:
         Reordered list with python/shell tools first
         Python tools are prioritized for complex tasks (enumeration, crypto)
     """
     if not is_ctf:
         return available_tools
-    
+
     shell_tools = []
     python_tools = []
     other_tools = []
-    
+
     for tool in available_tools:
         tool_type = classify_tool_type(tool)
         if tool_type == CtfToolType.SHELL:
@@ -548,7 +544,7 @@ def prioritize_tools(
             python_tools.append(tool)
         else:
             other_tools.append(tool)
-    
+
     # Python first (for enumeration/crypto), then Shell (for quick commands), then others
     return python_tools + shell_tools + other_tools
 

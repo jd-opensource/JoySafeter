@@ -5,26 +5,27 @@ Exports the main API router which aggregates all sub-routers.
 """
 
 from fastapi import APIRouter
-from app.dynamic_agent.web.routes.sessions import router as sessions_router
-from app.dynamic_agent.web.routes.tools import router as tools_router
-from app.dynamic_agent.web.routes.tasks import router as tasks_router
+
 from app.dynamic_agent.web.routes.history import router as history_router
 from app.dynamic_agent.web.routes.scan import router as scan_router
+from app.dynamic_agent.web.routes.sessions import router as sessions_router
+from app.dynamic_agent.web.routes.tasks import router as tasks_router
+from app.dynamic_agent.web.routes.tools import router as tools_router
 
 # Re-export models for compatibility
 from .models import (
-    SessionResponse,
+    AgentResponse,
+    ChatMessageResponse,
+    ErrorResponse,
+    ExecutionTreeResponse,
     SessionDetailsResponse,
     SessionListResponse,
+    SessionResponse,
     TaskBasicResponse,
-    TaskSummaryResponse,
     TaskListResponse,
-    ExecutionTreeResponse,
-    AgentResponse,
-    ToolInvocationResponse,
-    ChatMessageResponse,
+    TaskSummaryResponse,
     ToolInfo,
-    ErrorResponse,
+    ToolInvocationResponse,
 )
 
 # Main API Router

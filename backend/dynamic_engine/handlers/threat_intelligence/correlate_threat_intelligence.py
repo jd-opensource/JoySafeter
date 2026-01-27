@@ -10,14 +10,14 @@ logger = logging.getLogger(__name__)
 
 class ThreatIntelligenceFeedsHandler(AbstractHandler):
     """Handler for threat_intelligence_feeds functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return []
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute threat_intelligence_feeds with enhanced logging"""
         try:
@@ -29,10 +29,10 @@ class ThreatIntelligenceFeedsHandler(AbstractHandler):
             if not indicators:
                 logger.warning("🧠 Threat intelligence called without indicators")
                 return {
-    
+
                     "success": False,
                     "error": "Indicators parameter is required"
-                
+
                 }
             logger.info(f"🧠 Correlating threat intelligence for {len(indicators)} indicators")
             correlation_results = {
@@ -125,8 +125,8 @@ class ThreatIntelligenceFeedsHandler(AbstractHandler):
         except Exception as e:
             logger.error(f"💥 Error in threat intelligence: {str(e)}")
             return {
-    
+
                 "success": False,
                 "error": f"Server error: {str(e)}"
-            
+
             }

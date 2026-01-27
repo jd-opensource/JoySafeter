@@ -1,8 +1,8 @@
 # NOTE: Converted to object-based implementation
+import logging
 import time
 from datetime import datetime
 from typing import Any, Dict
-import logging
 
 from dynamic_engine.basic.constants import UNSUPPORTED
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 
 class BrowserAgentEndpointHandler(AbstractHandler):
     """Handler for browser_agent_endpoint functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return [UNSUPPORTED]
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute browser_agent_endpoint with enhanced logging"""
         try:

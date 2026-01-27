@@ -4,6 +4,9 @@ CodeAgent Python Executors.
 This module provides different execution backends for running Python code.
 """
 
+from .backend_executor import (
+    BackendPythonExecutor,
+)
 from .base import (
     BaseToolWrapper,
     CodeOutput,
@@ -11,25 +14,22 @@ from .base import (
     PythonExecutor,
     wrap_final_answer,
 )
+from .docker_executor import (
+    DockerPythonExecutor,
+    create_docker_executor,
+)
 from .local_executor import (
     LocalPythonExecutor,
     create_default_final_answer,
     create_local_executor,
     truncate_text,
 )
-from .docker_executor import (
-    DockerPythonExecutor,
-    create_docker_executor,
-)
-from .backend_executor import (
-    BackendPythonExecutor,
-)
 from .router import (
+    DANGEROUS_PATTERNS,
+    DATA_ANALYSIS_PATTERNS,
     ExecutorRouter,
     SecurityError,
     create_router,
-    DANGEROUS_PATTERNS,
-    DATA_ANALYSIS_PATTERNS,
 )
 
 __all__ = [

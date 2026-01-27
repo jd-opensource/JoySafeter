@@ -17,10 +17,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user, require_workspace_role
-from app.models.workspace import WorkspaceMemberRole
 from app.common.exceptions import ForbiddenException
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
+from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceMemberRepository
 from app.services.environment_service import EnvironmentService
 

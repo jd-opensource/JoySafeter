@@ -5,9 +5,9 @@ Converts conversation history (List[Dict]) to LangChain message objects
 (HumanMessage, AIMessage) for agent invocation.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import Dict, List, Optional
 
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 
 def build_langchain_messages(
@@ -16,21 +16,21 @@ def build_langchain_messages(
 ) -> List[BaseMessage]:
     """
     Build LangChain messages list from prompt and conversation history.
-    
+
     Converts conversation history dicts to LangChain message objects:
     - {"role": "user", "content": "..."} -> HumanMessage
     - {"role": "assistant", "content": "..."} -> AIMessage
-    
+
     Args:
         prompt: Current user prompt
         conversation_history: Optional list of previous messages in format
                             [{"role": "user"|"assistant", "content": "..."}, ...]
-    
+
     Returns:
         List of LangChain message objects (HumanMessage, AIMessage)
     """
     messages: List[BaseMessage] = []
-    
+
     # Add conversation history if provided
     if conversation_history:
         for msg in conversation_history:
@@ -41,8 +41,8 @@ def build_langchain_messages(
                     messages.append(HumanMessage(content=content))
                 elif role == "assistant" and content:
                     messages.append(AIMessage(content=content))
-    
+
     # Add current user message
     messages.append(HumanMessage(content=prompt))
-    
+
     return messages

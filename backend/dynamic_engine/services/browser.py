@@ -10,7 +10,6 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -80,7 +79,7 @@ class BrowserAgent:
             # logger.info(f"{ModernVisualEngine.format_tool_status('BrowserAgent', 'RUNNING', 'Chrome Browser Initialized')}")
             return True
 
-        except Exception as e:
+        except Exception:
             # logger.error(f"{ModernVisualEngine.format_error_card('ERROR', 'BrowserAgent', str(e))}")
             return False
 
@@ -91,7 +90,6 @@ class BrowserAgent:
                 if not self.setup_browser():
                     return {'success': False, 'error': 'Failed to setup browser'}
 
-            nav_command = f'Navigate to {url}'
             # logger.info(f"{ModernVisualEngine.format_command_execution(nav_command, 'STARTING')}")
 
             # Navigate to URL
@@ -218,15 +216,18 @@ class BrowserAgent:
         # Cookies
         cookie_issues = self._analyze_cookies(page_info.get('cookies', []))
         if cookie_issues:
-            issues.extend(cookie_issues); modules.append('cookie_analysis')
+            issues.extend(cookie_issues)
+            modules.append('cookie_analysis')
         # Headers
         header_issues = self._analyze_security_headers(page_source, page_info)
         if header_issues:
-            issues.extend(header_issues); modules.append('security_headers')
+            issues.extend(header_issues)
+            modules.append('security_headers')
         # Mixed content
         mixed = self._detect_mixed_content(page_info)
         if mixed:
-            issues.extend(mixed); modules.append('mixed_content')
+            issues.extend(mixed)
+            modules.append('mixed_content')
         # Console errors may hint at DOM XSS sinks
         if page_info.get('console_errors'):
             modules.append('console_log_capture')

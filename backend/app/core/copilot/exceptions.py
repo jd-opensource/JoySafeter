@@ -7,13 +7,14 @@ enabling better error categorization and user-friendly error messages.
 
 from typing import Any
 
-from app.common.exceptions import AppException, BadRequestException
 from fastapi import status
+
+from app.common.exceptions import AppException, BadRequestException
 
 
 class CopilotException(AppException):
     """Base exception for Copilot operations."""
-    
+
     def __init__(
         self,
         message: str = "Copilot operation failed",
@@ -27,7 +28,7 @@ class CopilotException(AppException):
 
 class CopilotLLMError(CopilotException):
     """LLM-related errors (API failures, rate limits, etc.)."""
-    
+
     def __init__(
         self,
         message: str = "LLM service error",
@@ -50,7 +51,7 @@ class CopilotLLMError(CopilotException):
 
 class CopilotValidationError(BadRequestException):
     """Action validation errors."""
-    
+
     def __init__(
         self,
         message: str = "Action validation failed",
@@ -63,7 +64,7 @@ class CopilotValidationError(BadRequestException):
 
 class CopilotSessionError(CopilotException):
     """Session management errors (Redis unavailable, session not found, etc.)."""
-    
+
     def __init__(
         self,
         message: str = "Session management error",
@@ -82,7 +83,7 @@ class CopilotSessionError(CopilotException):
 
 class CopilotStreamError(CopilotException):
     """Streaming errors (connection issues, timeouts, etc.)."""
-    
+
     def __init__(
         self,
         message: str = "Streaming error",
@@ -100,7 +101,7 @@ class CopilotStreamError(CopilotException):
 
 class CopilotCredentialError(CopilotException):
     """Credential-related errors (missing API key, invalid credentials, etc.)."""
-    
+
     def __init__(
         self,
         message: str = "Credential error",
@@ -118,7 +119,7 @@ class CopilotCredentialError(CopilotException):
 
 class CopilotAgentError(CopilotException):
     """Agent execution errors (tool failures, recursion limits, etc.)."""
-    
+
     def __init__(
         self,
         message: str = "Agent execution error",

@@ -8,14 +8,14 @@ parameter passing.
 Usage:
     # Set metadata before agent execution
     MetadataContext.set({"session_id": "123", "user_id": "user1"})
-    
+
     try:
         # Execute agent
         result = await agent.ainvoke(...)
     finally:
         # Always clear metadata
         MetadataContext.clear()
-    
+
     # In tools, access metadata
     @tool
     def my_tool(input_str: str) -> str:
@@ -25,9 +25,7 @@ Usage:
 """
 
 import contextvars
-import logging
-from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from loguru import logger
 
@@ -39,7 +37,7 @@ _metadata_context: contextvars.ContextVar[Optional[Dict[str, Any]]] = \
 class MetadataContext:
     """
     Global context manager for metadata propagation through agent execution.
-    
+
     Uses Python's contextvars for thread-safe and async-safe storage.
     """
 
@@ -47,10 +45,10 @@ class MetadataContext:
     def set(metadata: Dict[str, Any]) -> None:
         """
         Set metadata for the current execution context.
-        
+
         Args:
             metadata: Dictionary containing metadata (session_id, user_id, etc.)
-            
+
         Example:
             MetadataContext.set({
                 "session_id": "session_123",
@@ -69,10 +67,10 @@ class MetadataContext:
     def get() -> Optional[Dict[str, Any]]:
         """
         Get metadata from the current execution context.
-        
+
         Returns:
             Dictionary containing metadata, or None if not set
-            
+
         Example:
             metadata = MetadataContext.get()
             session_id = metadata.get("session_id") if metadata else None
@@ -83,14 +81,14 @@ class MetadataContext:
     def get_value(key: str, default: Any = None) -> Any:
         """
         Get a specific value from metadata.
-        
+
         Args:
             key: Key to retrieve
             default: Default value if key not found
-            
+
         Returns:
             Value from metadata or default
-            
+
         Example:
             session_id = MetadataContext.get_value("session_id", "unknown")
         """
@@ -103,9 +101,9 @@ class MetadataContext:
     def clear() -> None:
         """
         Clear metadata from the current execution context.
-        
+
         Should always be called in a finally block to prevent context leaks.
-        
+
         Example:
             try:
                 MetadataContext.set(metadata)
@@ -120,10 +118,10 @@ class MetadataContext:
     def update(updates: Dict[str, Any]) -> None:
         """
         Update metadata with new values.
-        
+
         Args:
             updates: Dictionary with values to update
-            
+
         Example:
             MetadataContext.update({"status": "completed"})
         """
@@ -139,10 +137,10 @@ class MetadataContext:
     def has_key(key: str) -> bool:
         """
         Check if a key exists in metadata.
-        
+
         Args:
             key: Key to check
-            
+
         Returns:
             True if key exists, False otherwise
         """
@@ -153,7 +151,7 @@ class MetadataContext:
     def to_dict() -> Dict[str, Any]:
         """
         Get a copy of the entire metadata dictionary.
-        
+
         Returns:
             Copy of metadata dictionary, or empty dict if not set
         """

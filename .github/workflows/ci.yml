@@ -54,7 +54,7 @@ jobs:
       - name: Run Ruff linting
         working-directory: backend
         run: |
-          uv run ruff check .
+          uv run ruff check --output-format=github .
 
       - name: Run Ruff formatting check
         working-directory: backend

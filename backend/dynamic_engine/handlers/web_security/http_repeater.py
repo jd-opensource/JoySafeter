@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.services.http_test_framework import http_framework
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 class HttpFrameworkEndpointHandler(AbstractHandler):
     """Handler for http_framework_endpoint functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return []
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute http_framework_endpoint with enhanced logging"""
         try:
@@ -29,7 +29,6 @@ class HttpFrameworkEndpointHandler(AbstractHandler):
             if action == "request":
                 if not url:
                     return {"error": "URL parameter is required for request action"}
-                request_command = f"{method} {url}"
                 result = http_framework.intercept_request(url, method, request_data, headers, cookies)
                 return result
             elif action == "spider":
@@ -37,17 +36,16 @@ class HttpFrameworkEndpointHandler(AbstractHandler):
                     return {"error": "URL parameter is required for spider action"}
                 max_depth = data.get("max_depth", 3)
                 max_pages = data.get("max_pages", 100)
-                spider_command = f"Spider {url}"
                 result = http_framework.spider_website(url, max_depth, max_pages)
                 return result
             elif action == "proxy_history":
                 return {
-    
+
                     "success": True,
                     "history": http_framework.proxy_history[-100:],  # Last 100 requests
                     "total_requests": len(http_framework.proxy_history),
                     "vulnerabilities": http_framework.vulnerabilities,
-                
+
                 }
             elif action == "set_rules":
                 rules = data.get("rules", [])

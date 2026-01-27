@@ -3,13 +3,14 @@
 """
 
 import uuid
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import BigInteger, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
 from .base import TimestampMixin
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ def _generate_str_id() -> str:
 class Organization(Base, TimestampMixin):
     """
     组织（对齐原始项目 drizzle `organization` 表）
-    
+
     采用 text 主键以兼容 drizzle 定义。
     """
 
@@ -62,7 +63,7 @@ class Organization(Base, TimestampMixin):
 class Member(Base, TimestampMixin):
     """
     组织成员（对齐原始项目 drizzle `member` 表）
-    
+
     采用 text 主键以兼容 drizzle 定义。
     """
 

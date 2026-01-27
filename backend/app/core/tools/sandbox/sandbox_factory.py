@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from deepagents.backends.protocol import SandboxBackendProtocol
-
 from loguru import logger
 
 
@@ -66,7 +65,6 @@ def create_modal_sandbox(
         RuntimeError: Setup script failed
     """
     import modal
-
     from modal import ModalBackend
 
     logger.info("[yellow]Starting Modal sandbox...[/yellow]")
@@ -140,9 +138,8 @@ def create_runloop_sandbox(
         FileNotFoundError: Setup script not found
         RuntimeError: Setup script failed
     """
-    from runloop_api_client import Runloop
-
     from runloop import RunloopBackend
+    from runloop_api_client import Runloop
 
     bearer_token = os.environ.get("RUNLOOP_API_KEY")
     if not bearer_token:

@@ -8,7 +8,7 @@ from pathlib import Path
 
 # 确保可以导入同目录的模块
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import load_env_file, get_db_config, wait_for_db
+from utils import get_db_config, load_env_file, wait_for_db
 
 # 加载 .env 文件
 env_path = load_env_file()
@@ -19,6 +19,6 @@ if env_path:
 if __name__ == "__main__":
     # 获取数据库配置并等待连接
     config = get_db_config()
-    
+
     if not wait_for_db(config):
         sys.exit(1)

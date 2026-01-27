@@ -1,38 +1,33 @@
 """
 FastAPI 主应用
 """
-import asyncio
-import os
 import traceback
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-import websockets
-from fastapi import FastAPI, WebSocket, Request, HTTPException
-from fastapi import WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from loguru import logger
 from sqlalchemy import text
 
 from app.api import api_router
-
+from app.api.graph.variables import router as graph_variables_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.files import router as files_router
 from app.api.v1.memory import router as memory_router
-from app.api.graph.variables import router as graph_variables_router
 from app.api.v1.sessions import router as sessions_router
 from app.common.exceptions import register_exception_handlers
 from app.common.logging import LoggingMiddleware, setup_logging
-from app.core.database import init_db, close_db, AsyncSessionLocal, engine
+from app.core.database import AsyncSessionLocal, close_db, engine
 from app.core.redis import RedisClient
 from app.core.settings import settings
 from app.services.session_service import SessionService
+from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
 from app.websocket.chat_handler import ChatHandler
-
-from app.websocket.notification_manager import notification_manager, NotificationType
-from app.websocket.auth import authenticate_websocket, reject_websocket, WebSocketCloseCode
 from app.websocket.copilot_handler import copilot_handler
+from app.websocket.notification_manager import NotificationType, notification_manager
+
 setup_logging()
 
 
@@ -53,7 +48,7 @@ async def _check_redis_connection():
     if not settings.redis_url:
         logger.info("   Redis connection check: Skipped (not configured)")
         return
-    
+
     try:
         is_healthy = await RedisClient.health_check()
         if is_healthy:
@@ -73,7 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     print(f"🚀 Starting {settings.app_name} v{settings.app_version}")
     print(f"   Environment: {settings.environment}")
     print(f"   Debug: {settings.debug}")
-    print(f"   Architecture: MVC (Model-View-Controller)")
+    print("   Architecture: MVC (Model-View-Controller)")
 
     # 注意：数据库表通过 Alembic 迁移创建，不再使用 create_all
     # 如需初始化数据库，请运行: alembic upgrade head
@@ -91,20 +86,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     # 检查数据库连通性（无论环境）
     await _check_db_connection()
-    
+
     # 检查 Redis 连通性（如果配置了 Redis）
     await _check_redis_connection()
-    
+
     # 启动时自动同步供应商和模型到数据库（如果数据库中没有）
     try:
-        from app.services.model_provider_service import ModelProviderService
         from app.repositories.model_provider import ModelProviderRepository
-        
+        from app.services.model_provider_service import ModelProviderService
+
         async with AsyncSessionLocal() as db:
             provider_repo = ModelProviderRepository(db)
             # 检查数据库中是否已有供应商
             provider_count = await provider_repo.count()
-            
+
             if provider_count == 0:
                 logger.info("   数据库中没有供应商，开始自动同步...")
                 service = ModelProviderService(db)
@@ -118,7 +113,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception as e:
         logger.warning(f"   ⚠️  自动同步供应商失败: {e}")
         logger.warning("   应用将继续启动，可以稍后手动调用 /api/v1/model-providers/sync 接口")
-    
+
     # 启动时初始化 MCP 工具（加载所有启用的 MCP 服务器的工具到 registry）
     try:
         from app.services.tool_service import initialize_mcp_tools_on_startup
@@ -135,10 +130,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # 初始化默认模型缓存
     try:
         from app.core.database import get_db
+        from app.core.settings import set_default_model_config
         from app.repositories.model_instance import ModelInstanceRepository
         from app.repositories.model_provider import ModelProviderRepository
         from app.services.model_credential_service import ModelCredentialService
-        from app.core.settings import set_default_model_config
 
         async for db in get_db():
             repo = ModelInstanceRepository(db)
@@ -257,10 +252,8 @@ async def disable_cache_for_api(request: Request, call_next):
 
     return response
 
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from app.dynamic_agent.server import app as dynamic_agent_app
 from app.dynamic_agent.server import DYNAMIC_AGENT_PREFIX
+from app.dynamic_agent.server import app as dynamic_agent_app
 
 # ENV = os.getenv("ENV", "dev")  # dev / prod
 
@@ -317,7 +310,7 @@ async def websocket_endpoint(
     """WebSocket endpoint for real-time chat with JWT authentication."""
     # 1. 验证认证
     is_authenticated, user_id = await authenticate_websocket(websocket)
-    
+
     if not is_authenticated or not user_id:
         await reject_websocket(
             websocket,
@@ -325,11 +318,11 @@ async def websocket_endpoint(
             reason="Authentication required"
         )
         return
-    
+
     try:
         async with AsyncSessionLocal() as db:
             session_service = SessionService(db)
-            
+
             # 2. 验证 session 归属
             session = await session_service.get_session_for_user(session_id, user_id)
             if not session:
@@ -339,7 +332,7 @@ async def websocket_endpoint(
                     reason="Session not found or access denied"
                 )
                 return
-            
+
             # 3. 建立连接
             await websocket.accept()
             chat_handler = ChatHandler(session_service)
@@ -363,8 +356,8 @@ async def notification_websocket_endpoint(websocket: WebSocket):
 
     if not is_authenticated or not user_id:
         await reject_websocket(
-            websocket, 
-            code=WebSocketCloseCode.UNAUTHORIZED, 
+            websocket,
+            code=WebSocketCloseCode.UNAUTHORIZED,
             reason="Authentication required"
         )
         return
@@ -405,16 +398,16 @@ async def notification_websocket_endpoint_legacy(websocket: WebSocket, user_id: 
 
     if not is_authenticated or not token_user_id:
         await reject_websocket(
-            websocket, 
-            code=WebSocketCloseCode.UNAUTHORIZED, 
+            websocket,
+            code=WebSocketCloseCode.UNAUTHORIZED,
             reason="Authentication required"
         )
         return
 
     if str(token_user_id) != str(user_id):
         await reject_websocket(
-            websocket, 
-            code=WebSocketCloseCode.FORBIDDEN, 
+            websocket,
+            code=WebSocketCloseCode.FORBIDDEN,
             reason="User ID mismatch"
         )
         return
@@ -452,13 +445,13 @@ async def copilot_websocket_endpoint(websocket: WebSocket, session_id: str):
     """
     WebSocket endpoint for Copilot session subscription.
     Subscribes to Redis Pub/Sub and forwards events to clients.
-    
+
     Args:
         session_id: Copilot session ID to subscribe to
     """
     # Authenticate WebSocket connection
     is_authenticated, user_id = await authenticate_websocket(websocket)
-    
+
     if not is_authenticated or not user_id:
         await reject_websocket(
             websocket,
@@ -466,7 +459,7 @@ async def copilot_websocket_endpoint(websocket: WebSocket, session_id: str):
             reason="Authentication required"
         )
         return
-    
+
     # Handle connection
     await copilot_handler.handle_connection(websocket, session_id)
 

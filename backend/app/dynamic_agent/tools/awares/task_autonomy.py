@@ -5,16 +5,17 @@ A single unified tool that guides the Agent to exhaust all available methods
 before returning, maintaining autonomous task completion mindset.
 """
 
-from typing import Dict, Any, Optional
 from datetime import datetime
+from typing import Any, Dict, Optional
+
 from langchain.tools import tool
 
 
 class TaskState:
     """Simple task state tracker"""
-    
+
     _tasks: Dict[str, Dict[str, Any]] = {}
-    
+
     @classmethod
     def get_or_create(cls, task_id: str, description: str = "", max_attempts: int = 10) -> Dict[str, Any]:
         """Get or create task state"""
@@ -29,9 +30,9 @@ class TaskState:
                 "methods": []
             }
         return cls._tasks[task_id]
-    
+
     @classmethod
-    def record_attempt(cls, task_id: str, method: str, success: bool, result: str, 
+    def record_attempt(cls, task_id: str, method: str, success: bool, result: str,
                       finding: Optional[str] = None, blocker: Optional[str] = None):
         """Record an attempt"""
         task = cls.get_or_create(task_id)
@@ -57,33 +58,33 @@ def should_continue_task(
 ) -> Dict[str, Any]:
     """
     Determine if Agent should continue exploring methods to complete the task.
-    
+
     This tool guides the Agent to exhaust all available methods before giving up.
     Do NOT return until all methods are exhausted.
-    
+
     Parameters:
     - task_id: Unique task identifier
     - description: Task description (for initialization)
     - max_attempts: Maximum number of attempts allowed
     - last_success: Whether the last method was successful
-    
+
     Returns guidance on whether to continue and what to do next.
-    
+
     Purpose:
     - Prevent premature task termination
     - Encourage exhaustive exploration
     - Maintain autonomous task completion mindset
     - Provide clear next steps
     """
-    
+
     task = TaskState.get_or_create(task_id, description, max_attempts)
     attempts = task["attempts"]
     remaining = max_attempts - attempts
     progress = (attempts / max_attempts) * 100
-    
+
     # Determine if should continue
     should_continue = remaining > 0
-    
+
     # Generate guidance based on progress
     if attempts == 0:
         guidance = "Task not started. Begin exploration immediately with primary method."
@@ -125,16 +126,16 @@ def should_continue_task(
             "Prepare final report",
             "Document lessons learned"
         ]
-    
+
     # Record this check
     if attempts > 0:
         TaskState.record_attempt(
-            task_id, 
-            f"check_attempt_{attempts}", 
+            task_id,
+            f"check_attempt_{attempts}",
             last_success,
             guidance
         )
-    
+
     return {
         "should_continue": should_continue,
         "task_id": task_id,

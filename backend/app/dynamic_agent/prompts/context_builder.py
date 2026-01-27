@@ -5,12 +5,11 @@ Build KV Cache friendly messages list.
 Structure: [System (static)] -> [History] -> [User (Context + Message)]
 """
 
-import logging
 from typing import Any, Dict, List, Optional
 
-from app.dynamic_agent.models.session_context import SessionContext
-
 from loguru import logger
+
+from app.dynamic_agent.models.session_context import SessionContext
 
 
 def _get_static_prompt() -> str:
@@ -47,29 +46,29 @@ def build_messages(
         Built messages list
     """
     messages = []
-    
+
     # 1. Static System Prompt (100% KV Cache hit)
     messages.append({
         "role": "system",
         "content": system_prompt or _get_static_prompt()
     })
-    
+
     # 2. History (incremental cache)
     if history:
         messages.extend(history)
-    
+
     # 3. User Message with Context
     if session_context:
         context_block = session_context.to_xml() + "\n\n"
         content = context_block + user_message
     else:
         content = user_message
-    
+
     messages.append({
         "role": "user",
         "content": content
     })
-    
+
     return messages
 
 
@@ -98,7 +97,7 @@ def build_messages_with_context(
         Built messages list
     """
     from collections import OrderedDict
-    
+
     session_context = SessionContext(
         intent=intent,
         progress=progress,
@@ -106,7 +105,7 @@ def build_messages_with_context(
         todo_status=todo_status,
         replan_reason=replan_reason,
     )
-    
+
     return build_messages(
         user_message=user_message,
         session_context=session_context,
@@ -144,19 +143,19 @@ def extract_context_from_message(message: str) -> tuple[Optional[str], str]:
     """
     start_tag = "<session_context>"
     end_tag = "</session_context>"
-    
+
     if start_tag not in message:
         return None, message
-    
+
     start_idx = message.find(start_tag)
     end_idx = message.find(end_tag)
-    
+
     if end_idx == -1:
         return None, message
-    
+
     context_block = message[start_idx:end_idx + len(end_tag)]
     remaining = message[end_idx + len(end_tag):].strip()
-    
+
     return context_block, remaining
 
 
@@ -175,22 +174,22 @@ class MessageBuilder:
         self.system_prompt = system_prompt or _get_static_prompt()
         self.history: List[Dict[str, Any]] = []
         self.session_context: Optional[SessionContext] = None
-    
+
     def with_context(self, session_context: SessionContext) -> "MessageBuilder":
         """Set session context."""
         self.session_context = session_context
         return self
-    
+
     def with_history(self, history: List[Dict[str, Any]]) -> "MessageBuilder":
         """Set conversation history."""
         self.history = history
         return self
-    
+
     def add_history(self, role: str, content: str) -> "MessageBuilder":
         """Add one history record."""
         self.history.append({"role": role, "content": content})
         return self
-    
+
     def build(self, user_message: str) -> List[Dict[str, Any]]:
         """
         Build final messages list.

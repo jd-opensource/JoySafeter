@@ -7,14 +7,13 @@ and their metadata throughout the system.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
 class PromptMetadata:
     """
     Metadata parsed from YAML frontmatter of a prompt file.
-    
+
     Attributes:
         name: Human-readable prompt name
         description: Brief description of purpose
@@ -41,7 +40,7 @@ class PromptMetadata:
 class LoadedPrompt:
     """
     A fully loaded prompt with metadata and content.
-    
+
     Attributes:
         metadata: Parsed YAML frontmatter as PromptMetadata
         content: Raw prompt content with placeholders
@@ -50,36 +49,36 @@ class LoadedPrompt:
     metadata: PromptMetadata
     content: str
     file_path: Path
-    
+
     def render(self, **kwargs) -> str:
         """
         Render the prompt content with variable substitution.
-        
+
         Only replaces explicitly declared variables from metadata.
         Other {patterns} like FLAG{...} or JSON are preserved.
-        
+
         Args:
             **kwargs: Variable values to substitute
-            
+
         Returns:
             Rendered prompt content with variables replaced
         """
         result = self.content
-        
+
         # Only replace variables that are declared in metadata
         declared_vars = set(self.metadata.variables)
-        
+
         for key, value in kwargs.items():
             if key in declared_vars:
                 result = result.replace(f"{{{key}}}", str(value))
-        
+
         return result
-    
+
     @property
     def prompt_id(self) -> str:
         """Shortcut to get prompt_id from metadata."""
         return self.metadata.prompt_id
-    
+
     @property
     def name(self) -> str:
         """Shortcut to get name from metadata."""

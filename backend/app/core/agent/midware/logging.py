@@ -5,17 +5,15 @@ import logging
 import time
 import traceback
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
-    from langgraph.runtime import Runtime
+    pass
 
 from deepagents.backends.protocol import BackendProtocol
-from langchain.agents.middleware.types import (AgentMiddleware, AgentState,
-                                               ModelRequest, ModelResponse)
-from typing_extensions import NotRequired, TypedDict
+from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from typing_extensions import NotRequired
 
 
 class LoggingState(AgentState):
@@ -382,7 +380,7 @@ class LoggingMiddleware(AgentMiddleware):
             tool_calls = self._extract_tool_calls(response)
             if tool_calls:
                 for tool_call in tool_calls:
-                    tool_start_time = time.time()
+                    time.time()
                     tool_name = tool_call.get("name", "unknown")
                     tool_args = tool_call.get("args", {})
 
@@ -426,7 +424,7 @@ class LoggingMiddleware(AgentMiddleware):
             # 记录错误
             error_msg = str(e)
             execution_time = time.time() - start_time
-            
+
             # 为 "No generations found in stream" 错误提供更详细的上下文
             context = {
                 "request_content_preview": (
@@ -436,7 +434,7 @@ class LoggingMiddleware(AgentMiddleware):
                 ),
                 "execution_time": execution_time,
             }
-            
+
             # 如果错误是 "No generations found in stream"，添加额外的诊断信息
             if "No generations found in stream" in error_msg:
                 context.update({
@@ -450,7 +448,7 @@ class LoggingMiddleware(AgentMiddleware):
                         "Consider increasing the model timeout or checking network connectivity."
                     ),
                 })
-            
+
             self._log_error(
                 "model_call_error",
                 error_msg,
@@ -545,7 +543,7 @@ class LoggingMiddleware(AgentMiddleware):
             # 记录错误
             error_msg = str(e)
             execution_time = time.time() - start_time
-            
+
             # 为 "No generations found in stream" 错误提供更详细的上下文
             context = {
                 "request_content_preview": (
@@ -555,7 +553,7 @@ class LoggingMiddleware(AgentMiddleware):
                 ),
                 "execution_time": execution_time,
             }
-            
+
             # 如果错误是 "No generations found in stream"，添加额外的诊断信息
             if "No generations found in stream" in error_msg:
                 context.update({
@@ -569,7 +567,7 @@ class LoggingMiddleware(AgentMiddleware):
                         "Consider increasing the model timeout or checking network connectivity."
                     ),
                 })
-            
+
             self._log_error(
                 "model_call_error",
                 error_msg,
@@ -639,7 +637,7 @@ class LoggingMiddleware(AgentMiddleware):
 
     def cleanup_old_logs(self, days_to_keep: int = 30) -> None:
         """清理旧日志文件"""
-        cutoff_time = time.time() - (days_to_keep * 24 * 60 * 60)
+        time.time() - (days_to_keep * 24 * 60 * 60)
 
         try:
             # 这里需要实现具体的清理逻辑
@@ -650,4 +648,3 @@ class LoggingMiddleware(AgentMiddleware):
 
 
 # 添加缺少的import
-import traceback

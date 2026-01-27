@@ -5,14 +5,13 @@ Defines the optimized database schema and handles initialization.
 Uses raw SQL for full control over PostgreSQL features (JSONB, Indexes).
 """
 
-import logging
 import asyncpg
-
 from loguru import logger
+
 
 class SchemaManager:
     """Manages database schema creation and updates."""
-    
+
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
 
@@ -20,25 +19,25 @@ class SchemaManager:
         """Initialize the optimized database schema."""
         async with self.pool.acquire() as conn:
             logger.info("Initializing optimized database schema...")
-            
+
             # 1. Session Tables (Normalized)
             await self._create_session_tables(conn)
-            
+
             # 2. Task Execution Tables (New Feature)
             await self._create_task_tables(conn)
-            
+
             # 3. Container Tables
             await self._create_container_tables(conn)
-            
+
             # 4. Memory Tables
             await self._create_memory_tables(conn)
-            
+
             # 5. Snapshot Tables
             await self._create_snapshot_tables(conn)
 
             # 6. Indexes
             await self._create_indexes(conn)
-            
+
             logger.info("Schema initialization complete.")
 
     async def reset_schema(self):
@@ -49,7 +48,7 @@ class SchemaManager:
             "session_messages",
             "session_metadata",
             "container_bindings",
-            
+
             # Core tables
             "tasks",
             "memories",
@@ -57,7 +56,7 @@ class SchemaManager:
             "container_contexts",
             "session_contexts",
         ]
-        
+
         async with self.pool.acquire() as conn:
             logger.warning("⚠️  RESETTING SCHEMA: Dropping all tables...")
             for table in tables:
@@ -160,7 +159,7 @@ class SchemaManager:
                 last_accessed TIMESTAMP NOT NULL
             )
         """)
-        
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS container_bindings (
                 binding_id TEXT PRIMARY KEY,
@@ -206,7 +205,7 @@ class SchemaManager:
                 created_at TIMESTAMP NOT NULL,
                 description TEXT,
                 checkpoint_type TEXT,
-                context JSONB, 
+                context JSONB,
                 active_tasks JSONB,
                 container_state JSONB,
                 memory_state JSONB
@@ -219,22 +218,22 @@ class SchemaManager:
             "CREATE INDEX IF NOT EXISTS idx_session_user ON session_contexts(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_session_created ON session_contexts(created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_message_session ON session_messages(session_id)",
-            
+
             # Tasks & Steps
             "CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id)",
             "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
             "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)",
             "CREATE INDEX IF NOT EXISTS idx_steps_task ON execution_steps(task_id)",
-            
+
             # Memory
             "CREATE INDEX IF NOT EXISTS idx_memory_session ON memories(session_id)",
             "CREATE INDEX IF NOT EXISTS idx_memory_importance ON memories(importance DESC)",
-            
+
             # JSONB GIN Indexes
             "CREATE INDEX IF NOT EXISTS idx_memory_value_gin ON memories USING GIN (value)",
             "CREATE INDEX IF NOT EXISTS idx_metadata_gin ON session_metadata USING GIN (metadata)"
         ]
-        
+
         for index_sql in indexes:
             try:
                 await conn.execute(index_sql)

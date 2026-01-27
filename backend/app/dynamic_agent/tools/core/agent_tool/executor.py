@@ -10,31 +10,31 @@ Dependencies: models.py (for AgentResult, AgentState)
 
 import asyncio
 import json
-import logging
 import re
 import time
 from datetime import datetime
 from typing import Any, List, Union
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
-from openai import BadRequestError, APIError
+from loguru import logger
+from openai import APIError
 
-from app.dynamic_agent.infra.metadata_context import MetadataContext
-from app.dynamic_agent.infra.context import tool_registry
-from app.dynamic_agent.infra.llm import DEBUG, create_llm_instance
-from app.dynamic_agent.core.shared_constants import SUBAGENT_TIMEOUT_SECONDS, SUMMARY_MAX_LENGTH
 from app.dynamic_agent.core.config import conf
 from app.dynamic_agent.core.constants import MCP_TOOL_JOINER
-from app.dynamic_agent.prompts.system_prompts import detect_scene, SceneType
-from app.dynamic_agent.tools.core.tool_selection.tool_selection_base import create_select_agent, DynamicToolSelectionAgent
+from app.dynamic_agent.core.shared_constants import SUBAGENT_TIMEOUT_SECONDS, SUMMARY_MAX_LENGTH
+from app.dynamic_agent.infra.context import tool_registry
+from app.dynamic_agent.infra.llm import DEBUG, create_llm_instance
+from app.dynamic_agent.infra.metadata_context import MetadataContext
+from app.dynamic_agent.tools.core.tool_selection.tool_selection_base import (
+    DynamicToolSelectionAgent,
+    create_select_agent,
+)
 
+from ...base import base_tools, base_tools_for_selection
 from .models import AgentResult, _render_task
-from ...base import base_tools_for_selection, base_tools
-
-from loguru import logger
 
 
 def extract_json_from_string(text: str) -> Union[List, dict, str]:
@@ -152,13 +152,13 @@ def early_summarize_with_llm(
 
 async def _try_run_with_tools(llm: BaseChatModel, task_text: str, tools: List[Any], agent_name: str) -> str:
     """Run agent with tools using LangGraph ReAct pattern.
-    
+
     Args:
         llm: llm instance
         task_text: Task description
         tools: List of LangChain tools
         agent_name: Name of the agent (for logging)
-    
+
     Returns:
         Agent's final output as string
     """
@@ -181,7 +181,7 @@ async def _try_run_with_tools(llm: BaseChatModel, task_text: str, tools: List[An
         from .agent_tool_prompts import get_sub_agent_prompt
 
         metadata = MetadataContext.get() or {}
-        is_ctf = metadata.get('is_ctf', False)
+        metadata.get('is_ctf', False)
         # scene = SceneType.CTF.value if is_ctf else None
         scene = metadata.get('mode', '')
         system_prompt = get_sub_agent_prompt(scene)
@@ -231,11 +231,11 @@ async def _try_run_with_tools(llm: BaseChatModel, task_text: str, tools: List[An
 
 async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> AgentResult:
     """Process a single Sub-Agent task and return structured result.
-    
+
     Args:
         task_detail: task description
         llm: language model instance
-    
+
     Returns:
         AgentResult with execution details
     """
@@ -312,8 +312,8 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
     if is_ctf:
         # CTF Mode: Use CTF_PRESET_TOOLS directly (skip dynamic selection entirely)
         from app.dynamic_agent.core.constants import CTF_PRESET_TOOLS
-        from app.dynamic_agent.tools.builtin.todo_tool import TODO_TOOLS
         from app.dynamic_agent.tools.builtin.think_tool.think_tool import think_tool
+        from app.dynamic_agent.tools.builtin.todo_tool import TODO_TOOLS
 
         tool_instances = []
         # Debug: check what tools are available in registry
@@ -363,14 +363,13 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
             if item not in tool_instances:
                 tool_instances.append(item)
 
-        from ... import final_response
-        from ... import check_iterations
-        if not final_response in tool_instances:
+        from ... import check_iterations, final_response
+        if final_response not in tool_instances:
             tool_instances.append(final_response)
-        if not check_iterations in tool_instances:
+        if check_iterations not in tool_instances:
             tool_instances.append(check_iterations)
 
-        from app.dynamic_agent.tools.core.agent_tool.agent_tool import agent_tool, MAX_AGENT_LEVEL
+        from app.dynamic_agent.tools.core.agent_tool.agent_tool import MAX_AGENT_LEVEL, agent_tool
         if level < MAX_AGENT_LEVEL:
             tool_instances.append(agent_tool)
 
@@ -427,8 +426,8 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
             # Update subtask status to COMPLETED
             if subtask_id and parent_task_id:
                 try:
-                    from app.dynamic_agent.storage.models import TaskStatus
                     from app.dynamic_agent.storage import get_storage_manager
+                    from app.dynamic_agent.storage.models import TaskStatus
                     storage = get_storage_manager()
                     await storage.backend.task_dao.update_task(
                         task_id=subtask_id,
@@ -457,8 +456,8 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
         # Update subtask status to FAILED
         if subtask_id and parent_task_id:
             try:
-                from app.dynamic_agent.storage.models import TaskStatus
                 from app.dynamic_agent.storage import get_storage_manager
+                from app.dynamic_agent.storage.models import TaskStatus
                 storage = get_storage_manager()
                 await storage.backend.task_dao.update_task(
                     task_id=subtask_id,

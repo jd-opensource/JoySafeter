@@ -6,24 +6,21 @@ graph actions (CREATE_NODE, CONNECT_NODES, etc.).
 """
 
 # Import registry functions
-from app.core.copilot.tools.registry import (
-    NodeIdRegistry,
-    get_node_registry,
-    reset_node_registry,
-)
+# Import analysis tool
+from app.core.copilot.tools.analysis import analyze_workflow
 
 # Import context management
 from app.core.copilot.tools.context import (
-    set_current_graph_context,
     get_current_graph_context,
-    set_preloaded_models,
     get_preloaded_models,
+    set_current_graph_context,
+    set_preloaded_models,
 )
 
 # Import core tools
 from app.core.copilot.tools.core import (
-    create_node,
     connect_nodes,
+    create_node,
     delete_node,
     update_config,
 )
@@ -31,18 +28,19 @@ from app.core.copilot.tools.core import (
 # Import layout tool
 from app.core.copilot.tools.layout import auto_layout
 
-# Import analysis tool
-from app.core.copilot.tools.analysis import analyze_workflow
-
 # Import models tool
 from app.core.copilot.tools.models import list_models
+from app.core.copilot.tools.registry import (
+    NodeIdRegistry,
+    get_node_registry,
+    reset_node_registry,
+)
 
 # Import think tool
 from app.core.copilot.tools.think import think
 
 # Import external research tool
 from app.core.tools.buildin.research_tools import tavily_search
-
 
 # List of all Copilot tools
 COPILOT_TOOLS = [

@@ -1,5 +1,5 @@
-from typing import Any, Dict
 import logging
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -8,14 +8,14 @@ logger = logging.getLogger(__name__)
 
 class Wafw00fHandler(AbstractHandler):
     """Handler for wafw00f functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
 
     def commands(self) -> list:
         '''Handler related commands'''
         return ['wafw00f']
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute wafw00f with enhanced logging"""
         try:
@@ -24,9 +24,9 @@ class Wafw00fHandler(AbstractHandler):
             if not target:
                 logger.warning("🛡️ Wafw00f called without target parameter")
                 return {
-    
+
                     "error": "Target parameter is required"
-                
+
                 }
             command = f"wafw00f {target}"
             if additional_args:
@@ -38,7 +38,7 @@ class Wafw00fHandler(AbstractHandler):
         except Exception as e:
             logger.error(f"💥 Error in wafw00f endpoint: {str(e)}")
             return {
-    
+
                 "error": f"Server error: {str(e)}"
-            
+
             }

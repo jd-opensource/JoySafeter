@@ -1,7 +1,7 @@
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any, Dict
 
 import psutil
 
@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 class ProcessDashboardHandler(AbstractHandler):
     """Handler for process_dashboard functionality"""
-    
+
     def type(self) -> HandlerType:
         return HandlerType.PYTHON
-    
+
     def handle(self, data: Dict) -> Any:
         """Execute process_dashboard with enhanced logging"""
         try:

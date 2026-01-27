@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import threading
 from _pydatetime import timedelta
 from contextlib import AsyncExitStack
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 from mcp import ClientSession
@@ -22,7 +21,7 @@ from loguru import logger
 
 def create_no_proxy_httpx_client() -> httpx.AsyncClient:
     """Create an httpx client that bypasses system proxy for local connections.
-    
+
     This is necessary because macOS system proxy settings can interfere with
     local Docker container connections, causing 502 Bad Gateway errors.
     """
@@ -99,7 +98,7 @@ class MultiMCP:
         timeout: float = 30.0,
     ) -> None:
         """Connect to MCP server with retry logic and timeout.
-        
+
         Args:
             stack: AsyncExitStack for resource management
             name: Server name
@@ -121,7 +120,7 @@ class MultiMCP:
                     )
                 read, write = await asyncio.wait_for(
                     stack.enter_async_context(sse_client(
-                        url, 
+                        url,
                         sse_read_timeout=float(os.environ.get("MCP_TOOL_READ_TIMEOUT_SECONDS", 3600)),
                         httpx_client_factory=no_proxy_client_factory
                     )),
@@ -145,7 +144,7 @@ class MultiMCP:
                 logger.warning(f"Connection to {name} failed (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
-        
+
         # All retries exhausted
         raise ConnectionError(
             f"Failed to connect to {name} at {url} after {max_retries} attempts. "
@@ -263,7 +262,7 @@ class MultiMCP:
         - Keeps things permissive for complex/unknown schemas by falling back to `Any`.
         """
         try:
-            from pydantic import BaseModel, create_model
+            from pydantic import create_model
         except Exception as e:
             raise ImportError("pydantic is required to build LangChain arg schemas") from e
 
@@ -281,7 +280,8 @@ class MultiMCP:
             if t == "boolean":
                 return (bool, ...)
             if t == "array":
-                from typing import List as TList, Any as TAny
+                from typing import Any as TAny
+                from typing import List as TList
                 return (TList[TAny], ...)
             if t == "object":
                 return (dict, ...)
@@ -311,7 +311,7 @@ class MultiMCP:
             to avoid `asyncio.run()` restrictions.
         - Optionally appends metadata (server/tool) to the tool description.
         - Each tool call is wrapped with a timeout to prevent hanging.
-        
+
         Args:
             tool_call_timeout: Maximum time in seconds for each individual tool call (default: 30s)
         """

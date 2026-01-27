@@ -5,12 +5,9 @@ Pure parsing/normalization helpers for the CTF knowledge YAML formats.
 This module is intentionally side-effect free (no caches / singletons).
 """
 
-import logging
 from typing import Any
 
 from .models import Trick
-
-from loguru import logger
 
 
 def convert_attack_steps_to_tricks(attack_steps: list[dict[str, Any]]) -> list[Trick]:

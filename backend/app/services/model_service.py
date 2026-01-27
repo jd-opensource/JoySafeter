@@ -86,16 +86,16 @@ class ModelService(BaseService):
             if provider_instance:
                 # 获取该 provider 的凭据（如果有）
                 provider_credentials = credentials_dict.get(provider.name)
-                
+
                 # 获取模型列表
                 model_list = provider_instance.get_model_list(model_type, provider_credentials)
-                
+
                 # 在模型列表中查找匹配的模型
                 matched_model = next(
                     (m for m in model_list if m.get("name") == instance.model_name),
                     None
                 )
-                
+
                 if matched_model:
                     display_name = matched_model.get("display_name", instance.model_name)
                     description = matched_model.get("description", "")
@@ -376,12 +376,12 @@ class ModelService(BaseService):
         - 根据实例的 provider 和参数，通过 create_model_instance 创建模型
         """
         from loguru import logger
-        
+
         logger.debug(
             f"[ModelService.get_runtime_model_by_name] Looking up model | "
             f"model_name={model_name} | workspace_id={workspace_id}"
         )
-        
+
         # 获取模型实例配置（所有用户和工作空间可见）
         instance = await self.repo.get_by_name(model_name, workspace_id)
 
@@ -397,7 +397,7 @@ class ModelService(BaseService):
             raise NotFoundException(
                 f"模型实例不存在: {model_name}。可用的模型: {', '.join(available_model_names[:10])}"
             )
-        
+
         logger.debug(
             f"[ModelService.get_runtime_model_by_name] Found model instance | "
             f"model_name={instance.model_name} | provider={instance.provider.name}"

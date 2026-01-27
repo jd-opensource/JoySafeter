@@ -22,24 +22,24 @@ except ImportError:
     create_deep_agent = None
     logger.warning("[GraphBuilder] deepagents not available, DeepAgents mode will be disabled")
 
+from app.core.agent.sample_agent import get_default_model
 from app.core.graph.node_executors import (
     AgentNodeExecutor,
+    AggregatorNodeExecutor,
     CodeAgentNodeExecutor,
     ConditionNodeExecutor,
     DirectReplyNodeExecutor,
+    FunctionNodeExecutor,
+    HttpRequestNodeExecutor,
+    JSONParserNodeExecutor,
+    LoopConditionNodeExecutor,
     RouterNodeExecutor,
     ToolNodeExecutor,
-    FunctionNodeExecutor,
-    LoopConditionNodeExecutor,
-    AggregatorNodeExecutor,
-    JSONParserNodeExecutor,
-    HttpRequestNodeExecutor,
 )
 from app.core.graph.node_type_registry import NodeTypeRegistry
-from app.models.graph import AgentGraph, GraphNode, GraphEdge
-from app.core.agent.sample_agent import get_default_model
-from app.core.tools.tool_registry import get_global_registry
 from app.core.tools.tool import EnhancedTool
+from app.core.tools.tool_registry import get_global_registry
+from app.models.graph import AgentGraph, GraphEdge, GraphNode
 
 # Constants
 DEFAULT_RECURSION_LIMIT = 200  # Safer default, can be overridden via graph config
@@ -48,11 +48,11 @@ DEFAULT_RECURSION_LIMIT = 200  # Safer default, can be overridden via graph conf
 class BaseGraphBuilder(ABC):
     """
     Base class for graph builders with shared utilities.
-    
+
     Provides common functionality for node/edge management, configuration extraction,
     and graph structure analysis.
     """
-    
+
     def __init__(
         self,
         graph: AgentGraph,
@@ -75,46 +75,46 @@ class BaseGraphBuilder(ABC):
         self.user_id = user_id
         # 可选：提供 ModelService，用于根据 model_name 实例化运行时模型
         self.model_service = model_service
-        
+
         # Build lookup maps
         self._node_map: Dict[uuid.UUID, GraphNode] = {n.id: n for n in nodes}
         self._node_id_to_name: Dict[uuid.UUID, str] = {}
-        
+
         # Build edge lookups
         self._outgoing_edges: Dict[uuid.UUID, List[uuid.UUID]] = {}
         for edge in edges:
             if edge.source_node_id not in self._outgoing_edges:
                 self._outgoing_edges[edge.source_node_id] = []
             self._outgoing_edges[edge.source_node_id].append(edge.target_node_id)
-        
+
         self._incoming_edges: Dict[uuid.UUID, List[uuid.UUID]] = {}
         for edge in edges:
             if edge.target_node_id not in self._incoming_edges:
                 self._incoming_edges[edge.target_node_id] = []
             self._incoming_edges[edge.target_node_id].append(edge.source_node_id)
-    
+
     # ==================== Node Utilities ====================
-    
+
     def _get_node_type(self, node: GraphNode) -> str:
         """Get node type, preferring node.data.type over node.type."""
         data = node.data or {}
         node_type = data.get("type") or node.type
         return node_type or "agent"
-    
+
     def _get_node_name(self, node: GraphNode) -> str:
         """Generate a unique name for a node."""
         data = node.data or {}
         label = data.get("label", "")
         node_type = self._get_node_type(node)
-        
+
         if label:
             name = label.lower().replace(" ", "_").replace("-", "_")
             name = f"{name}_{str(node.id)[:8]}"
         else:
             name = f"{node_type}_{str(node.id)[:8]}"
-        
+
         return name
-    
+
     def _get_node_display_name(self, node: GraphNode) -> str:
         """
         Get the display name for a node.
@@ -136,7 +136,7 @@ class BaseGraphBuilder(ABC):
             return label
 
         return self._node_id_to_name.get(node.id) or self._get_node_name(node)
-    
+
     def _get_system_prompt_from_node(self, node: GraphNode) -> Optional[str]:
         """Extract system prompt from node configuration."""
         if node.prompt:
@@ -144,12 +144,12 @@ class BaseGraphBuilder(ABC):
         data = node.data or {}
         config = data.get("config", {})
         return config.get("systemPrompt", "") or config.get("prompt", "") or None
-    
+
     def _get_direct_children(self, node: GraphNode) -> List[GraphNode]:
         """Get direct child nodes (nodes connected via outgoing edges)."""
         child_ids = self._outgoing_edges.get(node.id, [])
         return [self._node_map[child_id] for child_id in child_ids if child_id in self._node_map]
-    
+
     def _find_start_nodes(self) -> List[GraphNode]:
         """Find nodes that should be connected to START (no incoming edges)."""
         start_nodes = []
@@ -157,7 +157,7 @@ class BaseGraphBuilder(ABC):
             if node.id not in self._incoming_edges or len(self._incoming_edges[node.id]) == 0:
                 start_nodes.append(node)
         return start_nodes
-    
+
     def _find_end_nodes(self) -> List[GraphNode]:
         """Find nodes that should be connected to END (no outgoing edges)."""
         end_nodes = []
@@ -165,7 +165,7 @@ class BaseGraphBuilder(ABC):
             if node.id not in self._outgoing_edges or len(self._outgoing_edges[node.id]) == 0:
                 end_nodes.append(node)
         return end_nodes
-    
+
     def _is_deep_agents_enabled(self, node: GraphNode) -> bool:
         """Check if DeepAgents mode is enabled for a node."""
         if not DEEPAGENTS_AVAILABLE:
@@ -173,14 +173,14 @@ class BaseGraphBuilder(ABC):
         data = node.data or {}
         config = data.get("config", {})
         return config.get("useDeepAgents", False) is True
-    
+
     async def _create_node_executor(self, node: GraphNode, node_name: str) -> Any:
         """Create the appropriate executor based on node type.
-        
+
         Uses NodeTypeRegistry for centralized type management.
         """
         node_type = self._get_node_type(node)
-        
+
         # Try to get executor class from registry first
         executor_class = NodeTypeRegistry.get_executor_class(node_type)
         if executor_class:
@@ -188,18 +188,18 @@ class BaseGraphBuilder(ABC):
             return await self._create_executor_from_registry(
                 executor_class, node, node_name, node_type
             )
-        
+
         # Fallback to manual mapping (for backward compatibility)
         if node_type == "agent":
             # 从节点配置解析模型，确保每个节点使用自己配置的模型
             resolved_model = await self._resolve_node_llm(node)
-            
+
             # 从解析的模型中提取 api_key 和 base_url（如果可用）
             # 从解析的模型中提取凭据信息
             api_key = self.api_key
             base_url = self.base_url
             llm_model = self.llm_model
-            
+
             # 尝试从模型对象中提取凭据信息
             try:
                 if hasattr(resolved_model, 'openai_api_key'):
@@ -213,13 +213,13 @@ class BaseGraphBuilder(ABC):
                     llm_model = resolved_model.model
             except Exception:
                 pass
-            
+
             logger.info(
                 f"[BaseGraphBuilder._create_node_executor] Creating AgentNodeExecutor for node '{node_name}' | "
                 f"resolved_model_type={type(resolved_model).__name__} | "
                 f"llm_model={llm_model} | api_key={'***' if api_key else None} | base_url={base_url}"
             )
-            
+
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
             return AgentNodeExecutor(
                 node, node_name,
@@ -263,11 +263,11 @@ class BaseGraphBuilder(ABC):
             # Default to agent
             # 从节点配置解析模型
             resolved_model = await self._resolve_node_llm(node)
-            
+
             api_key = self.api_key
             base_url = self.base_url
             llm_model = self.llm_model
-            
+
             try:
                 if hasattr(resolved_model, 'openai_api_key'):
                     api_key = resolved_model.openai_api_key
@@ -279,13 +279,13 @@ class BaseGraphBuilder(ABC):
                     llm_model = resolved_model.model
             except Exception:
                 pass
-            
+
             logger.info(
                 f"[BaseGraphBuilder._create_node_executor] Creating AgentNodeExecutor (default) for node '{node_name}' | "
                 f"resolved_model_type={type(resolved_model).__name__} | "
                 f"llm_model={llm_model} | api_key={'***' if api_key else None} | base_url={base_url}"
             )
-            
+
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
             return AgentNodeExecutor(
                 node, node_name,
@@ -298,7 +298,7 @@ class BaseGraphBuilder(ABC):
                 resolved_model=resolved_model,
                 builder=self,
             )
-    
+
     async def _create_executor_from_registry(
         self,
         executor_class: Type,
@@ -313,7 +313,7 @@ class BaseGraphBuilder(ABC):
             api_key = self.api_key
             base_url = self.base_url
             llm_model = self.llm_model
-            
+
             try:
                 if hasattr(resolved_model, 'openai_api_key'):
                     api_key = resolved_model.openai_api_key
@@ -325,7 +325,7 @@ class BaseGraphBuilder(ABC):
                     llm_model = resolved_model.model
             except Exception:
                 pass
-            
+
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
             return AgentNodeExecutor(
                 node, node_name,
@@ -344,7 +344,7 @@ class BaseGraphBuilder(ABC):
             api_key = self.api_key
             base_url = self.base_url
             llm_model = self.llm_model
-            
+
             try:
                 if hasattr(resolved_model, 'openai_api_key'):
                     api_key = resolved_model.openai_api_key
@@ -356,12 +356,12 @@ class BaseGraphBuilder(ABC):
                     llm_model = resolved_model.model
             except Exception:
                 pass
-            
+
             logger.info(
                 f"[BaseGraphBuilder._create_executor_from_registry] Creating CodeAgentNodeExecutor for node '{node_name}' | "
                 f"resolved_model_type={type(resolved_model).__name__}"
             )
-            
+
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
             return CodeAgentNodeExecutor(
                 node, node_name,
@@ -379,16 +379,16 @@ class BaseGraphBuilder(ABC):
         else:
             # 其他执行器只需要 node 和 node_name
             return executor_class(node, node_name)
-    
+
     async def _resolve_node_llm(self, node: GraphNode) -> Any:
         """
         统一解析节点的语言模型配置。
-        
+
         优先策略：
         1. 如果节点配置中同时有 provider_name 和 model_name，使用 ModelService.get_model_instance
         2. 如果只有 model_name，使用 ModelService.get_runtime_model_by_name
         3. 出现异常或未配置时，回退到 get_default_model（环境 / settings 默认）
-        
+
         这个方法可以在子类中被重写以提供不同的解析逻辑。
         """
         data = node.data or {}
@@ -398,7 +398,7 @@ class BaseGraphBuilder(ABC):
         # 同时支持 provider 和 model 两个字段
         provider_name = config.get("provider_name") or config.get("provider")
         model_name = config.get("model_name") or config.get("model") or config.get("name") or self.llm_model
-        
+
         logger.debug(
             f"[BaseGraphBuilder._resolve_node_llm] Resolving model for node_id={node.id} | "
             f"config.provider_name={config.get('provider_name')} | config.provider={config.get('provider')} | "
@@ -412,7 +412,7 @@ class BaseGraphBuilder(ABC):
             try:
                 # workspace 维度从 graph 上下文获取（如有）
                 workspace_id = getattr(self.graph, "workspace_id", None)
-                
+
                 # 如果同时有 provider_name 和 model_name，使用精确匹配
                 if provider_name and model_name:
                     model = await self.model_service.get_model_instance(
@@ -469,7 +469,7 @@ class BaseGraphBuilder(ABC):
                     f"[BaseGraphBuilder._resolve_node_llm] Failed to get default model from database | "
                     f"error={type(e).__name__}: {e} | Falling back to get_default_model"
                 )
-        
+
         # 最后的回退：使用 get_default_model（但应该尽量避免这种情况）
         logger.warning(
             f"[BaseGraphBuilder._resolve_node_llm] Using final fallback get_default_model | "
@@ -482,9 +482,9 @@ class BaseGraphBuilder(ABC):
             base_url=self.base_url,
             max_tokens=self.max_tokens,
         )
-    
+
     # ==================== Tool Resolution Utilities ====================
-    
+
     async def _resolve_tools_from_registry(
         self,
         tools: Optional[List[Any]],
@@ -637,9 +637,9 @@ class BaseGraphBuilder(ABC):
                 resolved.append(tool)
 
         return resolved
-    
+
     # ==================== Middleware Resolution Utilities ====================
-    
+
     async def _resolve_skill_middleware(
         self,
         node: GraphNode,
@@ -678,11 +678,11 @@ class BaseGraphBuilder(ABC):
         # Parse skills configuration
         # Explicitly check if skills is None, empty list, or not a list
         skill_ids_raw = config.get("skills")
-        
+
         # If skills is not configured (None) or empty list, don't enable middleware
         if skill_ids_raw is None:
             return None
-        
+
         # Ensure skills is a list
         if not isinstance(skill_ids_raw, list):
             logger.warning(
@@ -690,7 +690,7 @@ class BaseGraphBuilder(ABC):
                 f"for node '{data.get('label', 'unknown')}'"
             )
             return None
-        
+
         # If skills list is empty, don't enable middleware
         if len(skill_ids_raw) == 0:
             return None
@@ -724,7 +724,7 @@ class BaseGraphBuilder(ABC):
 
         try:
             from deepagents.middleware.skills import SkillsMiddleware
-            
+
             # Use deepagents SkillsMiddleware
             # Skills should already be preloaded to /workspace/skills/ via SkillSandboxLoader
             skills_middleware = SkillsMiddleware(
@@ -750,7 +750,7 @@ class BaseGraphBuilder(ABC):
                 f"Skills will not be loaded for node '{data.get('label', 'unknown')}'."
             )
             return None
-    
+
     async def _resolve_memory_middleware(
         self,
         node: GraphNode,
@@ -766,8 +766,8 @@ class BaseGraphBuilder(ABC):
         Returns:
             AgentMemoryIterationMiddleware instance if memory is enabled, None otherwise
         """
-        from app.core.agent.midware.memory_iteration_with_db import AgentMemoryIterationMiddleware
         from app.core.agent.memory.manager import MemoryManager
+        from app.core.agent.midware.memory_iteration_with_db import AgentMemoryIterationMiddleware
         from app.services.memory_service import MemoryService
 
         # Use instance user_id if not provided
@@ -861,7 +861,7 @@ class BaseGraphBuilder(ABC):
                 f"for node '{data.get('label', 'unknown')}': {e}"
             )
             return None
-    
+
     async def resolve_middleware_for_node(
         self,
         node: GraphNode,
@@ -908,7 +908,7 @@ class BaseGraphBuilder(ABC):
         # Each resolver should return Optional[Any] (middleware instance or None)
         async def resolve_skill(node, uid, db_factory):
             return await self._resolve_skill_middleware(node, uid, db_factory, backend)
-        
+
         async def resolve_memory(node, uid, db_factory):
             return await self._resolve_memory_middleware(node, uid)
 
@@ -933,9 +933,9 @@ class BaseGraphBuilder(ABC):
                 )
 
         return middleware
-    
+
     # ==================== Configuration Utilities ====================
-    
+
     def _get_recursion_limit(self) -> int:
         """
         Get the recursion limit from graph config or use default.
@@ -951,32 +951,32 @@ class BaseGraphBuilder(ABC):
             if isinstance(config, dict):
                 return config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)
         return DEFAULT_RECURSION_LIMIT
-    
+
     # ==================== Graph Validation ====================
-    
+
     def validate_graph_structure(self) -> List[str]:
         """
         Validate graph structure at compile time.
-        
+
         Checks:
         - Router nodes have all branches connected
         - Handle ID to route_key mappings are complete
         - Loop structures are valid
         - No isolated nodes
         - No invalid routes
-        
+
         Returns:
             List of validation error messages (empty if valid)
         """
         errors = []
-        
+
         # Check for isolated nodes (no incoming or outgoing edges)
         # Skip this check for single-node graphs - they are valid as START → Node → END
         if len(self.nodes) > 1:
             node_ids = {node.id for node in self.nodes}
             nodes_with_incoming = {edge.target_node_id for edge in self.edges}
             nodes_with_outgoing = {edge.source_node_id for edge in self.edges}
-            
+
             isolated_nodes = node_ids - nodes_with_incoming - nodes_with_outgoing
             if isolated_nodes:
                 for node_id in isolated_nodes:
@@ -984,7 +984,7 @@ class BaseGraphBuilder(ABC):
                     if node:
                         label = (node.data or {}).get("label", str(node_id))
                         errors.append(f"Isolated node found: '{label}' (no incoming or outgoing edges)")
-        
+
         # Validate router nodes
         for node in self.nodes:
             node_type = self._get_node_type(node)
@@ -994,7 +994,7 @@ class BaseGraphBuilder(ABC):
                 if not router_edges:
                     label = (node.data or {}).get("label", str(node.id))
                     errors.append(f"Router node '{label}' has no outgoing edges")
-                
+
                 # Check that edges have route_key or source_handle_id
                 for edge in router_edges:
                     edge_data = edge.data or {}
@@ -1003,7 +1003,7 @@ class BaseGraphBuilder(ABC):
                         errors.append(
                             f"Router node '{label}' has edge without route_key or source_handle_id"
                         )
-        
+
         # Validate loop condition nodes
         for node in self.nodes:
             node_type = self._get_node_type(node)
@@ -1071,29 +1071,29 @@ class BaseGraphBuilder(ABC):
 
         visited.remove(node_key)
         return False
-    
+
     def validate_handle_to_route_mapping(self) -> List[str]:
         """
         Validate that React Flow Handle IDs map correctly to route keys.
-        
+
         Returns:
             List of validation error messages (empty if valid)
         """
         errors = []
-        
+
         for node in self.nodes:
             node_type = self._get_node_type(node)
             if node_type in ["router_node", "condition"]:
                 # Collect edges from this node
                 node_edges = [e for e in self.edges if e.source_node_id == node.id]
-                
+
                 # Check handle_id to route_key consistency
                 handle_to_route = {}
                 for edge in node_edges:
                     edge_data = edge.data or {}
                     handle_id = edge_data.get("source_handle_id")
                     route_key = edge_data.get("route_key")
-                    
+
                     if handle_id and route_key:
                         if handle_id in handle_to_route:
                             if handle_to_route[handle_id] != route_key:
@@ -1104,9 +1104,9 @@ class BaseGraphBuilder(ABC):
                                 )
                         else:
                             handle_to_route[handle_id] = route_key
-        
+
         return errors
-    
+
     @abstractmethod
     def build(self) -> CompiledStateGraph:
         """Build and compile the StateGraph. Must be implemented by subclasses."""

@@ -4,14 +4,13 @@ HexStrike AI - Tool Executor
 Core command execution engine with caching and monitoring
 """
 
-import re
-from typing import Dict, Any, Optional
 import logging
+import re
 import subprocess
-import time
 import threading
+import time
 import traceback
-from datetime import datetime
+from typing import Any, Dict, Optional
 
 from dynamic_engine.mcp.config import COMMAND_TIMEOUT
 from dynamic_engine.runtime.command.process_manager import ProcessManager

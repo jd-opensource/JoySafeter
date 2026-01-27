@@ -3,14 +3,13 @@ Tool routes for web visualization.
 Currently uses MOCK data.
 """
 
-import logging
 from typing import List
+
 from fastapi import APIRouter, HTTPException
-
-from app.dynamic_agent.web.models import ToolInfo
-from app.dynamic_agent.web.mock_data import get_mock_tools, get_mock_tool_by_name
-
 from loguru import logger
+
+from app.dynamic_agent.web.mock_data import get_mock_tool_by_name, get_mock_tools
+from app.dynamic_agent.web.models import ToolInfo
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 

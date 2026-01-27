@@ -5,27 +5,28 @@ Provides centralized registry for node types, mapping between frontend and backe
 and metadata about node capabilities.
 """
 
-from typing import Dict, Optional, Type, Any
+from typing import Dict, Optional, Type
+
 from loguru import logger
 
 from app.core.graph.node_executors import (
     AgentNodeExecutor,
+    AggregatorNodeExecutor,
     CodeAgentNodeExecutor,
     ConditionNodeExecutor,
     DirectReplyNodeExecutor,
+    FunctionNodeExecutor,
+    HttpRequestNodeExecutor,
+    JSONParserNodeExecutor,
+    LoopConditionNodeExecutor,
     RouterNodeExecutor,
     ToolNodeExecutor,
-    FunctionNodeExecutor,
-    LoopConditionNodeExecutor,
-    AggregatorNodeExecutor,
-    JSONParserNodeExecutor,
-    HttpRequestNodeExecutor,
 )
 
 
 class NodeTypeMetadata:
     """节点类型元数据。"""
-    
+
     def __init__(
         self,
         executor_class: Type,
@@ -45,7 +46,7 @@ class NodeTypeMetadata:
 
 class NodeTypeRegistry:
     """节点类型注册表，统一管理前后端节点类型映射。"""
-    
+
     _registry: Dict[str, NodeTypeMetadata] = {
         "agent": NodeTypeMetadata(
             executor_class=AgentNodeExecutor,
@@ -136,42 +137,42 @@ class NodeTypeRegistry:
             description="Enhanced HTTP request node with retry and auth",
         ),
     }
-    
+
     @classmethod
     def get_metadata(cls, node_type: str) -> Optional[NodeTypeMetadata]:
         """获取节点类型元数据。"""
         return cls._registry.get(node_type)
-    
+
     @classmethod
     def get_executor_class(cls, node_type: str) -> Optional[Type]:
         """获取节点执行器类。"""
         metadata = cls.get_metadata(node_type)
         return metadata.executor_class if metadata else None
-    
+
     @classmethod
     def get_frontend_type(cls, node_type: str) -> Optional[str]:
         """获取前端节点类型。"""
         metadata = cls.get_metadata(node_type)
         return metadata.frontend_type if metadata else None
-    
+
     @classmethod
     def is_loop_body_supported(cls, node_type: str) -> bool:
         """检查节点类型是否支持作为循环体。"""
         metadata = cls.get_metadata(node_type)
         return metadata.supports_loop_body if metadata else True  # 默认支持
-    
+
     @classmethod
     def is_parallel_supported(cls, node_type: str) -> bool:
         """检查节点类型是否支持并行执行。"""
         metadata = cls.get_metadata(node_type)
         return metadata.supports_parallel if metadata else True  # 默认支持
-    
+
     @classmethod
     def requires_handle_mapping(cls, node_type: str) -> bool:
         """检查节点类型是否需要 Handle ID 映射。"""
         metadata = cls.get_metadata(node_type)
         return metadata.requires_handle_mapping if metadata else False
-    
+
     @classmethod
     def register_node_type(
         cls,
@@ -193,12 +194,12 @@ class NodeTypeRegistry:
             description=description,
         )
         logger.info(f"[NodeTypeRegistry] Registered new node type: {node_type}")
-    
+
     @classmethod
     def list_all_types(cls) -> Dict[str, NodeTypeMetadata]:
         """列出所有注册的节点类型。"""
         return cls._registry.copy()
-    
+
     @classmethod
     def validate_node_type(cls, node_type: str) -> bool:
         """验证节点类型是否已注册。"""

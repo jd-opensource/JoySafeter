@@ -27,10 +27,10 @@ async def stream_deepagents_actions(
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     流式生成 DeepAgents Copilot actions。
-    
+
     直接调用 manager.stream_copilot_manager 并透传事件。
     凭据自动从环境变量获取（OPENAI_API_KEY）。
-    
+
     Yields SSE 事件（与现有 Copilot 兼容）:
         - status: {type, stage, message}
         - content: {type, content}
@@ -41,9 +41,9 @@ async def stream_deepagents_actions(
         - error: {type, message}
     """
     from .manager import stream_copilot_manager
-    
+
     logger.info(f"[DeepAgentsStreaming] Starting stream graph_id={graph_id} user_id={user_id}")
-    
+
     async for event in stream_copilot_manager(
         user_prompt=prompt,
         graph_context=graph_context,
@@ -55,5 +55,5 @@ async def stream_deepagents_actions(
         conversation_history=conversation_history,
     ):
         yield event
-    
+
     logger.info(f"[DeepAgentsStreaming] Completed stream graph_id={graph_id}")

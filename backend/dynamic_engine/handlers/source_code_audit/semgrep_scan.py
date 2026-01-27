@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from dynamic_engine.mcp.handler import AbstractHandler, HandlerType
 from dynamic_engine.runtime.command.command_executor import execute_command
@@ -87,7 +87,7 @@ class SemgrepHandler(AbstractHandler):
             logger.debug(f"Command: {command}")
 
             # Execute scan
-            result = execute_command(command, timeout=timeout + 60)
+            execute_command(command, timeout=timeout + 60)
 
             # Parse JSON output
             findings = []

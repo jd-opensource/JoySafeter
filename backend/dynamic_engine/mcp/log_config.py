@@ -6,7 +6,9 @@ Centralized logging setup with fallback handling
 
 import logging
 import sys
-from .config import LOG_LEVEL, LOG_FILE, LOG_FORMAT
+
+from .config import LOG_FILE, LOG_FORMAT, LOG_LEVEL
+
 
 def setup_logging():
     """Configure logging with fallback for permission issues"""
@@ -28,7 +30,7 @@ def setup_logging():
                 logging.StreamHandler(sys.stdout)
             ]
         )
-    
+
     return logging.getLogger(__name__)
 
 # Initialize logger

@@ -3,10 +3,9 @@ Data models for web API responses
 Defines Pydantic models for serializing execution data
 """
 
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
 
 # ==================== Execution Status ====================
 
@@ -27,7 +26,7 @@ class ToolInfo(BaseModel):
     description: str = Field(..., description="Tool description")
     category: str = Field(..., description="Tool category (e.g., 'network_scanning')")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="Tool parameters schema")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -60,7 +59,7 @@ class ToolInvocationResponse(BaseModel):
     error_message: Optional[str] = Field(None, description="Error message if failed")
     is_agent_tool: bool = Field(False, description="Whether this tool spawns child agents")
     child_agent_id: Optional[str] = Field(None, description="ID of child agent if is_agent_tool")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -101,7 +100,7 @@ class AgentResponse(BaseModel):
     output: Optional[Dict[str, Any]] = Field(None, description="Final output")
     error_message: Optional[str] = Field(None, description="Error message if failed")
     success_rate: Optional[float] = Field(None, description="Success rate percentage")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -143,7 +142,7 @@ class ExecutionTreeResponse(BaseModel):
     execution_end_time: int = Field(..., description="Unix timestamp in milliseconds")
     created_at: int = Field(..., description="Creation timestamp in milliseconds")
     max_depth: Optional[int] = Field(None, description="Maximum nesting depth")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -174,7 +173,7 @@ class TaskBasicResponse(BaseModel):
     completed_at: Optional[str] = Field(None, description="ISO format completion timestamp")
     result_summary: Optional[str] = Field(None, description="Task result summary")
     metadata: dict = Field(default_factory=dict, description="Task metadata")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -207,7 +206,7 @@ class TaskSummaryResponse(BaseModel):
     tool_count: int = Field(..., description="Number of tools")
     success_rate: float = Field(..., description="Success rate percentage")
     error_message: Optional[str] = Field(None, description="Error message if failed")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -267,7 +266,7 @@ class ChatMessageResponse(BaseModel):
     message_type: str = Field(default="text", description="Message type: text|tool_call|tool_result|intermediate")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     task_id: Optional[str] = Field(default=None, description="Associated task ID for user messages")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -289,7 +288,7 @@ class SessionDetailsResponse(BaseModel):
     session: SessionResponse = Field(..., description="Session information")
     messages: List[ChatMessageResponse] = Field(default_factory=list, description="Chat messages")
     tasks: List[TaskBasicResponse] = Field(default_factory=list, description="Tasks in session")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -307,7 +306,7 @@ class SessionListResponse(BaseModel):
     user_id: str = Field(..., description="User ID")
     sessions: List[SessionResponse] = Field(default_factory=list, description="Sessions")
     total_count: int = Field(..., description="Total number of sessions")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -323,7 +322,7 @@ class TaskListResponse(BaseModel):
     session_id: str = Field(..., description="Session ID")
     tasks: List[TaskSummaryResponse] = Field(default_factory=list, description="Tasks")
     total_count: int = Field(..., description="Total number of tasks")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -341,7 +340,7 @@ class ErrorResponse(BaseModel):
     error: str = Field(..., description="Error message")
     detail: Optional[str] = Field(None, description="Error details")
     timestamp: str = Field(..., description="ISO format timestamp")
-    
+
     class Config:
         json_schema_extra = {
             "example": {

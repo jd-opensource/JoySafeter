@@ -10,22 +10,22 @@ import time
 from typing import Dict, Optional
 from uuid import UUID
 
+from loguru import logger
+
 from app.dynamic_agent.observability.tracking_events import (
-    TrackingEvent,
-    TrackingEventType,
-    ToolStartEvent,
+    ChatModelEndEvent,
+    ChatModelStartEvent,
+    LLMEndEvent,
+    LLMStartEvent,
     ToolEndEvent,
     ToolErrorEvent,
-    LLMStartEvent,
-    LLMEndEvent,
-    ChatModelStartEvent,
-    ChatModelEndEvent,
+    ToolStartEvent,
+    TrackingEvent,
+    TrackingEventType,
     get_tracking_queue,
 )
 from app.dynamic_agent.storage.models import ExecutionStepStatus, ExecutionStepType
 from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
-
-from loguru import logger
 
 
 class TrackingEventProcessor:

@@ -14,21 +14,19 @@ from uuid import UUID, uuid4
 
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import BaseMessage
+from loguru import logger
 
 from app.dynamic_agent.infra.metadata_context import MetadataContext
 from app.dynamic_agent.observability.tracking_events import (
-    ToolStartEvent,
+    ChatModelEndEvent,
+    ChatModelStartEvent,
+    LLMEndEvent,
+    LLMStartEvent,
     ToolEndEvent,
     ToolErrorEvent,
-    LLMStartEvent,
-    LLMEndEvent,
-    ChatModelStartEvent,
-    ChatModelEndEvent,
+    ToolStartEvent,
     get_tracking_queue,
 )
-
-from loguru import logger
-
 
 # Global counter for task iteration counts (task_id -> count)
 _task_iteration_counts: Dict[UUID, int] = {}

@@ -3,8 +3,6 @@ from typing import Type, Union
 
 from pydantic import BaseModel
 
-from loguru import logger
-
 
 def get_json_output_prompt(output_schema: Union[str, list, BaseModel]) -> str:
     """Return the JSON output prompt for the Agent.

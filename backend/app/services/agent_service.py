@@ -10,14 +10,13 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AgentToolMap
 from app.core.tools.buildin import time_tools
 from app.core.tools.tool_registry import get_global_registry
-from app.services.mcp_server_service import McpServerService
+from app.models import AgentToolMap
 
 
 async def resolve_tools_for_agent(
-    db: AsyncSession, 
+    db: AsyncSession,
     agent_id: int,
     user_id: Optional[str] = None
 ) -> List[Any]:
@@ -48,7 +47,7 @@ async def resolve_tools_for_agent(
     # Validate MCP servers if we have MCP tools
     mcp_tool_ids = [row.tool_name for row in rows if row.source == "mcp"]
     valid_servers: set[str] = set()
-    
+
     if mcp_tool_ids and user_id:
         # Parse server names from MCP tool IDs (format: server_name::tool_name)
         server_names = set()
@@ -57,7 +56,7 @@ async def resolve_tools_for_agent(
                 server_name = tool_id.split("::", 1)[0].strip()
                 if server_name:
                     server_names.add(server_name)
-        
+
         # Validate servers exist and are enabled
         if server_names:
             from app.core.agent.node_tools import _validate_mcp_servers
@@ -77,7 +76,7 @@ async def resolve_tools_for_agent(
                 tools.append(tool_obj)
             elif row.source == "mcp":
                 from app.core.tools.mcp_tool_utils import resolve_mcp_tool_from_string
-                
+
                 if user_id:
                     # 使用实例验证获取工具
                     tool = await resolve_mcp_tool_from_string(row.tool_name, user_id, db)
@@ -89,7 +88,7 @@ async def resolve_tools_for_agent(
                         tool = registry.get_mcp_tool(server_name, tool_name)
                     else:
                         tool = None
-                
+
                 if tool:
                     tools.append(tool)
                 else:

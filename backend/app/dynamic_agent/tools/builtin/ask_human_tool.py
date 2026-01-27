@@ -5,11 +5,8 @@ Allows the Agent to pause and request specific information from the user
 when automated approaches have failed.
 """
 
-import logging
-from typing import Optional
 
 from langchain_core.tools import tool
-
 from loguru import logger
 
 
@@ -44,7 +41,7 @@ def ask_human(
         )
     """
     logger.info(f"🙋 Human intervention requested: {question}")
-    
+
     # Format the request for display
     request_msg = f"""
 ╭─────────────────────────────────────────────────────────────────╮
@@ -64,9 +61,9 @@ def ask_human(
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Please provide the requested information below:
 """
-    
+
     print(request_msg)
-    
+
     try:
         # Check if stdin is interactive
         import sys
@@ -90,7 +87,7 @@ AGENT MUST STOP HERE. Do not continue with guesses or workarounds.
             print(stop_msg)
             logger.warning("Agent stopped - human intervention required in non-interactive mode")
             return "⛔ STOP: Human intervention required. Agent must stop here. Do not continue guessing or trying other methods. Please run in interactive mode or provide the required information."
-        
+
         # Interactive mode - read user input (supports multi-line)
         # User can paste multiple lines, end with empty line or Ctrl+D
         print("Your input (end with empty line or Ctrl+D):")
@@ -103,15 +100,15 @@ AGENT MUST STOP HERE. Do not continue with guesses or workarounds.
                 lines.append(line)
         except EOFError:
             pass  # Ctrl+D ends input
-        
+
         user_input = "\n".join(lines).strip()
-        
+
         if not user_input:
             return "User did not provide information. Please continue trying other methods or ask again later."
-        
+
         logger.info(f"✅ Human provided: {user_input[:100]}...")
         return f"Information provided by user: {user_input}"
-        
+
     except EOFError:
         # Stdin closed unexpectedly
         return "⛔ STOP: stdin closed, human intervention required. Agent must stop."

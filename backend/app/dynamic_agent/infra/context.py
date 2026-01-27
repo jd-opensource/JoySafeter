@@ -1,8 +1,7 @@
-import logging
+from loguru import logger
+
 from app.dynamic_agent.infra.docker import UnifiedDockerManager
 from app.dynamic_agent.infra.tool_registry import ToolRegistry
-
-from loguru import logger
 
 tool_registry: ToolRegistry = ToolRegistry()
 

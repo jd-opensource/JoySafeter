@@ -2,14 +2,14 @@ import weakref
 from dataclasses import asdict
 from datetime import timedelta
 from typing import Any, Literal, Optional, Union
+
+from loguru import logger
 from pydantic import BaseModel
 
-from app.core.tools.toolkit import Toolkit
 from app.core.tools.mcp.params import SSEClientParams, StreamableHTTPClientParams
-from loguru import logger
-from app.utils.mcp import get_entrypoint_for_tool, prepare_command
-
 from app.core.tools.tool import EnhancedTool, ToolMetadata, ToolSourceType
+from app.core.tools.toolkit import Toolkit
+from app.utils.mcp import get_entrypoint_for_tool, prepare_command
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -231,7 +231,7 @@ class MCPTools(Toolkit):
 
     async def close(self) -> None:
         """Close the MCP connection and clean up resources
-        
+
         Note: This method handles the case where the connection was created
         in a different asyncio task than the one closing it. In such cases,
         anyio's cancel scopes will raise an error which we handle gracefully.
@@ -241,7 +241,7 @@ class MCPTools(Toolkit):
 
         # Mark as not initialized first to prevent concurrent usage
         self._initialized = False
-        
+
         # Try to close the session context first
         if self._session_context is not None:
             try:
@@ -272,7 +272,7 @@ class MCPTools(Toolkit):
                 logger.warning(f"Error closing transport context: {e}")
             finally:
                 self._context = None
-        
+
         # Clear active contexts list
         self._active_contexts.clear()
 

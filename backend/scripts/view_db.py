@@ -9,22 +9,20 @@ PostgreSQL 数据库查看工具
     python scripts/view_db.py users --where "id = 'xxx'"  # 条件查询
     python scripts/view_db.py --sql "SELECT * FROM users LIMIT 5"  # 执行自定义 SQL
 """
-import sys
-from pathlib import Path
-from typing import Optional, List, Dict, Any
 import argparse
-from datetime import datetime
 import socket
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from sqlalchemy import inspect, text, MetaData, create_engine
-from sqlalchemy.engine import Result, Engine
+
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
-from sqlalchemy.orm import Session
-import textwrap
 
 from app.core.settings import settings
 
@@ -75,47 +73,47 @@ def _maybe_fix_localhost_port(database_url: str) -> str:
 
 class DatabaseViewer:
     """数据库查看工具"""
-    
+
     def __init__(self, database_url: str):
         self.database_url = database_url
         # 使用同步引擎（更简单，适合查看工具）
         self.engine = create_engine(database_url, echo=False)
-    
+
     def close(self):
         """关闭数据库连接"""
         self.engine.dispose()
-    
+
     def list_tables(self) -> List[str]:
         """列出所有表名"""
         with self.engine.connect() as conn:
             # 使用 PostgreSQL 的 information_schema 查询所有用户表
             result = conn.execute(text("""
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public' 
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
                 AND table_type = 'BASE TABLE'
                 ORDER BY table_name
             """))
             tables = [row[0] for row in result.fetchall()]
         return tables
-    
+
     def get_table_info(self, table_name: str) -> Dict[str, Any]:
         """获取表的详细信息（列、类型、约束等）"""
         with self.engine.connect() as conn:
             # 获取列信息
             columns_result = conn.execute(text("""
-                SELECT 
+                SELECT
                     column_name,
                     data_type,
                     character_maximum_length,
                     is_nullable,
                     column_default
                 FROM information_schema.columns
-                WHERE table_schema = 'public' 
+                WHERE table_schema = 'public'
                 AND table_name = :table_name
                 ORDER BY ordinal_position
             """), {"table_name": table_name})
-            
+
             columns = []
             for row in columns_result.fetchall():
                 col_type = row[1]
@@ -127,20 +125,20 @@ class DatabaseViewer:
                     "nullable": row[3] == "YES",
                     "default": row[4],
                 })
-            
+
             # 获取主键信息
             pk_result = conn.execute(text("""
                 SELECT column_name
                 FROM information_schema.table_constraints tc
-                JOIN information_schema.constraint_column_usage AS ccu 
+                JOIN information_schema.constraint_column_usage AS ccu
                     ON tc.constraint_name = ccu.constraint_name
                     AND tc.table_schema = ccu.table_schema
-                WHERE tc.constraint_type = 'PRIMARY KEY' 
+                WHERE tc.constraint_type = 'PRIMARY KEY'
                 AND tc.table_schema = 'public'
                 AND tc.table_name = :table_name
             """), {"table_name": table_name})
             primary_keys = [row[0] for row in pk_result.fetchall()]
-            
+
             # 获取外键信息
             fk_result = conn.execute(text("""
                 SELECT
@@ -162,7 +160,7 @@ class DatabaseViewer:
                 {"column": row[0], "references": f"{row[1]}.{row[2]}"}
                 for row in fk_result.fetchall()
             ]
-            
+
             # 获取索引信息
             index_result = conn.execute(text("""
                 SELECT
@@ -173,11 +171,11 @@ class DatabaseViewer:
                 AND tablename = :table_name
             """), {"table_name": table_name})
             indexes = [{"name": row[0], "definition": row[1]} for row in index_result.fetchall()]
-            
+
             # 获取行数
             count_result = conn.execute(text(f'SELECT COUNT(*) FROM "{table_name}"'))
             row_count = count_result.scalar()
-            
+
             return {
                 "columns": columns,
                 "primary_keys": primary_keys,
@@ -185,10 +183,10 @@ class DatabaseViewer:
                 "indexes": indexes,
                 "row_count": row_count,
             }
-    
+
     def get_table_data(
-        self, 
-        table_name: str, 
+        self,
+        table_name: str,
         limit: int = 100,
         offset: int = 0,
         where: Optional[str] = None
@@ -197,17 +195,17 @@ class DatabaseViewer:
         with self.engine.connect() as conn:
             query = f'SELECT * FROM "{table_name}"'
             params = {}
-            
+
             if where:
                 query += f" WHERE {where}"
-            
-            query += f" LIMIT :limit OFFSET :offset"
+
+            query += " LIMIT :limit OFFSET :offset"
             params.update({"limit": limit, "offset": offset})
-            
+
             result = conn.execute(text(query), params)
             rows = result.fetchall()
             columns = result.keys()
-            
+
             data = []
             for row in rows:
                 row_dict = {}
@@ -220,19 +218,19 @@ class DatabaseViewer:
                     else:
                         row_dict[col] = str(val)
                 data.append(row_dict)
-            
+
             return data
-    
+
     def execute_sql(self, sql: str) -> tuple[List[str], List[Dict[str, Any]]]:
         """执行自定义 SQL 查询"""
         with self.engine.connect() as conn:
             result = conn.execute(text(sql))
-            
+
             # 如果是 SELECT 查询，返回结果
             if result.returns_rows:
                 rows = result.fetchall()
                 columns = list(result.keys())
-                
+
                 data = []
                 for row in rows:
                     row_dict = {}
@@ -244,7 +242,7 @@ class DatabaseViewer:
                         else:
                             row_dict[col] = str(val)
                     data.append(row_dict)
-                
+
                 return columns, data
             else:
                 # 对于非 SELECT 查询（INSERT, UPDATE, DELETE 等）
@@ -256,16 +254,16 @@ def print_table_list(tables: List[str]):
     print("\n" + "=" * 60)
     print("数据库表列表")
     print("=" * 60)
-    
+
     if not tables:
         print("数据库中没有表")
         return
-    
+
     print(f"{'序号':<6} {'表名':<50}")
     print("-" * 60)
     for idx, table_name in enumerate(tables, 1):
         print(f"{idx:<6} {table_name:<50}")
-    
+
     print("-" * 60)
     print(f"共 {len(tables)} 个表\n")
 
@@ -275,7 +273,7 @@ def print_table_info(table_name: str, info: Dict[str, Any]):
     print("\n" + "=" * 80)
     print(f"表: {table_name}")
     print("=" * 80)
-    
+
     # 列信息
     print("\n列信息:")
     print(f"{'列名':<30} {'类型':<25} {'可空':<8} {'默认值':<30}")
@@ -284,17 +282,17 @@ def print_table_info(table_name: str, info: Dict[str, Any]):
         nullable = "是" if col["nullable"] else "否"
         default = (col["default"] or "-")[:28]
         print(f"{col['name']:<30} {col['type']:<25} {nullable:<8} {default:<30}")
-    
+
     # 主键
     if info["primary_keys"]:
         print(f"\n主键: {', '.join(info['primary_keys'])}")
-    
+
     # 外键
     if info["foreign_keys"]:
         print("\n外键:")
         for fk in info["foreign_keys"]:
             print(f"  {fk['column']} → {fk['references']}")
-    
+
     # 索引
     if info["indexes"]:
         print(f"\n索引 ({len(info['indexes'])} 个):")
@@ -302,7 +300,7 @@ def print_table_info(table_name: str, info: Dict[str, Any]):
             print(f"  • {idx['name']}")
         if len(info["indexes"]) > 10:
             print(f"  ... 还有 {len(info['indexes']) - 10} 个索引")
-    
+
     # 行数
     print(f"\n数据行数: {info['row_count']}\n")
 
@@ -312,14 +310,14 @@ def print_table_data(table_name: str, data: List[Dict[str, Any]], columns: Optio
     if not data:
         print("没有数据\n")
         return
-    
+
     if columns is None:
         columns = list(data[0].keys()) if data else []
-    
+
     # 计算列宽（限制最大宽度）
     col_widths = {}
     max_col_width = 40
-    
+
     for col in columns:
         # 列名宽度
         col_width = len(col)
@@ -328,12 +326,12 @@ def print_table_data(table_name: str, data: List[Dict[str, Any]], columns: Optio
             val = str(row.get(col, ""))[:max_col_width]
             col_width = max(col_width, len(val))
         col_widths[col] = min(col_width, max_col_width)
-    
+
     # 打印表头
     header = " | ".join(f"{col:<{col_widths[col]}}" for col in columns)
     print(header)
     print("-" * len(header))
-    
+
     # 打印数据行
     for row in data:
         values = []
@@ -341,7 +339,7 @@ def print_table_data(table_name: str, data: List[Dict[str, Any]], columns: Optio
             val = str(row.get(col, ""))[:max_col_width]
             values.append(f"{val:<{col_widths[col]}}")
         print(" | ".join(values))
-    
+
     print(f"\n显示 {len(data)} 条记录\n")
 
 
@@ -389,12 +387,12 @@ def main():
         default=None,
         help="覆盖配置中的数据库连接 URL（例如: postgresql+asyncpg://user:pass@localhost:5432/dbname）。默认从 POSTGRES_* 环境变量构建"
     )
-    
+
     args = parser.parse_args()
-    
+
     # 使用同步数据库 URL
     database_url = args.database_url or settings.database_url
-    
+
     # 如果使用 asyncpg（异步驱动），需要转换为同步驱动
     if "+asyncpg" in database_url:
         database_url = database_url.replace("+asyncpg", "")
@@ -424,9 +422,9 @@ def main():
 
     # 常见本地开发坑：docker 实际映射到 5432，但 .env 里写了 5432 / 其他端口
     database_url = _maybe_fix_localhost_port(database_url)
-    
+
     viewer = DatabaseViewer(database_url)
-    
+
     try:
         if args.sql:
             # 执行自定义 SQL
@@ -436,15 +434,15 @@ def main():
                 print_table_data("查询结果", data, columns)
             else:
                 print("✓ SQL 执行成功\n")
-        
+
         elif args.table:
             # 查看指定表
             table_name = args.table
-            
+
             # 获取表信息
             info = viewer.get_table_info(table_name)
             print_table_info(table_name, info)
-            
+
             # 获取数据（如果不是仅查看结构）
             if not args.info_only:
                 data = viewer.get_table_data(
@@ -454,19 +452,19 @@ def main():
                     where=args.where
                 )
                 print_table_data(table_name, data)
-        
+
         else:
             # 列出所有表
             tables = viewer.list_tables()
             print_table_list(tables)
-    
+
     except Exception as e:
         print(f"\n❌ 错误: {e}\n")
         import traceback
         if args.sql or (args.table and not args.info_only):
             traceback.print_exc()
         sys.exit(1)
-    
+
     finally:
         viewer.close()
 

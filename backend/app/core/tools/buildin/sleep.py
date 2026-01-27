@@ -1,7 +1,8 @@
 import time
 
-from app.core.tools.toolkit import Toolkit
 from loguru import logger
+
+from app.core.tools.toolkit import Toolkit
 
 
 class SleepTools(Toolkit):

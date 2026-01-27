@@ -5,13 +5,15 @@
 """
 from datetime import datetime, timedelta
 from typing import Any, Dict
+
 from langchain_core.tools import tool
+
 
 @tool
 def get_current_time() -> str:
     """
     获取当前系统时间
-    
+
     Returns:
         str: 当前时间的字符串表示，格式为 YYYY-MM-DD HH:MM:SS
     """
@@ -22,10 +24,10 @@ def get_current_time() -> str:
 def calculate_date_offset(days: str) -> str:
     """
     根据当前时间计算指定天数后的日期
-    
+
     Args:
         days (str): 要加减的天数，正数表示未来，负数表示过去
-        
+
     Returns:
         str: 计算后的日期字符串，格式为 YYYY-MM-DD HH:MM:SS
     """
@@ -43,7 +45,7 @@ def calculate_date_offset(days: str) -> str:
 def get_time_info() -> Dict[str, Any]:
     """
     获取详细的时间信息
-    
+
     Returns:
         Dict[str, Any]: 包含各种时间格式的字典
     """

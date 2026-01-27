@@ -2,16 +2,21 @@
 Uses real database data.
 """
 
-import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, Depends
-import asyncpg
 
-from app.dynamic_agent.web.models import SessionListResponse, SessionDetailsResponse, SessionResponse, ChatMessageResponse, TaskBasicResponse
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
+
 from app.dynamic_agent.storage.persistence.daos.session_dao import SessionDAO
 from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
-
-from loguru import logger
+from app.dynamic_agent.web.models import (
+    ChatMessageResponse,
+    SessionDetailsResponse,
+    SessionListResponse,
+    SessionResponse,
+    TaskBasicResponse,
+)
 
 router = APIRouter(prefix="/users/{user_id}/sessions", tags=["sessions"])
 
@@ -39,17 +44,17 @@ async def get_user_sessions(
 ):
     try:
         logger.info(f"📋 Getting sessions for user: {user_id}")
-        
+
         # Use real database
         session_dao = SessionDAO(pool)
         sessions_data, total = await session_dao.list_user_sessions(user_id, limit, offset)
-        
+
         # Convert to response models
         sessions = []
         for s in sessions_data:
             # Get first message as title
             title = f"Session {s['session_id'][-8:]}"
-            
+
             # Convert datetime to milliseconds timestamp if needed
             # Database stores UTC time without timezone info, so we need to treat it as UTC
             created_at = s['created_at']
@@ -63,7 +68,7 @@ async def get_user_sessions(
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=timezone.utc)
                 created_at = int(created_at.timestamp() * 1000)
-            
+
             updated_at = s['updated_at']
             if isinstance(updated_at, str):
                 dt = datetime.fromisoformat(updated_at)
@@ -75,7 +80,7 @@ async def get_user_sessions(
                 if updated_at.tzinfo is None:
                     updated_at = updated_at.replace(tzinfo=timezone.utc)
                 updated_at = int(updated_at.timestamp() * 1000)
-            
+
             sessions.append(SessionResponse(
                 id=s['session_id'],
                 user_id=s['user_id'],
@@ -85,7 +90,7 @@ async def get_user_sessions(
                 task_count=s.get('message_count', 0),  # Use message_count as task_count
                 mode=s.get('mode'),  # Add mode from session metadata
             ))
-        
+
         return SessionListResponse(
             user_id=user_id,
             sessions=sessions,
@@ -108,7 +113,7 @@ async def get_session_history(
 ):
     try:
         logger.info(f"📜 Getting session history: user={user_id}, session={session_id}, limit={limit}, offset={offset}")
-        
+
         # Load session context
         session_dao = SessionDAO(pool)
         context = await session_dao.load_context(session_id)
@@ -125,26 +130,26 @@ async def get_session_history(
 
         if context.user_id != user_id:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Get all messages
         all_messages = context.messages or []
         total_count = len(all_messages)
-        
+
         # Apply pagination
         paginated_messages = all_messages[offset:offset + limit]
-        
+
         # Convert messages and lookup task_id for user messages
         from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
         task_dao = TaskDAO(pool)
-        
+
         messages = []
         for msg in paginated_messages:
             task_id = None
-            
+
             # For user messages, lookup task_id from tasks table by message_id
             if msg.get('role') == 'user' and msg.get('message_id'):
                 task_id = await task_dao.get_task_id_by_message_id(msg.get('message_id'))
-            
+
             messages.append(ChatMessageResponse(
                 id=str(msg.get('message_id', '')),
                 session_id=session_id,
@@ -153,7 +158,7 @@ async def get_session_history(
                 timestamp=int(msg.get('timestamp', 0)) if isinstance(msg.get('timestamp'), (int, float)) else 0,
                 task_id=task_id,
             ))
-        
+
         return {
             "user_id": user_id,
             "session_id": session_id,
@@ -180,14 +185,14 @@ async def get_session_details(
 ):
     try:
         logger.info(f"📖 Getting session details: user={user_id}, session={session_id}")
-        
+
         # Load session context
         session_dao = SessionDAO(pool)
         context = await session_dao.load_context(session_id)
-        
+
         if not context or context.user_id != user_id:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Convert messages
         messages = []
         for msg in context.messages[-50:]:  # Last 50 messages
@@ -218,11 +223,11 @@ async def get_session_details(
                 content=msg.get('content', ''),
                 timestamp=timestamp_ms,
             ))
-        
+
         # Get tasks
         task_dao = TaskDAO(pool)
         tasks_data = await task_dao.get_tasks_by_session(session_id)
-        
+
         tasks = []
         for t in tasks_data:
             tasks.append(TaskBasicResponse(
@@ -236,7 +241,7 @@ async def get_session_details(
                 result_summary=t.result_summary,
                 metadata=t.metadata,
             ))
-        
+
         # Convert timestamps to milliseconds
         created_at = context.created_at
         if created_at.tzinfo is None:
@@ -261,7 +266,7 @@ async def get_session_details(
             task_count=len(tasks),  # Use actual task count
             mode=mode,  # Add mode from session metadata
         )
-        
+
         return SessionDetailsResponse(
             session=session,
             messages=messages,

@@ -48,13 +48,12 @@ from loguru import logger
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.pagination import PageResult, PaginationParams, Paginator
-from app.core.database import get_db
 from app.common.dependencies import CurrentUser
 from app.common.exceptions import raise_internal_error, raise_not_found_error
+from app.common.pagination import PageResult, PaginationParams, Paginator
 from app.core.agent.checkpointer.checkpointer import get_checkpointer
 from app.core.agent.sample_agent import get_agent
-from app.core.settings import settings
+from app.core.database import get_db
 from app.models import Conversation, Message
 from app.schemas import (
     BaseResponse,
@@ -63,9 +62,9 @@ from app.schemas import (
     ConversationDetailResponse,
     ConversationExportResponse,
     ConversationImportRequest,
+    ConversationMessageResponse,
     ConversationResponse,
     ConversationUpdate,
-    ConversationMessageResponse,
     SearchRequest,
     SearchResponse,
     UserStatsResponse,
@@ -86,22 +85,21 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
         - Lazily initializes the checkpointer from settings if not initialized.
         - Credentials are fetched from database.
     """
-    from app.services.model_credential_service import ModelCredentialService
-    from app.services.model_service import ModelService
-    
     # 从数据库获取凭据
     from app.core.model import ModelType
-    
+    from app.services.model_credential_service import ModelCredentialService
+    from app.services.model_service import ModelService
+
     model_service = ModelService(db)
     credential_service = ModelCredentialService(db)
-    
+
     # 获取默认模型
     default_instance = await model_service.repo.get_default()
     if default_instance:
         provider_name = default_instance.provider.name
         model_name = default_instance.model_name
         model_type = ModelType.CHAT  # 简化处理，假设是 Chat 模型
-        
+
         credentials = await credential_service.get_current_credentials(
             provider_name=provider_name,
             model_type=model_type,
@@ -133,7 +131,7 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
                             api_key = credentials.get("api_key")
                             base_url = credentials.get("base_url")
                             break
-    
+
     return await get_agent(
         checkpointer=get_checkpointer(),
         api_key=api_key,
@@ -241,7 +239,7 @@ async def list_conversations(
     """
     # Create PaginationParams from query parameters
     page_query = PaginationParams(page=page, page_size=page_size)
-    
+
     paginator = Paginator(db)
     page_result = await paginator.paginate(
         select(Conversation)
@@ -756,14 +754,14 @@ async def get_graph_instance(
     # 如果没有提供凭据，从数据库获取
     if not api_key and db:
         from app.core.model.utils.credential_resolver import LLMCredentialResolver
-        
+
         fetched_api_key, fetched_base_url, fetched_model_name = await LLMCredentialResolver.get_credentials(
             db=db,
             api_key=api_key,
             base_url=base_url,
             llm_model=llm_model,
         )
-        
+
         # Update values if fetched from database
         if fetched_api_key:
             api_key = fetched_api_key
@@ -771,7 +769,7 @@ async def get_graph_instance(
             base_url = fetched_base_url
         if fetched_model_name:
             llm_model = fetched_model_name
-    
+
     graph = await get_agent(
         checkpointer=get_checkpointer(),
         llm_model=llm_model,

@@ -7,7 +7,6 @@ duplicate writes from multiple UI handlers.
 """
 
 import logging
-import time
 from typing import Any, Dict, List
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -20,23 +19,23 @@ logger = logging.getLogger(__name__)
 class JsonFileLoggingCallback(BaseCallbackHandler):
     """
     Dedicated callback handler for persisting events to JSONL files.
-    
+
     This handler is the ONLY place where write_json_log should be called
     for LLM and tool events. UI handlers (RichConsoleCallback, ChainDebugCallback)
     should focus only on display logic.
     """
-    
+
     def __init__(self):
         """Initialize the JSON file logging callback."""
         self.depth = 0
-    
+
     def _convert_messages_to_log_format(self, messages: List) -> List[Dict]:
         """
         Convert LangChain messages to log format.
         """
         ROLE_MAP = {'human': 'user', 'ai': 'assistant'}
         result = []
-        
+
         for msg in messages:
             if hasattr(msg, 'type'):
                 role = ROLE_MAP.get(msg.type, msg.type)
@@ -49,9 +48,9 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
                 content = msg.get('content', '')
             else:
                 continue
-            
+
             entry = {'role': role, 'content': content}
-            
+
             # Extract tool_calls (for assistant messages)
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
                 entry['tool_calls'] = [
@@ -64,15 +63,15 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
                 ]
             elif isinstance(msg, dict) and msg.get('tool_calls'):
                 entry['tool_calls'] = msg['tool_calls']
-            
+
             # Extract tool_call_id (for tool messages)
             if hasattr(msg, 'tool_call_id') and msg.tool_call_id:
                 entry['tool_call_id'] = msg.tool_call_id
             elif isinstance(msg, dict) and msg.get('tool_call_id'):
                 entry['tool_call_id'] = msg['tool_call_id']
-            
+
             result.append(entry)
-        
+
         return result
 
     # =========================================================================
@@ -83,15 +82,15 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
         invocation_params = kwargs.get('invocation_params', {})
         messages = kwargs.get('messages', [])
         name = serialized.get("id", ["unknown"])[-1] if isinstance(serialized.get("id"), list) else serialized.get("id", "<llm>")
-        
+
         all_messages = self._convert_messages_to_log_format(messages)
-        
+
         system_prompt = None
         for msg in all_messages:
             if msg.get('role') == 'system':
                 system_prompt = msg.get('content')
                 break
-        
+
         write_json_log('LLM_CALL', {
             'model': invocation_params.get('model', name),
             'system_prompt': system_prompt,
@@ -105,10 +104,10 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
         """Called when chat model starts - captures full message list."""
         invocation_params = kwargs.get('invocation_params', {})
         name = serialized.get("id", ["unknown"])[-1] if serialized and isinstance(serialized.get("id"), list) else (serialized.get("id", "<chat>") if serialized else "<chat>")
-        
+
         all_messages = messages[0] if messages else []
         formatted_messages = self._convert_messages_to_log_format(all_messages)
-        
+
         system_prompt = None
         non_system_messages = []
         for msg in formatted_messages:
@@ -116,7 +115,7 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
                 system_prompt = msg.get('content')
             else:
                 non_system_messages.append(msg)
-        
+
         write_json_log('LLM_INPUT', {
             'model': invocation_params.get('model', name),
             'system_prompt': system_prompt,
@@ -130,13 +129,13 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
     def on_llm_end(self, response, **kwargs) -> None:
         """Called when LLM completes processing."""
         self.depth = max(0, self.depth - 1)
-        
+
         try:
             content = None
             tool_calls = []
             usage = {}
             finish_reason = None
-            
+
             if hasattr(response, 'generations') and response.generations:
                 for gen_list in response.generations:
                     for gen in gen_list:
@@ -153,10 +152,10 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
                                 ]
                         elif hasattr(gen, 'text'):
                             content = gen.text
-                        
+
                         if hasattr(gen, 'generation_info') and gen.generation_info:
                             finish_reason = gen.generation_info.get('finish_reason')
-            
+
             if hasattr(response, 'llm_output') and response.llm_output:
                 token_usage = response.llm_output.get('token_usage', {})
                 usage = {
@@ -164,7 +163,7 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
                     'completion_tokens': token_usage.get('completion_tokens'),
                     'total_tokens': token_usage.get('total_tokens'),
                 }
-            
+
             write_json_log('LLM_RESPONSE', {
                 'content': content,
                 'tool_calls': tool_calls,
@@ -191,12 +190,12 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
         """Called when a tool starts executing."""
         run_id = str(kwargs.get("run_id", ""))
         name = serialized.get("name", serialized.get("id", "<tool>"))
-        
+
         try:
             input_obj = eval(input_str) if isinstance(input_str, str) else input_str
         except (SyntaxError, ValueError, NameError):
             input_obj = {"raw": input_str}
-        
+
         write_json_log('TOOL_CALL', {
             'phase': 'start',
             'tool_name': name,
@@ -210,13 +209,13 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
         self.depth = max(0, self.depth - 1)
         run_id = str(kwargs.get("run_id", ""))
         name = kwargs.get("name", "<tool>")
-        
+
         # Get output content
         if hasattr(output, 'content'):
             content = output.content
         else:
             content = output
-        
+
         # Convert non-string content to string
         import json
         if isinstance(content, (list, dict)):
@@ -226,7 +225,7 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
                 content = str(content)
         elif not isinstance(content, str):
             content = str(content)
-        
+
         content_len = len(content) if isinstance(content, str) else 0
         write_json_log('TOOL_CALL', {
             'phase': 'end',
@@ -242,7 +241,7 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
         name = kwargs.get("name", "<tool>")
         run_id = str(kwargs.get("run_id", ""))
         import traceback
-        
+
         write_json_log('ERROR', {
             'error_type': 'TOOL_ERROR',
             'tool_name': name,

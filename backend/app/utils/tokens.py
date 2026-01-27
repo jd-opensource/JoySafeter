@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from langchain_core.messages import SystemMessage
-
 from loguru import logger
 
 

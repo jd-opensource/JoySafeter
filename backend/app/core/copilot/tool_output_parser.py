@@ -9,33 +9,33 @@ Handles various tool output formats:
 """
 
 import json
-import re
 from typing import Any, Dict, Optional
+
 from loguru import logger
 
 
 def parse_tool_output(tool_output_raw: Any, tool_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Parse tool output to extract action data.
-    
+
     Handles various output formats:
     - ToolMessage objects with content attribute
     - Direct dict output
     - JSON string output
     - Plain string with embedded JSON
-    
+
     Args:
         tool_output_raw: Raw tool output (any type)
         tool_name: Optional name of the tool (for logging)
-        
+
     Returns:
         Parsed action data dict, or None if parsing fails
     """
     if not tool_output_raw:
         return None
-    
+
     tool_output = None
-    
+
     # Extract actual content from tool output
     if hasattr(tool_output_raw, "content"):
         # Object with content attribute (like ToolMessage)
@@ -53,7 +53,7 @@ def parse_tool_output(tool_output_raw: Any, tool_name: Optional[str] = None) -> 
     else:
         # Direct output (string or other)
         tool_output = tool_output_raw
-    
+
     # Try to parse tool output to get action
     if isinstance(tool_output, dict):
         return tool_output
@@ -81,7 +81,7 @@ def parse_tool_output(tool_output_raw: Any, tool_name: Optional[str] = None) -> 
                             if brace_count == 0:
                                 end_idx = i + 1
                                 break
-                    
+
                     if end_idx > start_idx:
                         json_str = tool_output[start_idx:end_idx]
                         # Replace single quotes with double quotes if needed
@@ -92,7 +92,7 @@ def parse_tool_output(tool_output_raw: Any, tool_name: Optional[str] = None) -> 
                             return parsed
             except Exception as e:
                 logger.debug(f"[ToolOutputParser] Failed to extract JSON from string: {e}")
-    
+
     if tool_name:
         logger.warning(f"[ToolOutputParser] Could not parse tool output. tool={tool_name}, type={type(tool_output)}")
     return None

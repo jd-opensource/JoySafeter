@@ -2,18 +2,18 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Body, Query
-from pydantic import BaseModel, Field, EmailStr
+from fastapi import APIRouter, Body, Depends, Query
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user, require_workspace_role
-from app.models.workspace import WorkspaceMemberRole
+from app.common.pagination import PaginationParams
 from app.core.database import get_db
 from app.models.access_control import PermissionType
 from app.models.auth import AuthUser as User
-from app.services.workspace_service import WorkspaceService
+from app.models.workspace import WorkspaceMemberRole
 from app.services.user_service import UserService
-from app.common.pagination import PaginationParams, PageResult
+from app.services.workspace_service import WorkspaceService
 
 router = APIRouter(prefix="/v1/workspaces", tags=["Workspaces"])
 
@@ -193,7 +193,7 @@ async def list_all_invitations(
     """获取当前用户所有的工作空间邀请（支持分页和状态筛选）"""
     service = WorkspaceService(db)
     result = await service.list_all_invitations_for_user_paginated(
-        current_user, 
+        current_user,
         pagination,
         status=status
     )
@@ -286,7 +286,7 @@ async def get_my_permission(
 ):
     """
     获取当前用户在工作空间中的权限（轻量级，只返回当前用户权限）
-    
+
     Returns:
         {
             "role": "owner" | "admin" | "member" | "viewer",
@@ -294,26 +294,26 @@ async def get_my_permission(
             "isOwner": boolean
         }
     """
-    from app.common.response import success_response
     from app.common.exceptions import ForbiddenException
-    
+    from app.common.response import success_response
+
     service = WorkspaceService(db)
     role = await service.get_user_role(workspace_id, current_user)
-    
+
     if not role:
         raise ForbiddenException("No access to workspace")
-    
+
     # 复用前端的映射逻辑（保持一致）
     role_to_permission = {
         WorkspaceMemberRole.owner: "admin",
-        WorkspaceMemberRole.admin: "admin", 
+        WorkspaceMemberRole.admin: "admin",
         WorkspaceMemberRole.member: "write",
         WorkspaceMemberRole.viewer: "read",
     }
-    
+
     workspace = await service.workspace_repo.get(workspace_id)
     is_owner = workspace.owner_id == current_user.id if workspace else False
-    
+
     # 复用现有的 success_response 函数保持响应格式一致
     return success_response(
         data={
@@ -336,7 +336,7 @@ async def search_users_for_invitation(
     """搜索用户（用于邀请成员，需要管理员权限）"""
     user_service = UserService(db)
     users = await user_service.search_users(keyword, limit)
-    
+
     # 序列化用户信息
     result = []
     for user in users:
@@ -346,7 +346,7 @@ async def search_users_for_invitation(
             "name": user.name,
             "image": user.image,
         })
-    
+
     return {"users": result}
 
 
