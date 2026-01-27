@@ -14,21 +14,13 @@ Backend:
 - PostgreSQL: Production-ready with async connection pooling, JSONB indexing, and full-text search
 """
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from langchain_core.language_models import BaseChatModel
 
 from app.dynamic_agent.infra.docker import UnifiedDockerManager
 from app.dynamic_agent.storage.config import StorageConfig
 from app.dynamic_agent.storage.persistence import PostgreSQLBackend
-from app.dynamic_agent.storage.session.ctf import (
-    AttemptStep,
-    CtfSession,
-    CtfSessionStore,
-    ReferenceHit,
-    UserHint,
-    get_ctf_session_store,
-)
 from app.dynamic_agent.storage.storage_manage import StorageManager
 
 #

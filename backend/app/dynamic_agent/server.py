@@ -21,7 +21,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     # Try absolute import first (when running as module)
     from app.dynamic_agent.main import init_storage, run, startup
-    from app.dynamic_agent.storage import initialize_storage
 except ImportError:
     # Fallback to relative import (when running from backend directory)
     import sys

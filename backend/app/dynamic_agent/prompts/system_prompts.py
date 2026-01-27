@@ -120,8 +120,9 @@ def get_ctf_mode_suffix(user_input: str) -> str:
     DEPRECATED: Use get_scene_prompt() instead.
     Kept for backward compatibility.
     """
-    if is_ctf_context(user_input):
-        return f"\n\n{_CTF_MODE_PROMPT}"
+    scene = detect_scene(user_input, use_llm=False)
+    if scene == SceneType.CTF.value:
+        return f"\n\n{get_scene_prompt(scene)}"
     return ""
 
 

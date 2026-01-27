@@ -15,8 +15,6 @@ import json
 import logging
 import os
 from operator import add
-
-logger = logging.getLogger(__name__)
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 from langchain.agents import create_agent
@@ -27,6 +25,8 @@ from app.common.constants import COMMAND_TOOL, KNOWLEDGE_TOOL
 from app.dynamic_agent.infra.metadata_context import MetadataContext
 from app.dynamic_agent.observability.langfuse import callbacks
 from app.dynamic_agent.prompts.registry import get_registry
+
+logger = logging.getLogger(__name__)
 
 
 class AgentState(TypedDict):

@@ -7,11 +7,14 @@ Supports both local and remote Docker daemon management via Remote API + TLS.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
 
 from app.dynamic_agent.infra.docker import UnifiedDockerManager
+
+if TYPE_CHECKING:
+    from app.dynamic_agent.storage.persistence import PostgreSQLBackend
 
 
 @dataclass
@@ -65,7 +68,7 @@ class ContainerContextManager:
     Enables cross-host container management.
     """
 
-    def __init__(self, docker_manager: UnifiedDockerManager, persistence_backend: 'PostgreSQLBackend'):
+    def __init__(self, docker_manager: UnifiedDockerManager, persistence_backend: 'PostgreSQLBackend'):  # noqa: F821
         self.docker_manager = docker_manager
         self.backend = persistence_backend
         self._contexts: Dict[str, ContainerContext] = {}
@@ -108,48 +111,19 @@ class ContainerContextManager:
             environment=kwargs.get('environment', {})
         )
 
-        # Create container
-        # if use_remote_api:
-        #     logger.info(f"Creating container on remote host: {remote_host_name}")
-        #     container_info = self.docker_manager.local_manager.create_container(
-        #         host_name=remote_host_name,
-        #         image=image,
-        #         command='sleep infinity',
-        #         environment=kwargs.get('environment', {})
-        #     )
-        #
-        #     if not container_info:
-        #         raise RuntimeError(f"Failed to create container on remote host {remote_host_name}")
-        #
-        #     container_id = container_info['container_id']
-        #
-        #     # Get remote host info
-        #     remote_host = self.remote_api_manager.hosts.get(remote_host_name)
-        #     remote_host_info = RemoteHostInfo(
-        #         host_name=remote_host_name,
-        #         host_ip=remote_host.host if remote_host else "unknown",
-        #         port=remote_host.port if remote_host else 2376,
-        #         is_local=False
-        #     )
-        # else:
-        #     logger.info("Creating container on local Docker daemon")
-        #     container = self.docker_manager.create_container(
-        #         image=image,
-        #         command='sleep infinity',
-        #         resource_limits=limits,
-        #         environment=kwargs.get('environment', {})
-        #     )
-        #     container_id = container.id
-        #     remote_host_info = RemoteHostInfo(
-        #         host_name="localhost",
-        #         host_ip="127.0.0.1",
-        #         port=0,
-        #         is_local=True
-        #     )
-        #
+        # Create remote host info
+        remote_host_info = RemoteHostInfo(
+            host_name=remote_host_name or "localhost",
+            host_ip="127.0.0.1",
+            port=2376,
+            is_local=remote_host_name is None
+        )
+
+        container_id = container_info['container_id']
+
         # Create context
         context = ContainerContext(
-            container_id=container_info['container_id'],
+            container_id=container_id,
             session_id=session_id,
             image=image,
             status="running",

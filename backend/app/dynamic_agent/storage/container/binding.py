@@ -9,7 +9,7 @@ import random
 import re
 import time
 import uuid
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -30,14 +30,6 @@ class ContainerBindingInfo:
     image: str
     command: str
     working_directory: str
-
-    @classmethod
-    def from_dict(cls, data: dict):
-        # Get defined fields of dataclass
-        valid_fields = {f.name for f in fields(cls)}
-        # Filter unknown parameters
-        filtered = {k: v for k, v in data.items() if k in valid_fields}
-        return cls(**filtered)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

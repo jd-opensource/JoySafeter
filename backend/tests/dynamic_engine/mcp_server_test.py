@@ -14,10 +14,10 @@ from pathlib import Path
 backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
-from mcp import ClientSession
-from mcp.client.sse import sse_client
-from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp import ClientSession  # noqa: E402
+from mcp.client.sse import sse_client  # noqa: E402
+from mcp.client.stdio import stdio_client  # noqa: E402
+from mcp.client.streamable_http import streamablehttp_client  # noqa: E402
 
 
 async def demo_stdio():

@@ -6,6 +6,8 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 import requests
 from bs4 import BeautifulSoup
 
+from dynamic_engine.mcp.visual_engine import ModernVisualEngine
+
 logger = logging.getLogger(__name__)
 
 

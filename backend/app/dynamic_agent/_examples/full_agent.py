@@ -13,10 +13,15 @@ import logging
 import os
 from pathlib import Path
 
+from app.dynamic_agent_core.logging import ConsoleLogger
+from app.dynamic_agent_core.permissions import DefaultPermissionStrategy
+from app.dynamic_agent_core.providers.anthropic import AnthropicProvider
+from app.dynamic_agent_core.registry import ToolRegistry
 from app.dynamic_agent_core.runtime import AgentRuntime
+from app.dynamic_agent_core.types import AgentRuntimeOptions
 
 logger = logging.getLogger(__name__)
-from tools import (
+from tools import (  # noqa: E402
     AgentTool,
     BashTool,
     EchoTool,
@@ -30,12 +35,6 @@ from tools import (
     NotebookTool,
     WebSearchTool,
 )
-
-from app.dynamic_agent_core.logging import ConsoleLogger
-from app.dynamic_agent_core.permissions import DefaultPermissionStrategy
-from app.dynamic_agent_core.providers.anthropic import AnthropicProvider
-from app.dynamic_agent_core.registry import ToolRegistry
-from app.dynamic_agent_core.types import AgentRuntimeOptions
 
 
 async def main():

@@ -16,7 +16,7 @@ from app.dynamic_agent.core.constants import MCP_TOOL_JOINER
 # A minimal alias describing a generic tool spec as received from MCP servers.
 ToolSpec = Dict[str, Any]
 
-from loguru import logger
+from loguru import logger  # noqa: E402
 
 
 def create_no_proxy_httpx_client() -> httpx.AsyncClient:
@@ -299,7 +299,7 @@ class MultiMCP:
         model = create_model(name, **fields)  # type: ignore[arg-type]
         return model
 
-    def to_langchain_tools(self, tool_call_timeout: float = 30.0) -> List['StructuredTool']:
+    def to_langchain_tools(self, tool_call_timeout: float = 30.0) -> List[Any]:
         """Export discovered MCP tools as LangChain `StructuredTool`s.
 
         Implementation details:

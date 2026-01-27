@@ -1,7 +1,9 @@
 """BackendProtocol implementation for Runloop."""
 
+import os
+
 try:
-    import runloop_api_client
+    from runloop_api_client import Runloop
 except ImportError:
     msg = (
         "runloop_api_client package is required for RunloopBackend. "
@@ -9,11 +11,8 @@ except ImportError:
     )
     raise ImportError(msg)
 
-import os
-
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
 from deepagents.backends.sandbox import BaseSandbox
-from runloop_api_client import Runloop
 
 
 class RunloopBackend(BaseSandbox):

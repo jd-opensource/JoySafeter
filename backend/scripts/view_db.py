@@ -20,11 +20,10 @@ from typing import Any, Dict, List, Optional
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from sqlalchemy import create_engine, text  # noqa: E402
+from sqlalchemy.engine.url import make_url  # noqa: E402
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine.url import make_url
-
-from app.core.settings import settings
+from app.core.settings import settings  # noqa: E402
 
 
 def _is_tcp_port_open(host: str, port: int, timeout_seconds: float = 0.5) -> bool:
@@ -398,11 +397,11 @@ def main():
         database_url = database_url.replace("+asyncpg", "")
         # 优先尝试使用 psycopg（新版本），然后尝试 psycopg2
         try:
-            import psycopg
+            import psycopg  # noqa: F401
             database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         except ImportError:
             try:
-                import psycopg2
+                import psycopg2  # noqa: F401
                 database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
             except ImportError:
                 # 如果都没有，使用默认的 postgresql://（SQLAlchemy 会尝试自动检测）
@@ -410,11 +409,11 @@ def main():
     elif not any(x in database_url for x in ["+psycopg2", "+psycopg", "+asyncpg"]):
         # URL 中没有指定驱动，尝试添加同步驱动
         try:
-            import psycopg
+            import psycopg  # noqa: F401
             database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         except ImportError:
             try:
-                import psycopg2
+                import psycopg2  # noqa: F401
                 database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
             except ImportError:
                 # 使用默认，让 SQLAlchemy 自动检测

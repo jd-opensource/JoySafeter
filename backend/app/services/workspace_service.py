@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import select
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.pagination import PageResult, PaginationParams
 from app.models.access_control import PermissionType, WorkspaceInvitation, WorkspaceInvitationStatus
 from app.models.auth import AuthUser as User
 from app.models.workspace import Workspace, WorkspaceMemberRole, WorkspaceType
@@ -471,9 +472,9 @@ class WorkspaceService(BaseService[Workspace]):
     async def list_all_invitations_for_user_paginated(
         self,
         current_user: User,
-        pagination: "PaginationParams",
+        pagination: PaginationParams,
         status: Optional[str] = None
-    ) -> "PageResult":
+    ) -> PageResult:
         """获取当前用户所有的工作空间邀请（支持分页和状态筛选）
 
         优化：使用 selectinload 一次性加载关联数据，避免 N+1 查询问题
@@ -779,8 +780,8 @@ class WorkspaceService(BaseService[Workspace]):
         self,
         workspace_id: uuid.UUID,
         current_user: User,
-        pagination: "PaginationParams",
-    ) -> "PageResult":
+        pagination: PaginationParams,
+    ) -> PageResult:
         """获取工作空间成员列表（分页）"""
         from app.common.pagination import PageResult
 

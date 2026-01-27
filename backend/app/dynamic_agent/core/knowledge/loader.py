@@ -40,7 +40,7 @@ from .search import (
 # Fallback keywords for legacy search_knowledge_with_llm (only used in ENABLE_EAGER_RAG mode)
 FALLBACK_KEYWORDS = ["flag", "ctf", "exploit", "vulnerability"]
 
-from loguru import logger
+from loguru import logger  # noqa: E402
 
 
 def convert_attack_steps_to_tricks(attack_steps: list[dict[str, Any]]) -> list[Trick]:

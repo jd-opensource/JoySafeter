@@ -33,11 +33,11 @@ try:
     from rich.console import Console
     from rich.live import Live
     from rich.panel import Panel
-    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-    from rich.spinner import Spinner
-    from rich.style import Style
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn  # noqa: F401
+    from rich.spinner import Spinner  # noqa: F401
+    from rich.style import Style  # noqa: F401
     from rich.syntax import Syntax
-    from rich.table import Table
+    from rich.table import Table  # noqa: F401
     from rich.text import Text
     RICH_AVAILABLE = True
 except ImportError:

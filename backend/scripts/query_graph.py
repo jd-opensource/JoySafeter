@@ -16,9 +16,9 @@ from typing import Any, Dict
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text  # noqa: E402
 
-from app.core.settings import settings
+from app.core.settings import settings  # noqa: E402
 
 
 def format_node(row: Dict[str, Any]) -> dict:
@@ -91,12 +91,14 @@ def query_graph(graph_id: str):
     elif not any(x in database_url for x in ["+psycopg2", "+psycopg", "+asyncpg"]):
         # URL 中没有指定驱动，尝试添加同步驱动
         try:
-            import psycopg
+            import psycopg  # noqa: F401
             database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         except ImportError:
             try:
-                import psycopg2
+                import psycopg2  # noqa: F401
                 database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+            except ImportError:
+                pass
             except ImportError:
                 # 使用默认，让 SQLAlchemy 自动检测
                 pass

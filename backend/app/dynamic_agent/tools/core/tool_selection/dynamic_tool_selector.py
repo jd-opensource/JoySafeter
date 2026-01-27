@@ -640,7 +640,7 @@ def create_mock_tool_implementations() -> Dict[str, BaseTool]:
     from langchain_core.tools import tool
 
     mock_tools = {}
-    registry = get_tool_registry()
+    registry = tool_registry
 
     # Create a mock implementation for each registered tool
     for tool_name, metadata in registry._tools.items():

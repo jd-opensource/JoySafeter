@@ -16,6 +16,9 @@ class BugbountyAuthenticationBypassTestingHandler(AbstractHandler):
         return []
 
     def handle(self, data: Dict) -> Any:
+        target_url = data.get("target_url", "")
+        auth_type = data.get("auth_type", "form")
+        
         bypass_techniques = {
             "form": [
                 {"technique": "SQL Injection", "payloads": ["admin'--", "' OR '1'='1'--"]},

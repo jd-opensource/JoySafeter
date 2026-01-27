@@ -252,8 +252,8 @@ async def disable_cache_for_api(request: Request, call_next):
 
     return response
 
-from app.dynamic_agent.server import DYNAMIC_AGENT_PREFIX
-from app.dynamic_agent.server import app as dynamic_agent_app
+from app.dynamic_agent.server import DYNAMIC_AGENT_PREFIX  # noqa: E402
+from app.dynamic_agent.server import app as dynamic_agent_app  # noqa: E402
 
 # ENV = os.getenv("ENV", "dev")  # dev / prod
 

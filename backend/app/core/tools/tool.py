@@ -257,7 +257,7 @@ class EnhancedTool(BaseTool):
         return instance
 
     @classmethod
-    def from_entrypoint(
+    def from_entrypoint_with_schema(
         cls,
         name: str,
         description: str,

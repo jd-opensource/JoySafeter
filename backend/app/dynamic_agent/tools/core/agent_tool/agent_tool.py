@@ -30,7 +30,7 @@ MAX_CONCURRENT_AGENTS = int(os.environ.get("MAX_CONCURRENT_AGENTS", 10))
 DEFAULT_TIMEOUT_SECONDS = 2 * 3600
 MAX_GOAL_LENGTH = 10000
 
-from loguru import logger
+from loguru import logger  # noqa: E402
 
 
 @tool(AGENT_TOOL, description=AGENT_TOOL_DESCRIPTION)

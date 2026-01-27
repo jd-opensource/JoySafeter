@@ -21,6 +21,7 @@ from .base import BaseModel
 
 if TYPE_CHECKING:
     from .auth import AuthUser
+    from .graph_deployment_version import GraphDeploymentVersion
     from .workspace import Workspace, WorkspaceFolder
 
 

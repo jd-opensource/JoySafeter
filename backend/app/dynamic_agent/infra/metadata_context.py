@@ -158,8 +158,7 @@ class MetadataContext:
         metadata = _metadata_context.get()
         return dict(metadata) if metadata else {}
 
-
-import queue
+import queue  # noqa: E402
 
 
 def write_messages(messages: list[str]) -> None:
