@@ -312,7 +312,7 @@ main() {
     done
     
     echo "=========================================="
-    echo "  AutoSec Agent Platform - 快速启动"
+    echo "  JoySafeter - 快速启动"
     echo "=========================================="
     echo ""
     

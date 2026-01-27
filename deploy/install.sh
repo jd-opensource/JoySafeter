@@ -286,7 +286,7 @@ main() {
     done
     
     echo "=========================================="
-    echo "  AutoSec Agent Platform - 安装向导"
+    echo "  JoySafeter - 安装向导"
     echo "=========================================="
     echo ""
     

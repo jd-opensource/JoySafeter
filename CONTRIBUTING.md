@@ -1,6 +1,6 @@
-# Contributing to AutoSec Agent Platform
+# Contributing to JoySafeter
 
-First off, thank you for considering contributing to AutoSec Agent Platform! It's people like you that make this project better for everyone.
+First off, thank you for considering contributing to JoySafeter! It's people like you that make this project better for everyone.
 
 ## Table of Contents
 

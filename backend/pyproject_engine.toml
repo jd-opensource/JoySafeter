@@ -1,12 +1,12 @@
 [project]
 name = "joysafeter"
 version = "0.1.0"
-description = "AutoSec Agent Platform Backend - 智能体平台后端服务"
+description = "JoySafeter Backend - 智能体平台后端服务"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "AutoSec Team", email = "team@joysafeter.com"}
+    {name = "JoySafeter Team", email = "team@joysafeter.com"}
 ]
 keywords = ["agent", "langchain", "langgraph", "ai", "platform"]
 

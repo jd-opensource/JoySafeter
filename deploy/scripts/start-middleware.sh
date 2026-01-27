@@ -15,7 +15,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}🚀 AutoSec Agent Platform - 启动服务${NC}"
+echo -e "${GREEN}🚀 JoySafeter - 启动服务${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # 检查 backend/.env 文件

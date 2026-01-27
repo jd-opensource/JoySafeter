@@ -82,7 +82,7 @@ class EmailService:
         url = frontend_url or self.frontend_url
         reset_link = f"{url}/reset-password?token={reset_token}"
 
-        subject = "[AutoSec] 密码重置请求"
+        subject = "[JoySafeter] 密码重置请求"
 
         html_content = f"""
         <!DOCTYPE html>
@@ -103,7 +103,7 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <div class="logo">🤖 AutoSec</div>
+                    <div class="logo">🤖 JoySafeter</div>
                 </div>
                 <div class="content">
                     <h2>你好，{username}！</h2>
@@ -116,7 +116,7 @@ class EmailService:
                     <p class="warning">⚠️ 此链接将在 24 小时后过期。如果您没有请求重置密码，请忽略此邮件。</p>
                 </div>
                 <div class="footer">
-                    <p>© {__import__('datetime').datetime.now().year} AutoSec. All rights reserved.</p>
+                    <p>© {__import__('datetime').datetime.now().year} JoySafeter. All rights reserved.</p>
                     <p>这是一封自动发送的邮件，请勿回复。</p>
                 </div>
             </div>
@@ -137,7 +137,7 @@ class EmailService:
         如果您没有请求重置密码，请忽略此邮件。
 
         ---
-        AutoSec Team
+        JoySafeter Team
         """
 
         return await self.send_email(to_email, subject, html_content, text_content)
@@ -153,7 +153,7 @@ class EmailService:
         url = frontend_url or self.frontend_url
         verify_link = f"{url}/verify-email?token={verify_token}"
 
-        subject = "[AutoSec] 验证您的邮箱"
+        subject = "[JoySafeter] 验证您的邮箱"
 
         html_content = f"""
         <!DOCTYPE html>
@@ -173,11 +173,11 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <div class="logo">🤖 AutoSec</div>
+                    <div class="logo">🤖 JoySafeter</div>
                 </div>
                 <div class="content">
-                    <h2>欢迎加入 AutoSec！</h2>
-                    <p>你好，{username}！感谢您注册 AutoSec。请点击下面的按钮验证您的邮箱：</p>
+                    <h2>欢迎加入 JoySafeter！</h2>
+                    <p>你好，{username}！感谢您注册 JoySafeter。请点击下面的按钮验证您的邮箱：</p>
                     <p style="text-align: center; margin: 30px 0;">
                         <a href="{verify_link}" class="button">验证邮箱</a>
                     </p>
@@ -186,7 +186,7 @@ class EmailService:
                     <p style="color: #6b7280; font-size: 12px; margin-top: 20px;">此链接将在 72 小时后过期。</p>
                 </div>
                 <div class="footer">
-                    <p>© {__import__('datetime').datetime.now().year} AutoSec. All rights reserved.</p>
+                    <p>© {__import__('datetime').datetime.now().year} JoySafeter. All rights reserved.</p>
                 </div>
             </div>
         </body>
@@ -194,9 +194,9 @@ class EmailService:
         """
 
         text_content = f"""
-        欢迎加入 AutoSec！
+        欢迎加入 JoySafeter！
 
-        你好，{username}！感谢您注册 AutoSec。
+        你好，{username}！感谢您注册 JoySafeter。
 
         请点击以下链接验证您的邮箱：
         {verify_link}
@@ -204,7 +204,7 @@ class EmailService:
         此链接将在 72 小时后过期。
 
         ---
-        AutoSec Team
+        JoySafeter Team
         """
 
         return await self.send_email(to_email, subject, html_content, text_content)
@@ -215,7 +215,7 @@ class EmailService:
         username: str,
     ) -> bool:
         """发送欢迎邮件"""
-        subject = "[AutoSec] 欢迎加入 AutoSec！🎉"
+        subject = "[JoySafeter] 欢迎加入 JoySafeter！🎉"
 
         html_content = f"""
         <!DOCTYPE html>
@@ -235,10 +235,10 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <div class="logo">🤖 AutoSec</div>
+                    <div class="logo">🤖 JoySafeter</div>
                 </div>
                 <div class="content">
-                    <h2>🎉 欢迎加入 AutoSec，{username}！</h2>
+                    <h2>🎉 欢迎加入 JoySafeter，{username}！</h2>
                     <p>您已成功创建账号。以下是您可以开始探索的功能：</p>
                     <div class="feature">🤖 <strong>AI 智能体</strong> - 自动化安全分析</div>
                     <div class="feature">🔒 <strong>安全扫描</strong> - 深度威胁检测</div>
@@ -247,7 +247,7 @@ class EmailService:
                     <p>如有任何问题，请随时联系我们的支持团队。</p>
                 </div>
                 <div class="footer">
-                    <p>© {__import__('datetime').datetime.now().year} AutoSec. All rights reserved.</p>
+                    <p>© {__import__('datetime').datetime.now().year} JoySafeter. All rights reserved.</p>
                 </div>
             </div>
         </body>

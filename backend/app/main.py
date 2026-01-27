@@ -208,7 +208,7 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="""
-## AutoSec Agent Platform - 智能体平台后端服务
+## JoySafeter - 智能体平台后端服务
 ### 技术栈
 - **FastAPI** - Web 框架
 - **PostgreSQL** - 数据库

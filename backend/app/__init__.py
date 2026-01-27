@@ -1,5 +1,5 @@
 """
-AutoSec Agent Platform Backend
+JoySafeter Backend
 """
 __version__ = "0.1.0"
 

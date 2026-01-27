@@ -1,6 +1,6 @@
 # Development Guide
 
-This document provides detailed instructions for setting up and running the AutoSec Agent Platform in development mode.
+This document provides detailed instructions for setting up and running the JoySafeter in development mode.
 
 ## Prerequisites
 

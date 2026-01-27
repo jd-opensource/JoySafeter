@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # App
     app_name: str = Field(
-        default="AutoSec Agent Platform",
+        default="JoySafeter",
         description="Application name"
     )
     app_version: str = Field(
@@ -300,7 +300,7 @@ class Settings(BaseSettings):
         description="Default sender email address"
     )
     from_name: str = Field(
-        default="AutoSec",
+        default="JoySafeter",
         validation_alias=AliasChoices("FROM_NAME", "EMAIL_FROM_NAME", "SMTP_FROM_NAME"),
         description="Default sender name"
     )

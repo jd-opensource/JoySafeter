@@ -1,6 +1,6 @@
-# AutoSec Agent Platform - Frontend
+# JoySafeter - Frontend
 
-AutoSec Agent Platform 的前端应用，基于 Next.js 构建的现代化智能体平台 Web 界面。
+JoySafeter 的前端应用，基于 Next.js 构建的现代化智能体平台 Web 界面。
 
 ## 🛠️ 技术栈
 

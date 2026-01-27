@@ -10,7 +10,7 @@ We release patches for security vulnerabilities. Which versions are eligible for
 
 ## Reporting a Vulnerability
 
-We take the security of AutoSec Agent Platform seriously. If you believe you have found a security vulnerability, please report it to us as described below.
+We take the security of JoySafeter seriously. If you believe you have found a security vulnerability, please report it to us as described below.
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
@@ -33,7 +33,7 @@ We take the security of AutoSec Agent Platform seriously. If you believe you hav
 
 ## Security Best Practices
 
-When deploying AutoSec Agent Platform, please ensure:
+When deploying JoySafeter, please ensure:
 
 ### Environment Configuration
 

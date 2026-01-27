@@ -1,5 +1,5 @@
 #!/bin/bash
-# AutoSec Agent Platform - 镜像构建和推送脚本
+# JoySafeter - 镜像构建和推送脚本
 # 支持：构建多架构镜像、推送镜像、拉取镜像
 # 
 # 所有 Dockerfile 统一位于 deploy/docker/ 目录
@@ -576,7 +576,7 @@ main() {
     fi
     
     echo "=========================================="
-    echo "  AutoSec Agent Platform - 镜像管理"
+    echo "  JoySafeter - 镜像管理"
     echo "=========================================="
     echo ""
     log_info "项目根目录: $PROJECT_ROOT"

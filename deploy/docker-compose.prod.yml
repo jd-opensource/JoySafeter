@@ -111,7 +111,7 @@ services:
   # 默认: docker.io/jdopensource/joysafeter-mcp:latest
   mcpserver:
     image: docker.io/jdopensource/joysafeter-mcp:latest
-    container_name: autosec-agent-platform-mcpserver
+    container_name: joysafeter-mcpserver
     restart: unless-stopped
     env_file:
       - ../backend/.env

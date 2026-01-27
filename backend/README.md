@@ -1,4 +1,4 @@
-# AutoSec Agent Platform - Backend
+# JoySafeter - Backend
 
 基于 **LangChain 1.0** 和 **LangGraph 1.0** 的智能体平台后端服务。
 
