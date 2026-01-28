@@ -345,7 +345,7 @@ def tool(func: Callable) -> Tool:
     sig = inspect.signature(func)
 
     # Build inputs schema
-    inputs = {}
+    inputs: dict[str, dict[str, str | bool]] = {}
     for param_name, param in sig.parameters.items():
         if param_name == "self":
             continue
@@ -362,7 +362,7 @@ def tool(func: Callable) -> Tool:
         # Check if nullable (has default of None)
         nullable = param.default is None and param.default is not inspect.Parameter.empty
 
-        input_schema = {
+        input_schema: dict[str, str | bool] = {
             "type": param_type,
             "description": param_desc,
         }
@@ -385,7 +385,7 @@ def tool(func: Callable) -> Tool:
     # Set class attributes
     SimpleTool.name = func_name
     SimpleTool.description = description
-    SimpleTool.inputs = inputs
+    SimpleTool.inputs = inputs  # type: ignore[assignment]
     SimpleTool.output_type = output_type
 
     # Bind the function to forward
@@ -393,7 +393,7 @@ def tool(func: Callable) -> Tool:
     def forward_method(self, *args, **kwargs):
         return func(*args, **kwargs)
 
-    SimpleTool.forward = forward_method
+    SimpleTool.forward = forward_method  # type: ignore[method-assign]
 
     # Create instance
     tool_instance = SimpleTool()

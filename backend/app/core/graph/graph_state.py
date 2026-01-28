@@ -147,39 +147,8 @@ class GraphState(MessagesState, BusinessState, ExecutionState):
     - Conditional routing
     - Loops with state isolation
     """
+    # Note: All fields are inherited from parent TypedDict classes
+    # Do not redefine fields here to avoid TypedDict overwriting errors
 
-    # Messages 继承自 MessagesState（属于业务数据）
-    messages: Annotated[List[BaseMessage], add_messages]
-
-    # ==================== Business State ====================
-    # 业务上下文数据（用户输入、处理结果等）
-    context: Dict[str, Any]
-
-    # ==================== Execution State ====================
-    # 当前执行的节点
-    current_node: NotRequired[Optional[str]]
-
-    # 路由控制
-    route_decision: NotRequired[str]  # Route key selected by router nodes
-    route_history: NotRequired[Annotated[List[str], operator.add]]  # History of route decisions
-
-    # 循环控制
-    loop_count: NotRequired[int]
-    loop_condition_met: NotRequired[bool]
-    max_loop_iterations: NotRequired[int]
-
-    # 并行执行
-    # Each task result should have: { status: "success"|"error", error_msg: Optional[str], result: Any, task_id: str }
-    task_results: NotRequired[Annotated[List[Dict[str, Any]], add_task_results]]
-    parallel_results: NotRequired[Annotated[List[Any], operator.add]]  # Generic parallel results
-
-    # 状态隔离（作用域状态）
-    # Isolated state for parallel loops and nested loops to avoid conflicts
-    # Key: node_id (string), Value: Dict containing loop-specific state
-    # Using Annotated with reducer for concurrent-safe updates
-    loop_states: NotRequired[Annotated[Dict[str, Dict[str, Any]], merge_loop_states]]
-    task_states: NotRequired[Annotated[Dict[str, Dict[str, Any]], merge_task_states]]
-    node_contexts: NotRequired[Annotated[Dict[str, Dict[str, Any]], merge_node_contexts]]
-
-    # Todos field for TodoListMiddleware - supports concurrent updates
-    todos: NotRequired[Annotated[List[Dict[str, Any]], add_todos]]
+    # Note: loop_states, task_states, node_contexts, and todos are inherited from ExecutionState
+    # Do not redefine them here to avoid TypedDict overwriting errors

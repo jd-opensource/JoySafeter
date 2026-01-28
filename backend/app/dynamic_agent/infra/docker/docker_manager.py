@@ -76,6 +76,12 @@ class DockerManager:
         >>> manager.stop_container(container.id)
     """
 
+    def _ensure_client(self) -> docker.DockerClient:
+        """Ensure client is initialized, raise error if not."""
+        if self.client is None:
+            raise DockerConnectionError("Docker client is not initialized")
+        return self.client
+
     def __init__(self, base_url: Optional[str] = None):
         """
         Initialize Docker manager
@@ -280,7 +286,8 @@ class DockerManager:
             container_kwargs.update(kwargs)
 
             # Create container
-            container = self.client.containers.create(**container_kwargs)
+            client = self._ensure_client()
+            container = client.containers.create(**container_kwargs)
 
             try:
                 # Start container
@@ -336,7 +343,8 @@ class DockerManager:
             >>> print(f"Output: {stdout}")
         """
         try:
-            container = self.client.containers.get(container_id)
+            client = self._ensure_client()
+            container = client.containers.get(container_id)
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
 
@@ -378,7 +386,8 @@ class DockerManager:
             ContainerNotFoundError: Container not found
         """
         try:
-            container = self.client.containers.get(container_id)
+            client = self._ensure_client()
+            container = client.containers.get(container_id)
             return ContainerInfo(container)
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
@@ -393,7 +402,8 @@ class DockerManager:
         Returns:
             List[ContainerInfo]: List of container information
         """
-        containers = self.client.containers.list(all=all)
+        client = self._ensure_client()
+        containers = client.containers.list(all=all)
         return [ContainerInfo(c) for c in containers]
 
     def stop_container(
@@ -415,7 +425,8 @@ class DockerManager:
             ContainerExecutionError: Stop failed
         """
         try:
-            container = self.client.containers.get(container_id)
+            client = self._ensure_client()
+            container = client.containers.get(container_id)
 
             if force:
                 container.kill()
@@ -448,7 +459,8 @@ class DockerManager:
             ContainerExecutionError: Remove failed
         """
         try:
-            container = self.client.containers.get(container_id)
+            client = self._ensure_client()
+            container = client.containers.get(container_id)
             container.remove(force=force, v=volumes)
 
             # Remove from cache
@@ -478,7 +490,8 @@ class DockerManager:
             ContainerExecutionError: Restart failed
         """
         try:
-            container = self.client.containers.get(container_id)
+            client = self._ensure_client()
+            container = client.containers.get(container_id)
             container.restart(timeout=timeout)
             logger.info(f"Container restarted: {container.name}")
 
@@ -499,7 +512,8 @@ class DockerManager:
             ContainerExecutionError: Pause failed
         """
         try:
-            container = self.client.containers.get(container_id)
+            client = self._ensure_client()
+            container = client.containers.get(container_id)
             container.pause()
             logger.info(f"Container paused: {container.name}")
 
@@ -520,7 +534,8 @@ class DockerManager:
             ContainerExecutionError: Resume failed
         """
         try:
-            container = self.client.containers.get(container_id)
+            client = self._ensure_client()
+            container = client.containers.get(container_id)
             container.unpause()
             logger.info(f"Container resumed: {container.name}")
 
@@ -586,9 +601,11 @@ class DockerManager:
             ContainerNotFoundError: Container not found
         """
         try:
-            container = self.client.containers.get(container_id)
+            client = self._ensure_client()
+            container = client.containers.get(container_id)
             logs = container.logs(tail=tail, follow=follow)
-            return logs.decode("utf-8", errors="ignore")
+            decoded = logs.decode("utf-8", errors="ignore")
+            return str(decoded)
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
 

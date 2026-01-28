@@ -42,11 +42,11 @@ class PerformanceState(AgentState):
 
     session_id: NotRequired[str]
     """会话ID"""
-    request_count: NotRequired[int] = 0
+    request_count: NotRequired[int]
     """请求计数"""
-    total_response_time: NotRequired[float] = 0.0
+    total_response_time: NotRequired[float]
     """总响应时间"""
-    last_metrics: NotRequired[PerformanceRecord] = None
+    last_metrics: NotRequired[PerformanceRecord]
     """最后一次性能记录"""
 
 
@@ -192,24 +192,24 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
 
     def before_agent(
         self,
-        state: PerformanceState,
+        state: AgentState[Any],  # type: ignore[override]
         runtime,
-    ) -> PerformanceState:
+    ) -> dict[str, Any]:  # type: ignore[override]
         """在代理执行前初始化性能监控"""
         # 确保会话ID存在
         if "session_id" not in state:
-            return {"session_id": self.session_id}
-        return state
+            return {"session_id": self.session_id, "messages": []}
+        return state  # type: ignore[return-value]
 
     async def abefore_agent(
         self,
-        state: PerformanceState,
+        state: AgentState[Any],  # type: ignore[override]
         runtime,
-    ) -> PerformanceState:
+    ) -> dict[str, Any]:  # type: ignore[override]
         """异步：在代理执行前初始化性能监控"""
         if "session_id" not in state:
-            return {"session_id": self.session_id}
-        return state
+            return {"session_id": self.session_id, "messages": []}
+        return state  # type: ignore[return-value]
 
     def wrap_model_call(
         self,
@@ -268,7 +268,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
                 error_occurred=False,
                 memory_usage=current_memory,
                 cpu_usage=current_cpu,
-                session_id=request.state.get("session_id", ""),
+                session_id=str(request.state.get("session_id", "")),
                 request_type="model_call",
             )
 
@@ -276,8 +276,10 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
             self.collector.add_record(record)
 
             # 更新状态
-            request.state.get("request_count", 0) + 1
-            request.state.get("total_response_time", 0.0) + response_time
+            request_count = request.state.get("request_count", 0)
+            total_response_time = request.state.get("total_response_time", 0.0)
+            request.state["request_count"] = (int(request_count) if request_count is not None else 0) + 1  # type: ignore[typeddict-unknown-key]
+            request.state["total_response_time"] = (float(total_response_time) if total_response_time is not None else 0.0) + response_time  # type: ignore[typeddict-unknown-key]
 
             return response
 
@@ -294,7 +296,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
                 error_occurred=True,
                 memory_usage=current_memory,
                 cpu_usage=current_cpu,
-                session_id=request.state.get("session_id", ""),
+                session_id=str(request.state.get("session_id", "")),
                 request_type="model_call_error",
             )
 
@@ -354,7 +356,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
                 error_occurred=False,
                 memory_usage=current_memory,
                 cpu_usage=current_cpu,
-                session_id=request.state.get("session_id", ""),
+                session_id=str(request.state.get("session_id", "")),
                 request_type="model_call",
             )
 
@@ -374,7 +376,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
                 error_occurred=True,
                 memory_usage=current_memory,
                 cpu_usage=current_cpu,
-                session_id=request.state.get("session_id", ""),
+                session_id=str(request.state.get("session_id", "")),
                 request_type="model_call_error",
             )
 

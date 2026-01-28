@@ -201,7 +201,7 @@ class DockerRemoteAPIManager:
                 client.images.pull(image)
 
             # Build container parameters
-            container_kwargs = {
+            container_kwargs: Dict[str, Any] = {
                 "image": image,
                 "command": command,
                 "detach": True,
@@ -212,6 +212,7 @@ class DockerRemoteAPIManager:
             if environment:
                 container_kwargs["environment"] = environment
             if ports:
+                # Convert ports format if needed
                 container_kwargs["ports"] = ports
             if volumes:
                 container_kwargs["volumes"] = volumes
@@ -496,7 +497,8 @@ class DockerRemoteAPIManager:
             container = client.containers.get(container_id)
             logs = container.logs(tail=tail)
 
-            return logs.decode("utf-8", errors="ignore")
+            decoded = logs.decode("utf-8", errors="ignore")
+            return str(decoded) if decoded is not None else None
 
         except Exception as e:
             logger.error(f"Failed to get logs from {host_name}: {e}")

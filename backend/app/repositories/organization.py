@@ -51,11 +51,13 @@ class MemberRepository(BaseRepository[Member]):
     def __init__(self, db: AsyncSession):
         super().__init__(Member, db)
 
-    async def get_by_user_and_org(self, user_id: uuid.UUID, org_id: uuid.UUID) -> Optional[Member]:
+    async def get_by_user_and_org(self, user_id: str | uuid.UUID, org_id: uuid.UUID) -> Optional[Member]:
         """根据用户和组织获取成员"""
+        # Convert user_id to string if it's UUID
+        user_id_str = str(user_id) if isinstance(user_id, uuid.UUID) else user_id
         query = (
             select(Member)
-            .where(Member.user_id == user_id, Member.organization_id == org_id)
+            .where(Member.user_id == user_id_str, Member.organization_id == org_id)
             .options(selectinload(Member.user))
         )
         result = await self.db.execute(query)

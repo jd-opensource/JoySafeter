@@ -47,7 +47,7 @@ class NodeConfigHelper:
                 },
             ], defaultRoute="default")
         """
-        config = {"routes": routes}
+        config: Dict[str, Any] = {"routes": routes}
 
         if defaultRoute:
             config["defaultRoute"] = defaultRoute
@@ -221,7 +221,7 @@ class NodeConfigHelper:
         Returns:
             配置字典
         """
-        config = {}
+        config: Dict[str, Any] = {}
 
         if jsonpath_query:
             config["jsonpath_query"] = jsonpath_query

@@ -152,7 +152,8 @@ class DatabaseSkillAdapter(AgentMiddleware):
     ) -> ModelResponse:
         """Delegate to SkillsMiddleware if available."""
         if self._skills_middleware is None:
-            return handler(request)
+            result = handler(request)
+            return result  # type: ignore[return-value]
         return self._skills_middleware.wrap_model_call(request, handler)
 
     async def awrap_model_call(
@@ -162,5 +163,6 @@ class DatabaseSkillAdapter(AgentMiddleware):
     ) -> ModelResponse:
         """Async version - delegate to SkillsMiddleware if available."""
         if self._skills_middleware is None:
-            return await handler(request)
+            result = await handler(request)
+            return result  # type: ignore[return-value]
         return await self._skills_middleware.awrap_model_call(request, handler)

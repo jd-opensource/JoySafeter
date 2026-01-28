@@ -51,7 +51,7 @@ def try_extract_thought_field(json_content: str) -> Optional[str]:
         # Unescape JSON string (handle \n, \", etc.)
         try:
             thought_content = json.loads(f'"{thought_content}"')
-            return thought_content
+            return str(thought_content) if thought_content is not None else None
         except (json.JSONDecodeError, ValueError):
             # If unescaping fails, might be incomplete - return None to wait for more data
             return None

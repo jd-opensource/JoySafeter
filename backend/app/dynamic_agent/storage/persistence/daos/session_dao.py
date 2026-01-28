@@ -31,7 +31,8 @@ class SessionDAO:
 
         for attempt in range(max_retries):
             try:
-                return await operation(*args, **kwargs)
+                result = await operation(*args, **kwargs)
+                return result  # type: ignore[return-value]
 
             except asyncio.CancelledError:
                 # 🚨 Must re-raise immediately, never swallow

@@ -10,7 +10,7 @@ for untrusted code execution.
 
 import json
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -49,7 +49,7 @@ class DockerPythonExecutor(PythonExecutor):
         working_dir: str = "/workspace",
         command_timeout: int = 60,
         max_output_size: int = 100000,
-        install_packages: list[str] = None,
+        install_packages: Optional[list[str]] = None,
     ):
         """
         Initialize the Docker Python executor.
@@ -188,7 +188,7 @@ class DockerPythonExecutor(PythonExecutor):
     def __call__(
         self,
         code: str,
-        additional_tools: dict[str, Callable] = None,
+        additional_tools: Optional[dict[str, Callable]] = None,
     ) -> CodeOutput:
         """
         Execute Python code in Docker container.
@@ -303,7 +303,7 @@ class DockerPythonExecutor(PythonExecutor):
 
 
 def create_docker_executor(
-    install_packages: list[str] = None,
+    install_packages: Optional[list[str]] = None,
     enable_network: bool = False,
     **kwargs,
 ) -> DockerPythonExecutor:

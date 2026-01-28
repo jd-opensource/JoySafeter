@@ -170,7 +170,7 @@ class ExecutionPlan:
             self.steps[self.current_step_index].status = StepStatus.IN_PROGRESS
             self.steps[self.current_step_index].start_time = datetime.now()
 
-    def mark_failed(self, error_message: str = None) -> None:
+    def mark_failed(self, error_message: Optional[str] = None) -> None:
         """Mark current step as failed."""
         if self.current_step_index < len(self.steps):
             self.steps[self.current_step_index].status = StepStatus.FAILED

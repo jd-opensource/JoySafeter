@@ -88,7 +88,7 @@ class GraphNodeRepository(BaseRepository[GraphNode]):
         """删除图的所有节点"""
         stmt = delete(GraphNode).where(GraphNode.graph_id == graph_id)
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0
 
     async def delete_by_ids(self, graph_id: uuid.UUID, node_ids: List[uuid.UUID]) -> int:
         """批量删除节点"""
@@ -101,7 +101,7 @@ class GraphNodeRepository(BaseRepository[GraphNode]):
             )
         )
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0
 
 
 class GraphEdgeRepository(BaseRepository[GraphEdge]):
@@ -120,7 +120,7 @@ class GraphEdgeRepository(BaseRepository[GraphEdge]):
         """删除图的所有边"""
         stmt = delete(GraphEdge).where(GraphEdge.graph_id == graph_id)
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0
 
     async def delete_by_node_ids(self, graph_id: uuid.UUID, node_ids: List[uuid.UUID]) -> int:
         """删除与指定节点相关的所有边"""
@@ -136,4 +136,4 @@ class GraphEdgeRepository(BaseRepository[GraphEdge]):
             )
         )
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0

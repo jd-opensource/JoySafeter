@@ -12,7 +12,7 @@ This module implements multi-layer security controls:
 
 from collections.abc import Callable
 from types import BuiltinFunctionType, ModuleType
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -310,7 +310,7 @@ def get_allowed_imports(
     base: bool = True,
     data_analysis: bool = False,
     network: bool = False,
-    custom: list[str] = None,
+    custom: Optional[list[str]] = None,
 ) -> list[str]:
     """
     Get the list of allowed imports based on configuration.

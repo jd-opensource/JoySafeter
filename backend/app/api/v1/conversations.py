@@ -113,7 +113,8 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
         all_credentials = await credential_service.list_credentials()
         for cred in all_credentials:
             if cred.get("is_valid"):
-                provider_name = cred.get("provider_name")
+                provider_name_raw = cred.get("provider_name")
+                provider_name = str(provider_name_raw) if provider_name_raw is not None else ""
                 # 尝试获取该 provider 的第一个模型
                 provider = await model_service.provider_repo.get_by_name(provider_name)
                 if provider:
@@ -591,6 +592,7 @@ async def reset_conversation(
         await db.rollback()
         logger.error(f"❌ Failed to reset conversation {thread_id}: {e}")
         raise_internal_error(f"Failed to reset conversation: {str(e)}")
+        return BaseResponse(success=False, code=500, msg=f"Failed to reset conversation: {str(e)}", data={})  # type: ignore[unreachable]
 
 
 # ==================== Message management endpoints ====================
@@ -721,6 +723,7 @@ async def get_checkpoints(
     except Exception as e:
         logger.error(f"Get checkpoints error: {e}")
         raise_internal_error(str(e))
+        return BaseResponse(success=False, code=500, msg=str(e), data=CheckpointResponse(thread_id=thread_id, checkpoints=[]))  # type: ignore[unreachable]
 
 
 async def get_graph_instance(

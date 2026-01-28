@@ -8,7 +8,7 @@ and implements the execution logic for that node type.
 import ast
 import asyncio
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import Runnable
@@ -20,7 +20,7 @@ try:
     COMMAND_AVAILABLE = True
 except ImportError:
     COMMAND_AVAILABLE = False
-    Command = None
+    Command = None  # type: ignore[assignment,misc]
     logger.warning("[NodeExecutors] langgraph.types.Command not available, Command mode disabled")
 
 from app.core.agent.node_tools import resolve_tools_for_node
@@ -289,7 +289,10 @@ class AgentNodeExecutor:
             return self.node.prompt
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("systemPrompt", "") or config.get("prompt", "")
+        system_prompt = config.get("systemPrompt", "")
+        prompt = config.get("prompt", "")
+        result = system_prompt or prompt
+        return str(result) if result is not None else ""
 
     async def _ensure_agent(self) -> Runnable:
         """Lazily create the underlying LangChain agent graph once per node."""
@@ -399,7 +402,8 @@ class AgentNodeExecutor:
             Command mode can be enabled via node config: config.useCommandMode = true
         """
         start_time = time.time()
-        messages: List[BaseMessage] = state.get("messages", []) or []
+        messages_raw = state.get("messages", []) or []
+        messages: List[BaseMessage] = list(messages_raw) if isinstance(messages_raw, (list, Sequence)) else []  # type: ignore[arg-type]
 
         # Check if Command mode is enabled for this node
         data = self.node.data or {}
@@ -506,7 +510,8 @@ class ConditionNodeExecutor:
         """Extract condition expression from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("expression", "")
+        expression = config.get("expression", "")
+        return str(expression) if expression is not None else ""
 
     def set_handle_to_route_map(self, handle_map: Dict[str, str]) -> None:
         """Set the mapping from React Flow handle IDs to route keys."""
@@ -654,6 +659,8 @@ class DirectReplyNodeExecutor:
         """Extract template from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
+        template = config.get("template", "")
+        return str(template) if template is not None else ""
         return config.get("template", "")
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
@@ -807,7 +814,7 @@ class RouterNodeExecutor:
                             goto=goto_node,
                         )
 
-                return route_key
+                return str(route_key) if route_key is not None else ""
 
         # No rule matched, return default
         elapsed_ms = (time.time() - start_time) * 1000
@@ -829,7 +836,7 @@ class RouterNodeExecutor:
                     goto=default_goto,
                 )
 
-        return default_route
+        return str(default_route) if default_route is not None else ""
 
 
 class ToolNodeExecutor:
@@ -850,7 +857,8 @@ class ToolNodeExecutor:
         """Extract tool name from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("tool_name", "")
+        tool_name = config.get("tool_name", "")
+        return str(tool_name) if tool_name is not None else ""
 
     def _get_input_mapping(self) -> Dict[str, str]:
         """Extract input parameter mapping from node configuration.
@@ -861,7 +869,8 @@ class ToolNodeExecutor:
         """
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("input_mapping", {})
+        result = config.get("input_mapping", {})
+        return result if isinstance(result, dict) else {}  # type: ignore[return-value]
 
     async def _resolve_tool(self) -> Any:
         """Resolve the tool instance from the registry."""
@@ -980,13 +989,15 @@ class FunctionNodeExecutor:
         """Extract function code from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("function_code", "")
+        function_code = config.get("function_code", "")
+        return str(function_code) if function_code is not None else ""
 
     def _get_function_name(self) -> Optional[str]:
         """Extract predefined function name from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("function_name")
+        function_name = config.get("function_name")
+        return str(function_name) if function_name is not None else None
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Execute the function node."""
@@ -1265,7 +1276,8 @@ class AggregatorNodeExecutor:
         """Extract error handling strategy from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("error_strategy", "fail_fast")  # 'fail_fast' or 'best_effort'
+        error_strategy = config.get("error_strategy", "fail_fast")  # 'fail_fast' or 'best_effort'
+        return str(error_strategy) if error_strategy is not None else "fail_fast"
 
     def _aggregate_results(self, state: GraphState) -> Dict[str, Any]:
         """Aggregate results from parallel branches."""
@@ -1361,13 +1373,15 @@ class JSONParserNodeExecutor:
         """Extract JSONPath query from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("jsonpath_query")
+        query = config.get("jsonpath_query")
+        return str(query) if query is not None else ""
 
     def _get_schema_validation(self) -> Optional[Dict[str, Any]]:
         """Extract JSON Schema for validation."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("json_schema")
+        schema = config.get("json_schema")
+        return schema if isinstance(schema, dict) else None
 
     def _parse_json(self, input_data: Any) -> Any:
         """Parse JSON from various input formats."""
@@ -1511,30 +1525,37 @@ class HttpRequestNodeExecutor:
         """Extract HTTP method from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("method", "GET").upper()
+        method = config.get("method", "GET")
+        return str(method).upper() if method is not None else "GET"
 
     def _get_url_template(self) -> str:
         """Extract URL template from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
+        url_template = config.get("url_template", "")
+        return str(url_template) if url_template is not None else ""
         return config.get("url", "")
 
     def _get_headers(self) -> Dict[str, str]:
         """Extract headers from node configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("headers", {})
+        headers = config.get("headers", {})
+        return headers if isinstance(headers, dict) else {}
 
     def _get_auth_config(self) -> Dict[str, Any]:
         """Extract authentication configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("auth", {})
+        auth_config = config.get("auth", {})
+        return auth_config if isinstance(auth_config, dict) else {}
 
     def _get_retry_config(self) -> Dict[str, Any]:
         """Extract retry configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
+        retry_config = config.get("retry", {})
+        return retry_config if isinstance(retry_config, dict) else {}
         return {
             "max_retries": config.get("max_retries", 3),
             "retry_delay": config.get("retry_delay", 1.0),
@@ -1545,7 +1566,8 @@ class HttpRequestNodeExecutor:
         """Extract timeout configuration."""
         data = self.node.data or {}
         config = data.get("config", {})
-        return config.get("timeout", 30.0)
+        timeout = config.get("timeout", 30.0)
+        return float(timeout) if timeout is not None else 30.0
 
     def _substitute_url(self, template: str, state: GraphState) -> str:
         """Substitute URL template variables."""
@@ -1764,9 +1786,9 @@ class CodeAgentNodeExecutor:
             if self.resolved_model:
                 llm = self.resolved_model
             else:
-                from app.core.agent.sample_agent import get_llm
+                from app.core.agent.sample_agent import get_default_model
 
-                llm = await get_llm(
+                llm = get_default_model(
                     llm_model=self.llm_model,
                     api_key=self.api_key,
                     base_url=self.base_url,
@@ -1775,7 +1797,10 @@ class CodeAgentNodeExecutor:
 
             # Call LLM
             response = await llm.ainvoke([HumanMessage(content=prompt)])
-            return response.content
+            content = response.content if hasattr(response, "content") else str(response)
+            if isinstance(content, list):
+                return " ".join(str(item) for item in content)
+            return str(content)
 
         return llm_call
 
@@ -1969,10 +1994,12 @@ class CodeAgentNodeExecutor:
         if messages:
             for msg in reversed(messages):
                 if hasattr(msg, "type") and msg.type == "human":
-                    return msg.content
+                    content = msg.content
+                    return str(content) if isinstance(content, (str, list)) else (content[0] if isinstance(content, list) and content else str(content))  # type: ignore[return-value]
                 if hasattr(msg, "content") and not hasattr(msg, "type"):
                     # Fallback to last message content
-                    return msg.content
+                    content = msg.content
+                    return str(content) if isinstance(content, (str, list)) else (content[0] if isinstance(content, list) and content else str(content))  # type: ignore[return-value]
 
         # Priority 4: Fallback
         return "Analyze the current context and provide a helpful response."

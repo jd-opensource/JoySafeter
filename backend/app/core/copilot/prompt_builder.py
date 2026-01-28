@@ -46,7 +46,8 @@ def build_llm_messages(
             if isinstance(msg, dict) and "role" in msg and "content" in msg:
                 role = msg["role"]
                 content = msg.get("content", "")
-                actions = msg.get("actions", [])
+                actions_raw: Any = msg.get("actions", [])
+                actions: List[Any] = actions_raw if isinstance(actions_raw, list) else []
 
                 # Only include user and assistant messages, skip invalid roles
                 if role in ("user", "assistant") and content:

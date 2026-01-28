@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 try:
     from rich import box
@@ -26,7 +26,7 @@ try:
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
-    Console = None
+    Console = None  # type: ignore[assignment, misc]
 
 if TYPE_CHECKING:
     from .memory import ActionStep, PlanningStep
@@ -262,6 +262,8 @@ class AgentLogger:
     Provides methods for logging various types of content including
     code, markdown, tasks, and structured data with optional rich formatting.
     """
+
+    console: Optional[Console]
 
     def __init__(
         self,

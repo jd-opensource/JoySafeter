@@ -197,8 +197,8 @@ async def get_agent(
                             resolved_tools.append(mcp_tool)
                             continue
 
-                # 无法解析，保留原始值
-                resolved_tools.append(tool)
+                # 无法解析，记录警告但跳过（不添加字符串到工具列表）
+                logger.warning(f"[get_agent] Unable to resolve tool '{tool}', skipping")
                 continue
 
             resolved_tools.append(tool)
@@ -283,9 +283,10 @@ async def get_agent(
         )
 
     # Create agent (callbacks will be configured at invoke time)
-    agent_config = {"recursion_limit": 1000}
+    from langchain_core.runnables import RunnableConfig
+    agent_config: RunnableConfig = {"recursion_limit": 1000}  # type: ignore[assignment]
     if agent_name:
-        agent_config["tags"] = [f"Agent:{agent_name}"]
+        agent_config["tags"] = [f"Agent:{agent_name}"]  # type: ignore[assignment]
 
     agent: Runnable = create_agent(
         model,

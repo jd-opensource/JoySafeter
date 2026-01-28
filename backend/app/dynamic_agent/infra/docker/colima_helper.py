@@ -4,7 +4,7 @@ Colima environment detection and initialization helper
 
 import os
 import subprocess
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from loguru import logger
 
@@ -42,12 +42,12 @@ class ColimaHelper:
         return "/var/run/docker.sock"
 
     @staticmethod
-    def get_colima_status() -> Dict[str, str]:
+    def get_colima_status() -> Dict[str, str | bool]:
         """Get detailed Colima status"""
         try:
             result = subprocess.run(["colima", "status"], capture_output=True, text=True, timeout=5)
 
-            status = {"installed": True, "running": result.returncode == 0, "output": result.stdout.strip()}
+            status: Dict[str, str | bool] = {"installed": True, "running": result.returncode == 0, "output": result.stdout.strip()}
 
             # Parse status output
             if "running" in result.stdout.lower():
@@ -168,7 +168,7 @@ class ColimaHelper:
             return False, f"Error setting up Colima environment: {str(e)}"
 
     @staticmethod
-    def get_docker_info() -> Optional[Dict]:
+    def get_docker_info() -> Optional[Dict[Any, Any]]:
         """Get Docker info from Colima"""
         try:
             result = subprocess.run(["docker", "info", "--format=json"], capture_output=True, text=True, timeout=5)
@@ -176,7 +176,7 @@ class ColimaHelper:
             if result.returncode == 0:
                 import json
 
-                return json.loads(result.stdout)
+                return json.loads(result.stdout)  # type: ignore[no-any-return]
 
             return None
         except (json.JSONDecodeError, subprocess.SubprocessError) as e:

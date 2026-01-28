@@ -349,7 +349,8 @@ class ContainerBindingManager:
         Returns:
             Container binding dict or None
         """
-        return await self.backend.get_active_container_for_user(user_id)
+        result = await self.backend.get_active_container_for_user(user_id)
+        return result if isinstance(result, dict) else None  # type: ignore[return-value]
 
     async def get_container_info(self, container_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -361,7 +362,8 @@ class ContainerBindingManager:
         Returns:
             Container binding dict or None
         """
-        return await self.backend.get_container_binding(container_id)
+        result = await self.backend.get_container_binding(container_id)
+        return result if isinstance(result, dict) else None  # type: ignore[return-value]
 
     async def list_user_containers(self, user_id: str, active_only: bool = True) -> List[Dict[str, Any]]:
         """
@@ -374,7 +376,8 @@ class ContainerBindingManager:
         Returns:
             List of container binding dicts
         """
-        return await self.backend.list_user_containers(user_id, active_only)
+        result = await self.backend.list_user_containers(user_id, active_only)
+        return result if isinstance(result, list) else []  # type: ignore[return-value]
 
     async def update_container_status(self, container_id: str, status: str):
         """

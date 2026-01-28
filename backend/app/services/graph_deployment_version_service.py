@@ -293,14 +293,20 @@ class GraphDeploymentVersionService(BaseService):
         user_ids = list(set(v.created_by for v in versions if v.created_by))
         user_names: Dict[str, str] = {}
         for user_id in user_ids:
-            user = await self.user_repo.get(user_id)
-            if user:
-                user_names[user_id] = user.name
+            if user_id:
+                import uuid as uuid_lib
+                try:
+                    user_uuid = uuid_lib.UUID(user_id) if isinstance(user_id, str) else user_id
+                    user = await self.user_repo.get(user_uuid)
+                    if user:
+                        user_names[user_id] = user.name
+                except (ValueError, TypeError):
+                    pass
 
         total_pages = (total + page_size - 1) // page_size if page_size > 0 else 1
 
         return GraphDeploymentVersionListResponse(
-            versions=[self._to_response_camel(v, user_names.get(v.created_by)) for v in versions],
+            versions=[self._to_response_camel(v, user_names.get(v.created_by) if v.created_by else None) for v in versions],
             total=total,
             page=page,
             pageSize=page_size,

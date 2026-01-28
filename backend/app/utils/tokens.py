@@ -45,7 +45,7 @@ def calculate_baseline_tokens(model, agent_dir: Path, system_prompt: str) -> int
         # Note: tools parameter is not supported by LangChain's token counting
         # Tool tokens will be included in the API response after first message
         token_count = model.get_num_tokens_from_messages(messages)
-        return token_count
+        return int(token_count)  # type: ignore[no-any-return]
     except NotImplementedError as e:
         # 某些模型（如GLM、自定义模型）没有实现token计数方法
         logger.info(f"[yellow]Token计数不可用: {e}[/yellow]")
@@ -96,7 +96,7 @@ def get_memory_system_prompt() -> str:
     # Import from agent_memory middleware
     from ..midware.memory_in_file import LONGTERM_MEMORY_SYSTEM_PROMPT
 
-    return LONGTERM_MEMORY_SYSTEM_PROMPT.format(memory_path="/memories/")
+    return str(LONGTERM_MEMORY_SYSTEM_PROMPT.format(memory_path="/memories/"))
 
 
 def count_tokens(text: str) -> int:

@@ -31,11 +31,13 @@ class CredentialEncryption:
                 key = Fernet.generate_key().decode()
 
         if isinstance(key, str):
-            key = key.encode()
+            key_bytes = key.encode()
+        else:
+            key_bytes = key
 
         # 如果密钥不是Fernet格式，使用PBKDF2派生
         try:
-            self.fernet = Fernet(key)
+            self.fernet = Fernet(key_bytes)
         except ValueError:
             # 密钥不是Fernet格式，使用PBKDF2派生
             kdf = PBKDF2HMAC(
@@ -44,8 +46,8 @@ class CredentialEncryption:
                 salt=b"credential_salt",  # 生产环境应该使用随机salt
                 iterations=100000,
             )
-            key = base64.urlsafe_b64encode(kdf.derive(key))
-            self.fernet = Fernet(key)
+            key_bytes = base64.urlsafe_b64encode(kdf.derive(key_bytes))
+            self.fernet = Fernet(key_bytes)
 
     def encrypt(self, data: Dict[str, Any]) -> str:
         """
@@ -73,7 +75,8 @@ class CredentialEncryption:
         """
         encrypted_bytes = base64.urlsafe_b64decode(encrypted_data.encode())
         decrypted_bytes = self.fernet.decrypt(encrypted_bytes)
-        return json.loads(decrypted_bytes.decode())
+        result = json.loads(decrypted_bytes.decode())
+        return result if isinstance(result, dict) else {}
 
 
 # 全局加密器实例

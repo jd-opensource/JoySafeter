@@ -10,7 +10,7 @@ allowing code execution to share the same environment as skills and other tools.
 
 import json
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -120,7 +120,7 @@ class BackendPythonExecutor(PythonExecutor):
     def __call__(
         self,
         code: str,
-        additional_tools: dict[str, Callable] = None,
+        additional_tools: Optional[dict[str, Callable]] = None,
     ) -> CodeOutput:
         """
         Execute Python code using the shared backend.
@@ -148,9 +148,11 @@ class BackendPythonExecutor(PythonExecutor):
                 if not wr:
                     return None
                 if isinstance(wr, dict):
-                    return wr.get("error")
+                    error = wr.get("error")
+                    return str(error) if error is not None else None
                 elif hasattr(wr, "error"):
-                    return wr.error
+                    error = wr.error
+                    return str(error) if error is not None else None
                 return None
 
             write_error = get_write_error(write_result)

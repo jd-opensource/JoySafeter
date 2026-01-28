@@ -80,7 +80,7 @@ async def get_graph_variables(
     edges = edges_result.scalars().all()
 
     # 分析变量
-    tracker = StateVariableTracker(nodes, edges)
+    tracker = StateVariableTracker(list(nodes), list(edges))
     variables_info = tracker.analyze_graph()
 
     # 转换为 API 响应格式
@@ -171,7 +171,7 @@ async def get_node_available_variables(
         raise NotFoundException("Node not found")
 
     # 获取可用变量
-    tracker = StateVariableTracker(nodes, edges)
+    tracker = StateVariableTracker(list(nodes), list(edges))
     available_vars = tracker.get_available_variables_for_node(str(node_id))
 
     return {"variables": available_vars}
@@ -239,7 +239,7 @@ async def validate_variables(
     edges = edges_result.scalars().all()
 
     # 验证变量
-    tracker = StateVariableTracker(nodes, edges)
+    tracker = StateVariableTracker(list(nodes), list(edges))
     errors = tracker.validate_variable_usage(str(node_id), expression)
 
     # 获取使用的变量

@@ -130,7 +130,7 @@ class AiSafetyProvider(BaseProvider):
                 base_url=base_url,
                 max_retries=3,
                 timeout=5.0,
-            )
+            )  # type: ignore[misc]
 
             # 尝试调用API
             response = await model.ainvoke("Hello, how are you?")
@@ -208,9 +208,9 @@ class AiSafetyProvider(BaseProvider):
             if "max_retries" in model_parameters:
                 model_kwargs["max_retries"] = model_parameters["max_retries"]
 
-        return ChatOpenAI(**model_kwargs)
+        return ChatOpenAI(**model_kwargs)  # type: ignore[arg-type, call-overload, misc]
 
-    def test_output(self, instance_dict: Dict[str, Any], input: str) -> str:
+    async def test_output(self, instance_dict: Dict[str, Any], input: str) -> str:
         """测试模型输出"""
 
         instance = self.create_model_instance(
@@ -219,5 +219,11 @@ class AiSafetyProvider(BaseProvider):
             credentials=instance_dict["credentials"],
             model_parameters=instance_dict["model_parameters"],
         )
-        response = instance.ainvoke(input)
-        return response
+        response = await instance.ainvoke(input)
+        if hasattr(response, "content"):
+            content = response.content
+            if isinstance(content, str):
+                return content
+            elif isinstance(content, list):
+                return " ".join(str(item) for item in content)
+        return str(response) if response else ""

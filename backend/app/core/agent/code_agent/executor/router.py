@@ -8,7 +8,7 @@ based on code analysis and security requirements.
 """
 
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -96,11 +96,11 @@ class ExecutorRouter:
 
     def __init__(
         self,
-        local: PythonExecutor = None,
-        docker: PythonExecutor = None,
+        local: Optional[PythonExecutor] = None,
+        docker: Optional[PythonExecutor] = None,
         allow_dangerous: bool = False,
         prefer_docker: bool = False,
-        dangerous_patterns: list[tuple[str, str]] = None,
+        dangerous_patterns: Optional[list[tuple[str, str]]] = None,
     ):
         """
         Initialize the executor router.
@@ -171,7 +171,7 @@ class ExecutorRouter:
         # Always prefer Docker if configured
         if self.prefer_docker and self.docker is not None:
             logger.debug("Routing to Docker executor (prefer_docker=True)")
-            return self.docker
+            return self.docker  # type: ignore[return-value]
 
         # Analyze code
         analysis = self.analyze_code(code)
@@ -182,7 +182,7 @@ class ExecutorRouter:
 
             if self.docker is not None:
                 logger.info("Routing dangerous code to Docker executor")
-                return self.docker
+                return self.docker  # type: ignore[return-value]
             elif self.allow_dangerous:
                 logger.warning("No Docker available, executing dangerous code locally")
                 return self.local
@@ -200,7 +200,7 @@ class ExecutorRouter:
     def __call__(
         self,
         code: str,
-        additional_tools: dict[str, Callable] = None,
+        additional_tools: Optional[dict[str, Callable]] = None,
     ) -> CodeOutput:
         """
         Execute code using the appropriate executor.
@@ -272,8 +272,8 @@ def create_router(
     enable_docker: bool = True,
     allow_dangerous: bool = False,
     prefer_docker: bool = False,
-    docker_kwargs: dict = None,
-    local_kwargs: dict = None,
+    docker_kwargs: Optional[dict[Any, Any]] = None,
+    local_kwargs: Optional[dict[Any, Any]] = None,
 ) -> ExecutorRouter:
     """
     Factory function to create a configured ExecutorRouter.

@@ -122,7 +122,7 @@ class ContextPruner:
 
     async def prune_session(
         self, session_id: str, max_age_days: int = 30, min_importance: float = 0.3
-    ) -> Dict[str, int]:
+    ) -> Dict[str, int | str]:
         """Prune session data."""
         cutoff_date = datetime.now() - timedelta(days=max_age_days)
 

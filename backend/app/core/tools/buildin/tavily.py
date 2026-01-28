@@ -137,8 +137,10 @@ class TavilyTools(Toolkit):
             str: JSON string of results related to the query.
         """
 
-        return self.client.get_search_context(
-            query=query, search_depth=self.search_depth, max_tokens=self.max_tokens, include_answer=self.include_answer
+        return str(
+            self.client.get_search_context(
+                query=query, search_depth=self.search_depth, max_tokens=self.max_tokens, include_answer=self.include_answer
+            )
         )
 
     def extract_url_content(self, urls: str) -> str:

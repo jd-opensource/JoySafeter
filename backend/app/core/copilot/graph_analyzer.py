@@ -63,8 +63,9 @@ def extract_system_prompt(normalized_node: Dict[str, Any]) -> Optional[str]:
     3. data.config.prompt
     4. None
     """
-    if normalized_node.get("prompt"):
-        return normalized_node["prompt"]
+    prompt = normalized_node.get("prompt")
+    if prompt:
+        return str(prompt) if not isinstance(prompt, str) else prompt
 
     config = normalized_node.get("config", {})
     if isinstance(config, dict):
@@ -144,7 +145,14 @@ def analyze_graph_topology(normalized_nodes: List[Dict], edges: List[Dict]) -> D
     for edge in edges:
         source = edge.get("source")
         target = edge.get("target")
-        if source in node_ids and target in node_ids:
+        if (
+            source is not None
+            and target is not None
+            and isinstance(source, str)
+            and isinstance(target, str)
+            and source in node_ids
+            and target in node_ids
+        ):
             outgoing[source].append(target)
             incoming[target].append(source)
 
@@ -390,7 +398,7 @@ def calculate_positions_for_nodes(
     Returns:
         List of position dicts, each with {"x": float, "y": float}
     """
-    positions = []
+    positions: List[Dict[str, float]] = []
 
     if layout_type == "deepagents":
         # DeepAgents layout: First node (Manager) on left, rest (SubAgents) on right
@@ -450,7 +458,7 @@ def calculate_positions_for_deepagents(
             "subagents": [{"x": float, "y": float}, ...]
         }
     """
-    result = {"manager": [], "subagents": []}
+    result: Dict[str, List[Dict[str, float]]] = {"manager": [], "subagents": []}
 
     # Calculate Manager positions (on the left)
     if manager_count > 0:

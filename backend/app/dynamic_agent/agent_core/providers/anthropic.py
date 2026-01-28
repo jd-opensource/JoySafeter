@@ -168,8 +168,11 @@ class AnthropicProvider:
     def _format_content_block(self, block: Any) -> Dict[str, Any]:
         """Format a single content block."""
         if hasattr(block, "model_dump"):
-            return block.model_dump(exclude_none=True)
-        return block
+            result = block.model_dump(exclude_none=True)
+            return result if isinstance(result, dict) else {"content": str(result)}
+        if isinstance(block, dict):
+            return block
+        return {"content": str(block)}
 
     def _format_tools(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Format tools with caching."""

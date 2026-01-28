@@ -236,12 +236,16 @@ class TaskExecutionTrackingHandler(AsyncCallbackHandler):
 
     async def on_tool_error(
         self,
-        error: Exception,
+        error: BaseException,  # type: ignore[override]
+        *,
+        run_id: UUID | None = None,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Called when a tool call fails."""
-        run_id = str(kwargs.get("run_id", ""))
-        if self._should_skip_run(run_id):
+        run_id_str = str(run_id) if run_id else ""
+        if self._should_skip_run(run_id_str):
             return
 
         try:
@@ -257,10 +261,10 @@ class TaskExecutionTrackingHandler(AsyncCallbackHandler):
                 return
 
             # Create and send event
-            step_key = self._get_step_key(task_id, run_id)
+            step_key = self._get_step_key(task_id, run_id_str)
             event = ToolErrorEvent(
                 task_id=task_id,
-                run_id=run_id,
+                run_id=run_id_str,
                 step_key=step_key,
                 error_message=str(error),
             )
@@ -533,7 +537,11 @@ class TaskExecutionTrackingHandler(AsyncCallbackHandler):
 
     async def on_llm_error(
         self,
-        error: Exception,
+        error: BaseException,  # type: ignore[override]
+        *,
+        run_id: UUID | None = None,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Called when LLM call fails."""
@@ -545,7 +553,7 @@ class TaskExecutionTrackingHandler(AsyncCallbackHandler):
                 logger.debug("No task_id in context, skipping llm_error tracking")
                 return
 
-            run_id = str(kwargs.get("run_id", ""))
+            run_id_str = str(run_id) if run_id else ""
 
             if not run_id:
                 logger.warning("[Tracking] No run_id in on_llm_error")
@@ -595,7 +603,11 @@ class TaskExecutionTrackingHandler(AsyncCallbackHandler):
 
     async def on_chain_error(
         self,
-        error: Exception,
+        error: BaseException,  # type: ignore[override]
+        *,
+        run_id: UUID | None = None,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Called when a chain execution fails."""

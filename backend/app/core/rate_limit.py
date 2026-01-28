@@ -70,16 +70,16 @@ def get_client_ip(request: Request) -> str:
     # 优先从 X-Forwarded-For 获取（考虑代理/负载均衡）
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return str(forwarded).split(",")[0].strip()
 
     # 从 X-Real-IP 获取
     real_ip = request.headers.get("X-Real-IP")
     if real_ip:
-        return real_ip
+        return str(real_ip)
 
     # 直接从 client 获取
     if request.client:
-        return request.client.host
+        return str(request.client.host)
 
     return "unknown"
 

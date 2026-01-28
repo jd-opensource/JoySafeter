@@ -10,7 +10,7 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage
@@ -251,10 +251,13 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
             )
 
         try:
+            retrieval_method_literal: Literal["last_n", "first_n", "agentic"] | None = None
+            if self.retrieval_method in ("last_n", "first_n", "agentic"):
+                retrieval_method_literal = self.retrieval_method  # type: ignore[assignment]
             memories = await self.memory_manager.asearch_user_memories(
                 query=query,
                 limit=self.retrieval_limit,
-                retrieval_method=self.retrieval_method,
+                retrieval_method=retrieval_method_literal,
                 user_id=user_id,
             )
             memory_count = len(memories) if memories else 0
@@ -275,9 +278,9 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
     # ---------------------------
     def before_agent(
         self,
-        state: AgenticMemoryState,
+        state: AgentState[Any],  # type: ignore[override]
         runtime,  # type: ignore[no-untyped-def]
-    ) -> AgenticMemoryState:
+    ) -> dict[str, Any]:  # type: ignore[override]
         """可在此处进行必要初始化"""
         user_id = self._get_user_id()
         if user_id:
@@ -290,13 +293,13 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         else:
             logger.warning("Skipping MemoryManager initialization: no user_id available")
 
-        return {}
+        return {"messages": []}
 
     async def abefore_agent(
         self,
-        state: AgenticMemoryState,
+        state: AgentState[Any],  # type: ignore[override]
         runtime,  # type: ignore[no-untyped-def]
-    ) -> AgenticMemoryState:
+    ) -> dict[str, Any]:  # type: ignore[override]
         return self.before_agent(state, runtime)
 
     def wrap_model_call(
@@ -319,15 +322,15 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         if memory_context:
             # 记录到状态中，便于下游使用或调试
             try:
-                request.state["agent_memory_context"] = memory_context
+                request.state["agent_memory_context"] = memory_context  # type: ignore[typeddict-unknown-key]
             except Exception:
                 pass
 
             logger.info(f"Injecting memory context into system prompt for user_id={user_id}")
             if request.system_prompt:
-                request.system_prompt = f"{memory_context}\n\n{request.system_prompt}"
+                request.system_prompt = f"{memory_context}\n\n{request.system_prompt}"  # type: ignore[misc, assignment]
             else:
-                request.system_prompt = memory_context
+                request.system_prompt = memory_context  # type: ignore[misc, assignment]
         else:
             logger.debug(f"No memory context to inject for user_id={user_id}")
 
@@ -381,15 +384,15 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         memory_context = await self._build_memory_context(request, user_id)
         if memory_context:
             try:
-                request.state["agent_memory_context"] = memory_context
+                request.state["agent_memory_context"] = memory_context  # type: ignore[typeddict-unknown-key]
             except Exception:
                 pass
 
             logger.info(f"Injecting memory context into system prompt for user_id={user_id}")
             if request.system_prompt:
-                request.system_prompt = f"{memory_context}\n\n{request.system_prompt}"
+                request.system_prompt = f"{memory_context}\n\n{request.system_prompt}"  # type: ignore[misc, assignment]
             else:
-                request.system_prompt = memory_context
+                request.system_prompt = memory_context  # type: ignore[misc, assignment]
         else:
             logger.debug(f"No memory context to inject for user_id={user_id}")
 

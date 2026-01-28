@@ -3,7 +3,7 @@
 Builds different types of nodes (root, manager, worker, code_agent).
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from deepagents import CompiledSubAgent
 from langchain_core.messages import AIMessage
@@ -29,7 +29,7 @@ class DeepAgentsNodeBuilder:
         self._node_id_to_name = builder.get_node_id_to_name()
 
     def _create_deep_agent_from_config(
-        self, config: AgentConfig, name: str, subagents: list[Any] = None, is_root: bool = False
+        self, config: AgentConfig, name: str, subagents: Optional[list[Any]] = None, is_root: bool = False
     ) -> Any:
         """Create DeepAgent from config - unified method for root and manager."""
         return self.builder._create_deep_agent(
@@ -79,7 +79,7 @@ class DeepAgentsNodeBuilder:
 
         from langchain.agents import create_agent
 
-        agent_runnable = create_agent(
+        agent_runnable: Any = create_agent(
             model=config.model,
             tools=config.tools,
             system_prompt=config.system_prompt,
@@ -158,7 +158,10 @@ class DeepAgentsNodeBuilder:
 
         async def llm_call(prompt: str) -> str:
             response = await model.ainvoke([HumanMessage(content=prompt)])
-            return response.content
+            content = response.content if hasattr(response, "content") else str(response)
+            if isinstance(content, list):
+                return " ".join(str(item) for item in content)
+            return str(content)
 
         return llm_call
 

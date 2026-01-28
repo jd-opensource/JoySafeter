@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from fastapi import WebSocket
 from loguru import logger
@@ -17,7 +17,7 @@ class ConnectionManager:
         # Store connection metadata
         self.connection_metadata: Dict[WebSocket, Dict] = {}
 
-    async def connect(self, websocket: WebSocket, session_id: str, user_id: int = None, already_accepted: bool = True):
+    async def connect(self, websocket: WebSocket, session_id: str, user_id: Optional[int] = None, already_accepted: bool = True):
         """Accept a WebSocket connection and add it to the session group."""
         if not already_accepted:
             await websocket.accept()
@@ -82,7 +82,7 @@ class ConnectionManager:
         for session_id in list(self.active_connections.keys()):
             await self.broadcast_to_session(message, session_id)
 
-    def get_connection_count(self, session_id: str = None) -> int:
+    def get_connection_count(self, session_id: Optional[str] = None) -> int:
         """Get number of active connections."""
         if session_id:
             return len(self.active_connections.get(session_id, set()))

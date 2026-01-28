@@ -49,6 +49,12 @@ class PostgreSQLBackend:
         self.session_dao: Optional[SessionDAO] = None
         self.task_dao: Optional[TaskDAO] = None
 
+    def _ensure_pool(self) -> asyncpg.Pool:
+        """Ensure pool is initialized, raise error if not."""
+        if self.pool is None:
+            raise RuntimeError("Backend must be initialized before use")
+        return self.pool
+
     async def initialize(self):
         """Initialize connection pool, schema, and DAOs."""
         # Initialize pool
@@ -155,7 +161,8 @@ class PostgreSQLBackend:
     # Memory Operations
     async def save_memory(self, memory):
         """Save memory."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 INSERT INTO memories VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -180,7 +187,8 @@ class PostgreSQLBackend:
 
     async def load_memory(self, session_id: str, key: str):
         """Load memory by key."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM memories WHERE session_id = $1 AND key = $2", session_id, key)
 
             if not row:
@@ -224,7 +232,8 @@ class PostgreSQLBackend:
         limit: int = 10,
     ) -> List:
         """Search memories with PostgreSQL full-text search."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             sql = "SELECT * FROM memories WHERE session_id = $1 AND importance >= $2"
             params = [session_id, min_importance]
             param_count = 2
@@ -280,7 +289,8 @@ class PostgreSQLBackend:
 
     async def update_memory_stats(self, memory):
         """Update memory access statistics."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE memories
@@ -294,13 +304,15 @@ class PostgreSQLBackend:
 
     async def delete_memory(self, memory_id: str):
         """Delete a memory."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute("DELETE FROM memories WHERE memory_id = $1", memory_id)
 
     # Container Context Operations
     async def save_container(self, container):
         """Save container context."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 INSERT INTO container_contexts VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -330,7 +342,8 @@ class PostgreSQLBackend:
 
     async def load_container(self, container_id: str):
         """Load container context."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM container_contexts WHERE container_id = $1", container_id)
 
             if not row:
@@ -356,7 +369,8 @@ class PostgreSQLBackend:
 
     async def get_container_by_session(self, session_id: str):
         """Get container for a session."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM container_contexts WHERE session_id = $1", session_id)
 
             if not row:
@@ -383,7 +397,8 @@ class PostgreSQLBackend:
     # Snapshot Operations
     async def save_snapshot(self, snapshot):
         """Save snapshot."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 INSERT INTO snapshots VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -402,7 +417,8 @@ class PostgreSQLBackend:
 
     async def load_snapshot(self, snapshot_id: str):
         """Load snapshot."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM snapshots WHERE snapshot_id = $1", snapshot_id)
 
             if not row:
@@ -424,7 +440,8 @@ class PostgreSQLBackend:
 
     async def list_snapshots(self, session_id: str, limit: int = 10) -> List:
         """List snapshots for a session."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT * FROM snapshots WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2", session_id, limit
             )
@@ -451,7 +468,8 @@ class PostgreSQLBackend:
 
     async def delete_snapshot(self, snapshot_id: str):
         """Delete a snapshot."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute("DELETE FROM snapshots WHERE snapshot_id = $1", snapshot_id)
 
     # Container Binding Operations
@@ -468,7 +486,8 @@ class PostgreSQLBackend:
         metadata: Optional[Dict[str, Any]] = None,
     ):
         """Create a new container binding for a user."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             now = datetime.utcnow()
             await conn.execute(
                 """
@@ -500,7 +519,8 @@ class PostgreSQLBackend:
 
     async def get_active_container_for_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get the active container for a user (if any)."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
                 SELECT * FROM container_bindings
@@ -531,7 +551,8 @@ class PostgreSQLBackend:
 
     async def update_container_binding_session(self, container_id: str, session_id: str):
         """Update the session associated with a container binding."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE container_bindings
@@ -545,7 +566,8 @@ class PostgreSQLBackend:
 
     async def update_container_binding_status(self, container_id: str, status: str):
         """Update container binding status."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE container_bindings
@@ -559,7 +581,8 @@ class PostgreSQLBackend:
 
     async def deactivate_container_binding(self, container_id: str):
         """Deactivate a container binding."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE container_bindings
@@ -572,7 +595,8 @@ class PostgreSQLBackend:
 
     async def deactivate_user_containers(self, user_id: str):
         """Deactivate all containers for a user."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE container_bindings
@@ -585,7 +609,8 @@ class PostgreSQLBackend:
 
     async def get_container_binding(self, container_id: str) -> Optional[Dict[str, Any]]:
         """Get container binding by container ID."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
                 SELECT * FROM container_bindings
@@ -614,7 +639,8 @@ class PostgreSQLBackend:
 
     async def list_user_containers(self, user_id: str, active_only: bool = True) -> List[Dict[str, Any]]:
         """List all containers for a user."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             if active_only:
                 rows = await conn.fetch(
                     """
@@ -657,7 +683,8 @@ class PostgreSQLBackend:
 
     async def delete_container_binding(self, container_id: str):
         """Delete a container binding."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 DELETE FROM container_bindings
@@ -666,9 +693,10 @@ class PostgreSQLBackend:
                 container_id,
             )
 
-    async def update_container_binding_service(self, container_id: str, docker_api: str = None, mcp_api: str = None):
+    async def update_container_binding_service(self, container_id: str, docker_api: Optional[str] = None, mcp_api: Optional[str] = None):
         """Update container binding with API endpoints."""
-        async with self.pool.acquire() as conn:
+        pool = self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE container_bindings

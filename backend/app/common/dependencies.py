@@ -3,6 +3,7 @@
 """
 
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Annotated, Optional
 
 from fastapi import Depends, Header, Request
@@ -24,7 +25,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
-async def get_db_session() -> AsyncSession:
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """获取数据库会话"""
     async for session in get_db():
         yield session

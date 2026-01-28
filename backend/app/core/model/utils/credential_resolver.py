@@ -77,9 +77,11 @@ class LLMCredentialResolver:
                     all_credentials = await credential_service.list_credentials()
                     for cred in all_credentials:
                         if cred.get("is_valid"):
-                            provider_name = cred.get("provider_name")
+                            provider_name_from_cred = cred.get("provider_name")
+                            if not provider_name_from_cred or not isinstance(provider_name_from_cred, str):
+                                continue
                             # Try to get first model for this provider
-                            provider = await model_service.provider_repo.get_by_name(provider_name)
+                            provider = await model_service.provider_repo.get_by_name(provider_name_from_cred)
                             if provider:
                                 instances = await model_service.repo.list_all()
                                 provider_instances = [i for i in instances if i.provider_id == provider.id]

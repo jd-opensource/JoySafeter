@@ -45,7 +45,8 @@ from app.dynamic_agent.prompts.system_prompts import (
     detect_scene,
     get_system_prompt_with_scene,
 )
-from app.dynamic_agent.storage import StorageManager, get_ctf_session_store, initialize_storage
+from app.dynamic_agent.storage import StorageManager, initialize_storage
+from app.dynamic_agent.storage.session.ctf import get_ctf_session_store
 from app.dynamic_agent.storage.context_manager import SessionContext
 from app.dynamic_agent.storage.memory.store import MemoryType
 from app.dynamic_agent.tools import (
@@ -224,11 +225,12 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
     user_id = metadata.get("langfuse_user_id", "default_user")
 
     # Load or create session context
-    context: SessionContext = await storage.context.get_session(session_id)
-    if not context:
+    context_result = await storage.context.get_session(session_id)
+    if not context_result:
         context = await storage.initialize_session(user_id, session_id, metadata)
         logger.info(f"✓ Created new session: {session_id}")
     else:
+        context = context_result
         container_info = await storage.get_container_info(session_id, user_id)
         context.container_info = container_info
         logger.info(f"✓ Loaded existing session: {session_id}")
@@ -307,6 +309,8 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
 
     # Create Task and get tracking handler
     logger.debug("Creating TaskManager instance...")
+    if storage.backend.task_dao is None:
+        raise RuntimeError("TaskDAO not initialized")
     task_manager = TaskManager(storage.backend.task_dao)
     logger.debug("TaskManager instance created")
 
@@ -331,10 +335,11 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
         logger.warning("⚠️ Cannot notify task_id - missing event/holder in metadata")
 
     # todo: more external mcp servers
-    SERVER_CONFIGS = [
+    mcp_api_url = context.container_info.mcp_api if context.container_info and context.container_info.mcp_api else ""
+    SERVER_CONFIGS: List[Dict[str, str]] = [
         {
             "name": "seclens",
-            "url": context.container_info.mcp_api,
+            "url": mcp_api_url,
             "description": "enhanced basic toolkit for web security and more than that",
         },
         # {"name": "seclens", "url": "http://127.0.0.1:8000/sse"},
@@ -402,16 +407,18 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
                 # ask_human,
                 # *TODO_TOOLS,
             ]
-        )
+        )  # type: ignore[arg-type]
 
         base_tools_for_selection.clear()
+        tool1 = tool_registry.get_tool(f"{conf.NAME}{MCP_TOOL_JOINER}list_all_tool_categories")
+        tool2 = tool_registry.get_tool(f"{conf.NAME}{MCP_TOOL_JOINER}list_tools_by_categories")
         base_tools_for_selection.extend(
             [
                 *tools,
-                tool_registry.get_tool(f"{conf.NAME}{MCP_TOOL_JOINER}list_all_tool_categories"),
-                tool_registry.get_tool(f"{conf.NAME}{MCP_TOOL_JOINER}list_tools_by_categories"),
+                tool1,
+                tool2,
             ]
-        )
+        )  # type: ignore[arg-type]
         # Remove None tools to avoid LangChain errors
         base_tools_for_selection[:] = [t for t in base_tools_for_selection if t is not None]
 
@@ -421,7 +428,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
             # Main Agent toolset: keep small, delegate execution to Sub-Agent.
             # ------------------------------------------------------------------
             if is_ctf:
-                tool_instances = [
+                tool_instances: List[Any] = [
                     *base_tools,
                     agent_tool,
                     think_tool,
@@ -431,7 +438,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
                     *TODO_TOOLS,
                 ]
             else:
-                tool_instances = [
+                tool_instances: List[Any] = [
                     *base_tools,
                     agent_tool,
                     think_tool,
@@ -479,20 +486,29 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
             # Update task metadata with tools list
             await update_task_tools(task_id, task_manager, tool_instances)
 
-            main_agent = create_agent(model=llm, tools=tool_instances, system_prompt=system_prompt)
+            main_agent: Any = create_agent(model=llm, tools=tool_instances, system_prompt=system_prompt)
             main_agent = main_agent.bind(llm={"parallel_tool_calls": False})
 
             callback_list = [tracking_handler] + callbacks() if tracking_handler else callbacks()
 
             result = await main_agent.ainvoke(
-                {"messages": messages_with_context},
+                {"messages": messages_with_context},  # type: ignore[arg-type]
                 config={
                     "callbacks": callback_list,
                     "metadata": {k: v for k, v in metadata.items() if k not in ("callbacks", "tracking_handler")},
                     "recursion_limit": int(os.getenv("AGENT_MAX_INTERACTIVE_STEPS", 64)),
                 },
             )
-            reply = result.get("messages")[-1].content
+            messages = result.get("messages", [])
+            if messages:
+                last_message = messages[-1]
+                content = last_message.content if hasattr(last_message, "content") else str(last_message)
+                if isinstance(content, list):
+                    reply = " ".join(str(item) for item in content)
+                else:
+                    reply = str(content) if content is not None else ""
+            else:
+                reply = ""
 
             # Mark task complete
             await task_manager.complete_task(task_id, result_summary=reply[:5000])
@@ -524,16 +540,17 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
                 logger.info(f"✓ Stored security finding for {target}")
 
             # Put response into queue (streaming chunks)
-            # Split reply into chunks for streaming (e.g., by sentences or fixed size)
-            chunk_size = 500  # Characters per chunk
-            for i in range(0, len(reply), chunk_size):
-                chunk = reply[i : i + chunk_size]
-                response_queue.put({"status": "success", "data": chunk})
-                logger.info(f"✓ Chunk {i // chunk_size + 1} put into queue: {len(chunk)} chars")
+            if response_queue is not None:
+                # Split reply into chunks for streaming (e.g., by sentences or fixed size)
+                chunk_size = 500  # Characters per chunk
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i : i + chunk_size]
+                    response_queue.put({"status": "success", "data": chunk})
+                    logger.info(f"✓ Chunk {i // chunk_size + 1} put into queue: {len(chunk)} chars")
 
-            # Send completion signal
-            response_queue.put({"status": "complete"})
-            logger.info("✓ Response stream completed")
+                # Send completion signal
+                response_queue.put({"status": "complete"})
+                logger.info("✓ Response stream completed")
 
             return reply
         except Exception as e:
@@ -543,8 +560,9 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
                 await task_manager.fail_task(task_id, error_message=str(e))
             except Exception:
                 logger.debug("Failed to mark task as failed", exc_info=True)
-            response_queue.put({"status": "error", "data": str(e)})
-            response_queue.put({"status": "complete"})
+            if response_queue is not None:
+                response_queue.put({"status": "error", "data": str(e)})
+                response_queue.put({"status": "complete"})
             raise
         finally:
             # Always clear metadata to prevent context leaks

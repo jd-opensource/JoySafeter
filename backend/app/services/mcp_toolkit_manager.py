@@ -86,7 +86,7 @@ class McpToolkitManager:
 
         toolkit = MCPTools(
             url=server.url,
-            transport=transport,
+            transport=transport,  # type: ignore[arg-type]
             timeout_seconds=timeout_seconds,
         )
 

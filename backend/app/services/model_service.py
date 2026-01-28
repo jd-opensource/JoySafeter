@@ -72,7 +72,7 @@ class ModelService(BaseService):
                 continue
 
             # 检查供应商是否支持该模型类型
-            supported_types = provider.supported_model_types or []
+            supported_types: list[str] = provider.supported_model_types or []  # type: ignore[assignment]
             if model_type.value not in supported_types:
                 continue
 
@@ -493,4 +493,7 @@ class ModelService(BaseService):
         response = await model.ainvoke(input_text)
 
         # 返回模型输出内容
-        return response.content
+        content = response.content if hasattr(response, "content") else str(response)
+        if isinstance(content, list):
+            return " ".join(str(item) for item in content)
+        return str(content)

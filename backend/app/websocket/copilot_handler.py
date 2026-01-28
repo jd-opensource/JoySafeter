@@ -31,7 +31,8 @@ class CopilotWebSocketHandler:
         """
         try:
             # Check WebSocket state - CONNECTED means it's accepted and active
-            return websocket.client_state == WebSocketState.CONNECTED
+            is_connected = websocket.client_state == WebSocketState.CONNECTED
+            return bool(is_connected)
         except Exception:
             # If we can't check the state, assume disconnected
             return False

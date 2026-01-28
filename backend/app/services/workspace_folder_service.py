@@ -73,7 +73,8 @@ class FolderService(BaseService[WorkspaceFolder]):
     # ------------------------------------------------------------------ #
     async def list_folders(self, workspace_id: uuid.UUID, *, current_user: User) -> List[WorkspaceFolder]:
         await self._ensure_permission(workspace_id, current_user, "read")
-        return await self.folder_repo.list_by_workspace(workspace_id)
+        result = await self.folder_repo.list_by_workspace(workspace_id)
+        return list(result) if result is not None else []
 
     # ------------------------------------------------------------------ #
     # 树/循环检测辅助
@@ -189,7 +190,8 @@ class FolderService(BaseService[WorkspaceFolder]):
             }
         )
         await self.commit()
-        return folder
+        result = folder
+        return result  # type: ignore
 
     # ------------------------------------------------------------------ #
     # 更新
@@ -232,7 +234,8 @@ class FolderService(BaseService[WorkspaceFolder]):
         if update_data:
             folder = await self.folder_repo.update(folder.id, update_data)  # type: ignore
             await self.commit()
-        return folder
+        result = folder
+        return result  # type: ignore
 
     # ------------------------------------------------------------------ #
     # 删除
@@ -350,4 +353,5 @@ class FolderService(BaseService[WorkspaceFolder]):
             await self.db.flush()
 
         await self.commit()
-        return await self.folder_repo.get(new_root_id)  # type: ignore[return-value]
+        result = await self.folder_repo.get(new_root_id)
+        return result  # type: ignore

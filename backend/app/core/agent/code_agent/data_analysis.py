@@ -7,7 +7,7 @@ This module provides pre-configured tools and helpers for data analysis
 tasks, including pandas, numpy, visualization, and machine learning.
 """
 
-from typing import Callable
+from typing import Any, Callable
 
 # ============================================================================
 # Data Analysis Module Lists
@@ -79,14 +79,14 @@ ALL_DATA_ANALYSIS_MODULES = (
 # ============================================================================
 
 
-def create_data_analysis_tools() -> dict[str, Callable]:
+def create_data_analysis_tools() -> dict[str, Callable[..., Any]]:
     """
     Create built-in helper tools for data analysis.
 
     Returns:
         Dictionary of tool name -> function.
     """
-    tools = {}
+    tools: dict[str, Callable[..., Any]] = {}
 
     def describe_dataframe(df) -> str:
         """

@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, TextIO
 
 # Log directory
 LOG_DIR = Path(__file__).parent.parent / "logs"
@@ -58,7 +58,7 @@ class TraceLogEntry:
             JSON string without newlines
         """
         # Use compact format for viewer.html compatibility
-        data = {
+        data: Dict[str, Any] = {
             "id": self.id,
             "timestamp": self.timestamp,
             "session_id": self.session_id,
@@ -118,7 +118,7 @@ class TraceLogger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         self.log_file = self.log_dir / f"session_{session_id}.jsonl"
-        self._file_handle = None
+        self._file_handle: Optional[TextIO] = None
         self._entry_count = 0
         self._current_parent_id: Optional[str] = None
 
@@ -163,8 +163,9 @@ class TraceLogger:
         )
 
         self._ensure_open()
-        self._file_handle.write(entry.to_jsonl() + "\n")
-        self._file_handle.flush()
+        if self._file_handle is not None:
+            self._file_handle.write(entry.to_jsonl() + "\n")
+            self._file_handle.flush()
 
         return entry_id
 
@@ -199,7 +200,7 @@ class TraceLogger:
         Returns:
             Entry ID
         """
-        content = {
+        content: Dict[str, Any] = {
             "system_prompt": system_prompt,
             "messages": messages,
             "model": model,
@@ -290,7 +291,7 @@ class TraceLogger:
         Returns:
             Entry ID
         """
-        content = {}
+        content: Dict[str, Any] = {}
         if content_text:
             content["content"] = content_text[:5000]  # Truncate
         if tool_calls:

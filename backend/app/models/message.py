@@ -327,8 +327,8 @@ class Message(SQLAlchemyBaseModel, SoftDeleteMixin):
 
         if self.references:
             message_dict["references"] = self.references.model_dump()
-        if self.metrics:
-            message_dict["metrics"] = self.metrics.to_dict()
+        if hasattr(self, "metrics") and self.metrics:
+            message_dict["metrics"] = self.metrics.to_dict()  # type: ignore[attr-defined]
             if not message_dict["metrics"]:
                 message_dict.pop("metrics")
 
@@ -342,7 +342,7 @@ class Message(SQLAlchemyBaseModel, SoftDeleteMixin):
             "tool_name": self.tool_name,
             "tool_args": self.tool_args,
             "tool_call_error": self.tool_call_error,
-            "metrics": self.metrics,
+            "metrics": getattr(self, "metrics", None),  # type: ignore[attr-defined]
             "created_at": self.created_at,
         }
 

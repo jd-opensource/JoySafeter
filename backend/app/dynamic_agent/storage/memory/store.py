@@ -119,7 +119,7 @@ class MemoryStore:
         limit: int = 10,
     ) -> List[Memory]:
         """Search memories."""
-        return await self.backend.search_memories(
+        result = await self.backend.search_memories(
             session_id=session_id,
             query=query,
             memory_type=memory_type,
@@ -128,6 +128,7 @@ class MemoryStore:
             min_importance=min_importance,
             limit=limit,
         )
+        return result if isinstance(result, list) else []  # type: ignore[return-value]
 
     async def store_target_info(self, session_id: str, target: str, info: Dict[str, Any]):
         """Store target information."""

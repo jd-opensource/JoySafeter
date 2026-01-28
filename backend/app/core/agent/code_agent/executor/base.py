@@ -9,7 +9,7 @@ Python code executors used by CodeAgent.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -91,7 +91,7 @@ class PythonExecutor(ABC):
         pass
 
     @abstractmethod
-    def __call__(self, code: str, additional_tools: dict[str, Callable] = None) -> CodeOutput:
+    def __call__(self, code: str, additional_tools: Optional[dict[str, Callable]] = None) -> CodeOutput:
         """
         Execute Python code and return the output.
 
@@ -165,7 +165,7 @@ def final_answer(answer):
 class BaseToolWrapper:
     """Wrapper for making tools compatible with the executor."""
 
-    def __init__(self, tool: Callable, name: str = None, description: str = None):
+    def __init__(self, tool: Callable, name: Optional[str] = None, description: Optional[str] = None):
         self.tool = tool
         self.name = name or getattr(tool, "__name__", "unknown_tool")
         self.description = description or getattr(tool, "__doc__", "") or ""

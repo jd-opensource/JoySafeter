@@ -98,7 +98,7 @@ class ToolOriginConf:
 
     def load_md_content(self) -> Optional[str]:
         """Load MD file content"""
-        if not self.md_file or not self.md_file.exists():
+        if not self.md_file or not os.path.exists(self.md_file):
             return None
 
         try:
@@ -110,7 +110,7 @@ class ToolOriginConf:
 
     def load_py_handler(self) -> Optional[Callable]:
         """Load Python handler"""
-        if not self.py_file or not self.py_file.exists():
+        if not self.py_file or not os.path.exists(self.py_file):
             return None
 
         try:

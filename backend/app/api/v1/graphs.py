@@ -185,7 +185,7 @@ async def list_graphs(
 
     # 批量查询每个图的节点数量
     graph_ids = [graph.id for graph in graphs]
-    node_counts = {}
+    node_counts: Dict[Any, int] = {}
     if graph_ids:
         # 使用 GROUP BY 一次性查询所有图的节点数量
         count_query = (
@@ -195,7 +195,8 @@ async def list_graphs(
         )
         result = await db.execute(count_query)
         for row in result:
-            node_counts[row.graph_id] = row.count
+            count_val = getattr(row, "count", 0)
+            node_counts[row.graph_id] = int(count_val) if not callable(count_val) else count_val()  # type: ignore[call-overload]
 
     log.info(f"graph.list success count={len(graphs)}")
     return {"data": [_serialize_graph_row(graph, node_counts.get(graph.id, 0)) for graph in graphs]}
@@ -241,7 +242,7 @@ async def list_deployed_graphs(
     else:
         graph_condition = user_owned_condition
 
-    conditions.append(graph_condition)
+    conditions.append(graph_condition)  # type: ignore[arg-type]
 
     query = select(AgentGraph).where(*conditions).order_by(AgentGraph.updated_at.desc())
     result = await db.execute(query)
@@ -264,7 +265,7 @@ async def list_deployed_graphs(
     graphs = filtered_graphs
 
     graph_ids = [graph.id for graph in graphs]
-    node_counts = {}
+    node_counts: Dict[Any, int] = {}
     if graph_ids:
         count_query = (
             select(GraphNode.graph_id, func.count(GraphNode.id).label("count"))
@@ -273,7 +274,8 @@ async def list_deployed_graphs(
         )
         result = await db.execute(count_query)
         for row in result:
-            node_counts[row.graph_id] = row.count
+            count_val = getattr(row, "count", 0)
+            node_counts[row.graph_id] = int(count_val) if not callable(count_val) else count_val()  # type: ignore[call-overload]
 
     log.info(f"graph.list_deployed success count={len(graphs)}")
     return {"data": [_serialize_graph_row(graph, node_counts.get(graph.id, 0)) for graph in graphs]}
@@ -365,7 +367,7 @@ async def update_graph(
     await service._ensure_access(graph, current_user, WorkspaceMemberRole.member)
 
     update_data: Dict[str, Any] = {}
-    fields_set = getattr(payload, "model_fields_set", set())
+    fields_set: set[str] = getattr(payload, "model_fields_set", set())
 
     if payload.name is not None:
         update_data["name"] = payload.name.strip()

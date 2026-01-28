@@ -28,7 +28,8 @@ async def get_db_pool() -> asyncpg.Pool:
     try:
         # storage = get_storage_manager()
         storage = await init_storage()
-        return storage.backend.pool
+        pool = storage.backend.pool
+        return pool  # type: ignore[return-value]
     except RuntimeError:
         # Storage not initialized yet
         raise HTTPException(status_code=500, detail="Storage manager not initialized")
@@ -155,7 +156,11 @@ async def get_session_history(
 
             # For user messages, lookup task_id from tasks table by message_id
             if msg.get("role") == "user" and msg.get("message_id"):
-                task_id = await task_dao.get_task_id_by_message_id(msg.get("message_id"))
+                message_id = msg.get("message_id")
+                if message_id is not None and isinstance(message_id, int):
+                    task_id = await task_dao.get_task_id_by_message_id(message_id)
+                else:
+                    task_id = None
 
             messages.append(
                 ChatMessageResponse(
@@ -238,7 +243,9 @@ async def get_session_details(
 
         # Get tasks
         task_dao = TaskDAO(pool)
-        tasks_data = await task_dao.get_tasks_by_session(session_id)
+        tasks_result = await task_dao.get_tasks_by_session(session_id)
+        # get_tasks_by_session returns tuple[List[TaskResponse], int]
+        tasks_data = tasks_result[0] if isinstance(tasks_result, tuple) and len(tasks_result) > 0 else []
 
         tasks = []
         for t in tasks_data:

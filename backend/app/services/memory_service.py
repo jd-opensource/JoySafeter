@@ -75,7 +75,8 @@ class MemoryService:
         # Currently only supports the 'memories' table
         if table_type != "memories":
             raise ValueError(f"Unsupported table_type: {table_type}")
-        return Memory.__table__
+        table: sa.Table = Memory.__table__  # type: ignore[assignment]
+        return table
 
     def async_session_factory(self) -> AsyncSession:
         # Return an AsyncSession instance for 'async with' usage
@@ -373,7 +374,7 @@ class MemoryService:
                 dialect = engine.dialect.name
 
                 if dialect == "postgresql":
-                    stmt = pg_insert(table).values(**values)
+                    stmt: Any = pg_insert(table).values(**values)
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["memory_id"],
                         set_=dict(
@@ -392,8 +393,8 @@ class MemoryService:
                     row = result.fetchone()
 
                 elif dialect == "sqlite":
-                    stmt = sqlite_insert(table).values(**values)
-                    stmt = stmt.on_conflict_do_update(
+                    stmt = sqlite_insert(table).values(**values)  # type: ignore[assignment]
+                    stmt = stmt.on_conflict_do_update(  # type: ignore[assignment]
                         index_elements=["memory_id"],
                         set_=dict(
                             memory=memory.memory,

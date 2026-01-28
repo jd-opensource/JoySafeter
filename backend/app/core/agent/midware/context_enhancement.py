@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
 
+from langchain.agents.middleware.types import AgentState
+
 if TYPE_CHECKING:
     pass
 
@@ -237,7 +239,7 @@ class ContextEnhancementMiddleware(AgentMiddleware):
         try:
             file_count = 0
             total_size = 0
-            file_types = {}
+            file_types: Dict[str, int] = {}
 
             for file_path in path.rglob("*"):
                 if file_path.is_file():
@@ -451,7 +453,22 @@ class ContextEnhancementMiddleware(AgentMiddleware):
         # 2. 对话模式
         if self.enable_conversation_enhancement:
             messages = request.state.get("messages", [])
-            conversation_patterns = self._analyze_conversation_patterns(messages)
+            # Convert messages to dict format if needed
+            messages_dict: list[dict[Any, Any]] = []
+            for msg in messages:
+                if isinstance(msg, dict):
+                    messages_dict.append(msg)
+                else:
+                    # Convert message object to dict
+                    msg_dict: dict[Any, Any] = {}
+                    if hasattr(msg, "content"):
+                        msg_dict["content"] = msg.content
+                    if hasattr(msg, "type"):
+                        msg_dict["type"] = msg.type
+                    if hasattr(msg, "role"):
+                        msg_dict["role"] = msg.role
+                    messages_dict.append(msg_dict)
+            conversation_patterns = self._analyze_conversation_patterns(messages_dict)
             if conversation_patterns:
                 context_parts.append("\n## 对话上下文")
                 context_parts.append(f"- 用户意图: {conversation_patterns.get('user_intent', 'general')}")
@@ -472,9 +489,9 @@ class ContextEnhancementMiddleware(AgentMiddleware):
 
     def before_agent(
         self,
-        state: ContextEnhancementState,
+        state: AgentState[Any],  # type: ignore[override]
         runtime,
-    ) -> ContextEnhancementState:
+    ) -> dict[str, Any]:  # type: ignore[override]
         """在代理执行前初始化上下文增强"""
         enhanced_context = {
             "project_analyzed": self.enable_project_analysis,
@@ -488,13 +505,14 @@ class ContextEnhancementMiddleware(AgentMiddleware):
             "project_info": {},
             "user_preferences": {},
             "conversation_context": {},
+            "messages": [],
         }
 
     async def abefore_agent(
         self,
-        state: ContextEnhancementState,
+        state: AgentState[Any],  # type: ignore[override]
         runtime,
-    ) -> ContextEnhancementState:
+    ) -> dict[str, Any]:  # type: ignore[override]
         """异步：在代理执行前初始化上下文增强"""
         return self.before_agent(state, runtime)
 
@@ -511,9 +529,9 @@ class ContextEnhancementMiddleware(AgentMiddleware):
         # 注入到系统提示中
         if context_enhancement:
             if request.system_prompt:
-                request.system_prompt = f"{context_enhancement}\n\n{request.system_prompt}"
+                request.system_prompt = f"{context_enhancement}\n\n{request.system_prompt}"  # type: ignore[misc, assignment]
             else:
-                request.system_prompt = context_enhancement
+                request.system_prompt = context_enhancement  # type: ignore[misc, assignment]
 
         # 执行原始请求
         return handler(request)
@@ -531,9 +549,9 @@ class ContextEnhancementMiddleware(AgentMiddleware):
         # 注入到系统提示中
         if context_enhancement:
             if request.system_prompt:
-                request.system_prompt = f"{context_enhancement}\n\n{request.system_prompt}"
+                request.system_prompt = f"{context_enhancement}\n\n{request.system_prompt}"  # type: ignore[misc, assignment]
             else:
-                request.system_prompt = context_enhancement
+                request.system_prompt = context_enhancement  # type: ignore[misc, assignment]
 
         # 执行原始请求
         return await handler(request)

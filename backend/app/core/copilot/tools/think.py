@@ -9,7 +9,7 @@ to ensure comprehensive detection of all created nodes and connections.
 """
 
 import json
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from langchain.tools import tool
 from loguru import logger
@@ -216,7 +216,7 @@ def think(
         # 2.2 星型拓扑检查 (核心)
         if connections:
             logger.debug(f"[think] 开始星型拓扑检查，连接数={len(connections)}")
-            conn_map = {n.lower(): [] for n in nodes}
+            conn_map: Dict[str, List[str]] = {n.lower(): [] for n in nodes}
             for c in connections:
                 if "->" in c:
                     src, tgt = [p.strip().lower() for p in c.split("->")]

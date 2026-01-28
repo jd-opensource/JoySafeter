@@ -285,7 +285,7 @@ class UnifiedValidator:
 
     def validate_node_config(self, node_type: str, config: Dict[str, Any]) -> List[ValidationError]:
         """验证节点配置"""
-        errors = []
+        errors: List[ValidationError] = []
 
         if node_type not in self.rules:
             # 对于未知节点类型，不进行验证
@@ -297,7 +297,10 @@ class UnifiedValidator:
 
         # Check cache first
         if cache_key in self._validation_cache:
-            return self._validation_cache[cache_key].copy()
+            cached = self._validation_cache[cache_key]
+            if isinstance(cached, list):
+                return cached.copy()
+            return []
 
         # Perform validation
 
@@ -383,7 +386,7 @@ def format_validation_errors_for_frontend(errors: List[ValidationError]) -> Dict
     Returns:
         Dict with categorized errors, suggestions, and examples
     """
-    categorized = {
+    categorized: Dict[str, List[Any]] = {
         "critical": [],  # Blocking errors
         "warnings": [],  # Non-blocking issues
         "suggestions": [],  # Improvement suggestions

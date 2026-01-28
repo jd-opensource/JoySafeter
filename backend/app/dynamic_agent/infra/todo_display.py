@@ -110,6 +110,8 @@ class TodoDisplayManager:
         """Add a task and update display."""
         if self.panel is None:
             self.create_panel()
+        # Type narrowing: create_panel always sets self.panel
+        assert self.panel is not None
         item = self.panel.add(description, item_id=task_id)
         self.update()
         return item
@@ -118,6 +120,8 @@ class TodoDisplayManager:
         """Add multiple tasks and update display."""
         if self.panel is None:
             self.create_panel()
+        # Type narrowing: create_panel always sets self.panel
+        assert self.panel is not None
         items = self.panel.add_items(descriptions)
         self.update()
         return items

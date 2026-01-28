@@ -143,6 +143,8 @@ class ArtifactStore:
 
     def ensure(self) -> None:
         """确保运行目录存在"""
+        if self.run_dir is None:
+            raise ValueError("run_dir must be set")
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
         # 额外验证：确保目录确实在 artifacts root 内
@@ -159,6 +161,8 @@ class ArtifactStore:
     def _write_json(self, filename: str, data: Any) -> None:
         """安全写入 JSON 文件"""
         self.ensure()
+        if self.run_dir is None:
+            raise ValueError("run_dir must be set")
         # 清理文件名，防止目录遍历
         safe_filename = _sanitize_filename(filename)
         path = self.run_dir / safe_filename
@@ -201,6 +205,8 @@ class ArtifactStore:
     def append_event(self, event: Dict[str, Any]) -> None:
         """Append SSE event envelope as jsonl for replay."""
         self.ensure()
+        if self.run_dir is None:
+            raise ValueError("run_dir must be set")
         # 使用硬编码的文件名，不需要清理
         path = self.run_dir / "events.sse.jsonl"
 
@@ -221,6 +227,8 @@ class ArtifactStore:
 
     def _read_json(self, filename: str) -> Optional[Dict[str, Any]]:
         """安全读取 JSON 文件，失败返回 None"""
+        if self.run_dir is None:
+            raise ValueError("run_dir must be set")
         # 清理文件名，防止目录遍历
         safe_filename = _sanitize_filename(filename)
         path = self.run_dir / safe_filename
@@ -240,7 +248,8 @@ class ArtifactStore:
             return None
         try:
             with path.open("r", encoding="utf-8") as f:
-                return json.load(f)
+                result = json.load(f)
+                return result if isinstance(result, dict) else None
         except (json.JSONDecodeError, IOError) as e:
             logger.warning(f"[ArtifactStore] Failed to read {filename}: {e}")
             return None
@@ -270,6 +279,8 @@ class ArtifactStore:
 
     def file_exists(self, filename: str) -> bool:
         """检查文件是否存在"""
+        if self.run_dir is None:
+            raise ValueError("run_dir must be set")
         try:
             safe_filename = _sanitize_filename(filename)
             path = self.run_dir / safe_filename

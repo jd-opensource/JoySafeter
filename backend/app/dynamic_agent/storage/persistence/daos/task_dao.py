@@ -46,12 +46,10 @@ class TaskDAO:
             # Try new API methods (asyncpg 0.31.0+)
             try:
                 stats["size"] = pool.get_size() if hasattr(pool, "get_size") else "N/A"
-                stats["max_size"] = (
-                    pool.get_max_size() if hasattr(pool, "get_max_size") else getattr(pool, "_maxsize", "N/A")
-                )
-                stats["min_size"] = (
-                    pool.get_min_size() if hasattr(pool, "get_min_size") else getattr(pool, "_minsize", "N/A")
-                )
+                max_size_val = pool.get_max_size() if hasattr(pool, "get_max_size") else getattr(pool, "_maxsize", "N/A")
+                stats["max_size"] = str(max_size_val) if max_size_val != "N/A" else "N/A"
+                min_size_val = pool.get_min_size() if hasattr(pool, "get_min_size") else getattr(pool, "_minsize", "N/A")
+                stats["min_size"] = str(min_size_val) if min_size_val != "N/A" else "N/A"
                 stats["idle"] = pool.get_idle_size() if hasattr(pool, "get_idle_size") else "N/A"
 
                 # Calculate in_use
@@ -62,9 +60,12 @@ class TaskDAO:
 
             except Exception as e:
                 # Fallback to old private attributes
-                stats["size"] = getattr(pool, "_size", "N/A")
-                stats["max_size"] = getattr(pool, "_maxsize", "N/A")
-                stats["min_size"] = getattr(pool, "_minsize", "N/A")
+                size_val = getattr(pool, "_size", "N/A")
+                stats["size"] = str(size_val) if size_val != "N/A" else "N/A"
+                max_size_val = getattr(pool, "_maxsize", "N/A")
+                stats["max_size"] = str(max_size_val) if max_size_val != "N/A" else "N/A"
+                min_size_val = getattr(pool, "_minsize", "N/A")
+                stats["min_size"] = str(min_size_val) if min_size_val != "N/A" else "N/A"
                 stats["_error"] = str(e)
 
             return stats
@@ -88,7 +89,8 @@ class TaskDAO:
 
         for attempt in range(max_retries):
             try:
-                return await operation(*args, **kwargs)
+                result = await operation(*args, **kwargs)
+                return result  # type: ignore[return-value]
 
             except asyncio.CancelledError:
                 # 🚨 Must re-raise immediately, never swallow

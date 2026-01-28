@@ -111,7 +111,8 @@ class MemoryManager:
         - Messages with content attribute (e.g., langchain_core.messages.chat.ChatMessage)
         """
         if hasattr(msg, "get_content_string"):
-            return msg.get_content_string()
+            result = msg.get_content_string()
+            return str(result) if result is not None else ""
         elif hasattr(msg, "content"):
             content = msg.content
             if isinstance(content, str):
@@ -298,7 +299,8 @@ class MemoryManager:
             memories = self.read_from_db(user_id=user_id)
             if memories is None:
                 return []
-            return memories.get(user_id, [])
+            result = memories.get(user_id, [])
+            return result if isinstance(result, list) else []
         else:
             logger.warning("Memory Db not provided.")
             return []
@@ -312,7 +314,8 @@ class MemoryManager:
             memories = await self.aread_from_db(user_id=user_id)
             if memories is None:
                 return []
-            return memories.get(user_id, [])
+            result = memories.get(user_id, [])
+            return result if isinstance(result, list) else []
         else:
             logger.warning("Memory Db not provided.")
             return []
@@ -327,9 +330,11 @@ class MemoryManager:
             if memories is None:
                 return None
             memories_for_user = memories.get(user_id, [])
+            if not isinstance(memories_for_user, list):
+                return None
             for memory in memories_for_user:
                 if memory.memory_id == memory_id:
-                    return memory
+                    return memory  # type: ignore[no-any-return]
             return None
         else:
             logger.warning("Memory Db not provided.")
@@ -359,7 +364,7 @@ class MemoryManager:
             memory.user_id = user_id
 
             if not memory.updated_at:
-                memory.updated_at = utc_now()
+                memory.updated_at = int(utc_now().timestamp())
 
             self._upsert_db_memory(memory=memory)
             return memory.memory_id
@@ -387,7 +392,7 @@ class MemoryManager:
                 user_id = DEFAULT_USER_ID
 
             if not memory.updated_at:
-                memory.updated_at = utc_now()
+                memory.updated_at = int(utc_now().timestamp())
 
             memory.memory_id = memory_id
             memory.user_id = user_id
@@ -402,7 +407,10 @@ class MemoryManager:
     def clear(self) -> None:
         """Clears the memory."""
         if self.db:
-            self.db.clear_memories()
+            result = self.db.clear_memories()
+            if hasattr(result, "__await__"):
+                import asyncio
+                asyncio.create_task(result)  # type: ignore[unused-coroutine]
 
     def delete_user_memory(
         self,
@@ -689,7 +697,10 @@ class MemoryManager:
         try:
             if not self.db:
                 raise ValueError("Memory db not initialized")
-            self.db.upsert_user_memory(memory=memory)
+            result = self.db.upsert_user_memory(memory=memory)
+            if hasattr(result, "__await__"):
+                import asyncio
+                asyncio.create_task(result)  # type: ignore[unused-coroutine]
             return "Memory added successfully"
         except Exception as e:
             logger.warning(f"Error storing memory in db: {e}")
@@ -704,7 +715,10 @@ class MemoryManager:
             if user_id is None:
                 user_id = DEFAULT_USER_ID
 
-            self.db.delete_user_memory(memory_id=memory_id, user_id=user_id)
+            result = self.db.delete_user_memory(memory_id=memory_id, user_id=user_id)
+            if hasattr(result, "__await__"):
+                import asyncio
+                asyncio.create_task(result)  # type: ignore[unused-coroutine]
             return "Memory deleted successfully"
         except Exception as e:
             logger.warning(f"Error deleting memory in db: {e}")
@@ -803,7 +817,8 @@ class MemoryManager:
         system_message_str += "REMEMBER: Only return the IDs of the memories that are related to the query."
 
         if response_format == {"type": "json_object"}:
-            system_message_str += "\n" + get_json_output_prompt(MemorySearchResponse)  # type: ignore
+            # MemorySearchResponse is a class, not a type, so pass it directly
+            system_message_str += "\n" + get_json_output_prompt(MemorySearchResponse)  # type: ignore[arg-type]  # type: ignore
 
         messages_for_model = [
             Message(role="system", content=system_message_str),
@@ -818,13 +833,21 @@ class MemoryManager:
         memory_search: Optional[MemorySearchResponse] = None
         try:
             model_with_structure = model.with_structured_output(MemorySearchResponse)
-            memory_search = model_with_structure.invoke(messages_for_model)
+            memory_search_raw = model_with_structure.invoke(messages_for_model)
+            if isinstance(memory_search_raw, MemorySearchResponse):
+                memory_search = memory_search_raw
+            elif isinstance(memory_search_raw, BaseModel):
+                memory_search = memory_search_raw  # type: ignore[assignment]
+            else:
+                memory_search = None
         except Exception:
             # Fallback to regular invoke and parse response
             try:
                 response = model.invoke(messages_for_model)
                 if isinstance(response.content, str):
                     memory_search = parse_response_model_str(response.content, MemorySearchResponse)  # type: ignore
+                else:
+                    memory_search = None
             except Exception as e:
                 logger.warning(f"Failed to search memories: {e}")
                 return []
@@ -1027,7 +1050,8 @@ class MemoryManager:
         system_message_str += "REMEMBER: Only return the IDs of the memories that are related to the query."
 
         if response_format == {"type": "json_object"}:
-            system_message_str += "\n" + get_json_output_prompt(MemorySearchResponse)
+            # MemorySearchResponse is a class, not a type, so pass it directly
+            system_message_str += "\n" + get_json_output_prompt(MemorySearchResponse)  # type: ignore[arg-type]
 
         messages_for_model = [
             Message(role="system", content=system_message_str),
@@ -1042,13 +1066,25 @@ class MemoryManager:
         memory_search: Optional[MemorySearchResponse] = None
         try:
             model_with_structure = model.with_structured_output(MemorySearchResponse)
-            memory_search = await model_with_structure.ainvoke(messages_for_model)
+            memory_search_raw = await model_with_structure.ainvoke(messages_for_model)
+            if isinstance(memory_search_raw, MemorySearchResponse):
+                memory_search = memory_search_raw
+            elif isinstance(memory_search_raw, BaseModel):
+                memory_search = memory_search_raw  # type: ignore[assignment]
+            else:
+                memory_search = None
         except Exception:
             # Fallback to regular ainvoke and parse response
             try:
                 response = await model.ainvoke(messages_for_model)
                 if isinstance(response.content, str):
-                    memory_search = parse_response_model_str(response.content, MemorySearchResponse)
+                    memory_search_parsed = parse_response_model_str(response.content, MemorySearchResponse)
+                    if isinstance(memory_search_parsed, MemorySearchResponse):
+                        memory_search = memory_search_parsed
+                    else:
+                        memory_search = None  # type: ignore[assignment]
+                else:
+                    memory_search = None
             except Exception as e:
                 logger.warning(f"Failed to search memories (async): {e}")
                 return []
@@ -1108,7 +1144,7 @@ class MemoryManager:
 
         # Optimize memories using strategy
         optimization_model = self.get_model()
-        optimized_memories = strategy_instance.optimize(memories=memories, model=optimization_model)
+        optimized_memories = strategy_instance.optimize(memories=memories, model=optimization_model)  # type: ignore[arg-type]
 
         # Apply to database if requested
         if apply:
@@ -1178,7 +1214,7 @@ class MemoryManager:
 
         # Optimize memories using strategy (async)
         optimization_model = self.get_model()
-        optimized_memories = await strategy_instance.aoptimize(memories=memories, model=optimization_model)
+        optimized_memories = await strategy_instance.aoptimize(memories=memories, model=optimization_model)  # type: ignore[arg-type]
 
         # Apply to database if requested
         if apply:
@@ -1411,7 +1447,10 @@ class MemoryManager:
 
         logger.debug("MemoryManager End", center=True)
 
-        return response.content or "No response from model"
+        content = response.content if hasattr(response, "content") else "No response from model"
+        if isinstance(content, list):
+            return " ".join(str(item) for item in content)
+        return str(content) if content is not None else "No response from model"
 
     async def acreate_or_update_memories(
         self,
@@ -1527,7 +1566,10 @@ class MemoryManager:
 
         logger.debug("MemoryManager End", center=True)
 
-        return response.content or "No response from model"
+        content = response.content if hasattr(response, "content") else "No response from model"
+        if isinstance(content, list):
+            return " ".join(str(item) for item in content)
+        return str(content) if content is not None else "No response from model"
 
     def run_memory_task(
         self,
@@ -1620,7 +1662,10 @@ class MemoryManager:
 
         logger.debug("MemoryManager End", center=True)
 
-        return response.content or "No response from model"
+        content = response.content if hasattr(response, "content") else "No response from model"
+        if isinstance(content, list):
+            return " ".join(str(item) for item in content)
+        return str(content) if content is not None else "No response from model"
 
     async def arun_memory_task(
         self,
@@ -1728,7 +1773,10 @@ class MemoryManager:
 
         logger.debug("MemoryManager End", center=True)
 
-        return response.content or "No response from model"
+        content = response.content if hasattr(response, "content") else "No response from model"
+        if isinstance(content, list):
+            return " ".join(str(item) for item in content)
+        return str(content) if content is not None else "No response from model"
 
     # -*- DB Functions
     def _get_db_tools(
@@ -1743,6 +1791,37 @@ class MemoryManager:
         agent_id: Optional[str] = None,
         team_id: Optional[str] = None,
     ) -> List[Callable]:
+        def _run_async(coro):
+            """Helper to run async code in sync context"""
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # Event loop is running, need to use a different approach
+                import concurrent.futures
+                import threading
+                result = None
+                exception = None
+                
+                def run_in_thread():
+                    nonlocal result, exception
+                    try:
+                        new_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(new_loop)
+                        result = new_loop.run_until_complete(coro)
+                        new_loop.close()
+                    except Exception as e:
+                        exception = e
+                
+                thread = threading.Thread(target=run_in_thread)
+                thread.start()
+                thread.join()
+                
+                if exception:
+                    raise exception
+                return result
+            except RuntimeError:
+                # No event loop running, safe to use asyncio.run
+                return asyncio.run(coro)
         def add_memory(memory: str, topics: Optional[List[str]] = None) -> str:
             """Use this function to add a memory to the database.
             Args:
@@ -1755,19 +1834,40 @@ class MemoryManager:
 
             from app.schemas.memory import UserMemory
 
+            import asyncio
+
             try:
                 memory_id = str(uuid4())
-                db.upsert_user_memory(
-                    UserMemory(
-                        memory_id=memory_id,
-                        user_id=user_id,
-                        agent_id=agent_id,
-                        team_id=team_id,
-                        memory=memory,
-                        topics=topics,
-                        input=input_string,
-                    )
-                )
+                # Run async method in sync context
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Event loop is running, schedule coroutine
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    asyncio.run(db.upsert_user_memory(
+                        UserMemory(
+                            memory_id=memory_id,
+                            user_id=user_id,
+                            agent_id=agent_id,
+                            team_id=team_id,
+                            memory=memory,
+                            topics=topics,
+                            input=input_string,
+                        )
+                    ))
+                except RuntimeError:
+                    # No event loop running, safe to use asyncio.run
+                    asyncio.run(db.upsert_user_memory(
+                        UserMemory(
+                            memory_id=memory_id,
+                            user_id=user_id,
+                            agent_id=agent_id,
+                            team_id=team_id,
+                            memory=memory,
+                            topics=topics,
+                            input=input_string,
+                        )
+                    ))
                 logger.debug(f"Memory added: {memory_id}")
                 return "Memory added successfully"
             except Exception as e:
@@ -1789,7 +1889,7 @@ class MemoryManager:
                 return "Can't update memory with empty string. Use the delete memory function if available."
 
             try:
-                db.upsert_user_memory(
+                _run_async(db.upsert_user_memory(
                     UserMemory(
                         memory_id=memory_id,
                         memory=memory,
@@ -1797,7 +1897,7 @@ class MemoryManager:
                         user_id=user_id,
                         input=input_string,
                     )
-                )
+                ))
                 logger.debug("Memory updated")
                 return "Memory updated successfully"
             except Exception as e:
@@ -1812,7 +1912,7 @@ class MemoryManager:
                 str: A message indicating if the memory was deleted successfully or not.
             """
             try:
-                db.delete_user_memory(memory_id=memory_id, user_id=user_id)
+                _run_async(db.delete_user_memory(memory_id=memory_id, user_id=user_id))
                 logger.debug("Memory deleted")
                 return "Memory deleted successfully"
             except Exception as e:
@@ -1825,7 +1925,7 @@ class MemoryManager:
             Returns:
                 str: A message indicating if the memory was cleared successfully or not.
             """
-            db.clear_memories()
+            _run_async(db.clear_memories())
             logger.debug("Memory cleared")
             return "Memory cleared successfully"
 
@@ -1944,9 +2044,9 @@ class MemoryManager:
             """
             try:
                 if isinstance(db, MemoryService):
-                    await db.delete_user_memory(memory_id=memory_id)
+                    await db.delete_user_memory(memory_id=memory_id, user_id=user_id)
                 else:
-                    db.delete_user_memory(memory_id=memory_id)
+                    db.delete_user_memory(memory_id=memory_id, user_id=user_id)
                 logger.debug("Memory deleted")
                 return "Memory deleted successfully"
             except Exception as e:

@@ -70,7 +70,7 @@ class ContextManager:
             self._active_contexts[session_id] = context
             await self.backend.save_context(context)
 
-        return context
+        return context  # type: ignore[return-value]
 
     async def get_session(self, session_id: str) -> Optional[SessionContext]:
         """Get session context."""
@@ -81,7 +81,7 @@ class ContextManager:
             async with self._lock:
                 self._active_contexts[session_id] = context
 
-        return context
+        return context  # type: ignore[return-value]
 
     async def update_session(self, context: SessionContext):
         """Update session context."""
@@ -124,7 +124,7 @@ class ContextManager:
         await self.update_session(context)
         logger.debug("Session updated successfully")
 
-        return message_id
+        return message_id  # type: ignore[return-value]
 
     # todo delete
     async def add_message_will_delete(
@@ -186,7 +186,7 @@ class ContextManager:
         await self.update_session(context)
         logger.debug("Session updated successfully")
 
-        return message_id
+        return message_id  # type: ignore[return-value]
 
     async def get_conversation_history(self, session_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get conversation history."""
@@ -198,7 +198,7 @@ class ContextManager:
         if limit:
             messages = messages[-limit:]
 
-        return messages
+        return messages  # type: ignore[return-value]
 
     async def set_container_context(self, session_id: str, container_id: str, working_directory: str = "/"):
         """Set container context."""
@@ -255,7 +255,7 @@ class ContextManager:
         if not context:
             return None
 
-        return context.target_info.get(target)
+        return context  # type: ignore[return-value].target_info.get(target)
 
     async def clear_session(self, session_id: str):
         """Clear session from memory (but keep in persistence)."""

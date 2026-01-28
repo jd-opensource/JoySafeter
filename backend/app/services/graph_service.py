@@ -251,10 +251,12 @@ class GraphService(BaseService):
                 # 使用默认名称如果没有提供
                 graph_name = name or "未命名图"
 
+                import uuid as uuid_lib
+                user_uuid = uuid_lib.UUID(current_user.id) if isinstance(current_user.id, str) else current_user.id
                 graph = await self._create_graph_with_id(
                     graph_id=graph_id,
                     name=graph_name,
-                    user_id=current_user.id,
+                    user_id=user_uuid,
                     workspace_id=workspace_id,
                 )
             else:
@@ -319,7 +321,12 @@ class GraphService(BaseService):
         # 创建新节点
         for node_data in nodes_to_create:
             node_id = node_data.get("id")
-            db_node_id = node_id_map[node_id]
+            if not node_id:
+                continue
+            db_node_id_raw = node_id_map.get(node_id)
+            if not db_node_id_raw:
+                continue
+            new_db_node_id: uuid.UUID = db_node_id_raw
 
             position = node_data.get("position", {})
             position_absolute = node_data.get("positionAbsolute", position)
@@ -329,7 +336,7 @@ class GraphService(BaseService):
 
             node_create_data = {
                 "graph_id": graph_id,
-                "id": db_node_id,
+                "id": new_db_node_id,
                 "type": node_type,
                 "position_x": float(position.get("x", 0)),
                 "position_y": float(position.get("y", 0)),
@@ -510,7 +517,7 @@ class GraphService(BaseService):
             pos_abs_x = float(node.position_absolute_x) if node.position_absolute_x is not None else pos_x
             pos_abs_y = float(node.position_absolute_y) if node.position_absolute_y is not None else pos_y
 
-            frontend_node = {
+            frontend_node: Dict[str, Any] = {
                 "id": frontend_id,
                 "type": "custom",  # ReactFlow 节点类型，所有节点都使用 BuilderNode
                 "position": {
@@ -529,12 +536,14 @@ class GraphService(BaseService):
             }
 
             # 确保 config 字段存在
-            if "config" not in frontend_node["data"]:
-                frontend_node["data"]["config"] = {}
+            node_data_dict = frontend_node["data"] if isinstance(frontend_node["data"], dict) else {}
+            if "config" not in node_data_dict:
+                node_data_dict["config"] = {}
+            frontend_node["data"] = node_data_dict
 
             # 优先使用 node.data.config 中已有的值，如果没有则从 node.prompt/node.tools 恢复
             # 这是为了确保从部署版本回滚时，能保留完整的配置信息
-            config = frontend_node["data"].get("config", {})
+            config = node_data_dict.get("config", {})
             if isinstance(config, dict):
                 # systemPrompt: 优先使用 config 中的值
                 if "systemPrompt" not in config or not config.get("systemPrompt"):
@@ -547,9 +556,9 @@ class GraphService(BaseService):
                         config["tools"] = node.tools
 
             # memory: 优先使用 data.config 中的值
-            if "memory" not in frontend_node["data"] or not frontend_node["data"].get("memory"):
+            if "memory" not in node_data_dict or not node_data_dict.get("memory"):
                 if node.memory:
-                    frontend_node["data"]["memory"] = node.memory
+                    node_data_dict["memory"] = node.memory
 
             frontend_nodes.append(frontend_node)
 

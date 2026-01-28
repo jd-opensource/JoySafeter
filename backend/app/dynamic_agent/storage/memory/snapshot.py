@@ -115,7 +115,8 @@ class SnapshotManager:
 
     async def list_snapshots(self, session_id: str, limit: int = 10) -> List[SessionSnapshot]:
         """List session snapshots."""
-        return await self.backend.list_snapshots(session_id, limit)
+        result = await self.backend.list_snapshots(session_id, limit)
+        return result if isinstance(result, list) else []  # type: ignore[return-value]
 
     async def auto_checkpoint(self, session_id: str, action: str):
         """Create automatic checkpoint before critical action."""

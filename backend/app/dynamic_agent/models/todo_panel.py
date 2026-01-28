@@ -9,7 +9,7 @@ TodoPanel - Rich TODO panel for progress visualization.
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -269,7 +269,8 @@ class TodoPanel:
             table.add_row("", Text(f"... +{remaining} more", style="dim"), "")
 
         # Build content group
-        content_parts = []
+        from rich.console import RenderableType
+        content_parts: List[RenderableType] = []
 
         # Add replan notice if present (truncated for readability)
         if self.replan_reason:
@@ -281,7 +282,7 @@ class TodoPanel:
             content_parts.append(notice)
             content_parts.append(Text(""))  # Spacer
 
-        content_parts.append(table)
+        content_parts.append(table)  # type: ignore[arg-type]
 
         # Create panel with dynamic title showing progress
         completed_count = len(completed_items)
@@ -316,7 +317,7 @@ class TodoPanel:
             desc = Text(desc_text, style=color)
 
         # Info column (duration or error)
-        info = ""
+        info: Union[str, Text] = ""
         if item.duration_ms > 0:
             if item.duration_ms < 1000:
                 info = f"{item.duration_ms}ms"

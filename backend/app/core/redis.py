@@ -80,7 +80,8 @@ class RedisClient:
         """获取值"""
         if not cls._client:
             return None
-        return await cls._client.get(key)
+        result = await cls._client.get(key)
+        return str(result) if result is not None else None
 
     @classmethod
     async def set(
@@ -112,21 +113,24 @@ class RedisClient:
         """检查键是否存在"""
         if not cls._client:
             return False
-        return await cls._client.exists(key) > 0
+        result = await cls._client.exists(key)
+        return bool(result > 0) if result is not None else False
 
     @classmethod
     async def incr(cls, key: str, amount: int = 1) -> int:
         """增加计数"""
         if not cls._client:
             return 0
-        return await cls._client.incrby(key, amount)
+        result = await cls._client.incrby(key, amount)
+        return int(result) if result is not None else 0
 
     @classmethod
     async def expire(cls, key: str, seconds: int) -> bool:
         """设置过期时间"""
         if not cls._client:
             return False
-        return await cls._client.expire(key, seconds)
+        result = await cls._client.expire(key, seconds)
+        return bool(result) if result is not None else False
 
     @classmethod
     @asynccontextmanager
@@ -180,7 +184,8 @@ class RedisClient:
         if not cls._client:
             return None
         key = f"copilot:session:{session_id}:status"
-        return await cls._client.get(key)
+        result = await cls._client.get(key)
+        return str(result) if result is not None else None
 
     @classmethod
     async def get_copilot_content(cls, session_id: str) -> Optional[str]:
@@ -188,7 +193,8 @@ class RedisClient:
         if not cls._client:
             return None
         key = f"copilot:session:{session_id}:content"
-        return await cls._client.get(key)
+        result = await cls._client.get(key)
+        return str(result) if result is not None else None
 
     @classmethod
     async def get_copilot_session(cls, session_id: str) -> Optional[Dict[str, Any]]:

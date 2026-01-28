@@ -30,4 +30,4 @@ class ApiKeyRepository(BaseRepository[ApiKey]):
     async def delete_by_id(self, key_id: uuid.UUID) -> int:
         stmt = delete(ApiKey).where(ApiKey.id == key_id)
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0

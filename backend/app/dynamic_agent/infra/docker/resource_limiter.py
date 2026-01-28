@@ -3,7 +3,7 @@ Docker container resource limit configuration
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import psutil
 
@@ -158,7 +158,7 @@ class ResourceLimits:
             ...     disk="10G"
             ... )
         """
-        parsed = {}
+        parsed: dict[str, Any] = {}
 
         if cpu:
             parsed["cpu_limit"] = float(cpu)
@@ -170,7 +170,7 @@ class ResourceLimits:
             parsed["disk_limit"] = _parse_size(disk)
 
         parsed.update(kwargs)
-        return ResourceLimits(**parsed)
+        return ResourceLimits(**parsed)  # type: ignore[arg-type]
 
 
 def _parse_size(size_str: str) -> int:

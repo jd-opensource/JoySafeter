@@ -13,6 +13,7 @@ This module enhances the Copilot's ability to generate professional-grade workfl
 
 import uuid
 from dataclasses import dataclass, field
+from typing import Dict, List
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -411,8 +412,8 @@ class MultiStageGenerator:
 
         # Build adjacency structures
         {n.get("id") for n in nodes}
-        outgoing = {n.get("id"): [] for n in nodes}
-        incoming = {n.get("id"): [] for n in nodes}
+        outgoing: Dict[str, List[str]] = {str(n.get("id")): [] for n in nodes if n.get("id") is not None}
+        incoming: Dict[str, List[str]] = {str(n.get("id")): [] for n in nodes if n.get("id") is not None}
 
         for edge in edges:
             src = edge.get("source") or edge.get("payload", {}).get("source")

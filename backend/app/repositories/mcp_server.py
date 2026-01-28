@@ -46,7 +46,7 @@ class McpServerRepository(BaseRepository[McpServer]):
         ]
 
         if enabled_only:
-            conditions.append(McpServer.enabled)
+            conditions.append(McpServer.enabled == True)  # type: ignore[arg-type]
 
         if not include_deleted:
             conditions.append(McpServer.deleted_at.is_(None))
@@ -93,7 +93,7 @@ class McpServerRepository(BaseRepository[McpServer]):
         ]
 
         if user_id:
-            conditions.append(McpServer.user_id == user_id)
+            conditions.append(McpServer.user_id == user_id)  # type: ignore[arg-type]
 
         query = select(McpServer).where(and_(*conditions)).order_by(McpServer.created_at.desc())
         result = await self.db.execute(query)
@@ -169,7 +169,7 @@ class McpServerRepository(BaseRepository[McpServer]):
         }
 
         if status == "connected":
-            update_data["last_connected"] = datetime.utcnow()  # naive datetime for TIMESTAMP WITHOUT TIME ZONE
+            update_data["last_connected"] = datetime.utcnow()  # type: ignore[assignment]  # naive datetime for TIMESTAMP WITHOUT TIME ZONE
             update_data["last_error"] = None
 
         return await self.update(server_id, update_data)
@@ -265,7 +265,7 @@ class McpServerRepository(BaseRepository[McpServer]):
         ]
 
         if user_id:
-            conditions.append(McpServer.user_id == user_id)
+            conditions.append(McpServer.user_id == user_id)  # type: ignore[arg-type]
 
         query = select(McpServer).where(and_(*conditions))
         result = await self.db.execute(query)

@@ -79,7 +79,11 @@ def _classify_scene_with_llm(user_input: str) -> str:
         prompt = prompt_template.format(user_input=user_input[:500])
 
         response = get_default_llm().invoke(prompt)
-        result = response.content.strip().lower()
+        content = response.content if hasattr(response, "content") else str(response)
+        if isinstance(content, list):
+            content = " ".join(str(item) for item in content)
+        content_str = str(content) if content is not None else ""
+        result = content_str.strip().lower()
 
         # Validate result is a known scene type
         valid_scenes = {SceneType.CTF.value, SceneType.PENTEST.value, SceneType.GENERAL.value}

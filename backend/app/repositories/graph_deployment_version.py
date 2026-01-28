@@ -106,7 +106,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         """停用指定 graph 的所有版本"""
         stmt = update(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id).values(is_active=False)
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0
 
     async def create_version(
         self,
@@ -184,7 +184,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         """删除指定 graph 的所有版本"""
         stmt = delete(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id)
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0
 
     async def delete_version(self, graph_id: uuid.UUID, version: int) -> int:
         """删除指定版本"""
@@ -195,4 +195,4 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
             )
         )
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0

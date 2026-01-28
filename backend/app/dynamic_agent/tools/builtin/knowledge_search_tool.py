@@ -134,7 +134,8 @@ def _get_used_files() -> Set[str]:
 
     # Session-level: all SubAgents share the same used_files set
     # This ensures each knowledge file is only recalled ONCE per session
-    return metadata.get(_USED_FILES_KEY, set())
+    used_files = metadata.get(_USED_FILES_KEY, set())
+    return used_files if isinstance(used_files, set) else set()  # type: ignore[return-value]
 
 
 def _mark_file_as_used(file_name: str) -> None:
@@ -176,7 +177,8 @@ def get_available_tricks() -> List[Dict[str, Any]]:
     metadata = MetadataContext.get()
     if metadata is None:
         return []
-    return metadata.get(_TRICKS_KEY, [])
+    tricks = metadata.get(_TRICKS_KEY, [])
+    return tricks if isinstance(tricks, list) else []  # type: ignore[return-value]
 
 
 def clear_tricks(context_id: Optional[str] = None) -> None:

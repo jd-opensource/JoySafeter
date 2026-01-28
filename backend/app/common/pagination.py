@@ -2,7 +2,7 @@
 分页工具
 """
 
-from typing import Generic, List, Optional, TypeVar
+from typing import Any, Callable, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -49,7 +49,7 @@ class Paginator:
         self,
         query: Select,
         params: PaginationParams,
-        transformer: Optional[callable] = None,
+        transformer: Optional[Callable[[Any], Any]] = None,
     ) -> PageResult:
         """
         执行分页查询
@@ -72,11 +72,11 @@ class Paginator:
         result = await self.db.execute(paginated_query)
         items = result.scalars().all()
 
-        if transformer:
+        if transformer is not None:
             items = [transformer(item) for item in items]
 
         return PageResult(
-            items=items,
+            items=list(items),
             total=total,
             page=params.page,
             page_size=params.page_size,

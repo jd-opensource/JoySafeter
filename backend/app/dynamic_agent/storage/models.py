@@ -74,6 +74,7 @@ class ExecutionStepResponse(ExecutionStepBase):
 
     id: UUID
     task_id: UUID
+    parent_step_id: Optional[UUID] = None  # Parent step ID for step hierarchy
     start_time: datetime
     end_time: Optional[datetime] = None
     created_at: datetime

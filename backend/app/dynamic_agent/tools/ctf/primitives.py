@@ -494,7 +494,7 @@ def generate_action_from_hint(
     content = hint.content.lower()
 
     # Try to match hint to templates
-    template_matches = []
+    template_matches: list[tuple[str, dict[str, Any]]] = []
 
     # Check for encoding/decoding hints
     if any(kw in content for kw in ["base64", "decode", "encode"]):

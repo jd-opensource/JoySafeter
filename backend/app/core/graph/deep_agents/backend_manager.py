@@ -3,7 +3,7 @@
 Manages shared Docker backend lifecycle for the entire graph.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from loguru import logger
 
@@ -28,7 +28,7 @@ class DeepAgentsBackendManager:
         self._backend_cleaned_up: bool = False
         self._shared_backend_creation_failed: bool = False
 
-    def should_create_shared_backend(self, has_valid_skills_config: callable) -> bool:
+    def should_create_shared_backend(self, has_valid_skills_config: Callable[[Any], bool]) -> bool:
         """Check if shared Docker backend should be created.
 
         Args:
@@ -121,7 +121,7 @@ class DeepAgentsBackendManager:
         self,
         node: "GraphNode",
         has_skills: bool,
-        create_backend_for_node: callable,
+        create_backend_for_node: Callable[..., Any],
     ) -> Optional[Any]:
         """Get backend for a node (shared or node-specific).
 

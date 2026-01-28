@@ -20,16 +20,16 @@ try:
     COMMAND_AVAILABLE = True
 except ImportError:
     COMMAND_AVAILABLE = False
-    Command = None
+    Command = None  # type: ignore[assignment, misc]
     logger.warning("[LanggraphModelBuilder] langgraph.types.Command not available")
 
 try:
-    from cachetools import TTLCache
+    from cachetools import TTLCache  # type: ignore[import-untyped]
 
     CACHE_AVAILABLE = True
 except ImportError:
     # Fallback to dict if cachetools not available
-    TTLCache = dict
+    TTLCache = dict  # type: ignore[assignment, misc]
     CACHE_AVAILABLE = False
     logger.warning("[LanggraphModelBuilder] cachetools not available, using dict cache")
 
@@ -132,8 +132,8 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             executor: 节点执行器
             edge_processor: 边处理函数，接受 (edge, conditional_map, handle_to_route_map) 参数
         """
-        conditional_map = {}
-        handle_to_route_map = {}
+        conditional_map: Dict[str, Any] = {}
+        handle_to_route_map: Dict[str, str] = {}
 
         # 收集并处理此节点的所有出边
         for edge in self.edges:
@@ -142,7 +142,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
 
         # 添加条件边到工作流
         if conditional_map:
-            workflow.add_conditional_edges(node_name, executor, conditional_map)
+            workflow.add_conditional_edges(node_name, executor, conditional_map)  # type: ignore[arg-type]
             self._conditional_nodes.add(node_name)
 
     def _validate_router_edges(
@@ -236,13 +236,13 @@ class LanggraphModelBuilder(BaseGraphBuilder):
                         f"[LanggraphModelBuilder] Command goto not found in conditional_map | "
                         f"goto={goto} | using as route_key"
                     )
-                    return goto
+                    return str(goto)
 
                 # Command 没有 goto，使用默认路由
                 return list(conditional_map.keys())[0] if conditional_map else "default"
 
             # 返回字符串 route_key（默认行为）
-            return result if isinstance(result, str) else "default"
+            return str(result) if result is not None else "default"
 
         return router_wrapper
 
@@ -255,8 +255,8 @@ class LanggraphModelBuilder(BaseGraphBuilder):
     ) -> None:
         """Build conditional edges for a router node."""
         # 使用通用方法构建条件边
-        conditional_map = {}
-        handle_to_route_map = {}
+        conditional_map: Dict[str, Any] = {}
+        handle_to_route_map: Dict[str, str] = {}
 
         # 收集并处理此节点的所有出边
         for edge in self.edges:
@@ -289,7 +289,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             workflow.add_conditional_edges(
                 router_node_name,
                 router_func,  # Router function returns route_key (or wrapped to handle Command)
-                conditional_map,
+                conditional_map,  # type: ignore[arg-type]
             )
             self._conditional_nodes.add(router_node_name)
             logger.info(
@@ -380,7 +380,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
                         f"[LanggraphModelBuilder] Condition Command goto not found in conditional_map | "
                         f"goto={goto} | using as route_key"
                     )
-                    return goto
+                    return str(goto)
 
                 # Command 没有 goto，尝试从 update 中提取 route_decision
                 if hasattr(result, "update") and isinstance(result.update, dict):
@@ -422,8 +422,8 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         condition_executor: ConditionNodeExecutor,
     ) -> None:
         """Build conditional edges for a condition node."""
-        conditional_map = {}
-        handle_to_route_map = {}
+        conditional_map: Dict[str, Any] = {}
+        handle_to_route_map: Dict[str, str] = {}
 
         # 收集并处理此节点的所有出边
         for edge in self.edges:
@@ -441,7 +441,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             workflow.add_conditional_edges(
                 condition_node_name,
                 condition_func,  # 包装后的函数返回字符串 route_key
-                conditional_map,
+                conditional_map,  # type: ignore[arg-type]
             )
             self._conditional_nodes.add(condition_node_name)
             logger.info(
@@ -480,7 +480,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         loop_executor: LoopConditionNodeExecutor,
     ) -> None:
         """Build conditional edges for a loop condition node."""
-        conditional_map = {}
+        conditional_map: Dict[str, Any] = {}
 
         # 收集并处理此节点的所有出边
         for edge in self.edges:
@@ -492,7 +492,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             workflow.add_conditional_edges(
                 loop_node_name,
                 loop_executor,  # Loop function returns 'continue_loop' or 'exit_loop'
-                conditional_map,
+                conditional_map,  # type: ignore[arg-type]
             )
             self._conditional_nodes.add(loop_node_name)
             logger.info(
@@ -512,25 +512,26 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         Raises:
             GraphValidationError: 当发现无效的循环结构时
         """
-        loop_bodies = {}
+        loop_bodies: Dict[str, str] = {}
         validation_errors = []
 
         # 首先收集所有循环条件节点
         loop_condition_nodes = [node for node in self.nodes if self._node_types[node.id] == "loop_condition_node"]
 
         # 预构建节点到出边的映射，避免嵌套循环 O(V*E) → O(E)
-        node_outgoing_edges = {}
+        node_outgoing_edges: Dict[str, List[Any]] = {}
         for edge in self.edges:
-            if edge.source_node_id not in node_outgoing_edges:
-                node_outgoing_edges[edge.source_node_id] = []
-            node_outgoing_edges[edge.source_node_id].append(edge)
+            source_id = str(edge.source_node_id)
+            if source_id not in node_outgoing_edges:
+                node_outgoing_edges[source_id] = []
+            node_outgoing_edges[source_id].append(edge)
 
         # 验证所有循环条件节点
         for loop_node in loop_condition_nodes:
             loop_node_name = self._get_node_name(loop_node)
 
             # 使用预构建的映射查找出边
-            outgoing_edges = node_outgoing_edges.get(loop_node.id, [])
+            outgoing_edges = node_outgoing_edges.get(str(loop_node.id), [])
 
             # 找到此循环条件节点的所有 continue_loop 边
             continue_loop_targets = []
@@ -694,7 +695,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
 
         return edges_added
 
-    async def build(self) -> Any:
+    async def build(self) -> Any:  # type: ignore[override]
         """异步构建 LangGraph StateGraph with START/END nodes.
 
         Supports conditional routing, loops, and parallel execution.

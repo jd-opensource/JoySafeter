@@ -134,9 +134,10 @@ class BaseGraphBuilder(ABC):
         label = data.get("label", "")
 
         if label:
-            return label
+            return str(label)
 
-        return self._node_id_to_name.get(node.id) or self._get_node_name(node)
+        node_name = self._node_id_to_name.get(node.id) or self._get_node_name(node)
+        return str(node_name) if node_name is not None else ""
 
     def _get_system_prompt_from_node(self, node: GraphNode) -> Optional[str]:
         """Extract system prompt from node configuration."""
@@ -949,7 +950,8 @@ class BaseGraphBuilder(ABC):
         if self.graph and hasattr(self.graph, "config") and self.graph.config:
             config = self.graph.config
             if isinstance(config, dict):
-                return config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)
+                limit = config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)
+                return int(limit) if limit is not None else DEFAULT_RECURSION_LIMIT
         return DEFAULT_RECURSION_LIMIT
 
     # ==================== Graph Validation ====================
@@ -1080,7 +1082,7 @@ class BaseGraphBuilder(ABC):
                 node_edges = [e for e in self.edges if e.source_node_id == node.id]
 
                 # Check handle_id to route_key consistency
-                handle_to_route = {}
+                handle_to_route: Dict[str, str] = {}
                 for edge in node_edges:
                     edge_data = edge.data or {}
                     handle_id = edge_data.get("source_handle_id")

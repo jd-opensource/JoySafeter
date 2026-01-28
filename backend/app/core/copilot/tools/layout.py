@@ -70,8 +70,8 @@ def auto_layout(
     actions = []
 
     # Build adjacency list for topology analysis
-    outgoing = {n.get("id"): [] for n in nodes}
-    incoming = {n.get("id"): [] for n in nodes}
+    outgoing: Dict[str, List[str]] = {n.get("id"): [] for n in nodes}
+    incoming: Dict[str, List[str]] = {n.get("id"): [] for n in nodes}
 
     for edge in edges:
         src = edge.get("source")

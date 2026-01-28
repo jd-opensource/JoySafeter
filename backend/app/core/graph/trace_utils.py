@@ -59,7 +59,7 @@ class NodeExecutionTrace:
 
     def _sanitize_snapshot(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitize snapshot to remove sensitive data and limit size."""
-        sanitized = {}
+        sanitized: Dict[str, Any] = {}
         for key, value in snapshot.items():
             # Skip large messages lists (keep only count)
             if key == "messages" and isinstance(value, list):

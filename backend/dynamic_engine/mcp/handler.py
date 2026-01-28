@@ -2,7 +2,7 @@ import logging
 import shutil
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class HandlerType(Enum):
 
 
 class AbstractHandler(ABC):
-    def __init__(self, config: Dict = None):
+    def __init__(self, config: Optional[Dict[Any, Any]] = None):
         self.config = config or {}
 
     @abstractmethod
@@ -32,10 +32,11 @@ class AbstractHandler(ABC):
         return []
 
     def available(self) -> bool:
-        if not self.commands:
+        cmds = self.commands()
+        if not cmds:
             return True
 
-        for cmd in self.commands():
+        for cmd in cmds:
             if not shutil.which(cmd):
                 logger.warning(f"command {cmd} not found, skipping")
                 return False

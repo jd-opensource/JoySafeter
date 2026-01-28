@@ -109,7 +109,7 @@ class MCPTools(Toolkit):
         self.timeout_seconds = timeout_seconds
         self.session: Optional[ClientSession] = session
         self.server_params: Optional[Union[StdioServerParameters, SSEClientParams, StreamableHTTPClientParams]] = (
-            server_params
+            server_params  # type: ignore[assignment]
         )
         self.transport = transport
         self.url = url
@@ -300,13 +300,15 @@ class MCPTools(Toolkit):
         try:
             if self.transport == "stdio":
                 if self.server_params is not None and hasattr(self.server_params, "command"):
-                    return getattr(self.server_params, "command")
+                    cmd = getattr(self.server_params, "command")
+                    return str(cmd) if cmd is not None else None
                 return "stdio"
             elif self.transport in ["sse", "streamable-http"]:
                 if self.url:
-                    return self.url
+                    return str(self.url) if self.url is not None else None
                 if self.server_params is not None and hasattr(self.server_params, "url"):
-                    return getattr(self.server_params, "url")
+                    url = getattr(self.server_params, "url")
+                    return str(url) if url is not None else None
         except Exception:
             pass
         return None
@@ -334,29 +336,35 @@ class MCPTools(Toolkit):
 
             fields = {}
             for prop_name, prop_schema in properties.items():
+                if not isinstance(prop_schema, dict):
+                    continue
                 prop_type = prop_schema.get("type")
                 default = prop_schema.get("default", None)
-                py_type = Any
+                py_type: type[Any] = Any  # type: ignore[assignment]
 
                 if prop_type in type_mapping:
-                    py_type = type_mapping[prop_type]
+                    py_type = type_mapping[prop_type]  # type: ignore[assignment]
                 elif prop_type == "array":
                     items = prop_schema.get("items", {})
-                    item_type = type_mapping.get(items.get("type"), Any) if isinstance(items, dict) else Any
+                    if isinstance(items, dict):
+                        item_type_val = items.get("type")
+                        item_type: Any = type_mapping.get(item_type_val, Any) if isinstance(item_type_val, str) else Any
+                    else:
+                        item_type = Any
                     from typing import List as TypingList
 
-                    py_type = TypingList[item_type]  # type: ignore
+                    py_type = TypingList[item_type]  # type: ignore[assignment]
                 elif prop_type == "object":
                     from typing import Dict as TypingDict
 
-                    py_type = TypingDict[str, Any]
+                    py_type = TypingDict[str, Any]  # type: ignore[assignment]
 
                 if prop_name in required and default is None:
-                    fields[prop_name] = (py_type, ...)
+                    fields[prop_name] = (py_type, ...)  # type: ignore[assignment]
                 else:
                     from typing import Optional as TypingOptional
 
-                    fields[prop_name] = (TypingOptional[py_type], default)
+                    fields[prop_name] = (TypingOptional[py_type], default)  # type: ignore[assignment]
 
             if not fields:
                 return None

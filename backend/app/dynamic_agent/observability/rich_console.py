@@ -146,7 +146,7 @@ class RichConsoleCallback(BaseCallbackHandler):
 
     def _is_tty(self) -> bool:
         """Check if output is a TTY (for graceful fallback)."""
-        return self.console.is_terminal
+        return bool(self.console.is_terminal)
 
     def _convert_messages_to_log_format(self, messages: List) -> List[Dict]:
         """

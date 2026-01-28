@@ -167,7 +167,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 # Fallback: try with alternative parameter names or minimal set
                 try:
                     # Try with alternative parameter names
-                    self._sandbox: "DockerSandbox" = DockerSandbox(
+                    self._sandbox = DockerSandbox(
                         image=image,
                         memory=memory_limit,
                         cpu=cpu_quota,
@@ -181,7 +181,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                         "DockerSandbox only supports image parameter, "
                         "ignoring memory_limit, cpu_quota, network_mode, working_dir"
                     )
-                    self._sandbox: "DockerSandbox" = DockerSandbox(image=image)
+                    self._sandbox = DockerSandbox(image=image)
             logger.info(
                 f"PydanticSandboxAdapter created: id={self._id}, "
                 f"image={image}, memory={memory_limit}, network={network_mode}"
@@ -388,7 +388,8 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                     output = output.decode("utf-8", errors="replace")
             elif isinstance(result, dict):
                 # Result is a dict
-                output = result.get("stdout", result.get("output", ""))
+                output_raw = result.get("stdout", result.get("output", ""))
+                output = str(output_raw) if output_raw is not None else ""
                 exit_code = result.get("returncode", result.get("exit_code", 0))
                 if isinstance(output, bytes):
                     output = output.decode("utf-8", errors="replace")

@@ -140,7 +140,7 @@ class BaseProvider(ABC):
         """
         return []
 
-    def test_output(self, instance_dict: Dict[str, Any], input: str) -> str:
+    async def test_output(self, instance_dict: Dict[str, Any], input: str) -> str:
         """
         测试模型输出
 
@@ -149,6 +149,6 @@ class BaseProvider(ABC):
             input: 输入
 
         Returns:
-            输出
+            测试输出字符串
         """
-        pass
+        return ""

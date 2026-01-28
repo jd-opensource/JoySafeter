@@ -35,7 +35,7 @@ def fetch_webpage_content(url: str, timeout: float = 10.0) -> str:
     try:
         response = httpx.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
-        return markdownify(response.text)
+        return str(markdownify(response.text))
     except Exception as e:
         return f"Error fetching content from {url}: {str(e)}"
 

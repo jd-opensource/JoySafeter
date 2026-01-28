@@ -10,7 +10,7 @@ for managing agent execution history and state.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 
 
 class StepType(str, Enum):
@@ -333,7 +333,7 @@ class AgentMemory:
 
     def get_history_for_prompt(
         self,
-        max_tokens: int = None,
+        max_tokens: Optional[int] = None,
         include_system: bool = True,
         include_thoughts: bool = True,
     ) -> str:
@@ -451,16 +451,16 @@ class AgentMemory:
 
         return messages
 
-    def get_full_steps(self) -> list[dict]:
+    def get_full_steps(self) -> list[Dict[str, Any]]:
         """
         Get all steps as dictionaries with full information.
 
         Returns:
             List of step dictionaries.
         """
-        result = []
+        result: list[Dict[str, Any]] = []
         for step in self._steps:
-            step_dict = {
+            step_dict: Dict[str, Any] = {
                 "type": type(step).__name__,
             }
             if isinstance(step, ActionStep):

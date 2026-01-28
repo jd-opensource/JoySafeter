@@ -137,7 +137,9 @@ async def safe_get_state(
 
     # 所有重试都失败
     log.error(f"Failed to get state after {max_retries} attempts: {last_error}")
-    raise last_error
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Failed to get state after all retries")
 
 
 # ==================== Persistence Logic ====================
@@ -293,7 +295,7 @@ async def save_assistant_message(
     if update_conversation:
         result = await db.execute(select(Conversation).where(Conversation.thread_id == thread_id))
         if conv := result.scalar_one_or_none():
-            conv.update_time = utc_now()
+            conv.updated_at = utc_now()
     await db.commit()
 
 
@@ -329,7 +331,7 @@ async def stop_chat(
         cancelled = await task_manager.cancel_task(thread_id)
 
     status = "stopped" if stopped else "not_running"
-    return BaseResponse(success=True, data={"status": status, "cancelled": cancelled})
+    return BaseResponse(success=True, code=200, msg="Task status retrieved", data={"status": status, "cancelled": cancelled})
 
 
 @router.post("", response_model=BaseResponse[ChatResponse])
@@ -430,6 +432,8 @@ async def chat(
 
         return BaseResponse(
             success=True,
+            code=200,
+            msg="Chat completed successfully",
             data=ChatResponse(
                 thread_id=thread_id,
                 response=messages[-1].content if messages else "",
@@ -544,9 +548,14 @@ async def chat_stream(
                     break
 
                 # B. 事件分发
-                event_type = event.get("event")
-                event_name = event.get("name", "")
-                metadata = event.get("metadata", {})
+                if isinstance(event, dict):
+                    event_dict = event
+                else:
+                    # Convert event to dict if needed
+                    event_dict = {"event": str(type(event).__name__), "data": event} if event else {}
+                event_type = event_dict.get("event")
+                event_name = event_dict.get("name", "")
+                metadata = event_dict.get("metadata", {}) if isinstance(event_dict.get("metadata"), dict) else {}
                 langgraph_node = metadata.get("langgraph_node")
 
                 # 判断是否是节点事件（不是工具或LLM的内部事件）
@@ -560,29 +569,29 @@ async def chat_stream(
                 )
 
                 if event_type == "on_chat_model_start":
-                    yield await handler.handle_chat_model_start(event, state)
+                    yield await handler.handle_chat_model_start(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_chat_model_stream":
-                    if sse := await handler.handle_chat_model_stream(event, state):
+                    if sse := await handler.handle_chat_model_stream(event_dict, state):  # type: ignore[arg-type]
                         yield sse
 
                 elif event_type == "on_chat_model_end":
-                    yield await handler.handle_chat_model_end(event, state)
+                    yield await handler.handle_chat_model_end(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_tool_start":
-                    yield await handler.handle_tool_start(event, state)
+                    yield await handler.handle_tool_start(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_tool_end":
-                    yield await handler.handle_tool_end(event, state)
+                    yield await handler.handle_tool_end(event_dict, state)  # type: ignore[arg-type]
 
                 # 节点生命周期事件
                 elif event_type == "on_chain_start" and is_node_event:
-                    yield await handler.handle_node_start(event, state)
+                    yield await handler.handle_node_start(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_chain_end":
                     # 如果是节点结束事件，发送节点结束事件（可能返回多个事件）
                     if is_node_event:
-                        result = await handler.handle_node_end(event, state)
+                        result = await handler.handle_node_end(event_dict, state)  # type: ignore[arg-type]
                         # handle_node_end 现在返回多个事件（用换行分隔）或单个事件
                         if isinstance(result, str):
                             # 如果是单个字符串，可能包含多个事件（用 \n\n 分隔）
@@ -601,7 +610,9 @@ async def chat_stream(
                     # C. 收集完整消息 (但不发送 SSE，仅用于最终状态确认)
                     # LangGraph 有时会在 on_chain_end 的 output 中包含最终消息列表
                     # 我们可以尝试提取以确保 all_messages 最完整
-                    output = event.get("data", {}).get("output")
+                    data_raw: Any = event_dict.get("data", {})
+                    data: Dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}  # type: ignore[assignment]
+                    output = data.get("output") if isinstance(data, dict) else None
                     if output and isinstance(output, dict) and "messages" in output:
                         state.all_messages = output["messages"]
 
@@ -632,10 +643,10 @@ async def chat_stream(
                     yield handler.format_sse("interrupt", interrupt_data, thread_id)
                     if payload.graph_id:
                         async with AsyncSessionLocal() as session:
-                            result = await session.execute(
+                            result_query = await session.execute(
                                 select(Conversation).where(Conversation.thread_id == thread_id)
                             )
-                            if conv := result.scalar_one_or_none():
+                            if conv := result_query.scalar_one_or_none():
                                 if not conv.meta_data:
                                     conv.meta_data = {}
                                 conv.meta_data["interrupted_graph_id"] = str(payload.graph_id)
@@ -699,8 +710,8 @@ async def chat_stream(
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
                 async with AsyncSessionLocal() as session:
-                    result = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
-                    if conv := result.scalar_one_or_none():
+                    result_query = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
+                    if conv := result_query.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]
                             await session.commit()
@@ -731,11 +742,11 @@ async def chat_resume(
 
     # 获取 graph_id（从 conversation.meta_data 或从 checkpointer 状态推断）
     graph_id = None
-    if conversation.meta_data and "interrupted_graph_id" in conversation.meta_data:
+    if conversation and conversation.meta_data and isinstance(conversation.meta_data, dict) and "interrupted_graph_id" in conversation.meta_data:
         import uuid as uuid_lib
 
         try:
-            graph_id = uuid_lib.UUID(conversation.meta_data["interrupted_graph_id"])
+            graph_id = uuid_lib.UUID(str(conversation.meta_data["interrupted_graph_id"]))
         except (ValueError, TypeError):
             log.warning(f"Invalid graph_id in conversation metadata | thread_id={thread_id}")
 
@@ -753,6 +764,12 @@ async def chat_resume(
 
     # 3. 重新构建图
     # Checkpointer 会自动恢复之前的状态
+    if graph_id is None:
+        raise_not_found_error("Graph ID not found in conversation metadata or state")
+    
+    # Type narrowing: graph_id is guaranteed to be UUID after check
+    assert graph_id is not None
+    
     try:
         graph_service = GraphService(db)
         graph = await graph_service.create_graph_by_graph_id(
@@ -816,9 +833,14 @@ async def chat_resume(
                     break
 
                 # B. 事件分发（复用 chat_stream 的逻辑）
-                event_type = event.get("event")
-                event_name = event.get("name", "")
-                metadata = event.get("metadata", {})
+                if isinstance(event, dict):
+                    event_dict = event
+                else:
+                    # Convert event to dict if needed
+                    event_dict = {"event": str(type(event).__name__), "data": event} if event else {}
+                event_type = event_dict.get("event")
+                event_name = event_dict.get("name", "")
+                metadata = event_dict.get("metadata", {}) if isinstance(event_dict.get("metadata"), dict) else {}
                 langgraph_node = metadata.get("langgraph_node")
 
                 is_node_event = langgraph_node is not None or (
@@ -831,35 +853,37 @@ async def chat_resume(
                 )
 
                 if event_type == "on_chat_model_start":
-                    yield await handler.handle_chat_model_start(event, state)
+                    yield await handler.handle_chat_model_start(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_chat_model_stream":
-                    if sse := await handler.handle_chat_model_stream(event, state):
+                    if sse := await handler.handle_chat_model_stream(event_dict, state):  # type: ignore[arg-type]
                         yield sse
 
                 elif event_type == "on_chat_model_end":
-                    yield await handler.handle_chat_model_end(event, state)
+                    yield await handler.handle_chat_model_end(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_tool_start":
-                    yield await handler.handle_tool_start(event, state)
+                    yield await handler.handle_tool_start(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_tool_end":
-                    yield await handler.handle_tool_end(event, state)
+                    yield await handler.handle_tool_end(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_chain_start" and is_node_event:
-                    yield await handler.handle_node_start(event, state)
+                    yield await handler.handle_node_start(event_dict, state)  # type: ignore[arg-type]
 
                 elif event_type == "on_chain_end":
                     if is_node_event:
-                        result = await handler.handle_node_end(event, state)
+                        result = await handler.handle_node_end(event_dict, state)  # type: ignore[arg-type]
                         # handle_node_end 现在返回多个事件（用换行分隔）或单个事件
-                        if result:
+                        if result and isinstance(result, str):
                             # 如果包含多个事件（用 \n\n 分隔），逐个发送
                             for event_str in result.split("\n\n"):
                                 if event_str.strip():
                                     yield event_str.strip() + "\n\n"
 
-                    output = event.get("data", {}).get("output")
+                    data_raw: Any = event_dict.get("data", {})
+                    data: Dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}  # type: ignore[assignment]
+                    output = data.get("output") if isinstance(data, dict) else None
                     if output and isinstance(output, dict) and "messages" in output:
                         state.all_messages = output["messages"]
 
@@ -917,8 +941,8 @@ async def chat_resume(
             else:
                 # 执行完成，清理 conversation 中的中断标记
                 async with AsyncSessionLocal() as session:
-                    result = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
-                    if conv := result.scalar_one_or_none():
+                    result_query = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
+                    if conv := result_query.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]
                             await session.commit()
@@ -944,8 +968,8 @@ async def chat_resume(
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
                 async with AsyncSessionLocal() as session:
-                    result = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
-                    if conv := result.scalar_one_or_none():
+                    result_query = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
+                    if conv := result_query.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]
                             await session.commit()

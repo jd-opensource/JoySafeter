@@ -35,7 +35,7 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         self._skills_manager = DeepAgentsSkillsManager(self.user_id)
         self._node_builder = DeepAgentsNodeBuilder(builder=self)
 
-    async def build(self) -> Any:
+    async def build(self) -> CompiledStateGraph[Any, None, Any, Any]:  # type: ignore[override]
         """Build two-level star structure: Root (Manager) → Children (Workers)."""
         if not self.nodes:
             raise ValueError("No nodes provided for DeepAgents graph")
@@ -43,7 +43,8 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         try:
             await self._setup_shared_backend()
             root_node = self._select_and_validate_root()
-            return await self._build_graph(root_node)
+            result = await self._build_graph(root_node)
+            return result  # type: ignore
         except Exception as e:
             logger.exception(f"{LOG_PREFIX} Build failed: {e}")
             await self._backend_manager.cleanup_shared_backend()
@@ -170,7 +171,8 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
 
     def has_valid_skills_config(self, skill_ids_raw: Any) -> bool:
         """Check if skills config is valid - for AgentConfig use."""
-        return self._skills_manager.has_valid_skills_config(skill_ids_raw)
+        result = self._skills_manager.has_valid_skills_config(skill_ids_raw)
+        return bool(result) if result is not None else False
 
     async def get_backend_for_node(self, node: GraphNode, has_skills: bool) -> Optional[Any]:
         """Get backend for node - for AgentConfig use."""
@@ -182,7 +184,12 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
 
     def get_skills_paths(self, has_skills: bool, backend: Any) -> Optional[list[str]]:
         """Get skills paths - for AgentConfig use."""
-        return self._skills_manager.get_skills_paths(has_skills, backend)
+        result = self._skills_manager.get_skills_paths(has_skills, backend)
+        if result is None:
+            return None
+        if isinstance(result, list):
+            return [str(item) for item in result]
+        return None
 
     def get_shared_backend(self) -> Optional[Any]:
         """Get shared backend instance - for NodeBuilder use."""
@@ -190,7 +197,8 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
 
     def is_shared_backend_creation_failed(self) -> bool:
         """Check if shared backend creation failed - for NodeBuilder use."""
-        return self._backend_manager.shared_backend_creation_failed
+        result = self._backend_manager.shared_backend_creation_failed
+        return bool(result) if result is not None else False
 
     async def resolve_middleware_for_node(
         self,

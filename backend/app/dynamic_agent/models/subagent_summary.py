@@ -120,7 +120,7 @@ class SubagentSummary:
             try:
                 # Extract success
                 success_match = re.search(r"<success>(\w+)</success>", response)
-                success = success_match and success_match.group(1).lower() == "true"
+                success: bool = bool(success_match and success_match.group(1).lower() == "true")
 
                 # Extract discovery_type (for replan decision)
                 discovery_match = re.search(r"<discovery_type>([^<]+)</discovery_type>", response)

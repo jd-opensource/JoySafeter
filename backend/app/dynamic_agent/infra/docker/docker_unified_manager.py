@@ -25,9 +25,10 @@ from app.dynamic_agent.core.constants import (
     LOCALHOST,
 )
 
-from . import ResourceLimits
+from .resource_limiter import ResourceLimits
 from .docker_manager import DockerManager
 from .docker_remote_api import DockerRemoteAPIManager, RemoteDockerHost
+from .exceptions import ContainerCreationError
 from .exceptions import (
     ContainerExecutionError,
     ContainerStateError,
@@ -278,7 +279,7 @@ class UnifiedDockerManager:
 
         native_port = int(os.getenv("ENGINE_NATIVE_PORT", "9100"))
         for i in range(200):
-            ports = {8000: str(native_port)}
+            ports: Dict[str, int] = {"8000": native_port}
             try:
                 if host_config.is_local:
                     logger.info(f"Creating container on local host: {image}")
@@ -341,6 +342,9 @@ class UnifiedDockerManager:
                     continue
                 else:
                     raise e
+        
+        # If we exhausted all retries, raise an error
+        raise ContainerCreationError(f"Failed to create container after 200 attempts")
 
     def execute_command(
         self, container_id: str, command: str, host_name: Optional[str] = None, timeout: Optional[int] = None, **kwargs
@@ -650,7 +654,8 @@ class UnifiedDockerManager:
                 return True
             else:
                 logger.debug(f"Pinging remote host: {host_name}")
-                return self.remote_manager.ping(host_name=host_name)
+                result = self.remote_manager.ping(host_name=host_name)
+                return bool(result) if result is not None else False
 
         except Exception as e:
             logger.error(f"Failed to ping {host_name}: {e}")

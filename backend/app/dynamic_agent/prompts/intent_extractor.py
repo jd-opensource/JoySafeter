@@ -42,11 +42,11 @@ async def extract_intent(user_message: str, llm: Any) -> str:
 
         # Handle different response formats
         if hasattr(response, "content"):
-            intent = response.content.strip()
+            intent: str = str(response.content).strip()
         elif isinstance(response, str):
             intent = response.strip()
         elif isinstance(response, dict) and "content" in response:
-            intent = response["content"].strip()
+            intent = str(response["content"]).strip()
         else:
             intent = str(response).strip()
 
@@ -84,7 +84,7 @@ def extract_intent_sync(user_message: str, llm: Any) -> str:
         response = llm().invoke([{"role": "user", "content": prompt}])
 
         if hasattr(response, "content"):
-            intent = response.content.strip()
+            intent: str = str(response.content).strip()
         elif isinstance(response, str):
             intent = response.strip()
         else:

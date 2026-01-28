@@ -6,7 +6,7 @@ import importlib
 import inspect
 import pkgutil
 from pathlib import Path
-from typing import List, Type
+from typing import List, Optional, Type
 
 from .AiSafety import AiSafetyProvider
 from .base import BaseProvider, ModelType
@@ -15,7 +15,7 @@ from .base import BaseProvider, ModelType
 from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
 
 # Provider 类缓存
-_provider_classes_cache: List[Type[BaseProvider]] = None
+_provider_classes_cache: Optional[List[Type[BaseProvider]]] = None
 
 
 def _discover_provider_classes() -> List[Type[BaseProvider]]:
@@ -79,7 +79,16 @@ def get_all_provider_instances() -> List[BaseProvider]:
         所有 Provider 实例的列表
     """
     classes = get_all_provider_classes()
-    return [cls() for cls in classes]
+    instances = []
+    for cls in classes:
+        try:
+            # Try to instantiate - most providers have __init__ that calls super().__init__()
+            instance = cls()  # type: ignore[call-arg]
+            instances.append(instance)
+        except TypeError:
+            # If __init__ requires arguments, skip this provider
+            continue
+    return instances
 
 
 __all__ = [

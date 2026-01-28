@@ -2,7 +2,7 @@
 
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,7 +121,7 @@ class AuthService(BaseService):
     ) -> dict:
         """构建登录响应（对齐 better-auth 格式）"""
 
-        response = {
+        response: Dict[str, Any] = {
             "user": {
                 "id": user.id,
                 "email": user.email,
@@ -378,7 +378,9 @@ class AuthService(BaseService):
             if not user_id:
                 raise UnauthorizedException("Invalid or expired refresh token")
 
-            user = await self.user_repo.get_by_id(user_id)
+            # user_id from redis is a string, but AuthUser.id is also string
+            # Use get_by method with id parameter
+            user = await self.user_repo.get_by(id=user_id)  # type: ignore[arg-type]
             if not user or not user.is_active:
                 await self._delete_refresh_token(refresh_token, user_id)
                 raise UnauthorizedException("Invalid user")

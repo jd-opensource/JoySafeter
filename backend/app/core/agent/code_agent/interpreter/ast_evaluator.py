@@ -21,7 +21,7 @@ from collections.abc import Callable, Generator, Mapping
 from functools import wraps
 from importlib import import_module
 from types import ModuleType
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -204,12 +204,12 @@ def safer_eval(func: Callable):
 
 def safer_func(
     func: Callable,
-    static_tools: dict[str, Callable] = None,
-    authorized_imports: list[str] = None,
+    static_tools: Optional[dict[str, Callable]] = None,
+    authorized_imports: Optional[list[str]] = None,
 ):
     """Decorator to enhance security of function calls."""
     if static_tools is None:
-        static_tools = BASE_PYTHON_TOOLS
+        static_tools = BASE_PYTHON_TOOLS  # type: ignore[assignment]
     if authorized_imports is None:
         authorized_imports = BASE_BUILTIN_MODULES
 
@@ -227,7 +227,7 @@ def safer_func(
 
 def build_import_tree(authorized_imports: list[str]) -> dict[str, Any]:
     """Build a tree structure from authorized imports for efficient lookup."""
-    tree = {}
+    tree: dict[str, Any] = {}
     for import_path in authorized_imports:
         parts = import_path.split(".")
         current = tree
@@ -406,8 +406,8 @@ def create_function(
             return None
         return result
 
-    new_func.__ast__ = func_def
-    new_func.__source__ = source_code
+    new_func.__ast__ = func_def  # type: ignore[attr-defined]
+    new_func.__source__ = source_code  # type: ignore[attr-defined]
     new_func.__name__ = func_def.name
     return new_func
 
@@ -443,7 +443,7 @@ def evaluate_class_def(
             break
 
     if hasattr(metaclass, "__prepare__"):
-        class_dict = metaclass.__prepare__(class_name, bases)
+        class_dict = metaclass.__prepare__(class_name, tuple(bases))  # type: ignore[arg-type]
     else:
         class_dict = {}
 
@@ -466,9 +466,9 @@ def evaluate_class_def(
             if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
                 class_dict["__doc__"] = stmt.value.value
 
-    new_class = metaclass(class_name, tuple(bases), class_dict)
+    new_class = metaclass(class_name, tuple(bases), class_dict)  # type: ignore[call-overload]
     state[class_name] = new_class
-    return new_class
+    return new_class  # type: ignore[no-any-return]
 
 
 def evaluate_annassign(
@@ -1059,8 +1059,15 @@ def evaluate_with(
     for item in with_node.items:
         context_expr = evaluate_ast(item.context_expr, state, static_tools, custom_tools, authorized_imports)
         if item.optional_vars:
-            state[item.optional_vars.id] = context_expr.__enter__()
-            contexts.append(state[item.optional_vars.id])
+            if isinstance(item.optional_vars, ast.Name):
+                state[item.optional_vars.id] = context_expr.__enter__()
+                contexts.append(state[item.optional_vars.id])
+            else:
+                # Handle other types of optional_vars
+                var_name = getattr(item.optional_vars, "id", None)
+                if var_name:
+                    state[var_name] = context_expr.__enter__()
+                    contexts.append(state[var_name])
         else:
             context_var = context_expr.__enter__()
             contexts.append(context_var)
@@ -1136,7 +1143,7 @@ def evaluate_generatorexp(
                 ):
                     yield evaluate_ast(genexp.elt, new_state, static_tools, custom_tools, authorized_imports)
 
-    return generator()
+    return generator()  # type: ignore[no-any-return]
 
 
 def evaluate_delete(
@@ -1170,7 +1177,7 @@ def evaluate_ast(
     state: dict[str, Any],
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
-    authorized_imports: list[str] = None,
+    authorized_imports: Optional[list[str]] = None,
 ) -> Any:
     """
     Evaluate an abstract syntax tree using the content of the variables stored in a state
@@ -1331,7 +1338,10 @@ def evaluate_ast(
 
     # Legacy Python 3.8 Index node
     elif hasattr(ast, "Index") and isinstance(expression, ast.Index):
-        return evaluate_ast(expression.value, *common_params)
+        value = getattr(expression, "value", None)
+        if value is not None:
+            return evaluate_ast(value, *common_params)
+        raise InterpreterError("Index node has no value attribute")
 
     else:
         raise InterpreterError(f"{expression.__class__.__name__} is not supported.")

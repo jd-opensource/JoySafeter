@@ -117,10 +117,12 @@ class McpServerService(BaseService[McpServer]):
         if not update_data:
             return server
 
-        server = await self.repo.update(server_id, update_data)
+        updated_server = await self.repo.update(server_id, update_data)
+        if updated_server is None:
+            raise ValueError(f"MCP server {server_id} not found")
         await self.commit()
-        logger.info(f"Updated MCP server: {server.name}")
-        return server
+        logger.info(f"Updated MCP server: {updated_server.name}")
+        return updated_server
 
     async def delete(
         self,
@@ -230,10 +232,12 @@ class McpServerService(BaseService[McpServer]):
         if server.enabled == enabled:
             return server
 
-        server = await self.repo.toggle_enabled(server_id, enabled)
+        updated_server = await self.repo.toggle_enabled(server_id, enabled)
+        if updated_server is None:
+            raise ValueError(f"MCP server {server_id} not found")
         await self.commit()
-        logger.info(f"MCP server {server.name} {'enabled' if enabled else 'disabled'}")
-        return server
+        logger.info(f"MCP server {updated_server.name} {'enabled' if enabled else 'disabled'}")
+        return updated_server
 
     async def update_connection_status(
         self,

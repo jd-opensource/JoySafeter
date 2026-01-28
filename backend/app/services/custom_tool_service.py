@@ -23,7 +23,7 @@ class CustomToolService(BaseService[CustomTool]):
 
     async def list_tools(self, current_user_id: str) -> List[CustomTool]:
         """获取当前用户的所有工具"""
-        return await self.repo.list_by_user(current_user_id)
+        return await self.repo.list_by_user(current_user_id)  # type: ignore
 
     async def create_tool(
         self,
@@ -93,7 +93,7 @@ class CustomToolService(BaseService[CustomTool]):
 
         await self.db.commit()
         await self.db.refresh(tool)
-        return tool
+        return tool  # type: ignore
 
     async def delete_tool(self, tool_id: uuid.UUID, current_user_id: str) -> None:
         """删除工具"""

@@ -24,7 +24,7 @@ class McpConnectionConfig:
     url: str
     transport: str = "streamable-http"
     timeout_seconds: int = 30
-    headers: dict = None
+    headers: dict = None  # type: ignore[assignment]
 
     def __post_init__(self):
         if self.headers is None:
@@ -196,6 +196,8 @@ class McpClientService:
         Returns:
             McpConnectionConfig
         """
+        if not server.url:
+            raise ValueError("Server URL is required")
         return McpConnectionConfig(
             url=server.url,
             transport=server.transport or "streamable-http",

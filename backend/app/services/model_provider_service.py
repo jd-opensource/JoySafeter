@@ -36,8 +36,8 @@ class ModelProviderService(BaseService):
         from loguru import logger
 
         factory_providers = self.factory.get_all_providers()
-        synced_providers = []
-        errors = []
+        synced_providers: List[Dict[str, Any]] = []
+        errors: List[str] = []
 
         for provider_info in factory_providers:
             provider_name = provider_info["provider_name"]
@@ -59,7 +59,16 @@ class ModelProviderService(BaseService):
                             "config_schema": config_schemas,  # 注意：数据库字段是 config_schema（单数）
                         },
                     )
-                    synced_providers.append(existing)
+                    # Convert ModelProvider to dict
+                    synced_providers.append({
+                        "id": str(existing.id),
+                        "name": existing.name,
+                        "display_name": existing.display_name,
+                        "supported_model_types": existing.supported_model_types or [],
+                        "credential_schema": existing.credential_schema or {},
+                        "config_schema": existing.config_schema or {},
+                        "is_enabled": existing.is_enabled,
+                    })
                     logger.debug(f"已更新供应商: {provider_name}")
                 else:
                     # 创建新供应商
@@ -73,7 +82,16 @@ class ModelProviderService(BaseService):
                             "is_enabled": True,
                         }
                     )
-                    synced_providers.append(new_provider)
+                    # Convert ModelProvider to dict
+                    synced_providers.append({
+                        "id": str(new_provider.id),
+                        "name": new_provider.name,
+                        "display_name": new_provider.display_name,
+                        "supported_model_types": new_provider.supported_model_types or [],
+                        "credential_schema": new_provider.credential_schema or {},
+                        "config_schema": new_provider.config_schema or {},
+                        "is_enabled": new_provider.is_enabled,
+                    })
                     logger.debug(f"已创建供应商: {provider_name}")
             except Exception as e:
                 error_msg = f"同步供应商 {provider_name} 失败: {str(e)}"
@@ -196,7 +214,7 @@ class ModelProviderService(BaseService):
         """
         from loguru import logger
 
-        result = {
+        result: Dict[str, Any] = {
             "providers": 0,
             "models": 0,
             "credentials": 0,  # 已移除，始终为 0

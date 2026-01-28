@@ -9,7 +9,7 @@ It maintains state across executions and supports tool injection.
 
 import ast
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -50,8 +50,8 @@ class LocalPythonExecutor(PythonExecutor):
 
     def __init__(
         self,
-        authorized_imports: list[str] = None,
-        additional_authorized_imports: list[str] = None,
+        authorized_imports: Optional[list[str]] = None,
+        additional_authorized_imports: Optional[list[str]] = None,
         enable_data_analysis: bool = True,
         max_print_output_length: int = 50000,
     ):
@@ -98,7 +98,7 @@ class LocalPythonExecutor(PythonExecutor):
 
     def _initialize_base_tools(self) -> None:
         """Initialize base Python tools."""
-        self.static_tools = {**BASE_PYTHON_TOOLS}
+        self.static_tools = {**BASE_PYTHON_TOOLS}  # type: ignore[dict-item]
 
     def send_tools(self, tools: dict[str, Callable]) -> None:
         """
@@ -129,7 +129,7 @@ class LocalPythonExecutor(PythonExecutor):
     def __call__(
         self,
         code: str,
-        additional_tools: dict[str, Callable] = None,
+        additional_tools: Optional[dict[str, Callable]] = None,
     ) -> CodeOutput:
         """
         Execute Python code and return the output.
@@ -262,9 +262,9 @@ def create_default_final_answer() -> Callable:
 
 
 def create_local_executor(
-    tools: dict[str, Callable] = None,
+    tools: Optional[dict[str, Callable]] = None,
     enable_data_analysis: bool = True,
-    additional_imports: list[str] = None,
+    additional_imports: Optional[list[str]] = None,
 ) -> LocalPythonExecutor:
     """
     Factory function to create a configured LocalPythonExecutor.

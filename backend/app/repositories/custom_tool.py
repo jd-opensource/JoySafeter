@@ -33,4 +33,4 @@ class CustomToolRepository(BaseRepository[CustomTool]):
         """根据 ID 删除工具"""
         stmt = delete(CustomTool).where(CustomTool.id == tool_id)
         result = await self.db.execute(stmt)
-        return result.rowcount or 0
+        return getattr(result, "rowcount", 0) or 0

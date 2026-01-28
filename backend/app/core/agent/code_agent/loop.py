@@ -12,7 +12,7 @@ import asyncio
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -94,7 +94,7 @@ class StepEvent:
     event_type: str  # "thought", "code", "observation", "error", "final_answer", "planning"
     content: Any
     step_number: int
-    metadata: dict = None
+    metadata: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {
@@ -119,9 +119,9 @@ class CodeAgentLoop:
     def __init__(
         self,
         llm_call: Callable[[str], str | AsyncGenerator[str, None]],
-        executor: PythonExecutor = None,
-        tools: dict[str, Callable] = None,
-        config: LoopConfig = None,
+        executor: Optional[PythonExecutor] = None,
+        tools: Optional[dict[str, Callable]] = None,
+        config: Optional[LoopConfig] = None,
     ):
         """
         Initialize the CodeAgent loop.
@@ -141,7 +141,7 @@ class CodeAgentLoop:
         if executor is None:
             self.executor = LocalPythonExecutor(enable_data_analysis=True)
         else:
-            self.executor = executor
+            self.executor = executor  # type: ignore[assignment]
 
         # Inject tools
         if tools:
@@ -403,7 +403,7 @@ class CodeAgentLoop:
             "observation",
             step.observation,
             step.step_number,
-            {"error": step.error} if step.error else None,
+            {"error": step.error} if step.error else {},
         )
 
     async def _do_planning(
@@ -471,18 +471,18 @@ class CodeAgentLoop:
         result = self.llm_call(prompt)
 
         # Handle async generator (streaming)
-        if hasattr(result, "__anext__"):
+        if hasattr(result, "__anext__") and not isinstance(result, str):
             chunks = []
-            async for chunk in result:
+            async for chunk in result:  # type: ignore[misc]
                 chunks.append(chunk)
             return "".join(chunks)
 
         # Handle coroutine
         if asyncio.iscoroutine(result):
-            return await result
+            return str(await result)
 
         # Handle sync result
-        return result
+        return str(result)
 
     def stop(self) -> None:
         """Request the loop to stop."""
@@ -516,7 +516,11 @@ def create_simple_llm_call(model_name: str = "gpt-4"):
 
         async def call_llm(prompt: str) -> str:
             response = await llm.ainvoke(prompt)
-            return response.content
+            content = response.content if hasattr(response, "content") else str(response)
+            if isinstance(content, list):
+                # Handle list of content blocks
+                return " ".join(str(item) for item in content)
+            return str(content)
 
         return call_llm
 

@@ -85,7 +85,6 @@ class Settings(BaseSettings):
         description="Database connection pool max overflow",
     )
 
-    @computed_field
     @property
     def database_url(self) -> str:
         """
@@ -133,7 +132,6 @@ class Settings(BaseSettings):
         return database_url
 
     # Sync database URL for Alembic
-    @computed_field
     @property
     def database_url_sync(self) -> str:
         """同步数据库 URL (用于 Alembic)"""
@@ -227,7 +225,6 @@ class Settings(BaseSettings):
         description="Cookie SameSite attribute (lax, strict, none)",
     )
 
-    @computed_field
     @property
     def cookie_secure_effective(self) -> bool:
         """根据环境自动设置 Cookie Secure 标志"""
@@ -326,11 +323,23 @@ class Settings(BaseSettings):
         description="凭据加密密钥（生产环境必须配置，否则每次重启会生成随机密钥导致无法解密）",
     )
 
+    # Workspace
+    workspace_root: str = Field(
+        default=str(BASE_DIR / "workspace"),
+        validation_alias=AliasChoices("WORKSPACE_ROOT", "WORKSPACE_PATH"),
+        description="Workspace root directory for storing session files and workspace data",
+    )
+
+    @property
+    def WORKSPACE_ROOT(self) -> str:
+        """Alias for workspace_root for backward compatibility"""
+        return self.workspace_root
+
     # Default Model Cache (runtime cache, not from env)
     _default_model_config: Optional[Dict[str, Any]] = None
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]
 
 
 def get_default_model_config() -> Optional[Dict[str, Any]]:

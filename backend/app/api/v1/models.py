@@ -22,15 +22,15 @@ router = APIRouter(prefix="/v1/models", tags=["Models"])
 class ModelInstanceCreate(BaseModel):
     """创建模型实例配置请求"""
 
-    provider_name: str = Field(..., description="供应商名称", example="openaiapicompatible")
-    model_name: str = Field(..., description="模型名称", example="DeepSeek-V3.2")
-    model_type: str = Field(default="chat", description="模型类型：chat, llm, embedding等", example="chat")
-    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数配置", example={})
+    provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
+    model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
+    model_type: str = Field(default="chat", description="模型类型：chat, llm, embedding等", examples=["chat"])
+    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数配置", examples=[{}])
     workspace_id: Optional[uuid.UUID] = Field(
         default=None,
         alias="workspaceId",
         description="工作空间ID（可选）",
-        example="38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc",
+        examples=["38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc"],
     )
     is_default: bool = Field(default=True, description="是否为默认模型")
 
@@ -38,13 +38,13 @@ class ModelInstanceCreate(BaseModel):
 class ModelTestRequest(BaseModel):
     """测试模型输出请求"""
 
-    model_name: str = Field(..., description="模型名称", example="DeepSeek-V3.2")
-    input: str = Field(..., description="输入文本", example="你好，请介绍一下你自己")
+    model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
+    input: str = Field(description="输入文本", examples=["你好，请介绍一下你自己"])
     workspace_id: Optional[uuid.UUID] = Field(
         default=None,
         alias="workspaceId",
         description="工作空间ID（可选）",
-        example="38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc",
+        examples=["38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc"],
     )
 
 
@@ -171,8 +171,8 @@ async def test_output(
 class ModelInstanceUpdateDefaultRequest(BaseModel):
     """更新模型实例默认状态请求"""
 
-    provider_name: str = Field(..., description="供应商名称", example="openaiapicompatible")
-    model_name: str = Field(..., description="模型名称", example="DeepSeek-V3.2")
+    provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
+    model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
     is_default: bool = Field(..., description="是否为默认模型")
 
 

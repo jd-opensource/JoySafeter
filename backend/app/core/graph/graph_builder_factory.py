@@ -105,4 +105,5 @@ class GraphBuilder:
         )
 
         builder = self._create_builder()
-        return await builder.build()
+        result = await builder.build()  # type: ignore[misc]
+        return result  # type: ignore

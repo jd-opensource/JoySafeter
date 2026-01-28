@@ -884,16 +884,20 @@ async def stream_copilot_manager(
             version="v2",
             config={"recursion_limit": 100},
         ):
-            event_kind = event.get("event", "")
+            event_dict_raw = event if isinstance(event, dict) else {}
+            event_dict: Dict[str, Any] = event_dict_raw  # type: ignore[assignment]
+            event_kind = event_dict.get("event", "")
 
             if event_kind == "on_chat_model_stream":
-                chunk = event.get("data", {}).get("chunk")
+                data = event_dict.get("data", {})
+                chunk = data.get("chunk") if isinstance(data, dict) else None
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     yield {"type": "content", "content": chunk.content}
 
             elif event_kind == "on_tool_start":
-                tool_name = event.get("name", "")
-                tool_input = event.get("data", {}).get("input", {})
+                tool_name = event_dict.get("name", "")
+                data = event_dict.get("data", {})
+                tool_input = data.get("input", {}) if isinstance(data, dict) else {}
                 yield {
                     "type": "tool_call",
                     "tool": tool_name,
@@ -911,8 +915,9 @@ async def stream_copilot_manager(
                         yield {"type": "status", "stage": "validating", "message": "正在验证设计..."}
 
             elif event_kind == "on_tool_end":
-                tool_name = event.get("name", "")
-                tool_output_raw = event.get("data", {}).get("output")
+                tool_name = event_dict.get("name", "")
+                data = event_dict.get("data", {})
+                tool_output_raw = data.get("output") if isinstance(data, dict) else None
 
                 if tool_output_raw:
                     action = _parse_tool_output_to_action(tool_output_raw)
@@ -921,7 +926,8 @@ async def stream_copilot_manager(
                         yield {"type": "tool_result", "action": action}
 
             elif event_kind == "on_chat_model_end":
-                output = event.get("data", {}).get("output")
+                data = event_dict.get("data", {})
+                output = data.get("output") if isinstance(data, dict) else None
                 if output and hasattr(output, "content"):
                     final_message = output.content
 
@@ -979,6 +985,9 @@ def safe_read_blueprint(store: ArtifactStore) -> Optional[WorkflowBlueprint]:
     使用 Pydantic 模型验证数据结构。
     """
     try:
+        if not store.run_dir:
+            logger.warning("[DeepAgentsCopilot] Store run_dir is None")
+            return None
         blueprint_path = store.run_dir / "blueprint.json"
         if not blueprint_path.exists():
             logger.warning(f"[DeepAgentsCopilot] Blueprint file not found: {blueprint_path}")
@@ -999,6 +1008,9 @@ def safe_read_validation(store: ArtifactStore) -> Optional[ValidationReport]:
     安全读取 validation report，校验失败返回 None。
     """
     try:
+        if not store.run_dir:
+            logger.warning("[DeepAgentsCopilot] Store run_dir is None")
+            return None
         validation_path = store.run_dir / "validation.json"
         if not validation_path.exists():
             logger.warning(f"[DeepAgentsCopilot] Validation file not found: {validation_path}")

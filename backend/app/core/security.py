@@ -108,7 +108,7 @@ def create_access_token(subject: str | Any, expires_delta: Optional[timedelta] =
     }
 
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-    return encoded_jwt
+    return str(encoded_jwt)
 
 
 def generate_refresh_token(length: int = 64) -> str:
@@ -128,7 +128,7 @@ def create_csrf_token(user_id: str) -> str:
     }
 
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-    return encoded_jwt
+    return str(encoded_jwt)
 
 
 def decode_token(token: str) -> Optional[TokenPayload]:

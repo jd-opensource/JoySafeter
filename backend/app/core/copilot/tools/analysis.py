@@ -5,6 +5,7 @@ Provides analyze_workflow tool for analyzing graph structure and providing recom
 """
 
 import json
+from typing import Dict, List
 
 from langchain.tools import tool
 from pydantic import BaseModel, Field
@@ -64,8 +65,8 @@ def analyze_workflow(
     }
 
     # Build adjacency structures
-    outgoing = {n.get("id"): [] for n in nodes}
-    incoming = {n.get("id"): [] for n in nodes}
+    outgoing: Dict[str, List[str]] = {n.get("id"): [] for n in nodes}
+    incoming: Dict[str, List[str]] = {n.get("id"): [] for n in nodes}
 
     for edge in edges:
         src = edge.get("source")
@@ -79,7 +80,7 @@ def analyze_workflow(
     leaf_nodes = [n for n in nodes if not outgoing.get(n.get("id"), [])]
 
     # Count node types
-    node_types = {}
+    node_types: Dict[str, int] = {}
     for node in nodes:
         data = node.get("data", {})
         node_type = data.get("type", "unknown")
@@ -208,7 +209,7 @@ def analyze_workflow(
         "status": "healthy" if error_count == 0 else "needs_attention" if warning_count > 0 else "critical",
     }
 
-    analysis_result["issues"] = issues
-    analysis_result["recommendations"] = recommendations[:10]  # Top 10 recommendations
+    analysis_result["issues"] = issues  # type: ignore[assignment]
+    analysis_result["recommendations"] = recommendations[:10]  # type: ignore[assignment]  # Top 10 recommendations
 
     return json.dumps(analysis_result, ensure_ascii=False, indent=2)

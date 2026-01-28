@@ -338,11 +338,13 @@ class OrganizationService(BaseService[Organization]):
     # --------------------------------------------------------------------- #
     # Helpers
     # --------------------------------------------------------------------- #
-    async def _ensure_member(self, organization_id: uuid.UUID, user_id: uuid.UUID) -> Member:
-        member = await self.member_repo.get_by_user_and_org(user_id, organization_id)
+    async def _ensure_member(self, organization_id: uuid.UUID, user_id: str | uuid.UUID) -> Member:
+        # user_id can be str (from AuthUser.id) or UUID, convert to str for query
+        user_id_str = str(user_id)
+        member = await self.member_repo.get_by_user_and_org(user_id_str, organization_id)
         if not member:
             raise ForbiddenException("No access to this organization")
-        return member
+        return member  # type: ignore
 
     def _ensure_admin_or_owner(self, member: Member) -> None:
         if member.role not in [self.ROLE_OWNER, self.ROLE_ADMIN]:

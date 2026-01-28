@@ -369,29 +369,35 @@ class MultiMCPTools(Toolkit):
 
             fields = {}
             for prop_name, prop_schema in properties.items():
+                if not isinstance(prop_schema, dict):
+                    continue
                 prop_type = prop_schema.get("type")
                 default = prop_schema.get("default", None)
-                py_type = Any
+                py_type: type[Any] = Any  # type: ignore[assignment]
 
                 if prop_type in type_mapping:
-                    py_type = type_mapping[prop_type]
+                    py_type = type_mapping[prop_type]  # type: ignore[assignment]
                 elif prop_type == "array":
                     items = prop_schema.get("items", {})
-                    item_type = type_mapping.get(items.get("type"), Any) if isinstance(items, dict) else Any
+                    if isinstance(items, dict):
+                        item_type_val = items.get("type")
+                        item_type: Any = type_mapping.get(item_type_val, Any) if isinstance(item_type_val, str) else Any
+                    else:
+                        item_type = Any
                     from typing import List as TypingList
 
-                    py_type = TypingList[item_type]  # type: ignore
+                    py_type = TypingList[item_type]  # type: ignore[assignment]
                 elif prop_type == "object":
                     from typing import Dict as TypingDict
 
-                    py_type = TypingDict[str, Any]
+                    py_type = TypingDict[str, Any]  # type: ignore[assignment]
 
                 if prop_name in required and default is None:
-                    fields[prop_name] = (py_type, ...)
+                    fields[prop_name] = (py_type, ...)  # type: ignore[assignment]
                 else:
                     from typing import Optional as TypingOptional
 
-                    fields[prop_name] = (TypingOptional[py_type], default)
+                    fields[prop_name] = (TypingOptional[py_type], default)  # type: ignore[assignment]
 
             if not fields:
                 return None
@@ -432,7 +438,6 @@ class MultiMCPTools(Toolkit):
                         mcp_server_name=meta.get("server_identifier"),
                         mcp_tool_name=tool.name,
                         toolset_name=self.name,
-                        description_extra=None,
                     )
                     metadata.custom_attrs["execution_timeout"] = meta.get("execution_timeout", self.timeout_seconds)
 

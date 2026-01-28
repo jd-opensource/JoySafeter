@@ -127,7 +127,7 @@ class CodeAgentConfig(AgentConfig):
     agent_mode: str = "autonomous"
     executor_type: str = "local"
     enable_data_analysis: bool = True
-    additional_imports: list[str] = None
+    additional_imports: Optional[list[str]] = None
     docker_image: str = "python:3.11-slim"
     max_steps: int = 20
     enable_planning: bool = False
@@ -142,6 +142,7 @@ class CodeAgentConfig(AgentConfig):
         node: GraphNode,
         builder: Any,
         node_id_to_name: dict,
+        default_description: Optional[str] = None,  # type: ignore[override]
     ) -> "CodeAgentConfig":
         """Parse CodeAgent node with all specialized properties."""
         # Get base config

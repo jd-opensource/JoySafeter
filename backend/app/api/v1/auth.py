@@ -1,5 +1,6 @@
 """Auth controller endpoints (reworked for auth.user & auth.session)."""
 
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -428,7 +429,7 @@ async def _get_current_auth_user(
     session_service = AuthSessionService(db)
     session = await session_service.get_session_by_token(token)
     if session:
-        user = await user_service.user_repo.get(session.user_id)
+        user = await user_service.user_repo.get(uuid.UUID(session.user_id))
         if user and user.is_active:
             return user
         raise UnauthorizedException("User not found or inactive")
@@ -438,11 +439,11 @@ async def _get_current_auth_user(
 
 def _user_to_response(user: AuthUser) -> UserResponse:
     """Serialize AuthUser into response-friendly dict."""
-    return {
-        "id": str(user.id),
-        "email": user.email,
-        "name": user.name,
-        "image": user.image,
-        "email_verified": user.email_verified,
-        "is_super_user": user.is_super_user,
-    }
+    return UserResponse(
+        id=str(user.id),
+        email=user.email,
+        name=user.name,
+        image=user.image,
+        email_verified=user.email_verified,
+        is_super_user=user.is_super_user,
+    )

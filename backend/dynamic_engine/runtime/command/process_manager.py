@@ -12,7 +12,7 @@ import signal
 import subprocess
 import threading
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import psutil
 
@@ -101,9 +101,11 @@ class ProcessPool:
         """Get result of a submitted task"""
         with self.pool_lock:
             if task_id in self.results:
-                return self.results[task_id]
+                result = self.results[task_id]
+                return result if isinstance(result, dict) else {"status": "completed", "result": result}
             elif task_id in self.active_tasks:
-                return {"status": self.active_tasks[task_id]["status"], "result": None}
+                status = self.active_tasks[task_id].get("status", "unknown")
+                return {"status": str(status), "result": None}
             else:
                 return {"status": "not_found", "result": None}
 
@@ -413,7 +415,7 @@ class EnhancedProcessManager:
         self.monitor_thread = threading.Thread(target=self._monitor_system, daemon=True)
         self.monitor_thread.start()
 
-    def execute_command_async(self, command: str, context: Dict[str, Any] = None) -> str:
+    def execute_command_async(self, command: str, context: Optional[Dict[str, Any]] = None) -> str:
         """Execute command asynchronously using process pool"""
         task_id = f"cmd_{int(time.time() * 1000)}_{hash(command) % 10000}"
 
@@ -510,7 +512,8 @@ class EnhancedProcessManager:
 
     def get_task_result(self, task_id: str) -> Dict[str, Any]:
         """Get result of async task"""
-        return self.process_pool.get_task_result(task_id)
+        result = self.process_pool.get_task_result(task_id)
+        return result if isinstance(result, dict) else {"status": "unknown", "result": result}
 
     def terminate_process_gracefully(self, pid: int, timeout: int = 30) -> bool:
         """Terminate process with graceful degradation"""

@@ -8,7 +8,7 @@ and fixing common issues with generated code.
 """
 
 import re
-from typing import Any
+from typing import Any, Optional
 
 
 class ParsingError(Exception):
@@ -54,7 +54,7 @@ def parse_code_blobs(llm_output: str) -> str:
     matches = CODE_BLOCK_PATTERN.findall(llm_output)
     if matches:
         # Return the last code block (usually the most relevant)
-        code = matches[-1].strip()
+        code: str = str(matches[-1]).strip()
         if code:
             return code
 
@@ -62,7 +62,7 @@ def parse_code_blobs(llm_output: str) -> str:
     generic_pattern = re.compile(r"```\s*\n(.*?)```", re.DOTALL)
     matches = generic_pattern.findall(llm_output)
     if matches:
-        code = matches[-1].strip()
+        code = str(matches[-1]).strip()
         if code:
             return code
 
@@ -262,7 +262,7 @@ def extract_imports(code: str) -> list[str]:
 def format_observation(
     output: Any,
     logs: str = "",
-    error: str = None,
+    error: Optional[str] = None,
     max_length: int = 10000,
 ) -> str:
     """

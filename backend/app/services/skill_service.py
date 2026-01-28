@@ -45,11 +45,12 @@ class SkillService(BaseService[Skill]):
         tags: Optional[List[str]] = None,
     ) -> List[Skill]:
         """获取 Skills 列表"""
-        return await self.repo.list_by_user(
+        result = await self.repo.list_by_user(
             user_id=current_user_id,
             include_public=include_public,
             tags=tags,
         )
+        return list(result) if result is not None else []
 
     async def get_skill(
         self,
@@ -58,14 +59,16 @@ class SkillService(BaseService[Skill]):
     ) -> Skill:
         """获取 Skill 详情"""
         skill = await self.repo.get_with_files(skill_id)
-        if not skill:
+        if not skill or not isinstance(skill, Skill):
             raise NotFoundException("Skill not found")
 
         # 权限检查：只有拥有者或公开的 Skill 可以访问
         if skill.owner_id and skill.owner_id != current_user_id and not skill.is_public:
             raise ForbiddenException("You don't have permission to access this skill")
 
-        return skill
+        # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
+        result = skill
+        return result  # type: ignore
 
     async def get_skill_by_name(
         self,
@@ -91,7 +94,8 @@ class SkillService(BaseService[Skill]):
         for skill in all_skills:
             if skill.name.lower() == skill_name.lower():
                 # 获取完整信息（包括文件）
-                return await self.repo.get_with_files(skill.id)
+                result = await self.repo.get_with_files(skill.id)
+                return result if isinstance(result, Skill) else None
 
         return None
 
@@ -104,7 +108,7 @@ class SkillService(BaseService[Skill]):
         Returns:
             格式化后的技能内容字符串
         """
-        return self.formatter.format_skill_content(skill)
+        return str(self.formatter.format_skill_content(skill))
 
     async def create_skill(
         self,
@@ -226,7 +230,8 @@ class SkillService(BaseService[Skill]):
             for file_data in files:
                 file_path = file_data.get("path", "")
                 file_name = file_data.get("file_name", "")
-                content = file_data.get("content")
+                file_content_raw = file_data.get("content")
+                file_content_val: Optional[str] = file_content_raw if isinstance(file_content_raw, (str, type(None))) else str(file_content_raw) if file_content_raw is not None else None
 
                 # Check if it's a system file
                 if is_system_file(file_path) or is_system_file(file_name):
@@ -234,18 +239,20 @@ class SkillService(BaseService[Skill]):
                     continue
 
                 # Validate content if provided
-                if content is not None:
-                    is_valid, error_msg = is_valid_text_content(content)
+                if file_content_val is not None:
+                    is_valid, error_msg = is_valid_text_content(file_content_val)
                     if not is_valid:
                         invalid_files.append(f"{file_path} ({error_msg})")
                         continue
 
+                # file_content_val can be None, but SkillFile.content might require str
+                file_content: str = file_content_val if file_content_val is not None else ""
                 file_obj = SkillFile(
                     skill_id=skill.id,
                     path=file_path,
                     file_name=file_name,
                     file_type=file_data.get("file_type", ""),
-                    content=content,
+                    content=file_content,
                     storage_type=file_data.get("storage_type", "database"),
                     storage_key=file_data.get("storage_key"),
                     size=file_data.get("size", 0),
@@ -262,7 +269,8 @@ class SkillService(BaseService[Skill]):
 
         await self.db.commit()
         await self.db.refresh(skill)
-        return skill
+        result = skill
+        return result  # type: ignore
 
     async def update_skill(
         self,
@@ -442,7 +450,8 @@ class SkillService(BaseService[Skill]):
 
         await self.db.commit()
         await self.db.refresh(skill)
-        return skill
+        result = skill
+        return result  # type: ignore
 
     async def delete_skill(
         self,
@@ -602,7 +611,8 @@ class SkillService(BaseService[Skill]):
         if file_obj.path == "SKILL.md" or file_obj.file_name == "SKILL.md":
             await self._sync_skill_from_skill_md(skill, file_obj.content)
 
-        return file_obj
+        # Type assertion: refresh updates the object in place
+        return file_obj  # type: ignore
 
     async def _sync_skill_from_skill_md(
         self,

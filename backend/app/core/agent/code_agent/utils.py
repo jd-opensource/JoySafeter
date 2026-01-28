@@ -304,8 +304,8 @@ class Retrying:
             try:
                 result = func(*args, **kwargs)
                 if asyncio.iscoroutine(result):
-                    return await result
-                return result
+                    return await result  # type: ignore[no-any-return]
+                return result  # type: ignore[no-any-return]
 
             except Exception as e:
                 last_exception = e

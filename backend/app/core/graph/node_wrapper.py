@@ -19,7 +19,7 @@ try:
     COMMAND_AVAILABLE = True
 except ImportError:
     COMMAND_AVAILABLE = False
-    Command = None
+    Command = None  # type: ignore[assignment,misc]
 
 from app.core.graph.graph_state import GraphState
 from app.core.graph.node_executors import increment_loop_count
@@ -154,10 +154,10 @@ class NodeExecutionWrapper:
         if is_command:
             # 创建新的 Command 对象，保留 goto 信息
             goto = result.goto if hasattr(result, "goto") else None
-            return Command(update=update_dict, goto=goto)
+            return Command(update=update_dict, goto=goto)  # type: ignore[return-value]
 
         # 返回更新后的字典
-        return update_dict
+        return update_dict  # type: ignore[return-value]
 
     async def __call__(self, state: GraphState) -> Union[Dict[str, Any], Command]:
         """执行节点，包含前后钩子。
@@ -181,7 +181,8 @@ class NodeExecutionWrapper:
             # 完成 trace（提取 update 部分用于 trace）
             import time
 
-            trace_data = result.update if (COMMAND_AVAILABLE and isinstance(result, Command)) else result
+            trace_data_raw = result.update if (COMMAND_AVAILABLE and isinstance(result, Command)) else result
+            trace_data: Dict[str, Any] = trace_data_raw if isinstance(trace_data_raw, dict) else {}  # type: ignore[assignment]
             trace.finish(time.time(), trace_data)
             log_node_execution(trace, self.node_id, self.node_type)
 
@@ -209,12 +210,14 @@ class NodeExecutionWrapper:
 
             # 如果是并行节点，也要填充 task_results
             if self.metadata.get("is_parallel_node"):
-                error_result["task_results"] = [
+                from typing import Dict, List
+                task_results_list: List[Dict[str, str]] = [
                     {
                         "status": "error",
                         "error_msg": str(e),
                         "task_id": self.node_id,
                     }
                 ]
+                error_result["task_results"] = task_results_list  # type: ignore[assignment]
 
             return error_result

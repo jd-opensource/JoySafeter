@@ -10,8 +10,9 @@ This module provides mechanisms to compensate for missing tools by:
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -201,10 +202,10 @@ class ToolCompensator:
 
     def __init__(
         self,
-        templates: dict[str, str] = None,
-        llm_generator: Callable[[str, dict], str] = None,
+        templates: Optional[dict[str, str]] = None,
+        llm_generator: Optional[Callable[[str, dict], Awaitable[str]]] = None,
         allow_install: bool = False,
-        allowed_packages: list[str] = None,
+        allowed_packages: Optional[list[str]] = None,
     ):
         """
         Initialize the tool compensator.
@@ -238,7 +239,7 @@ class ToolCompensator:
     async def compensate(
         self,
         tool_name: str,
-        params: dict = None,
+        params: Optional[dict] = None,
         context: str = "",
     ) -> CompensationResult:
         """
@@ -282,7 +283,7 @@ class ToolCompensator:
                         return result
 
         # Strategy 3: Try LLM generation
-        if self.llm_generator:
+        if self.llm_generator is not None:
             result = await self._try_llm_generation(tool_name, params, context)
             if result.success:
                 self._record_compensation(result)
@@ -334,7 +335,7 @@ class ToolCompensator:
         context: str,
     ) -> CompensationResult:
         """Try to generate tool implementation via LLM."""
-        if not self.llm_generator:
+        if self.llm_generator is None:
             return CompensationResult(
                 success=False,
                 error="No LLM generator available",
@@ -425,7 +426,7 @@ Generate ONLY the function code, no explanation."""
     def get_stats(self) -> dict:
         """Get compensation statistics."""
         successful = sum(1 for r in self._compensation_history if r.success)
-        by_method = {}
+        by_method: dict[str, int] = {}
         for r in self._compensation_history:
             if r.success:
                 by_method[r.method] = by_method.get(r.method, 0) + 1
@@ -439,7 +440,7 @@ Generate ONLY the function code, no explanation."""
 
 
 def create_compensator(
-    llm: Callable = None,
+    llm: Optional[Callable] = None,
     allow_install: bool = False,
 ) -> ToolCompensator:
     """
@@ -458,8 +459,8 @@ def create_compensator(
             raise ValueError("No LLM provided")
         result = llm(prompt)
         if hasattr(result, "__await__"):
-            return await result
-        return result
+            return str(await result)  # type: ignore[misc]
+        return str(result)
 
     return ToolCompensator(
         llm_generator=llm_generator if llm else None,

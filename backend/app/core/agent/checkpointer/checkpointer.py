@@ -123,7 +123,7 @@ class CheckpointerManager:
 
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        checkpointer = AsyncPostgresSaver(cls._pool)
+        checkpointer = AsyncPostgresSaver(cls._pool)  # type: ignore[arg-type]
         await checkpointer.setup()
         logger.info("Checkpointer tables ready.")
 
@@ -160,7 +160,7 @@ class CheckpointerManager:
         pool = cls._get_pool()
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        return AsyncPostgresSaver(pool)
+        return AsyncPostgresSaver(pool)  # type: ignore[arg-type]
 
     @classmethod
     async def close(cls) -> None:

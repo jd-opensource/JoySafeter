@@ -1,7 +1,7 @@
 """WebSocket chat handler for real-time AI communication."""
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -16,7 +16,7 @@ class ChatHandler:
     def __init__(self, session_service: SessionService):
         self.session_service = session_service
 
-    async def handle_connection(self, websocket: WebSocket, session_id: str, user_id: int = None):
+    async def handle_connection(self, websocket: WebSocket, session_id: str, user_id: Optional[int] = None):
         """Handle a new WebSocket connection."""
         await manager.connect(websocket, session_id, user_id)
 

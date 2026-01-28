@@ -8,7 +8,7 @@ In production, data will be fetched from actual execution logs.
 
 import random
 import time
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from .models import (
     AgentResponse,
@@ -104,8 +104,8 @@ CHAT_TEMPLATES = [
 
 def generate_tool_invocation(
     tool_index: int = 0,
-    start_time_ms: int = None,
-    duration_ms: int = None,
+    start_time_ms: Optional[int] = None,
+    duration_ms: Optional[int] = None,
 ) -> ToolInvocationResponse:
     """
     MOCK: Generate a mock tool invocation
@@ -165,11 +165,20 @@ def generate_tool_invocation(
     else:
         result = {"status": "completed", "records": random.randint(10, 100)}
 
+    tool_name = tool.get("name", "")
+    tool_description = tool.get("description", "")
+    tool_params = tool.get("parameters", {})
+    
+    # Convert to proper types
+    tool_name_str = str(tool_name) if not isinstance(tool_name, str) else tool_name
+    tool_description_str = str(tool_description) if not isinstance(tool_description, str) else tool_description
+    tool_params_dict = tool_params if isinstance(tool_params, dict) else {}
+    
     return ToolInvocationResponse(
         id=f"invocation_{random.randint(1000, 9999)}",
-        tool_name=tool["name"],
-        tool_description=tool["description"],
-        parameters=tool["parameters"],
+        tool_name=tool_name_str,
+        tool_description=tool_description_str,
+        parameters=tool_params_dict,
         result=result,
         status=status,
         start_time=start_time_ms,
@@ -183,8 +192,8 @@ def generate_tool_invocation(
 
 def generate_agent(
     level: int = 0,
-    parent_agent_id: str = None,
-    start_time_ms: int = None,
+    parent_agent_id: Optional[str] = None,
+    start_time_ms: Optional[int] = None,
     depth: int = 2,
 ) -> AgentResponse:
     """
@@ -451,7 +460,18 @@ def get_mock_tools() -> List[ToolInfo]:
     Returns:
         List of ToolInfo objects
     """
-    return [ToolInfo(**tool) for tool in TOOLS_DATABASE]
+    result = []
+    for tool in TOOLS_DATABASE:
+        # Convert tool dict to proper types
+        tool_dict: Dict[str, Any] = {
+            "id": str(tool.get("id", "")),
+            "name": str(tool.get("name", "")),
+            "description": str(tool.get("description", "")),
+            "category": str(tool.get("category", "")),
+            "parameters": tool.get("parameters", {}) if isinstance(tool.get("parameters"), dict) else {},
+        }
+        result.append(ToolInfo(**tool_dict))
+    return result
 
 
 def get_mock_tool_by_name(tool_name: str) -> ToolInfo:
@@ -465,6 +485,15 @@ def get_mock_tool_by_name(tool_name: str) -> ToolInfo:
         ToolInfo object or None if not found
     """
     for tool in TOOLS_DATABASE:
-        if tool["name"] == tool_name:
-            return ToolInfo(**tool)
-    return None
+        tool_name_val = tool.get("name", "")
+        if str(tool_name_val) == tool_name:
+            # Convert tool dict to proper types
+            tool_dict: Dict[str, Any] = {
+                "id": str(tool.get("id", "")),
+                "name": str(tool.get("name", "")),
+                "description": str(tool.get("description", "")),
+                "category": str(tool.get("category", "")),
+                "parameters": tool.get("parameters", {}) if isinstance(tool.get("parameters"), dict) else {},
+            }
+            return ToolInfo(**tool_dict)
+    raise ValueError(f"Tool not found: {tool_name}")

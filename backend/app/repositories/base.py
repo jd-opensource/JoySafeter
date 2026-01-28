@@ -29,9 +29,9 @@ class BaseRepository(Generic[T]):
         self.model = model
         self.db = db
 
-    async def get(self, id: uuid.UUID, relations: List[str] = None) -> Optional[T]:
+    async def get(self, id: uuid.UUID, relations: Optional[List[str]] = None) -> Optional[T]:
         """根据 ID 获取记录"""
-        query = select(self.model).where(self.model.id == id)
+        query = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
 
         if relations:
             for relation in relations:
@@ -51,9 +51,9 @@ class BaseRepository(Generic[T]):
 
     async def find(
         self,
-        filters: Dict[str, Any] = None,
-        relations: List[str] = None,
-        order_by: str = None,
+        filters: Optional[Dict[str, Any]] = None,
+        relations: Optional[List[str]] = None,
+        order_by: Optional[str] = None,
         order_desc: bool = True,
     ) -> List[T]:
         """查询多条记录"""
@@ -79,8 +79,8 @@ class BaseRepository(Generic[T]):
     async def find_paginated(
         self,
         params: PaginationParams,
-        filters: Dict[str, Any] = None,
-        relations: List[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        relations: Optional[List[str]] = None,
         order_by: str = "created_at",
         order_desc: bool = True,
     ) -> PageResult[T]:
@@ -170,7 +170,7 @@ class BaseRepository(Generic[T]):
 
         return await self.delete(id)
 
-    async def count(self, filters: Dict[str, Any] = None) -> int:
+    async def count(self, filters: Optional[Dict[str, Any]] = None) -> int:
         """计数"""
         query = select(func.count()).select_from(self.model)
 

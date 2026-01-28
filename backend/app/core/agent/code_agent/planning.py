@@ -8,6 +8,7 @@ including initial plan generation and dynamic plan updates.
 """
 
 from collections.abc import Callable
+from typing import Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -104,7 +105,7 @@ class Plan:
             if step.status in (PlanStatus.PENDING, PlanStatus.IN_PROGRESS):
                 # Check dependencies
                 deps_completed = all(
-                    self.get_step(dep_id) and self.get_step(dep_id).status == PlanStatus.COMPLETED
+                    (dep_step := self.get_step(dep_id)) is not None and dep_step.status == PlanStatus.COMPLETED
                     for dep_id in step.dependencies
                 )
                 if deps_completed:
@@ -214,7 +215,7 @@ class PlanningEngine:
 
     def __init__(
         self,
-        llm_call: Callable[[str], str] = None,
+        llm_call: Optional[Callable[[str], str]] = None,
         max_steps: int = 10,
         auto_update_interval: int = 3,
     ):
@@ -246,7 +247,7 @@ class PlanningEngine:
     async def create_plan(
         self,
         task: str,
-        tools: list[str] = None,
+        tools: Optional[list[str]] = None,
         context: str = "",
     ) -> Plan:
         """
@@ -354,7 +355,7 @@ class PlanningEngine:
     async def update_plan(
         self,
         progress: str,
-        issues: list[str] = None,
+        issues: Optional[list[str]] = None,
     ) -> Plan:
         """
         Update the current plan based on progress.
@@ -445,18 +446,21 @@ class PlanningEngine:
         """Call LLM and handle async."""
         import asyncio
 
+        if self.llm_call is None:
+            raise ValueError("llm_call is not set")
+        
         result = self.llm_call(prompt)
 
         if asyncio.iscoroutine(result):
-            return await result
+            return str(await result)
 
-        if hasattr(result, "__anext__"):
+        if hasattr(result, "__anext__") and not isinstance(result, str):
             chunks = []
-            async for chunk in result:
-                chunks.append(chunk)
+            async for chunk in result:  # type: ignore[misc]
+                chunks.append(str(chunk))
             return "".join(chunks)
 
-        return result
+        return str(result)
 
     @property
     def current_plan(self) -> Plan | None:
@@ -504,7 +508,7 @@ class PlanningEngine:
 
 
 def create_planning_engine(
-    llm: Callable = None,
+    llm: Optional[Callable] = None,
     **kwargs,
 ) -> PlanningEngine:
     """

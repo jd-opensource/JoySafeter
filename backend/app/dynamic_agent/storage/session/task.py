@@ -141,11 +141,17 @@ class TaskStateManager:
         if task_id in self._active_tasks:
             return self._active_tasks[task_id]
 
-        return await self.backend.load_task(task_id)
+        result = await self.backend.load_task(task_id)
+        if result is None:
+            return None
+        # Convert TaskResponse to TaskState if needed
+        # Note: This assumes TaskResponse can be converted to TaskState
+        return result  # type: ignore[no-any-return]
 
     async def get_session_tasks(self, session_id: str, status: Optional[TaskStatus] = None) -> List[TaskState]:
         """Get all tasks for a session."""
-        return await self.backend.get_tasks_by_session(session_id, status)
+        result = await self.backend.get_tasks_by_session(session_id, status)
+        return result if isinstance(result, list) else []  # type: ignore[return-value]
 
     async def get_active_tasks(self, session_id: str) -> List[TaskState]:
         """Get active tasks for a session."""

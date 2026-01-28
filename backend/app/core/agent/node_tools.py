@@ -85,7 +85,7 @@ def _parse_mcp_ids(mcp_ids: Iterable[str]) -> Dict[str, Set[str]]:
 
 def _alias_tool(*, name: str, description: str, callable_func: Any) -> EnhancedTool:
     """Create an EnhancedTool with a stable user-facing `name`."""
-    return EnhancedTool.from_callable(
+    return EnhancedTool.from_callable(  # type: ignore
         callable_func=callable_func,
         name=name,
         description=description,

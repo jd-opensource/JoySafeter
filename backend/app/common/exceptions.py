@@ -148,9 +148,11 @@ def create_error_response(*, status_code: int, code: int, message: str, data: An
 
 async def app_exception_handler(request: Request, exc: AppException) -> Response:
     """处理应用异常（AppException）。"""
+    code_value = getattr(exc, "code", exc.status_code)
+    code = code_value if isinstance(code_value, int) else exc.status_code
     return create_error_response(
         status_code=exc.status_code,
-        code=getattr(exc, "code", exc.status_code),
+        code=code,
         message=str(exc.detail),
         data=getattr(exc, "data", None),
     )

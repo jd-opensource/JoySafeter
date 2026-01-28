@@ -10,7 +10,7 @@ and execution.
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable
-from typing import Any
+from typing import Any, Optional
 
 from .executor import (
     LocalPythonExecutor,
@@ -55,13 +55,13 @@ class CodeAgent:
     def __init__(
         self,
         llm: Callable[[str], str | AsyncGenerator[str, None]],
-        tools: dict[str, Callable | Tool] = None,
-        executor: PythonExecutor = None,
-        config: LoopConfig = None,
+        tools: Optional[dict[str, Callable | Tool]] = None,
+        executor: Optional[PythonExecutor] = None,
+        config: Optional[LoopConfig] = None,
         name: str = "CodeAgent",
-        description: str = None,
+        description: Optional[str] = None,
         enable_data_analysis: bool = True,
-        additional_authorized_imports: list[str] = None,
+        additional_authorized_imports: Optional[list[str]] = None,
         managed_agents: list["CodeAgent"] | None = None,
         final_answer_checks: list[FinalAnswerCheck] | None = None,
         step_callbacks: dict[type, list[Callable]] | None = None,
@@ -147,7 +147,7 @@ class CodeAgent:
         return self._tools
 
     @property
-    def inputs(self) -> dict[str, dict[str, str]]:
+    def inputs(self) -> dict[str, dict[str, str | bool]]:
         """Get the input schema for this agent (when used as a managed agent)."""
         return {
             "task": {
@@ -446,8 +446,8 @@ class CodeAgent:
 
 
 def get_code_agent(
-    llm: Callable[[str], str | AsyncGenerator[str, None]] = None,
-    tools: dict[str, Callable] = None,
+    llm: Optional[Callable[[str], str | AsyncGenerator[str, None]]] = None,
+    tools: Optional[dict[str, Callable]] = None,
     model_name: str = "gpt-4",
     **kwargs,
 ) -> CodeAgent:

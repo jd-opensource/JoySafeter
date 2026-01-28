@@ -127,7 +127,7 @@ class CopilotService:
                 raise
             except Exception as e:
                 logger.error(f"[CopilotService] Credential error: {e}")
-                raise CopilotCredentialError("Failed to retrieve credentials", original_error=e)
+                raise CopilotCredentialError("Failed to retrieve credentials", original_error=e)  # type: ignore[call-arg]
 
             # Create the Copilot agent (with db for model preloading)
             try:
@@ -272,12 +272,17 @@ class CopilotService:
             async for event in agent.astream_events(
                 {"messages": messages}, version="v2", config={"recursion_limit": 300}
             ):
-                event_kind = event.get("event", "")
+                if isinstance(event, dict):
+                    current_event_dict: Dict[str, Any] = event  # type: ignore[assignment]
+                else:
+                    current_event_dict = {}
+                event_kind = current_event_dict.get("event", "")
 
                 # Handle different event types
                 if event_kind == "on_chat_model_stream":
                     # Streaming content from the LLM - use extracted method
-                    chunk = event.get("data", {}).get("chunk")
+                    data = current_event_dict.get("data", {})
+                    chunk = data.get("chunk") if isinstance(data, dict) else None
                     if chunk and hasattr(chunk, "content") and chunk.content:
                         content = chunk.content
                         yield {"type": "content", "content": content}
@@ -285,7 +290,7 @@ class CopilotService:
                     # Handle thought step extraction
                     accumulated_content, last_streamed_thought, last_streamed_steps_count, thought_step_event = (
                         self._handle_chat_model_stream_event(
-                            event, accumulated_content, last_streamed_thought, last_streamed_steps_count
+                            current_event_dict, accumulated_content, last_streamed_thought, last_streamed_steps_count
                         )
                     )
 
@@ -298,8 +303,9 @@ class CopilotService:
 
                 elif event_kind == "on_tool_start":
                     # Tool invocation started
-                    tool_name = event.get("name", "")
-                    tool_input = event.get("data", {}).get("input", {})
+                    tool_name = current_event_dict.get("name", "")
+                    data = current_event_dict.get("data", {})
+                    tool_input = data.get("input", {}) if isinstance(data, dict) else {}
                     logger.info(f"[CopilotService] Tool started: {tool_name}, input: {tool_input}")
                     yield {
                         "type": "tool_call",
@@ -309,8 +315,9 @@ class CopilotService:
 
                 elif event_kind == "on_tool_end":
                     # Tool execution completed
-                    tool_name = event.get("name", "")
-                    tool_output_raw = event.get("data", {}).get("output")
+                    tool_name = current_event_dict.get("name", "")
+                    data = current_event_dict.get("data", {})
+                    tool_output_raw = data.get("output") if isinstance(data, dict) else None
                     logger.info(f"[CopilotService] Tool ended: {tool_name}, output type: {type(tool_output_raw)}")
 
                     # Parse tool output to extract action data
@@ -333,7 +340,8 @@ class CopilotService:
 
                 elif event_kind == "on_chat_model_end":
                     # LLM finished generating
-                    output = event.get("data", {}).get("output")
+                    event_data = current_event_dict.get("data", {}) if isinstance(current_event_dict.get("data"), dict) else {}
+                    output = event_data.get("output") if isinstance(event_data, dict) else None
                     if output and hasattr(output, "content"):
                         final_message = output.content
 
@@ -554,7 +562,7 @@ class CopilotService:
         processed_edges = [copy.deepcopy(edge) for edge in initial_edges]
 
         # Create node index for O(1) lookups when updating/deleting nodes
-        node_index: Dict[str, int] = {node.get("id"): i for i, node in enumerate(processed_nodes)}
+        node_index: Dict[str, int] = {str(node.get("id")): i for i, node in enumerate(processed_nodes) if node.get("id") is not None}
 
         for action in actions:
             action_type = action.get("type")
@@ -597,7 +605,7 @@ class CopilotService:
                         e for e in processed_edges if e.get("source") != node_id and e.get("target") != node_id
                     ]
                     # Rebuild index after deletion
-                    node_index = {node.get("id"): i for i, node in enumerate(processed_nodes)}
+                    node_index = {str(node.get("id")): i for i, node in enumerate(processed_nodes) if node.get("id") is not None}
 
             elif action_type == "UPDATE_CONFIG":
                 node_id = payload.get("id")
@@ -821,7 +829,7 @@ class CopilotService:
 
             # Serialize messages to dict
             def message_to_dict(msg: CopilotMessage) -> Dict[str, Any]:
-                data = {
+                data: Dict[str, Any] = {
                     "id": msg.id,
                     "role": msg.role,
                     "content": msg.content,

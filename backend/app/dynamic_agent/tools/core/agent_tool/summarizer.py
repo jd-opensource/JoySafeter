@@ -61,7 +61,11 @@ Be specific and actionable."""
 
     try:
         response = await llm_instance.ainvoke([HumanMessage(content=prompt)])
-        lines = response.content.strip().split("\n")
+        content = response.content if hasattr(response, "content") else str(response)
+        if isinstance(content, list):
+            content = " ".join(str(item) for item in content)
+        content_str = str(content) if content is not None else ""
+        lines = content_str.strip().split("\n")
         steps = [
             PlanStep(step_id=str(i + 1), description=line.strip().lstrip("0123456789.-) "))
             for i, line in enumerate(lines)
@@ -193,7 +197,11 @@ Output format:
 **Extracted**: endpoint=/path, cookie=xxx"""
 
     response = await llm_instance.ainvoke([HumanMessage(content=prompt)])
-    return response.content.strip()
+    content = response.content if hasattr(response, "content") else str(response)
+    if isinstance(content, list):
+        content = " ".join(str(item) for item in content)
+    content_str = str(content) if content is not None else ""
+    return content_str.strip()
 
 
 def _request_user_guidance(plan: ExecutionPlan, error: str) -> str:

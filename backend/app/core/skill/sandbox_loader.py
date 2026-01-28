@@ -256,7 +256,8 @@ class SkillSandboxLoader:
             Backend's skills_path if available, None otherwise
         """
         if hasattr(backend, "skills_path") and backend.skills_path:
-            return backend.skills_path
+            path = backend.skills_path
+            return str(path) if path is not None else None
         return None
 
     @staticmethod
@@ -276,7 +277,8 @@ class SkillSandboxLoader:
         if isinstance(node_config, dict):
             config = node_config.get("config", {})
             if isinstance(config, dict) and config.get("skills_path"):
-                return config["skills_path"]
+                path = config.get("skills_path")
+                return str(path) if path is not None else None
         return None
 
     @staticmethod

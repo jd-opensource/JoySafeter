@@ -4,7 +4,7 @@ MCP Tool Builder - 从工具定义创建 EnhancedTool
 使用 lazy entrypoint，在执行时从 toolkit manager 获取 toolkit。
 """
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from loguru import logger
 from pydantic import BaseModel
@@ -18,7 +18,7 @@ from app.core.tools.tool import EnhancedTool, ToolMetadata, ToolSourceType
 from app.utils.mcp import create_lazy_mcp_entrypoint
 
 
-def _json_schema_to_pydantic_model(schema: any, name: str) -> Optional[type[BaseModel]]:
+def _json_schema_to_pydantic_model(schema: Any, name: str) -> Optional[type[BaseModel]]:
     """
     Convert a JSON Schema dict from MCP into a Pydantic BaseModel for validation.
     Handles common primitive types, arrays, and objects. Falls back to None if unsupported.
@@ -37,8 +37,10 @@ def _json_schema_to_pydantic_model(schema: any, name: str) -> Optional[type[Base
         if not isinstance(schema, dict):
             return None
 
-        properties = schema.get("properties", {}) or {}
-        required = set(schema.get("required", []) or [])
+        if not isinstance(schema, dict):
+            return None
+        properties = schema.get("properties", {}) or {}  # type: ignore[union-attr]
+        required = set(schema.get("required", []) or [])  # type: ignore[union-attr]
 
         type_mapping = {
             "string": str,
@@ -49,23 +51,29 @@ def _json_schema_to_pydantic_model(schema: any, name: str) -> Optional[type[Base
 
         fields = {}
         for prop_name, prop_schema in properties.items():
+            if not isinstance(prop_schema, dict):
+                continue
             prop_type = prop_schema.get("type")
             default = prop_schema.get("default", None)
-            py_type = Any
+            py_type: type[Any] = Any  # type: ignore[assignment]
 
             if prop_type in type_mapping:
-                py_type = type_mapping[prop_type]
+                py_type = type_mapping[prop_type]  # type: ignore[assignment]
             elif prop_type == "array":
                 items = prop_schema.get("items", {})
-                item_type = type_mapping.get(items.get("type"), Any) if isinstance(items, dict) else Any
-                py_type = TypingList[item_type]  # type: ignore
+                if isinstance(items, dict):
+                    item_type_val = items.get("type")
+                    item_type: Any = type_mapping.get(item_type_val, Any) if isinstance(item_type_val, str) else Any
+                else:
+                    item_type = Any
+                py_type = TypingList[item_type]  # type: ignore[assignment]
             elif prop_type == "object":
-                py_type = TypingDict[str, Any]
+                py_type = TypingDict[str, Any]  # type: ignore[assignment]
 
             if prop_name in required and default is None:
-                fields[prop_name] = (py_type, ...)
+                fields[prop_name] = (py_type, ...)  # type: ignore[assignment]
             else:
-                fields[prop_name] = (TypingOptional[py_type], default)
+                fields[prop_name] = (TypingOptional[py_type], default)  # type: ignore[assignment]
 
         if not fields:
             return None

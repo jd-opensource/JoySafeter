@@ -135,7 +135,7 @@ class StateVariableTracker:
                 for var_name, var_path in variables.items():
                     self._add_variable_usage(
                         var_name,
-                        node.id,
+                        str(node.id),
                         node_label,
                         "router_node",
                         "condition",
@@ -151,7 +151,7 @@ class StateVariableTracker:
             for var_name, var_path in variables.items():
                 self._add_variable_usage(
                     var_name,
-                    node.id,
+                    str(node.id),
                     node_label,
                     "condition",
                     "condition",
@@ -170,7 +170,7 @@ class StateVariableTracker:
                 # Track the list variable as a source
                 self._add_variable_usage(
                     listVariable,
-                    node.id,
+                    str(node.id),
                     node_label,
                     "loop_condition_node",
                     "listVariable",
@@ -185,7 +185,7 @@ class StateVariableTracker:
                 for var_name, var_path in variables.items():
                     self._add_variable_usage(
                         var_name,
-                        node.id,
+                        str(node.id),
                         node_label,
                         "loop_condition_node",
                         "condition",
@@ -214,7 +214,7 @@ class StateVariableTracker:
                 for var_name, var_path in variables.items():
                     self._add_variable_usage(
                         var_name,
-                        node.id,
+                        str(node.id),
                         node_label,
                         "tool_node",
                         "mapping",
@@ -231,7 +231,7 @@ class StateVariableTracker:
             for var_name, var_path in variables.items():
                 self._add_variable_usage(
                     var_name,
-                    node.id,
+                    str(node.id),
                     node_label,
                     "function_node",
                     "read",
@@ -244,7 +244,7 @@ class StateVariableTracker:
             for var_name, var_path in defined_vars.items():
                 self._add_variable_definition(
                     var_name,
-                    node.id,
+                    str(node.id),
                     node_label,
                     "function_node",
                     "global",
@@ -266,7 +266,7 @@ class StateVariableTracker:
             for var_name in template_vars:
                 self._add_variable_usage(
                     var_name,
-                    node.id,
+                    str(node.id),
                     node_label,
                     "agent",
                     "template",
@@ -285,7 +285,7 @@ class StateVariableTracker:
             for var_name in template_vars:
                 self._add_variable_usage(
                     var_name,
-                    node.id,
+                    str(node.id),
                     node_label,
                     "direct_reply",
                     "template",

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/v1/model-credentials", tags=["ModelCredentials"])
 class CredentialCreate(BaseModel):
     """创建凭据请求"""
 
-    provider_name: str = Field(..., description="供应商名称", example="openaiapicompatible")
+    provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
     credentials: Dict[str, Any] = Field(..., description="凭据字典（明文）")
     workspace_id: Optional[uuid.UUID] = Field(default=None, alias="workspaceId", description="工作空间ID（可选）")
     should_validate: bool = Field(default=True, alias="validate", description="是否验证凭据")

@@ -124,21 +124,21 @@ class ContainerContextManager:
         )
 
         self._contexts[container_id] = context
-        await self.backend.save_container_context(context)
+        await self.backend.save_container(context)
 
         logger.info(f"Container context created: {container_id} on {remote_host_info.host_name}")
-        return context
+        return context  # type: ignore[return-value]
 
     async def get_container_context(self, container_id: str) -> Optional[ContainerContext]:
         """Get container context."""
         if container_id in self._contexts:
             return self._contexts[container_id]
 
-        context = await self.backend.load_container_context(container_id)
+        context = await self.backend.load_container(container_id)
         if context:
             self._contexts[container_id] = context
 
-        return context
+        return context  # type: ignore[return-value]  # type: ignore[return-value]
 
     async def execute_in_container(
         self, container_id: str, command: str, working_dir: Optional[str] = None, timeout: int = 300
@@ -164,7 +164,7 @@ class ContainerContextManager:
         # Execute command based on host type
         if context.remote_host and not context.remote_host.is_local:
             logger.info(f"Executing command on remote host: {context.remote_host.host_name}")
-            result = self.remote_api_manager.execute_command(
+            result = self.docker_manager.remote_manager.execute_command(
                 host_name=context.remote_host.host_name, container_id=container_id, command=command, timeout=timeout
             )
 
@@ -189,7 +189,7 @@ class ContainerContextManager:
 
         context.command_history.append(execution_record)
         context.last_accessed = datetime.now()
-        await self.backend.save_container_context(context)
+        await self.backend.save_container(context)
 
         logger.debug(f"Command executed: {command} (exit_code={exit_code})")
         return execution_record
@@ -200,7 +200,7 @@ class ContainerContextManager:
         if context:
             context.working_directory = directory
             context.last_accessed = datetime.now()
-            await self.backend.save_container_context(context)
+            await self.backend.save_container(context)
 
     async def add_installed_tool(self, container_id: str, tool_name: str):
         """Record installed tool."""
@@ -208,7 +208,7 @@ class ContainerContextManager:
         if context and tool_name not in context.installed_tools:
             context.installed_tools.append(tool_name)
             context.last_accessed = datetime.now()
-            await self.backend.save_container_context(context)
+            await self.backend.save_container(context)
 
     async def get_command_history(self, container_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get command execution history."""
@@ -233,7 +233,7 @@ class ContainerContextManager:
             if memory_usage is not None:
                 context.memory_usage = memory_usage
             context.last_accessed = datetime.now()
-            await self.backend.save_container_context(context)
+            await self.backend.save_container(context)
 
     async def stop_container(self, container_id: str):
         """
@@ -245,7 +245,7 @@ class ContainerContextManager:
         if context:
             if context.remote_host and not context.remote_host.is_local:
                 logger.info(f"Stopping remote container: {container_id} on {context.remote_host.host_name}")
-                self.remote_api_manager.stop_container(
+                self.docker_manager.remote_manager.stop_container(
                     host_name=context.remote_host.host_name, container_id=container_id
                 )
             else:
@@ -253,7 +253,7 @@ class ContainerContextManager:
                 self.docker_manager.stop_container(container_id)
 
             context.status = "stopped"
-            await self.backend.save_container_context(context)
+            await self.backend.save_container(context)
 
     async def remove_container(self, container_id: str):
         """
@@ -265,7 +265,7 @@ class ContainerContextManager:
         if context:
             if context.remote_host and not context.remote_host.is_local:
                 logger.info(f"Removing remote container: {container_id} on {context.remote_host.host_name}")
-                self.remote_api_manager.remove_container(
+                self.docker_manager.remote_manager.remove_container(
                     host_name=context.remote_host.host_name, container_id=container_id
                 )
             else:
@@ -294,14 +294,14 @@ class ContainerContextManager:
 
         if context.remote_host and not context.remote_host.is_local:
             logger.info(f"Getting logs from remote container: {container_id}")
-            logs = self.remote_api_manager.get_container_logs(
+            logs = self.docker_manager.remote_manager.get_container_logs(
                 host_name=context.remote_host.host_name, container_id=container_id, tail=tail
             )
         else:
             logger.info(f"Getting logs from local container: {container_id}")
             logs = self.docker_manager.get_container_logs(container_id, tail=tail)
 
-        return logs
+        return str(logs) if logs is not None else None
 
     async def get_host_info(self, container_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -321,6 +321,6 @@ class ContainerContextManager:
             return {"host_name": "localhost", "host_ip": "127.0.0.1", "is_local": True}
 
         logger.info(f"Getting host info for remote container: {container_id}")
-        host_info = self.remote_api_manager.get_host_info(host_name=context.remote_host.host_name)
+        host_info = self.docker_manager.remote_manager.get_host_info(host_name=context.remote_host.host_name)
 
         return host_info

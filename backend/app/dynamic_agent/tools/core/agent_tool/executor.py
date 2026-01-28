@@ -66,7 +66,11 @@ def extract_json_from_string(text: str) -> Union[List, dict, str]:
 
     # Strategy 1: Direct parsing
     try:
-        return json.loads(text)
+        result = json.loads(text)
+        # Ensure return type matches: list[Any] | dict[Any, Any] | str
+        if isinstance(result, (list, dict, str)):
+            return result  # type: ignore[return-value]
+        return str(result)  # type: ignore[return-value]
     except json.JSONDecodeError:
         pass
 
@@ -76,7 +80,10 @@ def extract_json_from_string(text: str) -> Union[List, dict, str]:
     if match:
         try:
             extracted = match.group(0)
-            return json.loads(extracted)
+            result = json.loads(extracted)
+            if isinstance(result, (list, dict, str)):
+                return result  # type: ignore[return-value]
+            return str(result)  # type: ignore[return-value]
         except json.JSONDecodeError:
             pass
 
@@ -87,8 +94,11 @@ def extract_json_from_string(text: str) -> Union[List, dict, str]:
         try:
             parsed_objects = [json.loads(obj) for obj in objects]
             if len(parsed_objects) == 1:
-                return parsed_objects[0]
-            return parsed_objects
+                result = parsed_objects[0]
+                if isinstance(result, (list, dict, str)):
+                    return result  # type: ignore[return-value]
+                return str(result)  # type: ignore[return-value]
+            return parsed_objects  # type: ignore[return-value]
         except json.JSONDecodeError:
             pass
 
@@ -143,7 +153,12 @@ def early_summarize_with_llm(
     response = temp_llm.invoke(summary_messages)
 
     # ⚠️ Key: Returns "terminated state messages"
-    return f"Final Answer (EARLY STOP):\n{response.content}"
+    content = response.content if hasattr(response, "content") else str(response)
+    if isinstance(content, list):
+        content_str = " ".join(str(item) for item in content)
+    else:
+        content_str = str(content) if content is not None else ""
+    return f"Final Answer (EARLY STOP):\n{content_str}"
 
 
 async def _try_run_with_tools(llm: BaseChatModel, task_text: str, tools: List[Any], agent_name: str) -> str:
@@ -221,7 +236,8 @@ async def _try_run_with_tools(llm: BaseChatModel, task_text: str, tools: List[An
         logger.error(traceback.format_exc())
         traceback.print_exc()
         if isinstance(e, GraphRecursionError) or isinstance(e, APIError):
-            return early_summarize_with_llm(initial_state["messages"], create_llm_instance())
+            result = early_summarize_with_llm(initial_state["messages"], create_llm_instance())
+            return str(result) if result is not None else "No response generated"
 
         raise e
 

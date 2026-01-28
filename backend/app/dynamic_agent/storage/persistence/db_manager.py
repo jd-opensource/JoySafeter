@@ -88,6 +88,9 @@ class DatabaseManager:
         """
         import asyncio as async_lib
 
+        if self.pool is None:
+            raise RuntimeError("Pool must be initialized before pre-warming")
+
         logger.info(f"Pre-warming connection pool (creating {self.min_pool_size} connections)...")
 
         async def acquire_and_test(idx: int):
@@ -105,7 +108,7 @@ class DatabaseManager:
                     return (idx, None, False)
             except Exception as e:
                 logger.error(f"✗ Failed to pre-warm connection {idx + 1}: {e}")
-                if conn:
+                if conn and self.pool is not None:
                     # Release bad connection back to pool
                     await self.pool.release(conn)
                 return (idx, None, False)

@@ -205,7 +205,8 @@ class StreamEventHandler:
         run_id = event.get("run_id", "")
 
         # 记录开始时间（使用 run_id 作为键的一部分，支持并发执行）
-        state.tool_start_times[tool_name] = (run_id, time.time())
+        if tool_name is not None:
+            state.tool_start_times[tool_name] = (run_id, time.time())
 
         meta = self._extract_metadata(event)
         return self.format_sse(
@@ -225,7 +226,7 @@ class StreamEventHandler:
         run_id = event.get("run_id", "")
 
         # 计算执行时长
-        start_info = state.tool_start_times.pop(tool_name, None)
+        start_info = state.tool_start_times.pop(tool_name, None) if tool_name is not None else None
         duration = None
         if start_info and start_info[0] == run_id:
             duration = int((time.time() - start_info[1]) * 1000)  # 转换为毫秒
@@ -537,4 +538,4 @@ class StreamEventHandler:
                 }
                 events.append(self.format_sse("state_update", state_update_data, state.thread_id))
 
-        return "\n".join(events) if len(events) > 1 else (events[0] if events else "")
+        return events

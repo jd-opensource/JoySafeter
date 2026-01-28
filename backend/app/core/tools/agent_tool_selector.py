@@ -104,7 +104,7 @@ class AgentToolSelector:
         Embeds the query and description, finds nearest neighbors.
         Useful when the Agent doesn't know which tool to ask for.
         """
-        pass
+        return []
 
     def _merge_filters(self, base: ToolFilter, additional: ToolFilter) -> ToolFilter:
         """合并两个过滤器"""

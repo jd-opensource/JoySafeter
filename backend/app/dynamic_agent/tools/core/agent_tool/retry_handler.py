@@ -28,7 +28,7 @@ from app.dynamic_agent.models.todo_panel import TodoPanel
 try:
     from app.dynamic_agent.infra.todo_display import get_todo_display
 except ImportError:
-    get_todo_display = None
+    get_todo_display = None  # type: ignore[assignment]
 
 from loguru import logger
 
@@ -133,7 +133,7 @@ Please try a different approach."""
                     todo_panel.start(next_item.id)
 
             # 006: Also update global TodoDisplayManager
-            if get_todo_display:
+            if get_todo_display is not None:
                 try:
                     display = get_todo_display()
                     display.complete_current_and_start_next()

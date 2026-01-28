@@ -88,18 +88,18 @@ def create_langfuse_callback(
         handler_kwargs = {"public_key": effective_public_key}
 
         # Add trace_context if session_id or user_id provided
-        trace_context = {}
+        trace_context: Dict[str, str] = {}
         if session_id:
             trace_context["session_id"] = session_id
         if user_id:
             trace_context["user_id"] = user_id
         if trace_context:
-            handler_kwargs["trace_context"] = trace_context
+            handler_kwargs["trace_context"] = trace_context  # type: ignore[assignment]
 
         # Merge with any additional kwargs
         handler_kwargs.update(kwargs)
 
-        handler = LangfuseCallbackHandler(**handler_kwargs)
+        handler = LangfuseCallbackHandler(**handler_kwargs)  # type: ignore[arg-type]
         effective_host = host or os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
         logger.info(f"[langfuse] Langfuse callback handler created successfully (host: {effective_host})")
         return handler
@@ -207,14 +207,18 @@ def set_langfuse_trace_metadata(
 
         client = Langfuse()
         if hasattr(client, "update_current_trace"):
+            # Update trace with available parameters
+            update_kwargs: Dict[str, Any] = {}
             if trace_id:
-                client.update_current_trace(id=trace_id)
+                update_kwargs["trace_id"] = trace_id  # type: ignore[dict-item]
             if user_id:
-                client.update_current_trace(user_id=user_id)
+                update_kwargs["user_id"] = user_id
             if session_id:
-                client.update_current_trace(session_id=session_id)
+                update_kwargs["session_id"] = session_id
             if metadata:
-                client.update_current_trace(metadata=metadata)
+                update_kwargs["metadata"] = metadata
+            if update_kwargs:
+                client.update_current_trace(**update_kwargs)  # type: ignore[call-arg]
         else:
             # Fallback: metadata should be set via trace_context when creating handler
             logger.debug("[langfuse] Trace metadata should be set via trace_context in CallbackHandler")

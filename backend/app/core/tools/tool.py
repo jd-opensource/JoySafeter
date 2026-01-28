@@ -205,8 +205,11 @@ class EnhancedTool(BaseTool):
         """将 @tool 或 BaseTool 子类转换为 EnhancedTool"""
         metadata = tool_metadata or ToolMetadata(source_type=ToolSourceType.LANGCHAIN)
         # 提取原有描述
+        args_schema = tool.args_schema
+        if args_schema is not None and not isinstance(args_schema, type):
+            args_schema = None  # type: ignore[assignment]
         instance = cls(
-            name=tool.name, description=tool.description, args_schema=tool.args_schema, tool_metadata=metadata
+            name=tool.name, description=tool.description, args_schema=args_schema, tool_metadata=metadata  # type: ignore[arg-type]
         )
         instance._wrapped_tool = tool
         return instance

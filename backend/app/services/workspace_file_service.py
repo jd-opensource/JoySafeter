@@ -91,7 +91,7 @@ class WorkspaceFileService(BaseService):
         member = await self.member_repo.get_member(workspace_id, user.id)
         if not member:
             raise ForbiddenException("No access to workspace")
-        return member.role
+        return member.role  # type: ignore
 
     def _token_payload(self, workspace_id: uuid.UUID, file_id: uuid.UUID, user_id: uuid.UUID) -> Dict:
         now = datetime.now(timezone.utc)
@@ -118,7 +118,8 @@ class WorkspaceFileService(BaseService):
                 return None
             if payload.get("file_id") != str(file_id):
                 return None
-            return payload.get("sub")
+            sub = payload.get("sub")
+            return str(sub) if sub is not None else None
         except JWTError:
             return None
 
@@ -222,8 +223,11 @@ class WorkspaceFileService(BaseService):
         if not record:
             raise NotFoundException("File not found")
 
+        import uuid as uuid_lib
+        file_uuid = uuid_lib.UUID(file_id) if isinstance(file_id, str) else file_id
+        user_uuid = uuid_lib.UUID(current_user.id) if isinstance(current_user.id, str) else current_user.id
         token = jwt.encode(
-            self._token_payload(workspace_id, file_id, current_user.id),
+            self._token_payload(workspace_id, file_uuid, user_uuid),
             settings.secret_key,
             algorithm=settings.algorithm,
         )

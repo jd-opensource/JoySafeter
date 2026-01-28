@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 
@@ -67,7 +67,7 @@ class WorkspaceService(BaseService[Workspace]):
         member = await self.member_repo.get_member(workspace_id, current_user.id)
         if not member:
             raise ForbiddenException("No access to workspace")
-        return member.role
+        return member.role  # type: ignore
 
     async def get_user_role(self, workspace_id: uuid.UUID, current_user: User) -> Optional[WorkspaceMemberRole]:
         """
@@ -120,7 +120,7 @@ class WorkspaceService(BaseService[Workspace]):
         await self.member_repo.create(
             {"workspace_id": ws.id, "user_id": current_user.id, "role": WorkspaceMemberRole.owner}
         )
-        return ws
+        return ws  # type: ignore
 
     async def create_workspace(
         self,
@@ -172,7 +172,7 @@ class WorkspaceService(BaseService[Workspace]):
         if not workspace:
             raise NotFoundException("Workspace not found")
 
-        update_data = {}
+        update_data: Dict[str, Any] = {}
         if name is not None:
             update_data["name"] = name
         if description is not None:
@@ -218,7 +218,7 @@ class WorkspaceService(BaseService[Workspace]):
         deleted = await self.workspace_repo.delete(workspace_id)
         await self.commit()
         # 模板删除逻辑预留，当前模型中未挂载模板实体
-        return deleted
+        return bool(deleted) if deleted is not None else False
 
     async def duplicate_workspace(
         self,
