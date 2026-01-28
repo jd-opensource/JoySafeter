@@ -132,6 +132,7 @@ celerybeat.pid
 .env
 .venv
 env.*
+!frontend/lib/core/config/env.ts  # 允许前端配置文件
 src/ENV/
 venv/
 ENV/
