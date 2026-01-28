@@ -10,14 +10,14 @@ RUN apk add --no-cache libc6-compat
 FROM base AS deps
 WORKDIR /app
 RUN apk add --no-cache curl unzip bash && \
-    curl -fsSL https://bun.sh/install | bash
+    BUN_VERSION=1.3.7 curl -fsSL https://bun.sh/install | bash
 COPY package.json bun.lock* ./
 RUN /root/.bun/bin/bun install --frozen-lockfile
 
 FROM base AS builder
 WORKDIR /app
 RUN apk add --no-cache curl unzip bash && \
-    curl -fsSL https://bun.sh/install | bash
+    BUN_VERSION=1.3.7 curl -fsSL https://bun.sh/install | bash
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock* ./
 COPY . .
