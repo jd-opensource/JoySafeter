@@ -14,8 +14,8 @@ class FalcoHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['falco']
+        """Handler related commands"""
+        return ["falco"]
 
     def handle(self, data: Dict) -> Any:
         """Execute falco with enhanced logging"""

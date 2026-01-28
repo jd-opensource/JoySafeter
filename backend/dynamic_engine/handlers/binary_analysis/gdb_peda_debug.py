@@ -7,6 +7,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class GdbPedaHandler(AbstractHandler):
     """Handler for gdb_peda functionality"""
 
@@ -14,8 +15,8 @@ class GdbPedaHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['gdb']
+        """Handler related commands"""
+        return ["gdb"]
 
     def handle(self, data: Dict) -> Any:
         try:
@@ -59,7 +60,7 @@ class GdbPedaHandler(AbstractHandler):
             if additional_args:
                 command += f" {additional_args}"
 
-            target_info = binary or f'PID {attach_pid}' or core_file
+            target_info = binary or f"PID {attach_pid}" or core_file
             logger.info(f"🔧 Starting GDB-PEDA analysis: {target_info}")
             result = execute_command(command)
 

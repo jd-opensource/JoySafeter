@@ -86,4 +86,3 @@ class WorkspaceStoredFile(BaseModel):
         Index("workspace_files_workspace_id_idx", "workspace_id"),
         Index("workspace_files_context_idx", "context"),
     )
-

@@ -1,4 +1,5 @@
 """Auth controller endpoints (reworked for auth.user & auth.session)."""
+
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/v1/auth", tags=["Auth"])
 
 
 # Schemas
+
 
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -51,6 +53,7 @@ class SearchUsersResponse(BaseModel):
     image: Optional[str]
     email_verified: bool
     is_super_user: bool
+
 
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -89,10 +92,7 @@ async def sign_up_with_email(
     # 只返回用户信息，不返回 token
     user_data = data.get("user", {})
 
-    return success_response(
-        data={"user": user_data},
-        message="Registration successful. Please sign in to continue."
-    )
+    return success_response(data={"user": user_data}, message="Registration successful. Please sign in to continue.")
 
 
 @router.post("/sign-in/email")
@@ -238,9 +238,7 @@ async def forgot_password(
     service = AuthService(db)
     await service.request_password_reset(body.email)
 
-    return success_response(
-        message="If your email is registered, you will receive a password reset link shortly."
-    )
+    return success_response(message="If your email is registered, you will receive a password reset link shortly.")
 
 
 @router.post("/reset-password")
@@ -348,23 +346,33 @@ async def refresh_token(
                 user_id = payload.sub
                 user = await service.get_user_by_id(str(user_id))
                 if user and user.is_active:
-                    access_token, new_refresh_token, csrf_token, access_expires, refresh_expires = await service._issue_jwt_tokens(user.id)
-                    return success_response(data={
-                        "access_token": access_token,
-                        "token_type": "bearer",
-                        "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
-                    })
+                    (
+                        access_token,
+                        new_refresh_token,
+                        csrf_token,
+                        access_expires,
+                        refresh_expires,
+                    ) = await service._issue_jwt_tokens(user.id)
+                    return success_response(
+                        data={
+                            "access_token": access_token,
+                            "token_type": "bearer",
+                            "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
+                        }
+                    )
         except Exception:
             pass
 
     if refresh_token_value:
         try:
             result = await service.refresh_token(refresh_token_value)
-            return success_response(data={
-                "access_token": result["access_token"],
-                "token_type": result["token_type"],
-                "expires_in": result["expires_in"],
-            })
+            return success_response(
+                data={
+                    "access_token": result["access_token"],
+                    "token_type": result["token_type"],
+                    "expires_in": result["expires_in"],
+                }
+            )
         except Exception:
             pass
 
@@ -373,6 +381,7 @@ async def refresh_token(
 
 # Helpers
 
+
 def _extract_bearer(auth_header: Optional[str]) -> str:
     if not auth_header or not auth_header.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -380,9 +389,7 @@ def _extract_bearer(auth_header: Optional[str]) -> str:
 
 
 async def _get_current_auth_user(
-    auth_header: Optional[str],
-    db: AsyncSession,
-    request: Optional[Request] = None
+    auth_header: Optional[str], db: AsyncSession, request: Optional[Request] = None
 ) -> AuthUser:
     """从 Bearer token 或 Cookie 校验并返回 AuthUser（支持 JWT token 和 session token）。"""
     token = None
@@ -439,4 +446,3 @@ def _user_to_response(user: AuthUser) -> UserResponse:
         "email_verified": user.email_verified,
         "is_super_user": user.is_super_user,
     }
-

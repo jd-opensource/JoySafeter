@@ -97,10 +97,7 @@ class TrackingEventProcessor:
         while self._running:
             try:
                 # Wait for events with timeout
-                event = await asyncio.wait_for(
-                    queue.get(),
-                    timeout=self.flush_interval
-                )
+                event = await asyncio.wait_for(queue.get(), timeout=self.flush_interval)
 
                 await self._process_event(event)
                 queue.task_done()
@@ -174,7 +171,7 @@ class TrackingEventProcessor:
             # Store step_id for matching end event
             step_key = event.step_key or f"{event.task_id}:{event.run_id}"
             self._step_ids[step_key] = step.id
-            self._pending_starts[step_key] = (step.id, event.event_type, int(time.time()*1000))
+            self._pending_starts[step_key] = (step.id, event.event_type, int(time.time() * 1000))
 
         except Exception as e:
             logger.error(f"[TrackingProcessor] Error creating step for tool {event.tool_name}: {e}")
@@ -244,7 +241,7 @@ class TrackingEventProcessor:
                 "model_name": event.model_name,
                 "invocation_params": event.invocation_params,
                 "prompt_count": len(event.prompts),
-                "total_prompt_length": sum(len(p) for p in event.prompts)
+                "total_prompt_length": sum(len(p) for p in event.prompts),
             }
 
             # Use pre-generated step_id if available, otherwise create new step
@@ -268,7 +265,7 @@ class TrackingEventProcessor:
 
             step_key = event.step_key or f"{event.task_id}:{event.run_id}"
             self._step_ids[step_key] = step.id
-            self._pending_starts[step_key] = (step.id, event.event_type, int(time.time()*1000))
+            self._pending_starts[step_key] = (step.id, event.event_type, int(time.time() * 1000))
 
         except Exception as e:
             logger.error(f"[TrackingProcessor] Error creating step for LLM {event.model_name}: {e}")
@@ -321,7 +318,9 @@ class TrackingEventProcessor:
                     name=f"LLM Call: {event.model_name}",
                     input_data=input_data,
                 )
-                logger.debug(f"[TrackingProcessor] Created step {step.id} (pre-generated) for ChatModel {event.model_name}")
+                logger.debug(
+                    f"[TrackingProcessor] Created step {step.id} (pre-generated) for ChatModel {event.model_name}"
+                )
             else:
                 step = await self.task_dao.create_step(
                     task_id=event.task_id,
@@ -333,7 +332,7 @@ class TrackingEventProcessor:
 
             step_key = event.step_key or f"{event.task_id}:{event.run_id}"
             self._step_ids[step_key] = step.id
-            self._pending_starts[step_key] = (step.id, event.event_type, int(time.time()*1000))
+            self._pending_starts[step_key] = (step.id, event.event_type, int(time.time() * 1000))
 
         except Exception as e:
             logger.error(f"[TrackingProcessor] Error creating step for ChatModel {event.model_name}: {e}")
@@ -373,7 +372,8 @@ class TrackingEventProcessor:
         timeout = 300  # 5 minutes
 
         old_keys = [
-            key for key, (step_id, event_type, start_time) in self._pending_starts.items()
+            key
+            for key, (step_id, event_type, start_time) in self._pending_starts.items()
             if current_time - start_time > timeout
         ]
 

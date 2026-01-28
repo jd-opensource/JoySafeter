@@ -21,6 +21,7 @@ try:
     from loguru import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -61,8 +62,7 @@ def is_rate_limit_error(error: Exception) -> bool:
         "throttling",
     ]
 
-    return any(indicator in error_str or indicator in error_type
-               for indicator in rate_limit_indicators)
+    return any(indicator in error_str or indicator in error_type for indicator in rate_limit_indicators)
 
 
 def is_transient_error(error: Exception) -> bool:
@@ -98,8 +98,7 @@ def is_transient_error(error: Exception) -> bool:
     if is_rate_limit_error(error):
         return True
 
-    return any(indicator in error_str or indicator in error_type
-               for indicator in transient_indicators)
+    return any(indicator in error_str or indicator in error_type for indicator in transient_indicators)
 
 
 class RateLimiter:
@@ -198,6 +197,7 @@ class RateLimiter:
 @dataclass
 class RetryConfig:
     """Configuration for retry behavior."""
+
     max_attempts: int = 3
     wait_seconds: float = 1.0
     exponential_base: float = 2.0
@@ -216,7 +216,7 @@ class RetryConfig:
             Wait time in seconds.
         """
         # Exponential backoff
-        wait = self.wait_seconds * (self.exponential_base ** attempt)
+        wait = self.wait_seconds * (self.exponential_base**attempt)
 
         # Cap at max wait
         wait = min(wait, self.max_wait_seconds)
@@ -396,14 +396,18 @@ class Retrying:
             A wrapped function with retry logic.
         """
         if asyncio.iscoroutinefunction(func):
+
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
                 return await self(func, *args, **kwargs)
+
             return async_wrapper
         else:
+
             @wraps(func)
             def sync_wrapper(*args, **kwargs):
                 return self.call_sync(func, *args, **kwargs)
+
             return sync_wrapper
 
 
@@ -447,4 +451,3 @@ def retry(
         return retrying.wrap(func)
 
     return decorator
-

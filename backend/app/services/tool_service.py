@@ -11,6 +11,7 @@ Tool Service - 统一工具管理服务
 - 组合优于继承：组合 McpServerService 和 McpClientService
 - 单一职责：专注于工具管理，MCP 服务器 CRUD 委托给 McpServerService
 """
+
 from __future__ import annotations
 
 import uuid
@@ -211,7 +212,9 @@ class ToolService(BaseService[McpServer]):
 
         return ConnectionTestResult(
             success=result.success,
-            message=f"Connected successfully. Found {len(result.tools)} tools." if result.success else f"Connection failed: {result.error}",
+            message=f"Connected successfully. Found {len(result.tools)} tools."
+            if result.success
+            else f"Connection failed: {result.error}",
             tool_count=len(result.tools),
             tools=tool_names,
             latency_ms=result.latency_ms,
@@ -283,9 +286,7 @@ class ToolService(BaseService[McpServer]):
 
     def get_builtin_tools(self) -> List[ToolInfo]:
         """获取所有内置工具"""
-        tools = self._registry.get_tools(
-            ToolFilter(source_types={ToolSourceType.BUILTIN})
-        )
+        tools = self._registry.get_tools(ToolFilter(source_types={ToolSourceType.BUILTIN}))
         return [self._tool_to_info(t) for t in tools]
 
     def get_tool_by_key(self, tool_key: str) -> Optional[ToolInfo]:
@@ -344,9 +345,9 @@ class ToolService(BaseService[McpServer]):
         # 情况2: 保持或变为 enabled → 根据条件同步工具
         elif will_be_enabled:
             should_sync = (
-                needs_resync or      # 配置改变需要重新同步
-                name_changed or      # 名称改变需要注册新名称工具
-                not was_enabled      # 从 disabled 变为 enabled 需要同步
+                needs_resync  # 配置改变需要重新同步
+                or name_changed  # 名称改变需要注册新名称工具
+                or not was_enabled  # 从 disabled 变为 enabled 需要同步
             )
             if should_sync:
                 await self._sync_server_tools_safe(server)
@@ -409,6 +410,7 @@ class ToolService(BaseService[McpServer]):
 
         # 关闭对应的 Toolkit
         from app.services.mcp_toolkit_manager import get_toolkit_manager
+
         toolkit_manager = get_toolkit_manager()
         try:
             await toolkit_manager.close_toolkit(server.name, server.user_id)
@@ -434,6 +436,7 @@ class ToolService(BaseService[McpServer]):
 
         # 关闭对应的 Toolkit
         from app.services.mcp_toolkit_manager import get_toolkit_manager
+
         toolkit_manager = get_toolkit_manager()
         try:
             await toolkit_manager.close_toolkit(server_name, user_id)
@@ -503,6 +506,7 @@ class ToolService(BaseService[McpServer]):
 
 # ==================== Startup Hook ====================
 
+
 async def initialize_mcp_tools_on_startup(
     db: AsyncSession,
     max_retries: int = 3,
@@ -565,8 +569,7 @@ async def initialize_mcp_tools_on_startup(
                     total_tools += len(registered)
                     successful_servers += 1
                     logger.info(
-                        f"Loaded {len(registered)} tools from MCP server: {server.name} "
-                        f"(user_id={server.user_id})"
+                        f"Loaded {len(registered)} tools from MCP server: {server.name} (user_id={server.user_id})"
                     )
                     break  # Success, exit retry loop
                 else:
@@ -600,7 +603,7 @@ async def initialize_mcp_tools_on_startup(
                         f"Exception loading tools from MCP server {server.name} "
                         f"(attempt {retry_count}/{max_retries}): {e}. "
                         f"Retrying in {delay:.1f}s...",
-                        exc_info=True
+                        exc_info=True,
                     )
                     await asyncio.sleep(delay)
                 else:
@@ -609,7 +612,7 @@ async def initialize_mcp_tools_on_startup(
                     failed_servers += 1
                     logger.error(
                         f"Failed to load tools from MCP server {server.name} after {max_retries} retries: {e}",
-                        exc_info=True
+                        exc_info=True,
                     )
                     if not allow_partial_failure:
                         raise
@@ -621,4 +624,3 @@ async def initialize_mcp_tools_on_startup(
         f"{failed_servers} servers failed"
     )
     return total_tools
-

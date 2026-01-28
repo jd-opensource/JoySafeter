@@ -1,6 +1,7 @@
 """
 FastAPI 主应用
 """
+
 import traceback
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -31,7 +32,6 @@ from app.websocket.notification_manager import NotificationType, notification_ma
 setup_logging()
 
 
-
 async def _check_db_connection():
     """启动时快速检查数据库连通性。"""
     try:
@@ -58,7 +58,6 @@ async def _check_redis_connection():
     except Exception as e:
         logger.error(f"   ⚠️  Redis connection check failed: {e}")
         traceback.print_exc()
-
 
 
 @asynccontextmanager
@@ -105,8 +104,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                 service = ModelProviderService(db)
                 result = await service.sync_all()
                 logger.info(f"   ✓ 自动同步完成：供应商 {result['providers']} 个，模型 {result['models']} 个")
-                if result.get('errors'):
-                    for error in result['errors']:
+                if result.get("errors"):
+                    for error in result["errors"]:
                         logger.warning(f"   ⚠️  {error}")
             else:
                 logger.info(f"   ✓ 数据库中已有 {provider_count} 个供应商，跳过自动同步")
@@ -117,6 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # 启动时初始化 MCP 工具（加载所有启用的 MCP 服务器的工具到 registry）
     try:
         from app.services.tool_service import initialize_mcp_tools_on_startup
+
         async with AsyncSessionLocal() as db:
             total_tools = await initialize_mcp_tools_on_startup(db)
             if total_tools > 0:
@@ -155,7 +155,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                         "model": default_instance.model_name,
                         "api_key": credentials.get("api_key", ""),
                         "base_url": credentials.get("base_url"),
-                        "timeout": default_instance.model_parameters.get("timeout", 30) if default_instance.model_parameters else 30,
+                        "timeout": default_instance.model_parameters.get("timeout", 30)
+                        if default_instance.model_parameters
+                        else 30,
                     }
                     set_default_model_config(config)
                     logger.info("   ✓ 默认模型缓存初始化完成")
@@ -170,10 +172,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # 初始化 Dynamic Agent 存储系统
     try:
         from app.dynamic_agent.main import startup as agent_startup
+
         await agent_startup()
         logger.info("   ✓ Dynamic Agent 存储系统初始化完成")
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         logger.warning(f"   ⚠️  Dynamic Agent 存储系统初始化失败: {e}")
         logger.warning("   应用将继续启动，Dynamic Agent 功能可能不可用")
@@ -181,6 +185,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # 初始化 Checkpointer 连接池
     try:
         from app.core.agent.checkpointer.checkpointer import CheckpointerManager
+
         await CheckpointerManager.initialize()
         logger.info("   ✓ Checkpointer 连接池初始化完成")
     except Exception as e:
@@ -192,6 +197,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Shutdown: 关闭 Checkpointer 连接池
     try:
         from app.core.agent.checkpointer.checkpointer import CheckpointerManager
+
         await CheckpointerManager.close()
     except Exception:
         pass
@@ -202,6 +208,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         pass
     await close_db()
     print("👋 Application shutdown")
+
 
 # 创建应用
 app = FastAPI(
@@ -237,6 +244,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.middleware("http")
 async def disable_cache_for_api(request: Request, call_next):
     response: Response = await call_next(request)
@@ -251,6 +259,7 @@ async def disable_cache_for_api(request: Request, call_next):
         # response.headers.pop("Last-Modified", None)
 
     return response
+
 
 from app.dynamic_agent.server import DYNAMIC_AGENT_PREFIX  # noqa: E402
 from app.dynamic_agent.server import app as dynamic_agent_app  # noqa: E402
@@ -268,6 +277,7 @@ async def global_exception_handler(request, exc):
         content={"detail": "Internal server error"},
     )
 
+
 # 注册 API 路由
 app.include_router(dynamic_agent_app, prefix=DYNAMIC_AGENT_PREFIX)
 
@@ -275,7 +285,6 @@ app.include_router(api_router, prefix="/api")
 
 # 图变量分析路由（/api/graph/{graph_id}/variables）
 app.include_router(graph_variables_router, prefix="/api", tags=["Graph Variables"])
-
 
 
 # 注册会话管理路由
@@ -312,11 +321,7 @@ async def websocket_endpoint(
     is_authenticated, user_id = await authenticate_websocket(websocket)
 
     if not is_authenticated or not user_id:
-        await reject_websocket(
-            websocket,
-            code=WebSocketCloseCode.UNAUTHORIZED,
-            reason="Authentication required"
-        )
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
         return
 
     try:
@@ -327,9 +332,7 @@ async def websocket_endpoint(
             session = await session_service.get_session_for_user(session_id, user_id)
             if not session:
                 await reject_websocket(
-                    websocket,
-                    code=WebSocketCloseCode.FORBIDDEN,
-                    reason="Session not found or access denied"
+                    websocket, code=WebSocketCloseCode.FORBIDDEN, reason="Session not found or access denied"
                 )
                 return
 
@@ -355,11 +358,7 @@ async def notification_websocket_endpoint(websocket: WebSocket):
     is_authenticated, user_id = await authenticate_websocket(websocket)
 
     if not is_authenticated or not user_id:
-        await reject_websocket(
-            websocket,
-            code=WebSocketCloseCode.UNAUTHORIZED,
-            reason="Authentication required"
-        )
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
         return
 
     try:
@@ -372,9 +371,12 @@ async def notification_websocket_endpoint(websocket: WebSocket):
                 message = json.loads(data)
 
                 if message.get("type") == "ping":
-                    await notification_manager.send_to_connection(websocket, {
-                        "type": NotificationType.PONG.value,
-                    })
+                    await notification_manager.send_to_connection(
+                        websocket,
+                        {
+                            "type": NotificationType.PONG.value,
+                        },
+                    )
 
             except WebSocketDisconnect:
                 break
@@ -397,19 +399,11 @@ async def notification_websocket_endpoint_legacy(websocket: WebSocket, user_id: 
     is_authenticated, token_user_id = await authenticate_websocket(websocket)
 
     if not is_authenticated or not token_user_id:
-        await reject_websocket(
-            websocket,
-            code=WebSocketCloseCode.UNAUTHORIZED,
-            reason="Authentication required"
-        )
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
         return
 
     if str(token_user_id) != str(user_id):
-        await reject_websocket(
-            websocket,
-            code=WebSocketCloseCode.FORBIDDEN,
-            reason="User ID mismatch"
-        )
+        await reject_websocket(websocket, code=WebSocketCloseCode.FORBIDDEN, reason="User ID mismatch")
         return
 
     try:
@@ -422,9 +416,12 @@ async def notification_websocket_endpoint_legacy(websocket: WebSocket, user_id: 
                 message = json.loads(data)
 
                 if message.get("type") == "ping":
-                    await notification_manager.send_to_connection(websocket, {
-                        "type": NotificationType.PONG.value,
-                    })
+                    await notification_manager.send_to_connection(
+                        websocket,
+                        {
+                            "type": NotificationType.PONG.value,
+                        },
+                    )
 
             except WebSocketDisconnect:
                 break
@@ -453,11 +450,7 @@ async def copilot_websocket_endpoint(websocket: WebSocket, session_id: str):
     is_authenticated, user_id = await authenticate_websocket(websocket)
 
     if not is_authenticated or not user_id:
-        await reject_websocket(
-            websocket,
-            code=WebSocketCloseCode.UNAUTHORIZED,
-            reason="Authentication required"
-        )
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
         return
 
     # Handle connection

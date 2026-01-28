@@ -14,8 +14,8 @@ class GobusterHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['gobuster']
+        """Handler related commands"""
+        return ["gobuster"]
 
     def handle(self, data: Dict) -> Any:
         """Execute gobuster with enhanced logging"""
@@ -27,18 +27,10 @@ class GobusterHandler(AbstractHandler):
             data.get("use_recovery", True)
             if not url:
                 logger.warning("🌐 Gobuster called without URL parameter")
-                return {
-
-                    "error": "URL parameter is required"
-
-                }
+                return {"error": "URL parameter is required"}
             if mode not in ["dir", "dns", "fuzz", "vhost"]:
                 logger.warning(f"❌ Invalid gobuster mode: {mode}")
-                return {
-
-                    "error": f"Invalid mode: {mode}. Must be one of: dir, dns, fuzz, vhost"
-
-                }
+                return {"error": f"Invalid mode: {mode}. Must be one of: dir, dns, fuzz, vhost"}
             command = f"gobuster {mode} -u {url} -w {wordlist}"
             if additional_args:
                 command += f" {additional_args}"
@@ -57,8 +49,4 @@ class GobusterHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in gobuster endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

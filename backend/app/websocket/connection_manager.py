@@ -94,10 +94,7 @@ class ConnectionManager:
 
     def is_session_active(self, session_id: str) -> bool:
         """Check if a session has active connections."""
-        return (
-            session_id in self.active_connections
-            and len(self.active_connections[session_id]) > 0
-        )
+        return session_id in self.active_connections and len(self.active_connections[session_id]) > 0
 
 
 # Global connection manager instance

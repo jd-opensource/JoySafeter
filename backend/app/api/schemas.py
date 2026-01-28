@@ -61,7 +61,6 @@ class HealthResponse(BaseModel):
     instantiated_at: str = Field(..., description="Unix timestamp when service was instantiated")
 
 
-
 T = TypeVar("T")
 
 

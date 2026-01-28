@@ -10,6 +10,7 @@ from uuid import UUID
 
 class ScanStatus(str, Enum):
     """Status of a scan job."""
+
     QUEUED = "QUEUED"
     PROCESSING = "PROCESSING"
     COMPLETED = "COMPLETED"
@@ -18,6 +19,7 @@ class ScanStatus(str, Enum):
 
 class AgentVerificationStatus(str, Enum):
     """Status of agent verification for a finding."""
+
     PENDING = "PENDING"
     VERIFIED = "VERIFIED"
     FALSE_POSITIVE = "FALSE_POSITIVE"
@@ -28,6 +30,7 @@ class AgentVerificationStatus(str, Enum):
 @dataclass
 class ScanJobResponse:
     """Response when starting a scan job."""
+
     job_id: UUID
     status: ScanStatus
     message: str
@@ -36,6 +39,7 @@ class ScanJobResponse:
 @dataclass
 class ScanJobStatus:
     """Status response for a scan job."""
+
     job_id: UUID
     status: ScanStatus
     progress: int
@@ -46,6 +50,7 @@ class ScanJobStatus:
 @dataclass
 class ScanReport:
     """Complete scan report with findings."""
+
     summary: Dict[str, int]
     findings: List["Finding"]
     scanned_files: int
@@ -55,6 +60,7 @@ class ScanReport:
 @dataclass
 class Finding:
     """A detected vulnerability finding."""
+
     id: str
     rule_id: str
     type: str

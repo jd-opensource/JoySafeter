@@ -1,6 +1,7 @@
 """
 工作空间文件存储 Repository
 """
+
 import uuid
 from typing import List, Optional
 
@@ -45,9 +46,7 @@ class WorkspaceStoredFileRepository(BaseRepository[WorkspaceStoredFile]):
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def find_by_name(
-        self, workspace_id: uuid.UUID, original_name: str
-    ) -> Optional[WorkspaceStoredFile]:
+    async def find_by_name(self, workspace_id: uuid.UUID, original_name: str) -> Optional[WorkspaceStoredFile]:
         """检测同名文件"""
         query = select(WorkspaceStoredFile).where(
             WorkspaceStoredFile.workspace_id == workspace_id,
@@ -75,4 +74,3 @@ class WorkspaceStoredFileRepository(BaseRepository[WorkspaceStoredFile]):
         result = await self.db.execute(query)
         total = result.scalar() or 0
         return int(total)
-

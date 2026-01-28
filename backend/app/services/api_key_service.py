@@ -3,6 +3,7 @@ ApiKey 服务
 - 列表/创建/删除
 - 权限：personal 仅本人；workspace 需 workspace admin/owner
 """
+
 from __future__ import annotations
 
 import secrets
@@ -139,4 +140,3 @@ class ApiKeyService(BaseService[ApiKey]):
 
         await self.repo.delete_by_id(key_id)
         await self.db.commit()
-

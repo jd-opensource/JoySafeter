@@ -5,6 +5,7 @@ This module contains data models for rendering Agent execution state
 using the Rich library. These models are used by RichConsoleCallback
 to provide structured, visual CLI output.
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -14,29 +15,32 @@ from typing import Any, Dict, List, Optional
 # T004: ToolStatus enum
 class ToolStatus(str, Enum):
     """Status of a tool execution."""
-    PENDING = "pending"    # ⏳ Waiting to execute
-    RUNNING = "running"    # 🔄 Currently executing
-    SUCCESS = "success"    # ✅ Completed successfully
-    FAILED = "failed"      # ❌ Failed with error
+
+    PENDING = "pending"  # ⏳ Waiting to execute
+    RUNNING = "running"  # 🔄 Currently executing
+    SUCCESS = "success"  # ✅ Completed successfully
+    FAILED = "failed"  # ❌ Failed with error
 
 
 # T005: StepStatus enum
 class StepStatus(str, Enum):
     """Status of an execution plan step."""
-    PENDING = "pending"          # ⏳ Waiting to execute
+
+    PENDING = "pending"  # ⏳ Waiting to execute
     IN_PROGRESS = "in_progress"  # 🔄 Currently executing
-    COMPLETED = "completed"      # ✅ Completed successfully
-    FAILED = "failed"            # ❌ Failed with error
-    SKIPPED = "skipped"          # ⏭️ Skipped
+    COMPLETED = "completed"  # ✅ Completed successfully
+    FAILED = "failed"  # ❌ Failed with error
+    SKIPPED = "skipped"  # ⏭️ Skipped
 
 
 # T006: ToolCallDisplay dataclass
 @dataclass
 class ToolCallDisplay:
     """Display data for a single tool call."""
-    run_id: str                        # Unique identifier
-    tool_name: str                     # Tool name
-    input_data: Dict[str, Any]         # Input parameters
+
+    run_id: str  # Unique identifier
+    tool_name: str  # Tool name
+    input_data: Dict[str, Any]  # Input parameters
     output_data: Optional[str] = None  # Output result
     status: ToolStatus = ToolStatus.PENDING
     start_time: datetime = field(default_factory=datetime.now)
@@ -65,7 +69,7 @@ class ToolCallDisplay:
         """Check if output should be truncated (>20 lines or >2000 chars)."""
         if not self.output_data:
             return False
-        lines = self.output_data.count('\n') + 1
+        lines = self.output_data.count("\n") + 1
         return lines > 20 or len(self.output_data) > 2000
 
     def get_truncated_output(self, max_lines: int = 20, max_chars: int = 2000) -> str:
@@ -73,7 +77,7 @@ class ToolCallDisplay:
         if not self.output_data:
             return ""
 
-        lines = self.output_data.split('\n')
+        lines = self.output_data.split("\n")
         total_lines = len(lines)
 
         if total_lines <= max_lines and len(self.output_data) <= max_chars:
@@ -81,7 +85,7 @@ class ToolCallDisplay:
 
         # Truncate by lines first
         truncated_lines = lines[:max_lines]
-        result = '\n'.join(truncated_lines)
+        result = "\n".join(truncated_lines)
 
         # Then truncate by chars if needed
         if len(result) > max_chars:
@@ -94,14 +98,15 @@ class ToolCallDisplay:
 @dataclass
 class ThinkingDisplay:
     """Display data for LLM thinking process."""
-    content: str                       # Thinking content (from think tool)
+
+    content: str  # Thinking content (from think tool)
     timestamp: datetime = field(default_factory=datetime.now)
-    is_collapsed: bool = True          # Default to collapsed
+    is_collapsed: bool = True  # Default to collapsed
 
     @property
     def summary(self) -> str:
         """Generate a summary of the thinking content."""
-        first_line = self.content.split('\n')[0]
+        first_line = self.content.split("\n")[0]
         if len(first_line) > 80:
             return first_line[:77] + "..."
         return first_line
@@ -111,8 +116,9 @@ class ThinkingDisplay:
 @dataclass
 class ExecutionStep:
     """A single step in an execution plan."""
-    index: int                         # Step number (1-based)
-    description: str                   # Step description
+
+    index: int  # Step number (1-based)
+    description: str  # Step description
     status: StepStatus = StepStatus.PENDING
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -135,8 +141,9 @@ class ExecutionStep:
 @dataclass
 class ExecutionPlan:
     """Execution plan state management."""
+
     steps: List[ExecutionStep] = field(default_factory=list)
-    current_step_index: int = 0        # Current step (0-based)
+    current_step_index: int = 0  # Current step (0-based)
     start_time: datetime = field(default_factory=datetime.now)
 
     @property
@@ -173,10 +180,7 @@ class ExecutionPlan:
     @classmethod
     def from_descriptions(cls, descriptions: List[str]) -> "ExecutionPlan":
         """Create an execution plan from step descriptions."""
-        steps = [
-            ExecutionStep(index=i + 1, description=desc)
-            for i, desc in enumerate(descriptions)
-        ]
+        steps = [ExecutionStep(index=i + 1, description=desc) for i, desc in enumerate(descriptions)]
         return cls(steps=steps)
 
 
@@ -184,8 +188,9 @@ class ExecutionPlan:
 @dataclass
 class DisplayState:
     """Global state for CLI display."""
-    is_live: bool = False              # Whether in Live context
-    current_phase: str = "idle"        # idle | thinking | tool_call | result
+
+    is_live: bool = False  # Whether in Live context
+    current_phase: str = "idle"  # idle | thinking | tool_call | result
     execution_plan: Optional[ExecutionPlan] = None
     active_tools: Dict[str, ToolCallDisplay] = field(default_factory=dict)
     thinking_history: List[ThinkingDisplay] = field(default_factory=list)

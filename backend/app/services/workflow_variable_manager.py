@@ -10,6 +10,7 @@
 - 模板插值格式化
 - 代码上下文格式化
 """
+
 from __future__ import annotations
 
 import json
@@ -20,6 +21,7 @@ from typing import Any, Literal, Union
 
 class VariableType(str, Enum):
     """变量类型枚举"""
+
     PLAIN = "plain"
     STRING = "string"
     NUMBER = "number"
@@ -40,11 +42,7 @@ class VariableManager:
     """
 
     @staticmethod
-    def _convert_to_native_type(
-        value: Any,
-        var_type: Union[VariableType, str],
-        for_execution: bool = False
-    ) -> Any:
+    def _convert_to_native_type(value: Any, var_type: Union[VariableType, str], for_execution: bool = False) -> Any:
         """
         将任意值转换为基于指定变量类型的适当原生 Python 类型
 
@@ -152,11 +150,7 @@ class VariableManager:
         return unquoted
 
     @staticmethod
-    def _format_value(
-        value: Any,
-        var_type: Union[VariableType, str],
-        context: FormatContext
-    ) -> str:
+    def _format_value(value: Any, var_type: Union[VariableType, str], context: FormatContext) -> str:
         """
         根据上下文格式化任意值为字符串的统一方法
 
@@ -266,9 +260,7 @@ class VariableManager:
         return cls._convert_to_native_type(value, var_type, for_execution=True)
 
     @classmethod
-    def format_for_template_interpolation(
-        cls, value: Any, var_type: Union[VariableType, str]
-    ) -> str:
+    def format_for_template_interpolation(cls, value: Any, var_type: Union[VariableType, str]) -> str:
         """
         格式化值用于文本插值（如模板字符串）
 
@@ -379,4 +371,3 @@ def parse_variable_value_by_type(value: Any, var_type: str) -> Any:
 
     # string 或 plain
     return value if isinstance(value, str) else str(value)
-

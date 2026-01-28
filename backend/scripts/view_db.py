@@ -9,6 +9,7 @@ PostgreSQL 数据库查看工具
     python scripts/view_db.py users --where "id = 'xxx'"  # 条件查询
     python scripts/view_db.py --sql "SELECT * FROM users LIMIT 5"  # 执行自定义 SQL
 """
+
 import argparse
 import socket
 import sys
@@ -86,13 +87,15 @@ class DatabaseViewer:
         """列出所有表名"""
         with self.engine.connect() as conn:
             # 使用 PostgreSQL 的 information_schema 查询所有用户表
-            result = conn.execute(text("""
+            result = conn.execute(
+                text("""
                 SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                 AND table_type = 'BASE TABLE'
                 ORDER BY table_name
-            """))
+            """)
+            )
             tables = [row[0] for row in result.fetchall()]
         return tables
 
@@ -100,7 +103,8 @@ class DatabaseViewer:
         """获取表的详细信息（列、类型、约束等）"""
         with self.engine.connect() as conn:
             # 获取列信息
-            columns_result = conn.execute(text("""
+            columns_result = conn.execute(
+                text("""
                 SELECT
                     column_name,
                     data_type,
@@ -111,22 +115,27 @@ class DatabaseViewer:
                 WHERE table_schema = 'public'
                 AND table_name = :table_name
                 ORDER BY ordinal_position
-            """), {"table_name": table_name})
+            """),
+                {"table_name": table_name},
+            )
 
             columns = []
             for row in columns_result.fetchall():
                 col_type = row[1]
                 if row[2]:  # character_maximum_length
                     col_type += f"({row[2]})"
-                columns.append({
-                    "name": row[0],
-                    "type": col_type,
-                    "nullable": row[3] == "YES",
-                    "default": row[4],
-                })
+                columns.append(
+                    {
+                        "name": row[0],
+                        "type": col_type,
+                        "nullable": row[3] == "YES",
+                        "default": row[4],
+                    }
+                )
 
             # 获取主键信息
-            pk_result = conn.execute(text("""
+            pk_result = conn.execute(
+                text("""
                 SELECT column_name
                 FROM information_schema.table_constraints tc
                 JOIN information_schema.constraint_column_usage AS ccu
@@ -135,11 +144,14 @@ class DatabaseViewer:
                 WHERE tc.constraint_type = 'PRIMARY KEY'
                 AND tc.table_schema = 'public'
                 AND tc.table_name = :table_name
-            """), {"table_name": table_name})
+            """),
+                {"table_name": table_name},
+            )
             primary_keys = [row[0] for row in pk_result.fetchall()]
 
             # 获取外键信息
-            fk_result = conn.execute(text("""
+            fk_result = conn.execute(
+                text("""
                 SELECT
                     kcu.column_name,
                     ccu.table_name AS foreign_table_name,
@@ -154,21 +166,23 @@ class DatabaseViewer:
                 WHERE tc.constraint_type = 'FOREIGN KEY'
                 AND tc.table_schema = 'public'
                 AND tc.table_name = :table_name
-            """), {"table_name": table_name})
-            foreign_keys = [
-                {"column": row[0], "references": f"{row[1]}.{row[2]}"}
-                for row in fk_result.fetchall()
-            ]
+            """),
+                {"table_name": table_name},
+            )
+            foreign_keys = [{"column": row[0], "references": f"{row[1]}.{row[2]}"} for row in fk_result.fetchall()]
 
             # 获取索引信息
-            index_result = conn.execute(text("""
+            index_result = conn.execute(
+                text("""
                 SELECT
                     indexname,
                     indexdef
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                 AND tablename = :table_name
-            """), {"table_name": table_name})
+            """),
+                {"table_name": table_name},
+            )
             indexes = [{"name": row[0], "definition": row[1]} for row in index_result.fetchall()]
 
             # 获取行数
@@ -184,11 +198,7 @@ class DatabaseViewer:
             }
 
     def get_table_data(
-        self,
-        table_name: str,
-        limit: int = 100,
-        offset: int = 0,
-        where: Optional[str] = None
+        self, table_name: str, limit: int = 100, offset: int = 0, where: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """获取表数据"""
         with self.engine.connect() as conn:
@@ -344,47 +354,19 @@ def print_table_data(table_name: str, data: List[Dict[str, Any]], columns: Optio
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PostgreSQL 数据库查看工具",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
+        description="PostgreSQL 数据库查看工具", formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__
     )
-    parser.add_argument(
-        "table",
-        nargs="?",
-        help="要查看的表名（不指定则列出所有表）"
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=100,
-        help="查询数据条数限制（默认: 100）"
-    )
-    parser.add_argument(
-        "--offset",
-        type=int,
-        default=0,
-        help="查询数据偏移量（默认: 0）"
-    )
-    parser.add_argument(
-        "--where",
-        type=str,
-        help="WHERE 条件（例如: \"id = 'xxx'\"）"
-    )
-    parser.add_argument(
-        "--sql",
-        type=str,
-        help="执行自定义 SQL 查询"
-    )
-    parser.add_argument(
-        "--info-only",
-        action="store_true",
-        help="仅显示表结构，不显示数据"
-    )
+    parser.add_argument("table", nargs="?", help="要查看的表名（不指定则列出所有表）")
+    parser.add_argument("--limit", type=int, default=100, help="查询数据条数限制（默认: 100）")
+    parser.add_argument("--offset", type=int, default=0, help="查询数据偏移量（默认: 0）")
+    parser.add_argument("--where", type=str, help="WHERE 条件（例如: \"id = 'xxx'\"）")
+    parser.add_argument("--sql", type=str, help="执行自定义 SQL 查询")
+    parser.add_argument("--info-only", action="store_true", help="仅显示表结构，不显示数据")
     parser.add_argument(
         "--database-url",
         type=str,
         default=None,
-        help="覆盖配置中的数据库连接 URL（例如: postgresql+asyncpg://user:pass@localhost:5432/dbname）。默认从 POSTGRES_* 环境变量构建"
+        help="覆盖配置中的数据库连接 URL（例如: postgresql+asyncpg://user:pass@localhost:5432/dbname）。默认从 POSTGRES_* 环境变量构建",
     )
 
     args = parser.parse_args()
@@ -398,10 +380,12 @@ def main():
         # 优先尝试使用 psycopg（新版本），然后尝试 psycopg2
         try:
             import psycopg  # noqa: F401
+
             database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         except ImportError:
             try:
                 import psycopg2  # noqa: F401
+
                 database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
             except ImportError:
                 # 如果都没有，使用默认的 postgresql://（SQLAlchemy 会尝试自动检测）
@@ -410,10 +394,12 @@ def main():
         # URL 中没有指定驱动，尝试添加同步驱动
         try:
             import psycopg  # noqa: F401
+
             database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         except ImportError:
             try:
                 import psycopg2  # noqa: F401
+
                 database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
             except ImportError:
                 # 使用默认，让 SQLAlchemy 自动检测
@@ -444,12 +430,7 @@ def main():
 
             # 获取数据（如果不是仅查看结构）
             if not args.info_only:
-                data = viewer.get_table_data(
-                    table_name,
-                    limit=args.limit,
-                    offset=args.offset,
-                    where=args.where
-                )
+                data = viewer.get_table_data(table_name, limit=args.limit, offset=args.offset, where=args.where)
                 print_table_data(table_name, data)
 
         else:
@@ -460,6 +441,7 @@ def main():
     except Exception as e:
         print(f"\n❌ 错误: {e}\n")
         import traceback
+
         if args.sql or (args.table and not args.info_only):
             traceback.print_exc()
         sys.exit(1)
@@ -470,4 +452,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

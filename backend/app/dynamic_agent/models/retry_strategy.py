@@ -115,7 +115,7 @@ class RetryStrategy:
         Returns:
             Delay in seconds
         """
-        delay_ms = self.base_delay_ms * (self.backoff_multiplier ** attempt)
+        delay_ms = self.base_delay_ms * (self.backoff_multiplier**attempt)
         return delay_ms / 1000
 
     def should_retry(self, attempt: int) -> bool:
@@ -124,10 +124,7 @@ class RetryStrategy:
 
     def get_adjustment_suggestions(self) -> List[str]:
         """Get human-readable adjustment suggestions."""
-        return [
-            f"{adj.action.capitalize()} {adj.type} '{adj.key}': {adj.reason}"
-            for adj in self.adjustments
-        ]
+        return [f"{adj.action.capitalize()} {adj.type} '{adj.key}': {adj.reason}" for adj in self.adjustments]
 
 
 # Predefined retry strategies for each error type
@@ -138,35 +135,35 @@ RETRY_STRATEGIES: Dict[ErrorType, RetryStrategy] = {
         max_retries=3,
         base_delay_ms=2000,
         backoff_multiplier=2.0,
-        adjustments=[]  # Agent should analyze network errors
+        adjustments=[],  # Agent should analyze network errors
     ),
     "auth": RetryStrategy(
         error_type="auth",
         max_retries=2,
         base_delay_ms=500,
         backoff_multiplier=1.5,
-        adjustments=[]  # Agent should analyze auth errors
+        adjustments=[],  # Agent should analyze auth errors
     ),
     "param": RetryStrategy(
         error_type="param",
         max_retries=3,
         base_delay_ms=100,
         backoff_multiplier=1.0,  # No backoff for param errors
-        adjustments=[]  # Agent should analyze param errors
+        adjustments=[],  # Agent should analyze param errors
     ),
     "timeout": RetryStrategy(
         error_type="timeout",
         max_retries=2,
         base_delay_ms=5000,
         backoff_multiplier=2.0,
-        adjustments=[]  # Agent should analyze timeout errors
+        adjustments=[],  # Agent should analyze timeout errors
     ),
     "unknown": RetryStrategy(
         error_type="unknown",
         max_retries=1,
         base_delay_ms=1000,
         backoff_multiplier=2.0,
-        adjustments=[]  # Agent should analyze unknown errors
+        adjustments=[],  # Agent should analyze unknown errors
     ),
 }
 
@@ -198,88 +195,46 @@ def generate_adjustments(error_type: ErrorType) -> List[RetryAdjustment]:
     if error_type == "auth":
         return [
             RetryAdjustment(
-                type="header",
-                action="add",
-                key="Cookie",
-                reason="Include session cookie from previous login"
+                type="header", action="add", key="Cookie", reason="Include session cookie from previous login"
             ),
-            RetryAdjustment(
-                type="header",
-                action="add",
-                key="Authorization",
-                reason="Add auth token if available"
-            ),
+            RetryAdjustment(type="header", action="add", key="Authorization", reason="Add auth token if available"),
             RetryAdjustment(
                 type="flow",
                 action="check",
                 key="login_status",
-                reason="Verify login was successful before accessing protected resource"
+                reason="Verify login was successful before accessing protected resource",
             ),
         ]
     elif error_type == "param":
         return [
             RetryAdjustment(
-                type="payload",
-                action="modify",
-                key="format",
-                reason="Try different encoding (form-urlencoded vs JSON)"
+                type="payload", action="modify", key="format", reason="Try different encoding (form-urlencoded vs JSON)"
             ),
             RetryAdjustment(
                 type="payload",
                 action="modify",
                 key="content-type",
-                reason="Adjust Content-Type header to match payload format"
+                reason="Adjust Content-Type header to match payload format",
             ),
-            RetryAdjustment(
-                type="method",
-                action="try",
-                key="POST/GET",
-                reason="Try alternative HTTP method"
-            ),
+            RetryAdjustment(type="method", action="try", key="POST/GET", reason="Try alternative HTTP method"),
         ]
     elif error_type == "network":
         return [
-            RetryAdjustment(
-                type="target",
-                action="verify",
-                key="host:port",
-                reason="Confirm target is reachable"
-            ),
-            RetryAdjustment(
-                type="timeout",
-                action="increase",
-                key="value",
-                reason="Increase request timeout"
-            ),
+            RetryAdjustment(type="target", action="verify", key="host:port", reason="Confirm target is reachable"),
+            RetryAdjustment(type="timeout", action="increase", key="value", reason="Increase request timeout"),
         ]
     elif error_type == "timeout":
         return [
-            RetryAdjustment(
-                type="timeout",
-                action="increase",
-                key="value",
-                reason="Double the timeout value"
-            ),
-            RetryAdjustment(
-                type="request",
-                action="simplify",
-                key="payload",
-                reason="Reduce payload size if possible"
-            ),
+            RetryAdjustment(type="timeout", action="increase", key="value", reason="Double the timeout value"),
+            RetryAdjustment(type="request", action="simplify", key="payload", reason="Reduce payload size if possible"),
         ]
     else:  # unknown
         return [
             RetryAdjustment(
-                type="general",
-                action="check",
-                key="target_service",
-                reason="Verify target service is available"
+                type="general", action="check", key="target_service", reason="Verify target service is available"
             ),
             RetryAdjustment(
-                type="general",
-                action="verify",
-                key="request_params",
-                reason="Double-check all request parameters"
+                type="general", action="verify", key="request_params", reason="Double-check all request parameters"
             ),
         ]
 
@@ -317,11 +272,13 @@ def generate_error_report(
     for i, err in enumerate(error_history, 1):
         lines.append(f"{i}. {err}")
 
-    lines.extend([
-        "",
-        "### Suggested Actions",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "### Suggested Actions",
+            "",
+        ]
+    )
 
     suggestions = strategy.get_adjustment_suggestions()
     if suggestions:

@@ -49,7 +49,7 @@ class LLMManager:
             timeout=config["timeout"],
             # max_retries=0,
             streaming=False,
-            callbacks=[]
+            callbacks=[],
         )
 
     def get_default_llm(self) -> ChatOpenAI:
@@ -81,4 +81,4 @@ def create_llm_instance() -> ChatOpenAI:
     return _llm_manager.create_llm()
 
 
-DEBUG = os.environ.get('DEBUG', 'false').lower() == 'true'
+DEBUG = os.environ.get("DEBUG", "false").lower() == "true"

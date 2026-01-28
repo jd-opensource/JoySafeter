@@ -15,6 +15,7 @@ from loguru import logger
 
 try:
     from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
+
     LANGFUSE_AVAILABLE = True
 except ImportError:
     LANGFUSE_AVAILABLE = False
@@ -28,7 +29,7 @@ def create_langfuse_callback(
     enabled: bool = True,
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
-    **kwargs: Any
+    **kwargs: Any,
 ) -> Optional[Any]:
     """
     Create a Langfuse callback handler for LangChain/LangGraph.
@@ -45,9 +46,11 @@ def create_langfuse_callback(
     Returns:
         LangfuseCallbackHandler instance if enabled and keys are provided, None otherwise
     """
+
     # Print configuration parameters
     def _mask_key(k):
         return f"{k[:8]}...{k[-4:]}" if k and len(k) > 12 else "***" if k else None
+
     logger.info(
         f"[langfuse] Configuration: enabled={enabled}, "
         f"public_key={_mask_key(public_key or os.getenv('LANGFUSE_PUBLIC_KEY'))}, "
@@ -105,10 +108,7 @@ def create_langfuse_callback(
         return None
 
 
-def get_langfuse_callbacks(
-    enabled: bool = True,
-    **kwargs: Any
-) -> list[Any]:
+def get_langfuse_callbacks(enabled: bool = True, **kwargs: Any) -> list[Any]:
     """
     Get list of Langfuse callbacks for use with LangChain/LangGraph.
 
@@ -153,6 +153,7 @@ def get_langfuse_callbacks(
     # Print configuration (mask sensitive keys)
     def _mask_key(k):
         return f"{k[:8]}...{k[-4:]}" if k and len(k) > 12 else "***" if k else None
+
     logger.info(
         f"[langfuse] Configuration: enabled={enabled}, "
         f"public_key={_mask_key(public_key)}, "
@@ -219,4 +220,3 @@ def set_langfuse_trace_metadata(
             logger.debug("[langfuse] Trace metadata should be set via trace_context in CallbackHandler")
     except Exception as e:
         logger.debug(f"[langfuse] Failed to set trace metadata: {e}")
-

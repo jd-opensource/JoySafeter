@@ -1,4 +1,5 @@
 """Auth Session 服务 - 管理用户会话生命周期"""
+
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
@@ -163,9 +164,7 @@ class AuthSessionService(BaseService):
     async def list_user_sessions(self, user_id: str) -> list[AuthSession]:
         """列出用户所有会话"""
         result = await self.db.execute(
-            select(AuthSession)
-            .where(AuthSession.user_id == user_id)
-            .order_by(AuthSession.updated_at.desc())
+            select(AuthSession).where(AuthSession.user_id == user_id).order_by(AuthSession.updated_at.desc())
         )
         return list(result.scalars().all())
 
@@ -181,8 +180,5 @@ class AuthSessionService(BaseService):
 
     async def _resolve_active_org(self, user_id: str) -> Optional[str]:
         """获取用户所属的首个组织"""
-        result = await self.db.execute(
-            select(Member.organization_id).where(Member.user_id == user_id).limit(1)
-        )
+        result = await self.db.execute(select(Member.organization_id).where(Member.user_id == user_id).limit(1))
         return result.scalar_one_or_none()
-

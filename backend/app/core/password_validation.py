@@ -1,6 +1,7 @@
 """
 密码强度验证
 """
+
 import re
 from typing import List, Tuple
 
@@ -24,7 +25,7 @@ def validate_password_strength(password: str) -> Tuple[bool, List[str]]:
     返回: (是否有效, 错误消息列表)
     """
     # 检查是否是 SHA-256 哈希值（64个十六进制字符）
-    if len(password) == 64 and all(c in '0123456789abcdef' for c in password.lower()):
+    if len(password) == 64 and all(c in "0123456789abcdef" for c in password.lower()):
         # 这是 SHA-256 哈希值，跳过验证
         return True, []
 
@@ -33,13 +34,13 @@ def validate_password_strength(password: str) -> Tuple[bool, List[str]]:
     if len(password) < 8:
         errors.append("Password must be at least 8 characters long")
 
-    if not re.search(r'[A-Z]', password):
+    if not re.search(r"[A-Z]", password):
         errors.append("Password must contain at least one uppercase letter")
 
-    if not re.search(r'[a-z]', password):
+    if not re.search(r"[a-z]", password):
         errors.append("Password must contain at least one lowercase letter")
 
-    if not re.search(r'\d', password):
+    if not re.search(r"\d", password):
         errors.append("Password must contain at least one number")
 
     if not re.search(r'[!@#$%^&*(),.?":{}|<>\[\]\\/_+=\-]', password):
@@ -54,8 +55,4 @@ def validate_password_or_raise(password: str) -> None:
     """
     is_valid, errors = validate_password_strength(password)
     if not is_valid:
-        raise BadRequestException(
-            "Password does not meet security requirements: " + "; ".join(errors)
-        )
-
-
+        raise BadRequestException("Password does not meet security requirements: " + "; ".join(errors))

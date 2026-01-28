@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class RustscanHandler(AbstractHandler):
     """Handler for rustscan functionality"""
 
@@ -13,8 +14,8 @@ class RustscanHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['rustscan']
+        """Handler related commands"""
+        return ["rustscan"]
 
     def handle(self, data: Dict) -> Any:
         """Execute rustscan with enhanced logging"""

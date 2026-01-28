@@ -7,6 +7,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class MetasploitHandler(AbstractHandler):
     """Handler for metasploit functionality"""
 
@@ -14,8 +15,8 @@ class MetasploitHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['msfconsole']
+        """Handler related commands"""
+        return ["msfconsole"]
 
     def handle(self, data: Dict) -> Any:
         """Execute metasploit with enhanced logging"""
@@ -24,11 +25,7 @@ class MetasploitHandler(AbstractHandler):
             options = data.get("options", {})
             if not module:
                 logger.warning("🚀 Metasploit called without module parameter")
-                return {
-
-                    "error": "Module parameter is required"
-
-                }
+                return {"error": "Module parameter is required"}
             resource_content = f"use {module}\n"
             for key, value in options.items():
                 resource_content += f"set {key} {value}\n"
@@ -47,8 +44,4 @@ class MetasploitHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in metasploit endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

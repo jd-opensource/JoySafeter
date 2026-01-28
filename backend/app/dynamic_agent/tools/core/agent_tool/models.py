@@ -30,6 +30,7 @@ class AgentResult(BaseModel):
 
 class AgentState(TypedDict):
     """State for ReAct agent loop."""
+
     messages: Annotated[List[BaseMessage], add_messages]
 
 
@@ -39,4 +40,3 @@ def _render_task(task_detail: str) -> str:
 
 
 __all__ = ["AgentResult", "AgentState", "_render_task"]
-

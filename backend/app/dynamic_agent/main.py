@@ -72,11 +72,13 @@ async def fetch_tools_from_mcp(session: ClientSession) -> List[Dict[str, Any]]:
     result = await session.list_tools()
     tools = []
     for tool in result.tools:
-        tools.append({
-            "name": tool.name,
-            "description": tool.description or "",
-            "input_schema": tool.inputSchema,
-        })
+        tools.append(
+            {
+                "name": tool.name,
+                "description": tool.description or "",
+                "input_schema": tool.inputSchema,
+            }
+        )
     return tools
 
 
@@ -94,11 +96,7 @@ async def init_storage():
             llm_provider = create_llm_instance()
             llm_provider.bind(parallel_tool_calls=False)
             storage = await asyncio.wait_for(
-                initialize_storage(
-                    docker_manager=docker_manager,
-                    llm_provider=llm_provider
-                ),
-                timeout=30
+                initialize_storage(docker_manager=docker_manager, llm_provider=llm_provider), timeout=30
             )
             logger.info("✅ Storage system initialized successfully")
         except asyncio.TimeoutError:
@@ -221,7 +219,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
     if storage is None:
         storage = await init_storage()
 
-    response_queue = metadata.get('response_queue')
+    response_queue = metadata.get("response_queue")
     session_id = metadata.get("langfuse_session_id", "default_session")
     user_id = metadata.get("langfuse_user_id", "default_user")
 
@@ -304,9 +302,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
 
     logger.debug("Calling storage.context.add_message for user message...")
     # Save user message immediately to get ID for task linking
-    user_message_id = await storage.context.add_message(
-        session_id, 'user', user_message, metadata
-    )
+    user_message_id = await storage.context.add_message(session_id, "user", user_message, metadata)
     logger.debug(f"User message saved, ID: {user_message_id}")
 
     # Create Task and get tracking handler
@@ -316,31 +312,31 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
 
     logger.debug("Calling task_manager.create_task()...")
     task_id, tracking_handler = await task_manager.create_task(
-        session_id=session_id,
-        user_input=user_message,
-        message_id=user_message_id,
-        metadata=metadata
+        session_id=session_id, user_input=user_message, message_id=user_message_id, metadata=metadata
     )
 
     # Add task_id and tracking handler to metadata so sub-agents can access them
-    metadata['task_id'] = task_id
-    metadata['tracking_handler'] = tracking_handler  # Singleton handler
+    metadata["task_id"] = task_id
+    metadata["tracking_handler"] = tracking_handler  # Singleton handler
 
     # Set metadata in context EARLY so task_id is available for tracking
     MetadataContext.set(metadata)
 
     # ✅ IMMEDIATELY notify streaming endpoint that task_id is ready (before tool loading)
-    if 'task_id_holder' in metadata and 'task_id_event' in metadata:
-        metadata['task_id_holder']['task_id'] = task_id
-        metadata['task_id_event'].set()
+    if "task_id_holder" in metadata and "task_id_event" in metadata:
+        metadata["task_id_holder"]["task_id"] = task_id
+        metadata["task_id_event"].set()
         logger.info(f"✅ Task created and event triggered immediately: {task_id}")
     else:
         logger.warning("⚠️ Cannot notify task_id - missing event/holder in metadata")
 
     # todo: more external mcp servers
     SERVER_CONFIGS = [
-        {"name": "seclens", "url": context.container_info.mcp_api,
-         "description": "enhanced basic toolkit for web security and more than that"},
+        {
+            "name": "seclens",
+            "url": context.container_info.mcp_api,
+            "description": "enhanced basic toolkit for web security and more than that",
+        },
         # {"name": "seclens", "url": "http://127.0.0.1:8000/sse"},
         # {"name": "serverB", "url": "http://127.0.0.1:8000/sse"},
     ]
@@ -370,25 +366,27 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
             logger.info("LangChain or pydantic not installed, skipping export.")
 
         tool_map = {}
-        tool_map.update({f'{tool.name}': tool for tool in mcp_tools})
+        tool_map.update({f"{tool.name}": tool for tool in mcp_tools})
 
         tool_registry.clear()
         for tool_name, tool in tool_map.items():
-            tool_registry.register(ToolMetadata(
-                name=tool_name,
-                category='default',
-                description=tool.description,
-
-                # todo add extra info to tool conf
-                # priority=conf.get('priority', ToolPriority.MEDIUM),
-                # keywords=conf.get('tags', set()),
-                keywords=set(),
-                # dependencies=conf.get('dependencies', set()),
-                # scenarios=conf.get('scenarios', set()),
-                scenarios=set(),
-                # cost_estimate=conf.get('cost_estimate', 5),
-                cost_estimate=5,
-            ), tool)
+            tool_registry.register(
+                ToolMetadata(
+                    name=tool_name,
+                    category="default",
+                    description=tool.description,
+                    # todo add extra info to tool conf
+                    # priority=conf.get('priority', ToolPriority.MEDIUM),
+                    # keywords=conf.get('tags', set()),
+                    keywords=set(),
+                    # dependencies=conf.get('dependencies', set()),
+                    # scenarios=conf.get('scenarios', set()),
+                    scenarios=set(),
+                    # cost_estimate=conf.get('cost_estimate', 5),
+                    cost_estimate=5,
+                ),
+                tool,
+            )
 
         # ------------------------------------------------------------------
         # Tools for Sub-Agent selection (used by agent_tool executor)
@@ -396,13 +394,15 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
         tools = [think_tool, valid_json_array, valid_json_dict, workspace_tool, get_current_time]
 
         base_tools.clear()
-        base_tools.extend([
-            *tools,
-            python_coder_tool,
-            knowledge_search,
-            # ask_human,
-            # *TODO_TOOLS,
-        ])
+        base_tools.extend(
+            [
+                *tools,
+                python_coder_tool,
+                knowledge_search,
+                # ask_human,
+                # *TODO_TOOLS,
+            ]
+        )
 
         base_tools_for_selection.clear()
         base_tools_for_selection.extend(
@@ -462,7 +462,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
             system_prompt = (
                 get_system_prompt_with_scene(scene="ctf")
                 if is_ctf
-                else get_system_prompt_with_scene(scene=metadata.get("mode", ''))
+                else get_system_prompt_with_scene(scene=metadata.get("mode", ""))
             )
 
             # Build final user message (optionally inject hints)
@@ -492,22 +492,22 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
                     "recursion_limit": int(os.getenv("AGENT_MAX_INTERACTIVE_STEPS", 64)),
                 },
             )
-            reply = result.get('messages')[-1].content
+            reply = result.get("messages")[-1].content
 
             # Mark task complete
             await task_manager.complete_task(task_id, result_summary=reply[:5000])
 
             # Save conversation to context(User message already saved)
-            await storage.context.add_message(session_id, 'assistant', reply)
+            await storage.context.add_message(session_id, "assistant", reply)
             logger.info("✓ Saved conversation to context")
 
             # Store important findings (if any)
             # todo
-            if any(keyword in reply.lower() for keyword in ['vulnerability', 'found', 'discovered', 'exploit']):
+            if any(keyword in reply.lower() for keyword in ["vulnerability", "found", "discovered", "exploit"]):
                 # Extract target from user message (simple heuristic)
                 target = "unknown"
                 for word in user_message.split():
-                    if ':' in word or '.' in word:
+                    if ":" in word or "." in word:
                         target = word
                         break
 
@@ -519,7 +519,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
                     importance=0.9,
                     tags=["finding", scenario],
                     category="security_assessment",
-                    source="agent_execution"
+                    source="agent_execution",
                 )
                 logger.info(f"✓ Stored security finding for {target}")
 
@@ -527,7 +527,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
             # Split reply into chunks for streaming (e.g., by sentences or fixed size)
             chunk_size = 500  # Characters per chunk
             for i in range(0, len(reply), chunk_size):
-                chunk = reply[i:i + chunk_size]
+                chunk = reply[i : i + chunk_size]
                 response_queue.put({"status": "success", "data": chunk})
                 logger.info(f"✓ Chunk {i // chunk_size + 1} put into queue: {len(chunk)} chars")
 
@@ -556,19 +556,12 @@ async def update_task_tools(task_id: uuid.UUID, task_manager: TaskManager, tool_
         # Extract tool names and descriptions
         tool_list = []
         for tool in tool_instances:
-            if hasattr(tool, 'name') and hasattr(tool, 'description'):
-                tool_list.append({
-                    'name': tool.name,
-                    'description': tool.description
-                })
+            if hasattr(tool, "name") and hasattr(tool, "description"):
+                tool_list.append({"name": tool.name, "description": tool.description})
 
         # Update task metadata with tools information
         await task_manager.update_task_metadata(
-            task_id=task_id,
-            metadata_updates={
-                'tools': tool_list,
-                'tools_count': len(tool_list)
-            }
+            task_id=task_id, metadata_updates={"tools": tool_list, "tools_count": len(tool_list)}
         )
         logger.info(f"Updated task {task_id} metadata with {len(tool_list)} tools")
     except Exception as e:
@@ -585,9 +578,7 @@ async def startup():
     if storage and storage.backend and storage.backend.task_dao:
         logger.info("Initializing tracking event processor...")
         tracking_processor = TrackingEventProcessor(
-            task_dao=storage.backend.task_dao,
-            batch_size=100,
-            flush_interval=1.0
+            task_dao=storage.backend.task_dao, batch_size=100, flush_interval=1.0
         )
         await tracking_processor.start()
         set_tracking_processor(tracking_processor)
@@ -602,6 +593,7 @@ async def shutdown():
 
     # Stop tracking event processor
     from app.dynamic_agent.observability.tracking_processor import get_tracking_processor
+
     tracking_processor = get_tracking_processor()
     if tracking_processor:
         logger.info("Stopping tracking event processor...")
@@ -625,7 +617,7 @@ async def do_main():
             "response_queue": response_queue_obj,
         }
 
-        say = input('Input task: ')
+        say = input("Input task: ")
         while True:
             try:
                 logger.info(f"\n{'=' * 60}")
@@ -657,7 +649,7 @@ async def do_main():
                         try:
                             response_data = await asyncio.wait_for(
                                 asyncio.to_thread(response_queue_obj.get, timeout=chunk_timeout),
-                                timeout=chunk_timeout + 1
+                                timeout=chunk_timeout + 1,
                             )
                         except asyncio.TimeoutError:
                             logger.warning(f"⏱️ Timeout waiting for chunk (timeout={chunk_timeout}s), continuing...")
@@ -680,18 +672,18 @@ async def do_main():
                             stream_complete = True
                             break
                         elif status == "success":
-                                if 'intermediate' == data_type:
+                            if "intermediate" == data_type:
                                 # Check if this is intermediate message or final reply chunk
                                 # Intermediate messages typically contain special markers like 🔧, 🟢, etc.
                                 # if any(marker in data for marker in ["🔧", "🟢", "thinking:", "Input:", "Output:"]):
-                                    intermediate_messages.append(data)
-                                    logger.info(f"✓ Intermediate: {len(data)} chars")
-                                    # print(f"\n[AGENT] {data}")
-                                else:
-                                    # Final reply chunk
-                                    reply_parts.append(data)
-                                    logger.info(f"✓ Reply chunk: {len(data)} chars")
-                                    # print(data, end='', flush=True)  # Real-time output
+                                intermediate_messages.append(data)
+                                logger.info(f"✓ Intermediate: {len(data)} chars")
+                                # print(f"\n[AGENT] {data}")
+                            else:
+                                # Final reply chunk
+                                reply_parts.append(data)
+                                logger.info(f"✓ Reply chunk: {len(data)} chars")
+                                # print(data, end='', flush=True)  # Real-time output
 
                     except Exception as e:
                         logger.error(f"❌ Unexpected error in stream loop: {e}")
@@ -709,8 +701,8 @@ async def do_main():
                 logger.info(f"Assistant: {reply[:200]}..." if len(reply) > 200 else f"Assistant: {reply}")
                 logger.info(f"{'=' * 60}\n")
 
-                say = input('You: ')
-                if not say or say.lower() in ['exit', 'quit', 'q']:
+                say = input("You: ")
+                if not say or say.lower() in ["exit", "quit", "q"]:
                     logger.info("\nGoodbye!")
                     break
             except KeyboardInterrupt:
@@ -719,11 +711,11 @@ async def do_main():
             except Exception as e:
                 logger.info(f"\n❌ Error: {e}")
                 traceback.print_exc()
-                say = input('You: ')
+                say = input("You: ")
     finally:
         # Always cleanup on exit
         await shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(do_main())

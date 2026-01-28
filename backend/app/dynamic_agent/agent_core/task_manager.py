@@ -68,10 +68,7 @@ class TaskManager:
             # Ideally create_task sets it to PENDING, we update to RUNNING immediately?
             # Or just rely on the agent to start. But tracking handler assumes task exists.
 
-            await self.task_dao.update_task(
-                task_id=task.id,
-                status=TaskStatus.RUNNING
-            )
+            await self.task_dao.update_task(task_id=task.id, status=TaskStatus.RUNNING)
 
             # Return singleton handler (uses MetadataContext for task_id)
             logger.info(f"Created task {task.id} for session {session_id}")
@@ -97,18 +94,14 @@ class TaskManager:
                 task_id=task_id,
                 status=TaskStatus.COMPLETED,
                 result_summary=result_summary,
-                completed_at=datetime.utcnow()
+                completed_at=datetime.utcnow(),
             )
             logger.info(f"Completed task {task_id}")
         except Exception as e:
             logger.error(f"Error completing task {task_id}: {e}", exc_info=True)
             raise
 
-    async def update_task_metadata(
-        self,
-        task_id: UUID,
-        metadata_updates: dict
-    ) -> None:
+    async def update_task_metadata(self, task_id: UUID, metadata_updates: dict) -> None:
         """Update task metadata by merging with existing metadata.
 
         Args:
@@ -116,10 +109,7 @@ class TaskManager:
             metadata_updates: Dictionary of metadata key-value pairs to add/update
         """
         try:
-            await self.task_dao.update_task_metadata(
-                task_id=task_id,
-                metadata_updates=metadata_updates
-            )
+            await self.task_dao.update_task_metadata(task_id=task_id, metadata_updates=metadata_updates)
             logger.info(f"Updated metadata for task {task_id}")
         except Exception as e:
             logger.error(f"Error updating metadata for task {task_id}: {e}", exc_info=True)
@@ -138,10 +128,7 @@ class TaskManager:
         """
         try:
             await self.task_dao.update_task(
-                task_id=task_id,
-                status=TaskStatus.FAILED,
-                result_summary=error_message,
-                completed_at=datetime.utcnow()
+                task_id=task_id, status=TaskStatus.FAILED, result_summary=error_message, completed_at=datetime.utcnow()
             )
             logger.error(f"Task {task_id} failed: {error_message}")
         except Exception as e:

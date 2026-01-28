@@ -176,6 +176,7 @@ class CodeAgent:
         Returns:
             A callable that invokes the agent.
         """
+
         async def agent_tool(task: str, additional_args: dict | None = None) -> Any:
             """
             Call a managed sub-agent.
@@ -377,9 +378,7 @@ class CodeAgent:
 
                 # Validate final answer
                 if event.event_type == "final_answer" and self.final_answer_checks:
-                    is_valid, error_msg = self._validate_final_answer(
-                        event.content, self._loop.memory
-                    )
+                    is_valid, error_msg = self._validate_final_answer(event.content, self._loop.memory)
                     if not is_valid:
                         yield StepEvent(
                             event_type="error",
@@ -443,10 +442,7 @@ class CodeAgent:
         return self.monitor.get_summary()
 
     def __repr__(self) -> str:
-        return (
-            f"CodeAgent(name='{self.name}', tools={len(self._tools)}, "
-            f"managed_agents={len(self.managed_agents)})"
-        )
+        return f"CodeAgent(name='{self.name}', tools={len(self._tools)}, managed_agents={len(self.managed_agents)})"
 
 
 def get_code_agent(
@@ -469,6 +465,7 @@ def get_code_agent(
     """
     if llm is None:
         from .loop import create_simple_llm_call
+
         llm = create_simple_llm_call(model_name)
 
     return CodeAgent(llm=llm, tools=tools, **kwargs)
@@ -511,6 +508,7 @@ class DataAnalysisAgent(CodeAgent):
         def describe_dataframe(df) -> str:
             """Get a comprehensive description of a DataFrame."""
             import io
+
             buffer = io.StringIO()
             buffer.write(f"Shape: {df.shape}\n\n")
             buffer.write("Columns:\n")
@@ -524,6 +522,7 @@ class DataAnalysisAgent(CodeAgent):
         def save_plot(fig, filename: str) -> str:
             """Save a matplotlib figure to file."""
             import os
+
             output_dir = "/tmp/plots"
             os.makedirs(output_dir, exist_ok=True)
             filepath = os.path.join(output_dir, filename)
@@ -539,4 +538,3 @@ __all__ = [
     "get_code_agent",
     "DataAnalysisAgent",
 ]
-

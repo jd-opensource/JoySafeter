@@ -1,4 +1,3 @@
 """
 Alembic migrations
 """
-

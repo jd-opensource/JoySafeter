@@ -14,8 +14,8 @@ class DnsenumHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['dnsenum']
+        """Handler related commands"""
+        return ["dnsenum"]
 
     def handle(self, data: Dict) -> Any:
         """Execute dnsenum with enhanced logging"""
@@ -26,11 +26,7 @@ class DnsenumHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not domain:
                 logger.warning("🌐 DNSenum called without domain parameter")
-                return {
-
-                    "error": "Domain parameter is required"
-
-                }
+                return {"error": "Domain parameter is required"}
             command = f"dnsenum {domain}"
             if dns_server:
                 command += f" --dnsserver {dns_server}"
@@ -44,8 +40,4 @@ class DnsenumHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in dnsenum endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

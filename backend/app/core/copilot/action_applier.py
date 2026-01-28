@@ -148,10 +148,7 @@ def apply_actions_to_graph_state(
 
                 if source and target:
                     # Check if edge already exists
-                    edge_exists = any(
-                        e.get("source") == source and e.get("target") == target
-                        for e in processed_edges
-                    )
+                    edge_exists = any(e.get("source") == source and e.get("target") == target for e in processed_edges)
 
                     if not edge_exists:
                         # Create edge in format expected by GraphService.save_graph_state
@@ -177,9 +174,7 @@ def apply_actions_to_graph_state(
 
                     # Remove edges connected to this node
                     processed_edges = [
-                        e
-                        for e in processed_edges
-                        if e.get("source") != node_id and e.get("target") != node_id
+                        e for e in processed_edges if e.get("source") != node_id and e.get("target") != node_id
                     ]
 
                     logger.debug(f"[ActionApplier] Deleted node: {node_id}")

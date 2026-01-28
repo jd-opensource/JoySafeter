@@ -129,9 +129,7 @@ def build_copilot_system_prompt(
     node_map = {node["id"]: node for node in normalized_nodes}
 
     # Generate structured topology description
-    topology_description = generate_topology_description(
-        normalized_nodes, topology, node_map
-    )
+    topology_description = generate_topology_description(normalized_nodes, topology, node_map)
 
     # Build available models summary for context
     models_summary = _build_models_summary(available_models or [])
@@ -140,10 +138,7 @@ def build_copilot_system_prompt(
     current_time = datetime.utcnow().isoformat()
 
     # Detect if graph has DeepAgents (to conditionally load those instructions)
-    has_deep_agents = any(
-        node.get("config", {}).get("useDeepAgents", False)
-        for node in normalized_nodes
-    )
+    has_deep_agents = any(node.get("config", {}).get("useDeepAgents", False) for node in normalized_nodes)
 
     # Build optimized prompt with direct values
     return _get_optimized_system_prompt(
@@ -159,10 +154,7 @@ def build_copilot_system_prompt(
     )
 
 
-def _build_simplified_node_data(
-    normalized_nodes: List[Dict],
-    topology: Dict[str, Any]
-) -> List[Dict[str, Any]]:
+def _build_simplified_node_data(normalized_nodes: List[Dict], topology: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Build simplified context data for each node.
     Only includes essential information for decision making.
@@ -259,7 +251,9 @@ def _get_optimized_system_prompt(
     """
     # Build node list string (simplified)
     nodes_str = json.dumps(existing_nodes, indent=2, ensure_ascii=False) if existing_nodes else "[]"
-    edges_str = json.dumps([{"source": e.get("source"), "target": e.get("target")} for e in edges], indent=2) if edges else "[]"
+    edges_str = (
+        json.dumps([{"source": e.get("source"), "target": e.get("target")} for e in edges], indent=2) if edges else "[]"
+    )
 
     # Build model list (simplified)
     model_names = [m["name"] for m in models_summary.get("models", [])][:5]
@@ -288,7 +282,7 @@ Decision Rule:
 <context>
 Next Position: x={next_position_x}, y={next_position_y}
 Default Model: {default_model}
-Available Models: {', '.join(model_names[:3]) if model_names else 'system default'}
+Available Models: {", ".join(model_names[:3]) if model_names else "system default"}
 Note: For DeepAgents workflows, use pre-calculated positions from <position-calculation> section below.
 </context>
 
@@ -332,19 +326,30 @@ Note: Parameter name in create_node tool is "use_deep_agents" (maps to useDeepAg
 
     # Pre-calculate DeepAgents positions using unified function (1 Manager + 3 SubAgents example)
     deepagents_positions = calculate_positions_for_deepagents(
-        base_x=next_position_x,
-        base_y=next_position_y,
-        manager_count=1,
-        subagent_count=3,
-        x_spacing=250,
-        y_spacing=150
+        base_x=next_position_x, base_y=next_position_y, manager_count=1, subagent_count=3, x_spacing=250, y_spacing=150
     )
 
     # Extract calculated positions (use unified function results, no hardcoded fallbacks)
-    manager_pos = deepagents_positions["manager"][0] if deepagents_positions["manager"] else {"x": next_position_x, "y": next_position_y}
-    subagent1_pos = deepagents_positions["subagents"][0] if len(deepagents_positions["subagents"]) > 0 else {"x": next_position_x + 250, "y": next_position_y}
-    subagent2_pos = deepagents_positions["subagents"][1] if len(deepagents_positions["subagents"]) > 1 else {"x": next_position_x + 250, "y": next_position_y + 150}
-    subagent3_pos = deepagents_positions["subagents"][2] if len(deepagents_positions["subagents"]) > 2 else {"x": next_position_x + 250, "y": next_position_y + 300}
+    manager_pos = (
+        deepagents_positions["manager"][0]
+        if deepagents_positions["manager"]
+        else {"x": next_position_x, "y": next_position_y}
+    )
+    subagent1_pos = (
+        deepagents_positions["subagents"][0]
+        if len(deepagents_positions["subagents"]) > 0
+        else {"x": next_position_x + 250, "y": next_position_y}
+    )
+    subagent2_pos = (
+        deepagents_positions["subagents"][1]
+        if len(deepagents_positions["subagents"]) > 1
+        else {"x": next_position_x + 250, "y": next_position_y + 150}
+    )
+    subagent3_pos = (
+        deepagents_positions["subagents"][2]
+        if len(deepagents_positions["subagents"]) > 2
+        else {"x": next_position_x + 250, "y": next_position_y + 300}
+    )
 
     # Execution workflow - Optimized with clear algorithms
     prompt += f"""
@@ -365,11 +370,11 @@ Apply decision rule from <system-reminder>:
 
 <position-calculation>
 Pre-calculated positions for DeepAgents workflow (1 Manager + 3 SubAgents example):
-Manager: x={manager_pos['x']}, y={manager_pos['y']}
-SubAgent1: x={subagent1_pos['x']}, y={subagent1_pos['y']}
-SubAgent2: x={subagent2_pos['x']}, y={subagent2_pos['y']}
-SubAgent3: x={subagent3_pos['x']}, y={subagent3_pos['y']}
-Pattern: Additional SubAgents continue vertically: y + 150 for each next SubAgent (x remains {subagent1_pos['x']})
+Manager: x={manager_pos["x"]}, y={manager_pos["y"]}
+SubAgent1: x={subagent1_pos["x"]}, y={subagent1_pos["y"]}
+SubAgent2: x={subagent2_pos["x"]}, y={subagent2_pos["y"]}
+SubAgent3: x={subagent3_pos["x"]}, y={subagent3_pos["y"]}
+Pattern: Additional SubAgents continue vertically: y + 150 for each next SubAgent (x remains {subagent1_pos["x"]})
 For single nodes (non-DeepAgents): Use nextPosition from <context> section above.
 </position-calculation>
 

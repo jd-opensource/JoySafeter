@@ -23,31 +23,25 @@ DANGEROUS_PATTERNS = [
     (r"\bimport\s+sys\b", "sys module import"),
     (r"\bimport\s+socket\b", "socket module import"),
     (r"\bimport\s+shutil\b", "shutil module import"),
-
     # File operations with write mode
     (r"\bopen\s*\([^)]*['\"][wa]", "file write operation"),
     (r"\bopen\s*\([^)]*mode\s*=\s*['\"][wa]", "file write operation"),
-
     # Network requests
     (r"\brequests\.", "requests library usage"),
     (r"\burllib\.", "urllib library usage"),
     (r"\bhttpx\.", "httpx library usage"),
     (r"\baiohttp\.", "aiohttp library usage"),
-
     # Code execution
     (r"\beval\s*\(", "eval() call"),
     (r"\bexec\s*\(", "exec() call"),
     (r"\bcompile\s*\(", "compile() call"),
     (r"\b__import__\s*\(", "__import__() call"),
-
     # Shell commands
     (r"\bos\.system\s*\(", "os.system() call"),
     (r"\bos\.popen\s*\(", "os.popen() call"),
     (r"\bsubprocess\.", "subprocess usage"),
-
     # Dunder access
     (r"__\w+__\s*(?:\[|\.)", "dunder attribute access"),
-
     # Pickle (arbitrary code execution)
     (r"\bpickle\.load", "pickle deserialization"),
     (r"\bcPickle\.load", "pickle deserialization"),
@@ -69,6 +63,7 @@ DATA_ANALYSIS_PATTERNS = [
 
 class SecurityError(Exception):
     """Exception raised when dangerous code is detected."""
+
     pass
 
 
@@ -151,10 +146,7 @@ class ExecutorRouter:
                 dangers.append(description)
 
         # Check for data analysis (considered safe)
-        is_data_analysis = any(
-            re.search(pattern, code, re.IGNORECASE)
-            for pattern in DATA_ANALYSIS_PATTERNS
-        )
+        is_data_analysis = any(re.search(pattern, code, re.IGNORECASE) for pattern in DATA_ANALYSIS_PATTERNS)
 
         return {
             "is_dangerous": len(dangers) > 0,
@@ -302,6 +294,7 @@ def create_router(
     if enable_docker:
         try:
             from .docker_executor import DockerPythonExecutor
+
             docker = DockerPythonExecutor(**(docker_kwargs or {}))
         except Exception as e:
             logger.warning(f"Failed to initialize Docker executor: {e}")
@@ -321,4 +314,3 @@ __all__ = [
     "DANGEROUS_PATTERNS",
     "DATA_ANALYSIS_PATTERNS",
 ]
-

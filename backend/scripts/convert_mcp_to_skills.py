@@ -14,32 +14,30 @@ import yaml
 # 分类优化映射
 CATEGORY_OPTIMIZATION = {
     # === 合并单工具类别 ===
-    'sqli': 'web_security',
-    'parameter_discovery': 'web_security',
-    'penetration_testing': 'attack',
-    'cryptographic_vulnerability': 'attack',
-    'data_security': 'forensics',
-
+    "sqli": "web_security",
+    "parameter_discovery": "web_security",
+    "penetration_testing": "attack",
+    "cryptographic_vulnerability": "attack",
+    "data_security": "forensics",
     # === 修正命名 ===
-    'bugbounty': 'bug_bounty',
-
+    "bugbounty": "bug_bounty",
     # === 移动错位工具 ===
-    'wpscan_analyze': 'web_security',
-    'burpsuite_alternative_scan': 'web_security',
-    'anew_data_processing': 'data_processing',
-    'dirsearch_scan': 'web_security',
-    'feroxbuster_scan': 'web_security',
-    'wafw00f_scan': 'web_security',
-    'dotdotpwn_scan': 'web_security',
-    'dirb_scan': 'web_security',
-    'gobuster_scan': 'web_security',
-    'ffuf_scan': 'web_security',
-    'amass_scan': 'subdomain_discovery',
-    'subfinder_scan': 'subdomain_discovery',
-    'fierce_scan': 'subdomain_discovery',
-    'uro_url_filtering': 'data_processing',
-    'qsreplace_parameter_replacement': 'data_processing',
-    'x8_parameter_discovery': 'parameter_discovery',
+    "wpscan_analyze": "web_security",
+    "burpsuite_alternative_scan": "web_security",
+    "anew_data_processing": "data_processing",
+    "dirsearch_scan": "web_security",
+    "feroxbuster_scan": "web_security",
+    "wafw00f_scan": "web_security",
+    "dotdotpwn_scan": "web_security",
+    "dirb_scan": "web_security",
+    "gobuster_scan": "web_security",
+    "ffuf_scan": "web_security",
+    "amass_scan": "subdomain_discovery",
+    "subfinder_scan": "subdomain_discovery",
+    "fierce_scan": "subdomain_discovery",
+    "uro_url_filtering": "data_processing",
+    "qsreplace_parameter_replacement": "data_processing",
+    "x8_parameter_discovery": "parameter_discovery",
 }
 
 
@@ -55,14 +53,14 @@ def get_optimized_category(category: str, tool_name: str) -> str:
 
 def load_yaml_config(yaml_path: Path) -> dict:
     """加载 YAML 配置"""
-    with open(yaml_path, 'r', encoding='utf-8') as f:
+    with open(yaml_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def read_file_content(file_path: Path) -> str:
     """读取文件内容"""
     if file_path.exists():
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
     return ""
 
@@ -70,15 +68,15 @@ def read_file_content(file_path: Path) -> str:
 def generate_manifest_md(config: dict, category: str) -> str:
     """生成符合前端格式的 manifest.md"""
 
-    tool_name = config.get('name', 'unknown')
-    tags = config.get('tags', [])
+    tool_name = config.get("name", "unknown")
+    tags = config.get("tags", [])
 
     # 从 parameters 推断 capabilities
-    parameters = config.get('parameters', [])
+    parameters = config.get("parameters", [])
     capabilities = []
     for param in parameters:
-        param_name = param.get('name', '')
-        capabilities.append(param_name.replace('_', '-'))
+        param_name = param.get("name", "")
+        capabilities.append(param_name.replace("_", "-"))
 
     # 如果没有参数，从 tags 推断
     if not capabilities and tags:
@@ -92,9 +90,9 @@ category: {category}
 tags: {tags}
 ---
 
-# {tool_name.replace('_', ' ').title()}
+# {tool_name.replace("_", " ").title()}
 
-{config.get('description', 'No description available.')}
+{config.get("description", "No description available.")}
 
 ## Parameters
 """
@@ -102,8 +100,8 @@ tags: {tags}
     # 添加参数说明
     if parameters:
         for param in parameters:
-            required = "Required" if param.get('required') else "Optional"
-            default = f" (default: {param.get('default', '')})" if param.get('default') else ""
+            required = "Required" if param.get("required") else "Optional"
+            default = f" (default: {param.get('default', '')})" if param.get("default") else ""
             yaml_front += f"- **{param.get('name')}** ({param.get('type')}, {required}){default}: {param.get('description', '')}\n"
     else:
         yaml_front += "\nNo parameters required.\n"
@@ -115,9 +113,9 @@ tags: {tags}
 
 This tool is part of the {category} category.
 
-**Endpoint:** `{config.get('endpoint', 'N/A')}`
+**Endpoint:** `{config.get("endpoint", "N/A")}`
 
-**Returns:** {config.get('returns', 'Execution results')}
+**Returns:** {config.get("returns", "Execution results")}
 
 ## Files Included
 
@@ -132,11 +130,7 @@ This tool is part of the {category} category.
     return yaml_front
 
 
-def convert_mcp_tool_to_skill(
-    yaml_path: Path,
-    handlers_dir: Path,
-    optimize_category: bool = True
-) -> Optional[dict]:
+def convert_mcp_tool_to_skill(yaml_path: Path, handlers_dir: Path, optimize_category: bool = True) -> Optional[dict]:
     """转换单个 MCP 工具为 Skill（修正版：生成 manifest.md）"""
 
     try:
@@ -144,8 +138,8 @@ def convert_mcp_tool_to_skill(
         config = load_yaml_config(yaml_path)
 
         # 2. 基本信息
-        tool_name = config.get('name', yaml_path.stem)
-        original_category = config.get('category', 'general')
+        tool_name = config.get("name", yaml_path.stem)
+        original_category = config.get("category", "general")
 
         # 3. 应用分类优化
         if optimize_category:
@@ -161,50 +155,34 @@ def convert_mcp_tool_to_skill(
         base_name = yaml_path.stem
 
         # manifest.md（新生成，放第一位）
-        files.append({
-            "name": "manifest.md",
-            "content": manifest_content,
-            "language": "markdown"
-        })
+        files.append({"name": "manifest.md", "content": manifest_content, "language": "markdown"})
 
         # YAML 文件（保留原始配置）
         yaml_content = read_file_content(yaml_path)
-        files.append({
-            "name": f"{base_name}.yaml",
-            "content": yaml_content,
-            "language": "yaml"
-        })
+        files.append({"name": f"{base_name}.yaml", "content": yaml_content, "language": "yaml"})
 
         # Python 文件（如果存在）
         py_path = yaml_path.parent / f"{base_name}.py"
         if py_path.exists():
             py_content = read_file_content(py_path)
-            files.append({
-                "name": f"{base_name}.py",
-                "content": py_content,
-                "language": "python"
-            })
+            files.append({"name": f"{base_name}.py", "content": py_content, "language": "python"})
 
         # Markdown 文件（如果存在）
         md_path = yaml_path.parent / f"{base_name}.md"
         md_content = read_file_content(md_path)
         if md_content:
-            files.append({
-                "name": f"{base_name}.md",
-                "content": md_content,
-                "language": "markdown"
-            })
+            files.append({"name": f"{base_name}.md", "content": md_content, "language": "markdown"})
 
         # 6. 构建 Skill
         skill = {
             "id": f"{category}-{tool_name}",
-            "name": tool_name.replace('_', ' ').title(),
-            "description": config.get('description', ''),
-            "license": config.get('license', 'MIT'),
+            "name": tool_name.replace("_", " ").title(),
+            "description": config.get("description", ""),
+            "license": config.get("license", "MIT"),
             "content": manifest_content,  # manifest.md 内容
             "files": files,
             "source": "mcp",
-            "updatedAt": int(datetime.now().timestamp() * 1000)
+            "updatedAt": int(datetime.now().timestamp() * 1000),
         }
 
         return skill
@@ -220,7 +198,7 @@ def scan_and_convert(
     categories: Optional[List[str]] = None,
     max_tools: Optional[int] = None,
     optimize_category: bool = True,
-    show_category_report: bool = True
+    show_category_report: bool = True,
 ) -> dict:
     """扫描并转换 MCP 工具"""
 
@@ -230,12 +208,12 @@ def scan_and_convert(
 
     # 核心类别
     CORE_CATEGORIES = [
-        'web_security',
-        'network_scanning',
-        'binary_analysis',
-        'container_security',
-        'vulnerability_scanning',
-        'authentication_testing'
+        "web_security",
+        "network_scanning",
+        "binary_analysis",
+        "container_security",
+        "vulnerability_scanning",
+        "authentication_testing",
     ]
 
     target_categories = categories or CORE_CATEGORIES
@@ -257,7 +235,7 @@ def scan_and_convert(
         category = category_dir.name
 
         # 跳过特殊目录
-        if category in ['attack_strategy', 'strategy', 'scenarios', 'knowledge']:
+        if category in ["attack_strategy", "strategy", "scenarios", "knowledge"]:
             continue
 
         # 过滤类别
@@ -282,7 +260,7 @@ def scan_and_convert(
                 # 记录分类变化
                 tool_name = yaml_path.stem
                 original_cat = category
-                optimized_cat = skill['id'].split('-')[0]
+                optimized_cat = skill["id"].split("-")[0]
 
                 if optimize_category and original_cat != optimized_cat:
                     if original_cat not in category_changes:
@@ -291,7 +269,9 @@ def scan_and_convert(
                         category_changes[original_cat][optimized_cat] = []
                     category_changes[original_cat][optimized_cat].append(tool_name)
 
-                print(f"  ✓ {skill['id']}{' ← ' + original_cat if optimize_category and original_cat != optimized_cat else ''}")
+                print(
+                    f"  ✓ {skill['id']}{' ← ' + original_cat if optimize_category and original_cat != optimized_cat else ''}"
+                )
 
         if max_tools and len(skills) >= max_tools:
             break
@@ -301,13 +281,13 @@ def scan_and_convert(
         "skills": skills,
         "total": len(skills),
         "scanned": total_scanned,
-        "categories": list(set(s['id'].split('-')[0] for s in skills)),
-        "generated_at": datetime.now().isoformat()
+        "categories": list(set(s["id"].split("-")[0] for s in skills)),
+        "generated_at": datetime.now().isoformat(),
     }
 
     # 保存到文件
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_file, 'w', encoding='utf-8') as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
     print("\n" + "=" * 60)
@@ -333,7 +313,7 @@ def scan_and_convert(
     return result
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import sys
 
     # 配置路径
@@ -349,18 +329,18 @@ if __name__ == '__main__':
 
     if len(sys.argv) > 1:
         for arg in sys.argv[1:]:
-            if arg.startswith('--categories='):
-                categories = arg.split('=')[1].split(',')
-            elif arg.startswith('--max='):
-                max_tools = int(arg.split('=')[1])
-            elif arg == '--all':
+            if arg.startswith("--categories="):
+                categories = arg.split("=")[1].split(",")
+            elif arg.startswith("--max="):
+                max_tools = int(arg.split("=")[1])
+            elif arg == "--all":
                 categories = None
                 max_tools = None
-            elif arg == '--no-optimize':
+            elif arg == "--no-optimize":
                 optimize_category = False
-            elif arg == '--no-report':
+            elif arg == "--no-report":
                 show_report = False
-            elif arg == '--help':
+            elif arg == "--help":
                 print("用法: python convert_mcp_to_skills.py [选项]")
                 print("\n选项:")
                 print("  --categories=CATS    指定类别（逗号分隔）")

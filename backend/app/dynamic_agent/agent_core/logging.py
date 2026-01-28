@@ -38,11 +38,7 @@ class StructuredLogger:
     Can integrate with Sentry, Statsig, or other observability platforms.
     """
 
-    def __init__(
-        self,
-        sentry_dsn: Optional[str] = None,
-        statsig_key: Optional[str] = None
-    ):
+    def __init__(self, sentry_dsn: Optional[str] = None, statsig_key: Optional[str] = None):
         """
         Initialize structured logger.
 
@@ -58,6 +54,7 @@ class StructuredLogger:
         if sentry_dsn:
             try:
                 import sentry_sdk
+
                 sentry_sdk.init(dsn=sentry_dsn)
             except ImportError:
                 self.logger.warning("sentry_sdk not installed, skipping Sentry init")
@@ -78,6 +75,7 @@ class StructuredLogger:
         if self.sentry_dsn:
             try:
                 import sentry_sdk
+
                 sentry_sdk.capture_exception(err)
             except ImportError:
                 pass
@@ -94,12 +92,8 @@ class StructuredLogger:
 
             Path(path).parent.mkdir(parents=True, exist_ok=True)
 
-            with open(path, 'w') as f:
-                json.dump(
-                    [msg.model_dump() if hasattr(msg, 'model_dump') else msg for msg in messages],
-                    f,
-                    indent=2
-                )
+            with open(path, "w") as f:
+                json.dump([msg.model_dump() if hasattr(msg, "model_dump") else msg for msg in messages], f, indent=2)
         except Exception as e:
             self.logger.error("Failed to write sidechain log", error=str(e))
 
@@ -133,11 +127,8 @@ class NodeBridgeLogger:
         try:
             # Send to Node asynchronously (fire and forget)
             import asyncio
-            asyncio.create_task(self.send_to_node({
-                "type": "event",
-                "name": name,
-                "props": props or {}
-            }))
+
+            asyncio.create_task(self.send_to_node({"type": "event", "name": name, "props": props or {}}))
         except Exception:
             pass
 
@@ -147,10 +138,8 @@ class NodeBridgeLogger:
 
         try:
             import asyncio
-            asyncio.create_task(self.send_to_node({
-                "type": "error",
-                "error": str(err)
-            }))
+
+            asyncio.create_task(self.send_to_node({"type": "error", "error": str(err)}))
         except Exception:
             pass
 
@@ -162,13 +151,15 @@ class NodeBridgeLogger:
         """Delegate sidechain writing to Node."""
         try:
             import asyncio
-            asyncio.create_task(self.send_to_node({
-                "type": "write_sidechain",
-                "path": path,
-                "messages": [
-                    msg.model_dump() if hasattr(msg, 'model_dump') else msg
-                    for msg in messages
-                ]
-            }))
+
+            asyncio.create_task(
+                self.send_to_node(
+                    {
+                        "type": "write_sidechain",
+                        "path": path,
+                        "messages": [msg.model_dump() if hasattr(msg, "model_dump") else msg for msg in messages],
+                    }
+                )
+            )
         except Exception:
             pass

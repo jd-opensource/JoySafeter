@@ -13,13 +13,13 @@ class CveMonitorHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
+        """Handler related commands"""
         return []
 
     def handle(self, data: Dict) -> Any:
-        target_environment = data.get('target_environment')
-        threat_indicators = data.get('threat_indicators', 'general')
-        hunt_focus = data.get('hunt_focus', 'general')
+        target_environment = data.get("target_environment")
+        threat_indicators = data.get("threat_indicators", "general")
+        hunt_focus = data.get("hunt_focus", "general")
 
         valid_hunt_focus = ["general", "apt", "ransomware", "insider_threat", "supply_chain"]
         if hunt_focus not in valid_hunt_focus:
@@ -38,7 +38,7 @@ class CveMonitorHandler(AbstractHandler):
             "detection_queries": [],
             "investigation_steps": [],
             "threat_scenarios": [],
-            "mitigation_strategies": []
+            "mitigation_strategies": [],
         }
 
         # Environment-specific detection queries
@@ -47,14 +47,14 @@ class CveMonitorHandler(AbstractHandler):
                 "Get-WinEvent | Where-Object {$_.Id -eq 4688 -and $_.Message -like '*suspicious*'}",
                 "Get-Process | Where-Object {$_.ProcessName -notin @('explorer.exe', 'svchost.exe')}",
                 "Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                "Get-NetTCPConnection | Where-Object {$_.State -eq 'Established' -and $_.RemoteAddress -notlike '10.*'}"
+                "Get-NetTCPConnection | Where-Object {$_.State -eq 'Established' -and $_.RemoteAddress -notlike '10.*'}",
             ]
         elif "cloud" in target_environment.lower():
             hunting_playbook["detection_queries"] = [
                 "CloudTrail logs for unusual API calls",
                 "Failed authentication attempts from unknown IPs",
                 "Privilege escalation events",
-                "Data exfiltration indicators"
+                "Data exfiltration indicators",
             ]
 
         # Focus-specific threat scenarios
@@ -63,28 +63,31 @@ class CveMonitorHandler(AbstractHandler):
                 "Spear phishing with weaponized documents",
                 "Living-off-the-land techniques",
                 "Lateral movement via stolen credentials",
-                "Data staging and exfiltration"
+                "Data staging and exfiltration",
             ],
             "ransomware": [
                 "Initial access via RDP/VPN",
                 "Privilege escalation and persistence",
                 "Shadow copy deletion",
-                "Encryption and ransom note deployment"
+                "Encryption and ransom note deployment",
             ],
             "insider_threat": [
                 "Unusual data access patterns",
                 "After-hours activity",
                 "Large data downloads",
-                "Access to sensitive systems"
-            ]
+                "Access to sensitive systems",
+            ],
         }
 
-        hunting_playbook["threat_scenarios"] = focus_scenarios.get(hunt_focus, [
-            "Unauthorized access attempts",
-            "Suspicious process execution",
-            "Network anomalies",
-            "Data access violations"
-        ])
+        hunting_playbook["threat_scenarios"] = focus_scenarios.get(
+            hunt_focus,
+            [
+                "Unauthorized access attempts",
+                "Suspicious process execution",
+                "Network anomalies",
+                "Data access violations",
+            ],
+        )
 
         # Investigation steps
         hunting_playbook["investigation_steps"] = [
@@ -94,7 +97,7 @@ class CveMonitorHandler(AbstractHandler):
             "4. Identify affected systems and user accounts",
             "5. Assess scope and impact of potential compromise",
             "6. Implement containment measures if threat confirmed",
-            "7. Document findings and update detection rules"
+            "7. Document findings and update detection rules",
         ]
 
         # todo
@@ -107,7 +110,4 @@ class CveMonitorHandler(AbstractHandler):
         #         hunting_playbook["threat_correlation"] = correlation_result.get("threat_intelligence", {})
 
         logger.info("✅ Threat hunting playbook generated")
-        return {
-            "success": True,
-            "hunting_playbook": hunting_playbook
-        }
+        return {"success": True, "hunting_playbook": hunting_playbook}

@@ -6,5 +6,6 @@ class TaggingMiddleware(AgentMiddleware):
 
     def __init__(self, tag: str):
         self.tag = tag
+
     def wrap_model_call(self, request, handler):
         return handler(request.override(tags=[self.tag]))

@@ -7,14 +7,17 @@ MCP 相关的 Pydantic Schemas
 - ToolInfo/ToolResponse: 工具信息
 - ConnectionTestResult: 连接测试结果
 """
+
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 # ==================== MCP Server ====================
 
+
 class McpServerCreate(BaseModel):
     """创建 MCP 服务器（用户级别）"""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     transport: str = "streamable-http"
@@ -27,6 +30,7 @@ class McpServerCreate(BaseModel):
 
 class McpServerUpdate(BaseModel):
     """更新 MCP 服务器"""
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     transport: Optional[str] = None
@@ -39,6 +43,7 @@ class McpServerUpdate(BaseModel):
 
 class McpServerResponse(BaseModel):
     """MCP 服务器响应"""
+
     id: str
     name: str
     description: Optional[str] = None
@@ -79,8 +84,10 @@ class McpServerResponse(BaseModel):
 
 # ==================== Connection Test ====================
 
+
 class ConnectionTestResult(BaseModel):
     """连接测试结果"""
+
     success: bool
     message: str = ""
     tool_count: int = 0
@@ -90,12 +97,14 @@ class ConnectionTestResult(BaseModel):
 
 # ==================== Tool Info ====================
 
+
 class ToolInfo(BaseModel):
     """
     工具信息 (Service 层)
 
     包含所有权信息，用于权限控制
     """
+
     id: str
     name: str
     label_name: Optional[str] = None
@@ -130,6 +139,7 @@ class ToolInfo(BaseModel):
 
 class ToolResponse(BaseModel):
     """工具响应 (API 层)"""
+
     id: str
     label: str
     name: str

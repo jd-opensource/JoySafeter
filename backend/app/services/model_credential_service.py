@@ -1,6 +1,7 @@
 """
 模型凭据服务
 """
+
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -85,15 +86,17 @@ class ModelCredentialService(BaseService):
             credential = existing
         else:
             # 创建新凭据
-            credential = await self.repo.create({
-                "user_id": user_id,
-                "workspace_id": workspace_id,
-                "provider_id": provider.id,
-                "credentials": encrypted_credentials,
-                "is_valid": is_valid,
-                "last_validated_at": datetime.now(timezone.utc) if is_valid else None,
-                "validation_error": validation_error,
-            })
+            credential = await self.repo.create(
+                {
+                    "user_id": user_id,
+                    "workspace_id": workspace_id,
+                    "provider_id": provider.id,
+                    "credentials": encrypted_credentials,
+                    "is_valid": is_valid,
+                    "last_validated_at": datetime.now(timezone.utc) if is_valid else None,
+                    "validation_error": validation_error,
+                }
+            )
 
         # 创建凭据后，自动为该 provider 的所有模型创建全局模型实例记录（如果不存在）
         await self._ensure_model_instances(provider)
@@ -129,12 +132,16 @@ class ModelCredentialService(BaseService):
                 )
 
                 if credentials:
-                    set_default_model_config({
-                        "model": default_instance.model_name,
-                        "api_key": credentials.get("api_key", ""),
-                        "base_url": credentials.get("base_url"),
-                        "timeout": default_instance.model_parameters.get("timeout", 30) if default_instance.model_parameters else 30,
-                    })
+                    set_default_model_config(
+                        {
+                            "model": default_instance.model_name,
+                            "api_key": credentials.get("api_key", ""),
+                            "base_url": credentials.get("base_url"),
+                            "timeout": default_instance.model_parameters.get("timeout", 30)
+                            if default_instance.model_parameters
+                            else 30,
+                        }
+                    )
         except Exception as e:
             # 缓存更新失败不影响主要功能，只记录日志
             print(f"Warning: Failed to update default model cache after credential change: {e}")
@@ -164,14 +171,16 @@ class ModelCredentialService(BaseService):
 
                     if not existing:
                         # 创建新的全局模型记录
-                        await self.instance_repo.create({
-                            "user_id": None,  # 全局记录
-                            "workspace_id": None,  # 全局记录
-                            "provider_id": provider.id,
-                            "model_name": model_name,
-                            "model_parameters": {},
-                            "is_default": False,
-                        })
+                        await self.instance_repo.create(
+                            {
+                                "user_id": None,  # 全局记录
+                                "workspace_id": None,  # 全局记录
+                                "provider_id": provider.id,
+                                "model_name": model_name,
+                                "model_parameters": {},
+                                "is_default": False,
+                            }
+                        )
                         logger.debug(f"已自动创建模型实例: {provider.name}/{model_name}")
             except Exception as e:
                 logger.warning(f"自动创建模型实例失败 {provider.name}/{model_type.value}: {str(e)}")
@@ -184,9 +193,9 @@ class ModelCredentialService(BaseService):
         default_instance = await self.instance_repo.get_default()
         if not default_instance:
             # 查询所有全局模型（user_id 为 None），按 created_at 升序排序
-            query = select(ModelInstance).where(
-                ModelInstance.user_id.is_(None)
-            ).order_by(ModelInstance.created_at.asc())
+            query = (
+                select(ModelInstance).where(ModelInstance.user_id.is_(None)).order_by(ModelInstance.created_at.asc())
+            )
             result = await self.db.execute(query)
             global_models = list(result.scalars().all())
 
@@ -391,4 +400,3 @@ class ModelCredentialService(BaseService):
             return None
 
         return decrypt_credentials(credential.credentials)
-

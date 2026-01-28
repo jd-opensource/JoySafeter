@@ -44,9 +44,7 @@ def fetch_webpage_content(url: str, timeout: float = 10.0) -> str:
 def tavily_search(
     query: str,
     max_results: Annotated[int, InjectedToolArg] = 1,
-    topic: Annotated[
-        Literal["general", "news", "finance"], InjectedToolArg
-    ] = "general",
+    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
 ) -> str:
     """Search the web for information on a given query.
 
@@ -125,4 +123,3 @@ def think_tool(reflection: str) -> str:
 
 
 __all__ = ["tavily_search", "think_tool"]
-

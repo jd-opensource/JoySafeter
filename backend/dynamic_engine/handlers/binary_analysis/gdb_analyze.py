@@ -15,8 +15,8 @@ class GdbHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['gdb']
+        """Handler related commands"""
+        return ["gdb"]
 
     def handle(self, data: Dict) -> Any:
         """Execute gdb with enhanced logging"""
@@ -27,11 +27,7 @@ class GdbHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not binary:
                 logger.warning("🔧 GDB called without binary parameter")
-                return {
-
-                    "error": "Binary parameter is required"
-
-                }
+                return {"error": "Binary parameter is required"}
             command = f"gdb {binary}"
             if script_file:
                 command += f" -x {script_file}"
@@ -54,8 +50,4 @@ class GdbHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in gdb endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

@@ -26,47 +26,127 @@ from app.dynamic_agent.storage.session.ctf import ReferenceHit, UserHint
 
 # Commands that are always safe (read-only, non-destructive)
 SAFE_COMMANDS = {
-    'cat', 'head', 'tail', 'less', 'more', 'grep', 'rg', 'find', 'ls', 'pwd',
-    'echo', 'printf', 'wc', 'sort', 'uniq', 'cut', 'tr', 'sed', 'awk',
-    'file', 'strings', 'xxd', 'hexdump', 'od', 'base64', 'openssl',
-    'curl', 'wget', 'nc', 'netcat', 'ncat', 'socat',
-    'python', 'python3', 'python2', 'perl', 'ruby', 'node',
-    'nmap', 'nikto', 'gobuster', 'dirb', 'sqlmap', 'hydra',
-    'binwalk', 'foremost', 'exiftool', 'steghide', 'zsteg',
-    'gdb', 'objdump', 'readelf', 'nm', 'ltrace', 'strace',
-    'john', 'hashcat', 'aircrack-ng',
+    "cat",
+    "head",
+    "tail",
+    "less",
+    "more",
+    "grep",
+    "rg",
+    "find",
+    "ls",
+    "pwd",
+    "echo",
+    "printf",
+    "wc",
+    "sort",
+    "uniq",
+    "cut",
+    "tr",
+    "sed",
+    "awk",
+    "file",
+    "strings",
+    "xxd",
+    "hexdump",
+    "od",
+    "base64",
+    "openssl",
+    "curl",
+    "wget",
+    "nc",
+    "netcat",
+    "ncat",
+    "socat",
+    "python",
+    "python3",
+    "python2",
+    "perl",
+    "ruby",
+    "node",
+    "nmap",
+    "nikto",
+    "gobuster",
+    "dirb",
+    "sqlmap",
+    "hydra",
+    "binwalk",
+    "foremost",
+    "exiftool",
+    "steghide",
+    "zsteg",
+    "gdb",
+    "objdump",
+    "readelf",
+    "nm",
+    "ltrace",
+    "strace",
+    "john",
+    "hashcat",
+    "aircrack-ng",
 }
 
 # Commands that require confirmation (potentially destructive)
 MEDIUM_RISK_COMMANDS = {
-    'rm', 'mv', 'cp', 'mkdir', 'rmdir', 'touch',
-    'chmod', 'chown', 'chgrp',
-    'pip', 'pip3', 'npm', 'apt', 'yum', 'brew',
-    'docker', 'kubectl',
-    'ssh', 'scp', 'rsync',
+    "rm",
+    "mv",
+    "cp",
+    "mkdir",
+    "rmdir",
+    "touch",
+    "chmod",
+    "chown",
+    "chgrp",
+    "pip",
+    "pip3",
+    "npm",
+    "apt",
+    "yum",
+    "brew",
+    "docker",
+    "kubectl",
+    "ssh",
+    "scp",
+    "rsync",
 }
 
 # Commands that are high risk (system-level, destructive)
 HIGH_RISK_COMMANDS = {
-    'sudo', 'su', 'passwd', 'useradd', 'userdel',
-    'dd', 'mkfs', 'fdisk', 'parted',
-    'iptables', 'ufw', 'firewall-cmd',
-    'systemctl', 'service', 'init',
-    'reboot', 'shutdown', 'halt', 'poweroff',
-    'kill', 'killall', 'pkill',
+    "sudo",
+    "su",
+    "passwd",
+    "useradd",
+    "userdel",
+    "dd",
+    "mkfs",
+    "fdisk",
+    "parted",
+    "iptables",
+    "ufw",
+    "firewall-cmd",
+    "systemctl",
+    "service",
+    "init",
+    "reboot",
+    "shutdown",
+    "halt",
+    "poweroff",
+    "kill",
+    "killall",
+    "pkill",
 }
 
 # Dangerous patterns in commands
 DANGEROUS_PATTERNS = [
-    r'rm\s+-rf\s+/',  # rm -rf /
-    r'>\s*/dev/',  # Redirect to device
-    r':\(\)\s*{\s*:\|:&\s*};:',  # Fork bomb
-    r'\|\s*sh\b',  # Pipe to shell
-    r'\|\s*bash\b',  # Pipe to bash
-    r'`.*`',  # Command substitution (backticks)
-    r'\$\(.*\)',  # Command substitution
-    r'eval\s+',  # Eval command
-    r'exec\s+',  # Exec command
+    r"rm\s+-rf\s+/",  # rm -rf /
+    r">\s*/dev/",  # Redirect to device
+    r":\(\)\s*{\s*:\|:&\s*};:",  # Fork bomb
+    r"\|\s*sh\b",  # Pipe to shell
+    r"\|\s*bash\b",  # Pipe to bash
+    r"`.*`",  # Command substitution (backticks)
+    r"\$\(.*\)",  # Command substitution
+    r"eval\s+",  # Eval command
+    r"exec\s+",  # Exec command
 ]
 
 
@@ -92,10 +172,10 @@ def assess_command_risk(command: str) -> Tuple[CtfRiskLevel, str]:
         parts = shlex.split(command)
         if not parts:
             return CtfRiskLevel.LOW, "Empty command"
-        base_cmd = parts[0].split('/')[-1]  # Handle full paths
+        base_cmd = parts[0].split("/")[-1]  # Handle full paths
     except ValueError:
         # Shlex parsing failed, try simple split
-        base_cmd = command.split()[0].split('/')[-1] if command.split() else ""
+        base_cmd = command.split()[0].split("/")[-1] if command.split() else ""
 
     # Check risk levels
     if base_cmd in HIGH_RISK_COMMANDS:
@@ -125,16 +205,16 @@ def assess_python_risk(code: str) -> Tuple[CtfRiskLevel, str]:
 
     # High-risk patterns
     high_risk_patterns = [
-        (r'\bos\.system\b', "os.system call"),
-        (r'\bsubprocess\.call\b', "subprocess.call"),
-        (r'\bsubprocess\.run\b', "subprocess.run"),
-        (r'\bexec\s*\(', "exec() call"),
-        (r'\beval\s*\(', "eval() call"),
-        (r'\b__import__\s*\(', "__import__() call"),
+        (r"\bos\.system\b", "os.system call"),
+        (r"\bsubprocess\.call\b", "subprocess.call"),
+        (r"\bsubprocess\.run\b", "subprocess.run"),
+        (r"\bexec\s*\(", "exec() call"),
+        (r"\beval\s*\(", "eval() call"),
+        (r"\b__import__\s*\(", "__import__() call"),
         (r'\bopen\s*\([^)]*["\']w', "File write operation"),
-        (r'\bshutil\.rmtree\b', "shutil.rmtree"),
-        (r'\bos\.remove\b', "os.remove"),
-        (r'\bos\.unlink\b', "os.unlink"),
+        (r"\bshutil\.rmtree\b", "shutil.rmtree"),
+        (r"\bos\.remove\b", "os.remove"),
+        (r"\bos\.unlink\b", "os.unlink"),
     ]
 
     for pattern, reason in high_risk_patterns:
@@ -143,10 +223,10 @@ def assess_python_risk(code: str) -> Tuple[CtfRiskLevel, str]:
 
     # Medium-risk patterns
     medium_risk_patterns = [
-        (r'\brequests\.(post|put|delete)\b', "HTTP mutation request"),
-        (r'\bsocket\b', "Socket operations"),
-        (r'\bparamiko\b', "SSH operations"),
-        (r'\bftplib\b', "FTP operations"),
+        (r"\brequests\.(post|put|delete)\b", "HTTP mutation request"),
+        (r"\bsocket\b", "Socket operations"),
+        (r"\bparamiko\b", "SSH operations"),
+        (r"\bftplib\b", "FTP operations"),
     ]
 
     for pattern, reason in medium_risk_patterns:
@@ -155,14 +235,14 @@ def assess_python_risk(code: str) -> Tuple[CtfRiskLevel, str]:
 
     # Safe patterns (common CTF operations)
     safe_patterns = [
-        r'\bbase64\b',
-        r'\bhashlib\b',
-        r'\bCrypto\b',
-        r'\bpwntools\b',
-        r'\bstruct\b',
-        r'\bbinascii\b',
-        r'\brequests\.get\b',
-        r'\bprint\s*\(',
+        r"\bbase64\b",
+        r"\bhashlib\b",
+        r"\bCrypto\b",
+        r"\bpwntools\b",
+        r"\bstruct\b",
+        r"\bbinascii\b",
+        r"\brequests\.get\b",
+        r"\bprint\s*\(",
     ]
 
     for pattern in safe_patterns:
@@ -177,9 +257,11 @@ def assess_python_risk(code: str) -> Tuple[CtfRiskLevel, str]:
 # Action Templates
 # =============================================================================
 
+
 @dataclass
 class ActionTemplate:
     """Template for CTF actions."""
+
     name: str
     tool_type: CtfToolType
     template: str
@@ -237,7 +319,6 @@ CTF_ACTION_TEMPLATES: Dict[str, ActionTemplate] = {
         parameters=["input", "key"],
         category="crypto",
     ),
-
     # Web templates
     "curl_get": ActionTemplate(
         name="curl_get",
@@ -266,7 +347,6 @@ CTF_ACTION_TEMPLATES: Dict[str, ActionTemplate] = {
         parameters=["url"],
         category="web",
     ),
-
     # Pwn templates
     "nc_connect": ActionTemplate(
         name="nc_connect",
@@ -295,7 +375,6 @@ CTF_ACTION_TEMPLATES: Dict[str, ActionTemplate] = {
         parameters=["host", "port"],
         category="pwn",
     ),
-
     # Misc templates
     "strings_extract": ActionTemplate(
         name="strings_extract",
@@ -364,13 +443,14 @@ def render_template(template: ActionTemplate, **params) -> str:
             value = str(params[param])
             if template.tool_type == CtfToolType.SHELL:
                 value = value.replace("'", "'\"'\"'")
-            result = result.replace(f'{{{param}}}', value)
+            result = result.replace(f"{{{param}}}", value)
     return result
 
 
 # =============================================================================
 # Action Generation
 # =============================================================================
+
 
 def classify_tool_type(tool_name: str) -> CtfToolType:
     """
@@ -417,44 +497,44 @@ def generate_action_from_hint(
     template_matches = []
 
     # Check for encoding/decoding hints
-    if any(kw in content for kw in ['base64', 'decode', 'encode']):
-        if 'decode' in content:
-            template_matches.append(('base64_decode', {}))
+    if any(kw in content for kw in ["base64", "decode", "encode"]):
+        if "decode" in content:
+            template_matches.append(("base64_decode", {}))
         else:
-            template_matches.append(('base64_encode', {}))
+            template_matches.append(("base64_encode", {}))
 
-    if any(kw in content for kw in ['hex', 'hexadecimal']):
-        template_matches.append(('hex_decode', {}))
+    if any(kw in content for kw in ["hex", "hexadecimal"]):
+        template_matches.append(("hex_decode", {}))
 
-    if any(kw in content for kw in ['rot13', 'caesar', 'rotate']):
-        template_matches.append(('rot13', {}))
+    if any(kw in content for kw in ["rot13", "caesar", "rotate"]):
+        template_matches.append(("rot13", {}))
 
-    if any(kw in content for kw in ['xor', 'exclusive or']):
-        template_matches.append(('xor_decrypt', {}))
+    if any(kw in content for kw in ["xor", "exclusive or"]):
+        template_matches.append(("xor_decrypt", {}))
 
     # Check for web hints
-    if any(kw in content for kw in ['curl', 'http', 'get', 'request', 'url']):
-        if 'post' in content:
-            template_matches.append(('curl_post', {}))
+    if any(kw in content for kw in ["curl", "http", "get", "request", "url"]):
+        if "post" in content:
+            template_matches.append(("curl_post", {}))
         else:
-            template_matches.append(('curl_get', {}))
+            template_matches.append(("curl_get", {}))
 
     # Check for pwn hints
-    if any(kw in content for kw in ['nc', 'netcat', 'connect', 'port']):
-        template_matches.append(('nc_connect', {}))
+    if any(kw in content for kw in ["nc", "netcat", "connect", "port"]):
+        template_matches.append(("nc_connect", {}))
 
     # Check for misc hints
-    if any(kw in content for kw in ['strings', 'extract']):
-        template_matches.append(('strings_extract', {}))
+    if any(kw in content for kw in ["strings", "extract"]):
+        template_matches.append(("strings_extract", {}))
 
-    if any(kw in content for kw in ['file', 'type', 'info']):
-        template_matches.append(('file_info', {}))
+    if any(kw in content for kw in ["file", "type", "info"]):
+        template_matches.append(("file_info", {}))
 
-    if any(kw in content for kw in ['binwalk', 'embedded']):
-        template_matches.append(('binwalk_extract', {}))
+    if any(kw in content for kw in ["binwalk", "embedded"]):
+        template_matches.append(("binwalk_extract", {}))
 
-    if any(kw in content for kw in ['exif', 'metadata']):
-        template_matches.append(('exiftool_metadata', {}))
+    if any(kw in content for kw in ["exif", "metadata"]):
+        template_matches.append(("exiftool_metadata", {}))
 
     # Return first match
     if template_matches:
@@ -462,11 +542,11 @@ def generate_action_from_hint(
         template = get_template(template_name)
         if template:
             return {
-                'tool_type': template.tool_type,
-                'template_name': template_name,
-                'description': template.description,
-                'risk_level': template.risk_level,
-                'category': template.category,
+                "tool_type": template.tool_type,
+                "template_name": template_name,
+                "description": template.description,
+                "risk_level": template.risk_level,
+                "category": template.category,
             }
 
     return None
@@ -493,22 +573,22 @@ def generate_action_from_reference(
 
     # Look for command patterns in snippet
     command_patterns = [
-        (r'curl\s+[^\n]+', 'curl_get', CtfToolType.SHELL),
-        (r'nc\s+\S+\s+\d+', 'nc_connect', CtfToolType.SHELL),
-        (r'base64\s+-d', 'base64_decode', CtfToolType.SHELL),
-        (r'strings\s+', 'strings_extract', CtfToolType.SHELL),
-        (r'python.*-c', 'python_code', CtfToolType.PYTHON),
+        (r"curl\s+[^\n]+", "curl_get", CtfToolType.SHELL),
+        (r"nc\s+\S+\s+\d+", "nc_connect", CtfToolType.SHELL),
+        (r"base64\s+-d", "base64_decode", CtfToolType.SHELL),
+        (r"strings\s+", "strings_extract", CtfToolType.SHELL),
+        (r"python.*-c", "python_code", CtfToolType.PYTHON),
     ]
 
     for pattern, template_name, tool_type in command_patterns:
         match = re.search(pattern, snippet)
         if match:
             return {
-                'tool_type': tool_type,
-                'template_name': template_name,
-                'suggested_command': match.group(0),
-                'source': reference.location,
-                'confidence': reference.confidence,
+                "tool_type": tool_type,
+                "template_name": template_name,
+                "suggested_command": match.group(0),
+                "source": reference.location,
+                "confidence": reference.confidence,
             }
 
     return None

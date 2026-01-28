@@ -13,6 +13,7 @@ from app.dynamic_agent.web.models import ToolInfo
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
+
 @router.get(
     "",
     response_model=List[ToolInfo],
@@ -26,6 +27,7 @@ async def get_tools():
     except Exception as e:
         logger.error(f"❌ Error getting tools: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get(
     "/{tool_name}",

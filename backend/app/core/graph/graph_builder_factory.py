@@ -67,17 +67,27 @@ class GraphBuilder:
         if self._has_deep_agents_nodes():
             logger.info("[GraphBuilder] Detected DeepAgents nodes, using DeepAgentsGraphBuilder")
             return DeepAgentsGraphBuilder(
-                self.graph, self.nodes, self.edges,
-                self.llm_model, self.api_key, self.base_url,
-                self.max_tokens, self.user_id,
+                self.graph,
+                self.nodes,
+                self.edges,
+                self.llm_model,
+                self.api_key,
+                self.base_url,
+                self.max_tokens,
+                self.user_id,
                 self.model_service,
             )
         else:
             logger.debug("[GraphBuilder] No DeepAgents nodes, using LanggraphModelBuilder")
             return LanggraphModelBuilder(
-                self.graph, self.nodes, self.edges,
-                self.llm_model, self.api_key, self.base_url,
-                self.max_tokens, self.user_id,
+                self.graph,
+                self.nodes,
+                self.edges,
+                self.llm_model,
+                self.api_key,
+                self.base_url,
+                self.max_tokens,
+                self.user_id,
                 self.model_service,
             )
 

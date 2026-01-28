@@ -18,12 +18,12 @@ from app.dynamic_agent.infra.metadata_context import MetadataContext
 
 # FLAG regex patterns
 FLAG_PATTERNS = [
-    re.compile(r'FLAG\{[^}]+\}', re.IGNORECASE),
-    re.compile(r'CTF\{[^}]+\}', re.IGNORECASE),
+    re.compile(r"FLAG\{[^}]+\}", re.IGNORECASE),
+    re.compile(r"CTF\{[^}]+\}", re.IGNORECASE),
 ]
 
 # MetadataContext key for findings storage
-_FINDINGS_KEY = 'report_findings_store'
+_FINDINGS_KEY = "report_findings_store"
 
 
 def get_findings_store() -> Dict[str, str]:
@@ -65,7 +65,7 @@ def _is_real_flag(value: str) -> bool:
         return False
     lower = value.lower()
     # Exclude examples and placeholders
-    if 'example' in lower or value == 'FLAG{...}' or 'placeholder' in lower:
+    if "example" in lower or value == "FLAG{...}" or "placeholder" in lower:
         return False
     # Match FLAG pattern
     return any(p.match(value) for p in FLAG_PATTERNS)
@@ -105,21 +105,21 @@ def report_finding(key: str, value: str) -> str:
     findings_store[key] = value
 
     # Check if this is a FLAG
-    is_flag = (key.lower() == 'flag' and _is_real_flag(value))
+    is_flag = key.lower() == "flag" and _is_real_flag(value)
 
     # Update metadata
     try:
         metadata = MetadataContext.get()
         if metadata:
             # Update session_context
-            session_context = metadata.get('agent_session_context')
-            if session_context and hasattr(session_context, 'add_finding'):
+            session_context = metadata.get("agent_session_context")
+            if session_context and hasattr(session_context, "add_finding"):
                 session_context.add_finding(key, value)
 
             # FLAG discovery: set termination signal
             if is_flag:
-                metadata['flag_found'] = True
-                metadata['found_flag'] = value
+                metadata["flag_found"] = True
+                metadata["found_flag"] = value
                 logger.info(f"🏁 FLAG FOUND: {value} - Setting termination signal")
             else:
                 logger.info(f"🔑 Finding reported: {key}={value[:50]}...")

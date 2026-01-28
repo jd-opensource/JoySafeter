@@ -1,6 +1,7 @@
 """
 组织与成员 Repository
 """
+
 import uuid
 from typing import List, Optional
 
@@ -24,9 +25,7 @@ class OrganizationRepository(BaseRepository[Organization]):
         query = (
             select(Organization)
             .where(Organization.id == org_id)
-            .options(
-                selectinload(Organization.members).selectinload(Member.user)
-            )
+            .options(selectinload(Organization.members).selectinload(Member.user))
         )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
@@ -64,11 +63,7 @@ class MemberRepository(BaseRepository[Member]):
 
     async def list_by_org(self, org_id: uuid.UUID) -> List[Member]:
         """获取组织下所有成员，包含用户信息"""
-        query = (
-            select(Member)
-            .where(Member.organization_id == org_id)
-            .options(selectinload(Member.user))
-        )
+        query = select(Member).where(Member.organization_id == org_id).options(selectinload(Member.user))
         result = await self.db.execute(query)
         return list(result.scalars().all())
 

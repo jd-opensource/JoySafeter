@@ -4,6 +4,7 @@ MCP Client Service - MCP 客户端服务
 封装与 MCP 服务器的连接、工具获取等底层操作
 职责单一：只负责 MCP 协议层面的交互
 """
+
 from __future__ import annotations
 
 import time
@@ -19,6 +20,7 @@ from app.models.mcp import McpServer
 @dataclass
 class McpConnectionConfig:
     """MCP 连接配置"""
+
     url: str
     transport: str = "streamable-http"
     timeout_seconds: int = 30
@@ -32,6 +34,7 @@ class McpConnectionConfig:
 @dataclass
 class McpConnectionResult:
     """MCP 连接结果"""
+
     success: bool
     tools: List[EnhancedTool]
     error: Optional[str] = None
@@ -128,6 +131,7 @@ class McpClientService:
         # For test connection before creation, create a minimal server object
         if server is None:
             from app.models.mcp import McpServer
+
             server = McpServer(
                 name="test-connection",
                 user_id="test-user",
@@ -216,4 +220,3 @@ def set_mcp_client(client: McpClientService) -> None:
     """设置 MCP 客户端实例（用于测试）"""
     global _default_client
     _default_client = client
-

@@ -17,6 +17,7 @@ from app.models.graph import GraphEdge, GraphNode
 @dataclass
 class VariableDefinition:
     """变量定义信息。"""
+
     name: str
     source_node_id: str
     source_node_label: str
@@ -30,6 +31,7 @@ class VariableDefinition:
 @dataclass
 class VariableUsage:
     """变量使用信息。"""
+
     name: str
     used_in_node_id: str
     used_in_node_label: str
@@ -42,6 +44,7 @@ class VariableUsage:
 @dataclass
 class VariableInfo:
     """变量完整信息。"""
+
     name: str
     definitions: List[VariableDefinition]
     usages: List[VariableUsage]
@@ -86,7 +89,7 @@ class StateVariableTracker:
             usages = self.variable_usages.get(var_name, [])
 
             # 确定作用域（优先使用定义的作用域）
-            scope = definitions[0].scope if definitions else usages[0].scope if usages else 'global'
+            scope = definitions[0].scope if definitions else usages[0].scope if usages else "global"
 
             result[var_name] = VariableInfo(
                 name=var_name,
@@ -122,9 +125,7 @@ class StateVariableTracker:
         elif node_type == "direct_reply":
             self._analyze_direct_reply_node(node, config, node_label)
 
-    def _analyze_router_node(
-        self, node: GraphNode, config: Dict[str, Any], node_label: str
-    ) -> None:
+    def _analyze_router_node(self, node: GraphNode, config: Dict[str, Any], node_label: str) -> None:
         """分析 Router 节点的变量使用。"""
         routes = config.get("routes", [])
         for rule in routes:
@@ -142,9 +143,7 @@ class StateVariableTracker:
                         var_path,
                     )
 
-    def _analyze_condition_node(
-        self, node: GraphNode, config: Dict[str, Any], node_label: str
-    ) -> None:
+    def _analyze_condition_node(self, node: GraphNode, config: Dict[str, Any], node_label: str) -> None:
         """分析 Condition 节点的变量使用。"""
         expression = config.get("expression", "")
         if expression:
@@ -160,9 +159,7 @@ class StateVariableTracker:
                     var_path,
                 )
 
-    def _analyze_loop_condition_node(
-        self, node: GraphNode, config: Dict[str, Any], node_label: str
-    ) -> None:
+    def _analyze_loop_condition_node(self, node: GraphNode, config: Dict[str, Any], node_label: str) -> None:
         """分析 Loop Condition 节点的变量使用。"""
         conditionType = config.get("conditionType", "while")
 
@@ -208,9 +205,7 @@ class StateVariableTracker:
             "number",
         )
 
-    def _analyze_tool_node(
-        self, node: GraphNode, config: Dict[str, Any], node_label: str
-    ) -> None:
+    def _analyze_tool_node(self, node: GraphNode, config: Dict[str, Any], node_label: str) -> None:
         """分析 Tool 节点的变量使用。"""
         input_mapping = config.get("input_mapping", {})
         for param_name, expression in input_mapping.items():
@@ -227,9 +222,7 @@ class StateVariableTracker:
                         var_path,
                     )
 
-    def _analyze_function_node(
-        self, node: GraphNode, config: Dict[str, Any], node_label: str
-    ) -> None:
+    def _analyze_function_node(self, node: GraphNode, config: Dict[str, Any], node_label: str) -> None:
         """分析 Function 节点的变量使用和定义。"""
         function_code = config.get("function_code", "")
         if function_code:
@@ -259,9 +252,7 @@ class StateVariableTracker:
                     f"Defined by function node '{node_label}'",
                 )
 
-    def _analyze_agent_node(
-        self, node: GraphNode, config: Dict[str, Any], node_label: str
-    ) -> None:
+    def _analyze_agent_node(self, node: GraphNode, config: Dict[str, Any], node_label: str) -> None:
         """分析 Agent 节点的变量使用。
 
         Agent 节点可能通过 systemPrompt 或其他配置使用变量。
@@ -270,7 +261,8 @@ class StateVariableTracker:
         if system_prompt:
             # 检查模板变量 {{variable}}
             import re
-            template_vars = re.findall(r'\{\{(\w+)\}\}', system_prompt)
+
+            template_vars = re.findall(r"\{\{(\w+)\}\}", system_prompt)
             for var_name in template_vars:
                 self._add_variable_usage(
                     var_name,
@@ -282,15 +274,14 @@ class StateVariableTracker:
                     f"context.{var_name}",
                 )
 
-    def _analyze_direct_reply_node(
-        self, node: GraphNode, config: Dict[str, Any], node_label: str
-    ) -> None:
+    def _analyze_direct_reply_node(self, node: GraphNode, config: Dict[str, Any], node_label: str) -> None:
         """分析 Direct Reply 节点的变量使用。"""
         template = config.get("template", "")
         if template:
             # 检查模板变量 {{variable}}
             import re
-            template_vars = re.findall(r'\{\{(\w+)\}\}', template)
+
+            template_vars = re.findall(r"\{\{(\w+)\}\}", template)
             for var_name in template_vars:
                 self._add_variable_usage(
                     var_name,
@@ -312,6 +303,7 @@ class StateVariableTracker:
 
         # 匹配 state.get('key'), state.get("key"), state['key']
         import re
+
         patterns = [
             (r"state\.get\(['\"]([^'\"]+)['\"]", "state.{}"),
             (r"state\[['\"]([^'\"]+)['\"]", "state.{}"),
@@ -332,9 +324,9 @@ class StateVariableTracker:
 
         # 匹配直接变量名（在表达式中）
         # 注意：这个可能不够精确，但可以捕获一些简单情况
-        simple_vars = re.findall(r'\b([a-z_][a-z0-9_]*)\b', expression.lower())
+        simple_vars = re.findall(r"\b([a-z_][a-z0-9_]*)\b", expression.lower())
         for var_name in simple_vars:
-            if var_name not in ['state', 'context', 'true', 'false', 'none', 'and', 'or', 'not', 'in', 'is']:
+            if var_name not in ["state", "context", "true", "false", "none", "and", "or", "not", "in", "is"]:
                 if var_name not in variables:
                     variables[var_name] = f"context.{var_name}"
 
@@ -416,9 +408,7 @@ class StateVariableTracker:
         )
         self.variable_usages[var_name].append(usage)
 
-    def get_available_variables_for_node(
-        self, node_id: str, include_scoped: bool = True
-    ) -> List[Dict[str, Any]]:
+    def get_available_variables_for_node(self, node_id: str, include_scoped: bool = True) -> List[Dict[str, Any]]:
         """获取节点可用的变量列表。
 
         Args:
@@ -499,33 +489,34 @@ class StateVariableTracker:
             for var_name, definitions in self.variable_definitions.items():
                 for definition in definitions:
                     if definition.source_node_id == upstream_node_id:
-                        available_vars.append({
-                            "name": var_name,
-                            "path": definition.path,
-                            "source": definition.source_node_label,
-                            "source_node_id": definition.source_node_id,
-                            "scope": definition.scope,
-                            "description": definition.description,
-                            "value_type": definition.value_type,
-                        })
+                        available_vars.append(
+                            {
+                                "name": var_name,
+                                "path": definition.path,
+                                "source": definition.source_node_label,
+                                "source_node_id": definition.source_node_id,
+                                "scope": definition.scope,
+                                "description": definition.description,
+                                "value_type": definition.value_type,
+                            }
+                        )
 
         # 添加作用域变量（如果启用）
         if include_scoped:
             # 查找相关的循环节点
-            loop_nodes = [
-                n for n in self.nodes
-                if (n.data or {}).get("type") == "loop_condition_node"
-            ]
+            loop_nodes = [n for n in self.nodes if (n.data or {}).get("type") == "loop_condition_node"]
             for loop_node in loop_nodes:
-                available_vars.append({
-                    "name": f"loop_count_{loop_node.id}",
-                    "path": f"loop_states.{loop_node.id}.loop_count",
-                    "source": (loop_node.data or {}).get("label", loop_node.id),
-                    "source_node_id": loop_node.id,
-                    "scope": "loop",
-                    "description": f"Loop count for loop '{loop_node.id}'",
-                    "value_type": "number",
-                })
+                available_vars.append(
+                    {
+                        "name": f"loop_count_{loop_node.id}",
+                        "path": f"loop_states.{loop_node.id}.loop_count",
+                        "source": (loop_node.data or {}).get("label", loop_node.id),
+                        "source_node_id": loop_node.id,
+                        "scope": "loop",
+                        "description": f"Loop count for loop '{loop_node.id}'",
+                        "value_type": "number",
+                    }
+                )
 
         return available_vars
 
@@ -547,9 +538,7 @@ class StateVariableTracker:
         traverse(node_id)
         return upstream
 
-    def validate_variable_usage(
-        self, node_id: str, expression: str
-    ) -> List[Dict[str, Any]]:
+    def validate_variable_usage(self, node_id: str, expression: str) -> List[Dict[str, Any]]:
         """验证表达式中使用的变量是否可用。
 
         Returns:
@@ -567,12 +556,13 @@ class StateVariableTracker:
             if var_name not in available_var_names:
                 # 检查路径是否可用
                 if var_path not in available_var_paths:
-                    errors.append({
-                        "variable_name": var_name,
-                        "variable_path": var_path,
-                        "error_message": f"Variable '{var_name}' is not available in this context",
-                        "suggestion": f"Available variables: {', '.join(available_var_names)}",
-                    })
+                    errors.append(
+                        {
+                            "variable_name": var_name,
+                            "variable_path": var_path,
+                            "error_message": f"Variable '{var_name}' is not available in this context",
+                            "suggestion": f"Available variables: {', '.join(available_var_names)}",
+                        }
+                    )
 
         return errors
-

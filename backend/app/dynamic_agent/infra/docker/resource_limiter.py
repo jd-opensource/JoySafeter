@@ -47,21 +47,21 @@ class ResourceLimits:
         memory_bytes = psutil.virtual_memory().total
 
         # Get disk space for root partition
-        disk_usage = psutil.disk_usage('/')
+        disk_usage = psutil.disk_usage("/")
         disk_bytes = disk_usage.total
 
         return {
-            'cpu_count': cpu_count,
-            'memory_bytes': memory_bytes,
-            'disk_bytes': disk_bytes,
+            "cpu_count": cpu_count,
+            "memory_bytes": memory_bytes,
+            "disk_bytes": disk_bytes,
         }
 
     def _validate(self):
         """Validate resource limit parameters against host resources"""
         host_resources = self._get_host_resources()
-        max_cpu = host_resources['cpu_count'] * 0.98
-        max_memory = host_resources['memory_bytes'] * 0.98
-        max_disk = host_resources['disk_bytes'] * 0.98
+        max_cpu = host_resources["cpu_count"] * 0.98
+        max_memory = host_resources["memory_bytes"] * 0.98
+        max_disk = host_resources["disk_bytes"] * 0.98
 
         if self.cpu_limit is not None:
             if self.cpu_limit <= 0:
@@ -70,8 +70,7 @@ class ResourceLimits:
                 raise ResourceLimitError("CPU limit too high (max 256 cores)")
             if self.cpu_limit > max_cpu:
                 raise ResourceLimitError(
-                    f"CPU limit ({self.cpu_limit} cores) exceeds 98% of host capacity "
-                    f"({max_cpu:.2f} cores)"
+                    f"CPU limit ({self.cpu_limit} cores) exceeds 98% of host capacity ({max_cpu:.2f} cores)"
                 )
 
         if self.memory_limit is not None:
@@ -120,29 +119,26 @@ class ResourceLimits:
 
         if self.cpu_limit is not None:
             # Docker uses nano_cpus, 1 CPU = 1e9 nano_cpus
-            kwargs['nano_cpus'] = int(self.cpu_limit * 1e9)
+            kwargs["nano_cpus"] = int(self.cpu_limit * 1e9)
 
         if self.memory_limit is not None:
-            kwargs['mem_limit'] = self.memory_limit
+            kwargs["mem_limit"] = self.memory_limit
 
         if self.memory_swap is not None:
-            kwargs['memswap_limit'] = self.memory_swap
+            kwargs["memswap_limit"] = self.memory_swap
 
         if self.cpu_shares != 1024:
-            kwargs['cpu_shares'] = self.cpu_shares
+            kwargs["cpu_shares"] = self.cpu_shares
 
         if self.pids_limit != -1:
-            kwargs['pids_limit'] = self.pids_limit
+            kwargs["pids_limit"] = self.pids_limit
 
         return kwargs
 
     @staticmethod
     def from_human_readable(
-        cpu: Optional[str] = None,
-        memory: Optional[str] = None,
-        disk: Optional[str] = None,
-        **kwargs
-    ) -> 'ResourceLimits':
+        cpu: Optional[str] = None, memory: Optional[str] = None, disk: Optional[str] = None, **kwargs
+    ) -> "ResourceLimits":
         """
         Create resource limits from human-readable format
 
@@ -165,13 +161,13 @@ class ResourceLimits:
         parsed = {}
 
         if cpu:
-            parsed['cpu_limit'] = float(cpu)
+            parsed["cpu_limit"] = float(cpu)
 
         if memory:
-            parsed['memory_limit'] = _parse_size(memory)
+            parsed["memory_limit"] = _parse_size(memory)
 
         if disk:
-            parsed['disk_limit'] = _parse_size(disk)
+            parsed["disk_limit"] = _parse_size(disk)
 
         parsed.update(kwargs)
         return ResourceLimits(**parsed)
@@ -193,21 +189,21 @@ def _parse_size(size_str: str) -> int:
     size_str = size_str.strip().upper()
 
     units = {
-        'B': 1,
-        'K': 1024,
-        'KB': 1024,
-        'M': 1024 ** 2,
-        'MB': 1024 ** 2,
-        'G': 1024 ** 3,
-        'GB': 1024 ** 3,
-        'T': 1024 ** 4,
-        'TB': 1024 ** 4,
+        "B": 1,
+        "K": 1024,
+        "KB": 1024,
+        "M": 1024**2,
+        "MB": 1024**2,
+        "G": 1024**3,
+        "GB": 1024**3,
+        "T": 1024**4,
+        "TB": 1024**4,
     }
 
     for unit, multiplier in sorted(units.items(), key=lambda x: len(x[0]), reverse=True):
         if size_str.endswith(unit):
             try:
-                value = float(size_str[:-len(unit)])
+                value = float(size_str[: -len(unit)])
                 return int(value * multiplier)
             except ValueError:
                 raise ValueError(f"Invalid size format: {size_str}")

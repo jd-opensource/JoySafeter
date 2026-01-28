@@ -1,6 +1,7 @@
 """
 Graph 相关 Repository
 """
+
 from __future__ import annotations
 
 import uuid
@@ -93,13 +94,10 @@ class GraphNodeRepository(BaseRepository[GraphNode]):
         """批量删除节点"""
         if not node_ids:
             return 0
-        stmt = (
-            delete(GraphNode)
-            .where(
-                and_(
-                    GraphNode.graph_id == graph_id,
-                    GraphNode.id.in_(node_ids),
-                )
+        stmt = delete(GraphNode).where(
+            and_(
+                GraphNode.graph_id == graph_id,
+                GraphNode.id.in_(node_ids),
             )
         )
         result = await self.db.execute(stmt)
@@ -128,18 +126,14 @@ class GraphEdgeRepository(BaseRepository[GraphEdge]):
         """删除与指定节点相关的所有边"""
         if not node_ids:
             return 0
-        stmt = (
-            delete(GraphEdge)
-            .where(
-                and_(
-                    GraphEdge.graph_id == graph_id,
-                    or_(
-                        GraphEdge.source_node_id.in_(node_ids),
-                        GraphEdge.target_node_id.in_(node_ids),
-                    ),
-                )
+        stmt = delete(GraphEdge).where(
+            and_(
+                GraphEdge.graph_id == graph_id,
+                or_(
+                    GraphEdge.source_node_id.in_(node_ids),
+                    GraphEdge.target_node_id.in_(node_ids),
+                ),
             )
         )
         result = await self.db.execute(stmt)
         return result.rowcount or 0
-

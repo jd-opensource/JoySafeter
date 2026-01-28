@@ -169,7 +169,7 @@ class Toolkit:
                 cache_dir=self.cache_dir,
                 custom_attrs=self.custom_attrs,
             )
-            description_text = (function.__doc__ or "")
+            description_text = function.__doc__ or ""
             if self.description_prefix:
                 description_text = f"{self.description_prefix}{description_text}"
             f = EnhancedTool.from_callable(

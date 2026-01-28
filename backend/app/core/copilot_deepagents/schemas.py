@@ -37,14 +37,17 @@ class RequirementSpec(BaseModel):
 # ==================== Blueprint (Stage 2) ====================
 # 结构对齐 ReactFlow 节点/边格式
 
+
 class NodePosition(BaseModel):
     """节点位置 - 对应 ReactFlow node.position"""
+
     x: float
     y: float
 
 
 class NodeConfig(BaseModel):
     """节点配置 - 对应 ReactFlow node.data.config"""
+
     systemPrompt: Optional[str] = Field(default=None, description="系统提示词（agent 必填）")
     description: Optional[str] = Field(default=None, description="节点描述（DeepAgents 子代理必填）")
     useDeepAgents: Optional[bool] = Field(default=None, description="启用 DeepAgents 模式")
@@ -59,6 +62,7 @@ class NodeConfig(BaseModel):
 
 class BlueprintNode(BaseModel):
     """Blueprint 节点 - 对齐 ReactFlow 节点结构"""
+
     id: str = Field(..., description="唯一节点 ID")
     type: str = Field(..., description="节点类型: agent, condition, condition_agent, direct_reply, human_input")
     label: str = Field(..., description="节点显示名称")
@@ -68,6 +72,7 @@ class BlueprintNode(BaseModel):
 
 class BlueprintEdge(BaseModel):
     """Blueprint 边 - 对齐 ReactFlow 边结构"""
+
     source: str = Field(..., description="源节点 ID")
     target: str = Field(..., description="目标节点 ID")
     label: Optional[str] = Field(default=None, description="边标签（可选）")
@@ -76,6 +81,7 @@ class BlueprintEdge(BaseModel):
 
 class WorkflowBlueprint(BaseModel):
     """工作流蓝图 - /blueprint.json"""
+
     name: str = Field(..., description="工作流名称")
     description: str = Field(..., description="工作流描述")
     nodes: List[BlueprintNode] = Field(default_factory=list, description="节点列表")
@@ -84,8 +90,10 @@ class WorkflowBlueprint(BaseModel):
 
 # ==================== Validation (Stage 3) ====================
 
+
 class ValidationIssue(BaseModel):
     """验证问题"""
+
     type: str = Field(..., description="问题类型: missing_field, orphan_node, dead_end, weak_prompt")
     severity: Literal["error", "warning", "info"] = Field(default="warning", description="严重程度")
     message: str = Field(..., description="问题描述")
@@ -94,6 +102,7 @@ class ValidationIssue(BaseModel):
 
 class ValidationReport(BaseModel):
     """验证报告 - /validation.json"""
+
     is_valid: bool = Field(..., description="是否通过验证")
     health_score: int = Field(default=80, ge=0, le=100, description="健康分数")
     issues: List[ValidationIssue] = Field(default_factory=list, description="问题列表")
@@ -102,8 +111,10 @@ class ValidationReport(BaseModel):
 
 # ==================== Run Index ====================
 
+
 class CopilotDeepagentsIndex(BaseModel):
     """运行索引 - /index.json"""
+
     graph_id: Optional[str] = None
     run_id: str
     created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -62,8 +62,7 @@ def _parse_mcp_ids(mcp_ids: Iterable[str]) -> Dict[str, Set[str]]:
         # Split by "::" separator
         if "::" not in raw:
             logger.warning(
-                f"[_parse_mcp_ids] Invalid format (missing '::'): '{raw}'. "
-                f"Expected format: 'server_name::tool_name'"
+                f"[_parse_mcp_ids] Invalid format (missing '::'): '{raw}'. Expected format: 'server_name::tool_name'"
             )
             continue
 
@@ -72,22 +71,16 @@ def _parse_mcp_ids(mcp_ids: Iterable[str]) -> Dict[str, Set[str]]:
         tool_name = (tool_name or "").strip()
 
         if not server_name:
-            logger.warning(
-                f"[_parse_mcp_ids] Missing server name in: '{raw}'"
-            )
+            logger.warning(f"[_parse_mcp_ids] Missing server name in: '{raw}'")
             continue
 
         if not tool_name:
-            logger.warning(
-                f"[_parse_mcp_ids] Missing tool name in: '{raw}'"
-            )
+            logger.warning(f"[_parse_mcp_ids] Missing tool name in: '{raw}'")
             continue
 
         result.setdefault(server_name, set()).add(tool_name)
 
     return result
-
-
 
 
 def _alias_tool(*, name: str, description: str, callable_func: Any) -> EnhancedTool:
@@ -114,6 +107,7 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path) -> List[An
     """
     # Try to get tools from registry first
     from app.core.tools.tool_registry import get_global_registry
+
     registry = get_global_registry()
 
     # Lazy imports to avoid import-time failures when optional dependencies
@@ -148,7 +142,11 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path) -> List[An
         "web_search": _alias_tool(
             name="web_search",
             description="Search the web (Tavily).",
-            callable_func=(tavily.web_search_using_tavily if tavily else (lambda *args, **kwargs: "Error: TavilyTools not installed")),
+            callable_func=(
+                tavily.web_search_using_tavily
+                if tavily
+                else (lambda *args, **kwargs: "Error: TavilyTools not installed")
+            ),
         ),
         "code_interpreter": _alias_tool(
             name="code_interpreter",
@@ -272,23 +270,17 @@ async def _validate_mcp_servers(
                         continue
 
                     valid_servers.add(server_name)
-                    logger.debug(
-                        f"[_validate_mcp_servers] Validated server name '{server_name}'"
-                    )
+                    logger.debug(f"[_validate_mcp_servers] Validated server name '{server_name}'")
                 except Exception as e:
                     logger.error(
-                        f"[_validate_mcp_servers] Error validating server name '{server_name}': {e}",
-                        exc_info=True
+                        f"[_validate_mcp_servers] Error validating server name '{server_name}': {e}", exc_info=True
                     )
                     continue
 
         return valid_servers
 
     except Exception as e:
-        logger.error(
-            f"[_validate_mcp_servers] Error creating database session: {e}",
-            exc_info=True
-        )
+        logger.error(f"[_validate_mcp_servers] Error creating database session: {e}", exc_info=True)
         return valid_servers
 
 
@@ -315,10 +307,7 @@ async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None)
     # Normalize user_id
     normalized_user_id = _normalize_user_id(user_id)
 
-    logger.debug(
-        f"[resolve_tools_for_node] Starting resolution for node_id={node.id}, "
-        f"user_id={normalized_user_id}"
-    )
+    logger.debug(f"[resolve_tools_for_node] Starting resolution for node_id={node.id}, user_id={normalized_user_id}")
 
     # Step 1: Extract tools config
     cfg = extract_tools_config(node)
@@ -334,10 +323,7 @@ async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None)
     builtin_ids_list = list(builtin_ids) if isinstance(builtin_ids, list) else []
     mcp_ids_list = list(mcp_ids) if isinstance(mcp_ids, list) else []
 
-    logger.debug(
-        f"[resolve_tools_for_node] Parsed config: builtin_ids={builtin_ids_list}, "
-        f"mcp_ids={mcp_ids_list}"
-    )
+    logger.debug(f"[resolve_tools_for_node] Parsed config: builtin_ids={builtin_ids_list}, mcp_ids={mcp_ids_list}")
 
     root_dir = Path(f"/tmp/{normalized_user_id}")
     tools: List[Any] = []
@@ -357,11 +343,7 @@ async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None)
         from app.core.tools.mcp_tool_utils import resolve_mcp_tools_from_list
 
         async with async_session_factory() as db:
-            mcp_tools = await resolve_mcp_tools_from_list(
-                mcp_ids_list,
-                normalized_user_id,
-                db
-            )
+            mcp_tools = await resolve_mcp_tools_from_list(mcp_ids_list, normalized_user_id, db)
 
         logger.debug(f"[resolve_tools_for_node] Retrieved {len(mcp_tools)} MCP tools")
         tools.extend(mcp_tools)
@@ -374,6 +356,7 @@ async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None)
 
     # Final check: ensure no ToolMetadata objects in the list
     from app.core.tools.tool import ToolMetadata
+
     for i, tool in enumerate(tools):
         if isinstance(tool, ToolMetadata):
             logger.error(
@@ -382,5 +365,3 @@ async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None)
             )
 
     return tools
-
-

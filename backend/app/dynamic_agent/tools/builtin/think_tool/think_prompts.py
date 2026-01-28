@@ -14,6 +14,7 @@ def _load_prompt(prompt_id: str) -> str:
         return registry.get(prompt_id).content
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning(f"Failed to load prompt {prompt_id}: {e}")
         return f"[Prompt {prompt_id} not loaded]"
 

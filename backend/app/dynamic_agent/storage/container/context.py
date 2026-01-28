@@ -20,8 +20,9 @@ if TYPE_CHECKING:
 @dataclass
 class RemoteHostInfo:
     """Remote Docker host information."""
+
     host_name: str  # Unique identifier for the host
-    host_ip: str    # Host IP address
+    host_ip: str  # Host IP address
     port: int = 2376  # Docker daemon port
     is_local: bool = False  # Whether this is a local Docker daemon
 
@@ -29,6 +30,7 @@ class RemoteHostInfo:
 @dataclass
 class ContainerContext:
     """Container runtime context."""
+
     container_id: str
     session_id: str
 
@@ -68,7 +70,7 @@ class ContainerContextManager:
     Enables cross-host container management.
     """
 
-    def __init__(self, docker_manager: UnifiedDockerManager, persistence_backend: 'PostgreSQLBackend'):  # noqa: F821
+    def __init__(self, docker_manager: UnifiedDockerManager, persistence_backend: "PostgreSQLBackend"):  # noqa: F821
         self.docker_manager = docker_manager
         self.backend = persistence_backend
         self._contexts: Dict[str, ContainerContext] = {}
@@ -76,11 +78,7 @@ class ContainerContextManager:
 
     # todo del
     async def create_container_context(
-        self,
-        session_id: str,
-        image: str = "kalilinux/kali-rolling",
-        remote_host_name: Optional[str] = None,
-        **kwargs
+        self, session_id: str, image: str = "kalilinux/kali-rolling", remote_host_name: Optional[str] = None, **kwargs
     ) -> ContainerContext:
         """
         Create container context.
@@ -99,27 +97,21 @@ class ContainerContextManager:
         # Create resource limits
         # todo put in config
         ResourceLimits.from_human_readable(
-            cpu=str(kwargs.get('cpu_cores', 2)),
+            cpu=str(kwargs.get("cpu_cores", 2)),
             memory=f"{kwargs.get('memory_gb', 4)}G",
-            disk=f"{kwargs.get('disk_gb', 20)}G"
+            disk=f"{kwargs.get('disk_gb', 20)}G",
         )
 
         container_info = self.docker_manager.create_container(
-            host_name=remote_host_name,
-            image=image,
-            command='sleep infinity',
-            environment=kwargs.get('environment', {})
+            host_name=remote_host_name, image=image, command="sleep infinity", environment=kwargs.get("environment", {})
         )
 
         # Create remote host info
         remote_host_info = RemoteHostInfo(
-            host_name=remote_host_name or "localhost",
-            host_ip="127.0.0.1",
-            port=2376,
-            is_local=remote_host_name is None
+            host_name=remote_host_name or "localhost", host_ip="127.0.0.1", port=2376, is_local=remote_host_name is None
         )
 
-        container_id = container_info['container_id']
+        container_id = container_info["container_id"]
 
         # Create context
         context = ContainerContext(
@@ -128,7 +120,7 @@ class ContainerContextManager:
             image=image,
             status="running",
             remote_host=remote_host_info,
-            environment=kwargs.get('environment', {})
+            environment=kwargs.get("environment", {}),
         )
 
         self._contexts[container_id] = context
@@ -149,11 +141,7 @@ class ContainerContextManager:
         return context
 
     async def execute_in_container(
-        self,
-        container_id: str,
-        command: str,
-        working_dir: Optional[str] = None,
-        timeout: int = 300
+        self, container_id: str, command: str, working_dir: Optional[str] = None, timeout: int = 300
     ) -> Dict[str, Any]:
         """
         Execute command in container.
@@ -177,10 +165,7 @@ class ContainerContextManager:
         if context.remote_host and not context.remote_host.is_local:
             logger.info(f"Executing command on remote host: {context.remote_host.host_name}")
             result = self.remote_api_manager.execute_command(
-                host_name=context.remote_host.host_name,
-                container_id=container_id,
-                command=command,
-                timeout=timeout
+                host_name=context.remote_host.host_name, container_id=container_id, command=command, timeout=timeout
             )
 
             if not result:
@@ -189,10 +174,7 @@ class ContainerContextManager:
             exit_code, stdout, stderr = result
         else:
             logger.info(f"Executing command on local container: {container_id}")
-            exit_code, stdout, stderr = self.docker_manager.execute_command(
-                container_id,
-                command
-            )
+            exit_code, stdout, stderr = self.docker_manager.execute_command(container_id, command)
 
         # Record execution
         execution_record = {
@@ -202,7 +184,7 @@ class ContainerContextManager:
             "stderr": stderr,
             "timestamp": datetime.now().isoformat(),
             "working_dir": working_dir or context.working_directory,
-            "host": context.remote_host.host_name if context.remote_host else "local"
+            "host": context.remote_host.host_name if context.remote_host else "local",
         }
 
         context.command_history.append(execution_record)
@@ -212,11 +194,7 @@ class ContainerContextManager:
         logger.debug(f"Command executed: {command} (exit_code={exit_code})")
         return execution_record
 
-    async def update_working_directory(
-        self,
-        container_id: str,
-        directory: str
-    ):
+    async def update_working_directory(self, container_id: str, directory: str):
         """Update working directory."""
         context = await self.get_container_context(container_id)
         if context:
@@ -224,11 +202,7 @@ class ContainerContextManager:
             context.last_accessed = datetime.now()
             await self.backend.save_container_context(context)
 
-    async def add_installed_tool(
-        self,
-        container_id: str,
-        tool_name: str
-    ):
+    async def add_installed_tool(self, container_id: str, tool_name: str):
         """Record installed tool."""
         context = await self.get_container_context(container_id)
         if context and tool_name not in context.installed_tools:
@@ -236,11 +210,7 @@ class ContainerContextManager:
             context.last_accessed = datetime.now()
             await self.backend.save_container_context(context)
 
-    async def get_command_history(
-        self,
-        container_id: str,
-        limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_command_history(self, container_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get command execution history."""
         context = await self.get_container_context(container_id)
         if not context:
@@ -253,10 +223,7 @@ class ContainerContextManager:
         return history
 
     async def update_resource_usage(
-        self,
-        container_id: str,
-        cpu_usage: Optional[float] = None,
-        memory_usage: Optional[int] = None
+        self, container_id: str, cpu_usage: Optional[float] = None, memory_usage: Optional[int] = None
     ):
         """Update resource usage statistics."""
         context = await self.get_container_context(container_id)
@@ -279,8 +246,7 @@ class ContainerContextManager:
             if context.remote_host and not context.remote_host.is_local:
                 logger.info(f"Stopping remote container: {container_id} on {context.remote_host.host_name}")
                 self.remote_api_manager.stop_container(
-                    host_name=context.remote_host.host_name,
-                    container_id=container_id
+                    host_name=context.remote_host.host_name, container_id=container_id
                 )
             else:
                 logger.info(f"Stopping local container: {container_id}")
@@ -300,8 +266,7 @@ class ContainerContextManager:
             if context.remote_host and not context.remote_host.is_local:
                 logger.info(f"Removing remote container: {container_id} on {context.remote_host.host_name}")
                 self.remote_api_manager.remove_container(
-                    host_name=context.remote_host.host_name,
-                    container_id=container_id
+                    host_name=context.remote_host.host_name, container_id=container_id
                 )
             else:
                 logger.info(f"Removing local container: {container_id}")
@@ -310,11 +275,7 @@ class ContainerContextManager:
             if container_id in self._contexts:
                 del self._contexts[container_id]
 
-    async def get_container_logs(
-        self,
-        container_id: str,
-        tail: int = 100
-    ) -> Optional[str]:
+    async def get_container_logs(self, container_id: str, tail: int = 100) -> Optional[str]:
         """
         Get container logs.
 
@@ -334,16 +295,11 @@ class ContainerContextManager:
         if context.remote_host and not context.remote_host.is_local:
             logger.info(f"Getting logs from remote container: {container_id}")
             logs = self.remote_api_manager.get_container_logs(
-                host_name=context.remote_host.host_name,
-                container_id=container_id,
-                tail=tail
+                host_name=context.remote_host.host_name, container_id=container_id, tail=tail
             )
         else:
             logger.info(f"Getting logs from local container: {container_id}")
-            logs = self.docker_manager.get_container_logs(
-                container_id,
-                tail=tail
-            )
+            logs = self.docker_manager.get_container_logs(container_id, tail=tail)
 
         return logs
 
@@ -362,15 +318,9 @@ class ContainerContextManager:
             return None
 
         if context.remote_host.is_local:
-            return {
-                "host_name": "localhost",
-                "host_ip": "127.0.0.1",
-                "is_local": True
-            }
+            return {"host_name": "localhost", "host_ip": "127.0.0.1", "is_local": True}
 
         logger.info(f"Getting host info for remote container: {container_id}")
-        host_info = self.remote_api_manager.get_host_info(
-            host_name=context.remote_host.host_name
-        )
+        host_info = self.remote_api_manager.get_host_info(host_name=context.remote_host.host_name)
 
         return host_info

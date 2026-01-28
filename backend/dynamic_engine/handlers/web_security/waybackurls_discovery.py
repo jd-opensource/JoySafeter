@@ -14,8 +14,8 @@ class WaybackurlsHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['waybackurls']
+        """Handler related commands"""
+        return ["waybackurls"]
 
     def handle(self, data: Dict) -> Any:
         """Execute waybackurls with enhanced logging"""

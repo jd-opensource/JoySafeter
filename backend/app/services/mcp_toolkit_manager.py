@@ -3,6 +3,7 @@ MCP Toolkit Manager - MCP Toolkit 管理器
 
 维护活跃的 MCPTools 实例池，每个服务器对应一个持久的 Toolkit 实例。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -164,10 +165,10 @@ class McpToolkitManager:
     def _config_changed(self, old_config: McpServer, new_config: McpServer) -> bool:
         """检查服务器配置是否变更"""
         return (
-            old_config.url != new_config.url or
-            old_config.transport != new_config.transport or
-            old_config.headers != new_config.headers or
-            old_config.timeout != new_config.timeout
+            old_config.url != new_config.url
+            or old_config.transport != new_config.transport
+            or old_config.headers != new_config.headers
+            or old_config.timeout != new_config.timeout
         )
 
 
@@ -188,4 +189,3 @@ async def cleanup_all_toolkits() -> None:
     global _global_toolkit_manager
     if _global_toolkit_manager:
         await _global_toolkit_manager.cleanup_all()
-

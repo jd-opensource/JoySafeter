@@ -230,10 +230,7 @@ class LocalPythonExecutor(PythonExecutor):
         Returns:
             Dictionary of user-defined variables (excluding internal ones).
         """
-        return {
-            k: v for k, v in self.state.items()
-            if not k.startswith("_") and k != "__name__"
-        }
+        return {k: v for k, v in self.state.items() if not k.startswith("_") and k != "__name__"}
 
     def __repr__(self) -> str:
         return (
@@ -248,6 +245,7 @@ class LocalPythonExecutor(PythonExecutor):
 
 def create_default_final_answer() -> Callable:
     """Create a default final_answer function."""
+
     def final_answer(answer: Any) -> Any:
         """
         Return a final answer and terminate execution.
@@ -300,4 +298,3 @@ __all__ = [
     "create_default_final_answer",
     "truncate_text",
 ]
-

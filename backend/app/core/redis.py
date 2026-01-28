@@ -1,6 +1,7 @@
 """
 Redis 配置 - 缓存和分布式锁
 """
+
 import json
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
@@ -164,7 +165,6 @@ class RedisClient:
         await cls._client.publish(channel, event_str)
         return True
 
-
     @classmethod
     async def set_copilot_status(cls, session_id: str, status: str, ttl: int = 86400) -> bool:
         """设置 Copilot 会话状态"""
@@ -223,4 +223,3 @@ class RedisClient:
 async def get_redis() -> Optional[redis.Redis]:
     """获取 Redis 客户端"""
     return RedisClient.get_client()
-

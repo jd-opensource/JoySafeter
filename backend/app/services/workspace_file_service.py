@@ -1,6 +1,7 @@
 """
 工作空间文件存储服务
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -92,9 +93,7 @@ class WorkspaceFileService(BaseService):
             raise ForbiddenException("No access to workspace")
         return member.role
 
-    def _token_payload(
-        self, workspace_id: uuid.UUID, file_id: uuid.UUID, user_id: uuid.UUID
-    ) -> Dict:
+    def _token_payload(self, workspace_id: uuid.UUID, file_id: uuid.UUID, user_id: uuid.UUID) -> Dict:
         now = datetime.now(timezone.utc)
         return {
             "sub": str(user_id),
@@ -105,9 +104,7 @@ class WorkspaceFileService(BaseService):
             "exp": now + timedelta(minutes=self.DOWNLOAD_TOKEN_EXPIRE_MINUTES),
         }
 
-    def _validate_download_token(
-        self, token: str, workspace_id: uuid.UUID, file_id: uuid.UUID
-    ) -> Optional[str]:
+    def _validate_download_token(self, token: str, workspace_id: uuid.UUID, file_id: uuid.UUID) -> Optional[str]:
         try:
             payload = jwt.decode(
                 token,
@@ -157,9 +154,7 @@ class WorkspaceFileService(BaseService):
         records = await self.file_repo.list_workspace_files(workspace_id)
         return [self._serialize_file(rec) for rec in records]
 
-    async def upload_file(
-        self, workspace_id: uuid.UUID, file: UploadFile, current_user: User
-    ) -> Dict:
+    async def upload_file(self, workspace_id: uuid.UUID, file: UploadFile, current_user: User) -> Dict:
         role = await self._ensure_member_role(workspace_id, current_user)
         self._check_permission(PermissionType.write, self._get_permission_by_role(role))
 
@@ -219,9 +214,7 @@ class WorkspaceFileService(BaseService):
         await self.file_repo.delete(record.id)
         await self.commit()
 
-    async def generate_download_url(
-        self, workspace_id: uuid.UUID, file_id: uuid.UUID, current_user: User
-    ) -> str:
+    async def generate_download_url(self, workspace_id: uuid.UUID, file_id: uuid.UUID, current_user: User) -> str:
         role = await self._ensure_member_role(workspace_id, current_user)
         self._check_permission(PermissionType.read, self._get_permission_by_role(role))
 
@@ -236,9 +229,7 @@ class WorkspaceFileService(BaseService):
         )
         return f"{self._build_serve_path(workspace_id, file_id)}?token={token}"
 
-    async def get_file_record(
-        self, workspace_id: uuid.UUID, file_id: uuid.UUID
-    ):
+    async def get_file_record(self, workspace_id: uuid.UUID, file_id: uuid.UUID):
         record = await self.file_repo.get_by_id_and_workspace(file_id, workspace_id)
         if not record:
             raise NotFoundException("File not found")
@@ -277,4 +268,3 @@ class WorkspaceFileService(BaseService):
             "limitBytes": limit_bytes,
             "percentUsed": percent_used,
         }
-

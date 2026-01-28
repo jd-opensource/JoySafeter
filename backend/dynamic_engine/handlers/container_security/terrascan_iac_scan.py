@@ -14,8 +14,8 @@ class TerrascanHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['terrascan']
+        """Handler related commands"""
+        return ["terrascan"]
 
     def handle(self, data: Dict) -> Any:
         """Execute terrascan with enhanced logging"""

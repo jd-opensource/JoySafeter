@@ -1,4 +1,5 @@
 """Rerank 模型包装器与接口"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -89,4 +90,3 @@ class RerankModelWrapper(BaseModelWrapper[Rerank]):
             Rerank模型实例
         """
         return self.model
-

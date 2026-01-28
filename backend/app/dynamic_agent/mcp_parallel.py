@@ -25,7 +25,7 @@ async def main():
     results = await asyncio.gather(*tasks)
 
     for idx, r in enumerate(results):
-        print(f"Result {idx+1}:", r)
+        print(f"Result {idx + 1}:", r)
 
     await client.close()
 

@@ -37,6 +37,7 @@ from .exceptions import (
 @dataclass
 class HostConfig:
     """Host configuration for unified manager"""
+
     host_name: str
     is_local: bool = True
     remote_host: Optional[RemoteDockerHost] = None
@@ -129,10 +130,7 @@ class UnifiedDockerManager:
         #         is_local=True
         #     )
 
-        self.hosts[LOCALHOST] = HostConfig(
-            host_name=LOCALHOST,
-            is_local=True
-        )
+        self.hosts[LOCALHOST] = HostConfig(host_name=LOCALHOST, is_local=True)
 
         logger.info("Unified Docker Manager initialized")
 
@@ -151,11 +149,7 @@ class UnifiedDockerManager:
             return False
 
         host_name = host.name or host.host
-        self.hosts[host_name] = HostConfig(
-            host_name=host_name,
-            is_local=False,
-            remote_host=host
-        )
+        self.hosts[host_name] = HostConfig(host_name=host_name, is_local=False, remote_host=host)
 
         logger.info(f"Remote host added: {host_name}")
         return True
@@ -191,16 +185,16 @@ class UnifiedDockerManager:
         return list(self.hosts.values())
 
     def create_container(
-            self,
-            image: str,
-            command: Optional[str] = None,
-            name: Optional[str] = None,
-            host_name: Optional[str] = None,
-            resource_limits: Optional[ResourceLimits] = None,
-            environment: Optional[Dict[str, str]] = None,
-            volumes: Optional[Dict[str, Dict[str, str]]] = None,
-            # ports: Optional[Dict[str, int]] = None,
-            **kwargs
+        self,
+        image: str,
+        command: Optional[str] = None,
+        name: Optional[str] = None,
+        host_name: Optional[str] = None,
+        resource_limits: Optional[ResourceLimits] = None,
+        environment: Optional[Dict[str, str]] = None,
+        volumes: Optional[Dict[str, Dict[str, str]]] = None,
+        # ports: Optional[Dict[str, int]] = None,
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         Create a container on specified host.
@@ -240,8 +234,8 @@ class UnifiedDockerManager:
         backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 
         # Check if dev mode is enabled
-        dev_mode_value = os.environ.get(DEV_MODE_ENV, '')
-        dev_mode = dev_mode_value.lower() in ('1', 'true', 'yes')
+        dev_mode_value = os.environ.get(DEV_MODE_ENV, "")
+        dev_mode = dev_mode_value.lower() in ("1", "true", "yes")
         logger.info(f"🔍 DEV_MODE check: env={DEV_MODE_ENV}, value='{dev_mode_value}', enabled={dev_mode}")
 
         if dev_mode:
@@ -252,7 +246,7 @@ class UnifiedDockerManager:
             if not engine_host:
                 engine_host = os.path.join(backend_root, "dynamic_engine")
             if os.path.exists(engine_host):
-                volumes[engine_host] = {'bind': ENGINE_CONTAINER_PATH, 'mode': 'rw'}
+                volumes[engine_host] = {"bind": ENGINE_CONTAINER_PATH, "mode": "rw"}
                 logger.info(f"📦 Mounting engine: {engine_host} -> {ENGINE_CONTAINER_PATH}")
             else:
                 logger.warning(f"⚠️ Engine path not found: {engine_host}")
@@ -262,7 +256,7 @@ class UnifiedDockerManager:
             if not agent_host:
                 agent_host = os.path.join(backend_root, "app")
             if os.path.exists(agent_host):
-                volumes[agent_host] = {'bind': AGENT_CONTAINER_PATH, 'mode': 'rw'}
+                volumes[agent_host] = {"bind": AGENT_CONTAINER_PATH, "mode": "rw"}
                 logger.info(f"📦 Mounting agent: {agent_host} -> {AGENT_CONTAINER_PATH}")
             else:
                 logger.warning(f"⚠️ Agent path not found: {agent_host}")
@@ -273,7 +267,7 @@ class UnifiedDockerManager:
                 ctf_knowledge_host = os.path.join(backend_root, "dynamic_engine", "handlers", "knowledge", "ctf")
 
             if os.path.exists(ctf_knowledge_host):
-                volumes[ctf_knowledge_host] = {'bind': CTF_KNOWLEDGE_CONTAINER_PATH, 'mode': 'ro'}
+                volumes[ctf_knowledge_host] = {"bind": CTF_KNOWLEDGE_CONTAINER_PATH, "mode": "ro"}
                 logger.info(f"📚 Mounting CTF knowledge: {ctf_knowledge_host} -> {CTF_KNOWLEDGE_CONTAINER_PATH}")
 
             # Log all volumes being mounted
@@ -297,20 +291,20 @@ class UnifiedDockerManager:
                         environment=environment,
                         volumes=volumes,
                         ports=ports,
-                        **kwargs
+                        **kwargs,
                     )
                     # wait for container is availabel
                     sleep(10)
                     # Use DOCKER_HOST_IP env var if set (for Colima/Lima setups where port forwarding is broken)
-                    mcp_host = os.environ.get('DOCKER_HOST_IP', 'localhost')
+                    mcp_host = os.environ.get("DOCKER_HOST_IP", "localhost")
                     return {
-                        'container_id': container.id,
-                        'container_short_id': container.short_id,
-                        'container_name': container.name,
-                        'host_name': LOCALHOST,
-                        'is_local': True,
-                        'docker_api': None,
-                        'mcp_api': f'http://{mcp_host}:{native_port}/sse',
+                        "container_id": container.id,
+                        "container_short_id": container.short_id,
+                        "container_name": container.name,
+                        "host_name": LOCALHOST,
+                        "is_local": True,
+                        "docker_api": None,
+                        "mcp_api": f"http://{mcp_host}:{native_port}/sse",
                     }
                 else:
                     logger.info(f"Creating container on remote host: {host_name}")
@@ -323,15 +317,15 @@ class UnifiedDockerManager:
                         environment=environment,
                         volumes=volumes,
                         ports=ports,
-                        **kwargs
+                        **kwargs,
                     )
                     if result:
                         # wait for container is availabel
                         sleep(10)
-                        result['is_local'] = False
-                        result.update({'docker_api': None,
-                             'mcp_api': f'http://{host_config.remote_host.host}:{native_port}/sse'
-                             })
+                        result["is_local"] = False
+                        result.update(
+                            {"docker_api": None, "mcp_api": f"http://{host_config.remote_host.host}:{native_port}/sse"}
+                        )
                         return result
                     # raise ContainerCreationError(f"Failed to create container on {host_name}")
 
@@ -341,7 +335,7 @@ class UnifiedDockerManager:
                 logger.warning(f"Failed to create container: {e}")
                 # 500 Server Error for http+docker://localhost/v1.51/containers/5094943bc91be274726c70de7f54ad1ee0eb14573d7d80ef4f32675da27a5700/start: Internal Server Error ("failed to set up container networking: driver failed programming external connectivity on endpoint pentest-user_123-2e5d995f (1c16361d8655ebd2750a00187f49078276ac982a8910147f7449d2893b62aa68): Bind for 0.0.0.0:8000 failed: port is already allocated")
 
-                if isinstance(e, APIError) and e.status_code == 500 and 'port is already allocated' in e.explanation:
+                if isinstance(e, APIError) and e.status_code == 500 and "port is already allocated" in e.explanation:
                     logger.info(f"Port {native_port} is already allocated")
                     native_port += 1
                     continue
@@ -349,12 +343,7 @@ class UnifiedDockerManager:
                     raise e
 
     def execute_command(
-            self,
-            container_id: str,
-            command: str,
-            host_name: Optional[str] = None,
-            timeout: Optional[int] = None,
-            **kwargs
+        self, container_id: str, command: str, host_name: Optional[str] = None, timeout: Optional[int] = None, **kwargs
     ) -> Tuple[int, str, str]:
         """
         Execute command in container.
@@ -383,18 +372,12 @@ class UnifiedDockerManager:
             if host_config.is_local:
                 logger.debug(f"Executing command on local container: {container_id}")
                 return self.local_manager.execute_command(
-                    container_id=container_id,
-                    command=command,
-                    timeout=timeout,
-                    **kwargs
+                    container_id=container_id, command=command, timeout=timeout, **kwargs
                 )
             else:
                 logger.debug(f"Executing command on remote container: {container_id}")
                 result = self.remote_manager.execute_command(
-                    host_name=host_name,
-                    container_id=container_id,
-                    command=command,
-                    timeout=timeout or 300
+                    host_name=host_name, container_id=container_id, command=command, timeout=timeout or 300
                 )
                 if result:
                     return result
@@ -405,11 +388,7 @@ class UnifiedDockerManager:
             raise ContainerExecutionError(f"Failed to execute command: {e}")
 
     def stop_container(
-            self,
-            container_id: str,
-            host_name: Optional[str] = None,
-            timeout: int = 10,
-            force: bool = False
+        self, container_id: str, host_name: Optional[str] = None, timeout: int = 10, force: bool = False
     ) -> None:
         """
         Stop a container.
@@ -433,27 +412,16 @@ class UnifiedDockerManager:
         try:
             if host_config.is_local:
                 logger.info(f"Stopping local container: {container_id}")
-                self.local_manager.stop_container(
-                    container_id=container_id,
-                    timeout=timeout,
-                    force=force
-                )
+                self.local_manager.stop_container(container_id=container_id, timeout=timeout, force=force)
             else:
                 logger.info(f"Stopping remote container: {container_id}")
-                self.remote_manager.stop_container(
-                    host_name=host_name,
-                    container_id=container_id
-                )
+                self.remote_manager.stop_container(host_name=host_name, container_id=container_id)
 
         except Exception as e:
             logger.error(f"Failed to stop container on {host_name}: {e}")
             raise ContainerStateError(f"Failed to stop container: {e}")
 
-    def start_container(
-            self,
-            container_id: str,
-            host_name: Optional[str] = None
-    ) -> None:
+    def start_container(self, container_id: str, host_name: Optional[str] = None) -> None:
         """
         Start a stopped container.
 
@@ -478,21 +446,14 @@ class UnifiedDockerManager:
             else:
                 logger.info(f"Starting remote container: {container_id}")
                 # For remote containers, use the remote manager's client
-                self.remote_manager.start_container(
-                    host_name=host_name,
-                    container_id=container_id
-                )
+                self.remote_manager.start_container(host_name=host_name, container_id=container_id)
 
         except Exception as e:
             logger.error(f"Failed to start container on {host_name}: {e}")
             raise ContainerStateError(f"Failed to start container: {e}")
 
     def remove_container(
-            self,
-            container_id: str,
-            host_name: Optional[str] = None,
-            force: bool = False,
-            volumes: bool = False
+        self, container_id: str, host_name: Optional[str] = None, force: bool = False, volumes: bool = False
     ) -> None:
         """
         Remove a container.
@@ -516,27 +477,16 @@ class UnifiedDockerManager:
         try:
             if host_config.is_local:
                 logger.info(f"Removing local container: {container_id}")
-                self.local_manager.remove_container(
-                    container_id=container_id,
-                    force=force,
-                    volumes=volumes
-                )
+                self.local_manager.remove_container(container_id=container_id, force=force, volumes=volumes)
             else:
                 logger.info(f"Removing remote container: {container_id}")
-                self.remote_manager.remove_container(
-                    host_name=host_name,
-                    container_id=container_id
-                )
+                self.remote_manager.remove_container(host_name=host_name, container_id=container_id)
 
         except Exception as e:
             logger.error(f"Failed to remove container on {host_name}: {e}")
             raise ContainerStateError(f"Failed to remove container: {e}")
 
-    def list_containers(
-            self,
-            host_name: Optional[str] = None,
-            all: bool = False
-    ) -> List[Dict[str, Any]]:
+    def list_containers(self, host_name: Optional[str] = None, all: bool = False) -> List[Dict[str, Any]]:
         """
         List containers on specified host.
 
@@ -562,19 +512,16 @@ class UnifiedDockerManager:
                 return [c.to_dict() for c in containers]
             else:
                 logger.debug(f"Listing remote containers on {host_name}")
-                return self.remote_manager.list_containers(
-                    host_name=host_name,
-                    all=all
-                )
+                return self.remote_manager.list_containers(host_name=host_name, all=all)
 
         except Exception as e:
             logger.error(f"Failed to list containers on {host_name}: {e}")
             return []
 
     def get_container_info(
-            self,
-            container_id: str,
-            host_name: Optional[str] = None # todo
+        self,
+        container_id: str,
+        host_name: Optional[str] = None,  # todo
     ) -> Optional[Dict[str, Any]]:
         """
         Get container information.
@@ -601,21 +548,13 @@ class UnifiedDockerManager:
                 return container_info.to_dict() if container_info else None
             else:
                 logger.debug(f"Getting info from remote container: {container_id}")
-                return self.remote_manager.get_container_info(
-                    host_name=host_name,
-                    container_id=container_id
-                )
+                return self.remote_manager.get_container_info(host_name=host_name, container_id=container_id)
 
         except Exception as e:
             logger.error(f"Failed to get container info from {host_name}: {e}")
             return None
 
-    def get_container_logs(
-            self,
-            container_id: str,
-            host_name: Optional[str] = None,
-            tail: int = 100
-    ) -> Optional[str]:
+    def get_container_logs(self, container_id: str, host_name: Optional[str] = None, tail: int = 100) -> Optional[str]:
         """
         Get container logs.
 
@@ -638,17 +577,10 @@ class UnifiedDockerManager:
         try:
             if host_config.is_local:
                 logger.debug(f"Getting logs from local container: {container_id}")
-                return self.local_manager.get_container_logs(
-                    container_id=container_id,
-                    tail=tail
-                )
+                return self.local_manager.get_container_logs(container_id=container_id, tail=tail)
             else:
                 logger.debug(f"Getting logs from remote container: {container_id}")
-                return self.remote_manager.get_container_logs(
-                    host_name=host_name,
-                    container_id=container_id,
-                    tail=tail
-                )
+                return self.remote_manager.get_container_logs(host_name=host_name, container_id=container_id, tail=tail)
 
         except Exception as e:
             logger.error(f"Failed to get logs from {host_name}: {e}")
@@ -678,12 +610,12 @@ class UnifiedDockerManager:
                 # Get info from local Docker daemon
                 info = self.local_manager.client.info()
                 return {
-                    'host_name': LOCALHOST,
-                    'docker_version': self.local_manager.client.version()['Version'],
-                    'os': info.get('OperatingSystem'),
-                    'cpu_count': info.get('NCPU'),
-                    'memory_bytes': info.get('MemTotal'),
-                    'is_local': True
+                    "host_name": LOCALHOST,
+                    "docker_version": self.local_manager.client.version()["Version"],
+                    "os": info.get("OperatingSystem"),
+                    "cpu_count": info.get("NCPU"),
+                    "memory_bytes": info.get("MemTotal"),
+                    "is_local": True,
                 }
             else:
                 logger.debug(f"Getting info from remote host: {host_name}")

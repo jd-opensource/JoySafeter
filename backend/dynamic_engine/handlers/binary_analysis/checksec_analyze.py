@@ -14,8 +14,8 @@ class ChecksecHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['checksec']
+        """Handler related commands"""
+        return ["checksec"]
 
     def handle(self, data: Dict) -> Any:
         """Execute checksec with enhanced logging"""
@@ -23,11 +23,7 @@ class ChecksecHandler(AbstractHandler):
             binary = data.get("binary", "")
             if not binary:
                 logger.warning("🔧 Checksec called without binary parameter")
-                return {
-
-                    "error": "Binary parameter is required"
-
-                }
+                return {"error": "Binary parameter is required"}
             command = f"checksec --file={binary}"
             logger.info(f"🔧 Starting Checksec analysis: {binary}")
             result = execute_command(command)
@@ -35,8 +31,4 @@ class ChecksecHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in checksec endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

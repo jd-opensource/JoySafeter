@@ -15,8 +15,8 @@ class AngrHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['angr']
+        """Handler related commands"""
+        return ["angr"]
 
     def handle(self, data: Dict) -> Any:
         try:
@@ -57,8 +57,8 @@ class AngrHandler(AbstractHandler):
     simgr = project.factory.simulation_manager(state)
 
     # Find and avoid addresses
-    find_addr = {find_address if find_address else 'None'}
-    avoid_addrs = {avoid_addresses.split(',') if avoid_addresses else '[]'}
+    find_addr = {find_address if find_address else "None"}
+    avoid_addrs = {avoid_addresses.split(",") if avoid_addresses else "[]"}
 
     if find_addr:
         simgr.explore(find=find_addr, avoid=avoid_addrs)

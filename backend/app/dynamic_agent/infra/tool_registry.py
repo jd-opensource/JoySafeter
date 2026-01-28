@@ -16,11 +16,12 @@ ToolCategory = str
 
 class ToolPriority(str, Enum):
     """Tool priority levels."""
-    CRITICAL = 'critical'  # Always include if relevant
-    HIGH = 'high'  # Include in most scenarios
-    MEDIUM = 'medium' # Include based on context
-    LOW = 'low'  # Include only if space available
-    OPTIONAL = 'optional'  # Rarely include
+
+    CRITICAL = "critical"  # Always include if relevant
+    HIGH = "high"  # Include in most scenarios
+    MEDIUM = "medium"  # Include based on context
+    LOW = "low"  # Include only if space available
+    OPTIONAL = "optional"  # Rarely include
 
 
 ToolPriorityScore = {
@@ -35,6 +36,7 @@ ToolPriorityScore = {
 @dataclass
 class ToolMetadata:
     """Metadata for a registered tool."""
+
     name: str
     category: ToolCategory
     description: str

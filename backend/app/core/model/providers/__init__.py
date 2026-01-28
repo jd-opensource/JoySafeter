@@ -1,6 +1,7 @@
 """
 模型供应商模块
 """
+
 import importlib
 import inspect
 import pkgutil
@@ -38,7 +39,7 @@ def _discover_provider_classes() -> List[Type[BaseProvider]]:
     # 遍历目录中的所有模块
     for importer, modname, ispkg in pkgutil.iter_modules([str(package_path)]):
         # 跳过 __init__ 和 base 模块
-        if modname in ('__init__', 'base'):
+        if modname in ("__init__", "base"):
             continue
 
         try:
@@ -48,13 +49,12 @@ def _discover_provider_classes() -> List[Type[BaseProvider]]:
             # 遍历模块中的所有成员
             for name, obj in inspect.getmembers(module, inspect.isclass):
                 # 检查是否是 BaseProvider 的子类（排除 BaseProvider 本身）
-                if (issubclass(obj, BaseProvider) and
-                    obj is not BaseProvider and
-                    obj.__module__ == module.__name__):
+                if issubclass(obj, BaseProvider) and obj is not BaseProvider and obj.__module__ == module.__name__:
                     provider_classes.append(obj)
         except Exception as e:
             # 导入失败时记录警告，但不中断程序
             import warnings
+
             warnings.warn(f"Failed to import provider module '{modname}': {e}", ImportWarning)
 
     _provider_classes_cache = provider_classes

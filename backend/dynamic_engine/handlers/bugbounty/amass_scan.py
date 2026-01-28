@@ -14,8 +14,8 @@ class AmassHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['amass']
+        """Handler related commands"""
+        return ["amass"]
 
     def handle(self, data: Dict) -> Any:
         """Execute amass with enhanced logging"""
@@ -25,11 +25,7 @@ class AmassHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not domain:
                 logger.warning("🌐 Amass called without domain parameter")
-                return {
-
-                    "error": "Domain parameter is required"
-
-                }
+                return {"error": "Domain parameter is required"}
             command = f"amass {mode}"
             if mode == "enum":
                 command += f" -d {domain}"
@@ -43,8 +39,4 @@ class AmassHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in amass endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

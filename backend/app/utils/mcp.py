@@ -27,7 +27,6 @@ class ToolResult(BaseModel):
     files: Optional[List[File]] = None
 
 
-
 def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
     """
     DEPRECATED: This function is kept for backward compatibility.
@@ -37,6 +36,7 @@ def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
 
     Return an entrypoint for an MCP tool that captures a session.
     """
+
     async def call_tool(tool_name: str, **kwargs) -> ToolResult:
         try:
             await session.send_ping()
@@ -45,9 +45,9 @@ def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
 
         try:
             # 打印工具调用信息：工具名称和参数
-            #logger.info(f"[MCP Tool Call] 工具名称: {tool_name}, 参数: {kwargs}")
+            # logger.info(f"[MCP Tool Call] 工具名称: {tool_name}, 参数: {kwargs}")
             # 特别突出显示文件路径参数
-            if 'filepath' in kwargs:
+            if "filepath" in kwargs:
                 logger.warning(f"[MCP Tool Call] 🔍 文件路径参数: {kwargs['filepath']}")
             result: CallToolResult = await session.call_tool(tool_name, kwargs)  # type: ignore
 
@@ -58,7 +58,7 @@ def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
             # Process the result content (simplified version)
             response_str = ""
             for content_item in result.content:
-                if hasattr(content_item, 'text'):
+                if hasattr(content_item, "text"):
                     response_str += content_item.text + "\n"
 
             return ToolResult(content=response_str.strip())
@@ -71,6 +71,7 @@ def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
 
 class ToolExecutionError(Exception):
     """工具执行错误"""
+
     def __init__(self, message: str, error_type: str = "unknown", retryable: bool = False):
         self.message = message
         self.error_type = error_type  # 'network', 'timeout', 'config', 'permission', 'unknown'
@@ -102,6 +103,7 @@ def create_lazy_mcp_entrypoint(
     retry_delay: float = 0.5,
 ):
     """创建 MCP 工具的 lazy entrypoint"""
+
     async def call_tool(**kwargs) -> ToolResult:
         import asyncio
 
@@ -153,7 +155,7 @@ def create_lazy_mcp_entrypoint(
                     f"尝试次数: {attempt + 1}/{max_retries + 1}"
                 )
                 # 特别突出显示文件路径参数
-                if 'filepath' in kwargs:
+                if "filepath" in kwargs:
                     logger.warning(f"[MCP Tool Call] 🔍 文件路径参数: {kwargs['filepath']}")
 
                 result: CallToolResult = await session.call_tool(tool_name, kwargs)  # type: ignore
@@ -254,7 +256,7 @@ def create_lazy_mcp_entrypoint(
                 is_retryable = _is_retryable_error(e)
 
                 if attempt < max_retries and is_retryable:
-                    delay = retry_delay * (2 ** attempt)  # Exponential backoff
+                    delay = retry_delay * (2**attempt)  # Exponential backoff
                     logger.warning(
                         f"[MCP Tool Execution] Transient error calling tool '{tool_name}' from server '{server_name}' "
                         f"(attempt {attempt + 1}/{max_retries + 1}): {e}. Retrying in {delay:.1f}s..."
@@ -265,9 +267,7 @@ def create_lazy_mcp_entrypoint(
                         toolkit = await toolkit_manager.get_toolkit(server, user_id)
                         session = toolkit.session
                     except Exception as refresh_error:
-                        logger.warning(
-                            f"[MCP Tool Execution] Failed to refresh toolkit on retry: {refresh_error}"
-                        )
+                        logger.warning(f"[MCP Tool Execution] Failed to refresh toolkit on retry: {refresh_error}")
                     continue
                 else:
                     # Non-retryable error or max retries reached
@@ -276,10 +276,7 @@ def create_lazy_mcp_entrypoint(
                         "config" if "not found" in str(e).lower() or "disabled" in str(e).lower() else "unknown"
 
                     error_msg = f"Failed to execute MCP tool '{tool_name}' from server '{server_name}': {e}"
-                    logger.error(
-                        f"[MCP Tool Execution] {error_msg}",
-                        exc_info=True
-                    )
+                    logger.error(f"[MCP Tool Execution] {error_msg}", exc_info=True)
                     return ToolResult(content=f"Error: {error_msg}")
 
         # Should not reach here, but handle it anyway

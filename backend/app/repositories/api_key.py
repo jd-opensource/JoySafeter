@@ -1,6 +1,7 @@
 """
 ApiKey Repository
 """
+
 from __future__ import annotations
 
 import uuid
@@ -30,4 +31,3 @@ class ApiKeyRepository(BaseRepository[ApiKey]):
         stmt = delete(ApiKey).where(ApiKey.id == key_id)
         result = await self.db.execute(stmt)
         return result.rowcount or 0
-

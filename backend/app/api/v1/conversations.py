@@ -76,6 +76,7 @@ router = APIRouter(prefix="/conversations", tags=["Conversations"])
 
 # ==================== Helper functions ====================
 
+
 async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
     """
     Get a LangGraph runnable with checkpointer enabled.
@@ -720,7 +721,6 @@ async def get_checkpoints(
     except Exception as e:
         logger.error(f"Get checkpoints error: {e}")
         raise_internal_error(str(e))
-
 
 
 async def get_graph_instance(

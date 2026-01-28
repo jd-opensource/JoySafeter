@@ -1,6 +1,7 @@
 """
 ModelInstance Repository
 """
+
 import uuid
 from typing import Optional
 
@@ -23,9 +24,7 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     ) -> ModelInstance | None:
         """获取默认模型实例（所有用户和工作空间可见）"""
         # 移除所有 user_id 和 workspace_id 过滤，返回第一个默认模型
-        result = await self.db.execute(
-            select(ModelInstance).where(ModelInstance.is_default)
-        )
+        result = await self.db.execute(select(ModelInstance).where(ModelInstance.is_default))
         return result.scalar_one_or_none()
 
     async def list_by_user(
@@ -35,9 +34,7 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     ) -> list[ModelInstance]:
         """获取所有模型实例（所有用户和工作空间可见）"""
         # 移除所有 user_id 和 workspace_id 过滤
-        result = await self.db.execute(
-            select(ModelInstance)
-        )
+        result = await self.db.execute(select(ModelInstance))
         return list(result.scalars().all())
 
     # 获取指定模型名的实例
@@ -48,9 +45,7 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     ) -> ModelInstance | None:
         """获取指定模型名的实例（所有用户和工作空间可见）"""
         # 移除所有 workspace_id 过滤
-        result = await self.db.execute(
-            select(ModelInstance).where(ModelInstance.model_name == model_name)
-        )
+        result = await self.db.execute(select(ModelInstance).where(ModelInstance.model_name == model_name))
         return result.scalar_one_or_none()
 
     async def get_by_provider_and_model(

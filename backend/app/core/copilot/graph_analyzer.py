@@ -122,10 +122,7 @@ def format_tools_summary(tools_config: Optional[Dict[str, Any]]) -> str:
     return "; ".join(parts) if parts else "None"
 
 
-def analyze_graph_topology(
-    normalized_nodes: List[Dict],
-    edges: List[Dict]
-) -> Dict[str, Any]:
+def analyze_graph_topology(normalized_nodes: List[Dict], edges: List[Dict]) -> Dict[str, Any]:
     """
     Analyze graph topology structure.
 
@@ -188,9 +185,7 @@ def analyze_graph_topology(
 
 
 def generate_topology_description(
-    normalized_nodes: List[Dict],
-    topology: Dict[str, Any],
-    node_map: Dict[str, Dict]
+    normalized_nodes: List[Dict], topology: Dict[str, Any], node_map: Dict[str, Dict]
 ) -> str:
     """
     Generate structured topology description text showing graph flow structure.
@@ -318,10 +313,7 @@ def generate_topology_description(
     return "\n".join(flow_parts)
 
 
-def build_enhanced_node_data(
-    normalized_nodes: List[Dict],
-    topology: Dict[str, Any]
-) -> List[Dict[str, Any]]:
+def build_enhanced_node_data(normalized_nodes: List[Dict], topology: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Build enhanced context data for each node.
 
@@ -410,34 +402,22 @@ def calculate_positions_for_nodes(
 
         # Remaining nodes (SubAgents) on the right, stacked vertically
         for i in range(1, node_count):
-            positions.append({
-                "x": base_x + x_spacing,
-                "y": base_y + (i - 1) * y_spacing
-            })
+            positions.append({"x": base_x + x_spacing, "y": base_y + (i - 1) * y_spacing})
 
     elif layout_type == "horizontal":
         # Horizontal layout: All nodes in a row
         for i in range(node_count):
-            positions.append({
-                "x": base_x + i * x_spacing,
-                "y": base_y
-            })
+            positions.append({"x": base_x + i * x_spacing, "y": base_y})
 
     elif layout_type == "vertical":
         # Vertical layout: All nodes in a column
         for i in range(node_count):
-            positions.append({
-                "x": base_x,
-                "y": base_y + i * y_spacing
-            })
+            positions.append({"x": base_x, "y": base_y + i * y_spacing})
 
     else:
         # Default to horizontal if unknown layout type
         for i in range(node_count):
-            positions.append({
-                "x": base_x + i * x_spacing,
-                "y": base_y
-            })
+            positions.append({"x": base_x + i * x_spacing, "y": base_y})
 
     return positions
 
@@ -470,10 +450,7 @@ def calculate_positions_for_deepagents(
             "subagents": [{"x": float, "y": float}, ...]
         }
     """
-    result = {
-        "manager": [],
-        "subagents": []
-    }
+    result = {"manager": [], "subagents": []}
 
     # Calculate Manager positions (on the left)
     if manager_count > 0:
@@ -483,7 +460,7 @@ def calculate_positions_for_deepagents(
             node_count=manager_count,
             layout_type="vertical",
             x_spacing=0,
-            y_spacing=y_spacing
+            y_spacing=y_spacing,
         )
         result["manager"] = manager_positions
 
@@ -495,7 +472,7 @@ def calculate_positions_for_deepagents(
             node_count=subagent_count,
             layout_type="vertical",
             x_spacing=0,
-            y_spacing=y_spacing
+            y_spacing=y_spacing,
         )
         result["subagents"] = subagent_positions
 
@@ -524,7 +501,6 @@ def calculate_next_position(normalized_nodes: List[Dict]) -> Dict[str, float]:
         node_count=1,
         layout_type="horizontal",
         x_spacing=250,
-        y_spacing=150
+        y_spacing=150,
     )
     return positions[0] if positions else {"x": 100, "y": 100}
-

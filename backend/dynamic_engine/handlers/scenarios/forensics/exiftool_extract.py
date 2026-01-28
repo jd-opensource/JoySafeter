@@ -14,8 +14,8 @@ class ExiftoolHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['exiftool']
+        """Handler related commands"""
+        return ["exiftool"]
 
     def handle(self, data: Dict) -> Any:
         """Execute exiftool with enhanced logging"""
@@ -26,11 +26,7 @@ class ExiftoolHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not file_path:
                 logger.warning("📷 ExifTool called without file_path parameter")
-                return {
-
-                    "error": "File path parameter is required"
-
-                }
+                return {"error": "File path parameter is required"}
             command = "exiftool"
             if output_format:
                 command += f" -{output_format}"
@@ -45,8 +41,4 @@ class ExiftoolHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in exiftool endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

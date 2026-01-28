@@ -1,6 +1,7 @@
 """
 OpenAI供应商实现
 """
+
 from typing import Any, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
@@ -23,10 +24,7 @@ class AiSafetyProvider(BaseProvider):
     ]
 
     def __init__(self):
-        super().__init__(
-            provider_name="aisafety",
-            display_name="AiSafety Provider"
-        )
+        super().__init__(provider_name="aisafety", display_name="AiSafety Provider")
 
     def get_supported_model_types(self) -> List[ModelType]:
         """获取支持的模型类型"""
@@ -143,7 +141,9 @@ class AiSafetyProvider(BaseProvider):
         except Exception as e:
             return False, f"凭据验证失败：{str(e)}"
 
-    def get_model_list(self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def get_model_list(
+        self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
         """获取模型列表"""
         if model_type == ModelType.CHAT:
             models = []
@@ -210,7 +210,7 @@ class AiSafetyProvider(BaseProvider):
 
         return ChatOpenAI(**model_kwargs)
 
-    def test_output(self, instance_dict: Dict[str, Any],input: str) -> str:
+    def test_output(self, instance_dict: Dict[str, Any], input: str) -> str:
         """测试模型输出"""
 
         instance = self.create_model_instance(

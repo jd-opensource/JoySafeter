@@ -3,6 +3,7 @@
 等待数据库就绪的 Python 脚本
 用于在 Docker 容器中等待数据库服务可用
 """
+
 import sys
 from pathlib import Path
 

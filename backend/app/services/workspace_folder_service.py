@@ -1,6 +1,7 @@
 """
 文件夹业务逻辑
 """
+
 from __future__ import annotations
 
 import uuid
@@ -77,9 +78,7 @@ class FolderService(BaseService[WorkspaceFolder]):
     # ------------------------------------------------------------------ #
     # 树/循环检测辅助
     # ------------------------------------------------------------------ #
-    async def _build_children_index(
-        self, workspace_id: uuid.UUID
-    ) -> Dict[Optional[uuid.UUID], List[uuid.UUID]]:
+    async def _build_children_index(self, workspace_id: uuid.UUID) -> Dict[Optional[uuid.UUID], List[uuid.UUID]]:
         relations = await self.folder_repo.list_relations_by_workspace(workspace_id)
         children: Dict[Optional[uuid.UUID], List[uuid.UUID]] = {}
         for fid, pid in relations:
@@ -352,4 +351,3 @@ class FolderService(BaseService[WorkspaceFolder]):
 
         await self.commit()
         return await self.folder_repo.get(new_root_id)  # type: ignore[return-value]
-

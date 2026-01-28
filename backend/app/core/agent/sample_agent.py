@@ -72,9 +72,7 @@ def get_default_model(
     model_name = llm_model or "gpt-4o-mini"  # 最后的硬编码后备（应该尽量避免）
 
     # Convert API key to SecretStr if provided
-    secret_api_key: SecretStr | None = (
-        SecretStr(api_key_value) if api_key_value else None
-    )
+    secret_api_key: SecretStr | None = SecretStr(api_key_value) if api_key_value else None
 
     # Set default timeout to 120 seconds if not provided
     # This helps prevent "No generations found in stream" errors
@@ -165,7 +163,7 @@ async def get_agent(
         elif not isinstance(tools, (list, tuple)):
             logger.warning(f"[get_agent] tools is not a list/tuple, type: {type(tools)}, converting to list")
             try:
-                tools = list(tools) if hasattr(tools, '__iter__') else [tools]
+                tools = list(tools) if hasattr(tools, "__iter__") else [tools]
             except Exception as e:
                 logger.error(f"[get_agent] Failed to convert tools to list: {e}")
                 tools = []
@@ -191,6 +189,7 @@ async def get_agent(
                 # 尝试解析为 MCP 工具（格式: server_name::tool_name）
                 if "::" in tool:
                     from app.core.tools.mcp_tool_utils import parse_mcp_tool_name
+
                     server_name, tool_name = parse_mcp_tool_name(tool)
                     if server_name and tool_name:
                         mcp_tool = registry.get_mcp_tool(server_name, tool_name)
@@ -209,6 +208,7 @@ async def get_agent(
     # Create per-user isolated workspace directory
     # Normalize user_id to ensure it's a string (UUID format)
     from app.core.agent.node_tools import _normalize_user_id
+
     normalized_user_id = _normalize_user_id(user_id)
     root_dir = f"./logs/{normalized_user_id}"
     backend = FilesystemSandboxBackend(
@@ -253,8 +253,7 @@ async def get_agent(
                 )
             except ImportError:
                 logger.warning(
-                    "[get_agent] deepagents SkillsMiddleware not available. "
-                    "Skills descriptions will not be injected."
+                    "[get_agent] deepagents SkillsMiddleware not available. Skills descriptions will not be injected."
                 )
             except Exception as e:
                 logger.warning(
@@ -272,7 +271,7 @@ async def get_agent(
     # These are middleware instances created from node configuration (e.g., MemoryMiddleware)
     if node_middleware:
         # Sort middleware by priority (lower number = higher priority = executed first)
-        node_middleware.sort(key=lambda mw: getattr(mw, 'priority', 100))
+        node_middleware.sort(key=lambda mw: getattr(mw, "priority", 100))
 
         # Insert node middleware after default middleware but before the end
         # This ensures they have access to the full middleware chain

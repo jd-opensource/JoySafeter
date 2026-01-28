@@ -14,8 +14,8 @@ class FfufHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['ffuf']
+        """Handler related commands"""
+        return ["ffuf"]
 
     def handle(self, data: Dict) -> Any:
         """Execute ffuf with enhanced logging"""
@@ -27,11 +27,7 @@ class FfufHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not url:
                 logger.warning("🌐 FFuf called without URL parameter")
-                return {
-
-                    "error": "URL parameter is required"
-
-                }
+                return {"error": "URL parameter is required"}
             command = "ffuf"
             if mode == "directory":
                 command += f" -u {url}/FUZZ -w {wordlist}"
@@ -50,8 +46,4 @@ class FfufHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in ffuf endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

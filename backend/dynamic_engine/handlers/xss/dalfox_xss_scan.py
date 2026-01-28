@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class DalfoxHandler(AbstractHandler):
     """Handler for dalfox functionality"""
 
@@ -13,8 +14,8 @@ class DalfoxHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['dalfox']
+        """Handler related commands"""
+        return ["dalfox"]
 
     def handle(self, data: Dict) -> Any:
         """Execute dalfox with enhanced logging"""

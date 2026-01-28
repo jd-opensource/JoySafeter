@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 class TaskStatus(str, Enum):
     """Task execution status."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -22,6 +23,7 @@ class TaskStatus(str, Enum):
 @dataclass
 class TaskState:
     """Task execution state."""
+
     task_id: str
     session_id: str
     task_type: str  # tool_execution, scan, analysis
@@ -60,10 +62,11 @@ class TaskStateManager:
         session_id: str,
         task_type: str,
         tool_name: Optional[str] = None,
-        parameters: Optional[Dict[str, Any]] = None
+        parameters: Optional[Dict[str, Any]] = None,
     ) -> TaskState:
         """Create a new task."""
         from uuid import uuid4
+
         task_id = str(uuid4())
 
         task = TaskState(
@@ -73,7 +76,7 @@ class TaskStateManager:
             status=TaskStatus.PENDING,
             created_at=datetime.now(),
             tool_name=tool_name,
-            parameters=parameters or {}
+            parameters=parameters or {},
         )
 
         self._active_tasks[task_id] = task
@@ -94,12 +97,7 @@ class TaskStateManager:
             self._active_tasks[task_id] = task
             await self.backend.save_task(task)
 
-    async def update_progress(
-        self,
-        task_id: str,
-        progress: float,
-        message: Optional[str] = None
-    ):
+    async def update_progress(self, task_id: str, progress: float, message: Optional[str] = None):
         """Update task progress."""
         task = self._active_tasks.get(task_id)
         if task:
@@ -107,12 +105,7 @@ class TaskStateManager:
             task.progress_message = message
             await self.backend.save_task(task)
 
-    async def complete_task(
-        self,
-        task_id: str,
-        result: Any,
-        execution_time_ms: Optional[int] = None
-    ):
+    async def complete_task(self, task_id: str, result: Any, execution_time_ms: Optional[int] = None):
         """Complete task successfully."""
         task = self._active_tasks.get(task_id)
         if task:
@@ -150,11 +143,7 @@ class TaskStateManager:
 
         return await self.backend.load_task(task_id)
 
-    async def get_session_tasks(
-        self,
-        session_id: str,
-        status: Optional[TaskStatus] = None
-    ) -> List[TaskState]:
+    async def get_session_tasks(self, session_id: str, status: Optional[TaskStatus] = None) -> List[TaskState]:
         """Get all tasks for a session."""
         return await self.backend.get_tasks_by_session(session_id, status)
 

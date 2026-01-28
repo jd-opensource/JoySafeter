@@ -19,14 +19,16 @@ def _stream_plan_update(plan: ExecutionPlan, metadata: dict) -> None:
         plan: The ExecutionPlan to output
         metadata: Metadata context containing response_queue
     """
-    response_queue = metadata.get('response_queue')
+    response_queue = metadata.get("response_queue")
     if response_queue and plan:
         try:
             plan_md = plan.to_markdown()
-            response_queue.put_nowait({
-                'type': 'plan_update',
-                'content': plan_md,
-            })
+            response_queue.put_nowait(
+                {
+                    "type": "plan_update",
+                    "content": plan_md,
+                }
+            )
             logger.debug(f"📋 Plan update streamed: {plan.get_progress_summary()}")
         except Exception as e:
             logger.warning(f"Failed to stream plan update: {e}")
@@ -59,9 +61,9 @@ Be specific and actionable."""
 
     try:
         response = await llm_instance.ainvoke([HumanMessage(content=prompt)])
-        lines = response.content.strip().split('\n')
+        lines = response.content.strip().split("\n")
         steps = [
-            PlanStep(step_id=str(i+1), description=line.strip().lstrip('0123456789.-) '))
+            PlanStep(step_id=str(i + 1), description=line.strip().lstrip("0123456789.-) "))
             for i, line in enumerate(lines)
             if line.strip() and len(line.strip()) > 5
         ][:3]  # Max 3 alternative steps
@@ -101,7 +103,7 @@ async def _generate_summary(
 
     # If we have good coverage, skip LLM call
     # Also skip if result is already XML format (Sub-Agent output)
-    if summary.get_coverage_score() > 0.3 or len(result) < 200 or '<result>' in result:
+    if summary.get_coverage_score() > 0.3 or len(result) < 200 or "<result>" in result:
         return summary
 
     # Use LLM for better extraction on complex results (rare case)
@@ -225,10 +227,12 @@ def _request_user_guidance(plan: ExecutionPlan, error: str) -> str:
     ]
 
     if plan.replan_history:
-        msg_lines.extend([
-            "",
-            "**Replan History**:",
-        ])
+        msg_lines.extend(
+            [
+                "",
+                "**Replan History**:",
+            ]
+        )
         for rp in plan.replan_history:
             msg_lines.append(f"- {rp['reason']}")
 

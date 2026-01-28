@@ -4,6 +4,7 @@ from pydantic import BaseModel as PydanticBaseModel
 
 T = TypeVar("T")
 
+
 class BaseResponse(PydanticBaseModel, Generic[T]):
     """所有API响应的基类"""
 

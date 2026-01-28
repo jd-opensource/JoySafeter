@@ -1,6 +1,7 @@
 """
 Skill CRUD API
 """
+
 from __future__ import annotations
 
 import uuid
@@ -206,4 +207,3 @@ async def update_file(
         "success": True,
         "data": SkillFileSchema.model_validate(file_obj).model_dump(),
     }
-

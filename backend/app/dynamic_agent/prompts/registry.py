@@ -38,7 +38,7 @@ class PromptRegistry:
         rendered = prompt.render(hint_summary="...")
     """
 
-    _instance: Optional['PromptRegistry'] = None
+    _instance: Optional["PromptRegistry"] = None
 
     def __init__(self, base_dir: Optional[Path] = None):
         """
@@ -57,7 +57,7 @@ class PromptRegistry:
         self._loaded = False
 
     @classmethod
-    def get_instance(cls, base_dir: Optional[Path] = None) -> 'PromptRegistry':
+    def get_instance(cls, base_dir: Optional[Path] = None) -> "PromptRegistry":
         """
         Get or create the singleton instance.
 
@@ -128,7 +128,7 @@ class PromptRegistry:
             raise PromptNotFoundError(
                 prompt_id,
                 f"Prompt not found: '{prompt_id}'. "
-                f"Available prompts: {available}{'...' if len(self._prompts) > 10 else ''}"
+                f"Available prompts: {available}{'...' if len(self._prompts) > 10 else ''}",
             )
 
         return self._prompts[prompt_id]
@@ -146,10 +146,7 @@ class PromptRegistry:
         if not self._loaded:
             self._load_all()
 
-        return [
-            prompt for prompt in self._prompts.values()
-            if prompt.metadata.category == category
-        ]
+        return [prompt for prompt in self._prompts.values() if prompt.metadata.category == category]
 
     def list_all(self) -> list[str]:
         """
@@ -196,22 +193,26 @@ class PromptRegistry:
         seen_ids: dict[str, Path] = {}
         for prompt_id, prompt in self._prompts.items():
             if prompt_id in seen_ids:
-                errors.append(PromptValidationError(
-                    prompt_id=prompt_id,
-                    message=f"Duplicate prompt_id. Also defined at: {seen_ids[prompt_id]}",
-                    field="prompt_id"
-                ))
+                errors.append(
+                    PromptValidationError(
+                        prompt_id=prompt_id,
+                        message=f"Duplicate prompt_id. Also defined at: {seen_ids[prompt_id]}",
+                        field="prompt_id",
+                    )
+                )
             seen_ids[prompt_id] = prompt.file_path
 
         # Check dependencies exist
         for prompt in self._prompts.values():
             for dep_id in prompt.metadata.dependencies:
                 if dep_id not in self._prompts:
-                    errors.append(PromptValidationError(
-                        prompt_id=prompt.prompt_id,
-                        message=f"Dependency not found: '{dep_id}'",
-                        field="dependencies"
-                    ))
+                    errors.append(
+                        PromptValidationError(
+                            prompt_id=prompt.prompt_id,
+                            message=f"Dependency not found: '{dep_id}'",
+                            field="dependencies",
+                        )
+                    )
 
         # Check for circular dependencies (T015a)
         try:
@@ -232,8 +233,7 @@ class PromptRegistry:
         """
         # Build adjacency list
         graph: dict[str, list[str]] = {
-            prompt_id: prompt.metadata.dependencies
-            for prompt_id, prompt in self._prompts.items()
+            prompt_id: prompt.metadata.dependencies for prompt_id, prompt in self._prompts.items()
         }
 
         # Track visit state: 0=unvisited, 1=in_progress, 2=completed

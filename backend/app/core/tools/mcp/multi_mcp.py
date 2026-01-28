@@ -255,8 +255,7 @@ class MultiMCPTools(Toolkit):
                         sp = server_params  # type: ignore
                         to = getattr(sp, "timeout", None)
                         exec_timeout = (
-                            min(self.timeout_seconds, int(to))
-                            if isinstance(to, (int, float)) else self.timeout_seconds
+                            min(self.timeout_seconds, int(to)) if isinstance(to, (int, float)) else self.timeout_seconds
                         )
                         self._session_meta[id(session)] = {
                             "server_identifier": getattr(sp, "url", None),
@@ -380,15 +379,18 @@ class MultiMCPTools(Toolkit):
                     items = prop_schema.get("items", {})
                     item_type = type_mapping.get(items.get("type"), Any) if isinstance(items, dict) else Any
                     from typing import List as TypingList
+
                     py_type = TypingList[item_type]  # type: ignore
                 elif prop_type == "object":
                     from typing import Dict as TypingDict
+
                     py_type = TypingDict[str, Any]
 
                 if prop_name in required and default is None:
                     fields[prop_name] = (py_type, ...)
                 else:
                     from typing import Optional as TypingOptional
+
                     fields[prop_name] = (TypingOptional[py_type], default)
 
             if not fields:

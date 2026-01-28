@@ -5,7 +5,6 @@ This module provides configuration for database connection pooling,
 query caching, and performance monitoring.
 """
 
-
 from loguru import logger
 
 

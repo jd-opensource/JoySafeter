@@ -1,6 +1,7 @@
 """
 数据库配置
 """
+
 from typing import AsyncGenerator
 
 from sqlalchemy import MetaData
@@ -23,6 +24,7 @@ metadata = MetaData(naming_convention=convention)
 
 class Base(DeclarativeBase):
     """SQLAlchemy Base"""
+
     metadata = metadata
 
 
@@ -87,4 +89,3 @@ async def init_db():
 async def close_db():
     """关闭数据库连接"""
     await engine.dispose()
-

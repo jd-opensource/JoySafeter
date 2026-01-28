@@ -14,8 +14,8 @@ class DirbHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['dirb']
+        """Handler related commands"""
+        return ["dirb"]
 
     def handle(self, data: Dict) -> Any:
         """Execute dirb with enhanced logging"""
@@ -25,11 +25,7 @@ class DirbHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not url:
                 logger.warning("🌐 Dirb called without URL parameter")
-                return {
-
-                    "error": "URL parameter is required"
-
-                }
+                return {"error": "URL parameter is required"}
             command = f"dirb {url} {wordlist}"
             if additional_args:
                 command += f" {additional_args}"
@@ -39,8 +35,4 @@ class DirbHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in dirb endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

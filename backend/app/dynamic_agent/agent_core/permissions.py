@@ -20,11 +20,7 @@ class DefaultPermissionStrategy:
     """
 
     async def check(
-        self,
-        tool: Tool,
-        input: Dict[str, Any],
-        context: ToolUseContext,
-        assistant_message: AssistantMessage
+        self, tool: Tool, input: Dict[str, Any], context: ToolUseContext, assistant_message: AssistantMessage
     ) -> PermissionResult:
         """Allow all tools by default."""
         return PermissionResult(result=True)
@@ -45,11 +41,7 @@ class InteractivePermissionStrategy:
         self.denied_tools: set[str] = set()
 
     async def check(
-        self,
-        tool: Tool,
-        input: Dict[str, Any],
-        context: ToolUseContext,
-        assistant_message: AssistantMessage
+        self, tool: Tool, input: Dict[str, Any], context: ToolUseContext, assistant_message: AssistantMessage
     ) -> PermissionResult:
         """Check permission with user approval."""
         tool_key = f"{tool.name}:{str(input)}"
@@ -59,10 +51,7 @@ class InteractivePermissionStrategy:
             return PermissionResult(result=True)
 
         if tool_key in self.denied_tools:
-            return PermissionResult(
-                result=False,
-                message="Permission denied by user"
-            )
+            return PermissionResult(result=False, message="Permission denied by user")
 
         # In a real implementation, this would communicate with the UI
         # For now, we'll just allow it
@@ -89,30 +78,18 @@ class NodeUIPermissionStrategy:
         self.request_permission = request_permission_callback
 
     async def check(
-        self,
-        tool: Tool,
-        input: Dict[str, Any],
-        context: ToolUseContext,
-        assistant_message: AssistantMessage
+        self, tool: Tool, input: Dict[str, Any], context: ToolUseContext, assistant_message: AssistantMessage
     ) -> PermissionResult:
         """Request permission from Node.js UI."""
         try:
             approved = await self.request_permission(
-                tool_name=tool.name,
-                tool_input=input,
-                context=context.model_dump()
+                tool_name=tool.name, tool_input=input, context=context.model_dump()
             )
 
             if approved:
                 return PermissionResult(result=True)
             else:
-                return PermissionResult(
-                    result=False,
-                    message="Permission denied by user"
-                )
+                return PermissionResult(result=False, message="Permission denied by user")
         except Exception as e:
             # If permission check fails, deny by default
-            return PermissionResult(
-                result=False,
-                message=f"Permission check failed: {str(e)}"
-            )
+            return PermissionResult(result=False, message=f"Permission check failed: {str(e)}")

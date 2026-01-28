@@ -1,6 +1,7 @@
 """
 模型工厂层
 """
+
 from typing import Any, Dict, List, Optional
 
 from langchain_core.language_models.base import BaseLanguageModel
@@ -275,4 +276,3 @@ def create_model_instance(
 ) -> BaseLanguageModel:
     """创建模型实例"""
     return _factory.create_model_instance(provider_name, model_name, model_type, credentials, model_parameters)
-

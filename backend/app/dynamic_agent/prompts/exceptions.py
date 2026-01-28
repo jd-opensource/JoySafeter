@@ -35,12 +35,7 @@ class PromptValidationError(ValueError):
         field: Optional field name that caused the error
     """
 
-    def __init__(
-        self,
-        prompt_id: str,
-        message: str,
-        field: Optional[str] = None
-    ):
+    def __init__(self, prompt_id: str, message: str, field: Optional[str] = None):
         self.prompt_id = prompt_id
         self.message = message
         self.field = field
@@ -62,12 +57,7 @@ class PromptLoadError(Exception):
         cause: Optional underlying exception
     """
 
-    def __init__(
-        self,
-        file_path: str,
-        message: str,
-        cause: Optional[Exception] = None
-    ):
+    def __init__(self, file_path: str, message: str, cause: Optional[Exception] = None):
         self.file_path = file_path
         self.message = message
         self.cause = cause
@@ -94,5 +84,5 @@ class CircularDependencyError(PromptValidationError):
         super().__init__(
             prompt_id=cycle[0] if cycle else "unknown",
             message=f"Circular dependency detected: {cycle_str}",
-            field="dependencies"
+            field="dependencies",
         )

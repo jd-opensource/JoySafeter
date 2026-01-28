@@ -20,6 +20,7 @@ router = APIRouter(prefix="/history", tags=["history"])
 
 async def get_db_pool() -> asyncpg.Pool:
     from app.dynamic_agent.main import init_storage
+
     try:
         # storage = get_storage_manager()
         storage = await init_storage()
@@ -27,6 +28,7 @@ async def get_db_pool() -> asyncpg.Pool:
     except RuntimeError:
         # Storage not initialized yet
         raise HTTPException(status_code=500, detail="Storage manager not initialized")
+
 
 @router.get("/tasks/{task_id}/steps/{step_id}")
 async def get_step_details(
@@ -64,11 +66,7 @@ async def list_tasks_with_filters(
 
         if session_id:
             # Use DAO method
-            tasks, total = await dao.get_tasks_by_session(
-                session_id=session_id,
-                limit=limit,
-                offset=offset
-            )
+            tasks, total = await dao.get_tasks_by_session(session_id=session_id, limit=limit, offset=offset)
         else:
             # Need to implement get_all_tasks or similar in DAO if needed.
             # For now, return empty if no session_id provided, as per original intent likely.
@@ -106,10 +104,7 @@ async def search_steps(
         steps = await dao.get_all_steps_for_task(task_id)
 
         # Filter by query
-        results = [
-            s for s in steps
-            if query.lower() in s.name.lower()
-        ]
+        results = [s for s in steps if query.lower() in s.name.lower()]
 
         # Filter by step_type
         if step_type:
@@ -168,6 +163,7 @@ async def get_task_statistics(
                 roots.append(s)
 
         max_depth = 0
+
         def calculate_depth(step_id, depth=0):
             nonlocal max_depth
             max_depth = max(max_depth, depth)

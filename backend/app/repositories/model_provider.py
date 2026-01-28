@@ -1,6 +1,7 @@
 """
 ModelProvider Repository
 """
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,15 +16,10 @@ class ModelProviderRepository(BaseRepository[ModelProvider]):
 
     async def get_by_name(self, name: str) -> ModelProvider | None:
         """根据名称获取供应商"""
-        result = await self.db.execute(
-            select(ModelProvider).where(ModelProvider.name == name)
-        )
+        result = await self.db.execute(select(ModelProvider).where(ModelProvider.name == name))
         return result.scalar_one_or_none()
 
     async def list_enabled(self) -> list[ModelProvider]:
         """获取所有启用的供应商"""
-        result = await self.db.execute(
-            select(ModelProvider).where(ModelProvider.is_enabled)
-        )
+        result = await self.db.execute(select(ModelProvider).where(ModelProvider.is_enabled))
         return list(result.scalars().all())
-

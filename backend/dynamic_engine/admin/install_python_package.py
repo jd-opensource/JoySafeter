@@ -6,6 +6,7 @@ from dynamic_engine.utils.python_env import env_manager
 
 logger = logging.getLogger(__name__)
 
+
 class InstallPythonPackageHandler(AbstractHandler):
     """Handler for install_python_package functionality"""
 
@@ -23,20 +24,9 @@ class InstallPythonPackageHandler(AbstractHandler):
             logger.info(f"📦 Installing Python package: {package} in env {env_name}")
             success = env_manager.install_package(env_name, package)
             if success:
-                return {
-
-                    "success": True,
-                    "message": f"Package {package} installed successfully",
-                    "env_name": env_name
-
-                }
+                return {"success": True, "message": f"Package {package} installed successfully", "env_name": env_name}
             else:
-                return {
-
-                    "success": False,
-                    "error": f"Failed to install package {package}"
-
-                }
+                return {"success": False, "error": f"Failed to install package {package}"}
         except Exception as e:
             logger.error(f"💥 Error installing Python package: {str(e)}")
             return {"error": f"Server error: {str(e)}"}

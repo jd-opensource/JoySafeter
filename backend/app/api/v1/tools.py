@@ -3,6 +3,7 @@ Tools API - List available builtin, MCP, and custom tools
 
 支持用户级别的工具查询
 """
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -102,4 +103,3 @@ async def get_tool(
         data=tool.to_response(),
         message="Tool retrieved successfully",
     )
-

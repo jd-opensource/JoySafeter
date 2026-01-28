@@ -1,4 +1,5 @@
 """Chat模型包装器"""
+
 from langchain_core.language_models import BaseChatModel
 
 from .base import BaseModelWrapper

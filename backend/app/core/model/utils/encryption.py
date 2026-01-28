@@ -1,6 +1,7 @@
 """
 凭据加密/解密工具
 """
+
 import base64
 import json
 from typing import Any, Dict
@@ -24,7 +25,7 @@ class CredentialEncryption:
         """
         if key is None:
             # 从settings获取密钥，如果没有则使用默认密钥（生产环境应该从环境变量获取）
-            key = getattr(settings, 'credential_encryption_key', None)
+            key = getattr(settings, "credential_encryption_key", None)
             if key is None:
                 # 生成一个默认密钥（仅用于开发环境）
                 key = Fernet.generate_key().decode()
@@ -40,7 +41,7 @@ class CredentialEncryption:
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
                 length=32,
-                salt=b'credential_salt',  # 生产环境应该使用随机salt
+                salt=b"credential_salt",  # 生产环境应该使用随机salt
                 iterations=100000,
             )
             key = base64.urlsafe_b64encode(kdf.derive(key))
@@ -115,4 +116,3 @@ def decrypt_credentials(encrypted_data: str, key: str | None = None) -> Dict[str
     """
     encryption = CredentialEncryption(key) if key else get_encryption()
     return encryption.decrypt(encrypted_data)
-

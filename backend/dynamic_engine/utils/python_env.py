@@ -10,11 +10,13 @@ logger = logging.getLogger(__name__)
 # Try to import settings, but handle gracefully if not available
 try:
     from app.core.settings import settings
+
     _has_settings = True
 except ImportError:
     # Fallback if settings not available (e.g., in standalone scripts)
     _has_settings = False
     _default_index_url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+
 
 class PythonEnvironmentManager:
     """Manage Python virtual environments and dependencies"""
@@ -50,7 +52,9 @@ class PythonEnvironmentManager:
             # Use --index-url to specify the mirror source
             result = subprocess.run(
                 [str(pip_path), "install", "--index-url", index_url, package],
-                capture_output=True, text=True, timeout=300
+                capture_output=True,
+                text=True,
+                timeout=300,
             )
             if result.returncode == 0:
                 logger.info(f"📦 Installed package {package} in {env_name} using index {index_url}")
@@ -72,6 +76,7 @@ class PythonEnvironmentManager:
             return "python3"
         env_path = self.create_venv(env_name)
         return str(env_path / "bin" / "python")
+
 
 # Global environment manager
 env_manager = PythonEnvironmentManager()

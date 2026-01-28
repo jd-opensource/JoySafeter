@@ -163,10 +163,7 @@ class SkillSandboxLoader:
             results[skill_id] = success
 
         successful = sum(1 for v in results.values() if v)
-        logger.info(
-            f"Loaded {successful}/{len(skill_ids)} skills to sandbox. "
-            f"Failed: {len(skill_ids) - successful}"
-        )
+        logger.info(f"Loaded {successful}/{len(skill_ids)} skills to sandbox. Failed: {len(skill_ids) - successful}")
 
         return results
 
@@ -183,6 +180,7 @@ class SkillSandboxLoader:
         # Check for PydanticSandboxAdapter (Docker backend)
         try:
             from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+
             if isinstance(backend, PydanticSandboxAdapter):
                 logger.debug(f"[detect_backend_type] Detected Docker backend: {type(backend).__name__}")
                 return "docker"
@@ -190,18 +188,24 @@ class SkillSandboxLoader:
             pass
 
         # Check for FilesystemBackend
-        if (hasattr(backend, 'root_dir') or
-            hasattr(backend, '_root_dir') or
-            hasattr(backend, 'cwd') or
-            'Filesystem' in type(backend).__name__):
-            logger.debug(f"[detect_backend_type] Detected Filesystem backend: {type(backend).__name__}, "
-                        f"root_dir={getattr(backend, 'root_dir', 'MISSING')}, "
-                        f"_root_dir={getattr(backend, '_root_dir', 'MISSING')}, "
-                        f"cwd={getattr(backend, 'cwd', 'MISSING')}")
+        if (
+            hasattr(backend, "root_dir")
+            or hasattr(backend, "_root_dir")
+            or hasattr(backend, "cwd")
+            or "Filesystem" in type(backend).__name__
+        ):
+            logger.debug(
+                f"[detect_backend_type] Detected Filesystem backend: {type(backend).__name__}, "
+                f"root_dir={getattr(backend, 'root_dir', 'MISSING')}, "
+                f"_root_dir={getattr(backend, '_root_dir', 'MISSING')}, "
+                f"cwd={getattr(backend, 'cwd', 'MISSING')}"
+            )
             return "filesystem"
 
         # Unknown backend type
-        logger.warning(f"[detect_backend_type] Unknown backend type: {type(backend).__name__}, has_root_dir={hasattr(backend, 'root_dir')}")
+        logger.warning(
+            f"[detect_backend_type] Unknown backend type: {type(backend).__name__}, has_root_dir={hasattr(backend, 'root_dir')}"
+        )
         return "unknown"
 
     @staticmethod
@@ -251,7 +255,7 @@ class SkillSandboxLoader:
         Returns:
             Backend's skills_path if available, None otherwise
         """
-        if hasattr(backend, 'skills_path') and backend.skills_path:
+        if hasattr(backend, "skills_path") and backend.skills_path:
             return backend.skills_path
         return None
 
@@ -265,14 +269,14 @@ class SkillSandboxLoader:
         Returns:
             Node config skills_path if available, None otherwise
         """
-        if not hasattr(backend, 'node_config'):
+        if not hasattr(backend, "node_config"):
             return None
 
         node_config = backend.node_config
         if isinstance(node_config, dict):
-            config = node_config.get('config', {})
-            if isinstance(config, dict) and config.get('skills_path'):
-                return config['skills_path']
+            config = node_config.get("config", {})
+            if isinstance(config, dict) and config.get("skills_path"):
+                return config["skills_path"]
         return None
 
     @staticmethod
@@ -317,10 +321,7 @@ class SkillSandboxLoader:
         Returns:
             True if the override_dir should be ignored, False otherwise
         """
-        return (
-            backend_type == "filesystem"
-            and override_dir in SkillSandboxLoader.FILESYSTEM_FORBIDDEN_PATHS
-        )
+        return backend_type == "filesystem" and override_dir in SkillSandboxLoader.FILESYSTEM_FORBIDDEN_PATHS
 
     @staticmethod
     def resolve_skills_base_dir(
@@ -362,11 +363,11 @@ class SkillSandboxLoader:
 
         # Try each priority level in order, return first non-None result
         path = (
-            SkillSandboxLoader._resolve_override_path(override_dir, backend_type) or
-            SkillSandboxLoader._resolve_instance_path(instance_dir) or
-            SkillSandboxLoader._resolve_backend_path(backend) or
-            SkillSandboxLoader._resolve_node_config_path(backend) or
-            SkillSandboxLoader._resolve_default_path(backend_type, backend_class_name)
+            SkillSandboxLoader._resolve_override_path(override_dir, backend_type)
+            or SkillSandboxLoader._resolve_instance_path(instance_dir)
+            or SkillSandboxLoader._resolve_backend_path(backend)
+            or SkillSandboxLoader._resolve_node_config_path(backend)
+            or SkillSandboxLoader._resolve_default_path(backend_type, backend_class_name)
         )
 
         return path
@@ -431,7 +432,7 @@ class SkillSandboxLoader:
         # Note: We rely on backend.write() to create parent directories as needed
         try:
             # Use execute() method if available (standard interface for backends with command execution)
-            if hasattr(backend, 'execute'):
+            if hasattr(backend, "execute"):
                 result = backend.execute(f"rm -rf {skill_dir}")
                 if result.exit_code == 0:
                     logger.debug(f"Cleaned up existing skill directory via execute(): {skill_dir}")
@@ -470,12 +471,10 @@ class SkillSandboxLoader:
             # Write file (write() automatically creates parent directories)
             try:
                 write_result = backend.write(file_path, skill_file.content)
-                if write_result and hasattr(write_result, 'error') and write_result.error:
+                if write_result and hasattr(write_result, "error") and write_result.error:
                     error_msg = write_result.error
                     write_errors.append(f"{file_path}: {error_msg}")
-                    logger.error(
-                        f"Failed to write file {file_path} for skill '{skill.name}': {error_msg}"
-                    )
+                    logger.error(f"Failed to write file {file_path} for skill '{skill.name}': {error_msg}")
                 else:
                     success_count += 1
                     logger.debug(f"Wrote file {file_path} for skill '{skill.name}'")
@@ -490,16 +489,10 @@ class SkillSandboxLoader:
             error_summary = "; ".join(write_errors[:3])  # Show first 3 errors
             if len(write_errors) > 3:
                 error_summary += f" ... and {len(write_errors) - 3} more errors"
-            raise SkillFileWriteError(
-                f"No files were written for skill '{skill.name}'. Errors: {error_summary}"
-            )
+            raise SkillFileWriteError(f"No files were written for skill '{skill.name}'. Errors: {error_summary}")
 
-        logger.info(
-            f"Loaded skill '{skill.name}': {success_count}/{len(skill.files)} files written "
-            f"to {skill_dir}"
-        )
+        logger.info(f"Loaded skill '{skill.name}': {success_count}/{len(skill.files)} files written to {skill_dir}")
         return True
-
 
     @staticmethod
     def _sanitize_skill_name(name: str) -> str:

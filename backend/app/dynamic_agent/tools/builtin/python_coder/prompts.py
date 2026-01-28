@@ -17,13 +17,14 @@ def _load_prompt(prompt_id: str) -> str:
         return registry.get(prompt_id).content
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning(f"Failed to load prompt {prompt_id}: {e}")
         return f"[Prompt {prompt_id} not loaded]"
 
 
 def _extract_section(content: str, section_name: str) -> str:
     """Extract a specific XML section from the prompt content."""
-    pattern = rf'<{section_name}>(.*?)</{section_name}>'
+    pattern = rf"<{section_name}>(.*?)</{section_name}>"
     match = re.search(pattern, content, re.DOTALL)
     if match:
         return match.group(1).strip()

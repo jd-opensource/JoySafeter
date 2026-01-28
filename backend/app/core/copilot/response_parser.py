@@ -77,11 +77,11 @@ def parse_thought_to_steps(thought: str) -> List[Dict[str, Any]]:
     if not thought or not thought.strip():
         return []
 
-    NUMBERED_PATTERNS = [r'^\d+\.', r'^\d+\)', r'^Step \d+:', r'^步骤\d+：']
-    BULLET_PATTERN = r'^[-*•]\s+'
+    NUMBERED_PATTERNS = [r"^\d+\.", r"^\d+\)", r"^Step \d+:", r"^步骤\d+："]
+    BULLET_PATTERN = r"^[-*•]\s+"
 
     steps: List[Dict[str, Any]] = []
-    lines = thought.strip().split('\n')
+    lines = thought.strip().split("\n")
     current_step_index = 1
     current_content: List[str] = []
 
@@ -89,10 +89,7 @@ def parse_thought_to_steps(thought: str) -> List[Dict[str, Any]]:
         """Helper to finish current step and reset state."""
         nonlocal current_step_index, current_content
         if current_content:
-            steps.append({
-                "index": current_step_index,
-                "content": ' '.join(current_content).strip()
-            })
+            steps.append({"index": current_step_index, "content": " ".join(current_content).strip()})
             current_step_index += 1
             current_content = []
 
@@ -108,7 +105,7 @@ def parse_thought_to_steps(thought: str) -> List[Dict[str, Any]]:
             if re.match(pattern, line, re.IGNORECASE):
                 finish_current_step()
                 # Extract content after number
-                content = re.sub(pattern, '', line, flags=re.IGNORECASE).strip()
+                content = re.sub(pattern, "", line, flags=re.IGNORECASE).strip()
                 if content:
                     current_content.append(content)
                 numbered_match = True
@@ -118,7 +115,7 @@ def parse_thought_to_steps(thought: str) -> List[Dict[str, Any]]:
         if not numbered_match and re.match(BULLET_PATTERN, line):
             finish_current_step()
             # Extract content after bullet
-            content = re.sub(BULLET_PATTERN, '', line).strip()
+            content = re.sub(BULLET_PATTERN, "", line).strip()
             if content:
                 current_content.append(content)
         elif not numbered_match:
@@ -130,10 +127,7 @@ def parse_thought_to_steps(thought: str) -> List[Dict[str, Any]]:
 
     # If no structured format detected, treat entire thought as one step
     if not steps:
-        steps.append({
-            "index": 1,
-            "content": thought.strip()
-        })
+        steps.append({"index": 1, "content": thought.strip()})
 
     return steps
 
@@ -165,11 +159,13 @@ def parse_copilot_response(response_text: str) -> CopilotResponse:
         if isinstance(action, dict):
             action_type = action.get("type")
             if action_type and hasattr(GraphActionType, action_type):
-                actions.append(GraphAction(
-                    type=GraphActionType(action_type),
-                    payload=action.get("payload", {}),
-                    reasoning=action.get("reasoning", ""),
-                ))
+                actions.append(
+                    GraphAction(
+                        type=GraphActionType(action_type),
+                        payload=action.get("payload", {}),
+                        reasoning=action.get("reasoning", ""),
+                    )
+                )
 
     return CopilotResponse(
         message=result.get("message", ""),
@@ -177,9 +173,7 @@ def parse_copilot_response(response_text: str) -> CopilotResponse:
     )
 
 
-def extract_actions_from_tool_calls(
-    tool_calls: List[Dict[str, Any]]
-) -> List[GraphAction]:
+def extract_actions_from_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[GraphAction]:
     """
     Extract GraphAction objects from agent tool call results.
 
@@ -208,11 +202,13 @@ def extract_actions_from_tool_calls(
         except ValueError:
             continue
 
-        actions.append(GraphAction(
-            type=action_type_enum,
-            payload=tool_call.get("payload", {}),
-            reasoning=tool_call.get("reasoning", ""),
-        ))
+        actions.append(
+            GraphAction(
+                type=action_type_enum,
+                payload=tool_call.get("payload", {}),
+                reasoning=tool_call.get("reasoning", ""),
+            )
+        )
 
     return actions
 
@@ -245,7 +241,9 @@ def extract_actions_from_agent_result(
     logger.info(f"[ResponseParser] Extracting actions from {len(output_messages)} messages")
 
     for idx, msg in enumerate(output_messages):
-        logger.debug(f"[ResponseParser] Message {idx}: type={getattr(msg, 'type', 'unknown')}, class={msg.__class__.__name__}")
+        logger.debug(
+            f"[ResponseParser] Message {idx}: type={getattr(msg, 'type', 'unknown')}, class={msg.__class__.__name__}"
+        )
 
         # Check for tool messages (contain actual results)
         if hasattr(msg, "type") and msg.type == "tool":
@@ -277,11 +275,13 @@ def extract_actions_from_agent_result(
                 for a in expanded:
                     logger.info(f"[ResponseParser] Extracted action: {a.get('type')}")
                     action_type = GraphActionType(a["type"])
-                    actions.append(GraphAction(
-                        type=action_type,
-                        payload=a.get("payload", {}),
-                        reasoning=a.get("reasoning", ""),
-                    ))
+                    actions.append(
+                        GraphAction(
+                            type=action_type,
+                            payload=a.get("payload", {}),
+                            reasoning=a.get("reasoning", ""),
+                        )
+                    )
             except (json.JSONDecodeError, ValueError, KeyError) as e:
                 logger.error(f"[ResponseParser] Error extracting action: {e}")
                 pass
@@ -331,4 +331,3 @@ def expand_action_payload(payload: Any, filter_non_actions: bool = True) -> List
                         out.append(item)
             return out
     return []
-

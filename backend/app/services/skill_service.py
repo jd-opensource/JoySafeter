@@ -1,6 +1,7 @@
 """
 Skill 服务：权限校验 + CRUD
 """
+
 from __future__ import annotations
 
 import uuid
@@ -137,8 +138,7 @@ class SkillService(BaseService[Skill]):
         # Parse SKILL.md frontmatter if present to sync name/description
         if files:
             skill_md_file = next(
-                (f for f in files if f.get("path") == "SKILL.md" or f.get("file_name") == "SKILL.md"),
-                None
+                (f for f in files if f.get("path") == "SKILL.md" or f.get("file_name") == "SKILL.md"), None
             )
             if skill_md_file and skill_md_file.get("content"):
                 frontmatter, body = parse_skill_md(skill_md_file["content"])
@@ -184,9 +184,7 @@ class SkillService(BaseService[Skill]):
         is_valid, error = validate_skill_description(description)
         if not is_valid:
             # Truncate if too long (warn but continue)
-            logger.warning(
-                f"Skill description exceeds 1024 characters, truncating: {error}"
-            )
+            logger.warning(f"Skill description exceeds 1024 characters, truncating: {error}")
             description = truncate_description(description)
 
         # Validate compatibility if provided
@@ -194,9 +192,7 @@ class SkillService(BaseService[Skill]):
             is_valid, error = validate_compatibility(compatibility)
             if not is_valid:
                 # Truncate if too long (warn but continue)
-                logger.warning(
-                    f"Skill compatibility exceeds 500 characters, truncating: {error}"
-                )
+                logger.warning(f"Skill compatibility exceeds 500 characters, truncating: {error}")
                 compatibility = truncate_compatibility(compatibility)
 
         # 检查同名 Skill 是否存在（同一拥有者）
@@ -303,8 +299,7 @@ class SkillService(BaseService[Skill]):
         # Parse SKILL.md frontmatter if files contain SKILL.md
         if files:
             skill_md_file = next(
-                (f for f in files if f.get("path") == "SKILL.md" or f.get("file_name") == "SKILL.md"),
-                None
+                (f for f in files if f.get("path") == "SKILL.md" or f.get("file_name") == "SKILL.md"), None
             )
             if skill_md_file and skill_md_file.get("content"):
                 frontmatter, body = parse_skill_md(skill_md_file["content"])
@@ -355,9 +350,7 @@ class SkillService(BaseService[Skill]):
             is_valid, error = validate_skill_description(description)
             if not is_valid:
                 # Truncate if too long (warn but continue)
-                logger.warning(
-                    f"Skill description exceeds 1024 characters, truncating: {error}"
-                )
+                logger.warning(f"Skill description exceeds 1024 characters, truncating: {error}")
                 description = truncate_description(description)
             skill.description = description
         if content is not None:
@@ -383,9 +376,8 @@ class SkillService(BaseService[Skill]):
             if not is_valid:
                 # Truncate if too long (warn but continue)
                 import logging
-                logging.getLogger(__name__).warning(
-                    f"Skill compatibility exceeds 500 characters, truncating: {error}"
-                )
+
+                logging.getLogger(__name__).warning(f"Skill compatibility exceeds 500 characters, truncating: {error}")
                 compatibility = truncate_compatibility(compatibility)
             skill.compatibility = compatibility
 
@@ -502,13 +494,16 @@ class SkillService(BaseService[Skill]):
         if content is not None:
             is_valid, error_msg = is_valid_text_content(content)
             if not is_valid:
-                raise BadRequestException(f"File '{path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)")
+                raise BadRequestException(
+                    f"File '{path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
+                )
 
         # Log warning for uncommon file extensions (but don't reject)
         if path:
             is_common, warning = validate_file_extension(path)
             if warning:
                 import logging
+
                 logging.getLogger(__name__).warning(f"Skill file warning: {warning}")
 
         file_obj = SkillFile(
@@ -582,13 +577,16 @@ class SkillService(BaseService[Skill]):
             is_common, warning = validate_file_extension(path)
             if warning:
                 import logging
+
                 logging.getLogger(__name__).warning(f"Skill file warning: {warning}")
 
         if content is not None:
             # Validate content
             is_valid, error_msg = is_valid_text_content(content)
             if not is_valid:
-                raise BadRequestException(f"File '{file_obj.path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)")
+                raise BadRequestException(
+                    f"File '{file_obj.path}' {error_msg}. Skill import only supports text files (.py, .md, .json, .yaml, etc.)"
+                )
 
             file_obj.content = content
             file_obj.size = len(content) if content else 0
@@ -651,8 +649,4 @@ class SkillService(BaseService[Skill]):
         if not skill.files:
             return None
 
-        return next(
-            (f for f in skill.files if f.path == "SKILL.md" or f.file_name == "SKILL.md"),
-            None
-        )
-
+        return next((f for f in skill.files if f.path == "SKILL.md" or f.file_name == "SKILL.md"), None)

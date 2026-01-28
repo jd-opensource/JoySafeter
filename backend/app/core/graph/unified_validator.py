@@ -14,17 +14,14 @@ from loguru import logger
 
 class ValidationError:
     """统一验证错误结构"""
+
     def __init__(self, field: str, message: str, severity: str = "error"):
         self.field = field
         self.message = message
         self.severity = severity
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "field": self.field,
-            "message": self.message,
-            "severity": self.severity
-        }
+        return {"field": self.field, "message": self.message, "severity": self.severity}
 
 
 class UnifiedValidator:
@@ -42,22 +39,22 @@ class UnifiedValidator:
         if not rules_path.exists():
             raise FileNotFoundError(f"Validation rules file not found: {rules_path}")
 
-        with open(rules_path, 'r', encoding='utf-8') as f:
+        with open(rules_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         self.rules = data.get("rules", {})
 
-    def _validate_field(self, field_name: str, field_config: Dict[str, Any],
-                       value: Any, config: Dict[str, Any]) -> List[ValidationError]:
+    def _validate_field(
+        self, field_name: str, field_config: Dict[str, Any], value: Any, config: Dict[str, Any]
+    ) -> List[ValidationError]:
         """验证单个字段"""
         errors = []
 
         # 检查必需性
         if field_config.get("required", False) and (value is None or value == ""):
-            errors.append(ValidationError(
-                field_name,
-                field_config["errorMessages"].get("required", f"{field_name} is required")
-            ))
+            errors.append(
+                ValidationError(field_name, field_config["errorMessages"].get("required", f"{field_name} is required"))
+            )
             return errors  # 如果必需字段为空，后续验证无意义
 
         # 如果值为空且非必需，跳过验证
@@ -70,67 +67,68 @@ class UnifiedValidator:
             expected_types = [expected_types]
 
         if not any(self._check_type(value, t) for t in expected_types):
-            errors.append(ValidationError(
-                field_name,
-                field_config["errorMessages"].get("type", f"{field_name} has invalid type")
-            ))
+            errors.append(
+                ValidationError(field_name, field_config["errorMessages"].get("type", f"{field_name} has invalid type"))
+            )
             return errors
 
         # 数值范围检查
         if field_config.get("type") in ["number", ["number"]]:
             if "minimum" in field_config and value < field_config["minimum"]:
-                errors.append(ValidationError(
-                    field_name,
-                    field_config["errorMessages"].get("minimum", f"{field_name} is too small")
-                ))
+                errors.append(
+                    ValidationError(
+                        field_name, field_config["errorMessages"].get("minimum", f"{field_name} is too small")
+                    )
+                )
             if "maximum" in field_config and value > field_config["maximum"]:
-                errors.append(ValidationError(
-                    field_name,
-                    field_config["errorMessages"].get("maximum", f"{field_name} is too large")
-                ))
+                errors.append(
+                    ValidationError(
+                        field_name, field_config["errorMessages"].get("maximum", f"{field_name} is too large")
+                    )
+                )
 
         # 字符串长度检查
         if field_config.get("type") in ["string", ["string"]]:
             if "minLength" in field_config and len(str(value)) < field_config["minLength"]:
-                errors.append(ValidationError(
-                    field_name,
-                    field_config["errorMessages"].get("minLength", f"{field_name} is too short")
-                ))
+                errors.append(
+                    ValidationError(
+                        field_name, field_config["errorMessages"].get("minLength", f"{field_name} is too short")
+                    )
+                )
 
         # 枚举值检查
         if "enum" in field_config and value not in field_config["enum"]:
-            errors.append(ValidationError(
-                field_name,
-                field_config["errorMessages"].get("enum", f"{field_name} has invalid value")
-            ))
+            errors.append(
+                ValidationError(
+                    field_name, field_config["errorMessages"].get("enum", f"{field_name} has invalid value")
+                )
+            )
 
         # 正则表达式检查
         if "pattern" in field_config:
             import re
+
             if not re.match(field_config["pattern"], str(value)):
-                errors.append(ValidationError(
-                    field_name,
-                    field_config["errorMessages"].get("pattern", f"{field_name} format is invalid")
-                ))
+                errors.append(
+                    ValidationError(
+                        field_name, field_config["errorMessages"].get("pattern", f"{field_name} format is invalid")
+                    )
+                )
 
         # 数组检查
         if field_config.get("type") in ["array", ["array"]]:
             if "minLength" in field_config and len(value) < field_config["minLength"]:
-                errors.append(ValidationError(
-                    field_name,
-                    field_config["errorMessages"].get("minLength", f"{field_name} needs more items")
-                ))
+                errors.append(
+                    ValidationError(
+                        field_name, field_config["errorMessages"].get("minLength", f"{field_name} needs more items")
+                    )
+                )
 
             # 验证数组项
             if "items" in field_config and isinstance(value, list):
                 item_schema = field_config["items"]
                 for i, item in enumerate(value):
-                    item_errors = self._validate_field(
-                        f"{field_name}[{i}]",
-                        item_schema,
-                        item,
-                        config
-                    )
+                    item_errors = self._validate_field(f"{field_name}[{i}]", item_schema, item, config)
                     errors.extend(item_errors)
 
         # 对象字段检查
@@ -139,10 +137,7 @@ class UnifiedValidator:
                 for sub_field_name, sub_field_config in field_config["fields"].items():
                     sub_value = value.get(sub_field_name)
                     sub_errors = self._validate_field(
-                        f"{field_name}.{sub_field_name}",
-                        sub_field_config,
-                        sub_value,
-                        config
+                        f"{field_name}.{sub_field_name}", sub_field_config, sub_value, config
                     )
                     errors.extend(sub_errors)
 
@@ -161,8 +156,9 @@ class UnifiedValidator:
         check_func = type_checks.get(expected_type)
         return check_func(value) if check_func else False
 
-    def _validate_conditional_required(self, field_name: str, field_config: Dict[str, Any],
-                                     config: Dict[str, Any]) -> List[ValidationError]:
+    def _validate_conditional_required(
+        self, field_name: str, field_config: Dict[str, Any], config: Dict[str, Any]
+    ) -> List[ValidationError]:
         """验证条件必需字段"""
         errors = []
 
@@ -176,10 +172,7 @@ class UnifiedValidator:
             if should_be_required:
                 value = config.get(field_name)
                 if value is None or value == "":
-                    errors.append(ValidationError(
-                        field_name,
-                        condition_config["errorMessage"]
-                    ))
+                    errors.append(ValidationError(field_name, condition_config["errorMessage"]))
 
         return errors
 
@@ -203,8 +196,9 @@ class UnifiedValidator:
 
         return False
 
-    def _validate_exclusive_fields(self, field_name: str, field_config: Dict[str, Any],
-                                 config: Dict[str, Any]) -> List[ValidationError]:
+    def _validate_exclusive_fields(
+        self, field_name: str, field_config: Dict[str, Any], config: Dict[str, Any]
+    ) -> List[ValidationError]:
         """验证互斥字段"""
         errors = []
 
@@ -215,10 +209,9 @@ class UnifiedValidator:
             if current_value is not None:
                 for exclusive_field in exclusive_fields:
                     if config.get(exclusive_field) is not None:
-                        errors.append(ValidationError(
-                            field_name,
-                            f"Cannot specify both {field_name} and {exclusive_field}"
-                        ))
+                        errors.append(
+                            ValidationError(field_name, f"Cannot specify both {field_name} and {exclusive_field}")
+                        )
                         break
 
         return errors
@@ -241,21 +234,20 @@ class UnifiedValidator:
 
                     try:
                         if not self._evaluate_complex_condition(condition, config):
-                            errors.append(ValidationError(
-                                f"config.{rule_name}",
-                                error_message,
-                                "warning"  # Custom rules are usually warnings
-                            ))
+                            errors.append(
+                                ValidationError(
+                                    f"config.{rule_name}",
+                                    error_message,
+                                    "warning",  # Custom rules are usually warnings
+                                )
+                            )
                     except Exception as e:
                         logger.warning(f"[UnifiedValidator] Error evaluating custom rule '{rule_name}': {e}")
             elif "condition" in custom_config:
                 # Old format for backward compatibility
                 condition = custom_config["condition"]
                 if not self._evaluate_simple_condition(condition, config):
-                    errors.append(ValidationError(
-                        "config",
-                        custom_config["message"]
-                    ))
+                    errors.append(ValidationError("config", custom_config["message"]))
 
         return errors
 
@@ -342,6 +334,7 @@ class UnifiedValidator:
 # 全局验证器实例
 _validator_instance = None
 
+
 def get_validator() -> UnifiedValidator:
     """获取全局验证器实例"""
     global _validator_instance
@@ -358,18 +351,21 @@ def get_validator() -> UnifiedValidator:
         return {
             "cache_size": len(self._validation_cache),
             "max_size": self._cache_max_size,
-            "utilization_percent": int(len(self._validation_cache) / self._cache_max_size * 100)
+            "utilization_percent": int(len(self._validation_cache) / self._cache_max_size * 100),
         }
+
 
 def validate_node_config(node_type: str, config: Dict[str, Any]) -> List[ValidationError]:
     """验证节点配置的便捷函数"""
     validator = get_validator()
     return validator.validate_node_config(node_type, config)
 
+
 def validate_node_config_as_strings(node_type: str, config: Dict[str, Any]) -> List[str]:
     """验证节点配置，返回字符串列表（向后兼容）"""
     errors = validate_node_config(node_type, config)
     return [error.message for error in errors]
+
 
 def validate_node_config_as_dicts(node_type: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """验证节点配置，返回字典列表（前端格式）"""
@@ -390,7 +386,7 @@ def format_validation_errors_for_frontend(errors: List[ValidationError]) -> Dict
     categorized = {
         "critical": [],  # Blocking errors
         "warnings": [],  # Non-blocking issues
-        "suggestions": []  # Improvement suggestions
+        "suggestions": [],  # Improvement suggestions
     }
 
     for error in errors:
@@ -401,7 +397,7 @@ def format_validation_errors_for_frontend(errors: List[ValidationError]) -> Dict
             "category": _categorize_error_field(error.field),
             "fixSuggestion": _suggest_fix_for_error(error),
             "example": _provide_error_example(error),
-            "relatedFields": _find_related_fields(error.field)
+            "relatedFields": _find_related_fields(error.field),
         }
 
         if error.severity == "error":
@@ -418,7 +414,7 @@ def format_validation_errors_for_frontend(errors: List[ValidationError]) -> Dict
         "suggestionCount": len(categorized["suggestions"]),
         "errors": categorized,
         "canDeploy": len(categorized["critical"]) == 0,
-        "summary": _generate_validation_summary(categorized)
+        "summary": _generate_validation_summary(categorized),
     }
 
 
@@ -460,7 +456,7 @@ def _suggest_fix_for_error(error: ValidationError) -> Optional[str]:
         "json_schema": "Provide a JSON Schema object for validation",
         "url": "Must start with http:// or https://",
         "instruction": "Describe what you want the AI to decide, e.g., 'Route based on sentiment'",
-        "options": "Provide 2+ options as strings, e.g., ['positive', 'negative', 'neutral']"
+        "options": "Provide 2+ options as strings, e.g., ['positive', 'negative', 'neutral']",
     }
 
     # Check for exact field matches first
@@ -505,7 +501,7 @@ def _provide_error_example(error: ValidationError) -> Optional[str]:
         "jsonpath_query": "$.response.data[*].title",
         "url": "https://api.example.com/data",
         "instruction": "Analyze the user's message and route to: positive, negative, or neutral",
-        "options": '["positive", "negative", "neutral"]'
+        "options": '["positive", "negative", "neutral"]',
     }
 
     return examples.get(field)
@@ -521,7 +517,7 @@ def _find_related_fields(field: str) -> List[str]:
         "model": ["prompt"],
         "jsonpath_query": ["json_schema"],
         "url": ["method", "headers", "max_retries", "timeout"],
-        "instruction": ["options"]
+        "instruction": ["options"],
     }
 
     for key, related in field_relations.items():

@@ -48,15 +48,14 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
 
     if level > MAX_CONCURRENT_AGENTS:
         logger.warning(
-            f"Requested {len(task_details)} agents exceeds max {MAX_CONCURRENT_AGENTS}, "
-            f"will process in batches"
+            f"Requested {len(task_details)} agents exceeds max {MAX_CONCURRENT_AGENTS}, will process in batches"
         )
         return (
             f"Requested {len(task_details)} agents exceeds max {MAX_CONCURRENT_AGENTS}, "
             f"you need to reduce and retain the high priority agents"
         )
 
-    task_details_enhanced = [f'\ncontext:\n{context}\n\ntask_detail:\n{detail}' for detail in task_details]
+    task_details_enhanced = [f"\ncontext:\n{context}\n\ntask_detail:\n{detail}" for detail in task_details]
 
     # Initialize state with target URL extracted from context
     accumulated_state = extract_key_state(context)
@@ -67,16 +66,19 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
     # New SubAgents don't share context with previous ones, so they shouldn't
     # inherit the "used tricks" from previous SubAgents
     import uuid
+
     subagent_context_id = f"subagent_{uuid.uuid4().hex[:8]}_{int(time.time())}"
 
     # Set context ID and inject available tricks from knowledge base (if any)
     from app.dynamic_agent.tools.builtin.knowledge_search_tool import format_tricks_for_planning, set_context_id
+
     set_context_id(subagent_context_id)
     tricks_hint = format_tricks_for_planning()
 
     # Inject all findings from report_finding into sub-agent context
     # This ensures sub-agent has access to cookies, credentials, endpoints discovered during recon
     from app.dynamic_agent.tools.builtin.report_finding_tool import get_findings_store
+
     findings = get_findings_store()
     findings_context = ""
     if findings:
@@ -86,53 +88,48 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
 
     task_details_enhanced = []
     for task in task_details:
-        one_task_enhanced = f'\ncontext:\n{context}{findings_context}\n\ntask_detail:\n{task}'
+        one_task_enhanced = f"\ncontext:\n{context}{findings_context}\n\ntask_detail:\n{task}"
         if tricks_hint:
-            one_task_enhanced += f'\n{tricks_hint}'
+            one_task_enhanced += f"\n{tricks_hint}"
         task_details_enhanced.append(one_task_enhanced)
 
     async def _run_all() -> List[AgentResult]:
         """Run all agents concurrently with timeout."""
         # Create tasks for concurrent execution
-        tasks = [_process_one_with_retry(
-            task_detail,
-            level,
-            create_llm_instance(),
-            max_retries=3,
-            accumulated_state=accumulated_state if not accumulated_state.is_empty() else None,
-        ) for task_detail in task_details_enhanced]
+        tasks = [
+            _process_one_with_retry(
+                task_detail,
+                level,
+                create_llm_instance(),
+                max_retries=3,
+                accumulated_state=accumulated_state if not accumulated_state.is_empty() else None,
+            )
+            for task_detail in task_details_enhanced
+        ]
 
         # Apply timeout to all tasks
         try:
             results = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True),
-                timeout=DEFAULT_TIMEOUT_SECONDS
+                asyncio.gather(*tasks, return_exceptions=True), timeout=DEFAULT_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError:
             logger.error(f"Agent execution timed out after {DEFAULT_TIMEOUT_SECONDS}s")
             # Return timeout errors for all tasks
-            return [AgentResult(
-                name=task_details[idx],
-                level=level,
-                duration_ms=0,
-                ok=False,
-                result="",
-                error="Timeout"
-            ) for idx in range(len(task_details))]
+            return [
+                AgentResult(name=task_details[idx], level=level, duration_ms=0, ok=False, result="", error="Timeout")
+                for idx in range(len(task_details))
+            ]
 
         # Handle exceptions from gather
         processed_results: List[AgentResult] = []
         for idx, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(f"Agent {idx} raised exception: {result}")
-                processed_results.append(AgentResult(
-                    name=task_details[idx],
-                    level=level,
-                    duration_ms=0,
-                    ok=False,
-                    result="",
-                    error=str(result)
-                ))
+                processed_results.append(
+                    AgentResult(
+                        name=task_details[idx], level=level, duration_ms=0, ok=False, result="", error=str(result)
+                    )
+                )
             else:
                 processed_results.append(result)
 
@@ -179,18 +176,19 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
     if len(task_details) == 1:
         ret = results[0].result if results[0].result else results[0].error
         metadata = MetadataContext.get() or {}
-        if metadata.get('flag_found'):
-            flag_value = metadata.get('found_flag', 'FLAG{...}')
+        if metadata.get("flag_found"):
+            flag_value = metadata.get("found_flag", "FLAG{...}")
             # Return FLAG banner + full Sub-Agent result for accurate attack path
             return f"🏁 FLAG FOUND: {flag_value}\n\n{ret}"
 
     rets = []
     for idx, r in enumerate(final_results):
-        rets.append(f'Task: {task_details[idx]}\nResult:{r}\n')
+        rets.append(f"Task: {task_details[idx]}\nResult:{r}\n")
 
-    ret = ('-' * 10).join(rets)
+    ret = ("-" * 10).join(rets)
 
     from app.dynamic_agent.tools.builtin.check_iteration_tool.check_iteration_tool import build_iteration_info
+
     return f"""{ret}.
 
     ------

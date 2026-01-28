@@ -48,7 +48,6 @@ class SchemaManager:
             "session_messages",
             "session_metadata",
             "container_bindings",
-
             # Core tables
             "tasks",
             "memories",
@@ -144,7 +143,6 @@ class SchemaManager:
             )
         """)
 
-
     async def _create_container_tables(self, conn):
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS container_contexts (
@@ -218,20 +216,17 @@ class SchemaManager:
             "CREATE INDEX IF NOT EXISTS idx_session_user ON session_contexts(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_session_created ON session_contexts(created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_message_session ON session_messages(session_id)",
-
             # Tasks & Steps
             "CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id)",
             "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
             "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)",
             "CREATE INDEX IF NOT EXISTS idx_steps_task ON execution_steps(task_id)",
-
             # Memory
             "CREATE INDEX IF NOT EXISTS idx_memory_session ON memories(session_id)",
             "CREATE INDEX IF NOT EXISTS idx_memory_importance ON memories(importance DESC)",
-
             # JSONB GIN Indexes
             "CREATE INDEX IF NOT EXISTS idx_memory_value_gin ON memories USING GIN (value)",
-            "CREATE INDEX IF NOT EXISTS idx_metadata_gin ON session_metadata USING GIN (metadata)"
+            "CREATE INDEX IF NOT EXISTS idx_metadata_gin ON session_metadata USING GIN (metadata)",
         ]
 
         for index_sql in indexes:

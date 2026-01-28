@@ -35,11 +35,7 @@ class DeepAgentsSkillsManager:
         Returns:
             True if skills are configured and valid
         """
-        return bool(
-            skill_ids_raw
-            and isinstance(skill_ids_raw, list)
-            and len(skill_ids_raw) > 0
-        )
+        return bool(skill_ids_raw and isinstance(skill_ids_raw, list) and len(skill_ids_raw) > 0)
 
     async def preload_skills_to_backend(
         self,
@@ -60,14 +56,11 @@ class DeepAgentsSkillsManager:
         from deepagents.backends.protocol import BackendProtocol
 
         if not isinstance(backend, BackendProtocol):
-            raise TypeError(
-                f"{LOG_PREFIX} Backend must implement BackendProtocol, "
-                f"got {type(backend).__name__}"
-            )
+            raise TypeError(f"{LOG_PREFIX} Backend must implement BackendProtocol, got {type(backend).__name__}")
 
         data = node.data or {}
         config = data.get("config", {})
-        node_label = data.get('label', 'unknown')
+        node_label = data.get("label", "unknown")
         skill_ids_raw = config.get("skills")
 
         if not self.has_valid_skills_config(skill_ids_raw):
@@ -131,13 +124,14 @@ class DeepAgentsSkillsManager:
 
                 try:
                     from app.core.skill.sandbox_loader import SkillSandboxLoader
+
                     # Get effective skills path from loader
                     effective_skills_path = loader._get_skills_base_dir(backend, override_dir=skills_path)
                     # Ensure path ends with / for diagnosis
-                    source_path = effective_skills_path.rstrip('/') + '/'
+                    source_path = effective_skills_path.rstrip("/") + "/"
 
                     # Check if diagnose_skills_in_backend method exists
-                    if hasattr(SkillSandboxLoader, 'diagnose_skills_in_backend'):
+                    if hasattr(SkillSandboxLoader, "diagnose_skills_in_backend"):
                         diagnosis = await SkillSandboxLoader.diagnose_skills_in_backend(
                             backend=backend,
                             source_path=source_path,
@@ -147,9 +141,7 @@ class DeepAgentsSkillsManager:
                         diagnosis = {}
 
                     if diagnosis.get("errors"):
-                        logger.warning(
-                            f"{LOG_PREFIX} Skills diagnosis found errors: {diagnosis['errors']}"
-                        )
+                        logger.warning(f"{LOG_PREFIX} Skills diagnosis found errors: {diagnosis['errors']}")
 
                     directories = diagnosis.get("directories", [])
                     skills_with_md = sum(1 for d in directories if d.get("has_skill_md", False))
@@ -161,10 +153,7 @@ class DeepAgentsSkillsManager:
                             f"{skills_with_md} with SKILL.md"
                         )
                 except Exception as e:
-                    logger.debug(
-                        f"{LOG_PREFIX} Failed to diagnose skills in backend: {e}",
-                        exc_info=True
-                    )
+                    logger.debug(f"{LOG_PREFIX} Failed to diagnose skills in backend: {e}", exc_info=True)
 
                 if successful > 0:
                     logger.info(
@@ -185,7 +174,9 @@ class DeepAgentsSkillsManager:
             ) from e
 
     @staticmethod
-    def get_skills_paths(has_skills: bool, backend: Optional[Any], skills_path: Optional[str] = None) -> Optional[list[str]]:
+    def get_skills_paths(
+        has_skills: bool, backend: Optional[Any], skills_path: Optional[str] = None
+    ) -> Optional[list[str]]:
         """Get skills paths if skills are configured and backend is available.
 
         This method uses SkillSandboxLoader.resolve_skills_base_dir() to resolve
@@ -210,7 +201,7 @@ class DeepAgentsSkillsManager:
         )
 
         # Ensure path ends with /
-        if not effective_path.endswith('/'):
-            effective_path = effective_path + '/'
+        if not effective_path.endswith("/"):
+            effective_path = effective_path + "/"
 
         return [effective_path]

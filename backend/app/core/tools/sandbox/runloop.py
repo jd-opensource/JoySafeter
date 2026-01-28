@@ -5,10 +5,7 @@ import os
 try:
     from runloop_api_client import Runloop
 except ImportError:
-    msg = (
-        "runloop_api_client package is required for RunloopBackend. "
-        "Install with `pip install runloop_api_client`."
-    )
+    msg = "runloop_api_client package is required for RunloopBackend. Install with `pip install runloop_api_client`."
     raise ImportError(msg)
 
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse

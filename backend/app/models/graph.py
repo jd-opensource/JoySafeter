@@ -1,6 +1,7 @@
 """
 Graph 相关模型
 """
+
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
@@ -31,6 +32,7 @@ def utc_now():
 
 class AgentGraph(BaseModel):
     """Agent 图模型"""
+
     __tablename__ = "graphs"
 
     name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -105,6 +107,7 @@ class AgentGraph(BaseModel):
 
 class GraphNode(BaseModel):
     """图节点模型"""
+
     __tablename__ = "graph_nodes"
 
     graph_id: Mapped[uuid.UUID] = mapped_column(
@@ -155,6 +158,7 @@ class GraphEdge(BaseModel):
     - data.edge_type: 边类型（"normal" | "conditional" | "loop_back"），用于区分不同类型的边
     - data.label: 边的显示标签（可选），用于日志和调试
     """
+
     __tablename__ = "graph_edges"
 
     graph_id: Mapped[uuid.UUID] = mapped_column(
@@ -198,4 +202,3 @@ class GraphEdge(BaseModel):
         Index("graph_edges_graph_source_idx", "graph_id", "source_node_id"),
         Index("graph_edges_graph_target_idx", "graph_id", "target_node_id"),
     )
-

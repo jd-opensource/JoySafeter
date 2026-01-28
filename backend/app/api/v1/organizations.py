@@ -1,6 +1,7 @@
 """
 组织与成员相关 API
 """
+
 import uuid
 from typing import Optional
 

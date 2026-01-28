@@ -6,6 +6,7 @@ MCP Server API - MCP 服务器管理
 - 响应体: camelCase (前端兼容)
 - 返回格式: {"success": True, "data": ...}
 """
+
 from typing import Any, Dict, Optional
 from uuid import UUID
 
@@ -25,8 +26,10 @@ router = APIRouter(prefix="/v1/mcp", tags=["MCP Servers"])
 
 # ==================== Request Schemas ====================
 
+
 class McpServerCreateRequest(BaseModel):
     """创建 MCP 服务器"""
+
     model_config = {"populate_by_name": True}
 
     name: str = Field(..., min_length=1, max_length=255)
@@ -41,6 +44,7 @@ class McpServerCreateRequest(BaseModel):
 
 class McpServerUpdateRequest(BaseModel):
     """更新 MCP 服务器"""
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     transport: Optional[str] = None
@@ -57,6 +61,7 @@ class ToggleRequest(BaseModel):
 
 class McpTestRequest(BaseModel):
     """连接测试请求"""
+
     transport: str = "streamable-http"
     url: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
@@ -68,12 +73,14 @@ class McpToolExecuteRequest(BaseModel):
 
     使用 serverName 查找服务器（每个用户唯一）。
     """
+
     serverName: str = Field(..., description="Server name (unique per user)")
     toolName: str
     arguments: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ==================== Serialization (camelCase for frontend) ====================
+
 
 def _serialize_server(server) -> Dict[str, Any]:
     """序列化服务器为 camelCase 响应"""
@@ -115,6 +122,7 @@ def _serialize_tool(tool_info) -> Dict[str, Any]:
 
 
 # ==================== Server CRUD ====================
+
 
 @router.get("/servers")
 async def list_mcp_servers(
@@ -222,6 +230,7 @@ async def delete_mcp_server(
 
 # ==================== Server Actions ====================
 
+
 @router.post("/servers/{server_id}/toggle")
 async def toggle_mcp_server(
     server_id: UUID,
@@ -290,6 +299,7 @@ async def list_server_tools(
 
 # ==================== Connection Test & Tools ====================
 
+
 @router.post("/test")
 async def test_connection(
     request: McpTestRequest,
@@ -335,12 +345,14 @@ async def discover_tools(
     for server in servers:
         tools = await service.get_server_tools(server_id=server.id, user_id=current_user.id)
         for tool in tools:
-            all_tools.append({
-                "serverName": server.name,
-                "name": tool.name,
-                "labelName": tool.label_name or tool.name,
-                "description": tool.description,
-            })
+            all_tools.append(
+                {
+                    "serverName": server.name,
+                    "name": tool.name,
+                    "labelName": tool.label_name or tool.name,
+                    "description": tool.description,
+                }
+            )
 
     return {"success": True, "data": {"tools": all_tools}}
 
@@ -376,8 +388,7 @@ async def execute_tool(
     if not tool:
         # get_mcp_tool_with_instance already logs detailed warnings
         raise NotFoundException(
-            f"MCP tool '{request.toolName}' not found on server '{request.serverName}' "
-            f"or server is not accessible"
+            f"MCP tool '{request.toolName}' not found on server '{request.serverName}' or server is not accessible"
         )
 
     try:
@@ -386,14 +397,12 @@ async def execute_tool(
             f"with arguments: {request.arguments}"
         )
         result = await tool.ainvoke(request.arguments)
-        logger.debug(
-            f"[execute_tool] Tool '{request.toolName}' executed successfully on server '{request.serverName}'"
-        )
+        logger.debug(f"[execute_tool] Tool '{request.toolName}' executed successfully on server '{request.serverName}'")
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(
             f"[execute_tool] Tool execution failed: serverName={request.serverName}, "
             f"toolName={request.toolName}, error={str(e)}",
-            exc_info=True
+            exc_info=True,
         )
         raise BadRequestException(f"Tool execution failed: {str(e)}")

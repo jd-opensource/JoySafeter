@@ -9,22 +9,23 @@ from dynamic_engine.utils.python_env import env_manager
 
 logger = logging.getLogger(__name__)
 
-BASIC = 'basic'
+BASIC = "basic"
+
 
 @mcp_server.tool
 def list_all_tool_categories() -> Set[str]:
-    '''
+    """
     list all tool categories
 
     :return: list of categories
-    '''
+    """
 
     categories = [BASIC]
 
     for origin_conf in dynamic_tools_conf:
         conf = origin_conf.config
-        categories.append(conf['category'])
-        categories.extend(conf.get('tags', []))
+        categories.append(conf["category"])
+        categories.extend(conf.get("tags", []))
     return set(categories)
 
 
@@ -34,7 +35,7 @@ def build_basic_tools() -> list[Any]:
     basic_tools = []
     for origin_conf in dynamic_tools_conf:
         conf = origin_conf.config
-        dynamic_tools.add(conf['name'])
+        dynamic_tools.add(conf["name"])
 
     # Get tools in a way that works in both sync and async contexts
     async def _get_tools():
@@ -45,6 +46,7 @@ def build_basic_tools() -> list[Any]:
         asyncio.get_running_loop()
         # We're in an async context - use nest_asyncio or run in thread
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, _get_tools())
             tools = future.result(timeout=10)
@@ -55,14 +57,16 @@ def build_basic_tools() -> list[Any]:
     for name, tool in tools.items():
         if tool.name in dynamic_tools:
             continue
-        basic_tools.append({
-                'name': tool.name,
-                'description': tool.description,
-                'parameters': tool.parameters,
+        basic_tools.append(
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
                 # 'returns': tool,
-                'category': BASIC,
-                'tags': BASIC,
-            })
+                "category": BASIC,
+                "tags": BASIC,
+            }
+        )
     return basic_tools
 
 
@@ -78,34 +82,36 @@ def list_tools_by_categories(categories: List[str]) -> List[Dict[str, Any]]:
     distinct_names = set()
     for origin_conf in dynamic_tools_conf:
         conf = origin_conf.config
-        this_name = conf.get('name', 'unknown')
+        this_name = conf.get("name", "unknown")
         if this_name in distinct_names:
             continue
 
-        this_categories = [conf['category']] + conf.get('tags', [])
+        this_categories = [conf["category"]] + conf.get("tags", [])
         if this_categories and any([c in categories for c in this_categories]):
             distinct_names.add(this_name)
-            result.append({
-                'name': conf.get('name', 'unknown'),
-                'description': conf.get('description', f'Execute {conf.get('name', 'unknown')}'),
-                # 'parameters': conf.get('parameters', []),
-                # 'returns': conf.get('returns', 'Tool execution results'),
-                'category': conf.get('category', 'unknown'),
-                'tags': conf.get('tags', []),
-            })
+            result.append(
+                {
+                    "name": conf.get("name", "unknown"),
+                    "description": conf.get("description", f"Execute {conf.get('name', 'unknown')}"),
+                    # 'parameters': conf.get('parameters', []),
+                    # 'returns': conf.get('returns', 'Tool execution results'),
+                    "category": conf.get("category", "unknown"),
+                    "tags": conf.get("tags", []),
+                }
+            )
 
     if BASIC in categories:
         result.extend(build_basic_tools())
 
     return result
 
-# todo: provide a tool to list all available security commands
 
+# todo: provide a tool to list all available security commands
 
 
 @mcp_server.tool
 def execute_shell_command(command: str, timeout: int = None, cwd: Optional[str] = None) -> Dict[str, Any]:
-    '''
+    """
     Execute any shell command directly. This is the PRIMARY tool for running
     system commands like curl, wget, nc, nmap, python, etc.
 
@@ -152,9 +158,10 @@ def execute_shell_command(command: str, timeout: int = None, cwd: Optional[str] 
 
     NOTE: Commands run in an isolated container environment. Use this tool
     freely for CTF challenges, penetration testing, and security research.
-    '''
+    """
 
     return execute_command(command, timeout, cwd)
+
 
 @mcp_server.tool
 def get_command_help(command: str) -> Dict[str, Any]:
@@ -171,7 +178,7 @@ def get_command_help(command: str) -> Dict[str, Any]:
         command_name = command.strip().split()[0]
 
         # Try different help flags in order of preference
-        help_flags = ['--help', '-h', '-help', 'help', '--info', '-?']
+        help_flags = ["--help", "-h", "-help", "help", "--info", "-?"]
 
         for flag in help_flags:
             try:
@@ -180,9 +187,9 @@ def get_command_help(command: str) -> Dict[str, Any]:
                 result = execute_command(help_command, timeout=10)
 
                 # Check if we got meaningful output
-                if result.get('stdout') or result.get('stderr'):
-                    result['help_flag_used'] = flag
-                    result['command'] = command_name
+                if result.get("stdout") or result.get("stderr"):
+                    result["help_flag_used"] = flag
+                    result["command"] = command_name
                     logger.info(f"✅ Successfully retrieved help for {command_name}")
                     return result
             except Exception as e:
@@ -192,7 +199,7 @@ def get_command_help(command: str) -> Dict[str, Any]:
         return {
             "error": f"Could not retrieve help for command: {command_name}",
             "attempted_flags": help_flags,
-            "command": command_name
+            "command": command_name,
         }
 
     except Exception as e:
@@ -201,36 +208,38 @@ def get_command_help(command: str) -> Dict[str, Any]:
 
 
 @mcp_server.tool
-def execute_python_script(script: str, file_name: str = "script.py", env_name: str = None, cwd: Optional[str] = None) -> Dict[str, Any]:
+def execute_python_script(
+    script: str, file_name: str = "script.py", env_name: str = None, cwd: Optional[str] = None
+) -> Dict[str, Any]:
     """
-    Execute a Python script in the container environment.
+        Execute a Python script in the container environment.
 
-    USE THIS TOOL FOR:
-    - Complex multi-step operations (login + session + requests)
-    - Bulk/parallel HTTP requests (enumeration, fuzzing)
-    - Cryptographic operations (encryption, decryption, hashing)
-    - Data processing (parsing, extraction, transformation)
-    - Any task requiring Python libraries (requests, pwntools, etc.)
+        USE THIS TOOL FOR:
+        - Complex multi-step operations (login + session + requests)
+        - Bulk/parallel HTTP requests (enumeration, fuzzing)
+        - Cryptographic operations (encryption, decryption, hashing)
+        - Data processing (parsing, extraction, transformation)
+        - Any task requiring Python libraries (requests, pwntools, etc.)
 
-    PARAMETERS:
-    :param script: The Python code to execute (required)
-    :param file_name: Name for the script file (default: script.py)
-    :param env_name: Virtual environment name (optional, uses system python3 if not specified)
-    :param cwd: Working directory (optional)
+        PARAMETERS:
+        :param script: The Python code to execute (required)
+        :param file_name: Name for the script file (default: script.py)
+        :param env_name: Virtual environment name (optional, uses system python3 if not specified)
+        :param cwd: Working directory (optional)
 
-    RETURNS:
-    - stdout: Script output
-    - stderr: Error output
-    - return_code: Exit code (0 = success)
-    - success: Boolean indicating success
+        RETURNS:
+        - stdout: Script output
+        - stderr: Error output
+        - return_code: Exit code (0 = success)
+        - success: Boolean indicating success
 
-    EXAMPLE:
-    script = '''
-import requests
-session = requests.Session()
-r = session.post("http://target/login", data={"user": "test", "pass": "test"})
-print(r.text)
-'''
+        EXAMPLE:
+        script = '''
+    import requests
+    session = requests.Session()
+    r = session.post("http://target/login", data={"user": "test", "pass": "test"})
+    print(r.text)
+    '''
     """
 
     try:
@@ -255,8 +264,9 @@ print(r.text)
 
 
 # todo
-def execute_python_script_backup(script: str, file_name: str = "script.py", env_name: str = None,
-                                 cwd: Optional[str] = None) -> Dict[str, Any]:
+def execute_python_script_backup(
+    script: str, file_name: str = "script.py", env_name: str = None, cwd: Optional[str] = None
+) -> Dict[str, Any]:
     import os
     import tempfile
 
@@ -265,7 +275,7 @@ def execute_python_script_backup(script: str, file_name: str = "script.py", env_
             return {"error": "Script content is required"}
 
         # Create script in a temp directory that's accessible
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir='/tmp') as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, dir="/tmp") as f:
             f.write(script)
             script_path = f.name
 
@@ -289,6 +299,7 @@ def execute_python_script_backup(script: str, file_name: str = "script.py", env_
     except Exception as e:
         logger.error(f"💥 Error executing Python script: {str(e)}")
         return {"error": f"Server error: {str(e)}"}
+
 
 # if __name__ == "__main__":
 #     mcp_server.run()

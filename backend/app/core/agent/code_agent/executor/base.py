@@ -190,6 +190,7 @@ def wrap_final_answer(original_final_answer: Callable) -> Callable:
     Returns:
         Wrapped function that raises FinalAnswerException.
     """
+
     def wrapped_final_answer(*args, **kwargs) -> Any:
         result = original_final_answer(*args, **kwargs)
         raise FinalAnswerException(result)
@@ -207,4 +208,3 @@ __all__ = [
     "BaseToolWrapper",
     "wrap_final_answer",
 ]
-

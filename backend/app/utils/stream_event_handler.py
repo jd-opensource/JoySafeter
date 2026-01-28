@@ -18,14 +18,14 @@ class StreamState:
     def __init__(self, thread_id: str):
         self.thread_id = thread_id
         self.all_messages: list[BaseMessage] = []  # 最终的完整消息列表
-        self.assistant_content = ""                # 累积的文本内容
-        self.stopped = False                       # 是否被用户停止
-        self.has_error = False                     # 是否发生错误
+        self.assistant_content = ""  # 累积的文本内容
+        self.stopped = False  # 是否被用户停止
+        self.has_error = False  # 是否发生错误
 
         # 中断状态
-        self.interrupted = False                   # 是否处于中断状态
-        self.interrupt_node: str | None = None      # 中断的节点名称
-        self.interrupt_state: dict | None = None   # 中断时的状态快照
+        self.interrupted = False  # 是否处于中断状态
+        self.interrupt_node: str | None = None  # 中断的节点名称
+        self.interrupt_state: dict | None = None  # 中断时的状态快照
 
         # 时间跟踪：用于计算执行时长
         self.node_start_times: dict[str, float] = {}  # node_name -> start_time
@@ -48,7 +48,7 @@ class StreamEventHandler:
             "node_name": metadata.get("langgraph_node") or event.get("name") or "unknown",
             "run_id": event.get("run_id", ""),
             "tags": config.get("tags") or metadata.get("tags") or event.get("tags") or [],
-            "timestamp": int(time.time() * 1000)
+            "timestamp": int(time.time() * 1000),
         }
 
     @staticmethod
@@ -61,10 +61,14 @@ class StreamEventHandler:
 
         # 尝试从多个位置提取节点标签
         node_label = (
-            config.get("node_label") or
-            metadata.get("node_label") or
-            (config.get("tags", [{}])[0].get("label") if config.get("tags") and isinstance(config.get("tags"), list) and len(config.get("tags")) > 0 else None) or
-            node_name.replace("_", " ").title()
+            config.get("node_label")
+            or metadata.get("node_label")
+            or (
+                config.get("tags", [{}])[0].get("label")
+                if config.get("tags") and isinstance(config.get("tags"), list) and len(config.get("tags")) > 0
+                else None
+            )
+            or node_name.replace("_", " ").title()
         )
 
         return {
@@ -82,7 +86,10 @@ class StreamEventHandler:
         def _default(obj: Any) -> Any:
             """处理不可序列化的对象"""
             if isinstance(obj, BaseMessage):
-                return {"type": obj.__class__.__name__, "content": str(obj.content) if hasattr(obj, "content") else str(obj)}
+                return {
+                    "type": obj.__class__.__name__,
+                    "content": str(obj.content) if hasattr(obj, "content") else str(obj),
+                }
             if hasattr(obj, "dict"):
                 try:
                     return obj.dict()
@@ -102,7 +109,7 @@ class StreamEventHandler:
             "node_name": meta.get("node_name", "system"),
             "timestamp": meta.get("timestamp", int(time.time() * 1000)),
             "tags": meta.get("tags", []),
-            "data": payload
+            "data": payload,
         }
         return f"data: {json.dumps(envelope, ensure_ascii=False, default=_default)}\n\n"
 
@@ -128,12 +135,16 @@ class StreamEventHandler:
         model_provider = metadata.get("ls_provider") or "unknown"
 
         meta = self._extract_metadata(event)
-        return self.format_sse("model_input", {
-            "messages": serialized_messages,
-            "model_name": model_name,
-            "model_provider": model_provider,
-            "_meta": meta
-        }, state.thread_id)
+        return self.format_sse(
+            "model_input",
+            {
+                "messages": serialized_messages,
+                "model_name": model_name,
+                "model_provider": model_provider,
+                "_meta": meta,
+            },
+            state.thread_id,
+        )
 
     async def handle_chat_model_stream(self, event: dict, state: StreamState) -> str | None:
         """处理文本流事件"""
@@ -171,13 +182,17 @@ class StreamEventHandler:
                     usage_metadata = response_metadata.get("usage_metadata")
 
         meta = self._extract_metadata(event)
-        return self.format_sse("model_output", {
-            "output": serialized_output,
-            "model_name": model_name,
-            "model_provider": model_provider,
-            "usage_metadata": usage_metadata,
-            "_meta": meta
-        }, state.thread_id)
+        return self.format_sse(
+            "model_output",
+            {
+                "output": serialized_output,
+                "model_name": model_name,
+                "model_provider": model_provider,
+                "usage_metadata": usage_metadata,
+                "_meta": meta,
+            },
+            state.thread_id,
+        )
 
     async def handle_tool_start(self, event: dict, state: StreamState) -> str:
         """处理工具开始事件"""
@@ -193,11 +208,9 @@ class StreamEventHandler:
         state.tool_start_times[tool_name] = (run_id, time.time())
 
         meta = self._extract_metadata(event)
-        return self.format_sse("tool_start", {
-            "tool_name": tool_name,
-            "tool_input": tool_input,
-            "_meta": meta
-        }, state.thread_id)
+        return self.format_sse(
+            "tool_start", {"tool_name": tool_name, "tool_input": tool_input, "_meta": meta}, state.thread_id
+        )
 
     async def handle_tool_end(self, event: dict, state: StreamState) -> str:
         """处理工具结束事件"""
@@ -227,13 +240,17 @@ class StreamEventHandler:
             has_error = any(keyword in error_lower for keyword in ["error", "exception", "failed", "failure"])
 
         meta = self._extract_metadata(event)
-        return self.format_sse("tool_end", {
-            "tool_name": tool_name,
-            "tool_output": output,
-            "duration": duration,
-            "status": "error" if has_error else "success",
-            "_meta": meta
-        }, state.thread_id)
+        return self.format_sse(
+            "tool_end",
+            {
+                "tool_name": tool_name,
+                "tool_output": output,
+                "duration": duration,
+                "status": "error" if has_error else "success",
+                "_meta": meta,
+            },
+            state.thread_id,
+        )
 
     async def handle_node_start(self, event: dict, state: StreamState) -> str:
         """处理节点开始事件"""
@@ -246,12 +263,16 @@ class StreamEventHandler:
         meta = self._extract_metadata(event)
         meta.update(node_info)
 
-        return self.format_sse("node_start", {
-            "node_name": node_name,
-            "node_label": node_info.get("node_label", node_name),
-            "node_id": node_info.get("node_id"),
-            "_meta": meta
-        }, state.thread_id)
+        return self.format_sse(
+            "node_start",
+            {
+                "node_name": node_name,
+                "node_label": node_info.get("node_label", node_name),
+                "node_id": node_info.get("node_id"),
+                "_meta": meta,
+            },
+            state.thread_id,
+        )
 
     async def handle_node_end(self, event: dict, state: StreamState) -> list[str]:
         """处理节点结束事件，返回多个 SSE 事件（包括 Command、路由决策和 CodeAgent 事件）"""
@@ -285,8 +306,7 @@ class StreamEventHandler:
             code_agent_events = output.get("code_agent_events", [])
             if code_agent_events:
                 logger.debug(
-                    f"[StreamEventHandler] Processing {len(code_agent_events)} CodeAgent events | "
-                    f"node={node_name}"
+                    f"[StreamEventHandler] Processing {len(code_agent_events)} CodeAgent events | node={node_name}"
                 )
                 for ca_event in code_agent_events:
                     ca_event_type = ca_event.get("type", "unknown")
@@ -296,64 +316,106 @@ class StreamEventHandler:
 
                     # 根据 CodeAgent 事件类型生成对应的 SSE 事件
                     if ca_event_type == "thought":
-                        events.append(self.format_sse("code_agent_thought", {
-                            "node_name": node_name,
-                            "step": ca_step,
-                            "content": ca_content,
-                            "_meta": meta,
-                        }, state.thread_id))
+                        events.append(
+                            self.format_sse(
+                                "code_agent_thought",
+                                {
+                                    "node_name": node_name,
+                                    "step": ca_step,
+                                    "content": ca_content,
+                                    "_meta": meta,
+                                },
+                                state.thread_id,
+                            )
+                        )
 
                     elif ca_event_type == "code":
-                        events.append(self.format_sse("code_agent_code", {
-                            "node_name": node_name,
-                            "step": ca_step,
-                            "code": ca_content,
-                            "_meta": meta,
-                        }, state.thread_id))
+                        events.append(
+                            self.format_sse(
+                                "code_agent_code",
+                                {
+                                    "node_name": node_name,
+                                    "step": ca_step,
+                                    "code": ca_content,
+                                    "_meta": meta,
+                                },
+                                state.thread_id,
+                            )
+                        )
 
                     elif ca_event_type == "observation":
-                        events.append(self.format_sse("code_agent_observation", {
-                            "node_name": node_name,
-                            "step": ca_step,
-                            "observation": ca_content,
-                            "has_error": bool(ca_metadata.get("error")),
-                            "_meta": meta,
-                        }, state.thread_id))
+                        events.append(
+                            self.format_sse(
+                                "code_agent_observation",
+                                {
+                                    "node_name": node_name,
+                                    "step": ca_step,
+                                    "observation": ca_content,
+                                    "has_error": bool(ca_metadata.get("error")),
+                                    "_meta": meta,
+                                },
+                                state.thread_id,
+                            )
+                        )
 
                     elif ca_event_type == "final_answer":
-                        events.append(self.format_sse("code_agent_final_answer", {
-                            "node_name": node_name,
-                            "step": ca_step,
-                            "answer": ca_content,
-                            "_meta": meta,
-                        }, state.thread_id))
+                        events.append(
+                            self.format_sse(
+                                "code_agent_final_answer",
+                                {
+                                    "node_name": node_name,
+                                    "step": ca_step,
+                                    "answer": ca_content,
+                                    "_meta": meta,
+                                },
+                                state.thread_id,
+                            )
+                        )
 
                     elif ca_event_type == "planning":
-                        events.append(self.format_sse("code_agent_planning", {
-                            "node_name": node_name,
-                            "step": ca_step,
-                            "plan": ca_content,
-                            "is_update": ca_metadata.get("is_update", False),
-                            "_meta": meta,
-                        }, state.thread_id))
+                        events.append(
+                            self.format_sse(
+                                "code_agent_planning",
+                                {
+                                    "node_name": node_name,
+                                    "step": ca_step,
+                                    "plan": ca_content,
+                                    "is_update": ca_metadata.get("is_update", False),
+                                    "_meta": meta,
+                                },
+                                state.thread_id,
+                            )
+                        )
 
                     elif ca_event_type == "error":
-                        events.append(self.format_sse("code_agent_error", {
-                            "node_name": node_name,
-                            "step": ca_step,
-                            "error": ca_content,
-                            "_meta": meta,
-                        }, state.thread_id))
+                        events.append(
+                            self.format_sse(
+                                "code_agent_error",
+                                {
+                                    "node_name": node_name,
+                                    "step": ca_step,
+                                    "error": ca_content,
+                                    "_meta": meta,
+                                },
+                                state.thread_id,
+                            )
+                        )
 
         # 1. 发送节点结束事件
-        events.append(self.format_sse("node_end", {
-            "node_name": node_name,
-            "node_label": node_info.get("node_label", node_name),
-            "node_id": node_info.get("node_id"),
-            "duration": duration,
-            "status": "error" if has_error else "success",
-            "_meta": meta
-        }, state.thread_id))
+        events.append(
+            self.format_sse(
+                "node_end",
+                {
+                    "node_name": node_name,
+                    "node_label": node_info.get("node_label", node_name),
+                    "node_id": node_info.get("node_id"),
+                    "duration": duration,
+                    "status": "error" if has_error else "success",
+                    "_meta": meta,
+                },
+                state.thread_id,
+            )
+        )
 
         # 2. 检查是否有 Command 对象（从 output 中提取）
         # LangGraph 会在 output 中包含 Command 对象的信息
@@ -407,8 +469,7 @@ class StreamEventHandler:
                             if isinstance(result_value, dict):
                                 # 如果 result 是字典，创建一个不包含 task_results 的浅拷贝
                                 cleaned_result["result"] = {
-                                    k2: v2 for k2, v2 in result_value.items()
-                                    if k2 != "task_results"
+                                    k2: v2 for k2, v2 in result_value.items() if k2 != "task_results"
                                 }
                             else:
                                 cleaned_result["result"] = result_value
@@ -419,11 +480,17 @@ class StreamEventHandler:
                 else:
                     cleaned_update[k] = v
 
-            events.append(self.format_sse("command", {
-                "update": cleaned_update,
-                "goto": None,
-                "reason": route_reason,
-            }, state.thread_id))
+            events.append(
+                self.format_sse(
+                    "command",
+                    {
+                        "update": cleaned_update,
+                        "goto": None,
+                        "reason": route_reason,
+                    },
+                    state.thread_id,
+                )
+            )
 
             # 检查循环迭代信息
             loop_count = output.get("loop_count")
@@ -471,4 +538,3 @@ class StreamEventHandler:
                 events.append(self.format_sse("state_update", state_update_data, state.thread_id))
 
         return "\n".join(events) if len(events) > 1 else (events[0] if events else "")
-

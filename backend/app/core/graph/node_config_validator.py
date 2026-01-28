@@ -30,9 +30,7 @@ class NodeConfigValidator:
             errors = validate_node_config_as_strings(node_type, config)
 
             if errors:
-                logger.warning(
-                    f"Node config validation failed for '{node_type}': {', '.join(errors)}"
-                )
+                logger.warning(f"Node config validation failed for '{node_type}': {', '.join(errors)}")
 
             return errors
         except Exception as e:
@@ -74,4 +72,3 @@ class NodeConfigValidator:
     def validate_http_request_node(config: Dict[str, Any]) -> List[str]:
         """验证 HTTP Request 节点配置（向后兼容）"""
         return validate_node_config_as_strings("http_request_node", config)
-

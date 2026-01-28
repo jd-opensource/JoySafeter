@@ -15,6 +15,7 @@ from loguru import logger
 # DEEPAGENTS_AVAILABLE is defined in base_graph_builder but also needed in other modules
 try:
     from deepagents import CompiledSubAgent, create_deep_agent
+
     DEEPAGENTS_AVAILABLE = True
 except ImportError:
     DEEPAGENTS_AVAILABLE = False
@@ -185,9 +186,7 @@ class BaseGraphBuilder(ABC):
         executor_class = NodeTypeRegistry.get_executor_class(node_type)
         if executor_class:
             # Use registry metadata to create executor
-            return await self._create_executor_from_registry(
-                executor_class, node, node_name, node_type
-            )
+            return await self._create_executor_from_registry(executor_class, node, node_name, node_type)
 
         # Fallback to manual mapping (for backward compatibility)
         if node_type == "agent":
@@ -202,14 +201,14 @@ class BaseGraphBuilder(ABC):
 
             # 尝试从模型对象中提取凭据信息
             try:
-                if hasattr(resolved_model, 'openai_api_key'):
+                if hasattr(resolved_model, "openai_api_key"):
                     api_key = resolved_model.openai_api_key
-                if hasattr(resolved_model, 'openai_api_base'):
+                if hasattr(resolved_model, "openai_api_base"):
                     base_url = resolved_model.openai_api_base
                 # 尝试获取模型名称
-                if hasattr(resolved_model, 'model_name'):
+                if hasattr(resolved_model, "model_name"):
                     llm_model = resolved_model.model_name
-                elif hasattr(resolved_model, 'model'):
+                elif hasattr(resolved_model, "model"):
                     llm_model = resolved_model.model
             except Exception:
                 pass
@@ -221,8 +220,10 @@ class BaseGraphBuilder(ABC):
             )
 
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
             return AgentNodeExecutor(
-                node, node_name,
+                node,
+                node_name,
                 llm_model=llm_model,
                 api_key=api_key,
                 base_url=base_url,
@@ -257,8 +258,7 @@ class BaseGraphBuilder(ABC):
         else:
             # Unknown node type, log warning and fallback to agent
             logger.warning(
-                f"[BaseGraphBuilder] Unknown node type '{node_type}', falling back to agent | "
-                f"node_id={node.id}"
+                f"[BaseGraphBuilder] Unknown node type '{node_type}', falling back to agent | node_id={node.id}"
             )
             # Default to agent
             # 从节点配置解析模型
@@ -269,13 +269,13 @@ class BaseGraphBuilder(ABC):
             llm_model = self.llm_model
 
             try:
-                if hasattr(resolved_model, 'openai_api_key'):
+                if hasattr(resolved_model, "openai_api_key"):
                     api_key = resolved_model.openai_api_key
-                if hasattr(resolved_model, 'openai_api_base'):
+                if hasattr(resolved_model, "openai_api_base"):
                     base_url = resolved_model.openai_api_base
-                if hasattr(resolved_model, 'model_name'):
+                if hasattr(resolved_model, "model_name"):
                     llm_model = resolved_model.model_name
-                elif hasattr(resolved_model, 'model'):
+                elif hasattr(resolved_model, "model"):
                     llm_model = resolved_model.model
             except Exception:
                 pass
@@ -287,8 +287,10 @@ class BaseGraphBuilder(ABC):
             )
 
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
             return AgentNodeExecutor(
-                node, node_name,
+                node,
+                node_name,
                 llm_model=llm_model,
                 api_key=api_key,
                 base_url=base_url,
@@ -315,20 +317,22 @@ class BaseGraphBuilder(ABC):
             llm_model = self.llm_model
 
             try:
-                if hasattr(resolved_model, 'openai_api_key'):
+                if hasattr(resolved_model, "openai_api_key"):
                     api_key = resolved_model.openai_api_key
-                if hasattr(resolved_model, 'openai_api_base'):
+                if hasattr(resolved_model, "openai_api_base"):
                     base_url = resolved_model.openai_api_base
-                if hasattr(resolved_model, 'model_name'):
+                if hasattr(resolved_model, "model_name"):
                     llm_model = resolved_model.model_name
-                elif hasattr(resolved_model, 'model'):
+                elif hasattr(resolved_model, "model"):
                     llm_model = resolved_model.model
             except Exception:
                 pass
 
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
             return AgentNodeExecutor(
-                node, node_name,
+                node,
+                node_name,
                 llm_model=llm_model,
                 api_key=api_key,
                 base_url=base_url,
@@ -346,13 +350,13 @@ class BaseGraphBuilder(ABC):
             llm_model = self.llm_model
 
             try:
-                if hasattr(resolved_model, 'openai_api_key'):
+                if hasattr(resolved_model, "openai_api_key"):
                     api_key = resolved_model.openai_api_key
-                if hasattr(resolved_model, 'openai_api_base'):
+                if hasattr(resolved_model, "openai_api_base"):
                     base_url = resolved_model.openai_api_base
-                if hasattr(resolved_model, 'model_name'):
+                if hasattr(resolved_model, "model_name"):
                     llm_model = resolved_model.model_name
-                elif hasattr(resolved_model, 'model'):
+                elif hasattr(resolved_model, "model"):
                     llm_model = resolved_model.model
             except Exception:
                 pass
@@ -363,8 +367,10 @@ class BaseGraphBuilder(ABC):
             )
 
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
             return CodeAgentNodeExecutor(
-                node, node_name,
+                node,
+                node_name,
                 llm_model=llm_model,
                 api_key=api_key,
                 base_url=base_url,
@@ -525,9 +531,7 @@ class BaseGraphBuilder(ABC):
             # Standard tool resolution without database
             resolved = self._resolve_tools_standard(tools, registry)
 
-        logger.debug(
-            f"[BaseGraphBuilder] Resolved {len(resolved)}/{len(tools)} tools"
-        )
+        logger.debug(f"[BaseGraphBuilder] Resolved {len(resolved)}/{len(tools)} tools")
         return resolved
 
     async def _resolve_tools_with_db(
@@ -556,9 +560,7 @@ class BaseGraphBuilder(ABC):
                 if isinstance(tool, EnhancedTool):
                     resolved.append(tool)
                 elif isinstance(tool, str):
-                    resolved_tool = await self._resolve_string_tool(
-                        tool, user_id, db, registry
-                    )
+                    resolved_tool = await self._resolve_string_tool(tool, user_id, db, registry)
                     resolved.append(resolved_tool)
                 else:
                     resolved.append(tool)
@@ -704,9 +706,7 @@ class BaseGraphBuilder(ABC):
                 elif isinstance(sid, uuid.UUID):
                     skill_ids.append(sid)
             except ValueError as e:
-                logger.warning(
-                    f"[BaseGraphBuilder] Invalid skill UUID '{sid}': {e}"
-                )
+                logger.warning(f"[BaseGraphBuilder] Invalid skill UUID '{sid}': {e}")
 
         # Only create middleware if we have at least one valid skill ID
         if not skill_ids:
@@ -1000,9 +1000,7 @@ class BaseGraphBuilder(ABC):
                     edge_data = edge.data or {}
                     if not edge_data.get("route_key") and not edge_data.get("source_handle_id"):
                         label = (node.data or {}).get("label", str(node.id))
-                        errors.append(
-                            f"Router node '{label}' has edge without route_key or source_handle_id"
-                        )
+                        errors.append(f"Router node '{label}' has edge without route_key or source_handle_id")
 
         # Validate loop condition nodes
         for node in self.nodes:
@@ -1014,16 +1012,12 @@ class BaseGraphBuilder(ABC):
 
                 if "continue_loop" not in route_keys and "exit_loop" not in route_keys:
                     label = (node.data or {}).get("label", str(node.id))
-                    errors.append(
-                        f"Loop condition node '{label}' missing continue_loop or exit_loop edges"
-                    )
+                    errors.append(f"Loop condition node '{label}' missing continue_loop or exit_loop edges")
 
                 # Check for loop cycles (potential infinite loops)
                 if self._detect_potential_cycles(node.id):
                     label = (node.data or {}).get("label", str(node.id))
-                    errors.append(
-                        f"Loop condition node '{label}' may create infinite loop - check for cycles"
-                    )
+                    errors.append(f"Loop condition node '{label}' may create infinite loop - check for cycles")
 
         # Validate for orphaned conditional edges
         conditional_sources = set()
@@ -1038,9 +1032,7 @@ class BaseGraphBuilder(ABC):
                 node_type = self._get_node_type(source_node)
                 if node_type not in ["router_node", "condition", "loop_condition_node"]:
                     label = (source_node.data or {}).get("label", str(source_id))
-                    errors.append(
-                        f"Node '{label}' has conditional edges but is not a conditional node type"
-                    )
+                    errors.append(f"Node '{label}' has conditional edges but is not a conditional node type")
 
         return errors
 
@@ -1111,4 +1103,3 @@ class BaseGraphBuilder(ABC):
     def build(self) -> CompiledStateGraph:
         """Build and compile the StateGraph. Must be implemented by subclasses."""
         pass
-

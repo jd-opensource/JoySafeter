@@ -3,6 +3,7 @@
 数据库脚本工具模块
 提供统一的数据库配置获取和连接等待功能
 """
+
 import os
 import sys
 import time
@@ -14,6 +15,7 @@ from psycopg2 import OperationalError
 
 class DBConfig(TypedDict):
     """数据库配置类型"""
+
     user: str
     password: str
     host: str
@@ -145,7 +147,7 @@ def wait_for_db(
             return True
         except OperationalError as e:
             if i < max_retries - 1:
-                print(f"⏳ 尝试 {i+1}/{max_retries}: 数据库未就绪，等待中...")
+                print(f"⏳ 尝试 {i + 1}/{max_retries}: 数据库未就绪，等待中...")
                 time.sleep(retry_interval)
             else:
                 print(f"❌ 数据库连接失败: {e}")
@@ -159,4 +161,3 @@ def print_db_info(config: DBConfig) -> None:
     print(f"数据库主机: {config['host']}:{config['port']}")
     print(f"数据库用户: {config['user']}")
     print(f"数据库名称: {config['db_name']}")
-

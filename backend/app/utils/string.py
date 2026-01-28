@@ -153,6 +153,7 @@ def _parse_individual_json(content: str, output_schema: Type[BaseModel]) -> Opti
         logger.warning("Validation failed on merged data: %s", e)
         return None
 
+
 def extract_thinking_content(content: str) -> Tuple[Optional[str], str]:
     """Extract thinking content from response text between <think> tags."""
     if not content or "</think>" not in content:
@@ -172,8 +173,6 @@ def extract_thinking_content(content: str) -> Tuple[Optional[str], str]:
     output_content = content[end_idx + len("</think>") :].strip()
 
     return reasoning_content, output_content
-
-
 
 
 def parse_response_model_str(content: str, output_schema: Type[BaseModel]) -> Optional[BaseModel]:

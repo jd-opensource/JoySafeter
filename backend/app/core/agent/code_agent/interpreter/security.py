@@ -19,11 +19,13 @@ from loguru import logger
 
 class InterpreterError(Exception):
     """Exception raised when there's an error in the interpreter."""
+
     pass
 
 
 class SecurityError(InterpreterError):
     """Exception raised when a security violation is detected."""
+
     pass
 
 
@@ -419,4 +421,3 @@ __all__ = [
     "is_safe_code",
     "validate_import_statement",
 ]
-

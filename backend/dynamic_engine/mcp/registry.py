@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 
 import importlib.util
@@ -28,7 +27,7 @@ class ToolMetadataBuilder:
     @staticmethod
     def build_metadata(
         config: Dict[str, Any],
-        tool_type: str  # 'command' or 'knowledge'
+        tool_type: str,  # 'command' or 'knowledge'
     ) -> Dict[str, Any]:
         """
         Build common tool metadata from config.
@@ -40,29 +39,29 @@ class ToolMetadataBuilder:
         Returns:
             Dict containing: tool_name, description, parameters, returns
         """
-        tool_name = config.get('name', 'unknown')
+        tool_name = config.get("name", "unknown")
 
-        if tool_type == 'command':
-            description = config.get('description', f'Execute {tool_name}')
-            description = f'{COMMAND_TOOL}\n\n{description}'
-            parameters = config.get('parameters', [])
-            returns = config.get('returns', 'Tool execution results')
-            returns = f'Result from {COMMAND_TOOL}\n\n{returns}'
+        if tool_type == "command":
+            description = config.get("description", f"Execute {tool_name}")
+            description = f"{COMMAND_TOOL}\n\n{description}"
+            parameters = config.get("parameters", [])
+            returns = config.get("returns", "Tool execution results")
+            returns = f"Result from {COMMAND_TOOL}\n\n{returns}"
         else:  # knowledge
-            description = config.get('description', f'Reference {tool_name}')
-            description = f'{KNOWLEDGE_TOOL}\n\n{description}'
-            parameters = config.get('parameters', [
-                {'name': 'reason', 'required': True, 'type': 'string',
-                 'description': 'The reason to call this tool'}
-            ])
-            returns = config.get('returns', f'{KNOWLEDGE_TOOL} result for reference')
-            returns = f'Result from {KNOWLEDGE_TOOL}\n\n{returns}'
+            description = config.get("description", f"Reference {tool_name}")
+            description = f"{KNOWLEDGE_TOOL}\n\n{description}"
+            parameters = config.get(
+                "parameters",
+                [{"name": "reason", "required": True, "type": "string", "description": "The reason to call this tool"}],
+            )
+            returns = config.get("returns", f"{KNOWLEDGE_TOOL} result for reference")
+            returns = f"Result from {KNOWLEDGE_TOOL}\n\n{returns}"
 
         return {
-            'tool_name': tool_name,
-            'description': description,
-            'parameters': parameters,
-            'returns': returns,
+            "tool_name": tool_name,
+            "description": description,
+            "parameters": parameters,
+            "returns": returns,
         }
 
 
@@ -70,14 +69,7 @@ class ToolRegistry:
     """MCP tool registry center"""
 
     # Type mapping
-    TYPE_MAPPING = {
-        'string': str,
-        'integer': int,
-        'boolean': bool,
-        'number': float,
-        'object': dict,
-        'array': list
-    }
+    TYPE_MAPPING = {"string": str, "integer": int, "boolean": bool, "number": float, "object": dict, "array": list}
 
     def __init__(self, mcp: FastMCP):
         """
@@ -105,10 +97,10 @@ class ToolRegistry:
         """Build inspect.Signature from parameter configurations."""
         sig_params = []
         for param in parameters:
-            name = param['name']
-            param_type = self.TYPE_MAPPING.get(param.get('type', 'string'), str)
-            required = param.get('required', False)
-            default = param.get('default') if not required else inspect.Parameter.empty
+            name = param["name"]
+            param_type = self.TYPE_MAPPING.get(param.get("type", "string"), str)
+            required = param.get("required", False)
+            default = param.get("default") if not required else inspect.Parameter.empty
             if not required and default is None:
                 default = None
             sig_params.append(
@@ -141,7 +133,6 @@ class ToolRegistry:
 
         # Deep traverse directory
         for root, dirs, files in os.walk(handler_path):
-
             # Group by filename
             # file_groups = {}
             for file in files:
@@ -154,13 +145,13 @@ class ToolRegistry:
 
                 tool_config = ToolOriginConf(base_name, root)
                 tool_config.yaml_file = os.path.join(root, file)
-                tool_configs[f'{root}/{base_name}'] = tool_config
+                tool_configs[f"{root}/{base_name}"] = tool_config
 
                 # Assign files by extension
-                md_file = os.path.join(root, base_name + '.md')
+                md_file = os.path.join(root, base_name + ".md")
                 if os.path.exists(md_file):
                     tool_config.md_file = md_file
-                py_file = os.path.join(root, base_name + '.py')
+                py_file = os.path.join(root, base_name + ".py")
                 if os.path.exists(py_file):
                     tool_config.py_file = py_file
 
@@ -216,10 +207,10 @@ class ToolRegistry:
         annotations = {}
 
         for param in parameters:
-            name = param['name']
-            param_type = param.get('type', 'string')
-            required = param.get('required', False)
-            default = param.get('default')
+            name = param["name"]
+            param_type = param.get("type", "string")
+            required = param.get("required", False)
+            default = param.get("default")
 
             # Get Python type
             py_type = self.TYPE_MAPPING.get(param_type, str)
@@ -228,7 +219,7 @@ class ToolRegistry:
             # Build parameter string
             if not required:
                 if default is not None:
-                    if param_type == 'string':
+                    if param_type == "string":
                         params.append(f"{name}: {py_type.__name__} = '{default}'")
                     else:
                         params.append(f"{name}: {py_type.__name__} = {default}")
@@ -237,7 +228,7 @@ class ToolRegistry:
             else:
                 params.append(f"{name}: {py_type.__name__}")
 
-        return ', '.join(params), annotations
+        return ", ".join(params), annotations
 
     def _generate_param_docs(self, parameters: List[Dict[str, Any]]) -> str:
         """
@@ -251,10 +242,10 @@ class ToolRegistry:
         """
         docs = []
         for param in parameters:
-            name = param['name']
-            desc = param.get('description', '')
+            name = param["name"]
+            desc = param.get("description", "")
             docs.append(f"        {name}: {desc}")
-        return '\n'.join(docs) if docs else '        None'
+        return "\n".join(docs) if docs else "        None"
 
     def register_all(self, handler_dir: str) -> Tuple[List[ToolOriginConf], List[ToolOriginConf]]:
         """
@@ -291,10 +282,7 @@ class ToolRegistry:
                 return None
 
             # 1. Dynamically import Python module
-            spec = importlib.util.spec_from_file_location(
-                f"handler_{config.get('name', 'unknown')}",
-                py_file
-            )
+            spec = importlib.util.spec_from_file_location(f"handler_{config.get('name', 'unknown')}", py_file)
             if not spec or not spec.loader:
                 raise ImportError(f"Cannot load module from {py_file}")
 
@@ -305,9 +293,7 @@ class ToolRegistry:
             handler_class: Type[AbstractHandler] = None
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
-                if (isinstance(attr, type) and
-                    attr_name.endswith('Handler') and
-                    attr_name != 'AbstractHandler'):
+                if isinstance(attr, type) and attr_name.endswith("Handler") and attr_name != "AbstractHandler":
                     handler_class = attr
                     break
 
@@ -320,16 +306,16 @@ class ToolRegistry:
                 return None
 
             # 3. Get tool metadata (DRY: use ToolMetadataBuilder)
-            metadata = ToolMetadataBuilder.build_metadata(config, 'command')
-            tool_name = metadata['tool_name']
-            description = metadata['description']
-            parameters = metadata['parameters']
-            returns = metadata['returns']
+            metadata = ToolMetadataBuilder.build_metadata(config, "command")
+            tool_name = metadata["tool_name"]
+            description = metadata["description"]
+            parameters = metadata["parameters"]
+            returns = metadata["returns"]
 
             # 4. Generate parameter signature and annotations
             _, param_annotations = self._generate_parameters(parameters)
             signature = self._build_signature(parameters)
-            param_names = [p['name'] for p in parameters]
+            param_names = [p["name"] for p in parameters]
 
             # 5. Use closure instead of exec
             def tool_func(*args, **kwargs):
@@ -354,7 +340,7 @@ class ToolRegistry:
     """
             tool_func.__signature__ = signature
             tool_func.__annotations__ = param_annotations
-            tool_func.__annotations__['return'] = Any
+            tool_func.__annotations__["return"] = Any
 
             logger.info(f"Generated function for {tool_name} from {py_file}")
             return tool_func
@@ -376,15 +362,15 @@ class ToolRegistry:
             if md_path.stat().st_size > 1024 * 1024:
                 raise ValueError(f"MD file too large: {md_path.stat().st_size} bytes")
 
-            with open(md_path, 'r', encoding='utf-8') as f:
+            with open(md_path, "r", encoding="utf-8") as f:
                 md_content = f.read()
 
             # Get tool metadata (DRY: use ToolMetadataBuilder)
-            metadata = ToolMetadataBuilder.build_metadata(config, 'knowledge')
-            tool_name = metadata['tool_name']
-            description = metadata['description']
-            parameters = metadata['parameters']
-            returns = metadata['returns']
+            metadata = ToolMetadataBuilder.build_metadata(config, "knowledge")
+            tool_name = metadata["tool_name"]
+            description = metadata["description"]
+            parameters = metadata["parameters"]
+            returns = metadata["returns"]
 
             _, param_annotations = self._generate_parameters(parameters)
             signature = self._build_signature(parameters)
@@ -404,7 +390,7 @@ class ToolRegistry:
     """
             knowledge_tool.__signature__ = signature
             knowledge_tool.__annotations__ = param_annotations
-            knowledge_tool.__annotations__['return'] = str
+            knowledge_tool.__annotations__["return"] = str
 
             logger.info(f"Generated function for {tool_name} from {md_file}")
             return knowledge_tool
@@ -413,5 +399,3 @@ class ToolRegistry:
             logger.error(f"Failed to generate function from {md_file}: {e}")
             logger.exception("Failed to generate function")
             raise
-
-

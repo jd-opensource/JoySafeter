@@ -1,4 +1,5 @@
 """工作空间服务"""
+
 from __future__ import annotations
 
 import uuid
@@ -41,7 +42,7 @@ class WorkspaceService(BaseService[Workspace]):
             "description": workspace.description,
             "ownerId": str(workspace.owner_id),
             "status": workspace.status.value,
-            "type": workspace.type.value if hasattr(workspace.type, 'value') else workspace.type,
+            "type": workspace.type.value if hasattr(workspace.type, "value") else workspace.type,
             "settings": workspace.settings or {},
             "allowPersonalApiKeys": workspace.allow_personal_api_keys,
             "createdAt": workspace.created_at,
@@ -143,7 +144,6 @@ class WorkspaceService(BaseService[Workspace]):
         await self.member_repo.create(
             {"workspace_id": workspace.id, "user_id": current_user.id, "role": WorkspaceMemberRole.owner}
         )
-
 
         await self.commit()
         return await self._serialize_workspace(workspace, current_user)
@@ -282,13 +282,16 @@ class WorkspaceService(BaseService[Workspace]):
             raise BadRequestException("Invalid role")
 
         from app.repositories.auth_user import AuthUserRepository
+
         user_repo = AuthUserRepository(self.db)
         invitee = await user_repo.get_by_email(email.lower())
 
         if invitee:
             existing_member = await self.member_repo.get_member(workspace_id, invitee.id)
             if existing_member:
-                raise BadRequestException(f"User with email {email} is already a member of this workspace. 该用户已经是工作空间成员")
+                raise BadRequestException(
+                    f"User with email {email} is already a member of this workspace. 该用户已经是工作空间成员"
+                )
 
         token = uuid.uuid4().hex
         expires_at = datetime.now(timezone.utc) + timedelta(days=7)
@@ -345,13 +348,18 @@ class WorkspaceService(BaseService[Workspace]):
         if invitee:
             try:
                 from app.websocket.notification_manager import NotificationType, notification_manager
-                await notification_manager.send_to_user(invitee.id, {
-                    "type": NotificationType.INVITATION_RECEIVED.value,
-                    "data": invitation_data,
-                })
+
+                await notification_manager.send_to_user(
+                    invitee.id,
+                    {
+                        "type": NotificationType.INVITATION_RECEIVED.value,
+                        "data": invitation_data,
+                    },
+                )
             except Exception as e:
                 # 不阻断流程，通知失败不影响邀请创建
                 from loguru import logger
+
                 logger.warning(f"Failed to send WebSocket notification: {e}")
 
         return invitation_data
@@ -470,10 +478,7 @@ class WorkspaceService(BaseService[Workspace]):
         ]
 
     async def list_all_invitations_for_user_paginated(
-        self,
-        current_user: User,
-        pagination: PaginationParams,
-        status: Optional[str] = None
+        self, current_user: User, pagination: PaginationParams, status: Optional[str] = None
     ) -> PageResult:
         """获取当前用户所有的工作空间邀请（支持分页和状态筛选）
 
@@ -496,25 +501,17 @@ class WorkspaceService(BaseService[Workspace]):
 
         # 状态筛选
         now = datetime.now(timezone.utc)
-        if status == 'pending':
+        if status == "pending":
             # 待处理：状态为pending且未过期（expires_at为None或未过期）
-            query = query.where(
-                WorkspaceInvitation.status == WorkspaceInvitationStatus.pending
-            ).where(
-                or_(
-                    WorkspaceInvitation.expires_at.is_(None),
-                    WorkspaceInvitation.expires_at > now
-                )
+            query = query.where(WorkspaceInvitation.status == WorkspaceInvitationStatus.pending).where(
+                or_(WorkspaceInvitation.expires_at.is_(None), WorkspaceInvitation.expires_at > now)
             )
-        elif status == 'processed':
+        elif status == "processed":
             # 已处理：状态不是pending或已过期
             query = query.where(
                 or_(
                     WorkspaceInvitation.status != WorkspaceInvitationStatus.pending,
-                    and_(
-                        WorkspaceInvitation.expires_at.isnot(None),
-                        WorkspaceInvitation.expires_at <= now
-                    )
+                    and_(WorkspaceInvitation.expires_at.isnot(None), WorkspaceInvitation.expires_at <= now),
                 )
             )
         elif status:
@@ -583,6 +580,7 @@ class WorkspaceService(BaseService[Workspace]):
 
         # 获取邀请人信息
         from app.repositories.auth_user import AuthUserRepository
+
         user_repo = AuthUserRepository(self.db)
         inviter = await user_repo.get_by(id=invitation.inviter_id)
 
@@ -647,18 +645,23 @@ class WorkspaceService(BaseService[Workspace]):
         # 推送 WebSocket 通知给邀请人
         try:
             from app.websocket.notification_manager import NotificationType, notification_manager
-            await notification_manager.send_to_user(str(invitation.inviter_id), {
-                "type": NotificationType.INVITATION_ACCEPTED.value,
-                "data": {
-                    "invitationId": str(invitation.id),
-                    "workspaceId": str(invitation.workspace_id),
-                    "workspaceName": workspace.name if workspace else None,
-                    "acceptedByName": current_user.name,
-                    "acceptedByEmail": current_user.email,
+
+            await notification_manager.send_to_user(
+                str(invitation.inviter_id),
+                {
+                    "type": NotificationType.INVITATION_ACCEPTED.value,
+                    "data": {
+                        "invitationId": str(invitation.id),
+                        "workspaceId": str(invitation.workspace_id),
+                        "workspaceName": workspace.name if workspace else None,
+                        "acceptedByName": current_user.name,
+                        "acceptedByEmail": current_user.email,
+                    },
                 },
-            })
+            )
         except Exception as e:
             from loguru import logger
+
             logger.warning(f"Failed to send WebSocket notification: {e}")
 
         return {
@@ -698,17 +701,22 @@ class WorkspaceService(BaseService[Workspace]):
         # 推送 WebSocket 通知给邀请人
         try:
             from app.websocket.notification_manager import NotificationType, notification_manager
-            await notification_manager.send_to_user(str(invitation.inviter_id), {
-                "type": NotificationType.INVITATION_REJECTED.value,
-                "data": {
-                    "invitationId": str(invitation.id),
-                    "workspaceId": str(invitation.workspace_id),
-                    "workspaceName": workspace.name if workspace else None,
-                    "rejectedByEmail": current_user.email,
+
+            await notification_manager.send_to_user(
+                str(invitation.inviter_id),
+                {
+                    "type": NotificationType.INVITATION_REJECTED.value,
+                    "data": {
+                        "invitationId": str(invitation.id),
+                        "workspaceId": str(invitation.workspace_id),
+                        "workspaceName": workspace.name if workspace else None,
+                        "rejectedByEmail": current_user.email,
+                    },
                 },
-            })
+            )
         except Exception as e:
             from loguru import logger
+
             logger.warning(f"Failed to send WebSocket notification: {e}")
 
         return {
@@ -739,6 +747,7 @@ class WorkspaceService(BaseService[Workspace]):
         owner_in_members = any(m.user_id == workspace.owner_id for m in members)
         if not owner_in_members:
             from app.repositories.auth_user import AuthUserRepository
+
             user_repo = AuthUserRepository(self.db)
             owner = await user_repo.get_by(id=workspace.owner_id)
             if owner:
@@ -757,22 +766,24 @@ class WorkspaceService(BaseService[Workspace]):
         # 序列化成员
         result = []
         for member in members:
-            user = member.user if hasattr(member, 'user') and member.user else None
+            user = member.user if hasattr(member, "user") and member.user else None
             if not user:
                 # 如果成员没有用户信息，跳过
                 continue
 
-            result.append({
-                "id": str(member.user_id),
-                "userId": str(member.user_id),
-                "workspaceId": str(workspace_id),
-                "email": user.email,
-                "name": user.name,
-                "role": member.role.value if hasattr(member.role, 'value') else member.role,
-                "isOwner": workspace.owner_id == member.user_id,
-                "createdAt": member.created_at if hasattr(member, 'created_at') else None,
-                "updatedAt": member.updated_at if hasattr(member, 'updated_at') else None,
-            })
+            result.append(
+                {
+                    "id": str(member.user_id),
+                    "userId": str(member.user_id),
+                    "workspaceId": str(workspace_id),
+                    "email": user.email,
+                    "name": user.name,
+                    "role": member.role.value if hasattr(member.role, "value") else member.role,
+                    "isOwner": workspace.owner_id == member.user_id,
+                    "createdAt": member.created_at if hasattr(member, "created_at") else None,
+                    "updatedAt": member.updated_at if hasattr(member, "updated_at") else None,
+                }
+            )
 
         return result
 
@@ -796,9 +807,11 @@ class WorkspaceService(BaseService[Workspace]):
         owner_in_members = any(m.user_id == workspace.owner_id for m in members)
         if not owner_in_members:
             from app.repositories.auth_user import AuthUserRepository
+
             user_repo = AuthUserRepository(self.db)
             owner = await user_repo.get_by(id=workspace.owner_id)
             if owner:
+
                 class OwnerMember:
                     def __init__(self):
                         self.user_id = owner.id
@@ -812,21 +825,27 @@ class WorkspaceService(BaseService[Workspace]):
 
         result = []
         for member in members:
-            user = member.user if hasattr(member, 'user') and member.user else None
+            user = member.user if hasattr(member, "user") and member.user else None
             if not user:
                 continue
 
-            result.append({
-                "id": str(member.user_id),
-                "userId": str(member.user_id),
-                "workspaceId": str(workspace_id),
-                "email": user.email,
-                "name": user.name,
-                "role": member.role.value if hasattr(member.role, 'value') else member.role,
-                "isOwner": workspace.owner_id == member.user_id,
-                "createdAt": member.created_at.isoformat() if hasattr(member, 'created_at') and member.created_at else None,
-                "updatedAt": member.updated_at.isoformat() if hasattr(member, 'updated_at') and member.updated_at else None,
-            })
+            result.append(
+                {
+                    "id": str(member.user_id),
+                    "userId": str(member.user_id),
+                    "workspaceId": str(workspace_id),
+                    "email": user.email,
+                    "name": user.name,
+                    "role": member.role.value if hasattr(member.role, "value") else member.role,
+                    "isOwner": workspace.owner_id == member.user_id,
+                    "createdAt": member.created_at.isoformat()
+                    if hasattr(member, "created_at") and member.created_at
+                    else None,
+                    "updatedAt": member.updated_at.isoformat()
+                    if hasattr(member, "updated_at") and member.updated_at
+                    else None,
+                }
+            )
 
         total = len(result)
         pages = (total + pagination.page_size - 1) // pagination.page_size if pagination.page_size > 0 else 0
@@ -879,6 +898,7 @@ class WorkspaceService(BaseService[Workspace]):
 
         # 返回更新后的成员信息
         from app.repositories.auth_user import AuthUserRepository
+
         user_repo = AuthUserRepository(self.db)
         user = await user_repo.get_by(id=target_user_id)
 
@@ -888,10 +908,14 @@ class WorkspaceService(BaseService[Workspace]):
             "workspaceId": str(workspace_id),
             "email": user.email if user else "",
             "name": user.name if user else "",
-            "role": new_role.value if hasattr(new_role, 'value') else new_role,
+            "role": new_role.value if hasattr(new_role, "value") else new_role,
             "isOwner": False,
-            "createdAt": updated_member.created_at.isoformat() if updated_member and hasattr(updated_member, 'created_at') and updated_member.created_at else None,
-            "updatedAt": updated_member.updated_at.isoformat() if updated_member and hasattr(updated_member, 'updated_at') and updated_member.updated_at else None,
+            "createdAt": updated_member.created_at.isoformat()
+            if updated_member and hasattr(updated_member, "created_at") and updated_member.created_at
+            else None,
+            "updatedAt": updated_member.updated_at.isoformat()
+            if updated_member and hasattr(updated_member, "updated_at") and updated_member.updated_at
+            else None,
         }
 
     async def remove_member(
@@ -934,4 +958,3 @@ class WorkspaceService(BaseService[Workspace]):
         await self.member_repo.delete_member(workspace_id, str(target_user_id))
         await self.commit()
         return True
-

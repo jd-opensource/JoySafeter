@@ -11,6 +11,7 @@ class SkillLoadError(Exception):
     All skill-related exceptions inherit from this class,
     allowing callers to catch all skill loading errors with a single except clause.
     """
+
     pass
 
 
@@ -22,6 +23,7 @@ class SkillNotFoundError(SkillLoadError):
     - The user does not have permission to access the skill
     - The skill service returns None for a skill query
     """
+
     pass
 
 
@@ -32,6 +34,7 @@ class SkillPermissionDeniedError(SkillLoadError):
     - User tries to access a private skill owned by another user
     - Permission check fails during skill retrieval
     """
+
     pass
 
 
@@ -43,4 +46,5 @@ class SkillFileWriteError(SkillLoadError):
     - Backend write() method returns an error
     - File system errors occur during write
     """
+
     pass

@@ -22,6 +22,7 @@ try:
     from rich.syntax import Syntax
     from rich.table import Table
     from rich.tree import Tree
+
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
@@ -49,6 +50,7 @@ class TokenUsage:
         output_tokens: Number of tokens in the output/response.
         total_tokens: Total tokens used (auto-calculated).
     """
+
     input_tokens: int
     output_tokens: int
     total_tokens: int = field(init=False)
@@ -84,6 +86,7 @@ class Timing:
         start_time: Unix timestamp when the operation started.
         end_time: Unix timestamp when the operation ended (None if still running).
     """
+
     start_time: float
     end_time: float | None = None
 
@@ -221,7 +224,9 @@ class Monitor:
             if step_duration is not None:
                 console_outputs += f": Duration {step_duration:.2f}s"
             if self.total_input_token_count > 0 or self.total_output_token_count > 0:
-                console_outputs += f" | Tokens: {self.total_input_token_count:,} in, {self.total_output_token_count:,} out"
+                console_outputs += (
+                    f" | Tokens: {self.total_input_token_count:,} in, {self.total_output_token_count:,} out"
+                )
             console_outputs += "]"
             self.logger.log(console_outputs, level=LogLevel.DEBUG)
 
@@ -232,8 +237,7 @@ class Monitor:
             "total_duration": self.get_total_duration(),
             "step_durations": self.step_durations,
             "average_step_duration": (
-                sum(self.step_durations) / len(self.step_durations)
-                if self.step_durations else None
+                sum(self.step_durations) / len(self.step_durations) if self.step_durations else None
             ),
             "token_usage": self.get_total_token_counts().dict(),
         }
@@ -244,10 +248,11 @@ class Monitor:
 
 class LogLevel(IntEnum):
     """Log levels for agent output."""
-    OFF = -1      # No output
-    ERROR = 0     # Only errors
-    INFO = 1      # Normal output (default)
-    DEBUG = 2     # Detailed output
+
+    OFF = -1  # No output
+    ERROR = 0  # Only errors
+    INFO = 1  # Normal output (default)
+    DEBUG = 2  # Detailed output
 
 
 class AgentLogger:
@@ -435,12 +440,12 @@ class AgentLogger:
                 )
             )
         else:
-            print(f"\n{'='*50}")
+            print(f"\n{'=' * 50}")
             if title:
                 print(f"New run - {title}")
             else:
                 print("New run")
-            print(f"{'='*50}")
+            print(f"{'=' * 50}")
             print(content)
             if subtitle:
                 print(f"({subtitle})")
@@ -466,7 +471,7 @@ class AgentLogger:
                 )
             )
         else:
-            print(f"\n{'━'*20} {title} {'━'*20}")
+            print(f"\n{'━' * 20} {title} {'━' * 20}")
 
     def log_step(
         self,
@@ -524,10 +529,10 @@ class AgentLogger:
                 )
             )
         else:
-            print(f"\n{'='*50}")
+            print(f"\n{'=' * 50}")
             print("FINAL ANSWER:")
             print(answer)
-            print(f"{'='*50}\n")
+            print(f"{'=' * 50}\n")
 
     def visualize_agent_tree(self, agent) -> None:
         """
@@ -587,4 +592,3 @@ def _escape_brackets(text: str) -> str:
     if not isinstance(text, str):
         text = str(text)
     return text.replace("[", "\\[").replace("]", "\\]")
-

@@ -21,8 +21,8 @@ class NcConnectHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['nc']
+        """Handler related commands"""
+        return ["nc"]
 
     def handle(self, data: Dict) -> Any:
         """Connect to remote host using netcat"""

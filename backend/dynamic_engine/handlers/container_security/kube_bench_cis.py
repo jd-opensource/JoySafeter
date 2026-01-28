@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class KubeBenchHandler(AbstractHandler):
     """Handler for kube_bench functionality"""
 
@@ -13,8 +14,8 @@ class KubeBenchHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['kube-bench']
+        """Handler related commands"""
+        return ["kube-bench"]
 
     def handle(self, data: Dict) -> Any:
         """Execute kube_bench with enhanced logging"""

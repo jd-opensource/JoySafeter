@@ -1,6 +1,7 @@
 """
 公共依赖项
 """
+
 import uuid
 from typing import Annotated, Optional
 
@@ -135,10 +136,12 @@ async def get_current_user_optional(
 
 def require_roles(*roles: str):
     """角色权限检查装饰器"""
+
     async def check_roles(current_user: User = Depends(get_current_user)):
         if current_user.is_superuser:
             return current_user
         return current_user
+
     return Depends(check_roles)
 
 
@@ -238,6 +241,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 # CSRF Protection
 # --------------------------------------------------------------------------- #
 
+
 async def verify_csrf(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -283,4 +287,3 @@ async def verify_csrf(
 
 # 带 CSRF 保护的当前用户类型注解
 CurrentUserWithCSRF = Annotated[User, Depends(verify_csrf)]
-

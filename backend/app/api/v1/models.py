@@ -1,6 +1,7 @@
 """
 模型管理API
 """
+
 import uuid
 from typing import Any, Dict, Optional
 
@@ -20,19 +21,31 @@ router = APIRouter(prefix="/v1/models", tags=["Models"])
 
 class ModelInstanceCreate(BaseModel):
     """创建模型实例配置请求"""
+
     provider_name: str = Field(..., description="供应商名称", example="openaiapicompatible")
     model_name: str = Field(..., description="模型名称", example="DeepSeek-V3.2")
     model_type: str = Field(default="chat", description="模型类型：chat, llm, embedding等", example="chat")
     model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数配置", example={})
-    workspace_id: Optional[uuid.UUID] = Field(default=None, alias="workspaceId", description="工作空间ID（可选）", example="38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc")
+    workspace_id: Optional[uuid.UUID] = Field(
+        default=None,
+        alias="workspaceId",
+        description="工作空间ID（可选）",
+        example="38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc",
+    )
     is_default: bool = Field(default=True, description="是否为默认模型")
 
 
 class ModelTestRequest(BaseModel):
     """测试模型输出请求"""
+
     model_name: str = Field(..., description="模型名称", example="DeepSeek-V3.2")
     input: str = Field(..., description="输入文本", example="你好，请介绍一下你自己")
-    workspace_id: Optional[uuid.UUID] = Field(default=None, alias="workspaceId", description="工作空间ID（可选）", example="38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc")
+    workspace_id: Optional[uuid.UUID] = Field(
+        default=None,
+        alias="workspaceId",
+        description="工作空间ID（可选）",
+        example="38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc",
+    )
 
 
 @router.get("")
@@ -56,6 +69,7 @@ async def list_available_models(
         model_type_enum = ModelType(model_type)
     except ValueError:
         from app.common.exceptions import BadRequestException
+
         raise BadRequestException(f"不支持的模型类型: {model_type}")
 
     service = ModelService(db)
@@ -87,6 +101,7 @@ async def create_model_instance(
         model_type_enum = ModelType(payload.model_type)
     except ValueError:
         from app.common.exceptions import BadRequestException
+
         raise BadRequestException(f"不支持的模型类型: {payload.model_type}")
 
     service = ModelService(db)
@@ -155,6 +170,7 @@ async def test_output(
 
 class ModelInstanceUpdateDefaultRequest(BaseModel):
     """更新模型实例默认状态请求"""
+
     provider_name: str = Field(..., description="供应商名称", example="openaiapicompatible")
     model_name: str = Field(..., description="模型名称", example="DeepSeek-V3.2")
     is_default: bool = Field(..., description="是否为默认模型")

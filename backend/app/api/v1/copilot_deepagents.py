@@ -118,10 +118,12 @@ async def deepagents_copilot_actions_stream(
                     step = event.get("step", {})
                     collected_thought_steps.append(step)
                 elif event_type == "tool_call":
-                    collected_tool_calls.append({
-                        "tool": event.get("tool", ""),
-                        "input": event.get("input", {}),
-                    })
+                    collected_tool_calls.append(
+                        {
+                            "tool": event.get("tool", ""),
+                            "input": event.get("input", {}),
+                        }
+                    )
                 elif event_type == "result":
                     final_message = event.get("message", "")
                     final_actions = event.get("actions", [])
@@ -143,7 +145,9 @@ async def deepagents_copilot_actions_stream(
                     if saved:
                         log.info(f"copilot.deepagents.stream saved messages for graph_id={payload.graph_id}")
                     else:
-                        log.warning(f"copilot.deepagents.stream failed to save messages for graph_id={payload.graph_id}")
+                        log.warning(
+                            f"copilot.deepagents.stream failed to save messages for graph_id={payload.graph_id}"
+                        )
                 except Exception as save_error:
                     log.error(f"copilot.deepagents.stream save error: {save_error}")
 

@@ -56,16 +56,61 @@ router = APIRouter(prefix="/files", tags=["Files"])
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50MB
 MAX_STORAGE_PER_USER = 5 * 1024 * 1024 * 1024  # 5GB per user
 ALLOWED_EXTENSIONS = {
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-    '.odt', '.ods', '.odp', '.rtf', '.epub',
-    '.txt', '.csv', '.md', '.html', '.css',
-    '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h', '.hpp',
-    '.cs', '.go', '.rs', '.rb', '.php', '.swift', '.kt', '.scala',
-    '.sh', '.sql', '.yaml', '.yml', '.toml', '.xml', '.json',
-    '.jsx', '.tsx', '.vue', '.svelte',
-    '.jpeg', '.jpg', '.png', '.gif', '.webp',
-    '.zip', '.tar', '.gz', '.7z', '.rar',
-    '.apk',
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".odt",
+    ".ods",
+    ".odp",
+    ".rtf",
+    ".epub",
+    ".txt",
+    ".csv",
+    ".md",
+    ".html",
+    ".css",
+    ".js",
+    ".ts",
+    ".py",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".go",
+    ".rs",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".sh",
+    ".sql",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".json",
+    ".jsx",
+    ".tsx",
+    ".vue",
+    ".svelte",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".7z",
+    ".rar",
+    ".apk",
 }
 
 
@@ -108,24 +153,24 @@ def sanitize_filename(filename: str) -> str:
 
 # Magic number signatures for file type validation
 MAGIC_NUMBERS: dict[str, list[bytes]] = {
-    '.pdf': [b'%PDF'],
-    '.zip': [b'PK\x03\x04', b'PK\x05\x06', b'PK\x07\x08'],
-    '.png': [b'\x89PNG\r\n\x1a\n'],
-    '.jpg': [b'\xff\xd8\xff'],
-    '.jpeg': [b'\xff\xd8\xff'],
-    '.gif': [b'GIF87a', b'GIF89a'],
-    '.webp': [b'RIFF', b'WEBP'],
-    '.tar': [b'ustar', b'GNUtar'],
-    '.gz': [b'\x1f\x8b'],
-    '.7z': [b'7z\xbc\xaf\x27\x1c'],
-    '.rar': [b'Rar!\x1a\x07', b'Rar!\x1a\x07\x00'],
-    '.doc': [b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'],  # OLE2 (MS Office)
-    '.docx': [b'PK\x03\x04'],  # DOCX is a ZIP file
-    '.xls': [b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'],  # OLE2
-    '.xlsx': [b'PK\x03\x04'],  # XLSX is a ZIP file
-    '.ppt': [b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'],  # OLE2
-    '.pptx': [b'PK\x03\x04'],  # PPTX is a ZIP file
-    '.apk': [b'PK\x03\x04'],  # APK is a ZIP file
+    ".pdf": [b"%PDF"],
+    ".zip": [b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"],
+    ".png": [b"\x89PNG\r\n\x1a\n"],
+    ".jpg": [b"\xff\xd8\xff"],
+    ".jpeg": [b"\xff\xd8\xff"],
+    ".gif": [b"GIF87a", b"GIF89a"],
+    ".webp": [b"RIFF", b"WEBP"],
+    ".tar": [b"ustar", b"GNUtar"],
+    ".gz": [b"\x1f\x8b"],
+    ".7z": [b"7z\xbc\xaf\x27\x1c"],
+    ".rar": [b"Rar!\x1a\x07", b"Rar!\x1a\x07\x00"],
+    ".doc": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],  # OLE2 (MS Office)
+    ".docx": [b"PK\x03\x04"],  # DOCX is a ZIP file
+    ".xls": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],  # OLE2
+    ".xlsx": [b"PK\x03\x04"],  # XLSX is a ZIP file
+    ".ppt": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],  # OLE2
+    ".pptx": [b"PK\x03\x04"],  # PPTX is a ZIP file
+    ".apk": [b"PK\x03\x04"],  # APK is a ZIP file
 }
 
 
@@ -156,7 +201,7 @@ def validate_file_content(filename: str, content: bytes) -> None:
     expected_signatures = MAGIC_NUMBERS[file_ext]
 
     # Check if content starts with any expected signature
-    content_start = content[:max(len(sig) for sig in expected_signatures)]
+    content_start = content[: max(len(sig) for sig in expected_signatures)]
     matches = any(content_start.startswith(sig) for sig in expected_signatures)
 
     if not matches:
@@ -167,7 +212,7 @@ def validate_file_content(filename: str, content: bytes) -> None:
         # For security, reject files that don't match their declared type
         raise HTTPException(
             status_code=400,
-            detail=f"File content does not match declared type: {file_ext} files should contain correct file signature"
+            detail=f"File content does not match declared type: {file_ext} files should contain correct file signature",
         )
 
 
@@ -186,19 +231,13 @@ def validate_file_type(filename: str, content_type: str | None) -> None:
 
     # Validate extension
     if file_ext and file_ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File type {file_ext} is not supported"
-        )
+        raise HTTPException(status_code=400, detail=f"File type {file_ext} is not supported")
 
     # Validate MIME type if provided (log warning if mismatch but allow, as some clients may be inaccurate)
     if content_type:
         inferred_type, _ = mimetypes.guess_type(filename)
         if inferred_type and content_type != inferred_type:
-            logger.warning(
-                f"MIME type mismatch for {filename}: "
-                f"expected {inferred_type}, got {content_type}"
-            )
+            logger.warning(f"MIME type mismatch for {filename}: expected {inferred_type}, got {content_type}")
 
 
 def get_user_storage_usage(backend: FilesystemSandboxBackend) -> int:
@@ -246,13 +285,9 @@ def validate_file_upload(
     # Check for empty file
     if len(content) == 0:
         logger.warning(
-            f"File upload rejected - empty file: user={current_user_id}, "
-            f"filename={filename}, ip={client_ip}"
+            f"File upload rejected - empty file: user={current_user_id}, filename={filename}, ip={client_ip}"
         )
-        return None, HTTPException(
-            status_code=400,
-            detail="File cannot be empty"
-        )
+        return None, HTTPException(status_code=400, detail="File cannot be empty")
 
     # Validate file size
     if len(content) > MAX_FILE_SIZE_BYTES:
@@ -262,8 +297,7 @@ def validate_file_upload(
             f"limit={MAX_FILE_SIZE_BYTES}, ip={client_ip}"
         )
         return None, HTTPException(
-            status_code=413,
-            detail=f"File size exceeds maximum allowed size ({MAX_FILE_SIZE_BYTES / 1024 / 1024}MB)"
+            status_code=413, detail=f"File size exceeds maximum allowed size ({MAX_FILE_SIZE_BYTES / 1024 / 1024}MB)"
         )
 
     # Sanitize filename
@@ -292,7 +326,7 @@ def validate_file_upload(
         return None, HTTPException(
             status_code=413,
             detail=f"Storage quota exceeded. Current usage: {current_usage / 1024 / 1024 / 1024:.2f}GB, "
-            f"maximum allowed: {MAX_STORAGE_PER_USER / 1024 / 1024 / 1024}GB. Please delete some files first."
+            f"maximum allowed: {MAX_STORAGE_PER_USER / 1024 / 1024 / 1024}GB. Please delete some files first.",
         )
 
     return safe_filename, None
@@ -454,9 +488,8 @@ async def upload_file(
         raise
     except Exception as e:
         logger.error(
-            f"Failed to upload file: user={current_user.id}, "
-            f"filename={original_filename}, ip={client_ip}, error={e}",
-            exc_info=True
+            f"Failed to upload file: user={current_user.id}, filename={original_filename}, ip={client_ip}, error={e}",
+            exc_info=True,
         )
         raise HTTPException(status_code=500, detail="Failed to upload file, please try again later") from e
 
@@ -549,11 +582,7 @@ async def list_files(current_user: CurrentUser) -> BaseResponse[FileListResponse
         500: {"description": "Failed to read file / Internal server error"},
     },
 )
-async def read_file(
-    request: Request,
-    filename: str,
-    current_user: CurrentUser
-) -> BaseResponse[dict]:
+async def read_file(request: Request, filename: str, current_user: CurrentUser) -> BaseResponse[dict]:
     """
     Read file content from the user's working directory
 
@@ -611,12 +640,9 @@ async def read_file(
             except Exception:
                 raise FileNotFoundError(f"Failed to read file: {safe_filename}") from e
 
-        content_size = len(content.encode('utf-8')) if isinstance(content, str) else len(content)
+        content_size = len(content.encode("utf-8")) if isinstance(content, str) else len(content)
 
-        logger.info(
-            f"File read: user={current_user.id}, filename={safe_filename}, "
-            f"size={content_size}, ip={client_ip}"
-        )
+        logger.info(f"File read: user={current_user.id}, filename={safe_filename}, size={content_size}, ip={client_ip}")
 
         return BaseResponse(
             success=True,
@@ -625,16 +651,12 @@ async def read_file(
             data={"filename": safe_filename, "content": content, "is_binary": False},
         )
     except FileNotFoundError as e:
-        logger.warning(
-            f"File read failed - not found: user={current_user.id}, "
-            f"filename={filename}, ip={client_ip}"
-        )
+        logger.warning(f"File read failed - not found: user={current_user.id}, filename={filename}, ip={client_ip}")
         raise HTTPException(status_code=404, detail="File not found") from e
     except Exception as e:
         logger.error(
-            f"Failed to read file: user={current_user.id}, filename={filename}, "
-            f"ip={client_ip}, error={e}",
-            exc_info=True
+            f"Failed to read file: user={current_user.id}, filename={filename}, ip={client_ip}, error={e}",
+            exc_info=True,
         )
         raise HTTPException(status_code=500, detail="Failed to read file, please try again later") from e
 
@@ -649,11 +671,7 @@ async def read_file(
         500: {"description": "Failed to delete file / Internal server error"},
     },
 )
-async def delete_file(
-    request: Request,
-    filename: str,
-    current_user: CurrentUser
-) -> BaseResponse[dict]:
+async def delete_file(request: Request, filename: str, current_user: CurrentUser) -> BaseResponse[dict]:
     """
     Delete a file from the user's working directory
 
@@ -681,8 +699,7 @@ async def delete_file(
 
         if not file_path.exists():
             logger.warning(
-                f"File delete failed - not found: user={current_user.id}, "
-                f"filename={filename}, ip={client_ip}"
+                f"File delete failed - not found: user={current_user.id}, filename={filename}, ip={client_ip}"
             )
             raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
@@ -693,16 +710,12 @@ async def delete_file(
             file_path.unlink()
         except OSError as e:
             logger.error(
-                f"Failed to delete file: user={current_user.id}, filename={safe_filename}, "
-                f"ip={client_ip}, error={e}",
-                exc_info=True
+                f"Failed to delete file: user={current_user.id}, filename={safe_filename}, ip={client_ip}, error={e}",
+                exc_info=True,
             )
             raise HTTPException(status_code=500, detail="Failed to delete file, please try again later") from e
 
-        logger.info(
-            f"File deleted: user={current_user.id}, filename={safe_filename}, "
-            f"size={file_size}, ip={client_ip}"
-        )
+        logger.info(f"File deleted: user={current_user.id}, filename={safe_filename}, size={file_size}, ip={client_ip}")
 
         return BaseResponse(
             success=True,
@@ -714,9 +727,8 @@ async def delete_file(
         raise
     except Exception as e:
         logger.error(
-            f"Failed to delete file: user={current_user.id}, filename={filename}, "
-            f"ip={client_ip}, error={e}",
-            exc_info=True
+            f"Failed to delete file: user={current_user.id}, filename={filename}, ip={client_ip}, error={e}",
+            exc_info=True,
         )
         raise HTTPException(status_code=500, detail="Failed to delete file, please try again later") from e
 
@@ -731,10 +743,7 @@ async def delete_file(
         500: {"description": "Failed to clear files / Internal server error"},
     },
 )
-async def clear_all_files(
-    request: Request,
-    current_user: CurrentUser
-) -> BaseResponse[dict]:
+async def clear_all_files(request: Request, current_user: CurrentUser) -> BaseResponse[dict]:
     """
     Clear all files in the user's working directory
 
@@ -762,16 +771,10 @@ async def clear_all_files(
         result = backend.execute("find . -type f -delete")
 
         if result.exit_code != 0:
-            logger.error(
-                f"Failed to clear files: user={current_user.id}, "
-                f"error={result.output}, ip={client_ip}"
-            )
+            logger.error(f"Failed to clear files: user={current_user.id}, error={result.output}, ip={client_ip}")
             raise HTTPException(status_code=500, detail="Failed to clear files, please try again later")
 
-        logger.info(
-            f"All files cleared: user={current_user.id}, "
-            f"deleted_count={file_count}, ip={client_ip}"
-        )
+        logger.info(f"All files cleared: user={current_user.id}, deleted_count={file_count}, ip={client_ip}")
 
         return BaseResponse(
             success=True,
@@ -785,8 +788,5 @@ async def clear_all_files(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(
-            f"Failed to clear files: user={current_user.id}, ip={client_ip}, error={e}",
-            exc_info=True
-        )
+        logger.error(f"Failed to clear files: user={current_user.id}, ip={client_ip}, error={e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to clear files, please try again later") from e

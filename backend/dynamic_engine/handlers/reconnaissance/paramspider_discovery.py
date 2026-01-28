@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class ParamspiderHandler(AbstractHandler):
     """Handler for paramspider functionality"""
 
@@ -13,8 +14,8 @@ class ParamspiderHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['paramspider']
+        """Handler related commands"""
+        return ["paramspider"]
 
     def handle(self, data: Dict) -> Any:
         """Execute paramspider with enhanced logging"""

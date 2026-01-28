@@ -12,6 +12,7 @@ from loguru import logger
 try:
     from RestrictedPython import compile_restricted
     from RestrictedPython.Guards import safe_builtins
+
     RESTRICTED_PYTHON_AVAILABLE = True
 except ImportError:
     RESTRICTED_PYTHON_AVAILABLE = False
@@ -44,7 +45,7 @@ class SandboxExecutor:
 
         try:
             # 使用 RestrictedPython 编译
-            byte_code = compile_restricted(code, '<inline>', 'exec')
+            byte_code = compile_restricted(code, "<inline>", "exec")
             if byte_code.errors:
                 error_msg = "; ".join(str(e) for e in byte_code.errors)
                 logger.error(f"[SandboxExecutor] Code compilation failed: {error_msg}")
@@ -68,10 +69,7 @@ class SandboxExecutor:
             return result if isinstance(result, dict) else {"result": result, "status": "success"}
 
         except Exception as e:
-            logger.error(
-                f"[SandboxExecutor] Error executing sandboxed code | "
-                f"error={type(e).__name__}: {e}"
-            )
+            logger.error(f"[SandboxExecutor] Error executing sandboxed code | error={type(e).__name__}: {e}")
             return {
                 "status": "error",
                 "error_msg": str(e),
@@ -115,4 +113,3 @@ class SandboxExecutor:
                 "status": "error",
                 "error_msg": str(e),
             }
-

@@ -14,8 +14,8 @@ class MsfvenomHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['msfvenom']
+        """Handler related commands"""
+        return ["msfvenom"]
 
     def handle(self, data: Dict) -> Any:
         """Execute msfvenom with enhanced logging"""
@@ -28,11 +28,7 @@ class MsfvenomHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not payload:
                 logger.warning("🚀 MSFVenom called without payload parameter")
-                return {
-
-                    "error": "Payload parameter is required"
-
-                }
+                return {"error": "Payload parameter is required"}
             command = f"msfvenom -p {payload}"
             if format_type:
                 command += f" -f {format_type}"
@@ -50,8 +46,4 @@ class MsfvenomHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in msfvenom endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

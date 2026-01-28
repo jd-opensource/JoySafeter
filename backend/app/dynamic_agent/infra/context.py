@@ -13,6 +13,8 @@ try:
     logger.info("Docker manager initialized successfully")
 except Exception as e:
     logger.warning(f"Failed to initialize Docker manager: {e}")
-    logger.warning("Docker-dependent features will be disabled. "
-                  "To enable Docker, mount the socket: -v /var/run/docker.sock:/var/run/docker.sock")
+    logger.warning(
+        "Docker-dependent features will be disabled. "
+        "To enable Docker, mount the socket: -v /var/run/docker.sock:/var/run/docker.sock"
+    )
     docker_manager = None

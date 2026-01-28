@@ -34,7 +34,7 @@ class OpenAIProvider:
         api_key: str,
         base_url: str | None = None,
         default_model: str = "gpt-4-turbo-preview",
-        max_retries: int = 3
+        max_retries: int = 3,
     ):
         """
         Initialize OpenAI provider.
@@ -55,7 +55,7 @@ class OpenAIProvider:
         system_prompt: List[str],
         tools: List[Dict[str, Any]],
         abort_signal: asyncio.Event,
-        options: LLMProviderOptions
+        options: LLMProviderOptions,
     ) -> AssistantMessage:
         """Get completion from OpenAI."""
         start_time = time.time()
@@ -87,16 +87,13 @@ class OpenAIProvider:
                 content=[TextBlock(text=f"API Error: {str(e)}")],
                 usage=Usage(),
                 is_api_error=True,
-                duration_ms=int((time.time() - start_time) * 1000)
+                duration_ms=int((time.time() - start_time) * 1000),
             )
 
         duration_ms = int((time.time() - start_time) * 1000)
         return self._convert_response(response, duration_ms)
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=32)
-    )
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=32))
     async def _call_with_retry(self, params: Dict[str, Any], abort_signal: asyncio.Event):
         """Call API with retry."""
         if abort_signal.is_set():
@@ -105,35 +102,22 @@ class OpenAIProvider:
         response = await self.client.chat.completions.create(**params)
         return response
 
-    def _format_messages(
-        self,
-        messages: List[MessageParam],
-        system_prompt: List[str]
-    ) -> List[Dict[str, Any]]:
+    def _format_messages(self, messages: List[MessageParam], system_prompt: List[str]) -> List[Dict[str, Any]]:
         """Format messages for OpenAI API."""
         result = []
 
         # Add system prompt
         if system_prompt:
-            result.append({
-                "role": "system",
-                "content": "\n\n".join(system_prompt)
-            })
+            result.append({"role": "system", "content": "\n\n".join(system_prompt)})
 
         # Add conversation messages
         for msg in messages:
             content = msg.content
             if isinstance(content, str):
-                result.append({
-                    "role": msg.role.value,
-                    "content": content
-                })
+                result.append({"role": msg.role.value, "content": content})
             else:
                 # Convert content blocks
-                result.append({
-                    "role": msg.role.value,
-                    "content": self._format_content(content)
-                })
+                result.append({"role": msg.role.value, "content": self._format_content(content)})
 
         return result
 
@@ -146,10 +130,7 @@ class OpenAIProvider:
                     result.append({"type": "text", "text": block.text})
                 elif block.type == "tool_result":
                     # OpenAI uses different format
-                    result.append({
-                        "type": "text",
-                        "text": f"Tool result: {block.content}"
-                    })
+                    result.append({"type": "text", "text": f"Tool result: {block.content}"})
         return result if result else [{"type": "text", "text": ""}]
 
     def _format_tool(self, tool: Dict[str, Any]) -> Dict[str, Any]:
@@ -159,8 +140,8 @@ class OpenAIProvider:
             "function": {
                 "name": tool["name"],
                 "description": tool.get("description", ""),
-                "parameters": tool.get("input_schema", {})
-            }
+                "parameters": tool.get("input_schema", {}),
+            },
         }
 
     def _convert_response(self, response: Any, duration_ms: int) -> AssistantMessage:
@@ -176,31 +157,27 @@ class OpenAIProvider:
         # Convert tool calls
         if message.tool_calls:
             for tool_call in message.tool_calls:
-                content.append(ToolUseBlock(
-                    id=tool_call.id,
-                    name=tool_call.function.name,
-                    input=eval(tool_call.function.arguments)  # Parse JSON
-                ))
+                content.append(
+                    ToolUseBlock(
+                        id=tool_call.id,
+                        name=tool_call.function.name,
+                        input=eval(tool_call.function.arguments),  # Parse JSON
+                    )
+                )
 
         # Calculate cost (simplified)
         usage = response.usage
         cost = calculate_cost(
-            {
-                "input_tokens": usage.prompt_tokens,
-                "output_tokens": usage.completion_tokens
-            },
+            {"input_tokens": usage.prompt_tokens, "output_tokens": usage.completion_tokens},
             GPT4_INPUT_COST,
-            GPT4_OUTPUT_COST
+            GPT4_OUTPUT_COST,
         )
 
         return AssistantMessage(
             id=response.id,
             content=content,
             stop_reason=choice.finish_reason,
-            usage=Usage(
-                input_tokens=usage.prompt_tokens,
-                output_tokens=usage.completion_tokens
-            ),
+            usage=Usage(input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens),
             cost_usd=cost,
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
         )

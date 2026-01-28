@@ -1,6 +1,7 @@
 """
 邮件服务
 """
+
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -24,7 +25,7 @@ class EmailService:
         self.frontend_url = settings.frontend_url
 
         # 开发模式
-        self.is_dev = settings.environment == 'development'
+        self.is_dev = settings.environment == "development"
 
     async def send_email(
         self,
@@ -116,7 +117,7 @@ class EmailService:
                     <p class="warning">⚠️ 此链接将在 24 小时后过期。如果您没有请求重置密码，请忽略此邮件。</p>
                 </div>
                 <div class="footer">
-                    <p>© {__import__('datetime').datetime.now().year} JoySafeter. All rights reserved.</p>
+                    <p>© {__import__("datetime").datetime.now().year} JoySafeter. All rights reserved.</p>
                     <p>这是一封自动发送的邮件，请勿回复。</p>
                 </div>
             </div>
@@ -186,7 +187,7 @@ class EmailService:
                     <p style="color: #6b7280; font-size: 12px; margin-top: 20px;">此链接将在 72 小时后过期。</p>
                 </div>
                 <div class="footer">
-                    <p>© {__import__('datetime').datetime.now().year} JoySafeter. All rights reserved.</p>
+                    <p>© {__import__("datetime").datetime.now().year} JoySafeter. All rights reserved.</p>
                 </div>
             </div>
         </body>
@@ -247,7 +248,7 @@ class EmailService:
                     <p>如有任何问题，请随时联系我们的支持团队。</p>
                 </div>
                 <div class="footer">
-                    <p>© {__import__('datetime').datetime.now().year} JoySafeter. All rights reserved.</p>
+                    <p>© {__import__("datetime").datetime.now().year} JoySafeter. All rights reserved.</p>
                 </div>
             </div>
         </body>
@@ -258,4 +259,3 @@ class EmailService:
 
 
 email_service = EmailService()
-

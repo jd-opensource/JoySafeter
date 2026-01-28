@@ -89,19 +89,18 @@ class MemoryManager:
         self.debug_mode = debug_mode
 
         # TODO not impl model config
-        #if self.model is not None:
+        # if self.model is not None:
         #    self.model = get_model(self.model)
 
     def get_model(self) -> BaseChatModel:
         if self.model is None:
             try:
                 from app.dynamic_agent.infra.llm import get_default_llm
+
                 self.model = get_default_llm()
             except Exception as e:
                 logger.error(f"Failed to get default model from settings: {e}")
-                raise ValueError(
-                    "无法获取默认模型配置，请先在系统中配置默认模型"
-                )
+                raise ValueError("无法获取默认模型配置，请先在系统中配置默认模型")
         return self.model
 
     def _get_message_content_string(self, msg: Message) -> str:
@@ -169,15 +168,15 @@ class MemoryManager:
         return None
 
     def set_log_level(self):
-        #TODO not impl
+        # TODO not impl
         pass
-        '''
+        """
         if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
             self.debug_mode = True
             set_log_level_to_debug()
         else:
             set_log_level_to_info()
-        '''
+        """
 
     def initialize(self, user_id: Optional[str] = None):
         self.set_log_level()
@@ -191,9 +190,9 @@ class MemoryManager:
         """
         tool_map = {}
         for tool in tools:
-            if hasattr(tool, 'name'):  # EnhancedTool or BaseTool
+            if hasattr(tool, "name"):  # EnhancedTool or BaseTool
                 tool_map[tool.name] = tool
-            elif hasattr(tool, '__name__'):  # Regular function
+            elif hasattr(tool, "__name__"):  # Regular function
                 tool_map[tool.__name__] = tool
         return tool_map
 
@@ -226,9 +225,9 @@ class MemoryManager:
                 tool = tool_map[tool_name]
 
                 # Handle different tool types
-                if hasattr(tool, 'invoke'):
+                if hasattr(tool, "invoke"):
                     result = tool.invoke(tool_args)
-                elif hasattr(tool, 'run'):
+                elif hasattr(tool, "run"):
                     result = tool.run(**tool_args)
                 elif callable(tool):
                     result = tool(**tool_args)
@@ -271,11 +270,11 @@ class MemoryManager:
                 tool = tool_map[tool_name]
 
                 # Handle different tool types - prefer async methods
-                if hasattr(tool, 'ainvoke'):
+                if hasattr(tool, "ainvoke"):
                     result = await tool.ainvoke(tool_args)
-                elif hasattr(tool, 'invoke'):
+                elif hasattr(tool, "invoke"):
                     result = tool.invoke(tool_args)
-                elif hasattr(tool, 'run'):
+                elif hasattr(tool, "run"):
                     result = tool.run(**tool_args)
                 elif callable(tool):
                     result = tool(**tool_args)
@@ -554,7 +553,9 @@ class MemoryManager:
         team_id: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> str:
-        logger.info(f"Creating memories for user {user_id}, message: {message}, messages: {messages}, agent_id: {agent_id}, team_id: {team_id}")
+        logger.info(
+            f"Creating memories for user {user_id}, message: {message}, messages: {messages}, agent_id: {agent_id}, team_id: {team_id}"
+        )
         """Creates memories from multiple messages and adds them to the memory db."""
         self.set_log_level()
 
@@ -993,7 +994,9 @@ class MemoryManager:
 
         return sorted_memories_list
 
-    async def _asearch_user_memories_agentic(self, user_id: str, query: str, limit: Optional[int] = None) -> List[UserMemory]:
+    async def _asearch_user_memories_agentic(
+        self, user_id: str, query: str, limit: Optional[int] = None
+    ) -> List[UserMemory]:
         """Async version: Search through user memories using agentic search."""
         memories = await self.aread_from_db(user_id=user_id)
         if memories is None:
@@ -1218,7 +1221,8 @@ class MemoryManager:
                 if function_name in _function_names:
                     continue
                 _function_names.append(function_name)
-                func = EnhancedTool.from_callable(tool,
+                func = EnhancedTool.from_callable(
+                    tool,
                     name=function_name,
                     description=tool.__doc__,
                 )
@@ -1373,9 +1377,9 @@ class MemoryManager:
             # Build a map of tool name -> tool (supports both functions and EnhancedTool objects)
             tool_map = {}
             for tool in _tools:
-                if hasattr(tool, 'name'):  # EnhancedTool or BaseTool
+                if hasattr(tool, "name"):  # EnhancedTool or BaseTool
                     tool_map[tool.name] = tool
-                elif hasattr(tool, '__name__'):  # Regular function
+                elif hasattr(tool, "__name__"):  # Regular function
                     tool_map[tool.__name__] = tool
 
             for tool_call in response.tool_calls:
@@ -1387,9 +1391,9 @@ class MemoryManager:
                         logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
                         tool = tool_map[tool_name]
                         # Handle both callable functions and tool objects with invoke/run
-                        if hasattr(tool, 'invoke'):
+                        if hasattr(tool, "invoke"):
                             result = tool.invoke(tool_args)
-                        elif hasattr(tool, 'run'):
+                        elif hasattr(tool, "run"):
                             result = tool.run(**tool_args)
                         elif callable(tool):
                             result = tool(**tool_args)
@@ -1487,9 +1491,9 @@ class MemoryManager:
             # Build a map of tool name -> tool (supports both functions and EnhancedTool objects)
             tool_map = {}
             for tool in _tools:
-                if hasattr(tool, 'name'):  # EnhancedTool or BaseTool
+                if hasattr(tool, "name"):  # EnhancedTool or BaseTool
                     tool_map[tool.name] = tool
-                elif hasattr(tool, '__name__'):  # Regular function
+                elif hasattr(tool, "__name__"):  # Regular function
                     tool_map[tool.__name__] = tool
 
             for tool_call in response.tool_calls:
@@ -1501,11 +1505,11 @@ class MemoryManager:
                         logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
                         tool = tool_map[tool_name]
                         # Handle both callable functions and tool objects with invoke/ainvoke
-                        if hasattr(tool, 'ainvoke'):
+                        if hasattr(tool, "ainvoke"):
                             result = await tool.ainvoke(tool_args)
-                        elif hasattr(tool, 'invoke'):
+                        elif hasattr(tool, "invoke"):
                             result = tool.invoke(tool_args)
-                        elif hasattr(tool, 'run'):
+                        elif hasattr(tool, "run"):
                             result = tool.run(**tool_args)
                         elif callable(tool):
                             result = tool(**tool_args)
@@ -1582,9 +1586,9 @@ class MemoryManager:
             # Build a map of tool name -> tool (supports both functions and EnhancedTool objects)
             tool_map = {}
             for tool in _tools:
-                if hasattr(tool, 'name'):  # EnhancedTool or BaseTool
+                if hasattr(tool, "name"):  # EnhancedTool or BaseTool
                     tool_map[tool.name] = tool
-                elif hasattr(tool, '__name__'):  # Regular function
+                elif hasattr(tool, "__name__"):  # Regular function
                     tool_map[tool.__name__] = tool
 
             for tool_call in response.tool_calls:
@@ -1596,9 +1600,9 @@ class MemoryManager:
                         logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
                         tool = tool_map[tool_name]
                         # Handle both callable functions and tool objects with invoke/run
-                        if hasattr(tool, 'invoke'):
+                        if hasattr(tool, "invoke"):
                             result = tool.invoke(tool_args)
-                        elif hasattr(tool, 'run'):
+                        elif hasattr(tool, "run"):
                             result = tool.run(**tool_args)
                         elif callable(tool):
                             result = tool(**tool_args)
@@ -1688,9 +1692,9 @@ class MemoryManager:
             # Build a map of tool name -> tool (supports both functions and EnhancedTool objects)
             tool_map = {}
             for tool in _tools:
-                if hasattr(tool, 'name'):  # EnhancedTool or BaseTool
+                if hasattr(tool, "name"):  # EnhancedTool or BaseTool
                     tool_map[tool.name] = tool
-                elif hasattr(tool, '__name__'):  # Regular function
+                elif hasattr(tool, "__name__"):  # Regular function
                     tool_map[tool.__name__] = tool
 
             for tool_call in response.tool_calls:
@@ -1702,11 +1706,11 @@ class MemoryManager:
                         logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
                         tool = tool_map[tool_name]
                         # Handle both callable functions and tool objects with invoke/ainvoke
-                        if hasattr(tool, 'ainvoke'):
+                        if hasattr(tool, "ainvoke"):
                             result = await tool.ainvoke(tool_args)
-                        elif hasattr(tool, 'invoke'):
+                        elif hasattr(tool, "invoke"):
                             result = tool.invoke(tool_args)
-                        elif hasattr(tool, 'run'):
+                        elif hasattr(tool, "run"):
                             result = tool.run(**tool_args)
                         elif callable(tool):
                             result = tool(**tool_args)

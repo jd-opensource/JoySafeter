@@ -11,6 +11,7 @@ from dynamic_engine.utils.process_manager import ProcessManager
 
 logger = logging.getLogger(__name__)
 
+
 class ProcessDashboardHandler(AbstractHandler):
     """Handler for process_dashboard functionality"""
 
@@ -31,17 +32,14 @@ class ProcessDashboardHandler(AbstractHandler):
                 "system_load": {
                     "cpu_percent": psutil.cpu_percent(interval=1),
                     "memory_percent": psutil.virtual_memory().percent,
-                    "active_connections": len(psutil.net_connections())
-                }
+                    "active_connections": len(psutil.net_connections()),
+                },
             }
             for pid, info in processes.items():
                 runtime = current_time - info["start_time"]
                 progress_fraction = info.get("progress", 0)
                 progress_bar = ModernVisualEngine.render_progress_bar(
-                    progress_fraction,
-                    width=25,
-                    style='cyber',
-                    eta=info.get("eta", 0)
+                    progress_fraction, width=25, style="cyber", eta=info.get("eta", 0)
                 )
                 process_status = {
                     "pid": pid,
@@ -50,9 +48,9 @@ class ProcessDashboardHandler(AbstractHandler):
                     "runtime": f"{runtime:.1f}s",
                     "progress_percent": f"{progress_fraction * 100:.1f}%",
                     "progress_bar": progress_bar,
-                    "eta": f"{info.get('eta', 0):.0f}s" if info.get('eta', 0) > 0 else "Calculating...",
+                    "eta": f"{info.get('eta', 0):.0f}s" if info.get("eta", 0) > 0 else "Calculating...",
                     "bytes_processed": info.get("bytes_processed", 0),
-                    "last_output": info.get("last_output", "")[:100]
+                    "last_output": info.get("last_output", "")[:100],
                 }
                 dashboard["processes"].append(process_status)
             return dashboard

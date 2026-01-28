@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 
 # ==================== Execution Status ====================
 
+
 class ExecutionStatusEnum:
     """Execution status constants"""
+
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -19,8 +21,10 @@ class ExecutionStatusEnum:
 
 # ==================== Tool Information ====================
 
+
 class ToolInfo(BaseModel):
     """Information about a tool"""
+
     id: str = Field(..., description="Unique tool identifier")
     name: str = Field(..., description="Tool name (e.g., 'nmap_scan')")
     description: str = Field(..., description="Tool description")
@@ -34,19 +38,17 @@ class ToolInfo(BaseModel):
                 "name": "nmap_scan",
                 "description": "Network port scanning tool",
                 "category": "network_scanning",
-                "parameters": {
-                    "target": "string",
-                    "ports": "string",
-                    "aggressive": "boolean"
-                }
+                "parameters": {"target": "string", "ports": "string", "aggressive": "boolean"},
             }
         }
 
 
 # ==================== Tool Invocation ====================
 
+
 class ToolInvocationResponse(BaseModel):
     """Tool invocation details"""
+
     id: str = Field(..., description="Unique invocation ID")
     tool_name: str = Field(..., description="Name of the tool")
     tool_description: str = Field(..., description="Tool description")
@@ -74,15 +76,17 @@ class ToolInvocationResponse(BaseModel):
                 "duration_ms": 10000,
                 "error_message": None,
                 "is_agent_tool": False,
-                "child_agent_id": None
+                "child_agent_id": None,
             }
         }
 
 
 # ==================== Agent ====================
 
+
 class AgentResponse(BaseModel):
     """Agent execution details"""
+
     id: str = Field(..., description="Unique agent ID")
     name: str = Field(..., description="Agent name")
     task_description: str = Field(..., description="Task description")
@@ -92,9 +96,11 @@ class AgentResponse(BaseModel):
     end_time: int = Field(..., description="Unix timestamp in milliseconds")
     duration_ms: int = Field(..., description="Duration in milliseconds")
     parent_agent_id: Optional[str] = Field(None, description="Parent agent ID")
-    tool_invocations: List[ToolInvocationResponse] = Field(default_factory=list, description="Tools called by this agent")
-    sub_agents: List['AgentResponse'] = Field(default_factory=list, description="Sub-agents spawned")
-    child_agents: Optional[List['AgentResponse']] = Field(None, description="Child agents from app.dynamic_agent_tool")
+    tool_invocations: List[ToolInvocationResponse] = Field(
+        default_factory=list, description="Tools called by this agent"
+    )
+    sub_agents: List["AgentResponse"] = Field(default_factory=list, description="Sub-agents spawned")
+    child_agents: Optional[List["AgentResponse"]] = Field(None, description="Child agents from app.dynamic_agent_tool")
     context: Optional[Dict[str, Any]] = Field(None, description="Agent context")
     available_tools: List[str] = Field(default_factory=list, description="Available tools")
     output: Optional[Dict[str, Any]] = Field(None, description="Final output")
@@ -119,7 +125,7 @@ class AgentResponse(BaseModel):
                 "available_tools": ["nmap_scan", "dns_lookup"],
                 "output": {"result": "success"},
                 "error_message": None,
-                "success_rate": 100.0
+                "success_rate": 100.0,
             }
         }
 
@@ -130,8 +136,10 @@ AgentResponse.model_rebuild()
 
 # ==================== Execution Tree ====================
 
+
 class ExecutionTreeResponse(BaseModel):
     """Complete execution tree for a task"""
+
     id: str = Field(..., description="Unique execution ID")
     root_agent: AgentResponse = Field(..., description="Root agent of execution")
     total_duration_ms: int = Field(..., description="Total execution time")
@@ -155,15 +163,17 @@ class ExecutionTreeResponse(BaseModel):
                 "execution_start_time": 1700000000000,
                 "execution_end_time": 1700000060000,
                 "created_at": 1700000000000,
-                "max_depth": 2
+                "max_depth": 2,
             }
         }
 
 
 # ==================== Task ====================
 
+
 class TaskBasicResponse(BaseModel):
     """Basic task information for session details"""
+
     id: str = Field(..., description="Unique task ID")
     session_id: str = Field(..., description="Associated session ID")
     user_input: str = Field(..., description="User input that triggered this task")
@@ -185,13 +195,14 @@ class TaskBasicResponse(BaseModel):
                 "updated_at": "2024-01-01T00:01:00",
                 "completed_at": "2024-01-01T00:01:00",
                 "result_summary": "Found 5 open ports",
-                "metadata": {}
+                "metadata": {},
             }
         }
 
 
 class TaskSummaryResponse(BaseModel):
     """Task summary with execution statistics for visualization"""
+
     id: str = Field(..., description="Unique task ID")
     session_id: str = Field(..., description="Associated session ID")
     title: str = Field(..., description="Task title")
@@ -223,15 +234,17 @@ class TaskSummaryResponse(BaseModel):
                 "agent_count": 5,
                 "tool_count": 12,
                 "success_rate": 95.0,
-                "error_message": None
+                "error_message": None,
             }
         }
 
 
 # ==================== Session ====================
 
+
 class SessionResponse(BaseModel):
     """Session information"""
+
     id: str = Field(..., description="Unique session ID")
     user_id: str = Field(..., description="User ID")
     title: str = Field(..., description="Session title")
@@ -249,15 +262,17 @@ class SessionResponse(BaseModel):
                 "created_at": 1700000000000,
                 "updated_at": 1700000060000,
                 "task_count": 3,
-                "mode": "pentest"
+                "mode": "pentest",
             }
         }
 
 
 # ==================== Chat Message ====================
 
+
 class ChatMessageResponse(BaseModel):
     """Chat message in a session"""
+
     id: str = Field(..., description="Unique message ID")
     session_id: str = Field(..., description="Session ID")
     role: str = Field(..., description="Message role: user|assistant|system")
@@ -276,76 +291,61 @@ class ChatMessageResponse(BaseModel):
                 "content": "Scan the target for open ports",
                 "timestamp": 1700000000000,
                 "message_type": "text",
-                "metadata": {}
+                "metadata": {},
             }
         }
 
 
 # ==================== Session Details ====================
 
+
 class SessionDetailsResponse(BaseModel):
     """Complete session details with chat history"""
+
     session: SessionResponse = Field(..., description="Session information")
     messages: List[ChatMessageResponse] = Field(default_factory=list, description="Chat messages")
     tasks: List[TaskBasicResponse] = Field(default_factory=list, description="Tasks in session")
 
     class Config:
-        json_schema_extra = {
-            "example": {
-                "session": {},
-                "messages": [],
-                "tasks": []
-            }
-        }
+        json_schema_extra = {"example": {"session": {}, "messages": [], "tasks": []}}
 
 
 # ==================== List Responses ====================
 
+
 class SessionListResponse(BaseModel):
     """List of sessions for a user"""
+
     user_id: str = Field(..., description="User ID")
     sessions: List[SessionResponse] = Field(default_factory=list, description="Sessions")
     total_count: int = Field(..., description="Total number of sessions")
 
     class Config:
-        json_schema_extra = {
-            "example": {
-                "user_id": "user_123",
-                "sessions": [],
-                "total_count": 0
-            }
-        }
+        json_schema_extra = {"example": {"user_id": "user_123", "sessions": [], "total_count": 0}}
 
 
 class TaskListResponse(BaseModel):
     """List of tasks in a session"""
+
     session_id: str = Field(..., description="Session ID")
     tasks: List[TaskSummaryResponse] = Field(default_factory=list, description="Tasks")
     total_count: int = Field(..., description="Total number of tasks")
 
     class Config:
-        json_schema_extra = {
-            "example": {
-                "session_id": "session_001",
-                "tasks": [],
-                "total_count": 0
-            }
-        }
+        json_schema_extra = {"example": {"session_id": "session_001", "tasks": [], "total_count": 0}}
 
 
 # ==================== Error Response ====================
 
+
 class ErrorResponse(BaseModel):
     """Error response"""
+
     error: str = Field(..., description="Error message")
     detail: Optional[str] = Field(None, description="Error details")
     timestamp: str = Field(..., description="ISO format timestamp")
 
     class Config:
         json_schema_extra = {
-            "example": {
-                "error": "Not found",
-                "detail": "Session not found",
-                "timestamp": "2025-11-30T10:00:00Z"
-            }
+            "example": {"error": "Not found", "detail": "Session not found", "timestamp": "2025-11-30T10:00:00Z"}
         }

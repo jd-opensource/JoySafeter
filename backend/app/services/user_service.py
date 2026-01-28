@@ -3,6 +3,7 @@
 
 只处理基础用户信息管理，认证相关操作在 AuthService 中。
 """
+
 from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -119,4 +120,3 @@ class UserService(BaseService):
         await self.user_repo.delete(user_id)
         await self.commit()
         return True
-

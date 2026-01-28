@@ -25,6 +25,7 @@ class RouteConfig(TypedDict, total=False):
         target_node: The target node name
         label: Optional label for display/debugging
     """
+
     route_key: str
     target_node: str
     label: str
@@ -56,4 +57,3 @@ def get_standard_route_keys() -> Set[str]:
         "exit_loop",
         "default",
     }
-

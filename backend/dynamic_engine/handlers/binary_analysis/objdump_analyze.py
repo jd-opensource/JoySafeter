@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class ObjdumpHandler(AbstractHandler):
     """Handler for objdump functionality"""
 
@@ -13,8 +14,8 @@ class ObjdumpHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['objdump']
+        """Handler related commands"""
+        return ["objdump"]
 
     def handle(self, data: Dict) -> Any:
         """Execute objdump with enhanced logging"""
@@ -24,11 +25,7 @@ class ObjdumpHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not binary:
                 logger.warning("🔧 Objdump called without binary parameter")
-                return {
-
-                    "error": "Binary parameter is required"
-
-                }
+                return {"error": "Binary parameter is required"}
             command = "objdump"
             if disassemble:
                 command += " -d"
@@ -43,8 +40,4 @@ class ObjdumpHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in objdump endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

@@ -1,6 +1,7 @@
 """
 组织与成员服务
 """
+
 import uuid
 from typing import Dict, List, Optional
 

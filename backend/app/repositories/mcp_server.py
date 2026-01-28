@@ -3,6 +3,7 @@ MCP Server Repository - MCP 服务器数据访问层
 
 支持用户级别和工作区级别的 MCP 服务器管理
 """
+
 import uuid
 from typing import Dict, List, Optional
 
@@ -105,12 +106,16 @@ class McpServerRepository(BaseRepository[McpServer]):
         Returns:
             所有启用的 MCP 服务器列表
         """
-        query = select(McpServer).where(
-            and_(
-                McpServer.enabled,
-                McpServer.deleted_at.is_(None),
+        query = (
+            select(McpServer)
+            .where(
+                and_(
+                    McpServer.enabled,
+                    McpServer.deleted_at.is_(None),
+                )
             )
-        ).order_by(McpServer.created_at.desc())
+            .order_by(McpServer.created_at.desc())
+        )
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
@@ -268,4 +273,3 @@ class McpServerRepository(BaseRepository[McpServer]):
 
         # Return as dictionary mapping UUID to McpServer
         return {server.id: server for server in servers}
-

@@ -14,8 +14,8 @@ class JohnHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['john']
+        """Handler related commands"""
+        return ["john"]
 
     def handle(self, data: Dict) -> Any:
         """Execute john with enhanced logging"""
@@ -26,11 +26,7 @@ class JohnHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not hash_file:
                 logger.warning("🔐 John called without hash_file parameter")
-                return {
-
-                    "error": "Hash file parameter is required"
-
-                }
+                return {"error": "Hash file parameter is required"}
             command = "john"
             if format_type:
                 command += f" --format={format_type}"
@@ -45,8 +41,4 @@ class JohnHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in john endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

@@ -292,9 +292,7 @@ class MemoryService:
                             # Replace single quotes with escaped single quotes for SQL
                             topic_array_json_escaped = topic_array_json.replace("'", "''")
                             # Use text() with string formatting (safe for JSON strings from json.dumps)
-                            stmt = stmt.where(
-                                text(f"topics::jsonb @> '{topic_array_json_escaped}'::jsonb")
-                            )
+                            stmt = stmt.where(text(f"topics::jsonb @> '{topic_array_json_escaped}'::jsonb"))
                     else:
                         # SQLite or other: Use LIKE for compatibility
                         for topic in topics:
@@ -511,9 +509,9 @@ class MemoryService:
                         for col in table.columns
                         if col.name not in ["memory_id", "created_at"]  # Don't update primary key or created_at
                     }
-                    stmt = insert_stmt.on_conflict_do_update(index_elements=["memory_id"], set_=update_columns).returning(
-                        table
-                    )
+                    stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=["memory_id"], set_=update_columns
+                    ).returning(table)
 
                     result = await sess.execute(stmt, memory_records)
                     rows = result.fetchall()

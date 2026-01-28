@@ -57,12 +57,7 @@ async def main():
     logger = ConsoleLogger()
     permissions = DefaultPermissionStrategy()
 
-    runtime = AgentRuntime(
-        provider=provider,
-        permissions=permissions,
-        logger=logger,
-        concurrency=10
-    )
+    runtime = AgentRuntime(provider=provider, permissions=permissions, logger=logger, concurrency=10)
 
     # Register tools
     ToolRegistry.clear()  # Clear any existing tools
@@ -138,30 +133,30 @@ async def main():
             options=AgentRuntimeOptions(
                 verbose=True,
                 max_thinking_tokens=2000,
-                dangerous_skip_permissions=True  # For demo purposes
+                dangerous_skip_permissions=True,  # For demo purposes
             ),
-            read_file_timestamps={}
+            read_file_timestamps={},
         ):
             message_count += 1
 
             # Print message
-            if hasattr(message, 'content'):
+            if hasattr(message, "content"):
                 print(f"\n[Message {message_count}]")
                 print("-" * 80)
 
                 for block in message.content:
-                    if hasattr(block, 'text'):
+                    if hasattr(block, "text"):
                         print(f"Text: {block.text[:500]}")
                         if len(block.text) > 500:
                             print("... (truncated)")
-                    elif hasattr(block, 'name'):
+                    elif hasattr(block, "name"):
                         print(f"Tool Use: {block.name}")
                         print(f"  Input: {block.input}")
-                    elif hasattr(block, 'type') and block.type == 'thinking':
+                    elif hasattr(block, "type") and block.type == "thinking":
                         print(f"Thinking: {block.text[:200]}...")
 
                 # Print usage if available
-                if hasattr(message, 'usage'):
+                if hasattr(message, "usage"):
                     usage = message.usage
                     print(f"\nTokens: in={usage.input_tokens} out={usage.output_tokens}")
                     if message.cost_usd > 0:

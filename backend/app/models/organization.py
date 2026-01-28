@@ -95,4 +95,3 @@ class Member(Base, TimestampMixin):
         Index("member_user_id_idx", "user_id"),
         Index("member_organization_id_idx", "organization_id"),
     )
-

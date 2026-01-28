@@ -79,19 +79,19 @@ class CtfKnowledgeLoader:
 
         for yaml_file in self.knowledge_path.glob("*.yaml"):
             try:
-                with open(yaml_file, encoding='utf-8') as f:
+                with open(yaml_file, encoding="utf-8") as f:
                     data = yaml.safe_load(f)
                     if data and isinstance(data, dict):
                         knowledge = CtfKnowledge(
-                            name=data.get('name', yaml_file.stem),
-                            category=data.get('category', 'unknown'),
-                            tags=data.get('tags', []),
-                            description=data.get('description', ''),
-                            prerequisites=data.get('prerequisites', []),
-                            indicators=data.get('indicators', []),
-                            detection=data.get('detection', []),
-                            mitigation=data.get('mitigation', []),
-                            limitations=data.get('limitations', []),
+                            name=data.get("name", yaml_file.stem),
+                            category=data.get("category", "unknown"),
+                            tags=data.get("tags", []),
+                            description=data.get("description", ""),
+                            prerequisites=data.get("prerequisites", []),
+                            indicators=data.get("indicators", []),
+                            detection=data.get("detection", []),
+                            mitigation=data.get("mitigation", []),
+                            limitations=data.get("limitations", []),
                         )
                         self._knowledge_cache[knowledge.name] = knowledge
                         logger.debug(f"Loaded CTF knowledge: {knowledge.name}")

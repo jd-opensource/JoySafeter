@@ -40,5 +40,3 @@ class CVEIntelligenceManager:
 
 # todo: implement optimization, directly expose atomic capabilities
 cve_intelligence = CVEIntelligenceManager()
-
-

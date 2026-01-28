@@ -20,25 +20,22 @@ from app.core.copilot.tools.context import get_current_graph_context
 
 class ThinkInput(BaseModel):
     """Input schema for think tool."""
-    stage: str = Field(
-        description="验证阶段: 'planning' (创建前) 或 'validation' (完成后)"
-    )
-    reflection: str = Field(
-        description="当前思路或对任务的理解"
-    )
+
+    stage: str = Field(description="验证阶段: 'planning' (创建前) 或 'validation' (完成后)")
+    reflection: str = Field(description="当前思路或对任务的理解")
     nodes: Optional[List[str]] = Field(
         default=None,
-        description="角色列表或已创建的节点名。在 validation 阶段，如果未提供，将自动从 graph_context 读取"
+        description="角色列表或已创建的节点名。在 validation 阶段，如果未提供，将自动从 graph_context 读取",
     )
     connections: Optional[List[str]] = Field(
         default=None,
-        description="连接关系，如 ['Manager -> Analyst']。在 validation 阶段，如果未提供，将自动从 graph_context 读取"
+        description="连接关系，如 ['Manager -> Analyst']。在 validation 阶段，如果未提供，将自动从 graph_context 读取",
     )
 
 
 @tool(
     args_schema=ThinkInput,
-    description="Self-reflection tool for DeepAgents workflow validation. Use at planning (before creating) and validation (after completion) stages. In validation stage, automatically reads actual nodes and edges from graph_context if not provided."
+    description="Self-reflection tool for DeepAgents workflow validation. Use at planning (before creating) and validation (after completion) stages. In validation stage, automatically reads actual nodes and edges from graph_context if not provided.",
 )
 def think(
     stage: str,
@@ -63,8 +60,12 @@ def think(
 
     Note: Use planning stage FIRST for DeepAgents workflows. See system prompt for validation criteria.
     """
-    logger.info(f"[think] 开始执行验证 stage={stage}, nodes_count={len(nodes) if nodes else 0}, connections_count={len(connections) if connections else 0}")
-    logger.debug(f"[think] reflection={reflection[:100]}..." if len(reflection) > 100 else f"[think] reflection={reflection}")
+    logger.info(
+        f"[think] 开始执行验证 stage={stage}, nodes_count={len(nodes) if nodes else 0}, connections_count={len(connections) if connections else 0}"
+    )
+    logger.debug(
+        f"[think] reflection={reflection[:100]}..." if len(reflection) > 100 else f"[think] reflection={reflection}"
+    )
 
     issues = []
     recommendations = []
@@ -78,7 +79,9 @@ def think(
         actual_nodes_data = graph_context.get("nodes", [])
         actual_edges_data = graph_context.get("edges", [])
 
-        logger.debug(f"[think] 从 graph_context 读取到 {len(actual_nodes_data)} 个节点，{len(actual_edges_data)} 条连线")
+        logger.debug(
+            f"[think] 从 graph_context 读取到 {len(actual_nodes_data)} 个节点，{len(actual_edges_data)} 条连线"
+        )
         graph_context = get_current_graph_context()
         actual_nodes_data = graph_context.get("nodes", [])
         actual_edges_data = graph_context.get("edges", [])
@@ -113,15 +116,15 @@ def think(
             missing_in_provided = actual_nodes_lower - provided_nodes_lower
 
             if missing_in_actual:
-                logger.warning(f"[think] 一致性检查：传入的节点 '{', '.join(missing_in_actual)}' 在实际创建的节点中不存在")
-                consistency_issues.append(
-                    f"传入的节点 '{', '.join(missing_in_actual)}' 在实际创建的节点中不存在"
+                logger.warning(
+                    f"[think] 一致性检查：传入的节点 '{', '.join(missing_in_actual)}' 在实际创建的节点中不存在"
                 )
+                consistency_issues.append(f"传入的节点 '{', '.join(missing_in_actual)}' 在实际创建的节点中不存在")
             if missing_in_provided:
-                logger.warning(f"[think] 一致性检查：实际创建的节点 '{', '.join(missing_in_provided)}' 未在传入参数中提及")
-                consistency_issues.append(
-                    f"实际创建的节点 '{', '.join(missing_in_provided)}' 未在传入参数中提及"
+                logger.warning(
+                    f"[think] 一致性检查：实际创建的节点 '{', '.join(missing_in_provided)}' 未在传入参数中提及"
                 )
+                consistency_issues.append(f"实际创建的节点 '{', '.join(missing_in_provided)}' 未在传入参数中提及")
             if not missing_in_actual and not missing_in_provided:
                 logger.debug("[think] 节点一致性检查通过：传入节点与实际节点完全匹配")
         else:
@@ -132,7 +135,9 @@ def think(
 
         # 如果传入了 connections，进行一致性检查
         if connections is not None:
-            logger.debug(f"[think] 进行连线一致性检查：传入 {len(connections)} 条连线，实际 {len(actual_connections)} 条连线")
+            logger.debug(
+                f"[think] 进行连线一致性检查：传入 {len(connections)} 条连线，实际 {len(actual_connections)} 条连线"
+            )
             # 检查传入的连线是否都在实际创建的连线中
             provided_conns_lower = {c.lower().strip() for c in connections}
             actual_conns_lower = {c.lower().strip() for c in actual_connections}
@@ -141,20 +146,22 @@ def think(
             missing_in_provided = actual_conns_lower - provided_conns_lower
 
             if missing_in_actual:
-                logger.warning(f"[think] 一致性检查：传入的连线 '{', '.join(missing_in_actual)}' 在实际创建的连线中不存在")
-                consistency_issues.append(
-                    f"传入的连线 '{', '.join(missing_in_actual)}' 在实际创建的连线中不存在"
+                logger.warning(
+                    f"[think] 一致性检查：传入的连线 '{', '.join(missing_in_actual)}' 在实际创建的连线中不存在"
                 )
+                consistency_issues.append(f"传入的连线 '{', '.join(missing_in_actual)}' 在实际创建的连线中不存在")
             if missing_in_provided:
-                logger.warning(f"[think] 一致性检查：实际创建的连线 '{', '.join(missing_in_provided)}' 未在传入参数中提及")
-                consistency_issues.append(
-                    f"实际创建的连线 '{', '.join(missing_in_provided)}' 未在传入参数中提及"
+                logger.warning(
+                    f"[think] 一致性检查：实际创建的连线 '{', '.join(missing_in_provided)}' 未在传入参数中提及"
                 )
+                consistency_issues.append(f"实际创建的连线 '{', '.join(missing_in_provided)}' 未在传入参数中提及")
             if not missing_in_actual and not missing_in_provided:
                 logger.debug("[think] 连线一致性检查通过：传入连线与实际连线完全匹配")
         else:
             # 如果没有传入，使用实际的连线
-            logger.info(f"[think] 未传入 connections 参数，自动使用 graph_context 中的 {len(actual_connections)} 条连线")
+            logger.info(
+                f"[think] 未传入 connections 参数，自动使用 graph_context 中的 {len(actual_connections)} 条连线"
+            )
             connections = actual_connections
             auto_read_used = True
 
@@ -226,7 +233,9 @@ def think(
                         issues.append(f"断连：Manager 未连接到 {sa}")
 
                 if disconnected_subagents:
-                    logger.warning(f"[think] 星型拓扑检查：Manager 未连接到 {len(disconnected_subagents)} 个 SubAgent: {', '.join(disconnected_subagents)}")
+                    logger.warning(
+                        f"[think] 星型拓扑检查：Manager 未连接到 {len(disconnected_subagents)} 个 SubAgent: {', '.join(disconnected_subagents)}"
+                    )
                 else:
                     logger.debug(f"[think] 星型拓扑检查：Manager 已连接到所有 {len(subagents)} 个 SubAgent")
 
@@ -238,7 +247,9 @@ def think(
                     issues.append(f"检测到非星型连接：{sa} 拥有下游节点，请改为由 Manager 统一调度")
 
             if subagent_with_children:
-                logger.warning(f"[think] 星型拓扑检查：发现 {len(subagent_with_children)} 个 SubAgent 拥有下游节点（违反星型拓扑）: {', '.join(subagent_with_children)}")
+                logger.warning(
+                    f"[think] 星型拓扑检查：发现 {len(subagent_with_children)} 个 SubAgent 拥有下游节点（违反星型拓扑）: {', '.join(subagent_with_children)}"
+                )
             else:
                 logger.debug("[think] 星型拓扑检查：未发现 SubAgent 之间的连接（符合星型拓扑）")
         else:
@@ -259,10 +270,12 @@ def think(
         logger.info(f"[think] 验证通过：stage={stage}, nodes={len(nodes)}, connections={len(connections or [])}")
         recommendations = [
             "✓ 结构符合 DeepAgents 最佳实践",
-            "可以开始执行下个阶段" if stage == "planning" else "已准备好交付结果"
+            "可以开始执行下个阶段" if stage == "planning" else "已准备好交付结果",
         ]
     else:
-        logger.warning(f"[think] 验证失败：stage={stage}, issues={len(issues)}, nodes={len(nodes)}, connections={len(connections or [])}")
+        logger.warning(
+            f"[think] 验证失败：stage={stage}, issues={len(issues)}, nodes={len(nodes)}, connections={len(connections or [])}"
+        )
         recommendations = [f"⚠️ 待优化: {i}" for i in issues]
 
     # 构建反馈摘要
@@ -272,19 +285,25 @@ def think(
     if consistency_issues:
         summary_parts.append(f"发现 {len(consistency_issues)} 个一致性问题")
 
-    result = json.dumps({
-        "type": "THINK",
-        "feedback": {
-            "stage": stage,
-            "passed": passed,
-            "issues_found": len(issues),
-            "consistency_issues": len(consistency_issues) if consistency_issues else 0,
-            "recommendations": recommendations,
-            "summary": " | ".join(summary_parts)
-        }
-    }, ensure_ascii=False, indent=2)
+    result = json.dumps(
+        {
+            "type": "THINK",
+            "feedback": {
+                "stage": stage,
+                "passed": passed,
+                "issues_found": len(issues),
+                "consistency_issues": len(consistency_issues) if consistency_issues else 0,
+                "recommendations": recommendations,
+                "summary": " | ".join(summary_parts),
+            },
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
 
-    logger.info(f"[think] 验证完成：stage={stage}, passed={passed}, issues={len(issues)}, consistency_issues={len(consistency_issues)}")
+    logger.info(
+        f"[think] 验证完成：stage={stage}, passed={passed}, issues={len(issues)}, consistency_issues={len(consistency_issues)}"
+    )
     logger.debug(f"[think] 返回结果摘要：{summary_parts[0]}")
 
     return result

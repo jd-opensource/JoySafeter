@@ -3,6 +3,7 @@
 
 用于 LangGraph 对话系统的消息存储
 """
+
 import json
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -130,7 +131,7 @@ class Message(SQLAlchemyBaseModel, SoftDeleteMixin):
     # This flag is enabled when a message is fetched from the agent's memory.
     from_history: bool = False
     # Metrics for the message.
-    #metrics: Metrics = Field(default_factory=Metrics)
+    # metrics: Metrics = Field(default_factory=Metrics)
     # The references added to the message for RAG
     references: Optional[MessageReferences] = None
 
@@ -155,7 +156,6 @@ class Message(SQLAlchemyBaseModel, SoftDeleteMixin):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Message":
-
         # Handle image reconstruction properly
         if "images" in data and data["images"]:
             reconstructed_images = []

@@ -1,6 +1,7 @@
 """
 安全审计日志模型
 """
+
 import uuid
 from typing import Optional
 
@@ -46,13 +47,10 @@ class SecurityAuditLog(Base, TimestampMixin):
         String(50),
         nullable=False,
         index=True,
-        comment="事件类型：login, logout, password_change, password_reset, 2fa_enable, account_lock, etc."
+        comment="事件类型：login, logout, password_change, password_reset, 2fa_enable, account_lock, etc.",
     )
     event_status: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-        index=True,
-        comment="事件状态：success, failure, blocked"
+        String(20), nullable=False, index=True, comment="事件状态：success, failure, blocked"
     )
 
     # 请求信息
@@ -67,4 +65,3 @@ class SecurityAuditLog(Base, TimestampMixin):
 
     # 时间戳（继承自 TimestampMixin）
     # created_at 用于记录事件发生时间
-

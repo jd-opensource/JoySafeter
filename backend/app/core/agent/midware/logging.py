@@ -78,13 +78,9 @@ class LoggingMiddleware(AgentMiddleware):
         self.rotate_interval = rotate_interval
 
         # 日志文件路径
-        self.conversation_log_path = (
-            f"{self.log_path}conversations/{self.session_id}.jsonl"
-        )
+        self.conversation_log_path = f"{self.log_path}conversations/{self.session_id}.jsonl"
         self.tool_log_path = f"{self.log_path}tools/{self.session_id}.jsonl"
-        self.performance_log_path = (
-            f"{self.log_path}performance/{self.session_id}.jsonl"
-        )
+        self.performance_log_path = f"{self.log_path}performance/{self.session_id}.jsonl"
         self.error_log_path = f"{self.log_path}errors/{self.session_id}.jsonl"
 
         # 初始化日志目录
@@ -136,9 +132,7 @@ class LoggingMiddleware(AgentMiddleware):
         except Exception as e:
             print(f"Warning: Failed to write log entry to {log_path}: {e}")
 
-    def _log_conversation_entry(
-        self, entry_type: str, content: str, metadata: Dict[str, Any] = None
-    ) -> None:
+    def _log_conversation_entry(self, entry_type: str, content: str, metadata: Dict[str, Any] = None) -> None:
         """记录对话条目"""
         if not self.enable_conversation_logging:
             return
@@ -175,9 +169,7 @@ class LoggingMiddleware(AgentMiddleware):
 
         # 如果结果很大，只记录摘要
         if result and len(str(result)) > 1000:
-            entry["result_summary"] = (
-                f"{type(result).__name__} object, size: {len(str(result))} chars"
-            )
+            entry["result_summary"] = f"{type(result).__name__} object, size: {len(str(result))} chars"
         else:
             entry["result"] = result
 
@@ -192,9 +184,7 @@ class LoggingMiddleware(AgentMiddleware):
 
         self._write_log_entry(self.performance_log_path, entry)
 
-    def _log_error(
-        self, error_type: str, error_message: str, context: Dict[str, Any] = None
-    ) -> None:
+    def _log_error(self, error_type: str, error_message: str, context: Dict[str, Any] = None) -> None:
         """记录错误"""
         if not self.enable_error_logging:
             return
@@ -203,11 +193,7 @@ class LoggingMiddleware(AgentMiddleware):
             "error_type": error_type,
             "error_message": error_message,
             "context": context or {},
-            "traceback": (
-                traceback.format_exc()
-                if traceback.format_exc().strip() != "NoneType: None"
-                else None
-            ),
+            "traceback": (traceback.format_exc() if traceback.format_exc().strip() != "NoneType: None" else None),
         }
 
         self._write_log_entry(self.error_log_path, entry)
@@ -220,8 +206,7 @@ class LoggingMiddleware(AgentMiddleware):
                 "interaction_count": state.get("interaction_count", 0),
                 "session_start_time": state.get("session_start_time", time.time()),
                 "last_activity": time.time(),
-                "total_duration": time.time()
-                - state.get("session_start_time", time.time()),
+                "total_duration": time.time() - state.get("session_start_time", time.time()),
                 "log_config": {
                     "conversation_logging": self.enable_conversation_logging,
                     "tool_logging": self.enable_tool_logging,
@@ -246,20 +231,12 @@ class LoggingMiddleware(AgentMiddleware):
                 # 兼容LangChain Message对象和字典格式
                 role = None
                 if hasattr(msg, "type"):
-                    role = (
-                        "user"
-                        if msg.type == "human"
-                        else "assistant" if msg.type == "ai" else None
-                    )
+                    role = "user" if msg.type == "human" else "assistant" if msg.type == "ai" else None
                 elif hasattr(msg, "get"):
                     role = msg.get("role")
 
                 if role == "user":
-                    return (
-                        msg.content
-                        if hasattr(msg, "content")
-                        else msg.get("content", "")
-                    )
+                    return msg.content if hasattr(msg, "content") else msg.get("content", "")
         return ""
 
     def _extract_response_content(self, response: ModelResponse) -> str:
@@ -272,20 +249,12 @@ class LoggingMiddleware(AgentMiddleware):
                 # 兼容LangChain Message对象和字典格式
                 role = None
                 if hasattr(msg, "type"):
-                    role = (
-                        "user"
-                        if msg.type == "human"
-                        else "assistant" if msg.type == "ai" else None
-                    )
+                    role = "user" if msg.type == "human" else "assistant" if msg.type == "ai" else None
                 elif hasattr(msg, "get"):
                     role = msg.get("role")
 
                 if role == "assistant":
-                    return (
-                        msg.content
-                        if hasattr(msg, "content")
-                        else msg.get("content", "")
-                    )
+                    return msg.content if hasattr(msg, "content") else msg.get("content", "")
         return ""
 
     def _extract_tool_calls(self, response: ModelResponse) -> List[Dict[str, Any]]:
@@ -428,26 +397,26 @@ class LoggingMiddleware(AgentMiddleware):
             # 为 "No generations found in stream" 错误提供更详细的上下文
             context = {
                 "request_content_preview": (
-                    request_content[:100] + "..."
-                    if len(request_content) > 100
-                    else request_content
+                    request_content[:100] + "..." if len(request_content) > 100 else request_content
                 ),
                 "execution_time": execution_time,
             }
 
             # 如果错误是 "No generations found in stream"，添加额外的诊断信息
             if "No generations found in stream" in error_msg:
-                context.update({
-                    "error_type": "stream_timeout_or_empty",
-                    "diagnosis": (
-                        "This error typically occurs when: "
-                        "1) The model stream timed out (default 60s), "
-                        "2) The API returned an empty stream, or "
-                        "3) Network connectivity issues. "
-                        f"Execution time was {execution_time:.2f}s. "
-                        "Consider increasing the model timeout or checking network connectivity."
-                    ),
-                })
+                context.update(
+                    {
+                        "error_type": "stream_timeout_or_empty",
+                        "diagnosis": (
+                            "This error typically occurs when: "
+                            "1) The model stream timed out (default 60s), "
+                            "2) The API returned an empty stream, or "
+                            "3) Network connectivity issues. "
+                            f"Execution time was {execution_time:.2f}s. "
+                            "Consider increasing the model timeout or checking network connectivity."
+                        ),
+                    }
+                )
 
             self._log_error(
                 "model_call_error",
@@ -508,9 +477,7 @@ class LoggingMiddleware(AgentMiddleware):
                     tool_args = tool_call.get("args", {})
 
                     try:
-                        self._log_tool_call(
-                            tool_name, tool_args, execution_time=0.0, result=None
-                        )
+                        self._log_tool_call(tool_name, tool_args, execution_time=0.0, result=None)
                     except Exception as e:
                         self._log_error(
                             "tool_logging_error",
@@ -547,26 +514,26 @@ class LoggingMiddleware(AgentMiddleware):
             # 为 "No generations found in stream" 错误提供更详细的上下文
             context = {
                 "request_content_preview": (
-                    request_content[:100] + "..."
-                    if len(request_content) > 100
-                    else request_content
+                    request_content[:100] + "..." if len(request_content) > 100 else request_content
                 ),
                 "execution_time": execution_time,
             }
 
             # 如果错误是 "No generations found in stream"，添加额外的诊断信息
             if "No generations found in stream" in error_msg:
-                context.update({
-                    "error_type": "stream_timeout_or_empty",
-                    "diagnosis": (
-                        "This error typically occurs when: "
-                        "1) The model stream timed out (default 60s), "
-                        "2) The API returned an empty stream, or "
-                        "3) Network connectivity issues. "
-                        f"Execution time was {execution_time:.2f}s. "
-                        "Consider increasing the model timeout or checking network connectivity."
-                    ),
-                })
+                context.update(
+                    {
+                        "error_type": "stream_timeout_or_empty",
+                        "diagnosis": (
+                            "This error typically occurs when: "
+                            "1) The model stream timed out (default 60s), "
+                            "2) The API returned an empty stream, or "
+                            "3) Network connectivity issues. "
+                            f"Execution time was {execution_time:.2f}s. "
+                            "Consider increasing the model timeout or checking network connectivity."
+                        ),
+                    }
+                )
 
             self._log_error(
                 "model_call_error",

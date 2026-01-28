@@ -1,6 +1,7 @@
 """
 模型凭据管理API
 """
+
 import uuid
 from typing import Any, Dict, Optional
 
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/v1/model-credentials", tags=["ModelCredentials"])
 
 class CredentialCreate(BaseModel):
     """创建凭据请求"""
+
     provider_name: str = Field(..., description="供应商名称", example="openaiapicompatible")
     credentials: Dict[str, Any] = Field(..., description="凭据字典（明文）")
     workspace_id: Optional[uuid.UUID] = Field(default=None, alias="workspaceId", description="工作空间ID（可选）")
@@ -27,6 +29,7 @@ class CredentialCreate(BaseModel):
 
 class CredentialValidateResponse(BaseModel):
     """凭据验证响应"""
+
     is_valid: bool
     error: Optional[str] = None
     last_validated_at: Optional[str] = None
@@ -138,4 +141,3 @@ async def delete_credential(
     service = ModelCredentialService(db)
     await service.delete_credential(credential_id)
     return success_response(message="删除凭据成功")
-

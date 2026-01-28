@@ -3,6 +3,7 @@
 清理数据库数据脚本
 删除所有表数据，但保留表结构（用于测试环境重置）
 """
+
 import os
 import sys
 from pathlib import Path
@@ -21,21 +22,24 @@ if env_path:
     print(f"📋 已加载环境变量文件: {env_path}")
 
 
-def get_all_tables(conn, schema='public'):
+def get_all_tables(conn, schema="public"):
     """获取所有表名"""
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT tablename
         FROM pg_tables
         WHERE schemaname = %s
         ORDER BY tablename;
-    """, (schema,))
+    """,
+        (schema,),
+    )
     tables = [row[0] for row in cursor.fetchall()]
     cursor.close()
     return tables
 
 
-def truncate_all_tables(conn, schema='public'):
+def truncate_all_tables(conn, schema="public"):
     """清空所有表的数据"""
     cursor = conn.cursor()
     tables = get_all_tables(conn, schema)
@@ -50,9 +54,7 @@ def truncate_all_tables(conn, schema='public'):
     try:
         print("🗑️  开始清空表数据...")
         table_names = [sql.Identifier(table) for table in tables]
-        truncate_sql = sql.SQL("TRUNCATE TABLE {} RESTART IDENTITY CASCADE").format(
-            sql.SQL(', ').join(table_names)
-        )
+        truncate_sql = sql.SQL("TRUNCATE TABLE {} RESTART IDENTITY CASCADE").format(sql.SQL(", ").join(table_names))
 
         cursor.execute(truncate_sql)
         if not conn.isolation_level == ISOLATION_LEVEL_AUTOCOMMIT:
@@ -70,7 +72,7 @@ def truncate_all_tables(conn, schema='public'):
         return False
 
 
-def clean_database_data(config, schema: str = 'public'):
+def clean_database_data(config, schema: str = "public"):
     """清理数据库数据"""
     try:
         conn = psycopg2.connect(
@@ -111,7 +113,7 @@ def main():
 
     if os.getenv("FORCE_CLEAN") != "true":
         response = input("确认继续？(yes/no): ").strip().lower()
-        if response not in ['yes', 'y']:
+        if response not in ["yes", "y"]:
             print("❌ 操作已取消")
             sys.exit(0)
 

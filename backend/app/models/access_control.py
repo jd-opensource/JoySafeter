@@ -103,4 +103,3 @@ class Permission(BaseModel):
         Index("permissions_user_entity_idx", "user_id", "entity_type", "entity_id"),
         UniqueConstraint("user_id", "entity_type", "entity_id", name="permissions_unique_constraint"),
     )
-

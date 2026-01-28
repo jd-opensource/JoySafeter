@@ -6,6 +6,7 @@ from dynamic_engine.runtime.file_manager import file_manager
 
 logger = logging.getLogger(__name__)
 
+
 class ModifyFileHandler(AbstractHandler):
     """
     Arbitrary shell command
@@ -18,7 +19,7 @@ class ModifyFileHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
+        """Handler related commands"""
         return []
 
     def handle(self, data: Dict) -> Any:

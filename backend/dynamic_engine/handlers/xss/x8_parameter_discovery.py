@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class X8Handler(AbstractHandler):
     """Handler for x8 functionality"""
 
@@ -13,8 +14,8 @@ class X8Handler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['x8']
+        """Handler related commands"""
+        return ["x8"]
 
     def handle(self, data: Dict) -> Any:
         """Execute x8 with enhanced logging"""

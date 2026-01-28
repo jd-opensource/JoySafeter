@@ -44,6 +44,7 @@ def check_iterations() -> str:
 
 def build_iteration_info() -> str:
     from app.dynamic_agent.observability.tracking import _get_current_task_id, get_task_iteration_count
+
     task_id = _get_current_task_id()
 
     if task_id is None:

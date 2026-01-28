@@ -30,20 +30,21 @@ def _sanitize_command_for_logging(command: str) -> str:
     """
     # Patterns to match sensitive data
     patterns = [
-        (r'--password(?:=|\s+)(\S+)', '--password ****'),
-        (r'--pass(?:word-file|wd)?(?:=|\s+)(\S+)', '--password-file ****'),
-        (r'-p\s*\S+', '-p ****'),
-        (r'-p\S+', '-p****'),
-        (r'SSH_AUTH_SOCK[^\s]*', 'SSH_AUTH_SOCK=****'),
-        (r'--token(?:=|\s+)(\S+)', '--token ****'),
-        (r'--api-key(?:=|\s+)(\S+)', '--api-key ****'),
-        (r'--secret(?:=|\s+)(\S+)', '--secret ****'),
+        (r"--password(?:=|\s+)(\S+)", "--password ****"),
+        (r"--pass(?:word-file|wd)?(?:=|\s+)(\S+)", "--password-file ****"),
+        (r"-p\s*\S+", "-p ****"),
+        (r"-p\S+", "-p****"),
+        (r"SSH_AUTH_SOCK[^\s]*", "SSH_AUTH_SOCK=****"),
+        (r"--token(?:=|\s+)(\S+)", "--token ****"),
+        (r"--api-key(?:=|\s+)(\S+)", "--api-key ****"),
+        (r"--secret(?:=|\s+)(\S+)", "--secret ****"),
     ]
 
     result = command
     for pattern, replacement in patterns:
         result = re.sub(pattern, replacement, result)
     return result
+
 
 class EnhancedCommandExecutor:
     """Enhanced command executor with caching, progress tracking, and better output handling"""
@@ -64,7 +65,7 @@ class EnhancedCommandExecutor:
     def _read_stdout(self):
         """Thread function to continuously read and display stdout"""
         try:
-            for line in iter(self.process.stdout.readline, ''):
+            for line in iter(self.process.stdout.readline, ""):
                 if line:
                     self.stdout_data += line
                     # Real-time output display
@@ -75,7 +76,7 @@ class EnhancedCommandExecutor:
     def _read_stderr(self):
         """Thread function to continuously read and display stderr"""
         try:
-            for line in iter(self.process.stderr.readline, ''):
+            for line in iter(self.process.stderr.readline, ""):
                 if line:
                     self.stderr_data += line
                     # Real-time error output display
@@ -92,12 +93,7 @@ class EnhancedCommandExecutor:
 
         try:
             self.process = subprocess.Popen(
-                self.command,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1
+                self.command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
             )
 
             pid = self.process.pid
@@ -129,9 +125,13 @@ class EnhancedCommandExecutor:
                 ProcessManager.cleanup_process(pid)
 
                 if self.return_code == 0:
-                    logger.info(f"✅ SUCCESS: Command completed | Exit Code: {self.return_code} | Duration: {execution_time:.2f}s")
+                    logger.info(
+                        f"✅ SUCCESS: Command completed | Exit Code: {self.return_code} | Duration: {execution_time:.2f}s"
+                    )
                 else:
-                    logger.warning(f"⚠️  WARNING: Command completed with errors | Exit Code: {self.return_code} | Duration: {execution_time:.2f}s")
+                    logger.warning(
+                        f"⚠️  WARNING: Command completed with errors | Exit Code: {self.return_code} | Duration: {execution_time:.2f}s"
+                    )
 
             except subprocess.TimeoutExpired:
                 self.end_time = time.time()
@@ -139,7 +139,9 @@ class EnhancedCommandExecutor:
 
                 # Process timed out but we might have partial results
                 self.timed_out = True
-                logger.warning(f"⏰ TIMEOUT: Command timed out after {self.timeout}s | Terminating PID {self.process.pid}")
+                logger.warning(
+                    f"⏰ TIMEOUT: Command timed out after {self.timeout}s | Terminating PID {self.process.pid}"
+                )
 
                 # Try to terminate gracefully first
                 self.process.terminate()
@@ -179,8 +181,8 @@ class EnhancedCommandExecutor:
                 "success": False,
             }
 
-def execute_command(command: str, timeout: int = None,
-                   cwd: Optional[str] = None) -> Dict[str, Any]:
+
+def execute_command(command: str, timeout: int = None, cwd: Optional[str] = None) -> Dict[str, Any]:
     """
     Execute a shell command with enhanced features
 

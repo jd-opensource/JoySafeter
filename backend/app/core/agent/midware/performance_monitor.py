@@ -72,9 +72,7 @@ class PerformanceCollector:
                     self.session_records[record.session_id] = []
                 self.session_records[record.session_id].append(record)
 
-    def update_tool_stats(
-        self, tool_name: str, execution_time: float, success: bool = True
-    ) -> None:
+    def update_tool_stats(self, tool_name: str, execution_time: float, success: bool = True) -> None:
         """更新工具统计"""
         with self._lock:
             if tool_name not in self.tool_stats:
@@ -112,14 +110,11 @@ class PerformanceCollector:
                 "avg_response_time": sum(response_times) / len(response_times),
                 "min_response_time": min(response_times),
                 "max_response_time": max(response_times),
-                "avg_token_count": sum(r.token_count for r in recent_records)
-                / len(recent_records),
+                "avg_token_count": sum(r.token_count for r in recent_records) / len(recent_records),
                 "total_tokens": sum(r.token_count for r in recent_records),
                 "total_tool_calls": sum(r.tool_calls for r in recent_records),
-                "avg_memory_usage": sum(r.memory_usage for r in recent_records)
-                / len(recent_records),
-                "avg_cpu_usage": sum(r.cpu_usage for r in recent_records)
-                / len(recent_records),
+                "avg_memory_usage": sum(r.memory_usage for r in recent_records) / len(recent_records),
+                "avg_cpu_usage": sum(r.cpu_usage for r in recent_records) / len(recent_records),
                 "active_sessions": len(self.session_records),
                 "timestamp": datetime.now().isoformat(),
             }
@@ -176,9 +171,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
         self._monitor_thread = None
 
         if enable_system_monitoring:
-            self._monitor_thread = threading.Thread(
-                target=self._monitor_system, daemon=True
-            )
+            self._monitor_thread = threading.Thread(target=self._monitor_system, daemon=True)
             self._monitor_thread.start()
 
     def _generate_session_id(self) -> str:
@@ -240,9 +233,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
             for msg in request.messages:
                 if hasattr(msg, "content") and msg.content:
                     content += str(msg.content) + " "
-            request_tokens = (
-                self._estimate_tokens(content.strip()) if content.strip() else 0
-            )
+            request_tokens = self._estimate_tokens(content.strip()) if content.strip() else 0
 
         try:
             # 执行模型调用
@@ -262,15 +253,11 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
                 for msg in response.messages:
                     if hasattr(msg, "content") and msg.content:
                         content += str(msg.content) + " "
-                response_tokens = (
-                    self._estimate_tokens(content.strip()) if content.strip() else 0
-                )
+                response_tokens = self._estimate_tokens(content.strip()) if content.strip() else 0
             total_tokens = request_tokens + response_tokens
 
             # 获取工具调用数量
-            tool_calls = (
-                len(response.get("tool_results", [])) if hasattr(response, "get") else 0
-            )
+            tool_calls = len(response.get("tool_results", [])) if hasattr(response, "get") else 0
 
             # 创建性能记录
             record = PerformanceRecord(
@@ -337,9 +324,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
             for msg in request.messages:
                 if hasattr(msg, "content") and msg.content:
                     content += str(msg.content) + " "
-            request_tokens = (
-                self._estimate_tokens(content.strip()) if content.strip() else 0
-            )
+            request_tokens = self._estimate_tokens(content.strip()) if content.strip() else 0
 
         try:
             # 执行异步模型调用
@@ -357,13 +342,9 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
                 for msg in response.messages:
                     if hasattr(msg, "content") and msg.content:
                         content += str(msg.content) + " "
-                response_tokens = (
-                    self._estimate_tokens(content.strip()) if content.strip() else 0
-                )
+                response_tokens = self._estimate_tokens(content.strip()) if content.strip() else 0
             total_tokens = request_tokens + response_tokens
-            tool_calls = (
-                len(response.get("tool_results", [])) if hasattr(response, "get") else 0
-            )
+            tool_calls = len(response.get("tool_results", [])) if hasattr(response, "get") else 0
 
             record = PerformanceRecord(
                 timestamp=start_time,
@@ -443,9 +424,7 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
         # 准备导出数据
         data = {
             "export_timestamp": datetime.now().isoformat(),
-            "performance_summary": self.get_performance_summary(
-                time_window_minutes=1440
-            ),  # 24小时
+            "performance_summary": self.get_performance_summary(time_window_minutes=1440),  # 24小时
             "tool_performance": self.get_tool_performance(),
             "active_sessions": len(self.collector.session_records),
             "total_records": len(self.collector.records),
@@ -486,12 +465,8 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
             return {
                 "session_id": session_id,
                 "total_requests": len(session_records),
-                "error_rate": (
-                    (errors / len(session_records)) * 100 if session_records else 0
-                ),
-                "avg_response_time": (
-                    sum(response_times) / len(response_times) if response_times else 0
-                ),
+                "error_rate": ((errors / len(session_records)) * 100 if session_records else 0),
+                "avg_response_time": (sum(response_times) / len(response_times) if response_times else 0),
                 "min_response_time": min(response_times) if response_times else 0,
                 "max_response_time": max(response_times) if response_times else 0,
                 "total_tokens": sum(r.token_count for r in session_records),

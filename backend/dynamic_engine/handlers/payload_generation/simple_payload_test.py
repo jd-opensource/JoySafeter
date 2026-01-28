@@ -15,7 +15,7 @@ class AiTestPayloadHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
+        """Handler related commands"""
         return []
 
     def handle(self, data: Dict) -> Any:
@@ -25,12 +25,7 @@ class AiTestPayloadHandler(AbstractHandler):
             target_url = data.get("target_url", "")
             method = data.get("method", "GET")
             if not payload or not target_url:
-                return {
-
-                    "success": False,
-                    "error": "Payload and target_url are required"
-
-                }
+                return {"success": False, "error": "Payload and target_url are required"}
             logger.info(f"🧪 Testing AI-generated payload against {target_url}")
             if method.upper() == "GET":
                 encoded_payload = payload.replace(" ", "%20").replace("'", "%27")
@@ -48,23 +43,16 @@ class AiTestPayloadHandler(AbstractHandler):
                 "recommendations": [
                     "Analyze response for payload reflection",
                     "Check for error messages indicating vulnerability",
-                    "Monitor application behavior changes"
-                ]
+                    "Monitor application behavior changes",
+                ],
             }
             logger.info(f"🔍 Payload test completed | Potential vuln: {analysis['potential_vulnerability']}")
             return {
-
                 "success": True,
                 "test_result": result,
                 "ai_analysis": analysis,
-                "timestamp": datetime.now().isoformat()
-
+                "timestamp": datetime.now().isoformat(),
             }
         except Exception as e:
             logger.error(f"💥 Error in AI payload testing: {str(e)}")
-            return {
-
-                "success": False,
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"success": False, "error": f"Server error: {str(e)}"}

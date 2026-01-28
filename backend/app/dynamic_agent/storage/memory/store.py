@@ -13,6 +13,7 @@ from uuid import uuid4
 
 class MemoryType(str, Enum):
     """Memory type classification."""
+
     FACT = "fact"  # Factual knowledge (target info, vulnerabilities)
     PROCEDURE = "procedure"  # Procedural knowledge (successful attack paths)
     EPISODIC = "episodic"  # Episodic memory (session-specific experiences)
@@ -22,6 +23,7 @@ class MemoryType(str, Enum):
 @dataclass
 class Memory:
     """Memory unit."""
+
     memory_id: str
     session_id: str
     memory_type: MemoryType
@@ -63,7 +65,7 @@ class MemoryStore:
         importance: float = 0.5,
         tags: Optional[List[str]] = None,
         category: Optional[str] = None,
-        source: Optional[str] = None
+        source: Optional[str] = None,
     ) -> Memory:
         """Store a memory."""
         memory = Memory(
@@ -76,7 +78,7 @@ class MemoryStore:
             importance=importance,
             tags=tags or [],
             category=category,
-            source=source
+            source=source,
         )
 
         cache_key = f"{session_id}:{key}"
@@ -85,11 +87,7 @@ class MemoryStore:
 
         return memory
 
-    async def retrieve(
-        self,
-        session_id: str,
-        key: str
-    ) -> Optional[Memory]:
+    async def retrieve(self, session_id: str, key: str) -> Optional[Memory]:
         """Retrieve a memory."""
         cache_key = f"{session_id}:{key}"
 
@@ -118,7 +116,7 @@ class MemoryStore:
         tags: Optional[List[str]] = None,
         category: Optional[str] = None,
         min_importance: float = 0.0,
-        limit: int = 10
+        limit: int = 10,
     ) -> List[Memory]:
         """Search memories."""
         return await self.backend.search_memories(
@@ -128,15 +126,10 @@ class MemoryStore:
             tags=tags,
             category=category,
             min_importance=min_importance,
-            limit=limit
+            limit=limit,
         )
 
-    async def store_target_info(
-        self,
-        session_id: str,
-        target: str,
-        info: Dict[str, Any]
-    ):
+    async def store_target_info(self, session_id: str, target: str, info: Dict[str, Any]):
         """Store target information."""
         await self.store(
             session_id=session_id,
@@ -146,15 +139,10 @@ class MemoryStore:
             importance=0.9,
             tags=["target", "reconnaissance"],
             category="target_info",
-            source="tool_result"
+            source="tool_result",
         )
 
-    async def store_vulnerability(
-        self,
-        session_id: str,
-        target: str,
-        vulnerability: Dict[str, Any]
-    ):
+    async def store_vulnerability(self, session_id: str, target: str, vulnerability: Dict[str, Any]):
         """Store vulnerability discovery."""
         await self.store(
             session_id=session_id,
@@ -162,17 +150,12 @@ class MemoryStore:
             value=vulnerability,
             memory_type=MemoryType.FACT,
             importance=1.0,
-            tags=["vulnerability", vulnerability.get('severity', 'unknown')],
+            tags=["vulnerability", vulnerability.get("severity", "unknown")],
             category="vulnerability",
-            source="tool_result"
+            source="tool_result",
         )
 
-    async def store_successful_attack_path(
-        self,
-        session_id: str,
-        target: str,
-        attack_chain: List[Dict[str, Any]]
-    ):
+    async def store_successful_attack_path(self, session_id: str, target: str, attack_chain: List[Dict[str, Any]]):
         """Store successful attack path."""
         await self.store(
             session_id=session_id,
@@ -182,36 +165,25 @@ class MemoryStore:
             importance=0.95,
             tags=["attack_path", "success"],
             category="methodology",
-            source="execution_result"
+            source="execution_result",
         )
 
-    async def get_target_history(
-        self,
-        session_id: str,
-        target: str
-    ) -> Dict[str, Any]:
+    async def get_target_history(self, session_id: str, target: str) -> Dict[str, Any]:
         """Get complete target history."""
         # Get target info
         target_info = await self.retrieve(session_id, f"target:{target}")
 
         # Get vulnerabilities
-        vulnerabilities = await self.search(
-            session_id=session_id,
-            category="vulnerability",
-            tags=["vulnerability"]
-        )
+        vulnerabilities = await self.search(session_id=session_id, category="vulnerability", tags=["vulnerability"])
 
         # Get attack paths
-        attack_paths = await self.search(
-            session_id=session_id,
-            category="methodology"
-        )
+        attack_paths = await self.search(session_id=session_id, category="methodology")
 
         return {
             "target": target,
             "info": target_info.value if target_info else {},
             "vulnerabilities": [v.value for v in vulnerabilities],
-            "attack_paths": [a.value for a in attack_paths]
+            "attack_paths": [a.value for a in attack_paths],
         }
 
     async def delete_memory(self, memory_id: str):

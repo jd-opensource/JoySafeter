@@ -219,11 +219,7 @@ class PythonTools(Toolkit):
 
             # 构建命令，使用 --index-url 参数指定镜像源
             # Build command with --index-url parameter to specify mirror
-            cmd = [
-                sys.executable, "-m", "uv", "pip", "install",
-                "--index-url", index_url,
-                package_name
-            ]
+            cmd = [sys.executable, "-m", "uv", "pip", "install", "--index-url", index_url, package_name]
 
             logger.debug(f"Using PyPI index: {index_url}")
             subprocess.check_call(cmd)

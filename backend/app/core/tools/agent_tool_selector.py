@@ -1,4 +1,3 @@
-
 from typing import Any, Dict, List, Optional, Set
 
 from app.core.tools.tool import EnhancedTool, ToolFilter, ToolSourceType
@@ -19,18 +18,11 @@ class AgentToolSelector:
     def _register_default_task_configs(self):
         """注册默认的任务类型配置"""
         self._task_type_configs = {
-            "coding": ToolFilter(
-                required_tags={"code", "development"},
-                categories={"dev_tools"}
-            ),
+            "coding": ToolFilter(required_tags={"code", "development"}, categories={"dev_tools"}),
             "research": ToolFilter(
-                required_tags={"search", "analysis"},
-                source_types={ToolSourceType.BUILTIN, ToolSourceType.MCP}
+                required_tags={"search", "analysis"}, source_types={ToolSourceType.BUILTIN, ToolSourceType.MCP}
             ),
-            "data_analysis": ToolFilter(
-                required_tags={"data", "analysis"},
-                min_priority=5
-            ),
+            "data_analysis": ToolFilter(required_tags={"data", "analysis"}, min_priority=5),
             "file_operations": ToolFilter(
                 required_tags={"file", "io"},
             ),
@@ -41,10 +33,7 @@ class AgentToolSelector:
         self._task_type_configs[task_type] = filter_config
 
     def select_for_task(
-        self,
-        task_type: str,
-        context: Optional[Dict[str, Any]] = None,
-        additional_filters: Optional[ToolFilter] = None
+        self, task_type: str, context: Optional[Dict[str, Any]] = None, additional_filters: Optional[ToolFilter] = None
     ) -> List[EnhancedTool]:
         """根据任务类型选择工具"""
         base_filter = self._task_type_configs.get(task_type, ToolFilter())
@@ -60,79 +49,46 @@ class AgentToolSelector:
         return self.registry.get_tools(base_filter)
 
     def select_by_tags(
-        self,
-        tags: Set[str],
-        source_type: Optional[ToolSourceType] = None,
-        exclude_tags: Optional[Set[str]] = None
+        self, tags: Set[str], source_type: Optional[ToolSourceType] = None, exclude_tags: Optional[Set[str]] = None
     ) -> List[EnhancedTool]:
         """根据标签选择工具"""
         filter_config = ToolFilter(
-            required_tags=tags,
-            excluded_tags=exclude_tags,
-            source_types={source_type} if source_type else None
+            required_tags=tags, excluded_tags=exclude_tags, source_types={source_type} if source_type else None
         )
         return self.registry.get_tools(filter_config)
 
-    def select_by_category(
-        self,
-        category: str,
-        source_type: Optional[ToolSourceType] = None
-    ) -> List[EnhancedTool]:
+    def select_by_category(self, category: str, source_type: Optional[ToolSourceType] = None) -> List[EnhancedTool]:
         """根据类别选择工具"""
-        filter_config = ToolFilter(
-            categories={category},
-            source_types={source_type} if source_type else None
-        )
+        filter_config = ToolFilter(categories={category}, source_types={source_type} if source_type else None)
         return self.registry.get_tools(filter_config)
 
-    def select_by_mcp_server(
-        self,
-        server_name: str,
-        include_tools: Optional[Set[str]] = None
-    ) -> List[EnhancedTool]:
+    def select_by_mcp_server(self, server_name: str, include_tools: Optional[Set[str]] = None) -> List[EnhancedTool]:
         """根据 MCP 服务器选择工具"""
-        filter_config = ToolFilter(
-            mcp_servers={server_name},
-            include_tools=include_tools
-        )
+        filter_config = ToolFilter(mcp_servers={server_name}, include_tools=include_tools)
         return self.registry.get_tools(filter_config)
 
     def select_by_toolset(
-        self,
-        toolset_name: str,
-        source_type: ToolSourceType = ToolSourceType.MCP_TOOLBOX
+        self, toolset_name: str, source_type: ToolSourceType = ToolSourceType.MCP_TOOLBOX
     ) -> List[EnhancedTool]:
         """根据工具集选择工具"""
-        filter_config = ToolFilter(
-            toolset_names={toolset_name},
-            source_types={source_type}
-        )
+        filter_config = ToolFilter(toolset_names={toolset_name}, source_types={source_type})
         return self.registry.get_tools(filter_config)
 
-    def select_safe_tools(
-        self,
-        include_confirmation: bool = False
-    ) -> List[EnhancedTool]:
+    def select_safe_tools(self, include_confirmation: bool = False) -> List[EnhancedTool]:
         """选择安全的工具(不需要确认或外部执行)"""
         if include_confirmation:
-            filter_config = ToolFilter(
-                external_execution_only=False
-            )
+            filter_config = ToolFilter(external_execution_only=False)
         else:
             # 手动过滤需要确认的工具
             all_tools = self.registry.get_tools()
             return [
-                tool for tool in all_tools
-                if not tool.tool_metadata.requires_confirmation
-                and not tool.tool_metadata.external_execution
+                tool
+                for tool in all_tools
+                if not tool.tool_metadata.requires_confirmation and not tool.tool_metadata.external_execution
             ]
         return self.registry.get_tools(filter_config)
 
-    def select_by_names(
-        self,
-        tool_names: List[str],
-        strict: bool = True
-    ) -> List[EnhancedTool]:
+    def select_by_names(self, tool_names: List[str], strict: bool = True) -> List[EnhancedTool]:
         """根据工具名称列表选择"""
         tools = []
         for name in tool_names:
@@ -144,7 +100,7 @@ class AgentToolSelector:
         return tools
 
     def select_by_query(self, query: str, limit: int = 5) -> List[EnhancedTool]:
-        """ 向量方式
+        """向量方式
         Embeds the query and description, finds nearest neighbors.
         Useful when the Agent doesn't know which tool to ask for.
         """
@@ -155,8 +111,16 @@ class AgentToolSelector:
         merged = ToolFilter()
 
         # 合并集合类型字段
-        for field in ['source_types', 'required_tags', 'excluded_tags', 'categories',
-                      'mcp_servers', 'toolset_names', 'include_tools', 'exclude_tools']:
+        for field in [
+            "source_types",
+            "required_tags",
+            "excluded_tags",
+            "categories",
+            "mcp_servers",
+            "toolset_names",
+            "include_tools",
+            "exclude_tools",
+        ]:
             base_val = getattr(base, field)
             add_val = getattr(additional, field)
             if base_val and add_val:
@@ -167,7 +131,11 @@ class AgentToolSelector:
         # 合并其他字段
         merged.include_disabled = base.include_disabled or additional.include_disabled
         merged.min_priority = max(base.min_priority, additional.min_priority)
-        merged.requires_confirmation = additional.requires_confirmation if additional.requires_confirmation is not None else base.requires_confirmation
+        merged.requires_confirmation = (
+            additional.requires_confirmation
+            if additional.requires_confirmation is not None
+            else base.requires_confirmation
+        )
         merged.external_execution_only = base.external_execution_only or additional.external_execution_only
 
         return merged
@@ -177,11 +145,11 @@ class AgentToolSelector:
         # 可以根据上下文信息动态调整过滤条件
         # 例如:根据用户权限、当前环境等
 
-        if context.get('safe_mode'):
+        if context.get("safe_mode"):
             filter_config.requires_confirmation = False
             filter_config.external_execution_only = False
 
-        if context.get('priority_threshold'):
-            filter_config.min_priority = context['priority_threshold']
+        if context.get("priority_threshold"):
+            filter_config.min_priority = context["priority_threshold"]
 
         return filter_config

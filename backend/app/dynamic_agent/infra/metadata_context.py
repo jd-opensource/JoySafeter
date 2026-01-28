@@ -30,8 +30,9 @@ from typing import Any, Dict, Optional
 from loguru import logger
 
 # Thread-safe context variable for metadata
-_metadata_context: contextvars.ContextVar[Optional[Dict[str, Any]]] = \
-    contextvars.ContextVar('metadata_context', default=None)
+_metadata_context: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar(
+    "metadata_context", default=None
+)
 
 
 class MetadataContext:
@@ -158,6 +159,7 @@ class MetadataContext:
         metadata = _metadata_context.get()
         return dict(metadata) if metadata else {}
 
+
 import queue  # noqa: E402
 
 
@@ -165,12 +167,14 @@ def write_messages(messages: list[str]) -> None:
     """Write intermediate messages to response queue during execution"""
     metas = MetadataContext.get()
     if metas:
-        q: queue.Queue = metas.get('response_queue')
+        q: queue.Queue = metas.get("response_queue")
         if q:
             for m in messages:
-                q.put({
-                    "status": "success",
-                    "type": "intermediate",
-                    # "data": f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}{m}'
-                    "data": m
-                })
+                q.put(
+                    {
+                        "status": "success",
+                        "type": "intermediate",
+                        # "data": f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]}{m}'
+                        "data": m,
+                    }
+                )

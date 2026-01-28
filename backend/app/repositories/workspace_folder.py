@@ -1,6 +1,7 @@
 """
 工作流文件夹 Repository
 """
+
 import uuid
 from typing import List, Optional, Tuple
 
@@ -42,36 +43,25 @@ class WorkflowFolderRepository(BaseRepository[WorkspaceFolder]):
         ]
 
         query = (
-            select(WorkspaceFolder.sort_order)
-            .where(*conditions)
-            .order_by(WorkspaceFolder.sort_order.desc())
-            .limit(1)
+            select(WorkspaceFolder.sort_order).where(*conditions).order_by(WorkspaceFolder.sort_order.desc()).limit(1)
         )
         result = await self.db.execute(query)
         current = result.scalar_one_or_none()
         return current if current is not None else -1
 
     async def list_children(self, parent_id: uuid.UUID) -> List[WorkspaceFolder]:
-        query = (
-            select(WorkspaceFolder)
-            .where(
-                WorkspaceFolder.parent_id == parent_id,
-                WorkspaceFolder.deleted_at.is_(None),
-            )
+        query = select(WorkspaceFolder).where(
+            WorkspaceFolder.parent_id == parent_id,
+            WorkspaceFolder.deleted_at.is_(None),
         )
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def list_relations_by_workspace(
-        self, workspace_id: uuid.UUID
-    ) -> List[Tuple[uuid.UUID, Optional[uuid.UUID]]]:
+    async def list_relations_by_workspace(self, workspace_id: uuid.UUID) -> List[Tuple[uuid.UUID, Optional[uuid.UUID]]]:
         """获取 workspace 内所有 folder 的 (id, parent_id) 关系，用于构建树/子树。"""
-        query = (
-            select(WorkspaceFolder.id, WorkspaceFolder.parent_id)
-            .where(
-                WorkspaceFolder.workspace_id == workspace_id,
-                WorkspaceFolder.deleted_at.is_(None),
-            )
+        query = select(WorkspaceFolder.id, WorkspaceFolder.parent_id).where(
+            WorkspaceFolder.workspace_id == workspace_id,
+            WorkspaceFolder.deleted_at.is_(None),
         )
 
         result = await self.db.execute(query)
@@ -84,4 +74,3 @@ class WorkflowFolderRepository(BaseRepository[WorkspaceFolder]):
 
             raise NotFoundException("Folder not found in workspace")
         return folder
-

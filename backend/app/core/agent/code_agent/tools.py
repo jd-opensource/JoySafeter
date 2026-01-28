@@ -83,6 +83,7 @@ def get_json_type(value: Any) -> str:
 def is_valid_name(name: str) -> bool:
     """Check if a name is a valid Python identifier and not a reserved keyword."""
     import keyword
+
     return name.isidentifier() and not keyword.iskeyword(name)
 
 
@@ -152,15 +153,12 @@ class Tool(BaseTool):
                 raise TypeError(f"Tool must have attribute '{attr}'.")
             if not isinstance(attr_value, expected_type):
                 raise TypeError(
-                    f"Attribute '{attr}' should be {expected_type.__name__}, "
-                    f"got {type(attr_value).__name__}."
+                    f"Attribute '{attr}' should be {expected_type.__name__}, got {type(attr_value).__name__}."
                 )
 
         # Validate name is a valid identifier
         if not is_valid_name(self.name):
-            raise ValueError(
-                f"Invalid tool name '{self.name}': must be a valid Python identifier"
-            )
+            raise ValueError(f"Invalid tool name '{self.name}': must be a valid Python identifier")
 
         # Validate inputs schema
         for input_name, input_content in self.inputs.items():
@@ -168,31 +166,25 @@ class Tool(BaseTool):
                 raise TypeError(f"Input '{input_name}' should be a dictionary.")
 
             if "type" not in input_content or "description" not in input_content:
-                raise ValueError(
-                    f"Input '{input_name}' must have 'type' and 'description' keys."
-                )
+                raise ValueError(f"Input '{input_name}' must have 'type' and 'description' keys.")
 
             # Validate type is authorized
             input_type = input_content["type"]
             if isinstance(input_type, str):
                 if input_type not in AUTHORIZED_TYPES:
                     raise ValueError(
-                        f"Input '{input_name}' has invalid type '{input_type}'. "
-                        f"Must be one of {AUTHORIZED_TYPES}"
+                        f"Input '{input_name}' has invalid type '{input_type}'. Must be one of {AUTHORIZED_TYPES}"
                     )
             elif isinstance(input_type, list):
                 for t in input_type:
                     if t not in AUTHORIZED_TYPES:
                         raise ValueError(
-                            f"Input '{input_name}' has invalid type '{t}'. "
-                            f"Must be one of {AUTHORIZED_TYPES}"
+                            f"Input '{input_name}' has invalid type '{t}'. Must be one of {AUTHORIZED_TYPES}"
                         )
 
         # Validate output type
         if self.output_type not in AUTHORIZED_TYPES:
-            raise ValueError(
-                f"output_type '{self.output_type}' must be one of {AUTHORIZED_TYPES}"
-            )
+            raise ValueError(f"output_type '{self.output_type}' must be one of {AUTHORIZED_TYPES}")
 
         # Validate forward method signature matches inputs
         if hasattr(self, "forward") and callable(self.forward):
@@ -203,8 +195,7 @@ class Tool(BaseTool):
 
             if actual_params != expected_params:
                 raise ValueError(
-                    f"Tool '{self.name}' forward() parameters {actual_params} "
-                    f"don't match inputs {expected_params}"
+                    f"Tool '{self.name}' forward() parameters {actual_params} don't match inputs {expected_params}"
                 )
 
     def forward(self, *args, **kwargs) -> Any:
@@ -276,8 +267,7 @@ class Tool(BaseTool):
         # Add arguments documentation
         if self.inputs:
             args_descriptions = "\n".join(
-                f"{arg_name}: {arg_schema['description']}"
-                for arg_name, arg_schema in self.inputs.items()
+                f"{arg_name}: {arg_schema['description']}" for arg_name, arg_schema in self.inputs.items()
             )
             tool_doc += f"\n\nArgs:\n{textwrap.indent(args_descriptions, '    ')}"
 
@@ -525,13 +515,9 @@ def validate_tool_arguments(tool: Tool, arguments: Any) -> None:
             # Handle list of types
             if isinstance(expected_type, list):
                 if actual_type not in expected_type:
-                    raise TypeError(
-                        f"Argument '{key}' has type '{actual_type}' but expected one of {expected_type}"
-                    )
+                    raise TypeError(f"Argument '{key}' has type '{actual_type}' but expected one of {expected_type}")
             elif actual_type != expected_type:
-                raise TypeError(
-                    f"Argument '{key}' has type '{actual_type}' but expected '{expected_type}'"
-                )
+                raise TypeError(f"Argument '{key}' has type '{actual_type}' but expected '{expected_type}'")
 
         # Check required arguments are present
         for key, schema in tool.inputs.items():
@@ -541,10 +527,7 @@ def validate_tool_arguments(tool: Tool, arguments: Any) -> None:
     else:
         # Single value - check against first input
         if len(tool.inputs) != 1:
-            raise ValueError(
-                f"Tool '{tool.name}' expects {len(tool.inputs)} arguments, "
-                "but received a single value"
-            )
+            raise ValueError(f"Tool '{tool.name}' expects {len(tool.inputs)} arguments, but received a single value")
 
         expected_type = list(tool.inputs.values())[0]["type"]
         actual_type = get_json_type(arguments)
@@ -552,9 +535,7 @@ def validate_tool_arguments(tool: Tool, arguments: Any) -> None:
         if expected_type != "any" and actual_type != expected_type:
             # Allow integer for number
             if not (actual_type == "integer" and expected_type == "number"):
-                raise TypeError(
-                    f"Argument has type '{actual_type}' but expected '{expected_type}'"
-                )
+                raise TypeError(f"Argument has type '{actual_type}' but expected '{expected_type}'")
 
 
 class FinalAnswerTool(Tool):
@@ -562,12 +543,7 @@ class FinalAnswerTool(Tool):
 
     name = "final_answer"
     description = "Return the final answer to the user's task."
-    inputs = {
-        "answer": {
-            "type": "any",
-            "description": "The final answer to return."
-        }
-    }
+    inputs = {"answer": {"type": "any", "description": "The final answer to return."}}
     output_type = "any"
 
     def forward(self, answer: Any) -> Any:
@@ -590,4 +566,3 @@ __all__ = [
     "python_type_to_json_type",
     "get_json_type",
 ]
-

@@ -89,7 +89,7 @@ class ToolRegistry:
         cls,
         exclude: Optional[List[str]] = None,
         include_only: Optional[List[str]] = None,
-        read_only: Optional[bool] = None
+        read_only: Optional[bool] = None,
     ) -> List[Tool]:
         """
         Filter tools by criteria.

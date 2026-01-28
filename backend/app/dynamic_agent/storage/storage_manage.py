@@ -15,12 +15,7 @@ from app.dynamic_agent.storage.session.task import TaskStateManager, TaskStatus
 class StorageManager:
     """Unified storage manager - Facade pattern for all storage operations."""
 
-    def __init__(
-            self,
-            backend: PostgreSQLBackend,
-            docker_manager: Optional[UnifiedDockerManager],
-            llm_provider=None
-    ):
+    def __init__(self, backend: PostgreSQLBackend, docker_manager: Optional[UnifiedDockerManager], llm_provider=None):
         # Initialize backend
         self.backend = backend
         self.docker_manager = docker_manager
@@ -42,23 +37,17 @@ class StorageManager:
         else:
             self.containers = None
 
-        self.snapshots = SnapshotManager(
-            self.context,
-            self.tasks,
-            self.containers,
-            self.memory,
-            self.backend
-        )
+        self.snapshots = SnapshotManager(self.context, self.tasks, self.containers, self.memory, self.backend)
 
         self.compressor = ContextCompressor(llm_provider)
         self.pruner = ContextPruner(self.memory)
 
     async def initialize_session(
-            self,
-            user_id: str,
-            session_id: str,
-            metadata: Optional[Dict[str, Any]] = None,
-            auto_create_container: bool = True
+        self,
+        user_id: str,
+        session_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        auto_create_container: bool = True,
     ) -> SessionContext:
         """
         Initialize new session with automatic checkpoint and optional container.
@@ -111,22 +100,14 @@ class StorageManager:
             "completed_tasks": [t for t in tasks if t.status == TaskStatus.COMPLETED],
             "recent_memories": memories,
             "container_id": context.container_info.container_id,
-            "scenario": context.scenario
+            "scenario": context.scenario,
         }
 
-    async def cleanup_session(
-            self,
-            session_id: str,
-            archive: bool = True
-    ):
+    async def cleanup_session(self, session_id: str, archive: bool = True):
         """Clean up session with optional archiving."""
         if archive:
             # Create final snapshot
-            await self.snapshots.create_snapshot(
-                session_id,
-                description="Session archived",
-                checkpoint_type="manual"
-            )
+            await self.snapshots.create_snapshot(session_id, description="Session archived", checkpoint_type="manual")
 
         # Prune low-value data
         await self.pruner.prune_session(session_id)

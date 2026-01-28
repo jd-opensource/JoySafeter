@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class ResponderHandler(AbstractHandler):
     """Handler for responder functionality"""
 
@@ -13,8 +14,8 @@ class ResponderHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['responder']
+        """Handler related commands"""
+        return ["responder"]
 
     def handle(self, data: Dict) -> Any:
         """Execute responder with enhanced logging"""

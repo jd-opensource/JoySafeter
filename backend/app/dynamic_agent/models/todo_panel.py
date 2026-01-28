@@ -53,6 +53,7 @@ class TodoItem:
         duration_ms: Execution duration
         metadata: Additional metadata
     """
+
     id: str
     description: str
     status: TodoStatus = "pending"
@@ -258,7 +259,7 @@ class TodoPanel:
                 self._add_item_row(table, item)
 
         # Show active items (up to max_visible)
-        visible_active = active_items[:self.max_visible]
+        visible_active = active_items[: self.max_visible]
         for item in visible_active:
             self._add_item_row(table, item)
 
@@ -409,14 +410,14 @@ class TodoPanel:
         """
         panel = cls(title=title)
 
-        if hasattr(plan, 'steps'):
+        if hasattr(plan, "steps"):
             for step in plan.steps:
                 item = TodoItem(
-                    id=step.step_id if hasattr(step, 'step_id') else str(uuid.uuid4())[:8],
-                    description=step.description if hasattr(step, 'description') else str(step),
+                    id=step.step_id if hasattr(step, "step_id") else str(uuid.uuid4())[:8],
+                    description=step.description if hasattr(step, "description") else str(step),
                 )
                 # Map status
-                if hasattr(step, 'status'):
+                if hasattr(step, "status"):
                     if step.status == "completed":
                         item.status = "completed"
                     elif step.status == "in_progress":

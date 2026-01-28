@@ -49,8 +49,7 @@ class HintTracker:
             hints: List of hint content strings
         """
         self.hints: List[HintExecutionState] = [
-            HintExecutionState(hint_id=str(i), content=h)
-            for i, h in enumerate(hints)
+            HintExecutionState(hint_id=str(i), content=h) for i, h in enumerate(hints)
         ]
         self._failed_ids: set = set()
 
@@ -169,6 +168,8 @@ class HintTracker:
 
         stats = self.get_stats()
         lines.append("")
-        lines.append(f"Progress: {stats['success']}/{stats['total']} completed, {stats['failed']} failed, {stats['skipped']} skipped")
+        lines.append(
+            f"Progress: {stats['success']}/{stats['total']} completed, {stats['failed']} failed, {stats['skipped']} skipped"
+        )
 
         return "\n".join(lines)

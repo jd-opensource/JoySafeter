@@ -136,7 +136,9 @@ def validate_actions(
                 label = created_node_labels.get(node_id, node_id)
                 result.add_warning(f"Orphan node: '{label}' ({node_id}) is not connected to the workflow")
 
-    logger.info(f"[ActionValidator] Validation complete: valid={result.is_valid}, errors={len(result.errors)}, warnings={len(result.warnings)}")
+    logger.info(
+        f"[ActionValidator] Validation complete: valid={result.is_valid}, errors={len(result.errors)}, warnings={len(result.warnings)}"
+    )
 
     return result
 

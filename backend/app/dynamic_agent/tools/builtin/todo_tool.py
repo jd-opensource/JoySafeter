@@ -18,11 +18,12 @@ from app.dynamic_agent.infra.metadata_context import MetadataContext
 def _get_todo_display():
     """Get TODO display from metadata or global instance."""
     metadata = MetadataContext.get() or {}
-    todo_display = metadata.get('todo_display')
+    todo_display = metadata.get("todo_display")
 
     if todo_display is None:
         # Fallback to global instance
         from app.dynamic_agent.infra.todo_display import get_todo_display
+
         todo_display = get_todo_display()
 
     return todo_display
@@ -31,7 +32,7 @@ def _get_todo_display():
 def _update_session_context():
     """Update agent_session_context with current TODO status."""
     metadata = MetadataContext.get() or {}
-    agent_session_context = metadata.get('agent_session_context')
+    agent_session_context = metadata.get("agent_session_context")
     todo_display = _get_todo_display()
 
     if agent_session_context and todo_display and todo_display.panel:
@@ -70,7 +71,7 @@ def plan_tasks(tasks: List[str]) -> str:
         todo_display.start_task(items[0].id)
 
     # Simplified task list (no IDs - LLM doesn't need them)
-    task_list = "\n".join([f"  {i+1}. {item.description}" for i, item in enumerate(items)])
+    task_list = "\n".join([f"  {i + 1}. {item.description}" for i, item in enumerate(items)])
 
     # Update session context with new progress
     _update_session_context()
@@ -78,7 +79,7 @@ def plan_tasks(tasks: List[str]) -> str:
     return f"""✅ {len(items)} tasks planned:
 {task_list}
 
-Started: {items[0].description if items else 'None'}"""
+Started: {items[0].description if items else "None"}"""
 
 
 @tool("complete_task")
@@ -171,7 +172,7 @@ def replan_tasks(new_tasks: List[str], reason: str) -> str:
 New tasks:
 {chr(10).join([f"  - {t}" for t in new_tasks])}
 
-Starting: {next_item.description if next_item else 'None'}"""
+Starting: {next_item.description if next_item else "None"}"""
 
 
 @tool("get_task_status")

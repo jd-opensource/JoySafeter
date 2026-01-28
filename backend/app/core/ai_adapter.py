@@ -35,8 +35,7 @@ class AgentEngine(Protocol):
         subgraphs: bool,
         config: Dict[str, Any],
         durability: str,
-    ):
-        ...
+    ): ...
 
 
 class AgentBridge:
@@ -174,20 +173,11 @@ class AgentBridge:
                     if len(content) > 50000:
                         content = content[:50000] + "\n... (file truncated)"
 
-                    context_parts.append(
-                        f"\n### {full_path.name}\n"
-                        f"Path: `{file_path}`\n"
-                        f"```\n{content}\n```"
-                    )
+                    context_parts.append(f"\n### {full_path.name}\nPath: `{file_path}`\n```\n{content}\n```")
                 else:
-                    context_parts.append(
-                        f"\n### {Path(file_path).name}\n"
-                        f"[Error: File not found - {file_path}]"
-                    )
+                    context_parts.append(f"\n### {Path(file_path).name}\n[Error: File not found - {file_path}]")
             except Exception as e:
-                context_parts.append(
-                    f"\n### {Path(file_path).name}\n[Error reading file: {e}]"
-                )
+                context_parts.append(f"\n### {Path(file_path).name}\n[Error reading file: {e}]")
 
         return "\n".join(context_parts)
 
@@ -249,9 +239,7 @@ class AgentBridge:
                             if text_content:
                                 # Detect structured tool output and format nicely
                                 if self._is_tool_output(text_content):
-                                    formatted_output = self._format_tool_output(
-                                        text_content
-                                    )
+                                    formatted_output = self._format_tool_output(text_content)
                                     if formatted_output:
                                         results.append(
                                             {
@@ -297,9 +285,7 @@ class AgentBridge:
             if time_elapsed > self.chunk_timeout:
                 should_flush_text = True
             # Condition 2: likely complete sentence and not too short
-            elif self._has_complete_sentence(self.pending_text) and len(
-                self.pending_text
-            ) > 30:
+            elif self._has_complete_sentence(self.pending_text) and len(self.pending_text) > 30:
                 should_flush_text = True
             # Condition 3: very long buffer
             elif len(self.pending_text) > 200:
@@ -322,15 +308,10 @@ class AgentBridge:
         # Priority: tool_call > tool_result > status > other > text
         if results:
             tool_call_messages = [r for r in results if r.get("type") == "tool_call"]
-            tool_result_messages = [
-                r for r in results if r.get("type") == "tool_result"
-            ]
+            tool_result_messages = [r for r in results if r.get("type") == "tool_result"]
             status_messages = [r for r in results if r.get("type") == "status"]
             other_messages = [
-                r
-                for r in results
-                if r.get("type")
-                not in ["tool_call", "tool_result", "status", "message"]
+                r for r in results if r.get("type") not in ["tool_call", "tool_result", "status", "message"]
             ]
             text_messages = [r for r in results if r.get("type") == "message"]
 
@@ -415,9 +396,7 @@ class AgentBridge:
             r"：\s*.*[。！？.!?]",
             r"\s*\n\s*$",
         ]
-        has_sentence_structure = any(
-            re.match(pattern, text_stripped) for pattern in sentence_patterns
-        )
+        has_sentence_structure = any(re.match(pattern, text_stripped) for pattern in sentence_patterns)
 
         avoid_split_patterns = [
             r".*```$",
@@ -425,9 +404,7 @@ class AgentBridge:
             r".*\d+\.$",
             r".*[-*+]\s*$",
         ]
-        should_avoid_split = any(
-            re.match(pattern, text_stripped) for pattern in avoid_split_patterns
-        )
+        should_avoid_split = any(re.match(pattern, text_stripped) for pattern in avoid_split_patterns)
 
         return ends_with_sentence and has_sentence_structure and not should_avoid_split
 

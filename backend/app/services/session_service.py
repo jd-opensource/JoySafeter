@@ -31,9 +31,7 @@ class SessionService:
         result = await self.db.execute(select(Conversation).where(*where_clauses))
         return result.scalar_one_or_none()
 
-    async def create_session(
-        self, session_data: SessionCreate, user_id
-    ) -> SessionResponse:
+    async def create_session(self, session_data: SessionCreate, user_id) -> SessionResponse:
         """Create a new session."""
         session_id = str(uuid.uuid4())
 
@@ -86,13 +84,9 @@ class SessionService:
             responses.append(await self._to_response(conv))
         return responses
 
-    async def update_session_title(
-        self, session_id: str, title: str, user_id=None
-    ) -> Optional[SessionResponse]:
+    async def update_session_title(self, session_id: str, title: str, user_id=None) -> Optional[SessionResponse]:
         """Update session title."""
-        conversation = await self._get_conversation(
-            session_id, user_id=user_id, active_only=False
-        )
+        conversation = await self._get_conversation(session_id, user_id=user_id, active_only=False)
 
         if not conversation:
             return None
@@ -106,9 +100,7 @@ class SessionService:
 
     async def delete_session(self, session_id: str, user_id=None) -> bool:
         """Delete a session."""
-        conversation = await self._get_conversation(
-            session_id, user_id=user_id, active_only=False
-        )
+        conversation = await self._get_conversation(session_id, user_id=user_id, active_only=False)
 
         if not conversation:
             return False
@@ -152,9 +144,7 @@ class SessionService:
         self.db.add(message)
 
         # Update session timestamp
-        result = await self.db.execute(
-            select(Conversation).where(Conversation.thread_id == session_id)
-        )
+        result = await self.db.execute(select(Conversation).where(Conversation.thread_id == session_id))
         conversation = result.scalar_one_or_none()
         if conversation:
             conversation.updated_at = utc_now()
@@ -164,27 +154,20 @@ class SessionService:
 
         return message
 
-    async def get_session_messages(
-        self, session_id: str, limit: int = 100, user_id=None
-    ) -> List[Message]:
+    async def get_session_messages(self, session_id: str, limit: int = 100, user_id=None) -> List[Message]:
         """Get messages for a session."""
         if user_id is not None:
             conv = await self._get_conversation(session_id, user_id=user_id, active_only=False)
             if not conv:
                 return []
         result = await self.db.execute(
-            select(Message)
-            .where(Message.thread_id == session_id)
-            .order_by(Message.created_at.desc())
-            .limit(limit)
+            select(Message).where(Message.thread_id == session_id).order_by(Message.created_at.desc()).limit(limit)
         )
         return result.scalars().all()
 
     async def get_ai_adapter(self, session_id: str, user_id=None) -> Optional[AgentBridge]:
         """Get AI adapter for a session (lightweight, no CLI coupling)."""
-        conversation = await self._get_conversation(
-            session_id, user_id=user_id, active_only=True
-        )
+        conversation = await self._get_conversation(session_id, user_id=user_id, active_only=True)
         if not conversation:
             return None
         workspace_path = (conversation.meta_data or {}).get("workspace_path")

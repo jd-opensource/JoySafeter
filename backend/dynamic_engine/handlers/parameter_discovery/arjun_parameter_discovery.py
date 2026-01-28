@@ -14,8 +14,8 @@ class ArjunHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['arjun']
+        """Handler related commands"""
+        return ["arjun"]
 
     def handle(self, data: Dict) -> Any:
         """Execute arjun with enhanced logging"""

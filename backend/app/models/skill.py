@@ -1,6 +1,7 @@
 """
 Skill 模型
 """
+
 from __future__ import annotations
 
 import uuid
@@ -96,4 +97,3 @@ class SkillFile(BaseModel):
         Index("skill_files_skill_idx", "skill_id"),
         Index("skill_files_path_idx", "skill_id", "path"),
     )
-

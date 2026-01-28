@@ -17,7 +17,8 @@ from loguru import logger
 
 from app.dynamic_agent.storage.models import ExecutionStepResponse, ExecutionStepStatus, TaskResponse, TaskStatus
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class TaskDAO:
     """Data Access Object for Tasks and Execution Steps."""
@@ -35,44 +36,42 @@ class TaskDAO:
         try:
             pool = self.pool
             if pool is None:
-                return {'error': 'Pool is None', 'pool_object': str(self.pool)}
+                return {"error": "Pool is None", "pool_object": str(self.pool)}
 
             # Use asyncpg 0.31.0+ public API
             stats = {
-                'pool_type': str(type(pool).__name__),
+                "pool_type": str(type(pool).__name__),
             }
 
             # Try new API methods (asyncpg 0.31.0+)
             try:
-                stats['size'] = pool.get_size() if hasattr(pool, 'get_size') else 'N/A'
-                stats['max_size'] = pool.get_max_size() if hasattr(pool, 'get_max_size') else getattr(pool, '_maxsize', 'N/A')
-                stats['min_size'] = pool.get_min_size() if hasattr(pool, 'get_min_size') else getattr(pool, '_minsize', 'N/A')
-                stats['idle'] = pool.get_idle_size() if hasattr(pool, 'get_idle_size') else 'N/A'
+                stats["size"] = pool.get_size() if hasattr(pool, "get_size") else "N/A"
+                stats["max_size"] = (
+                    pool.get_max_size() if hasattr(pool, "get_max_size") else getattr(pool, "_maxsize", "N/A")
+                )
+                stats["min_size"] = (
+                    pool.get_min_size() if hasattr(pool, "get_min_size") else getattr(pool, "_minsize", "N/A")
+                )
+                stats["idle"] = pool.get_idle_size() if hasattr(pool, "get_idle_size") else "N/A"
 
                 # Calculate in_use
-                if isinstance(stats['size'], int) and isinstance(stats['idle'], int):
-                    stats['in_use'] = stats['size'] - stats['idle']
+                if isinstance(stats["size"], int) and isinstance(stats["idle"], int):
+                    stats["in_use"] = stats["size"] - stats["idle"]
                 else:
-                    stats['in_use'] = 'N/A'
+                    stats["in_use"] = "N/A"
 
             except Exception as e:
                 # Fallback to old private attributes
-                stats['size'] = getattr(pool, '_size', 'N/A')
-                stats['max_size'] = getattr(pool, '_maxsize', 'N/A')
-                stats['min_size'] = getattr(pool, '_minsize', 'N/A')
-                stats['_error'] = str(e)
+                stats["size"] = getattr(pool, "_size", "N/A")
+                stats["max_size"] = getattr(pool, "_maxsize", "N/A")
+                stats["min_size"] = getattr(pool, "_minsize", "N/A")
+                stats["_error"] = str(e)
 
             return stats
         except Exception as e:
-            return {'error': f'Failed to get pool stats: {e}', 'pool_type': str(type(self.pool))}
+            return {"error": f"Failed to get pool stats: {e}", "pool_type": str(type(self.pool))}
 
-    async def _execute_with_retry(
-        self,
-        operation: Callable[..., T],
-        *args,
-        max_retries: int = 3,
-        **kwargs
-    ) -> T:
+    async def _execute_with_retry(self, operation: Callable[..., T], *args, max_retries: int = 3, **kwargs) -> T:
         """Execute database operation with retry logic for connection errors.
 
         Args:
@@ -104,14 +103,13 @@ class TaskDAO:
                     if attempt >= max_retries - 1:
                         pool_stats = self._get_pool_stats()
                         logger.error(
-                            f"DB connection state error after {max_retries} attempts | "
-                            f"Pool Stats: {pool_stats}",
-                            exc_info=e
+                            f"DB connection state error after {max_retries} attempts | Pool Stats: {pool_stats}",
+                            exc_info=e,
                         )
                         break
 
                     # Exponential backoff + jitter
-                    wait_time = min(2 ** attempt * 0.5 + random.uniform(0.1, 0.5), 5.0)
+                    wait_time = min(2**attempt * 0.5 + random.uniform(0.1, 0.5), 5.0)
 
                     pool_stats = self._get_pool_stats()
                     logger.warning(
@@ -126,26 +124,24 @@ class TaskDAO:
                     raise
 
             except (
-                    asyncpg.ConnectionDoesNotExistError,
-                    asyncpg.exceptions.TooManyConnectionsError,
-                    asyncpg.PostgresConnectionError,
-                    asyncpg.CannotConnectNowError,
-                    asyncio.TimeoutError,
-                    ConnectionResetError,
+                asyncpg.ConnectionDoesNotExistError,
+                asyncpg.exceptions.TooManyConnectionsError,
+                asyncpg.PostgresConnectionError,
+                asyncpg.CannotConnectNowError,
+                asyncio.TimeoutError,
+                ConnectionResetError,
             ) as e:
                 last_error = e
 
                 if attempt >= max_retries - 1:
                     pool_stats = self._get_pool_stats()
                     logger.error(
-                        f"DB connection error after {max_retries} attempts | "
-                        f"Pool Stats: {pool_stats}",
-                        exc_info=e
+                        f"DB connection error after {max_retries} attempts | Pool Stats: {pool_stats}", exc_info=e
                     )
                     break
 
                 # Exponential backoff + jitter
-                wait_time = min(2 ** attempt * 0.5 + random.uniform(0.1, 0.5), 5.0)
+                wait_time = min(2**attempt * 0.5 + random.uniform(0.1, 0.5), 5.0)
 
                 pool_stats = self._get_pool_stats()
                 logger.warning(
@@ -172,14 +168,14 @@ class TaskDAO:
         message_id: Optional[int] = None,
         metadata: Optional[dict] = None,
         parent_id: Optional[UUID] = None,
-        created_by_step_id: Optional[UUID] = None
+        created_by_step_id: Optional[UUID] = None,
     ) -> TaskResponse:
         """Create a new task (or subtask if parent_id is provided)."""
         # Filter out non-serializable objects from metadata
         serializable_metadata = {}
         if metadata:
             for k, v in metadata.items():
-                if k in ['response_queue', 'callbacks']:
+                if k in ["response_queue", "callbacks"]:
                     continue
                 if callable(v):
                     continue
@@ -197,18 +193,30 @@ class TaskDAO:
                 if parent_id:
                     parent_row = await conn.fetchrow("SELECT level FROM tasks WHERE id = $1", parent_id)
                     if parent_row:
-                        level = parent_row['level'] + 1
-                        logger.info(f"Creating child task with parent_id={parent_id}, parent_level={parent_row['level']}, new_level={level}")
+                        level = parent_row["level"] + 1
+                        logger.info(
+                            f"Creating child task with parent_id={parent_id}, parent_level={parent_row['level']}, new_level={level}"
+                        )
                     else:
                         logger.warning(f"Parent task {parent_id} not found, using level 1")
                 else:
                     logger.info(f"Creating root task with level={level}, user_input='{user_input[:50]}...'")
 
-                row = await conn.fetchrow("""
+                row = await conn.fetchrow(
+                    """
                     INSERT INTO tasks (session_id, user_input, message_id, status, metadata, parent_id, level, created_by_step_id)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     RETURNING *
-                """, session_id, user_input, message_id, TaskStatus.PENDING.value, json.dumps(serializable_metadata), parent_id, level, created_by_step_id)
+                """,
+                    session_id,
+                    user_input,
+                    message_id,
+                    TaskStatus.PENDING.value,
+                    json.dumps(serializable_metadata),
+                    parent_id,
+                    level,
+                    created_by_step_id,
+                )
 
                 return self._map_task(row)
 
@@ -216,10 +224,12 @@ class TaskDAO:
 
     async def get_task_by_id(self, task_id: UUID) -> Optional[TaskResponse]:
         """Get a task by ID."""
+
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
                 row = await conn.fetchrow("SELECT * FROM tasks WHERE id = $1", task_id)
                 return self._map_task(row) if row else None
+
         return await self._execute_with_retry(_do_get)
 
     async def update_task(
@@ -227,9 +237,10 @@ class TaskDAO:
         task_id: UUID,
         status: Optional[TaskStatus] = None,
         result_summary: Optional[str] = None,
-        completed_at: Optional[datetime] = None
+        completed_at: Optional[datetime] = None,
     ) -> Optional[TaskResponse]:
         """Update a task."""
+
         async def _do_update():
             async with self.pool.acquire(timeout=5.0) as conn:
                 fields = ["updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'"]
@@ -253,20 +264,17 @@ class TaskDAO:
 
                 query = f"""
                     UPDATE tasks
-                    SET {', '.join(fields)}
+                    SET {", ".join(fields)}
                     WHERE id = ${idx}
                     RETURNING *
                 """
 
                 row = await conn.fetchrow(query, *values)
                 return self._map_task(row) if row else None
+
         return await self._execute_with_retry(_do_update)
 
-    async def update_task_metadata(
-        self,
-        task_id: UUID,
-        metadata_updates: dict
-    ) -> Optional[TaskResponse]:
+    async def update_task_metadata(self, task_id: UUID, metadata_updates: dict) -> Optional[TaskResponse]:
         """Update task metadata by merging with existing metadata.
 
         Args:
@@ -276,6 +284,7 @@ class TaskDAO:
         Returns:
             Updated task response or None if task not found
         """
+
         async def _do_update():
             async with self.pool.acquire(timeout=5.0) as conn:
                 # Get current task
@@ -285,9 +294,9 @@ class TaskDAO:
 
                 # Merge existing metadata with updates
                 existing_metadata = {}
-                if row['metadata']:
+                if row["metadata"]:
                     try:
-                        existing_metadata = json.loads(row['metadata'])
+                        existing_metadata = json.loads(row["metadata"])
                     except (json.JSONDecodeError, TypeError):
                         logger.warning(f"Failed to parse existing metadata for task {task_id}")
 
@@ -297,7 +306,7 @@ class TaskDAO:
                 # Filter out non-serializable objects
                 serializable_metadata = {}
                 for k, v in merged_metadata.items():
-                    if k in ['response_queue', 'callbacks']:
+                    if k in ["response_queue", "callbacks"]:
                         continue
                     if callable(v):
                         continue
@@ -309,57 +318,80 @@ class TaskDAO:
                         continue
 
                 # Update the task
-                updated_row = await conn.fetchrow("""
+                updated_row = await conn.fetchrow(
+                    """
                     UPDATE tasks
                     SET metadata = $1, updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
                     WHERE id = $2
                     RETURNING *
-                """, json.dumps(serializable_metadata), task_id)
+                """,
+                    json.dumps(serializable_metadata),
+                    task_id,
+                )
 
                 return self._map_task(updated_row) if updated_row else None
+
         return await self._execute_with_retry(_do_update)
 
-    async def get_tasks_by_session(self, session_id: str, limit: int = 50, offset: int = 0) -> tuple[List[TaskResponse], int]:
+    async def get_tasks_by_session(
+        self, session_id: str, limit: int = 50, offset: int = 0
+    ) -> tuple[List[TaskResponse], int]:
         """Get root tasks for a session with pagination."""
+
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
                 total = await conn.fetchval(
-                    "SELECT COUNT(*) FROM tasks WHERE session_id = $1 AND parent_id IS NULL",
-                    session_id
+                    "SELECT COUNT(*) FROM tasks WHERE session_id = $1 AND parent_id IS NULL", session_id
                 )
 
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM tasks
                     WHERE session_id = $1 AND parent_id IS NULL
                     ORDER BY created_at DESC
                     LIMIT $2 OFFSET $3
-                """, session_id, limit, offset)
+                """,
+                    session_id,
+                    limit,
+                    offset,
+                )
 
                 return [self._map_task(row) for row in rows], total
+
         return await self._execute_with_retry(_do_get)
 
     async def get_subtasks(self, parent_id: UUID) -> List[TaskResponse]:
         """Get all subtasks of a parent task."""
+
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM tasks
                     WHERE parent_id = $1
                     ORDER BY created_at ASC
-                """, parent_id)
+                """,
+                    parent_id,
+                )
                 return [self._map_task(row) for row in rows]
+
         return await self._execute_with_retry(_do_get)
 
     async def get_subtasks_by_step(self, created_by_step_id: UUID) -> List[TaskResponse]:
         """Get all subtasks created by a specific execution step."""
+
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM tasks
                     WHERE created_by_step_id = $1
                     ORDER BY created_at ASC
-                """, created_by_step_id)
+                """,
+                    created_by_step_id,
+                )
                 return [self._map_task(row) for row in rows]
+
         return await self._execute_with_retry(_do_get)
 
     async def get_tasks_batch(self, task_ids: List[UUID]) -> Dict[UUID, TaskResponse]:
@@ -369,36 +401,50 @@ class TaskDAO:
 
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM tasks
                     WHERE id = ANY($1)
-                """, task_ids)
-                return {row['id']: self._map_task(row) for row in rows}
+                """,
+                    task_ids,
+                )
+                return {row["id"]: self._map_task(row) for row in rows}
+
         return await self._execute_with_retry(_do_get)
 
     async def get_root_tasks(self, session_id: str) -> List[TaskResponse]:
         """Get all root tasks for a session."""
+
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM tasks
                     WHERE session_id = $1 AND parent_id IS NULL
                     ORDER BY created_at DESC
-                """, session_id)
+                """,
+                    session_id,
+                )
                 return [self._map_task(row) for row in rows]
+
         return await self._execute_with_retry(_do_get)
 
     async def get_task_id_by_message_id(self, message_id: int) -> Optional[str]:
         """Get task_id by message_id."""
+
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
-                row = await conn.fetchrow("""
+                row = await conn.fetchrow(
+                    """
                     SELECT id FROM tasks
                     WHERE message_id = $1
                     ORDER BY created_at DESC
                     LIMIT 1
-                """, message_id)
-                return str(row['id']) if row else None
+                """,
+                    message_id,
+                )
+                return str(row["id"]) if row else None
+
         return await self._execute_with_retry(_do_get)
 
     # --- Execution Step Operations ---
@@ -410,7 +456,7 @@ class TaskDAO:
         step_type: str,
         name: str,
         input_data: Optional[dict] = None,
-        agent_trace: Optional[dict] = None
+        agent_trace: Optional[dict] = None,
     ) -> ExecutionStepResponse:
         """Create a new execution step with a pre-generated step_id.
 
@@ -425,10 +471,12 @@ class TaskDAO:
         Returns:
             Created ExecutionStepResponse
         """
+
         async def _do_create():
             async with self.pool.acquire(timeout=15.0) as conn:
                 async with conn.transaction():
-                    row = await conn.fetchrow("""
+                    row = await conn.fetchrow(
+                        """
                         INSERT INTO execution_steps (
                             id, task_id, step_type, name, input_data,
                             status, agent_trace
@@ -442,12 +490,15 @@ class TaskDAO:
                         name,
                         json.dumps(input_data or {}),
                         ExecutionStepStatus.RUNNING.value,
-                        json.dumps(agent_trace) if agent_trace else None
+                        json.dumps(agent_trace) if agent_trace else None,
                     )
 
-                    await conn.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE id = $1", task_id)
+                    await conn.execute(
+                        "UPDATE tasks SET updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE id = $1", task_id
+                    )
 
                     return self._map_step(row)
+
         return await self._execute_with_retry(_do_create)
 
     async def create_step(
@@ -456,9 +507,10 @@ class TaskDAO:
         step_type: str,
         name: str,
         input_data: Optional[dict] = None,
-        agent_trace: Optional[dict] = None
+        agent_trace: Optional[dict] = None,
     ) -> ExecutionStepResponse:
         """Create a new execution step."""
+
         async def _do_create():
             # Timeout for acquiring connection from pool.
             # In high-concurrency scenarios (e.g., 10 sub-agents with frequent LLM/tool callbacks),
@@ -466,7 +518,8 @@ class TaskDAO:
             # Balance: too short = frequent timeouts, too long = hangs on actual failures.
             async with self.pool.acquire(timeout=15.0) as conn:
                 async with conn.transaction():
-                    row = await conn.fetchrow("""
+                    row = await conn.fetchrow(
+                        """
                         INSERT INTO execution_steps (
                             task_id, step_type, name, input_data,
                             status, agent_trace
@@ -479,20 +532,25 @@ class TaskDAO:
                         name,
                         json.dumps(input_data or {}),
                         ExecutionStepStatus.RUNNING.value,
-                        json.dumps(agent_trace) if agent_trace else None
+                        json.dumps(agent_trace) if agent_trace else None,
                     )
 
-                    await conn.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE id = $1", task_id)
+                    await conn.execute(
+                        "UPDATE tasks SET updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE id = $1", task_id
+                    )
 
                     return self._map_step(row)
+
         return await self._execute_with_retry(_do_create)
 
     async def get_step_by_id(self, step_id: UUID) -> Optional[ExecutionStepResponse]:
         """Get step by ID."""
+
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
                 row = await conn.fetchrow("SELECT * FROM execution_steps WHERE id = $1", step_id)
                 return self._map_step(row) if row else None
+
         return await self._execute_with_retry(_do_get)
 
     async def update_step(
@@ -500,9 +558,10 @@ class TaskDAO:
         step_id: UUID,
         status: Optional[ExecutionStepStatus] = None,
         output_data: Optional[dict] = None,
-        error_message: Optional[str] = None
+        error_message: Optional[str] = None,
     ) -> Optional[ExecutionStepResponse]:
         """Update execution step."""
+
         async def _do_update():
             # Timeout for acquiring connection from pool (same as create_step)
             async with self.pool.acquire(timeout=15.0) as conn:
@@ -535,7 +594,7 @@ class TaskDAO:
 
                     query = f"""
                         UPDATE execution_steps
-                        SET {', '.join(fields)}
+                        SET {", ".join(fields)}
                         WHERE id = ${idx}
                         RETURNING *
                     """
@@ -543,21 +602,30 @@ class TaskDAO:
                     row = await conn.fetchrow(query, *values)
 
                     if row:
-                        await conn.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE id = (SELECT task_id FROM execution_steps WHERE id = $1)", step_id)
+                        await conn.execute(
+                            "UPDATE tasks SET updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE id = (SELECT task_id FROM execution_steps WHERE id = $1)",
+                            step_id,
+                        )
 
                     return self._map_step(row) if row else None
+
         return await self._execute_with_retry(_do_update)
 
     async def get_all_steps_for_task(self, task_id: UUID) -> List[ExecutionStepResponse]:
         """Get all execution steps for a task."""
+
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM execution_steps
                     WHERE task_id = $1
                     ORDER BY created_at
-                """, task_id)
+                """,
+                    task_id,
+                )
                 return [self._map_step(row) for row in rows]
+
         return await self._execute_with_retry(_do_get)
 
     async def get_steps_batch(self, task_ids: List[UUID]) -> Dict[UUID, List[ExecutionStepResponse]]:
@@ -567,29 +635,32 @@ class TaskDAO:
 
         async def _do_get():
             async with self.pool.acquire(timeout=5.0) as conn:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM execution_steps
                     WHERE task_id = ANY($1)
                     ORDER BY task_id, created_at
-                """, task_ids)
+                """,
+                    task_ids,
+                )
 
                 result: Dict[UUID, List[ExecutionStepResponse]] = {}
                 for row in rows:
-                    task_id = row['task_id']
+                    task_id = row["task_id"]
                     if task_id not in result:
                         result[task_id] = []
                     result[task_id].append(self._map_step(row))
 
                 return result
-        return await self._execute_with_retry(_do_get)
 
+        return await self._execute_with_retry(_do_get)
 
     # --- Mappers ---
 
     def _map_task(self, row: asyncpg.Record) -> TaskResponse:
         """Map DB row to TaskResponse Pydantic model."""
         # Handle session_id: it might be a UUID object, UUID string, or plain string
-        session_id_value = row['session_id']
+        session_id_value = row["session_id"]
         if isinstance(session_id_value, str):
             try:
                 # Try to parse as UUID
@@ -598,66 +669,67 @@ class TaskDAO:
                 # If not a valid UUID, generate a deterministic UUID from the string
                 # Using uuid5 with a namespace ensures the same string always maps to the same UUID
                 import uuid
+
                 session_id_value = uuid.uuid5(uuid.NAMESPACE_DNS, session_id_value)
                 logger.debug(f"Converted non-UUID session_id '{row['session_id']}' to UUID: {session_id_value}")
 
         # Convert naive datetime to UTC-aware datetime
         # Database stores UTC time without timezone info
-        created_at = row['created_at']
+        created_at = row["created_at"]
         if created_at and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
 
-        updated_at = row['updated_at']
+        updated_at = row["updated_at"]
         if updated_at and updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=timezone.utc)
 
-        completed_at = row['completed_at']
+        completed_at = row["completed_at"]
         if completed_at and completed_at.tzinfo is None:
             completed_at = completed_at.replace(tzinfo=timezone.utc)
 
         return TaskResponse(
-            id=row['id'],
-            parent_id=row.get('parent_id'),  # Parent task ID for subtasks
-            created_by_step_id=row.get('created_by_step_id'),  # Step that created this task
-            level=row.get('level', 1),  # Task hierarchy level
+            id=row["id"],
+            parent_id=row.get("parent_id"),  # Parent task ID for subtasks
+            created_by_step_id=row.get("created_by_step_id"),  # Step that created this task
+            level=row.get("level", 1),  # Task hierarchy level
             session_id=session_id_value,
-            message_id=row.get('message_id'),
-            user_input=row['user_input'],
-            status=TaskStatus(row['status']),
+            message_id=row.get("message_id"),
+            user_input=row["user_input"],
+            status=TaskStatus(row["status"]),
             created_at=created_at,
             updated_at=updated_at,
             completed_at=completed_at,
-            result_summary=row['result_summary'],
-            metadata=json.loads(row['metadata']) if row['metadata'] else {}
+            result_summary=row["result_summary"],
+            metadata=json.loads(row["metadata"]) if row["metadata"] else {},
         )
 
     def _map_step(self, row: asyncpg.Record) -> ExecutionStepResponse:
         """Map DB row to ExecutionStepResponse Pydantic model."""
         # Convert naive datetime to UTC-aware datetime
         # Database stores UTC time without timezone info
-        start_time = row['start_time']
+        start_time = row["start_time"]
         if start_time and start_time.tzinfo is None:
             start_time = start_time.replace(tzinfo=timezone.utc)
 
-        end_time = row['end_time']
+        end_time = row["end_time"]
         if end_time and end_time.tzinfo is None:
             end_time = end_time.replace(tzinfo=timezone.utc)
 
-        created_at = row['created_at']
+        created_at = row["created_at"]
         if created_at and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
 
         return ExecutionStepResponse(
-            id=row['id'],
-            task_id=row['task_id'],
-            step_type=row['step_type'],
-            name=row['name'],
-            input_data=json.loads(row['input_data']) if row['input_data'] else {},
-            output_data=json.loads(row['output_data']) if row['output_data'] else None,
-            status=ExecutionStepStatus(row['status']),
+            id=row["id"],
+            task_id=row["task_id"],
+            step_type=row["step_type"],
+            name=row["name"],
+            input_data=json.loads(row["input_data"]) if row["input_data"] else {},
+            output_data=json.loads(row["output_data"]) if row["output_data"] else None,
+            status=ExecutionStepStatus(row["status"]),
             start_time=start_time,
             end_time=end_time,
-            error_message=row['error_message'],
-            agent_trace=json.loads(row['agent_trace']) if row['agent_trace'] else None,
-            created_at=created_at
+            error_message=row["error_message"],
+            agent_trace=json.loads(row["agent_trace"]) if row["agent_trace"] else None,
+            created_at=created_at,
         )

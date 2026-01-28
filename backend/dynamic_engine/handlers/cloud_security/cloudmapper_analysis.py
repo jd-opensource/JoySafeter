@@ -14,8 +14,8 @@ class CloudmapperHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['cloudmapper']
+        """Handler related commands"""
+        return ["cloudmapper"]
 
     def handle(self, data: Dict) -> Any:
         """Execute cloudmapper with enhanced logging"""

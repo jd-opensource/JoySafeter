@@ -147,11 +147,13 @@ async def invoke_copilot_agent(
     # Convert to dict format for compatibility
     actions = []
     for action in graph_actions:
-        actions.append({
-            "type": action.type.value,
-            "payload": action.payload,
-            "reasoning": action.reasoning,
-        })
+        actions.append(
+            {
+                "type": action.type.value,
+                "payload": action.payload,
+                "reasoning": action.reasoning,
+            }
+        )
 
     # Extract final message
     output_messages = result.get("messages", [])
@@ -171,4 +173,3 @@ async def invoke_copilot_agent(
         "message": final_message,
         "actions": actions,
     }
-

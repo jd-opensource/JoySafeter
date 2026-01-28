@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class SqlmapHandler(AbstractHandler):
     """Handler for sqlmap functionality"""
 
@@ -13,8 +14,8 @@ class SqlmapHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['sqlmap']
+        """Handler related commands"""
+        return ["sqlmap"]
 
     def handle(self, data: Dict) -> Any:
         """Execute sqlmap with enhanced logging"""
@@ -24,14 +25,10 @@ class SqlmapHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not url:
                 logger.warning("🎯 SQLMap called without URL parameter")
-                return {
-
-                    "error": "URL parameter is required"
-
-                }
+                return {"error": "URL parameter is required"}
             command = f"sqlmap -u {url} --batch"
             if post_data:
-                command += f" --data=\"{post_data}\""
+                command += f' --data="{post_data}"'
             if additional_args:
                 command += f" {additional_args}"
             logger.info(f"💉 Starting SQLMap scan: {url}")
@@ -40,8 +37,4 @@ class SqlmapHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in sqlmap endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

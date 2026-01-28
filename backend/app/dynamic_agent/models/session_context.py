@@ -27,6 +27,7 @@ class SessionContext:
         todo_status: TODO status string
         replan_reason: Replan reason (if any)
     """
+
     intent: str = ""
     progress: str = "0/0"
     findings: OrderedDict = field(default_factory=OrderedDict)
@@ -97,7 +98,7 @@ class SessionContext:
         Args:
             todo_panel: TodoPanel instance
         """
-        if todo_panel is None or not hasattr(todo_panel, 'items'):
+        if todo_panel is None or not hasattr(todo_panel, "items"):
             self.todo_status = ""
             return
 
@@ -129,12 +130,13 @@ class SessionContext:
             XML formatted session_context string
         """
         # Separate discovery hints from regular findings
-        discovery_type = self.findings.get('last_discovery_type')
-        suggested_next = self.findings.get('suggested_next')
+        discovery_type = self.findings.get("last_discovery_type")
+        suggested_next = self.findings.get("suggested_next")
 
         # Regular findings (exclude discovery hints)
-        regular_findings = {k: v for k, v in self.findings.items()
-                          if k not in ('last_discovery_type', 'suggested_next')}
+        regular_findings = {
+            k: v for k, v in self.findings.items() if k not in ("last_discovery_type", "suggested_next")
+        }
 
         if regular_findings:
             findings_lines = [f"    {k}: {v}" for k, v in regular_findings.items()]
@@ -152,7 +154,7 @@ class SessionContext:
         ]
 
         # Highlight discovery for replan decision
-        if discovery_type and discovery_type != 'none':
+        if discovery_type and discovery_type != "none":
             parts.append(f"⚡ DISCOVERY: {discovery_type} - Consider replan_tasks()")
             if suggested_next:
                 parts.append(f"💡 Suggested: {suggested_next}")

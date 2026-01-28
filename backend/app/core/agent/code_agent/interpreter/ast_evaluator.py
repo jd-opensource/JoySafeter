@@ -157,16 +157,19 @@ class PrintContainer:
 
 class BreakException(Exception):
     """Exception for break statement."""
+
     pass
 
 
 class ContinueException(Exception):
     """Exception for continue statement."""
+
     pass
 
 
 class ReturnException(Exception):
     """Exception for return statement."""
+
     def __init__(self, value):
         self.value = value
 
@@ -183,6 +186,7 @@ def get_iterable(obj):
 
 def safer_eval(func: Callable):
     """Decorator to enhance security by checking return values."""
+
     @wraps(func)
     def _check_return(
         expression,
@@ -194,6 +198,7 @@ def safer_eval(func: Callable):
         result = func(expression, state, static_tools, custom_tools, authorized_imports=authorized_imports)
         check_safer_result(result, static_tools, authorized_imports)
         return result
+
     return _check_return
 
 
@@ -216,6 +221,7 @@ def safer_func(
         result = func(*args, **kwargs)
         check_safer_result(result, static_tools, authorized_imports)
         return result
+
     return _check_return
 
 
@@ -264,6 +270,7 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
 # ============================================================================
 # AST Evaluation Functions
 # ============================================================================
+
 
 def evaluate_attribute(
     expression: ast.Attribute,
@@ -315,7 +322,11 @@ def evaluate_lambda(
         for arg, value in zip(args, values):
             new_state[arg] = value
         return evaluate_ast(
-            lambda_expression.body, new_state, static_tools, custom_tools, authorized_imports,
+            lambda_expression.body,
+            new_state,
+            static_tools,
+            custom_tools,
+            authorized_imports,
         )
 
     return lambda_func
@@ -358,11 +369,10 @@ def create_function(
         func_state = state.copy()
         arg_names = [arg.arg for arg in func_def.args.args]
         default_values = [
-            evaluate_ast(d, state, static_tools, custom_tools, authorized_imports)
-            for d in func_def.args.defaults
+            evaluate_ast(d, state, static_tools, custom_tools, authorized_imports) for d in func_def.args.defaults
         ]
 
-        defaults = dict(zip(arg_names[-len(default_values):], default_values)) if default_values else {}
+        defaults = dict(zip(arg_names[-len(default_values) :], default_values)) if default_values else {}
 
         for name, value in zip(arg_names, args):
             func_state[name] = value
@@ -371,7 +381,7 @@ def create_function(
             func_state[name] = value
 
         if func_def.args.vararg:
-            func_state[func_def.args.vararg.arg] = args[len(arg_names):]
+            func_state[func_def.args.vararg.arg] = args[len(arg_names) :]
 
         if func_def.args.kwarg:
             func_state[func_def.args.kwarg.arg] = kwargs
@@ -484,6 +494,7 @@ def evaluate_augassign(
     authorized_imports: list[str],
 ) -> Any:
     """Evaluate augmented assignments (+=, -=, etc.)."""
+
     def get_current_value(target: ast.AST) -> Any:
         if isinstance(target, ast.Name):
             return state.get(target.id, 0)
@@ -506,7 +517,7 @@ def evaluate_augassign(
         ast.Mult: lambda a, b: a * b,
         ast.Div: lambda a, b: a / b,
         ast.Mod: lambda a, b: a % b,
-        ast.Pow: lambda a, b: a ** b,
+        ast.Pow: lambda a, b: a**b,
         ast.FloorDiv: lambda a, b: a // b,
         ast.BitAnd: lambda a, b: a & b,
         ast.BitOr: lambda a, b: a | b,
@@ -559,7 +570,7 @@ def evaluate_binop(
         ast.Mult: lambda a, b: a * b,
         ast.Div: lambda a, b: a / b,
         ast.Mod: lambda a, b: a % b,
-        ast.Pow: lambda a, b: a ** b,
+        ast.Pow: lambda a, b: a**b,
         ast.FloorDiv: lambda a, b: a // b,
         ast.BitAnd: lambda a, b: a & b,
         ast.BitOr: lambda a, b: a | b,
@@ -710,6 +721,7 @@ def evaluate_call(
     else:
         # Check for dangerous builtins
         import inspect
+
         if (inspect.getmodule(func) == builtins) and inspect.isbuiltin(func) and (func not in static_tools.values()):
             raise InterpreterError(
                 f"Invoking a builtin function that has not been explicitly added as a tool is not allowed ({func_name})."
@@ -903,7 +915,10 @@ def evaluate_listcomp(
         _evaluate_comprehensions(
             listcomp.generators,
             lambda comp_state: evaluate_ast(listcomp.elt, comp_state, static_tools, custom_tools, authorized_imports),
-            state, static_tools, custom_tools, authorized_imports,
+            state,
+            static_tools,
+            custom_tools,
+            authorized_imports,
         )
     )
 
@@ -920,7 +935,10 @@ def evaluate_setcomp(
         _evaluate_comprehensions(
             setcomp.generators,
             lambda comp_state: evaluate_ast(setcomp.elt, comp_state, static_tools, custom_tools, authorized_imports),
-            state, static_tools, custom_tools, authorized_imports,
+            state,
+            static_tools,
+            custom_tools,
+            authorized_imports,
         )
     )
 
@@ -940,7 +958,10 @@ def evaluate_dictcomp(
                 evaluate_ast(dictcomp.key, comp_state, static_tools, custom_tools, authorized_imports),
                 evaluate_ast(dictcomp.value, comp_state, static_tools, custom_tools, authorized_imports),
             ),
-            state, static_tools, custom_tools, authorized_imports,
+            state,
+            static_tools,
+            custom_tools,
+            authorized_imports,
         )
     )
 
@@ -960,7 +981,8 @@ def evaluate_try(
         matched = False
         for handler in try_node.handlers:
             if handler.type is None or isinstance(
-                e, evaluate_ast(handler.type, state, static_tools, custom_tools, authorized_imports),
+                e,
+                evaluate_ast(handler.type, state, static_tools, custom_tools, authorized_imports),
             ):
                 matched = True
                 if handler.name:
@@ -1101,6 +1123,7 @@ def evaluate_generatorexp(
     authorized_imports: list[str],
 ) -> Generator[Any, None, None]:
     """Evaluate generator expressions."""
+
     def generator():
         for gen in genexp.generators:
             iter_value = evaluate_ast(gen.iter, state, static_tools, custom_tools, authorized_imports)
@@ -1315,4 +1338,3 @@ def evaluate_ast(
 
 
 __all__ = ["evaluate_ast", "BASE_PYTHON_TOOLS", "PrintContainer", "MAX_OPERATIONS", "MAX_WHILE_ITERATIONS"]
-

@@ -78,7 +78,9 @@ def search_yaml_with_keywords(
 
                     if total_steps > 0:
                         # Add header emphasizing sequential execution
-                        entry_hints.append(f"⚠️ [{name}] CRITICAL: Execute steps IN ORDER (Step N requires Step N-1 to complete first)")
+                        entry_hints.append(
+                            f"⚠️ [{name}] CRITICAL: Execute steps IN ORDER (Step N requires Step N-1 to complete first)"
+                        )
 
                     for i, step in enumerate(attack_steps):
                         action = step.get("action", "")
@@ -98,7 +100,7 @@ def search_yaml_with_keywords(
                             deps_str = (
                                 f"AFTER Step {', '.join(map(str, depends_on))}"
                                 if depends_on
-                                else f"AFTER Step {step_num-1}"
+                                else f"AFTER Step {step_num - 1}"
                             )
                             hint = f"[{name}] Step {step_num}/{total_steps} ({deps_str}): {action}"
 
@@ -122,9 +124,7 @@ def search_yaml_with_keywords(
                     # Extract discovery_hints (preferred over key_values)
                     discovery_hints = data.get("discovery_hints", [])
                     if discovery_hints:
-                        entry_hints.append(
-                            f"[{name}] 🔍 DISCOVERY STRATEGIES (use these to find targets):"
-                        )
+                        entry_hints.append(f"[{name}] 🔍 DISCOVERY STRATEGIES (use these to find targets):")
                         for dh in discovery_hints:
                             dh_type = dh.get("type", "unknown")
                             dh_desc = dh.get("description", "")
@@ -293,5 +293,3 @@ def get_default_hints(challenge_type: str) -> list[str]:
         ],
     }
     return defaults.get(challenge_type, defaults["misc"])
-
-

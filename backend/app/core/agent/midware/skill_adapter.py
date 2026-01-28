@@ -92,7 +92,7 @@ class DatabaseSkillAdapter(AgentMiddleware):
                 # Get effective skills path from loader
                 effective_skills_path = loader._get_skills_base_dir(self._backend)
                 # Ensure path ends with / for SkillsMiddleware
-                skills_source_path = effective_skills_path.rstrip('/') + '/'
+                skills_source_path = effective_skills_path.rstrip("/") + "/"
 
                 if self.skill_ids:
                     await loader.load_skills_to_sandbox(
@@ -118,18 +118,14 @@ class DatabaseSkillAdapter(AgentMiddleware):
                 backend=self._backend,
                 sources=[skills_source_path],
             )
-            logger.debug(
-                "DatabaseSkillAdapter: Loaded skills into StateBackend and created SkillsMiddleware"
-            )
+            logger.debug("DatabaseSkillAdapter: Loaded skills into StateBackend and created SkillsMiddleware")
         except Exception as e:
             logger.error(
                 f"DatabaseSkillAdapter: Failed to load skills: {e}",
                 exc_info=True,
             )
 
-    async def abefore_agent(
-        self, state: AgentState, runtime, config
-    ) -> Optional[AgentState]:
+    async def abefore_agent(self, state: AgentState, runtime, config) -> Optional[AgentState]:
         """Load skills and delegate to SkillsMiddleware."""
         await self._ensure_skills_loaded(runtime)
         if self._skills_middleware is None:
@@ -143,9 +139,7 @@ class DatabaseSkillAdapter(AgentMiddleware):
         try:
             asyncio.get_running_loop()
             # If loop is running, we can't use run_until_complete
-            logger.warning(
-                "Event loop is running, skipping skill loading in before_agent"
-            )
+            logger.warning("Event loop is running, skipping skill loading in before_agent")
             return None
         except RuntimeError:
             # No running loop, safe to use asyncio.run()

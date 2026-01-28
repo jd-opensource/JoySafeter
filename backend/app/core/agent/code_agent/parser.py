@@ -13,26 +13,20 @@ from typing import Any
 
 class ParsingError(Exception):
     """Exception raised when code parsing fails."""
+
     pass
 
 
 # Regex patterns for code block extraction
-CODE_BLOCK_PATTERN = re.compile(
-    r"```(?:python|py)?\s*\n(.*?)```",
-    re.DOTALL | re.IGNORECASE
-)
+CODE_BLOCK_PATTERN = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 
 # Pattern for extracting thought and code sections
 THOUGHT_PATTERN = re.compile(
-    r"(?:Thought|思考|分析|想法)[:：]\s*(.*?)(?=(?:Code|代码|```)|$)",
-    re.DOTALL | re.IGNORECASE
+    r"(?:Thought|思考|分析|想法)[:：]\s*(.*?)(?=(?:Code|代码|```)|$)", re.DOTALL | re.IGNORECASE
 )
 
 # Pattern for final_answer calls
-FINAL_ANSWER_PATTERN = re.compile(
-    r"final_answer\s*\((.*)\)\s*$",
-    re.DOTALL
-)
+FINAL_ANSWER_PATTERN = re.compile(r"final_answer\s*\((.*)\)\s*$", re.DOTALL)
 
 
 def parse_code_blobs(llm_output: str) -> str:
@@ -75,22 +69,30 @@ def parse_code_blobs(llm_output: str) -> str:
     # Check if the entire output looks like code (heuristic)
     lines = llm_output.strip().split("\n")
     code_indicators = [
-        "import ", "from ", "def ", "class ", "if ", "for ", "while ",
-        "return ", "print(", "=", "#", "try:", "except:", "with ",
+        "import ",
+        "from ",
+        "def ",
+        "class ",
+        "if ",
+        "for ",
+        "while ",
+        "return ",
+        "print(",
+        "=",
+        "#",
+        "try:",
+        "except:",
+        "with ",
     ]
 
-    code_like_lines = sum(
-        1 for line in lines
-        if any(line.strip().startswith(ind) for ind in code_indicators)
-    )
+    code_like_lines = sum(1 for line in lines if any(line.strip().startswith(ind) for ind in code_indicators))
 
     # If more than 50% of lines look like code, treat whole output as code
     if code_like_lines > len(lines) * 0.5:
         return llm_output.strip()
 
     raise ParsingError(
-        "Could not find code block in LLM output. "
-        "Expected code wrapped in ```python ... ``` or ``` ... ```"
+        "Could not find code block in LLM output. Expected code wrapped in ```python ... ``` or ``` ... ```"
     )
 
 
@@ -117,10 +119,7 @@ def extract_thought_and_code(llm_output: str) -> tuple[str, str]:
         code = parse_code_blobs(llm_output)
     except ParsingError:
         # If no code block found, check if there's code after "Code:" marker
-        code_marker_pattern = re.compile(
-            r"(?:Code|代码)[:：]\s*(.*)$",
-            re.DOTALL | re.IGNORECASE
-        )
+        code_marker_pattern = re.compile(r"(?:Code|代码)[:：]\s*(.*)$", re.DOTALL | re.IGNORECASE)
         code_match = code_marker_pattern.search(llm_output)
         if code_match:
             code = code_match.group(1).strip()
@@ -158,11 +157,11 @@ def fix_final_answer_code(code: str) -> str:
             value = last_line[7:].strip()
             lines[-1] = f"final_answer({value})"
         elif (
-            not last_line.endswith(":") and
-            "=" not in last_line and
-            not last_line.startswith("#") and
-            not last_line.startswith("print(") and
-            last_line
+            not last_line.endswith(":")
+            and "=" not in last_line
+            and not last_line.startswith("#")
+            and not last_line.startswith("print(")
+            and last_line
         ):
             # Wrap simple expressions
             lines[-1] = f"final_answer({last_line})"
@@ -339,4 +338,3 @@ __all__ = [
     "format_observation",
     "split_code_into_steps",
 ]
-

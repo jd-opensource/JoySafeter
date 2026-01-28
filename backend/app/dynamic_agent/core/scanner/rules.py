@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 @dataclass
 class VulnerabilityRule:
     """Definition of a vulnerability scanning rule"""
+
     id: str
     name: str
     severity: str  # HIGH, MEDIUM, LOW, INFO
@@ -31,6 +32,7 @@ class VulnerabilityRule:
 @dataclass
 class Finding:
     """A detected vulnerability"""
+
     id: str
     rule_id: str
     name: str
@@ -114,10 +116,10 @@ def load_rules() -> List[VulnerabilityRule]:
             name="Potential XSS (JavaScript)",
             severity="MEDIUM",
             patterns=[
-                r'innerHTML\s*=\s*.*\+',  # innerHTML with concatenation
-                r'document\.write\s*\(\s*.*\+',  # document.write with concatenation
-                r'\+\s*user[_-]?input',  # User input being concatenated
-                r'\+\s*request\.[a-zA-Z]+',  # Request parameters being concatenated
+                r"innerHTML\s*=\s*.*\+",  # innerHTML with concatenation
+                r"document\.write\s*\(\s*.*\+",  # document.write with concatenation
+                r"\+\s*user[_-]?input",  # User input being concatenated
+                r"\+\s*request\.[a-zA-Z]+",  # Request parameters being concatenated
             ],
             languages=[".js", ".ts"],
             requires_agent=True,

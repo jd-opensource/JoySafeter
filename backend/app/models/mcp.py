@@ -61,16 +61,8 @@ class McpServer(BaseModel, SoftDeleteMixin):
     last_used: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
     # Relationships
-    owner: Mapped["AuthUser"] = relationship(
-        "AuthUser",
-        foreign_keys=[user_id],
-        lazy="selectin"
-    )
-    creator: Mapped[Optional["AuthUser"]] = relationship(
-        "AuthUser",
-        foreign_keys=[created_by],
-        lazy="selectin"
-    )
+    owner: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")
+    creator: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[created_by], lazy="selectin")
 
     __table_args__ = (
         # User queries
@@ -79,4 +71,3 @@ class McpServer(BaseModel, SoftDeleteMixin):
         # Unique constraint: server name must be unique per user
         Index("mcp_servers_user_name_unique_idx", "user_id", "name", unique=True),
     )
-

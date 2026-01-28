@@ -67,11 +67,8 @@ class BackendPythonExecutor(PythonExecutor):
         self._tools: dict[str, Callable] = {}
         self.FINAL_ANSWER_MARKER = "__FINAL_ANSWER_MARKER__:"
 
-        backend_id = getattr(backend, 'id', 'unknown')
-        logger.debug(
-            f"BackendPythonExecutor initialized with backend {backend_id}, "
-            f"working_dir={working_dir}"
-        )
+        backend_id = getattr(backend, "id", "unknown")
+        logger.debug(f"BackendPythonExecutor initialized with backend {backend_id}, working_dir={working_dir}")
 
     def send_tools(self, tools: dict[str, Callable]) -> None:
         """
@@ -152,7 +149,7 @@ class BackendPythonExecutor(PythonExecutor):
                     return None
                 if isinstance(wr, dict):
                     return wr.get("error")
-                elif hasattr(wr, 'error'):
+                elif hasattr(wr, "error"):
                     return wr.error
                 return None
 
@@ -180,7 +177,7 @@ class BackendPythonExecutor(PythonExecutor):
             if isinstance(result, dict):
                 output = result.get("output", "")
                 exit_code = result.get("exit_code", -1)
-            elif hasattr(result, 'output') and hasattr(result, 'exit_code'):
+            elif hasattr(result, "output") and hasattr(result, "exit_code"):
                 # ExecuteResponse object or similar
                 output = result.output if result.output else ""
                 exit_code = result.exit_code if result.exit_code is not None else -1
@@ -188,9 +185,7 @@ class BackendPythonExecutor(PythonExecutor):
                 # Fallback: treat as string output
                 output = str(result) if result else ""
                 exit_code = 0
-                logger.warning(
-                    f"Unexpected result format from backend.execute(): {type(result)}"
-                )
+                logger.warning(f"Unexpected result format from backend.execute(): {type(result)}")
 
             # Check for final answer marker
             is_final_answer = False
@@ -201,7 +196,7 @@ class BackendPythonExecutor(PythonExecutor):
                 try:
                     # Parse final answer from output
                     marker_pos = output.find(self.FINAL_ANSWER_MARKER)
-                    answer_json = output[marker_pos + len(self.FINAL_ANSWER_MARKER):].strip()
+                    answer_json = output[marker_pos + len(self.FINAL_ANSWER_MARKER) :].strip()
                     # Find the JSON part
                     answer_data = json.loads(answer_json.split("\n")[0])
                     final_answer_value = answer_data.get("answer")
@@ -271,7 +266,7 @@ class BackendPythonExecutor(PythonExecutor):
         pass
 
     def __repr__(self) -> str:
-        backend_id = getattr(self._backend, 'id', 'unknown')
+        backend_id = getattr(self._backend, "id", "unknown")
         return f"BackendPythonExecutor(backend_id={backend_id}, working_dir={self.working_dir})"
 
 

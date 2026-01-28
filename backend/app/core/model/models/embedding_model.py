@@ -1,4 +1,5 @@
 """Embedding 模型包装器"""
+
 from langchain_core.embeddings import Embeddings
 
 from .base import BaseModelWrapper
@@ -36,4 +37,3 @@ class EmbeddingModelWrapper(BaseModelWrapper[Embeddings]):
             LangChain Embeddings模型实例
         """
         return self.model
-

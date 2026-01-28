@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 try:
     from pydantic_ai_backends import DockerSandbox
+
     PYDANTIC_BACKEND_AVAILABLE = True
 except ImportError:
     DockerSandbox = None  # type: ignore
@@ -125,8 +126,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         """
         if not PYDANTIC_BACKEND_AVAILABLE:
             raise ImportError(
-                "pydantic-ai-backend[docker] is required. "
-                "Install with: pip install pydantic-ai-backend[docker]"
+                "pydantic-ai-backend[docker] is required. Install with: pip install pydantic-ai-backend[docker]"
             )
 
         self._id = str(uuid.uuid4())
@@ -174,9 +174,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                         network=network_mode,
                         workdir=working_dir,
                     )
-                    logger.debug(
-                        "DockerSandbox created with alternative parameter names"
-                    )
+                    logger.debug("DockerSandbox created with alternative parameter names")
                 except TypeError:
                     # Final fallback: use only image parameter
                     logger.warning(
@@ -189,10 +187,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 f"image={image}, memory={memory_limit}, network={network_mode}"
             )
         except Exception as e:
-            logger.error(
-                f"Failed to create DockerSandbox for adapter {self._id}: {e}",
-                exc_info=True
-            )
+            logger.error(f"Failed to create DockerSandbox for adapter {self._id}: {e}", exc_info=True)
             raise RuntimeError(f"Failed to create DockerSandbox: {e}") from e
 
         # Explicitly start the sandbox (following pydantic-ai-backend lifecycle pattern)
@@ -230,27 +225,15 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 logger.debug(f"Calling start() on DockerSandbox for {self._id}")
                 self._sandbox.start()
                 self._started = True
-                logger.info(
-                    f"PydanticSandboxAdapter {self._id} started successfully "
-                    f"(image={self.image})"
-                )
+                logger.info(f"PydanticSandboxAdapter {self._id} started successfully (image={self.image})")
             else:
                 # DockerSandbox might auto-start on creation
                 # Mark as started to allow cleanup to work
-                logger.debug(
-                    f"Sandbox {self._id} does not have start() method, "
-                    "assuming auto-started on creation"
-                )
+                logger.debug(f"Sandbox {self._id} does not have start() method, assuming auto-started on creation")
                 self._started = True
-                logger.info(
-                    f"PydanticSandboxAdapter {self._id} ready "
-                    f"(auto-started, image={self.image})"
-                )
+                logger.info(f"PydanticSandboxAdapter {self._id} ready (auto-started, image={self.image})")
         except Exception as e:
-            logger.warning(
-                f"Failed to start sandbox {self._id}: {e}",
-                exc_info=True
-            )
+            logger.warning(f"Failed to start sandbox {self._id}: {e}", exc_info=True)
             # Don't raise - allow backward compatibility
             # Mark as started anyway to allow cleanup attempts
             self._started = True
@@ -292,16 +275,10 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 content = result.decode("utf-8", errors="replace")
             else:
                 content = str(result)
-            logger.debug(
-                f"[{self._id}] Successfully read file: {file_path} "
-                f"({len(content)} chars)"
-            )
+            logger.debug(f"[{self._id}] Successfully read file: {file_path} ({len(content)} chars)")
             return content
         except Exception as e:
-            logger.debug(
-                f"[{self._id}] Failed to read file {file_path}: {e}",
-                exc_info=True
-            )
+            logger.debug(f"[{self._id}] Failed to read file {file_path}: {e}", exc_info=True)
             return None
 
     def _write_file_to_sandbox(self, file_path: str, content: str) -> bool:
@@ -314,9 +291,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         Returns:
             True if successful, False otherwise.
         """
-        logger.info(
-            f"[{self._id}] Writing file: {file_path} ({len(content)} chars)"
-        )
+        logger.info(f"[{self._id}] Writing file: {file_path} ({len(content)} chars)")
         try:
             # Try different possible API methods
             content_bytes = content.encode("utf-8") if isinstance(content, str) else content
@@ -349,6 +324,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 # Escape content for shell
                 logger.debug(f"[{self._id}] Using execute fallback to write file: {file_path}")
                 import shlex
+
                 escaped_content = shlex.quote(content)
                 result = self._exec_command(f"echo -n {escaped_content} > {file_path}")
                 success = result[1] == 0  # exit_code == 0
@@ -361,10 +337,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             logger.warning(f"[{self._id}] All write methods failed for: {file_path}")
             return False
         except Exception as e:
-            logger.error(
-                f"[{self._id}] Failed to write file {file_path} to sandbox: {e}",
-                exc_info=True
-            )
+            logger.error(f"[{self._id}] Failed to write file {file_path} to sandbox: {e}", exc_info=True)
             return False
 
     def _exec_command(self, command: str) -> tuple[str, int]:
@@ -387,20 +360,26 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             elif hasattr(self._sandbox, "exec"):
                 result = self._sandbox.exec(command)
             else:
-                logger.error(
-                    f"[{self._id}] DockerSandbox does not have execute/run/exec method"
-                )
+                logger.error(f"[{self._id}] DockerSandbox does not have execute/run/exec method")
                 return "Error: No execute method available", -1
 
             # Adapt result format to our expected format
             # pydantic-ai-backend may return different format
             if hasattr(result, "stdout") and hasattr(result, "returncode"):
                 # Result is an object with stdout and returncode attributes
-                output = result.stdout.decode("utf-8", errors="replace") if isinstance(result.stdout, bytes) else str(result.stdout)
+                output = (
+                    result.stdout.decode("utf-8", errors="replace")
+                    if isinstance(result.stdout, bytes)
+                    else str(result.stdout)
+                )
                 exit_code = result.returncode
             elif hasattr(result, "output") and hasattr(result, "exit_code"):
                 # Alternative attribute names
-                output = result.output.decode("utf-8", errors="replace") if isinstance(result.output, bytes) else str(result.output)
+                output = (
+                    result.output.decode("utf-8", errors="replace")
+                    if isinstance(result.output, bytes)
+                    else str(result.output)
+                )
                 exit_code = result.exit_code
             elif isinstance(result, tuple) and len(result) >= 2:
                 # Result is a tuple (output, exit_code)
@@ -418,21 +397,12 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 output = str(result) if result else ""
                 exit_code = 0
 
-            logger.debug(
-                f"[{self._id}] Command executed: exit_code={exit_code}, "
-                f"output_length={len(output)}"
-            )
+            logger.debug(f"[{self._id}] Command executed: exit_code={exit_code}, output_length={len(output)}")
             if exit_code != 0:
-                logger.debug(
-                    f"[{self._id}] Command failed: {command[:100]}... "
-                    f"(exit_code={exit_code})"
-                )
+                logger.debug(f"[{self._id}] Command failed: {command[:100]}... (exit_code={exit_code})")
             return output, exit_code
         except Exception as e:
-            logger.error(
-                f"[{self._id}] Failed to execute command '{command}': {e}",
-                exc_info=True
-            )
+            logger.error(f"[{self._id}] Failed to execute command '{command}': {e}", exc_info=True)
             return f"Error: {str(e)}", -1
 
     # SandboxBackendProtocol implementation
@@ -548,9 +518,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         parent_dir = str(Path(file_path).parent)
         output, exit_code = self._exec_command(f"mkdir -p {parent_dir}")
         if exit_code != 0:
-            return WriteResult(
-                error=f"Failed to create parent directory {parent_dir}: {output}"
-            )
+            return WriteResult(error=f"Failed to create parent directory {parent_dir}: {output}")
 
         # Write file to sandbox
         success = self._write_file_to_sandbox(file_path, content)
@@ -709,16 +677,12 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 )
 
             logger.debug(
-                f"[{self._id}] Command execution completed: "
-                f"exit_code={exit_code}, truncated={response.truncated}"
+                f"[{self._id}] Command execution completed: exit_code={exit_code}, truncated={response.truncated}"
             )
             return response
 
         except Exception as e:
-            logger.error(
-                f"[{self._id}] Error executing command '{command}': {e}",
-                exc_info=True
-            )
+            logger.error(f"[{self._id}] Error executing command '{command}': {e}", exc_info=True)
             return ExecuteResponse(
                 output=f"Error executing command: {str(e)}",
                 exit_code=-1,
@@ -758,19 +722,13 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                     if result.exit_code == 0:
                         content_bytes = result.output.encode("utf-8")
                     else:
-                        responses.append(
-                            FileDownloadResponse(path=path, content=None, error="file_not_found")
-                        )
+                        responses.append(FileDownloadResponse(path=path, content=None, error="file_not_found"))
                         continue
 
-                responses.append(
-                    FileDownloadResponse(path=path, content=content_bytes, error=None)
-                )
+                responses.append(FileDownloadResponse(path=path, content=content_bytes, error=None))
             except Exception as e:
                 logger.error(f"[{self._id}] Failed to download file {path}: {e}", exc_info=True)
-                responses.append(
-                    FileDownloadResponse(path=path, content=None, error="permission_denied")
-                )
+                responses.append(FileDownloadResponse(path=path, content=None, error="permission_denied"))
 
         return responses
 
@@ -805,20 +763,17 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
 
                 # Fallback: use execute to write file
                 import shlex
+
                 content_str = content.decode("utf-8", errors="replace")
                 escaped_content = shlex.quote(content_str)
                 result = self._exec_command(f"echo -n {escaped_content} > {path}")
                 if result[1] == 0:  # exit_code == 0
                     responses.append(FileUploadResponse(path=path, error=None))
                 else:
-                    responses.append(
-                        FileUploadResponse(path=path, error="permission_denied")
-                    )
+                    responses.append(FileUploadResponse(path=path, error="permission_denied"))
             except Exception as e:
                 logger.error(f"[{self._id}] Failed to upload file {path}: {e}", exc_info=True)
-                responses.append(
-                    FileUploadResponse(path=path, error="permission_denied")
-                )
+                responses.append(FileUploadResponse(path=path, error="permission_denied"))
 
         return responses
 
@@ -842,27 +797,16 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             if hasattr(self._sandbox, "stop"):
                 logger.debug(f"Calling stop() on DockerSandbox for {self._id}")
                 self._sandbox.stop()
-                logger.info(
-                    f"PydanticSandboxAdapter {self._id} stopped successfully "
-                    f"(image={self.image})"
-                )
+                logger.info(f"PydanticSandboxAdapter {self._id} stopped successfully (image={self.image})")
             elif hasattr(self._sandbox, "cleanup"):
                 # Fallback to cleanup() if stop() is not available
                 logger.debug(f"Calling cleanup() on DockerSandbox for {self._id}")
                 self._sandbox.cleanup()
-                logger.info(
-                    f"PydanticSandboxAdapter {self._id} cleaned up successfully "
-                    f"(image={self.image})"
-                )
+                logger.info(f"PydanticSandboxAdapter {self._id} cleaned up successfully (image={self.image})")
             else:
-                logger.warning(
-                    f"Sandbox {self._id} does not have stop() or cleanup() method"
-                )
+                logger.warning(f"Sandbox {self._id} does not have stop() or cleanup() method")
         except Exception as e:
-            logger.warning(
-                f"Failed to stop sandbox {self._id}: {e}",
-                exc_info=True
-            )
+            logger.warning(f"Failed to stop sandbox {self._id}: {e}", exc_info=True)
         finally:
             # Always reset started state, even if cleanup failed
             self._started = False

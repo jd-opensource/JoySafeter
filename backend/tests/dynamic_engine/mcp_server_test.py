@@ -73,7 +73,7 @@ async def demo_sse(host: str = "http://localhost:8000/sse"):
 
                 while True:
                     tool_name = input("Enter tool name: ")
-                    input_json = input('Enter kwargs: ')
+                    input_json = input("Enter kwargs: ")
                     kwargs = {}
                     try:
                         kwargs = json.loads(input_json)
@@ -96,11 +96,7 @@ async def demo_streamable_http():
 
     try:
         async with streamablehttp_client("http://localhost:8000/mcp") as streams:
-            async with ClientSession(
-                streams[0],
-                streams[1],
-                read_timeout_seconds=timedelta(seconds=30)
-            ) as session:
+            async with ClientSession(streams[0], streams[1], read_timeout_seconds=timedelta(seconds=30)) as session:
                 # Initialize session
                 await session.initialize()
 
@@ -111,10 +107,9 @@ async def demo_streamable_http():
                     print(f"  - {tool.name}")
 
                 # Call a tool
-                result = await session.call_tool("execute_shell_command", {
-                    "command": "echo",
-                    "args": ["Hello from MCP!"]
-                })
+                result = await session.call_tool(
+                    "execute_shell_command", {"command": "echo", "args": ["Hello from MCP!"]}
+                )
                 print(f"\nTool result: {result}")
 
     except Exception as e:

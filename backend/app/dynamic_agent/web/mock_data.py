@@ -28,66 +28,42 @@ TOOLS_DATABASE = [
         "name": "nmap_scan",
         "description": "Network port scanning and service detection",
         "category": "network_scanning",
-        "parameters": {
-            "target": "string",
-            "ports": "string",
-            "aggressive": "boolean",
-            "timing": "string"
-        }
+        "parameters": {"target": "string", "ports": "string", "aggressive": "boolean", "timing": "string"},
     },
     {
         "id": "tool_gobuster",
         "name": "gobuster_scan",
         "description": "Directory and DNS enumeration",
         "category": "directory_enumeration",
-        "parameters": {
-            "target": "string",
-            "wordlist": "string",
-            "threads": "integer",
-            "extensions": "string"
-        }
+        "parameters": {"target": "string", "wordlist": "string", "threads": "integer", "extensions": "string"},
     },
     {
         "id": "tool_nuclei",
         "name": "nuclei_scan",
         "description": "Vulnerability scanning with templates",
         "category": "vulnerability_scanning",
-        "parameters": {
-            "target": "string",
-            "templates": "string",
-            "severity": "string"
-        }
+        "parameters": {"target": "string", "templates": "string", "severity": "string"},
     },
     {
         "id": "tool_sqlmap",
         "name": "sqlmap_test",
         "description": "SQL injection testing",
         "category": "web_testing",
-        "parameters": {
-            "url": "string",
-            "method": "string",
-            "data": "string"
-        }
+        "parameters": {"url": "string", "method": "string", "data": "string"},
     },
     {
         "id": "tool_decision",
         "name": "decision_engine",
         "description": "AI-powered decision making tool",
         "category": "knowledge_based",
-        "parameters": {
-            "context": "string",
-            "options": "array"
-        }
+        "parameters": {"context": "string", "options": "array"},
     },
     {
         "id": "tool_think",
         "name": "think_tool",
         "description": "Reasoning and analysis tool",
         "category": "knowledge_based",
-        "parameters": {
-            "question": "string",
-            "context": "string"
-        }
+        "parameters": {"question": "string", "context": "string"},
     },
 ]
 
@@ -125,6 +101,7 @@ CHAT_TEMPLATES = [
 
 # ==================== Mock Data Generators ====================
 
+
 def generate_tool_invocation(
     tool_index: int = 0,
     start_time_ms: int = None,
@@ -157,13 +134,13 @@ def generate_tool_invocation(
         result = {
             "open_ports": [22, 80, 443, 3306],
             "services": ["ssh", "http", "https", "mysql"],
-            "scan_time": f"{duration_ms}ms"
+            "scan_time": f"{duration_ms}ms",
         }
     elif tool["name"] == "gobuster_scan":
         result = {
             "found_paths": ["/admin", "/api", "/backup", "/config"],
             "status_codes": {"200": 4, "403": 2, "404": 100},
-            "scan_time": f"{duration_ms}ms"
+            "scan_time": f"{duration_ms}ms",
         }
     elif tool["name"] == "nuclei_scan":
         result = {
@@ -171,19 +148,19 @@ def generate_tool_invocation(
                 {"type": "CVE-2021-1234", "severity": "high"},
                 {"type": "Weak SSL", "severity": "medium"},
             ],
-            "scan_time": f"{duration_ms}ms"
+            "scan_time": f"{duration_ms}ms",
         }
     elif tool["name"] == "decision_engine":
         result = {
             "decision": "proceed_with_exploitation",
             "confidence": 0.85,
-            "reasoning": "Target shows signs of common vulnerabilities"
+            "reasoning": "Target shows signs of common vulnerabilities",
         }
     elif tool["name"] == "think_tool":
         result = {
             "analysis": "Target appears to be running outdated software",
             "recommendations": ["Update software", "Enable WAF"],
-            "risk_level": "high"
+            "risk_level": "high",
         }
     else:
         result = {"status": "completed", "records": random.randint(10, 100)}
@@ -233,9 +210,7 @@ def generate_agent(
     tool_count = random.randint(2, 5)
     tool_invocations = [
         generate_tool_invocation(
-            tool_index=i,
-            start_time_ms=start_time_ms + i * 5000,
-            duration_ms=random.randint(3000, 15000)
+            tool_index=i, start_time_ms=start_time_ms + i * 5000, duration_ms=random.randint(3000, 15000)
         )
         for i in range(tool_count)
     ]
@@ -247,10 +222,7 @@ def generate_agent(
         for i in range(sub_agent_count):
             sub_agents.append(
                 generate_agent(
-                    level=level + 1,
-                    parent_agent_id=agent_id,
-                    start_time_ms=start_time_ms + i * 10000,
-                    depth=depth
+                    level=level + 1, parent_agent_id=agent_id, start_time_ms=start_time_ms + i * 10000, depth=depth
                 )
             )
 
@@ -293,11 +265,7 @@ def generate_execution_tree(task_id: str = None) -> ExecutionTreeResponse:
     end_time_ms = start_time_ms + total_duration_ms
 
     # MOCK: Generate root agent
-    root_agent = generate_agent(
-        level=0,
-        start_time_ms=start_time_ms,
-        depth=2
-    )
+    root_agent = generate_agent(level=0, start_time_ms=start_time_ms, depth=2)
 
     # MOCK: Count total agents and tools recursively
     def count_agents_and_tools(agent: AgentResponse) -> tuple:

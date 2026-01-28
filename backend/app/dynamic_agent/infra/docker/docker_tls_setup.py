@@ -33,11 +33,7 @@ class DockerTLSSetup:
     def check_openssl() -> bool:
         """Check if OpenSSL is installed"""
         try:
-            result = subprocess.run(
-                ['openssl', 'version'],
-                capture_output=True,
-                timeout=5
-            )
+            result = subprocess.run(["openssl", "version"], capture_output=True, timeout=5)
             return result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             logger.debug(f"OpenSSL check failed: {e}")
@@ -66,23 +62,25 @@ class DockerTLSSetup:
             ca_cert = self.cert_dir / f"{ca_name}.pem"
 
             # Generate CA private key
-            cmd = [
-                'openssl', 'genrsa',
-                '-out', str(ca_key),
-                '2048'
-            ]
+            cmd = ["openssl", "genrsa", "-out", str(ca_key), "2048"]
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
                 return False, f"Failed to generate CA key: {result.stderr.decode()}"
 
             # Generate CA certificate
             cmd = [
-                'openssl', 'req',
-                '-new', '-x509',
-                '-days', str(days),
-                '-key', str(ca_key),
-                '-out', str(ca_cert),
-                '-subj', '/CN=Docker-CA'
+                "openssl",
+                "req",
+                "-new",
+                "-x509",
+                "-days",
+                str(days),
+                "-key",
+                str(ca_key),
+                "-out",
+                str(ca_cert),
+                "-subj",
+                "/CN=Docker-CA",
             ]
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
@@ -126,18 +124,22 @@ class DockerTLSSetup:
             server_cert = self.cert_dir / f"{server_name}.pem"
 
             # Generate server private key
-            cmd = ['openssl', 'genrsa', '-out', str(server_key), '2048']
+            cmd = ["openssl", "genrsa", "-out", str(server_key), "2048"]
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
                 return False, f"Failed to generate server key: {result.stderr.decode()}"
 
             # Generate server CSR (Certificate Signing Request)
             cmd = [
-                'openssl', 'req',
-                '-new',
-                '-key', str(server_key),
-                '-out', str(server_csr),
-                '-subj', f'/CN={server_name}'
+                "openssl",
+                "req",
+                "-new",
+                "-key",
+                str(server_key),
+                "-out",
+                str(server_csr),
+                "-subj",
+                f"/CN={server_name}",
             ]
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
@@ -152,15 +154,22 @@ extendedKeyUsage = serverAuth
 
             # Sign server certificate with CA
             cmd = [
-                'openssl', 'x509',
-                '-req',
-                '-days', str(days),
-                '-in', str(server_csr),
-                '-CA', str(ca_cert),
-                '-CAkey', str(ca_key),
-                '-CAcreateserial',
-                '-out', str(server_cert),
-                '-extfile', str(ext_file)
+                "openssl",
+                "x509",
+                "-req",
+                "-days",
+                str(days),
+                "-in",
+                str(server_csr),
+                "-CA",
+                str(ca_cert),
+                "-CAkey",
+                str(ca_key),
+                "-CAcreateserial",
+                "-out",
+                str(server_cert),
+                "-extfile",
+                str(ext_file),
             ]
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
@@ -208,18 +217,22 @@ extendedKeyUsage = serverAuth
             client_cert = self.cert_dir / f"{client_name}.pem"
 
             # Generate client private key
-            cmd = ['openssl', 'genrsa', '-out', str(client_key), '2048']
+            cmd = ["openssl", "genrsa", "-out", str(client_key), "2048"]
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
                 return False, f"Failed to generate client key: {result.stderr.decode()}"
 
             # Generate client CSR
             cmd = [
-                'openssl', 'req',
-                '-new',
-                '-key', str(client_key),
-                '-out', str(client_csr),
-                '-subj', f'/CN={client_name}'
+                "openssl",
+                "req",
+                "-new",
+                "-key",
+                str(client_key),
+                "-out",
+                str(client_csr),
+                "-subj",
+                f"/CN={client_name}",
             ]
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
@@ -232,15 +245,22 @@ extendedKeyUsage = serverAuth
 
             # Sign client certificate with CA
             cmd = [
-                'openssl', 'x509',
-                '-req',
-                '-days', str(days),
-                '-in', str(client_csr),
-                '-CA', str(ca_cert),
-                '-CAkey', str(ca_key),
-                '-CAcreateserial',
-                '-out', str(client_cert),
-                '-extfile', str(ext_file)
+                "openssl",
+                "x509",
+                "-req",
+                "-days",
+                str(days),
+                "-in",
+                str(client_csr),
+                "-CA",
+                str(ca_cert),
+                "-CAkey",
+                str(ca_key),
+                "-CAcreateserial",
+                "-out",
+                str(client_cert),
+                "-extfile",
+                str(ext_file),
             ]
             result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0:
@@ -315,12 +335,12 @@ extendedKeyUsage = serverAuth
             Dict with certificate paths
         """
         return {
-            'ca_cert': str(self.cert_dir / f"{ca_name}.pem"),
-            'ca_key': str(self.cert_dir / f"{ca_name}-key.pem"),
-            'server_cert': str(self.cert_dir / f"{server_name}.pem"),
-            'server_key': str(self.cert_dir / f"{server_name}-key.pem"),
-            'client_cert': str(self.cert_dir / f"{client_name}.pem"),
-            'client_key': str(self.cert_dir / f"{client_name}-key.pem"),
+            "ca_cert": str(self.cert_dir / f"{ca_name}.pem"),
+            "ca_key": str(self.cert_dir / f"{ca_name}-key.pem"),
+            "server_cert": str(self.cert_dir / f"{server_name}.pem"),
+            "server_key": str(self.cert_dir / f"{server_name}-key.pem"),
+            "client_cert": str(self.cert_dir / f"{client_name}.pem"),
+            "client_key": str(self.cert_dir / f"{client_name}-key.pem"),
         }
 
     def verify_cert(self, cert_path: str) -> Tuple[bool, str]:
@@ -337,11 +357,7 @@ extendedKeyUsage = serverAuth
             if not Path(cert_path).exists():
                 return False, f"Certificate not found: {cert_path}"
 
-            cmd = [
-                'openssl', 'x509',
-                '-in', cert_path,
-                '-text', '-noout'
-            ]
+            cmd = ["openssl", "x509", "-in", cert_path, "-text", "-noout"]
             result = subprocess.run(cmd, capture_output=True, timeout=10)
 
             if result.returncode != 0:
@@ -349,9 +365,9 @@ extendedKeyUsage = serverAuth
 
             # Extract expiration date
             output = result.stdout.decode()
-            if 'Not After' in output:
-                for line in output.split('\n'):
-                    if 'Not After' in line:
+            if "Not After" in output:
+                for line in output.split("\n"):
+                    if "Not After" in line:
                         return True, f"Certificate valid: {line.strip()}"
 
             return True, "Certificate is valid"
@@ -362,6 +378,6 @@ extendedKeyUsage = serverAuth
     def list_certificates(self) -> dict:
         """List all certificates in cert directory"""
         certs = {}
-        for cert_file in self.cert_dir.glob('*.pem'):
+        for cert_file in self.cert_dir.glob("*.pem"):
             certs[cert_file.name] = str(cert_file)
         return certs

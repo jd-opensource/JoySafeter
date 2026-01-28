@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class RopperHandler(AbstractHandler):
     """Handler for ropper functionality"""
 
@@ -13,8 +14,8 @@ class RopperHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['ropper']
+        """Handler related commands"""
+        return ["ropper"]
 
     def handle(self, data: Dict) -> Any:
         """Execute ropper with enhanced logging"""

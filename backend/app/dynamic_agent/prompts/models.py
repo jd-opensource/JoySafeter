@@ -25,6 +25,7 @@ class PromptMetadata:
         dependencies: List of other prompt IDs this prompt depends on
         variables: List of variable names used in the prompt content
     """
+
     name: str
     description: str
     purpose: str
@@ -46,6 +47,7 @@ class LoadedPrompt:
         content: Raw prompt content with placeholders
         file_path: Absolute path to the source file
     """
+
     metadata: PromptMetadata
     content: str
     file_path: Path

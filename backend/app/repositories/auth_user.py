@@ -1,6 +1,7 @@
 """
 AuthUser Repository
 """
+
 from typing import Optional
 
 from sqlalchemy import or_, select
@@ -53,4 +54,3 @@ class AuthUserRepository(BaseRepository[AuthUser]):
             .limit(limit)
         )
         return list(result.scalars().all())
-

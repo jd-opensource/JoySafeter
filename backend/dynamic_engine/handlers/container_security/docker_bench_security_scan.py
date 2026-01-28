@@ -14,8 +14,8 @@ class DockerBenchSecurityHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['docker-bench']
+        """Handler related commands"""
+        return ["docker-bench"]
 
     def handle(self, data: Dict) -> Any:
         """Execute docker_bench_security with enhanced logging"""

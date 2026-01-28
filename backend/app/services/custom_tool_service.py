@@ -1,6 +1,7 @@
 """
 CustomTool 服务：权限校验 + 配额限制 + CRUD
 """
+
 from __future__ import annotations
 
 import uuid
@@ -106,4 +107,3 @@ class CustomToolService(BaseService[CustomTool]):
 
         await self.repo.delete_by_id(tool_id)
         await self.db.commit()
-

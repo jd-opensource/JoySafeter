@@ -52,9 +52,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             process_time = time.time() - start_time
-            log.opt(exception=True).error(
-                f"request.failed duration={process_time:.3f}s error={type(e).__name__}"
-            )
+            log.opt(exception=True).error(f"request.failed duration={process_time:.3f}s error={type(e).__name__}")
             raise
 
 

@@ -21,13 +21,13 @@ def _sanitize_log_message(message: str) -> str:
         Sanitized message safe for logging
     """
     # Remove control characters (except newline \n and tab \t) - including \r\x0d
-    cleaned = re.sub(r'[\x00-\x08\x0b-\x0d\x0e-\x1f\x7f-\x9f]', '', message)
+    cleaned = re.sub(r"[\x00-\x08\x0b-\x0d\x0e-\x1f\x7f-\x9f]", "", message)
     # Remove ANSI CSI escape sequences (like \x1b[31m)
-    cleaned = re.sub(r'\x1b\[[0-9;]*m?', '', cleaned)
+    cleaned = re.sub(r"\x1b\[[0-9;]*m?", "", cleaned)
     # Remove any remaining brackets that were part of ANSI sequences
-    cleaned = re.sub(r'\[[0-9;]*m?', '', cleaned)
+    cleaned = re.sub(r"\[[0-9;]*m?", "", cleaned)
     # Also remove OSC sequences
-    cleaned = re.sub(r'\x1b\][^\x07\x1b]*[\x07\x1b\\]', '', cleaned)
+    cleaned = re.sub(r"\x1b\][^\x07\x1b]*[\x07\x1b\\]", "", cleaned)
     return cleaned
 
 
@@ -230,5 +230,3 @@ def fetch_latest_cves(hours: int = 24, severity_filter: str = "HIGH,CRITICAL") -
             "cves": [],
             "fallback_message": "CVE fetching failed, check network connectivity and API availability",
         }
-
-

@@ -3,6 +3,7 @@
 This module composes all v1 sub-routers into a single `api_router`.
 Each sub-router is expected to declare its own `prefix` and `tags`.
 """
+
 from fastapi import APIRouter
 
 from .api_keys import router as api_keys_router

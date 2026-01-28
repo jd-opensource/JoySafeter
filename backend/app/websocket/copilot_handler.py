@@ -118,18 +118,11 @@ class CopilotWebSocketHandler:
             while self._is_websocket_connected(websocket):
                 try:
                     # Create tasks for both Redis messages and WebSocket messages
-                    redis_task = asyncio.create_task(
-                        asyncio.wait_for(pubsub.get_message(), timeout=1.0)
-                    )
-                    ws_task = asyncio.create_task(
-                        asyncio.wait_for(websocket.receive_text(), timeout=1.0)
-                    )
+                    redis_task = asyncio.create_task(asyncio.wait_for(pubsub.get_message(), timeout=1.0))
+                    ws_task = asyncio.create_task(asyncio.wait_for(websocket.receive_text(), timeout=1.0))
 
                     # Wait for either Redis message or WebSocket message
-                    done, pending = await asyncio.wait(
-                        [redis_task, ws_task],
-                        return_when=asyncio.FIRST_COMPLETED
-                    )
+                    done, pending = await asyncio.wait([redis_task, ws_task], return_when=asyncio.FIRST_COMPLETED)
 
                     # Cancel pending tasks
                     for task in pending:
@@ -165,8 +158,10 @@ class CopilotWebSocketHandler:
                                             pass
                                         break
                                     elif event.get("type") == "error":
-                                        error_msg = event.get('message', 'Unknown error')
-                                        logger.error(f"Copilot session error: session_id={session_id}, error={error_msg}")
+                                        error_msg = event.get("message", "Unknown error")
+                                        logger.error(
+                                            f"Copilot session error: session_id={session_id}, error={error_msg}"
+                                        )
                                         try:
                                             await websocket.close(code=1011, reason=f"Error: {error_msg}")
                                         except Exception:

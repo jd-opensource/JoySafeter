@@ -11,6 +11,7 @@ Key Features:
 - ReAct-style reasoning and execution
 - Support for multi-step tool workflows
 """
+
 import json
 import logging
 import os
@@ -45,6 +46,7 @@ class AgentState(TypedDict):
         iteration_count: Number of iterations performed
         error: Error message if any step fails
     """
+
     # Input and output
     input: str
     final_output: Optional[str]
@@ -144,17 +146,18 @@ class DynamicToolSelectionAgent:
             )
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning(f"Failed to load tool_selection prompt: {e}")
             return "You are an intelligent cybersecurity assistant."
 
     SYSTEM_PROMPT = None  # Will be set in __init__
 
     def __init__(
-            self,
-            llm: Optional[BaseChatModel],
-            tools: List[BaseTool] = None,
-            max_iterations: int = 15,
-            verbose: bool = True,
+        self,
+        llm: Optional[BaseChatModel],
+        tools: List[BaseTool] = None,
+        max_iterations: int = 15,
+        verbose: bool = True,
     ):
         """
         Initialize the dynamic tool selection agent.
@@ -190,8 +193,7 @@ class DynamicToolSelectionAgent:
         )
         self.agent.bind(llm={"parallel_tool_calls": False})
 
-
-    def run(self, messages: List[Dict[str,str]], metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, messages: List[Dict[str, str]], metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Run the agent with user input.
 
@@ -214,19 +216,19 @@ class DynamicToolSelectionAgent:
         # state = create_initial_state(user_input)
 
         # Prepare input for the agent
-        inputs = {
-            "messages": messages
-        }
+        inputs = {"messages": messages}
 
         # Run the agent
         try:
             metadata = MetadataContext.get()
-            result = self.agent.ainvoke(inputs, config={
-                "callbacks": metadata['callbacks'],
-                "metadata": {k: v for k, v in metadata.items() if k != 'callbacks'},
-                "recursion_limit": int(os.getenv("AGENT_MAX_INTERACTIVE_STEPS", 64))
-
-            })
+            result = self.agent.ainvoke(
+                inputs,
+                config={
+                    "callbacks": metadata["callbacks"],
+                    "metadata": {k: v for k, v in metadata.items() if k != "callbacks"},
+                    "recursion_limit": int(os.getenv("AGENT_MAX_INTERACTIVE_STEPS", 64)),
+                },
+            )
 
             if self.verbose:
                 print(f"\n{'=' * 70}")
@@ -242,7 +244,7 @@ class DynamicToolSelectionAgent:
                     return {
                         "output": [],
                         "success": False,
-                        "error": 'No output generated',
+                        "error": "No output generated",
                     }
                 else:
                     output = json.loads(final_message.content)
@@ -268,7 +270,7 @@ class DynamicToolSelectionAgent:
                 "error": f"Error: {str(e)}",
             }
 
-    async def arun(self, messages: List[Dict[str,str]], metadata: Dict[str, Any]) -> Dict[str, Any]:
+    async def arun(self, messages: List[Dict[str, str]], metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Async version of run().
 
@@ -285,18 +287,18 @@ class DynamicToolSelectionAgent:
         #     print(f"User Input: {user_input}\n")
 
         # Prepare input for the agent
-        inputs = {
-            "messages": messages
-        }
+        inputs = {"messages": messages}
 
         # Run the agent asynchronously
         try:
-            result = await self.agent.ainvoke(inputs,
-                                              config={
-                                                  "callbacks":callbacks(),
-                                                  "metadata": metadata,
-                                                  "recursion_limit": int(os.getenv("AGENT_MAX_INTERACTIVE_STEPS", 64))
-                                              })
+            result = await self.agent.ainvoke(
+                inputs,
+                config={
+                    "callbacks": callbacks(),
+                    "metadata": metadata,
+                    "recursion_limit": int(os.getenv("AGENT_MAX_INTERACTIVE_STEPS", 64)),
+                },
+            )
 
             if self.verbose:
                 print(f"\n{'=' * 70}")
@@ -325,9 +327,9 @@ class DynamicToolSelectionAgent:
 
 
 def create_select_agent(
-        llm: Optional[BaseChatModel],
-        tools: List[BaseTool],
-        verbose: bool = True,
+    llm: Optional[BaseChatModel],
+    tools: List[BaseTool],
+    verbose: bool = True,
 ) -> DynamicToolSelectionAgent:
     """
     Factory function to create a dynamic tool selection agent.

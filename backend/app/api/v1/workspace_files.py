@@ -1,6 +1,7 @@
 """
 工作空间文件管理 API（版本化路径 /api/v1/workspaces）
 """
+
 import uuid
 from typing import Optional
 
@@ -131,4 +132,3 @@ async def serve_workspace_file(
         media_type=record.content_type or "application/octet-stream",
         filename=record.original_name,
     )
-

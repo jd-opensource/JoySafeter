@@ -15,8 +15,8 @@ class GhidraHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['ghidra']
+        """Handler related commands"""
+        return ["ghidra"]
 
     def handle(self, data: Dict) -> Any:
         """Execute ghidra with enhanced logging"""

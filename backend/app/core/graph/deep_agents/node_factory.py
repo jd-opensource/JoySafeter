@@ -51,19 +51,19 @@ class DeepAgentsNodeBuilder:
         return self._create_deep_agent_from_config(config, node_name, is_root=True)
 
     async def build_manager_node(
-        self, node: "GraphNode", node_name: str, subagents: list[Any], is_root: bool = False,
+        self,
+        node: "GraphNode",
+        node_name: str,
+        subagents: list[Any],
+        is_root: bool = False,
     ) -> Any:
         """Build Manager (DeepAgent) with pre-built CompiledSubAgent subagents using unified config."""
         logger.info(f"{LOG_PREFIX} Building manager: '{node_name}' with {len(subagents)} subagents")
         config = await AgentConfig.from_node(node, self.builder, self._node_id_to_name)
         deep_agent = self._create_deep_agent_from_config(config, node_name, subagents, is_root)
-        return deep_agent.with_config({
-            "metadata": {
-                "node_id": node.id,
-                "node_label": config.label,
-                "current_agent_name": node_name
-            }
-        })
+        return deep_agent.with_config(
+            {"metadata": {"node_id": node.id, "node_label": config.label, "current_agent_name": node_name}}
+        )
 
     async def build_worker_node(self, node: "GraphNode") -> Any:
         """Build worker node using unified config."""
@@ -95,6 +95,7 @@ class DeepAgentsNodeBuilder:
     def _create_local_executor(self, config: CodeAgentConfig) -> Any:
         """Create LocalPythonExecutor with config."""
         from app.core.agent.code_agent import LocalPythonExecutor
+
         return LocalPythonExecutor(
             enable_data_analysis=config.enable_data_analysis,
             additional_authorized_imports=config.additional_imports,
@@ -116,6 +117,7 @@ class DeepAgentsNodeBuilder:
 
         if self._should_use_shared_backend(config):
             from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+
             shared_backend = self.builder.get_shared_backend()
 
             if isinstance(shared_backend, PydanticSandboxAdapter):

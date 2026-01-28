@@ -63,6 +63,7 @@ router = APIRouter(prefix="/v1/chat", tags=["Chat"])
 
 # ==================== Data Models & Helpers ====================
 
+
 class StopRequest(BaseModel):
     thread_id: str = Body(..., description="Conversation thread ID")
 
@@ -79,11 +80,7 @@ def _bind_log(request: Request, **kwargs):
 
 
 async def safe_get_state(
-    graph: Any,
-    config: RunnableConfig,
-    max_retries: int = 3,
-    initial_delay: float = 0.1,
-    log: Any = None
+    graph: Any, config: RunnableConfig, max_retries: int = 3, initial_delay: float = 0.1, log: Any = None
 ) -> Any:
     """
     安全地获取图状态，带重试机制以避免连接冲突。
@@ -117,8 +114,7 @@ async def safe_get_state(
 
             # 检查是否是连接冲突错误
             is_connection_error = (
-                "another command is already in progress" in error_msg.lower() or
-                "connection" in error_msg.lower()
+                "another command is already in progress" in error_msg.lower() or "connection" in error_msg.lower()
             )
 
             # 如果是最后一次尝试，不再重试
@@ -143,7 +139,9 @@ async def safe_get_state(
     log.error(f"Failed to get state after {max_retries} attempts: {last_error}")
     raise last_error
 
+
 # ==================== Persistence Logic ====================
+
 
 async def save_run_result(thread_id: str, state: StreamState, log) -> None:
     """
@@ -172,6 +170,7 @@ async def save_run_result(thread_id: str, state: StreamState, log) -> None:
 
 
 # ==================== Database Operations ====================
+
 
 async def get_or_create_conversation(
     thread_id: str | None,
@@ -213,6 +212,7 @@ async def get_or_create_conversation(
             return thread_id, conversation
         return thread_id, conv
 
+
 async def get_user_config(user_id: str, thread_id: str, db: AsyncSession):
     """获取用户配置和 LLM 参数"""
     from loguru import logger
@@ -220,6 +220,7 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession):
     from app.common.exceptions import NotFoundException
     from app.core.agent.langfuse_callback import get_langfuse_callbacks
     from app.core.model.utils.credential_resolver import LLMCredentialResolver
+
     get_langfuse_callbacks(enabled=settings.langfuse_enabled)
 
     config: RunnableConfig = {
@@ -249,6 +250,7 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession):
 
     return config, {}, llm_params
 
+
 async def save_user_message(thread_id: str, message: str, metadata: dict | None, db: AsyncSession):
     user_message = Message(
         thread_id=thread_id,
@@ -258,6 +260,7 @@ async def save_user_message(thread_id: str, message: str, metadata: dict | None,
     )
     db.add(user_message)
     await db.commit()
+
 
 async def save_assistant_message(
     thread_id: str, messages: list[BaseMessage], db: AsyncSession, update_conversation: bool = True
@@ -276,11 +279,7 @@ async def save_assistant_message(
         for tc in ai_msg.tool_calls:
             # 尝试找到对应的 ToolOutput
             # 注意：这里简化处理，严谨实现应遍历后续的 ToolMessage 匹配 ID
-            tool_calls_data.append({
-                "name": tc.get("name"),
-                "arguments": tc.get("args"),
-                "id": tc.get("id")
-            })
+            tool_calls_data.append({"name": tc.get("name"), "arguments": tc.get("args"), "id": tc.get("id")})
         meta_data["tool_calls"] = tool_calls_data
 
     message = Message(
@@ -304,6 +303,7 @@ async def save_assistant_message(
 
 # ==================== Endpoints ====================
 
+
 @router.post("/stop", response_model=BaseResponse[dict])
 async def stop_chat(
     request: Request,
@@ -316,7 +316,9 @@ async def stop_chat(
     log = _bind_log(request, user_id=str(current_user.id), thread_id=thread_id)
 
     # 验证权限
-    res = await db.execute(select(Conversation).where(Conversation.thread_id == thread_id, Conversation.user_id == current_user.id))
+    res = await db.execute(
+        select(Conversation).where(Conversation.thread_id == thread_id, Conversation.user_id == current_user.id)
+    )
     if not res.scalar_one_or_none():
         # 即使找不到对话，只要任务存在也应该停止
         log.warning("Stop request for unknown conversation")
@@ -342,7 +344,9 @@ async def chat(
     注意: 如果图配置了中断点，graph.ainvoke() 会阻塞等待 Command。
     建议需要中断功能的场景使用流式端点 (/v1/chat/stream)。
     """
-    thread_id, _ = await get_or_create_conversation(payload.thread_id, payload.message, current_user.id, payload.metadata, db)
+    thread_id, _ = await get_or_create_conversation(
+        payload.thread_id, payload.message, current_user.id, payload.metadata, db
+    )
     log = _bind_log(request, user_id=str(current_user.id), thread_id=thread_id)
     config, base_context, llm_params = await get_user_config(current_user.id, thread_id, db)
 
@@ -353,6 +357,7 @@ async def chat(
         initial_context = base_context.copy()
         if payload.graph_id:
             from app.repositories.graph import GraphRepository
+
             graph_repo = GraphRepository(db)
             graph_model = await graph_repo.get(payload.graph_id)
             if graph_model and graph_model.variables:
@@ -392,10 +397,7 @@ async def chat(
         files = payload.metadata.get("files", [])
         if files:
             log.info(f"[Chat API] 📎 发现 {len(files)} 个文件: {files}")
-            file_info = "\n\nAttached files:\n" + "\n".join([
-                f"- {f['filename']}: {f['path']}"
-                for f in files
-            ])
+            file_info = "\n\nAttached files:\n" + "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
             enriched_message = payload.message + file_info
             log.info(f"[Chat API] ✅ 消息已包含文件路径，长度: {len(enriched_message)}")
         else:
@@ -404,7 +406,9 @@ async def chat(
 
         # 注册任务以支持非流式取消
         invoke_task = asyncio.create_task(
-            graph.ainvoke({"messages": [HumanMessage(content=enriched_message)], "context": initial_context}, config=config)
+            graph.ainvoke(
+                {"messages": [HumanMessage(content=enriched_message)], "context": initial_context}, config=config
+            )
         )
         await task_manager.register_task(thread_id, invoke_task)
 
@@ -415,7 +419,7 @@ async def chat(
         finally:
             await task_manager.unregister_task(thread_id)
             # Cleanup shared backend if exists
-            if hasattr(graph, '_cleanup_backend'):
+            if hasattr(graph, "_cleanup_backend"):
                 try:
                     await graph._cleanup_backend()
                 except Exception as e:
@@ -424,16 +428,19 @@ async def chat(
         messages = result["messages"]
         await save_assistant_message(thread_id, messages, db)
 
-        return BaseResponse(success=True, data=ChatResponse(
-            thread_id=thread_id,
-            response=messages[-1].content if messages else "",
-            duration_ms=0 # 需自行添加计时逻辑
-        ))
+        return BaseResponse(
+            success=True,
+            data=ChatResponse(
+                thread_id=thread_id,
+                response=messages[-1].content if messages else "",
+                duration_ms=0,  # 需自行添加计时逻辑
+            ),
+        )
     except Exception as e:
         log.error(f"Chat failed: {e}")
         # Ensure backend cleanup even if error occurs before finally block
         # (though finally should always execute, this is extra safety)
-        if 'graph' in locals() and hasattr(graph, '_cleanup_backend'):
+        if "graph" in locals() and hasattr(graph, "_cleanup_backend"):
             try:
                 await graph._cleanup_backend()
             except Exception as cleanup_err:
@@ -452,7 +459,9 @@ async def chat_stream(
     log = _bind_log(request, user_id=str(current_user.id))
 
     # 1. 准备环境
-    thread_id, _ = await get_or_create_conversation(payload.thread_id, payload.message, current_user.id, payload.metadata, db)
+    thread_id, _ = await get_or_create_conversation(
+        payload.thread_id, payload.message, current_user.id, payload.metadata, db
+    )
     await save_user_message(thread_id, payload.message, payload.metadata, db)
 
     config, base_context, llm_params = await get_user_config(current_user.id, thread_id, db)
@@ -461,6 +470,7 @@ async def chat_stream(
     initial_context = base_context.copy()
     if payload.graph_id:
         from app.repositories.graph import GraphRepository
+
         graph_repo = GraphRepository(db)
         graph_model = await graph_repo.get(payload.graph_id)
         if graph_model and graph_model.variables:
@@ -513,10 +523,7 @@ async def chat_stream(
             files = payload.metadata.get("files", [])
             if files:
                 log.info(f"[Chat API Stream] 📎 发现 {len(files)} 个文件: {files}")
-                file_info = "\n\nAttached files:\n" + "\n".join([
-                    f"- {f['filename']}: {f['path']}"
-                    for f in files
-                ])
+                file_info = "\n\nAttached files:\n" + "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
                 enriched_message = payload.message + file_info
                 log.info(f"[Chat API Stream] ✅ 消息已包含文件路径，长度: {len(enriched_message)}")
             else:
@@ -527,10 +534,9 @@ async def chat_stream(
             async for event in graph.astream_events(
                 {"messages": [HumanMessage(content=enriched_message)], "context": initial_context},
                 config=config,
-                version="v2"
+                version="v2",
             ):
-
-                #log.info(f"Event: {event}")
+                # log.info(f"Event: {event}")
                 # A. 停止检测
                 if await task_manager.is_stopped(thread_id):
                     state.stopped = True
@@ -544,13 +550,13 @@ async def chat_stream(
                 langgraph_node = metadata.get("langgraph_node")
 
                 # 判断是否是节点事件（不是工具或LLM的内部事件）
-                is_node_event = (
-                    langgraph_node is not None or
-                    (event_name and "node" in event_name.lower() and
-                     "tool" not in event_name.lower() and
-                     "model" not in event_name.lower() and
-                     "llm" not in event_name.lower() and
-                     "chat" not in event_name.lower())
+                is_node_event = langgraph_node is not None or (
+                    event_name
+                    and "node" in event_name.lower()
+                    and "tool" not in event_name.lower()
+                    and "model" not in event_name.lower()
+                    and "llm" not in event_name.lower()
+                    and "chat" not in event_name.lower()
                 )
 
                 if event_type == "on_chat_model_start":
@@ -662,16 +668,21 @@ async def chat_stream(
                 # 事件流会在这里暂停，等待 /v1/chat/resume 端点被调用
                 pass
             elif state.stopped:
-                yield handler.format_sse("error", {"message": "Stopped by user", "code": "stopped", "_meta": {"node_name": "system"}}, thread_id)
+                yield handler.format_sse(
+                    "error",
+                    {"message": "Stopped by user", "code": "stopped", "_meta": {"node_name": "system"}},
+                    thread_id,
+                )
             else:
                 yield handler.format_sse("done", {"_meta": {"node_name": "system"}}, thread_id)
 
         except asyncio.CancelledError:
             log.warning(f"Client disconnected: {thread_id}")
-            state.stopped = True # 标记为停止以便后续保存逻辑知道状态
+            state.stopped = True  # 标记为停止以便后续保存逻辑知道状态
             # 无需 yield，因为客户端已断开
         except Exception as e:
             import traceback
+
             log.error(f"Stream error: {e}, traceback: {traceback.format_exc()}")
             state.has_error = True
             yield handler.format_sse("error", {"message": str(e), "_meta": {"node_name": "system"}}, thread_id)
@@ -680,7 +691,7 @@ async def chat_stream(
             await task_manager.unregister_task(thread_id)
             await save_run_result(thread_id, state, log)
             # Cleanup shared backend if exists
-            if 'graph' in locals() and hasattr(graph, '_cleanup_backend'):
+            if "graph" in locals() and hasattr(graph, "_cleanup_backend"):
                 try:
                     await graph._cleanup_backend()
                 except Exception as e:
@@ -688,9 +699,7 @@ async def chat_stream(
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
                 async with AsyncSessionLocal() as session:
-                    result = await session.execute(
-                        select(Conversation).where(Conversation.thread_id == thread_id)
-                    )
+                    result = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
                     if conv := result.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]
@@ -713,10 +722,7 @@ async def chat_resume(
 
     # 1. 从 conversation 获取 graph_id 和用户配置
     result = await db.execute(
-        select(Conversation).where(
-            Conversation.thread_id == thread_id,
-            Conversation.user_id == str(current_user.id)
-        )
+        select(Conversation).where(Conversation.thread_id == thread_id, Conversation.user_id == str(current_user.id))
     )
     conversation = result.scalar_one_or_none()
     if not conversation:
@@ -727,6 +733,7 @@ async def chat_resume(
     graph_id = None
     if conversation.meta_data and "interrupted_graph_id" in conversation.meta_data:
         import uuid as uuid_lib
+
         try:
             graph_id = uuid_lib.UUID(conversation.meta_data["interrupted_graph_id"])
         except (ValueError, TypeError):
@@ -736,7 +743,9 @@ async def chat_resume(
     if not graph_id:
         # 从 checkpointer 获取最新状态，尝试推断 graph_id
         # 注意：这需要 graph_id 存储在状态中，或者通过其他方式获取
-        log.warning(f"Graph ID not found in conversation metadata, attempting to infer from state | thread_id={thread_id}")
+        log.warning(
+            f"Graph ID not found in conversation metadata, attempting to infer from state | thread_id={thread_id}"
+        )
         # 可以尝试从其他来源获取 graph_id，例如从最近的执行记录
 
     # 2. 获取用户配置和 LLM 参数
@@ -783,10 +792,7 @@ async def chat_resume(
         goto=command_goto if command_goto else None,
     )
 
-    log.info(
-        f"Command constructed | thread_id={thread_id} | "
-        f"has_update={bool(command_update)} | goto={command_goto}"
-    )
+    log.info(f"Command constructed | thread_id={thread_id} | has_update={bool(command_update)} | goto={command_goto}")
 
     # 6. 注册任务以支持取消
     current_task = asyncio.current_task()
@@ -802,11 +808,7 @@ async def chat_resume(
 
         try:
             # 4. 使用 Command 继续执行
-            async for event in graph.astream_events(
-                command,
-                config=config,
-                version="v2"
-            ):
+            async for event in graph.astream_events(command, config=config, version="v2"):
                 # A. 停止检测
                 if await task_manager.is_stopped(thread_id):
                     state.stopped = True
@@ -819,13 +821,13 @@ async def chat_resume(
                 metadata = event.get("metadata", {})
                 langgraph_node = metadata.get("langgraph_node")
 
-                is_node_event = (
-                    langgraph_node is not None or
-                    (event_name and "node" in event_name.lower() and
-                     "tool" not in event_name.lower() and
-                     "model" not in event_name.lower() and
-                     "llm" not in event_name.lower() and
-                     "chat" not in event_name.lower())
+                is_node_event = langgraph_node is not None or (
+                    event_name
+                    and "node" in event_name.lower()
+                    and "tool" not in event_name.lower()
+                    and "model" not in event_name.lower()
+                    and "llm" not in event_name.lower()
+                    and "chat" not in event_name.lower()
                 )
 
                 if event_type == "on_chat_model_start":
@@ -884,7 +886,6 @@ async def chat_resume(
                     log.info(f"Graph interrupted again at node '{next_node}' | thread_id={thread_id}")
                     yield handler.format_sse("interrupt", interrupt_data, thread_id)
 
-
                     state.interrupted = True
                     state.interrupt_node = next_node
                     state.interrupt_state = current_state
@@ -908,13 +909,15 @@ async def chat_resume(
             if interrupted:
                 pass  # 等待下一次恢复
             elif state.stopped:
-                yield handler.format_sse("error", {"message": "Stopped by user", "code": "stopped", "_meta": {"node_name": "system"}}, thread_id)
+                yield handler.format_sse(
+                    "error",
+                    {"message": "Stopped by user", "code": "stopped", "_meta": {"node_name": "system"}},
+                    thread_id,
+                )
             else:
                 # 执行完成，清理 conversation 中的中断标记
                 async with AsyncSessionLocal() as session:
-                    result = await session.execute(
-                        select(Conversation).where(Conversation.thread_id == thread_id)
-                    )
+                    result = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
                     if conv := result.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]
@@ -933,7 +936,7 @@ async def chat_resume(
             await task_manager.unregister_task(thread_id)
             await save_run_result(thread_id, state, log)
             # Cleanup shared backend if exists
-            if 'graph' in locals() and hasattr(graph, '_cleanup_backend'):
+            if "graph" in locals() and hasattr(graph, "_cleanup_backend"):
                 try:
                     await graph._cleanup_backend()
                 except Exception as e:
@@ -941,9 +944,7 @@ async def chat_resume(
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
                 async with AsyncSessionLocal() as session:
-                    result = await session.execute(
-                        select(Conversation).where(Conversation.thread_id == thread_id)
-                    )
+                    result = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
                     if conv := result.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]

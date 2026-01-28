@@ -17,4 +17,4 @@ SUBAGENT_TIMEOUT_SECONDS = 600
 # Increased to 4000 to accommodate full <result> XML with all attempts
 SUMMARY_MAX_LENGTH = 4000
 
-WORKSPACE = '/workspace'
+WORKSPACE = "/workspace"

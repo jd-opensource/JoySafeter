@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class KatanaHandler(AbstractHandler):
     """Handler for katana functionality"""
 
@@ -13,8 +14,8 @@ class KatanaHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['katana']
+        """Handler related commands"""
+        return ["katana"]
 
     def handle(self, data: Dict) -> Any:
         """Execute katana with enhanced logging"""

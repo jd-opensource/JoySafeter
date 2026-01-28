@@ -17,6 +17,7 @@ from loguru import logger
 
 try:
     import networkx as nx
+
     NETWORKX_AVAILABLE = True
 except ImportError:
     nx = None
@@ -291,6 +292,3 @@ def center_graph_on_canvas(
         node["position"]["y"] += offset_y
 
     return blueprint_data
-
-
-

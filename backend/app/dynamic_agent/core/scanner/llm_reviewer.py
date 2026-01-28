@@ -33,10 +33,12 @@ class LLMAgentReviewer:
 
     def _load_prompt_template(self) -> str:
         """Load the vulnerability review prompt template."""
-        prompt_path = Path(__file__).parent.parent.parent / "prompts" / "scenes" / "source_code_audit" / "vulnerability_review.md"
+        prompt_path = (
+            Path(__file__).parent.parent.parent / "prompts" / "scenes" / "source_code_audit" / "vulnerability_review.md"
+        )
 
         try:
-            with open(prompt_path, 'r', encoding='utf-8') as f:
+            with open(prompt_path, "r", encoding="utf-8") as f:
                 template = f.read()
             logger.info(f"Loaded prompt template from {prompt_path}")
             return template
@@ -69,6 +71,7 @@ Respond with JSON:
         if self._llm is None:
             try:
                 from app.dynamic_agent.infra.llm import get_default_llm
+
                 self._llm = get_default_llm()
                 logger.info("LLM instance created for agent review")
             except Exception as e:
@@ -92,7 +95,7 @@ Respond with JSON:
             if not os.path.exists(file_path):
                 return ""
 
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
 
             start = max(0, line_number - context_lines - 1)
@@ -113,20 +116,20 @@ Respond with JSON:
     def _detect_language(self, file_path: str) -> str:
         """Detect programming language from file extension."""
         ext_map = {
-            '.py': 'python',
-            '.js': 'javascript',
-            '.ts': 'typescript',
-            '.java': 'java',
-            '.go': 'go',
-            '.rb': 'ruby',
-            '.php': 'php',
-            '.c': 'c',
-            '.cpp': 'cpp',
-            '.cs': 'csharp',
-            '.rs': 'rust',
+            ".py": "python",
+            ".js": "javascript",
+            ".ts": "typescript",
+            ".java": "java",
+            ".go": "go",
+            ".rb": "ruby",
+            ".php": "php",
+            ".c": "c",
+            ".cpp": "cpp",
+            ".cs": "csharp",
+            ".rs": "rust",
         }
         ext = Path(file_path).suffix.lower()
-        return ext_map.get(ext, 'text')
+        return ext_map.get(ext, "text")
 
     def _build_prompt(self, finding: Dict, base_path: str = "") -> str:
         """
@@ -140,18 +143,18 @@ Respond with JSON:
             Formatted prompt string
         """
         # Resolve file path
-        file_path = finding.get('file_path', '')
+        file_path = finding.get("file_path", "")
         if base_path and not os.path.isabs(file_path):
             full_path = os.path.join(base_path, file_path)
         else:
             full_path = file_path
 
         # Get extended context from file
-        line_number = finding.get('line_number', 0)
+        line_number = finding.get("line_number", 0)
         extended_context = self._read_code_context(full_path, line_number)
 
         # Use extended context if available, otherwise use the snippet
-        code_snippet = extended_context if extended_context else finding.get('code_snippet', '')
+        code_snippet = extended_context if extended_context else finding.get("code_snippet", "")
 
         # Detect language
         language = self._detect_language(file_path)
@@ -159,15 +162,15 @@ Respond with JSON:
         # Build prompt from template
         prompt = self.prompt_template
         replacements = {
-            '{{tool}}': finding.get('tool', 'unknown'),
-            '{{rule_id}}': finding.get('rule_id', 'unknown'),
-            '{{type}}': finding.get('type', 'security'),
-            '{{severity}}': finding.get('severity', 'MEDIUM'),
-            '{{file_path}}': file_path,
-            '{{line_number}}': str(line_number),
-            '{{message}}': finding.get('message', ''),
-            '{{language}}': language,
-            '{{code_snippet}}': code_snippet,
+            "{{tool}}": finding.get("tool", "unknown"),
+            "{{rule_id}}": finding.get("rule_id", "unknown"),
+            "{{type}}": finding.get("type", "security"),
+            "{{severity}}": finding.get("severity", "MEDIUM"),
+            "{{file_path}}": file_path,
+            "{{line_number}}": str(line_number),
+            "{{message}}": finding.get("message", ""),
+            "{{language}}": language,
+            "{{code_snippet}}": code_snippet,
         }
 
         for key, value in replacements.items():
@@ -194,34 +197,34 @@ Respond with JSON:
         try:
             # Try to find JSON in the response
             # Look for JSON block
-            if '```json' in response:
-                json_start = response.find('```json') + 7
-                json_end = response.find('```', json_start)
+            if "```json" in response:
+                json_start = response.find("```json") + 7
+                json_end = response.find("```", json_start)
                 json_str = response[json_start:json_end].strip()
-            elif '{' in response and '}' in response:
-                json_start = response.find('{')
-                json_end = response.rfind('}') + 1
+            elif "{" in response and "}" in response:
+                json_start = response.find("{")
+                json_end = response.rfind("}") + 1
                 json_str = response[json_start:json_end]
             else:
                 # Try to parse verdict from text
                 response_upper = response.upper()
-                if 'TRUE_POSITIVE' in response_upper or 'TRUE POSITIVE' in response_upper:
+                if "TRUE_POSITIVE" in response_upper or "TRUE POSITIVE" in response_upper:
                     return {"verdict": "TRUE_POSITIVE", "confidence": "MEDIUM", "analysis": response[:200]}
-                elif 'FALSE_POSITIVE' in response_upper or 'FALSE POSITIVE' in response_upper:
+                elif "FALSE_POSITIVE" in response_upper or "FALSE POSITIVE" in response_upper:
                     return {"verdict": "FALSE_POSITIVE", "confidence": "MEDIUM", "analysis": response[:200]}
                 return default_result
 
             result = json.loads(json_str)
 
             # Normalize verdict
-            verdict = result.get('verdict', 'UNCERTAIN').upper().replace(' ', '_')
-            if verdict not in ['TRUE_POSITIVE', 'FALSE_POSITIVE', 'UNCERTAIN']:
-                verdict = 'UNCERTAIN'
+            verdict = result.get("verdict", "UNCERTAIN").upper().replace(" ", "_")
+            if verdict not in ["TRUE_POSITIVE", "FALSE_POSITIVE", "UNCERTAIN"]:
+                verdict = "UNCERTAIN"
 
             return {
                 "verdict": verdict,
-                "confidence": result.get('confidence', 'MEDIUM').upper(),
-                "analysis": result.get('analysis', '')[:500],
+                "confidence": result.get("confidence", "MEDIUM").upper(),
+                "analysis": result.get("analysis", "")[:500],
             }
 
         except json.JSONDecodeError as e:
@@ -240,10 +243,10 @@ Respond with JSON:
             Finding with agent_verification and agent_comment updated
         """
         # Skip low severity findings
-        severity = finding.get('severity', 'LOW').upper()
-        if severity in ['LOW', 'INFO']:
-            finding['agent_verification'] = 'NOT_REQUIRED'
-            finding['agent_comment'] = 'Low severity - agent verification not required'
+        severity = finding.get("severity", "LOW").upper()
+        if severity in ["LOW", "INFO"]:
+            finding["agent_verification"] = "NOT_REQUIRED"
+            finding["agent_comment"] = "Low severity - agent verification not required"
             return finding
 
         try:
@@ -253,28 +256,28 @@ Respond with JSON:
             # Call LLM
             llm = self._get_llm()
             response = llm.invoke(prompt)
-            response_text = response.content if hasattr(response, 'content') else str(response)
+            response_text = response.content if hasattr(response, "content") else str(response)
 
             # Parse response
             result = self._parse_llm_response(response_text)
 
             # Map verdict to agent_verification format
             verdict_map = {
-                'TRUE_POSITIVE': 'VERIFIED',
-                'FALSE_POSITIVE': 'FALSE_POSITIVE',
-                'UNCERTAIN': 'UNCERTAIN',
+                "TRUE_POSITIVE": "VERIFIED",
+                "FALSE_POSITIVE": "FALSE_POSITIVE",
+                "UNCERTAIN": "UNCERTAIN",
             }
 
-            finding['agent_verification'] = verdict_map.get(result['verdict'], 'UNCERTAIN')
-            finding['agent_comment'] = result.get('analysis', '')
-            finding['agent_confidence'] = result.get('confidence', 'MEDIUM')
+            finding["agent_verification"] = verdict_map.get(result["verdict"], "UNCERTAIN")
+            finding["agent_comment"] = result.get("analysis", "")
+            finding["agent_confidence"] = result.get("confidence", "MEDIUM")
 
             logger.info(f"Finding {finding.get('id', 'unknown')} verified as {finding['agent_verification']}")
 
         except Exception as e:
             logger.error(f"Error verifying finding: {e}")
-            finding['agent_verification'] = 'UNCERTAIN'
-            finding['agent_comment'] = f'Agent review failed: {str(e)}'
+            finding["agent_verification"] = "UNCERTAIN"
+            finding["agent_comment"] = f"Agent review failed: {str(e)}"
 
         return finding
 
@@ -293,20 +296,20 @@ Respond with JSON:
         review_count = 0
 
         for finding in findings:
-            severity = finding.get('severity', 'LOW').upper()
+            severity = finding.get("severity", "LOW").upper()
 
             # Only review HIGH/MEDIUM severity up to the batch limit
-            if severity in ['HIGH', 'MEDIUM'] and review_count < self.max_findings_per_batch:
+            if severity in ["HIGH", "MEDIUM"] and review_count < self.max_findings_per_batch:
                 verified_finding = self.verify_finding(finding, base_path)
                 review_count += 1
             else:
                 # Mark as not required or uncertain (if over limit)
-                if severity in ['LOW', 'INFO']:
-                    finding['agent_verification'] = 'NOT_REQUIRED'
-                    finding['agent_comment'] = 'Low severity - agent verification not required'
+                if severity in ["LOW", "INFO"]:
+                    finding["agent_verification"] = "NOT_REQUIRED"
+                    finding["agent_comment"] = "Low severity - agent verification not required"
                 else:
-                    finding['agent_verification'] = 'UNCERTAIN'
-                    finding['agent_comment'] = 'Exceeded batch limit for LLM review'
+                    finding["agent_verification"] = "UNCERTAIN"
+                    finding["agent_comment"] = "Exceeded batch limit for LLM review"
                 verified_finding = finding
 
             verified.append(verified_finding)

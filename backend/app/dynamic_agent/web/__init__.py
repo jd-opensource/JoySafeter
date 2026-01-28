@@ -35,8 +35,8 @@ router = APIRouter(prefix="/api")
 # 1. Web Visualization Routes (Mocked for now, migrating to real)
 # Prefix: /api/web
 web_router = APIRouter(prefix="/web")
-web_router.include_router(sessions_router) # /api/web/users/{uid}/sessions
-web_router.include_router(tools_router)    # /api/web/tools
+web_router.include_router(sessions_router)  # /api/web/users/{uid}/sessions
+web_router.include_router(tools_router)  # /api/web/tools
 web_router.include_router(history_router)
 
 router.include_router(web_router)

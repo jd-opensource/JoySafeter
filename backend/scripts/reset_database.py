@@ -3,6 +3,7 @@
 重置数据库脚本
 清理所有表并重新初始化数据库
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -33,11 +34,13 @@ async def drop_all_tables():
         await conn.execute(text("SET session_replication_role = 'replica';"))
 
         # 获取所有表名
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text("""
             SELECT tablename
             FROM pg_tables
             WHERE schemaname = 'public'
-        """))
+        """)
+        )
         tables = [row[0] for row in result.fetchall()]
 
         if tables:
@@ -50,12 +53,14 @@ async def drop_all_tables():
             print("ℹ️  数据库中没有表")
 
         # 删除所有枚举类型
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text("""
             SELECT typname
             FROM pg_type
             WHERE typtype = 'e'
             AND typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
-        """))
+        """)
+        )
         enums = [row[0] for row in result.fetchall()]
 
         if enums:
@@ -112,7 +117,7 @@ async def main():
     print()
 
     # 检查是否有 --force 参数
-    force = '--force' in sys.argv or '-f' in sys.argv
+    force = "--force" in sys.argv or "-f" in sys.argv
 
     if not force:
         # 确认操作
@@ -124,7 +129,7 @@ async def main():
 
         try:
             response = input("确认继续？(yes/no): ")
-            if response.lower() not in ['yes', 'y']:
+            if response.lower() not in ["yes", "y"]:
                 print("❌ 操作已取消")
                 return
         except EOFError:
@@ -152,10 +157,10 @@ async def main():
     except Exception as e:
         print(f"\n❌ 发生错误: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-

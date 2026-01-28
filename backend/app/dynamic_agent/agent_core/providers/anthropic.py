@@ -46,12 +46,7 @@ class AnthropicProvider:
     - Retry with exponential backoff
     """
 
-    def __init__(
-        self,
-        api_key: str,
-        default_model: str = "claude-sonnet-3-5-20241022",
-        max_retries: int = 3
-    ):
+    def __init__(self, api_key: str, default_model: str = "claude-sonnet-3-5-20241022", max_retries: int = 3):
         """
         Initialize Anthropic provider.
 
@@ -70,7 +65,7 @@ class AnthropicProvider:
         system_prompt: List[str],
         tools: List[Dict[str, Any]],
         abort_signal: asyncio.Event,
-        options: LLMProviderOptions
+        options: LLMProviderOptions,
     ) -> AssistantMessage:
         """
         Get completion from Claude.
@@ -113,10 +108,7 @@ class AnthropicProvider:
 
         # Add extended thinking if requested
         if options.max_thinking_tokens and options.max_thinking_tokens > 0:
-            params["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": options.max_thinking_tokens
-            }
+            params["thinking"] = {"type": "enabled", "budget_tokens": options.max_thinking_tokens}
 
         # Call API with retry
         try:
@@ -128,7 +120,7 @@ class AnthropicProvider:
                 content=[TextBlock(text=f"API Error: {str(e)}")],
                 usage=Usage(),
                 is_api_error=True,
-                duration_ms=int((time.time() - start_time) * 1000)
+                duration_ms=int((time.time() - start_time) * 1000),
             )
 
         # Convert response to our format
@@ -138,13 +130,9 @@ class AnthropicProvider:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=32),
-        retry=retry_if_exception_type((Exception,))
+        retry=retry_if_exception_type((Exception,)),
     )
-    async def _call_with_retry(
-        self,
-        params: Dict[str, Any],
-        abort_signal: asyncio.Event
-    ) -> Message:
+    async def _call_with_retry(self, params: Dict[str, Any], abort_signal: asyncio.Event) -> Message:
         """Call API with retry logic."""
         if abort_signal.is_set():
             raise Exception("Request aborted")
@@ -161,13 +149,7 @@ class AnthropicProvider:
         full_prompt = "\n\n".join(parts)
 
         # Add cache control to last block
-        return [
-            {
-                "type": "text",
-                "text": full_prompt,
-                "cache_control": {"type": "ephemeral"}
-            }
-        ]
+        return [{"type": "text", "text": full_prompt, "cache_control": {"type": "ephemeral"}}]
 
     def _format_messages(self, messages: List[MessageParam]) -> List[Dict[str, Any]]:
         """Format messages for API."""
@@ -175,16 +157,12 @@ class AnthropicProvider:
         for msg in messages:
             content = msg.content
             if isinstance(content, str):
-                result.append({
-                    "role": msg.role.value,
-                    "content": content
-                })
+                result.append({"role": msg.role.value, "content": content})
             else:
                 # List of content blocks
-                result.append({
-                    "role": msg.role.value,
-                    "content": [self._format_content_block(block) for block in content]
-                })
+                result.append(
+                    {"role": msg.role.value, "content": [self._format_content_block(block) for block in content]}
+                )
         return result
 
     def _format_content_block(self, block: Any) -> Dict[str, Any]:
@@ -208,12 +186,7 @@ class AnthropicProvider:
 
         return formatted
 
-    def _convert_response(
-        self,
-        response: Message,
-        duration_ms: int,
-        model: str
-    ) -> AssistantMessage:
+    def _convert_response(self, response: Message, duration_ms: int, model: str) -> AssistantMessage:
         """Convert Anthropic response to our format."""
         # Convert content blocks
         content = []
@@ -221,11 +194,7 @@ class AnthropicProvider:
             if isinstance(block, AnthropicTextBlock):
                 content.append(TextBlock(text=block.text))
             elif isinstance(block, AnthropicToolUseBlock):
-                content.append(ToolUseBlock(
-                    id=block.id,
-                    name=block.name,
-                    input=block.input
-                ))
+                content.append(ToolUseBlock(id=block.id, name=block.name, input=block.input))
             elif hasattr(block, "type") and block.type == "thinking":
                 content.append(ThinkingBlock(text=getattr(block, "thinking", "")))
 
@@ -234,19 +203,11 @@ class AnthropicProvider:
 
         if "sonnet" in model.lower():
             cost = calculate_cost(
-                usage_dict,
-                SONNET_INPUT_COST,
-                SONNET_OUTPUT_COST,
-                SONNET_CACHE_WRITE_COST,
-                SONNET_CACHE_READ_COST
+                usage_dict, SONNET_INPUT_COST, SONNET_OUTPUT_COST, SONNET_CACHE_WRITE_COST, SONNET_CACHE_READ_COST
             )
         else:
             cost = calculate_cost(
-                usage_dict,
-                HAIKU_INPUT_COST,
-                HAIKU_OUTPUT_COST,
-                HAIKU_CACHE_WRITE_COST,
-                HAIKU_CACHE_READ_COST
+                usage_dict, HAIKU_INPUT_COST, HAIKU_OUTPUT_COST, HAIKU_CACHE_WRITE_COST, HAIKU_CACHE_READ_COST
             )
 
         return AssistantMessage(
@@ -257,8 +218,8 @@ class AnthropicProvider:
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 cache_creation_input_tokens=getattr(response.usage, "cache_creation_input_tokens", None),
-                cache_read_input_tokens=getattr(response.usage, "cache_read_input_tokens", None)
+                cache_read_input_tokens=getattr(response.usage, "cache_read_input_tokens", None),
             ),
             cost_usd=cost,
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
         )

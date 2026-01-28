@@ -18,21 +18,21 @@ parent_dir = backend_dir.parent
 sys.path.insert(0, str(parent_dir))
 
 # Set environment variables
-os.environ.setdefault('AGENT_HOST', '0.0.0.0')
-os.environ.setdefault('AGENT_PORT', '8888')
-os.environ.setdefault('AGENT_WORKERS', '1')
-os.environ.setdefault('LOG_LEVEL', 'INFO')
+os.environ.setdefault("AGENT_HOST", "0.0.0.0")
+os.environ.setdefault("AGENT_PORT", "8888")
+os.environ.setdefault("AGENT_WORKERS", "1")
+os.environ.setdefault("LOG_LEVEL", "INFO")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import uvicorn
 
     from app.dynamic_agent.server import app
 
     logger = logging.getLogger(__name__)
 
-    host = os.getenv('AGENT_HOST', '0.0.0.0')
-    port = int(os.getenv('AGENT_PORT', 8888))
-    reload = os.getenv('AGENT_RELOAD', 'false').lower() == 'true'
+    host = os.getenv("AGENT_HOST", "0.0.0.0")
+    port = int(os.getenv("AGENT_PORT", 8888))
+    reload = os.getenv("AGENT_RELOAD", "false").lower() == "true"
 
     logger.info(f"Starting Agent FastAPI Server on {host}:{port}, reload={reload}")
     logger.info(f"API Docs: http://{host}:{port}/docs")
@@ -42,5 +42,5 @@ if __name__ == '__main__':
         host=host,
         port=port,
         reload=reload,
-        log_level=os.getenv('LOG_LEVEL', 'info').lower(),
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )

@@ -1,6 +1,7 @@
 """
 基础 Repository - 通用 CRUD 操作
 """
+
 import uuid
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
@@ -184,4 +185,3 @@ class BaseRepository(Generic[T]):
     async def exists(self, **kwargs) -> bool:
         """检查是否存在"""
         return await self.get_by(**kwargs) is not None
-

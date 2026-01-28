@@ -28,5 +28,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("copilot_chats_agent_graph_id_idx", table_name="copilot_chats")
-
-

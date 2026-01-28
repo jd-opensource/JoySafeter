@@ -14,13 +14,15 @@ class HttpFrameworkEndpointHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
+        """Handler related commands"""
         return []
 
     def handle(self, data: Dict) -> Any:
         """Execute http_framework_endpoint with enhanced logging"""
         try:
-            action = data.get("action", "request")  # request, spider, proxy_history, set_rules, set_scope, repeater, intruder
+            action = data.get(
+                "action", "request"
+            )  # request, spider, proxy_history, set_rules, set_scope, repeater, intruder
             url = data.get("url", "")
             method = data.get("method", "GET")
             request_data = data.get("data", {})
@@ -51,12 +53,10 @@ class HttpFrameworkEndpointHandler(AbstractHandler):
                 return result
             elif action == "proxy_history":
                 return {
-
                     "success": True,
                     "history": http_framework.proxy_history[-100:],  # Last 100 requests
                     "total_requests": len(http_framework.proxy_history),
                     "vulnerabilities": http_framework.vulnerabilities,
-
                 }
             elif action == "set_rules":
                 rules = data.get("rules", [])

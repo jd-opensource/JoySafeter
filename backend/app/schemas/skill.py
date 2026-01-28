@@ -177,4 +177,3 @@ class SkillFileUpdate(BaseModel):
     path: Optional[str] = None
     file_name: Optional[str] = None
     content: Optional[str] = None
-

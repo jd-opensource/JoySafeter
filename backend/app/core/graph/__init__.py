@@ -18,4 +18,3 @@ __all__ = [
     "GraphBuilder",
     "GraphState",
 ]
-

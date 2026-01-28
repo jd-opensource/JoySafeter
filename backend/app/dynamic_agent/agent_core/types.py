@@ -17,25 +17,30 @@ from pydantic import BaseModel, Field
 # Message Types
 # ============================================================================
 
+
 class MessageRole(str, Enum):
     """Message role in conversation."""
+
     USER = "user"
     ASSISTANT = "assistant"
 
 
 class ContentBlock(BaseModel):
     """Base content block."""
+
     type: str
 
 
 class TextBlock(ContentBlock):
     """Text content block."""
+
     type: str = "text"
     text: str
 
 
 class ToolUseBlock(ContentBlock):
     """Tool use request from assistant."""
+
     type: str = "tool_use"
     id: str
     name: str
@@ -44,6 +49,7 @@ class ToolUseBlock(ContentBlock):
 
 class ToolResultBlock(ContentBlock):
     """Tool execution result."""
+
     type: str = "tool_result"
     tool_use_id: str
     content: Union[str, List[ContentBlock]]
@@ -52,6 +58,7 @@ class ToolResultBlock(ContentBlock):
 
 class ThinkingBlock(ContentBlock):
     """Extended thinking content (Anthropic)."""
+
     type: str = "thinking"
     text: str
 
@@ -61,12 +68,14 @@ Content = Union[str, List[Union[TextBlock, ToolUseBlock, ToolResultBlock, Thinki
 
 class MessageParam(BaseModel):
     """Message parameter for API calls."""
+
     role: MessageRole
     content: Content
 
 
 class Usage(BaseModel):
     """Token usage statistics."""
+
     input_tokens: int = 0
     output_tokens: int = 0
     cache_creation_input_tokens: Optional[int] = None
@@ -75,6 +84,7 @@ class Usage(BaseModel):
 
 class AssistantMessage(BaseModel):
     """Assistant message with metadata."""
+
     id: str = ""
     content: List[Union[TextBlock, ToolUseBlock, ThinkingBlock]]
     stop_reason: Optional[str] = None
@@ -86,6 +96,7 @@ class AssistantMessage(BaseModel):
 
 class UserMessage(BaseModel):
     """User message."""
+
     uuid: str
     message: MessageParam
     tool_use_result: Optional[Dict[str, Any]] = None
@@ -93,6 +104,7 @@ class UserMessage(BaseModel):
 
 class ProgressMessage(BaseModel):
     """Progress message during tool execution."""
+
     uuid: str
     type: str = "progress"
     tool_use_id: str
@@ -109,8 +121,10 @@ Message = Union[UserMessage, AssistantMessage, ProgressMessage]
 # Tool Types
 # ============================================================================
 
+
 class ValidationResult(BaseModel):
     """Result of input validation."""
+
     result: bool
     message: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
@@ -118,6 +132,7 @@ class ValidationResult(BaseModel):
 
 class ToolUseContext(BaseModel):
     """Context for tool execution."""
+
     abort_event: Any  # asyncio.Event, but avoid circular import
     options: Dict[str, Any] = Field(default_factory=dict)
     message_id: Optional[str] = None
@@ -129,6 +144,7 @@ class ToolUseContext(BaseModel):
 
 class ToolResultProgress(BaseModel):
     """Progress update during tool execution."""
+
     type: str = "progress"
     content: AssistantMessage
     normalized_messages: List[Any]
@@ -137,6 +153,7 @@ class ToolResultProgress(BaseModel):
 
 class ToolResultFinal(BaseModel):
     """Final result from tool execution."""
+
     type: str = "result"
     data: Any
     result_for_assistant: Any
@@ -173,11 +190,7 @@ class Tool(Protocol):
         """Check if this tool invocation requires user permission."""
         ...
 
-    async def validate_input(
-        self,
-        input: BaseModel,
-        ctx: ToolUseContext
-    ) -> ValidationResult:
+    async def validate_input(self, input: BaseModel, ctx: ToolUseContext) -> ValidationResult:
         """
         Validate tool input beyond schema validation.
 
@@ -189,7 +202,7 @@ class Tool(Protocol):
         self,
         input: BaseModel,
         ctx: ToolUseContext,
-        can_use_tool: Any  # CanUseToolFn type
+        can_use_tool: Any,  # CanUseToolFn type
     ) -> AsyncGenerator[ToolResult, None]:
         """
         Execute the tool and yield results.
@@ -211,8 +224,10 @@ class Tool(Protocol):
 # Provider Types
 # ============================================================================
 
+
 class LLMProviderOptions(BaseModel):
     """Options for LLM provider."""
+
     model: Optional[str] = None
     max_thinking_tokens: Optional[int] = None
     dangerous_skip_permissions: bool = False
@@ -234,7 +249,7 @@ class LLMProvider(Protocol):
         system_prompt: List[str],
         tools: List[Dict[str, Any]],
         abort_signal: asyncio.Event,
-        options: LLMProviderOptions
+        options: LLMProviderOptions,
     ) -> AssistantMessage:
         """
         Get completion from LLM.
@@ -248,8 +263,10 @@ class LLMProvider(Protocol):
 # Permission Types
 # ============================================================================
 
+
 class PermissionResult(BaseModel):
     """Result of permission check."""
+
     result: bool
     message: Optional[str] = None
 
@@ -262,11 +279,7 @@ class PermissionStrategy(Protocol):
     """
 
     async def check(
-        self,
-        tool: Tool,
-        input: Dict[str, Any],
-        context: ToolUseContext,
-        assistant_message: AssistantMessage
+        self, tool: Tool, input: Dict[str, Any], context: ToolUseContext, assistant_message: AssistantMessage
     ) -> PermissionResult:
         """Check if tool can be used with given input."""
         ...
@@ -275,6 +288,7 @@ class PermissionStrategy(Protocol):
 # ============================================================================
 # Logging Types
 # ============================================================================
+
 
 class Logger(Protocol):
     """Logger protocol for observability."""
@@ -300,8 +314,10 @@ class Logger(Protocol):
 # Runtime Types
 # ============================================================================
 
+
 class AgentRuntimeOptions(BaseModel):
     """Options for agent runtime."""
+
     dangerous_skip_permissions: bool = False
     fork_number: Optional[int] = None
     message_log_name: Optional[str] = None

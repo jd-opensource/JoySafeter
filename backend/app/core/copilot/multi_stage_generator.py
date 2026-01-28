@@ -21,6 +21,7 @@ from loguru import logger
 
 class ComplexityLevel(str, Enum):
     """Workflow complexity levels."""
+
     SIMPLE = "simple"  # 1-3 nodes, linear flow
     MODERATE = "moderate"  # 4-7 nodes, some branching
     COMPLEX = "complex"  # 8-15 nodes, multiple branches
@@ -29,6 +30,7 @@ class ComplexityLevel(str, Enum):
 
 class WorkflowPattern(str, Enum):
     """Common workflow patterns."""
+
     LINEAR = "linear"  # A → B → C
     BRANCHING = "branching"  # A → [B, C] → D
     PARALLEL = "parallel"  # [A, B, C] → D
@@ -40,6 +42,7 @@ class WorkflowPattern(str, Enum):
 @dataclass
 class RequirementAnalysis:
     """Analysis of user requirements."""
+
     original_request: str
     complexity: ComplexityLevel
     patterns: List[WorkflowPattern]
@@ -56,6 +59,7 @@ class RequirementAnalysis:
 @dataclass
 class WorkflowPlan:
     """Planned workflow structure before generation."""
+
     name: str
     description: str
     phases: List[Dict[str, Any]]
@@ -68,6 +72,7 @@ class WorkflowPlan:
 @dataclass
 class ValidationResult:
     """Result of workflow validation."""
+
     is_valid: bool
     errors: List[Dict[str, Any]]
     warnings: List[Dict[str, Any]]
@@ -165,7 +170,7 @@ class MultiStageGenerator:
         for marker in entity_markers:
             if marker in request_lower:
                 idx = request_lower.find(marker)
-                entity = request_lower[idx:idx+50].split()[1:3]
+                entity = request_lower[idx : idx + 50].split()[1:3]
                 key_entities.extend(entity)
 
         # Determine if clarification is needed
@@ -218,26 +223,30 @@ class MultiStageGenerator:
 
             # Create manager node
             manager_id = f"agent_{uuid.uuid4().hex[:8]}"
-            nodes_spec.append({
-                "id": manager_id,
-                "type": "agent",
-                "label": "Coordinator",
-                "is_manager": True,
-                "use_deep_agents": True,
-                "description": "Coordinates subagents and synthesizes results",
-            })
+            nodes_spec.append(
+                {
+                    "id": manager_id,
+                    "type": "agent",
+                    "label": "Coordinator",
+                    "is_manager": True,
+                    "use_deep_agents": True,
+                    "description": "Coordinates subagents and synthesizes results",
+                }
+            )
 
             # Create worker nodes
             worker_count = min(analysis.suggested_node_count - 1, 4)
             for i in range(worker_count):
                 worker_id = f"agent_{uuid.uuid4().hex[:8]}"
-                nodes_spec.append({
-                    "id": worker_id,
-                    "type": "agent",
-                    "label": f"Worker {i+1}",
-                    "is_worker": True,
-                    "description": f"Specialized worker agent {i+1}",
-                })
+                nodes_spec.append(
+                    {
+                        "id": worker_id,
+                        "type": "agent",
+                        "label": f"Worker {i + 1}",
+                        "is_worker": True,
+                        "description": f"Specialized worker agent {i + 1}",
+                    }
+                )
                 edges_spec.append({"source": manager_id, "target": worker_id})
 
         elif WorkflowPattern.BRANCHING in analysis.patterns:
@@ -251,20 +260,24 @@ class MultiStageGenerator:
 
             # Create preprocessing node
             preprocess_id = f"agent_{uuid.uuid4().hex[:8]}"
-            nodes_spec.append({
-                "id": preprocess_id,
-                "type": "agent",
-                "label": "Input Processor",
-            })
+            nodes_spec.append(
+                {
+                    "id": preprocess_id,
+                    "type": "agent",
+                    "label": "Input Processor",
+                }
+            )
 
             # Create decision node
             decision_id = f"condition_agent_{uuid.uuid4().hex[:8]}"
-            nodes_spec.append({
-                "id": decision_id,
-                "type": "condition_agent",
-                "label": "Router",
-                "options": ["Branch A", "Branch B"],
-            })
+            nodes_spec.append(
+                {
+                    "id": decision_id,
+                    "type": "condition_agent",
+                    "label": "Router",
+                    "options": ["Branch A", "Branch B"],
+                }
+            )
             edges_spec.append({"source": preprocess_id, "target": decision_id})
 
             # Create branch nodes
@@ -287,11 +300,13 @@ class MultiStageGenerator:
             prev_id = None
             for i in range(analysis.suggested_node_count):
                 node_id = f"agent_{uuid.uuid4().hex[:8]}"
-                nodes_spec.append({
-                    "id": node_id,
-                    "type": "agent",
-                    "label": f"Step {i+1}",
-                })
+                nodes_spec.append(
+                    {
+                        "id": node_id,
+                        "type": "agent",
+                        "label": f"Step {i + 1}",
+                    }
+                )
                 if prev_id:
                     edges_spec.append({"source": prev_id, "target": node_id})
                 prev_id = node_id
@@ -410,11 +425,13 @@ class MultiStageGenerator:
         for node in nodes:
             node_id = node.get("id") or node.get("payload", {}).get("id")
             if not incoming.get(node_id) and not outgoing.get(node_id) and len(nodes) > 1:
-                errors.append({
-                    "type": "orphan_node",
-                    "node_id": node_id,
-                    "message": "Node is not connected to any other node",
-                })
+                errors.append(
+                    {
+                        "type": "orphan_node",
+                        "node_id": node_id,
+                        "message": "Node is not connected to any other node",
+                    }
+                )
 
         # Check 2: Dead ends
         for node in nodes:
@@ -422,11 +439,13 @@ class MultiStageGenerator:
             node_type = node.get("type") or node.get("payload", {}).get("type", "")
             if not outgoing.get(node_id) and node_type not in ["direct_reply", "human_input"]:
                 if len(nodes) > 1:  # Only warn if not single node
-                    warnings.append({
-                        "type": "dead_end",
-                        "node_id": node_id,
-                        "message": "Node has no outgoing edges",
-                    })
+                    warnings.append(
+                        {
+                            "type": "dead_end",
+                            "node_id": node_id,
+                            "message": "Node has no outgoing edges",
+                        }
+                    )
 
         # Check 3: Missing systemPrompts for agents
         for node in nodes:
@@ -435,11 +454,13 @@ class MultiStageGenerator:
             if node_type == "agent":
                 prompt = config.get("systemPrompt", "")
                 if not prompt or len(prompt) < 20:
-                    warnings.append({
-                        "type": "weak_prompt",
-                        "node_id": node.get("id") or node.get("payload", {}).get("id"),
-                        "message": "Agent has weak or missing systemPrompt",
-                    })
+                    warnings.append(
+                        {
+                            "type": "weak_prompt",
+                            "node_id": node.get("id") or node.get("payload", {}).get("id"),
+                            "message": "Agent has weak or missing systemPrompt",
+                        }
+                    )
                     suggestions.append("Add detailed systemPrompts to agent nodes for better results")
 
         # Check 4: DeepAgents without children
@@ -449,11 +470,13 @@ class MultiStageGenerator:
             if config.get("useDeepAgents"):
                 children = outgoing.get(node_id, [])
                 if not children:
-                    errors.append({
-                        "type": "deep_agent_no_children",
-                        "node_id": node_id,
-                        "message": "DeepAgent has no subagent children",
-                    })
+                    errors.append(
+                        {
+                            "type": "deep_agent_no_children",
+                            "node_id": node_id,
+                            "message": "DeepAgent has no subagent children",
+                        }
+                    )
 
         # Calculate health score
         error_count = len(errors)
@@ -575,4 +598,3 @@ def multi_stage_generate(
         },
         "suggestions": suggestions,
     }
-

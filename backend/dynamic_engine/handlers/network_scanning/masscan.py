@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class NmapHandler(AbstractHandler):
     """
     Arbitrary shell command
@@ -18,8 +19,8 @@ class NmapHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['masscan']
+        """Handler related commands"""
+        return ["masscan"]
 
     def handle(self, data: Dict) -> Any:
         try:

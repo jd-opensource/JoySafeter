@@ -10,24 +10,32 @@ env_path = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(env_path)
 
 # PORT=${PORT:-8000}
-pattern = re.compile(r'\$\{([^}:\-]+)(:-([^}]+))?\}')
+pattern = re.compile(r"\$\{([^}:\-]+)(:-([^}]+))?\}")
+
+
 def expand_env(value: str):
     if not value:
         return value
+
     def repl(match):
         key = match.group(1)
         default = match.group(3)
         return os.getenv(key, default if default is not None else "")
+
     return pattern.sub(repl, value)
+
+
 for key, value in os.environ.items():
     expanded = expand_env(value)
     os.environ[key] = expanded
 
 # Debug: print(json.dumps({i:os.environ.get(i) for i in os.environ}, indent=2, ensure_ascii=False))
 
+
 class Config:
     """Configuration class that loads settings from environment variables."""
-    NAME = 'seclens'
+
+    NAME = "seclens"
     # SERVER_CONFIGS = [
     #     {"name": "seclens", "url": "http://127.0.0.1:8000/sse"},
     #     # {"name": "serverB", "url": "http://127.0.0.1:8000/sse"},
@@ -47,8 +55,6 @@ class Config:
 
     # Rich CLI Display Configuration
     RICH_CLI_ENABLED = os.getenv("RICH_CLI_ENABLED", "false").lower() == "true"  # Enable Rich console output
-
-
 
     def __init__(self):
         """Initialize configuration and validate required settings."""

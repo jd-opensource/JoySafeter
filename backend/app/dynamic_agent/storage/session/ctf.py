@@ -32,6 +32,7 @@ class UserHint:
 
     Each hint must resolve to 'applied' or 'skipped' before session closes.
     """
+
     hint_id: UUID = field(default_factory=uuid4)
     session_id: Optional[UUID] = None
     content: str = ""  # Required, <=1024 chars
@@ -68,6 +69,7 @@ class ReferenceHit:
 
     Used to guide solution attempts based on prior solutions or patterns.
     """
+
     ref_id: UUID = field(default_factory=uuid4)
     session_id: Optional[UUID] = None
     source: CtfReferenceSource = CtfReferenceSource.HEURISTIC
@@ -95,6 +97,7 @@ class AttemptStep:
 
     When is_ctf=true, first AttemptStep must have tool_type in {shell, python}.
     """
+
     step_id: UUID = field(default_factory=uuid4)
     session_id: Optional[UUID] = None
     user_hint_id: Optional[UUID] = None  # Optional link to originating idea
@@ -148,6 +151,7 @@ class CtfSession:
     State transitions: created → active → paused → active → closed
     No reopening closed sessions.
     """
+
     session_id: UUID = field(default_factory=uuid4)
     is_ctf: bool = False  # Derived from user intent + heuristics; once true, stays true until close
     challenge_summary: str = ""  # Required when is_ctf=true; concise (<=512 chars)
@@ -192,8 +196,9 @@ class CtfSession:
         self.hints.append(hint)
         return hint
 
-    def add_reference(self, source: CtfReferenceSource, location: str,
-                      snippet: Optional[str] = None, confidence: float = 0.5) -> ReferenceHit:
+    def add_reference(
+        self, source: CtfReferenceSource, location: str, snippet: Optional[str] = None, confidence: float = 0.5
+    ) -> ReferenceHit:
         """Add a reference hit to the session."""
         ref = ReferenceHit(
             session_id=self.session_id,
@@ -205,9 +210,14 @@ class CtfSession:
         self.references.append(ref)
         return ref
 
-    def add_step(self, tool_type: CtfToolType, action_summary: str,
-                 input_payload: str, risk_level: CtfRiskLevel = CtfRiskLevel.LOW,
-                 user_hint_id: Optional[UUID] = None) -> AttemptStep:
+    def add_step(
+        self,
+        tool_type: CtfToolType,
+        action_summary: str,
+        input_payload: str,
+        risk_level: CtfRiskLevel = CtfRiskLevel.LOW,
+        user_hint_id: Optional[UUID] = None,
+    ) -> AttemptStep:
         """Add an attempt step to the session."""
         step = AttemptStep(
             session_id=self.session_id,
@@ -284,10 +294,13 @@ class CtfSessionStore:
         self._sessions: Dict[UUID, CtfSession] = {}
         self._lock = Lock()  # Thread-safe access to _sessions dict
 
-    def create_session(self, is_ctf: bool = False,
-                       challenge_summary: str = "",
-                       detection_source: CtfDetectionSource = CtfDetectionSource.HEURISTIC,
-                       non_ctf_guard: bool = False) -> CtfSession:
+    def create_session(
+        self,
+        is_ctf: bool = False,
+        challenge_summary: str = "",
+        detection_source: CtfDetectionSource = CtfDetectionSource.HEURISTIC,
+        non_ctf_guard: bool = False,
+    ) -> CtfSession:
         """Create a new CTF session (thread-safe)."""
         session = CtfSession(
             is_ctf=is_ctf,
@@ -334,8 +347,7 @@ class CtfSessionStore:
 
     def list_active_sessions(self) -> List[CtfSession]:
         """List all active CTF sessions."""
-        return [s for s in self._sessions.values()
-                if s.status == CtfSessionStatus.ACTIVE and s.is_ctf]
+        return [s for s in self._sessions.values() if s.status == CtfSessionStatus.ACTIVE and s.is_ctf]
 
     def cleanup_old_sessions(self, max_age_hours: int = 24) -> int:
         """Remove sessions older than max_age_hours. Returns count removed (thread-safe)."""

@@ -59,10 +59,10 @@ def _sanitize_path_component(component: str, default: str = "unknown") -> str:
         return default
 
     # 移除所有路径分隔符和相对路径符号
-    sanitized = re.sub(r'[\\/\.\.]+', '', component)
+    sanitized = re.sub(r"[\\/\.\.]+", "", component)
 
     # 移除控制字符、空格和特殊字符（只保留字母、数字、下划线、连字符）
-    sanitized = re.sub(r'[^\w\-]', '', sanitized)
+    sanitized = re.sub(r"[^\w\-]", "", sanitized)
 
     # 限制长度（防止过长的路径）
     sanitized = sanitized[:100]
@@ -90,13 +90,13 @@ def _sanitize_filename(filename: str) -> str:
         raise ValueError("Filename cannot be empty")
 
     # 移除所有路径分隔符
-    sanitized = filename.replace('/', '').replace('\\', '')
+    sanitized = filename.replace("/", "").replace("\\", "")
 
     # 移除相对路径符号
-    sanitized = sanitized.replace('..', '').replace('.', '')
+    sanitized = sanitized.replace("..", "").replace(".", "")
 
     # 只保留字母、数字、下划线、连字符、点号
-    sanitized = re.sub(r'[^\w\-\.]', '', sanitized)
+    sanitized = re.sub(r"[^\w\-\.]", "", sanitized)
 
     if not sanitized:
         raise ValueError(f"Invalid filename after sanitization: {filename}")
@@ -117,14 +117,8 @@ class ArtifactStore:
         if self.run_dir is None:
             root = resolve_artifacts_root()
             # 清理 graph_id 和 run_id，防止目录遍历
-            graph_dir = _sanitize_path_component(
-                self.graph_id or "unknown_graph",
-                default="unknown_graph"
-            )
-            run_id_sanitized = _sanitize_path_component(
-                self.run_id,
-                default=f"run_{uuid.uuid4().hex[:12]}"
-            )
+            graph_dir = _sanitize_path_component(self.graph_id or "unknown_graph", default="unknown_graph")
+            run_id_sanitized = _sanitize_path_component(self.run_id, default=f"run_{uuid.uuid4().hex[:12]}")
             self.run_dir = root / graph_dir / run_id_sanitized
             # 更新 run_id 为清理后的值，保持一致性
             self.run_id = run_id_sanitized
@@ -157,9 +151,7 @@ class ArtifactStore:
             resolved_run_dir = self.run_dir.resolve()
             resolved_root = root.resolve()
             if not str(resolved_run_dir).startswith(str(resolved_root)):
-                raise ValueError(
-                    f"run_dir escaped from artifacts root: {resolved_run_dir} not in {resolved_root}"
-                )
+                raise ValueError(f"run_dir escaped from artifacts root: {resolved_run_dir} not in {resolved_root}")
         except Exception as e:
             logger.error(f"[ArtifactStore] Security check failed: {e}")
             raise
@@ -176,9 +168,7 @@ class ArtifactStore:
             resolved_path = path.resolve()
             resolved_run_dir = self.run_dir.resolve()
             if not str(resolved_path).startswith(str(resolved_run_dir)):
-                raise ValueError(
-                    f"Path traversal detected: {resolved_path} not in {resolved_run_dir}"
-                )
+                raise ValueError(f"Path traversal detected: {resolved_path} not in {resolved_run_dir}")
         except Exception as e:
             logger.error(f"[ArtifactStore] Path traversal detected in filename: {filename}")
             raise ValueError(f"Invalid filename: {filename}") from e

@@ -9,4 +9,3 @@ Centralized location for shared constants to ensure consistency across modules.
 # This is used when user_id is None or not provided, ensuring all user_id values
 # are strings in UUID format.
 DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000000"
-

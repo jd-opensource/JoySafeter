@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class Enum4linuxNgHandler(AbstractHandler):
     """Handler for enum4linux_ng functionality"""
 
@@ -13,8 +14,8 @@ class Enum4linuxNgHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['enum4linux-ng']
+        """Handler related commands"""
+        return ["enum4linux-ng"]
 
     def handle(self, data: Dict) -> Any:
         """Execute enum4linux_ng with enhanced logging"""

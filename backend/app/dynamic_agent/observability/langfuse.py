@@ -14,6 +14,7 @@ from app.dynamic_agent.infra.metadata_context import MetadataContext, write_mess
 
 # --- CTF Success Metrics ---
 
+
 def log_ctf_metric(metric_name: str, data: Dict[str, Any], session_id: Optional[str] = None):
     """
     Log CTF success metrics for tracking SC-001 and SC-004.
@@ -27,11 +28,12 @@ def log_ctf_metric(metric_name: str, data: Dict[str, Any], session_id: Optional[
         data: Metric data
         session_id: Optional session ID
     """
-    write_json_log(f'CTF_METRIC_{metric_name}', data, session_id)
+    write_json_log(f"CTF_METRIC_{metric_name}", data, session_id)
 
 
-def log_ctf_first_action(tool_type: str, tool_name: str, elapsed_seconds: float,
-                         is_shell_or_python: bool, session_id: Optional[str] = None):
+def log_ctf_first_action(
+    tool_type: str, tool_name: str, elapsed_seconds: float, is_shell_or_python: bool, session_id: Optional[str] = None
+):
     """
     Log SC-001: First action cycle uses shell/Python within 30s.
 
@@ -43,18 +45,21 @@ def log_ctf_first_action(tool_type: str, tool_name: str, elapsed_seconds: float,
         session_id: Optional session ID
     """
     success = is_shell_or_python and elapsed_seconds <= 30
-    log_ctf_metric('SC001_FIRST_ACTION', {
-        'tool_type': tool_type,
-        'tool_name': tool_name,
-        'elapsed_seconds': elapsed_seconds,
-        'is_shell_or_python': is_shell_or_python,
-        'within_30s': elapsed_seconds <= 30,
-        'success': success,
-    }, session_id)
+    log_ctf_metric(
+        "SC001_FIRST_ACTION",
+        {
+            "tool_type": tool_type,
+            "tool_name": tool_name,
+            "elapsed_seconds": elapsed_seconds,
+            "is_shell_or_python": is_shell_or_python,
+            "within_30s": elapsed_seconds <= 30,
+            "success": success,
+        },
+        session_id,
+    )
 
 
-def log_ctf_hint_processing(total_hints: int, applied: int, skipped: int,
-                            session_id: Optional[str] = None):
+def log_ctf_hint_processing(total_hints: int, applied: int, skipped: int, session_id: Optional[str] = None):
     """
     Log SC-002: User-supplied ideas are executed or acknowledged.
 
@@ -67,17 +72,20 @@ def log_ctf_hint_processing(total_hints: int, applied: int, skipped: int,
     # At least 80% should be applied or explicitly skipped with reason
     processed = applied + skipped
     success = total_hints == 0 or (processed / total_hints) >= 0.8
-    log_ctf_metric('SC002_HINT_PROCESSING', {
-        'total_hints': total_hints,
-        'applied': applied,
-        'skipped': skipped,
-        'processed_ratio': processed / total_hints if total_hints > 0 else 1.0,
-        'success': success,
-    }, session_id)
+    log_ctf_metric(
+        "SC002_HINT_PROCESSING",
+        {
+            "total_hints": total_hints,
+            "applied": applied,
+            "skipped": skipped,
+            "processed_ratio": processed / total_hints if total_hints > 0 else 1.0,
+            "success": success,
+        },
+        session_id,
+    )
 
 
-def log_non_ctf_tool_order(original_order: list, actual_order: list,
-                           session_id: Optional[str] = None):
+def log_non_ctf_tool_order(original_order: list, actual_order: list, session_id: Optional[str] = None):
     """
     Log SC-004: Non-CTF requests maintain unchanged tool selection.
 
@@ -88,12 +96,17 @@ def log_non_ctf_tool_order(original_order: list, actual_order: list,
     """
     # Check if order is unchanged (first 5 tools match)
     success = original_order[:5] == actual_order[:5]
-    log_ctf_metric('SC004_NON_CTF_ORDER', {
-        'original_order': original_order[:10],
-        'actual_order': actual_order[:10],
-        'order_preserved': success,
-        'success': success,
-    }, session_id)
+    log_ctf_metric(
+        "SC004_NON_CTF_ORDER",
+        {
+            "original_order": original_order[:10],
+            "actual_order": actual_order[:10],
+            "order_preserved": success,
+            "success": success,
+        },
+        session_id,
+    )
+
 
 # --- JSON Log Writer ---
 
@@ -108,7 +121,7 @@ _DEDUP_WINDOW_SECONDS = 0.5  # Time window for deduplication (500ms)
 def _get_session_log_file(session_id: str) -> Path:
     """Get log file path for a specific session."""
     # Sanitize session_id for use as filename
-    safe_session_id = session_id.replace('/', '_').replace('\\', '_').replace(':', '_')
+    safe_session_id = session_id.replace("/", "_").replace("\\", "_").replace(":", "_")
     return LOG_DIR / f"session_{safe_session_id}.jsonl"
 
 
@@ -121,13 +134,13 @@ def _is_duplicate_entry(session_id: str, event_type: str, data: Dict[str, Any]) 
     import time
 
     # Extract run_id if present (for tool calls and LLM events)
-    run_id = data.get('run_id', '')
-    if not run_id and 'tool_calls' in data:
+    run_id = data.get("run_id", "")
+    if not run_id and "tool_calls" in data:
         # For LLM_RESPONSE, hash the tool_calls to detect duplicates
         try:
-            run_id = hashlib.md5(json.dumps(data.get('tool_calls', []), sort_keys=True).encode()).hexdigest()[:8]
+            run_id = hashlib.md5(json.dumps(data.get("tool_calls", []), sort_keys=True).encode()).hexdigest()[:8]
         except (TypeError, ValueError):
-            run_id = ''
+            run_id = ""
 
     cache_key = (session_id, event_type, run_id)
     current_time = time.time()
@@ -164,13 +177,9 @@ def write_json_log(event_type: str, data: Dict[str, Any], session_id: Optional[s
             metas = MetadataContext.get()
             if metas:
                 # Try multiple possible keys for session_id
-                session_id = (
-                    metas.get('session_id') or
-                    metas.get('langfuse_session_id') or
-                    'unknown'
-                )
+                session_id = metas.get("session_id") or metas.get("langfuse_session_id") or "unknown"
             else:
-                session_id = 'unknown'
+                session_id = "unknown"
 
         # Idempotency check: skip if this is a duplicate entry
         if _is_duplicate_entry(session_id, event_type, data):
@@ -180,7 +189,7 @@ def write_json_log(event_type: str, data: Dict[str, Any], session_id: Optional[s
             "timestamp": datetime.now().isoformat(),
             "session_id": session_id,
             "event_type": event_type,
-            "data": data
+            "data": data,
         }
 
         # Ensure log directory exists
@@ -188,8 +197,8 @@ def write_json_log(event_type: str, data: Dict[str, Any], session_id: Optional[s
 
         # Append to session-specific log file
         log_file = _get_session_log_file(session_id)
-        with open(log_file, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
         # Don't let logging errors break the main flow
     except Exception:
@@ -214,8 +223,9 @@ class ChainDebugCallback(BaseCallbackHandler):
     def indent(self):
         return "  " * self.depth
 
-    def _create_collapsible_block(self, content: str, language: str = "",
-                                  summary: str = "", collapsed: bool = True) -> str:
+    def _create_collapsible_block(
+        self, content: str, language: str = "", summary: str = "", collapsed: bool = True
+    ) -> str:
         """
         Create a collapsible code block with single-line/expanded view toggle.
 
@@ -230,7 +240,7 @@ class ChainDebugCallback(BaseCallbackHandler):
         """
         if not summary:
             # Auto-generate summary from first line or content length
-            lines = content.strip().split('\n')
+            lines = content.strip().split("\n")
             if len(lines) > 1:
                 summary = f"{lines[0][:60]}..." if len(lines[0]) > 60 else lines[0]
             else:
@@ -240,14 +250,7 @@ class ChainDebugCallback(BaseCallbackHandler):
         # This is supported by most Markdown renderers (GitHub, GitLab, etc.)
         open_attr = "" if collapsed else " open"
 
-        return (
-            f"<details{open_attr}>\n"
-            f"<summary>{summary}</summary>\n\n"
-            f"```{language}\n"
-            f"{content}\n"
-            f"```\n\n"
-            f"</details>"
-        )
+        return f"<details{open_attr}>\n<summary>{summary}</summary>\n\n```{language}\n{content}\n```\n\n</details>"
 
     # --- Chain ---
 
@@ -278,7 +281,7 @@ class ChainDebugCallback(BaseCallbackHandler):
         self.depth += 1
 
         # --- JSON Log: LLM_INPUT with full messages ---
-        invocation_params = kwargs.get('invocation_params', {})
+        invocation_params = kwargs.get("invocation_params", {})
 
         # messages is a list of lists: [[SystemMessage, HumanMessage, ...]]
         all_messages = messages[0] if messages else []
@@ -286,46 +289,46 @@ class ChainDebugCallback(BaseCallbackHandler):
         formatted_messages = []
 
         for msg in all_messages:
-            msg_type = getattr(msg, 'type', 'unknown')
-            msg_content = getattr(msg, 'content', str(msg))
+            msg_type = getattr(msg, "type", "unknown")
+            msg_content = getattr(msg, "content", str(msg))
 
-            if msg_type == 'system':
+            if msg_type == "system":
                 pass
             else:
                 # Include tool_calls and tool_call_id if present
                 msg_data = {
-                    'role': msg_type,
-                    'content': msg_content,
+                    "role": msg_type,
+                    "content": msg_content,
                 }
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    msg_data['tool_calls'] = [
-                        {
-                            'id': tc.get('id', ''),
-                            'name': tc.get('name', ''),
-                            'args': tc.get('args', {})
-                        } if isinstance(tc, dict) else {
-                            'id': getattr(tc, 'id', ''),
-                            'name': getattr(tc, 'name', ''),
-                            'args': getattr(tc, 'args', {})
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    msg_data["tool_calls"] = [
+                        {"id": tc.get("id", ""), "name": tc.get("name", ""), "args": tc.get("args", {})}
+                        if isinstance(tc, dict)
+                        else {
+                            "id": getattr(tc, "id", ""),
+                            "name": getattr(tc, "name", ""),
+                            "args": getattr(tc, "args", {}),
                         }
                         for tc in msg.tool_calls
                     ]
-                if hasattr(msg, 'tool_call_id') and msg.tool_call_id:
-                    msg_data['tool_call_id'] = msg.tool_call_id
+                if hasattr(msg, "tool_call_id") and msg.tool_call_id:
+                    msg_data["tool_call_id"] = msg.tool_call_id
 
                 formatted_messages.append(msg_data)
 
         # Extract tool definitions from invocation_params (for display only)
         tools_definitions = []
-        bound_tools = invocation_params.get('tools', [])
+        bound_tools = invocation_params.get("tools", [])
         for tool in bound_tools:
             if isinstance(tool, dict):
                 # OpenAI function format
-                func = tool.get('function', {})
-                tools_definitions.append({
-                    'name': func.get('name', ''),
-                    'description': func.get('description', '')[:500],  # Truncate long descriptions
-                })
+                func = tool.get("function", {})
+                tools_definitions.append(
+                    {
+                        "name": func.get("name", ""),
+                        "description": func.get("description", "")[:500],  # Truncate long descriptions
+                    }
+                )
         # Note: JSON logging is handled by JsonFileLoggingCallback
 
     def on_llm_new_token(self, token, **kwargs):
@@ -378,12 +381,14 @@ class ChainDebugCallback(BaseCallbackHandler):
         traceback.print_exc()
         # Note: JSON logging is handled by JsonFileLoggingCallback
 
+
 if conf.LANGFUSE_SECRET_KEY:
     langfuse = Langfuse(
         public_key=conf.LANGFUSE_PUBLIC_KEY,
         secret_key=conf.LANGFUSE_SECRET_KEY,
         host=conf.LANGFUSE_HOST,
     )
+
 
 def callbacks():
     """
@@ -399,6 +404,7 @@ def callbacks():
 
     # 1. Always add the dedicated JSON file logger (centralized persistence)
     from app.dynamic_agent.observability.json_logger import JsonFileLoggingCallback
+
     result.append(JsonFileLoggingCallback())
 
     # 2. Add Langfuse handler if configured
@@ -410,6 +416,7 @@ def callbacks():
     if conf.RICH_CLI_ENABLED:
         try:
             from app.dynamic_agent.observability.rich_console import RichConsoleCallback
+
             result.append(RichConsoleCallback())
         except ImportError:
             # Fallback to classic debug if Rich not available

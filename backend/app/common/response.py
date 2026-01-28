@@ -1,6 +1,7 @@
 """
 统一响应格式
 """
+
 from datetime import datetime
 from typing import Any, Generic, List, Optional, TypeVar
 
@@ -11,6 +12,7 @@ T = TypeVar("T")
 
 class ApiResponse(BaseModel, Generic[T]):
     """统一 API 响应格式"""
+
     success: bool = True
     code: int = 200
     message: str = "Success"
@@ -25,6 +27,7 @@ class ApiResponse(BaseModel, Generic[T]):
 
 class PaginatedData(BaseModel, Generic[T]):
     """分页数据"""
+
     items: List[T]
     total: int
     page: int
@@ -81,4 +84,3 @@ def paginated_response(
         },
         message=message,
     )
-

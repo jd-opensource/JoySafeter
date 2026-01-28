@@ -3,6 +3,7 @@
 数据库初始化脚本
 等待数据库就绪，创建数据库（如果不存在），然后运行 Alembic 迁移
 """
+
 import os
 import subprocess
 import sys
@@ -35,11 +36,14 @@ def fix_collation_warning(config):
         cursor = conn.cursor()
 
         # 更新 collation 版本信息，消除警告
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE pg_database
             SET datcollversion = NULL
             WHERE datname = %s AND datcollversion IS NOT NULL
-        """, (config["db_name"],))
+        """,
+            (config["db_name"],),
+        )
 
         if cursor.rowcount > 0:
             print(f"✅ 已修复数据库 {config['db_name']} 的 collation 版本警告")
@@ -69,17 +73,12 @@ def create_database_if_not_exists(config):
         db_name = config["db_name"]
 
         # 检查数据库是否存在
-        cursor.execute(
-            "SELECT 1 FROM pg_database WHERE datname = %s",
-            (db_name,)
-        )
+        cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
         exists = cursor.fetchone()
 
         if not exists:
             print(f"📦 创建数据库: {db_name}")
-            cursor.execute(sql.SQL("CREATE DATABASE {}").format(
-                sql.Identifier(db_name)
-            ))
+            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db_name)))
             print(f"✅ 数据库创建成功: {db_name}")
         else:
             print(f"✅ 数据库已存在: {db_name}")

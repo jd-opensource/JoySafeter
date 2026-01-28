@@ -22,24 +22,23 @@ from app.dynamic_agent.storage.session.ctf import ReferenceHit
 # Default paths for CTF reference search
 # Container paths (mounted volumes)
 DEFAULT_REFERENCE_PATHS = [
-    "/opt/ctf/knowledge",      # CTF knowledge base (mounted from host)
-    "/opt/ctf/references",     # Reference solutions
-    "/opt/ctf/writeups",       # CTF writeups
-    "/opt/ctf/payloads",       # Payload templates
-    "./ctf_references",        # Local development
-    "./writeups",              # Local writeups
+    "/opt/ctf/knowledge",  # CTF knowledge base (mounted from host)
+    "/opt/ctf/references",  # Reference solutions
+    "/opt/ctf/writeups",  # CTF writeups
+    "/opt/ctf/payloads",  # Payload templates
+    "./ctf_references",  # Local development
+    "./writeups",  # Local writeups
 ]
 
 # Local development paths (for running outside container)
 _local_knowledge_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "dynamic_engine", "handlers", "knowledge", "ctf"
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "dynamic_engine", "handlers", "knowledge", "ctf"
 )
 if os.path.exists(_local_knowledge_path):
     DEFAULT_REFERENCE_PATHS.insert(0, _local_knowledge_path)
 
 # Safe file extensions to read
-SAFE_EXTENSIONS = {'.txt', '.md', '.py', '.sh', '.json', '.yaml', '.yml', '.xml', '.html'}
+SAFE_EXTENSIONS = {".txt", ".md", ".py", ".sh", ".json", ".yaml", ".yml", ".xml", ".html"}
 
 # Maximum file size to read (1MB)
 MAX_FILE_SIZE = 1024 * 1024
@@ -51,6 +50,7 @@ MAX_SNIPPET_LENGTH = 512
 @dataclass
 class SearchResult:
     """Result from a reference search."""
+
     file_path: str
     line_number: int
     content: str
@@ -138,26 +138,29 @@ def search_references_rg(
             )
 
             # Parse JSON output
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 if not line:
                     continue
                 try:
                     import json
+
                     data = json.loads(line)
-                    if data.get('type') == 'match':
-                        match_data = data.get('data', {})
-                        path_data = match_data.get('path', {})
-                        file_path = path_data.get('text', '')
-                        line_num = match_data.get('line_number', 0)
-                        lines = match_data.get('lines', {})
-                        content = lines.get('text', '').strip()
+                    if data.get("type") == "match":
+                        match_data = data.get("data", {})
+                        path_data = match_data.get("path", {})
+                        file_path = path_data.get("text", "")
+                        line_num = match_data.get("line_number", 0)
+                        lines = match_data.get("lines", {})
+                        content = lines.get("text", "").strip()
 
                         if file_path and _is_safe_file(file_path):
-                            results.append(SearchResult(
-                                file_path=file_path,
-                                line_number=line_num,
-                                content=content[:MAX_SNIPPET_LENGTH],
-                            ))
+                            results.append(
+                                SearchResult(
+                                    file_path=file_path,
+                                    line_number=line_num,
+                                    content=content[:MAX_SNIPPET_LENGTH],
+                                )
+                            )
 
                             if len(results) >= max_results:
                                 break
@@ -204,19 +207,21 @@ def _search_with_grep(
             timeout=30,
         )
 
-        for line in result.stdout.strip().split('\n'):
+        for line in result.stdout.strip().split("\n"):
             if not line:
                 continue
             # Parse grep output: file:line:content
-            match = re.match(r'^(.+?):(\d+):(.*)$', line)
+            match = re.match(r"^(.+?):(\d+):(.*)$", line)
             if match:
                 file_path, line_num, content = match.groups()
                 if _is_safe_file(file_path):
-                    results.append(SearchResult(
-                        file_path=file_path,
-                        line_number=int(line_num),
-                        content=content[:MAX_SNIPPET_LENGTH],
-                    ))
+                    results.append(
+                        SearchResult(
+                            file_path=file_path,
+                            line_number=int(line_num),
+                            content=content[:MAX_SNIPPET_LENGTH],
+                        )
+                    )
 
     except Exception as e:
         logger.error(f"Grep search error: {e}")
@@ -253,14 +258,14 @@ def read_reference_file(
         return False, f"File not safe to read: {file_path}"
 
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
 
         # Extract requested lines (1-indexed)
         start_idx = max(0, start_line - 1)
         end_idx = min(len(lines), start_idx + num_lines)
 
-        content = ''.join(lines[start_idx:end_idx])
+        content = "".join(lines[start_idx:end_idx])
         return True, content
 
     except Exception as e:
@@ -301,10 +306,10 @@ def search_ctf_references(
     # Extract key terms from description
     # Simple extraction: look for technical terms
     tech_patterns = [
-        r'\b(base64|hex|rot13|caesar|xor|aes|rsa|md5|sha\d*)\b',
-        r'\b(sql|xss|csrf|ssrf|lfi|rfi|ssti|xxe)\b',
-        r'\b(buffer\s*overflow|stack|heap|rop|ret2\w+)\b',
-        r'\b(flag|ctf|challenge)\b',
+        r"\b(base64|hex|rot13|caesar|xor|aes|rsa|md5|sha\d*)\b",
+        r"\b(sql|xss|csrf|ssrf|lfi|rfi|ssti|xxe)\b",
+        r"\b(buffer\s*overflow|stack|heap|rop|ret2\w+)\b",
+        r"\b(flag|ctf|challenge)\b",
     ]
 
     for pattern in tech_patterns:
@@ -325,7 +330,7 @@ def search_ctf_references(
 
                 # Determine source type
                 source = CtfReferenceSource.LOCAL_BANK
-                if 'writeup' in result.file_path.lower():
+                if "writeup" in result.file_path.lower():
                     source = CtfReferenceSource.PRIOR_SOLUTION
 
                 # Calculate confidence based on match quality
@@ -335,12 +340,14 @@ def search_ctf_references(
                 if any(kw.lower() in result.content.lower() for kw in (keywords or [])):
                     confidence += 0.2
 
-                hits.append(ReferenceHit(
-                    source=source,
-                    location=result.file_path,
-                    snippet=result.content,
-                    confidence=min(confidence, 1.0),
-                ))
+                hits.append(
+                    ReferenceHit(
+                        source=source,
+                        location=result.file_path,
+                        snippet=result.content,
+                        confidence=min(confidence, 1.0),
+                    )
+                )
 
                 if len(hits) >= max_results:
                     break
@@ -363,11 +370,11 @@ def extract_flag_pattern(text: str) -> Optional[str]:
     """
     # Common flag patterns
     patterns = [
-        r'flag\{[^}]+\}',
-        r'FLAG\{[^}]+\}',
-        r'ctf\{[^}]+\}',
-        r'CTF\{[^}]+\}',
-        r'\w+CTF\{[^}]+\}',
+        r"flag\{[^}]+\}",
+        r"FLAG\{[^}]+\}",
+        r"ctf\{[^}]+\}",
+        r"CTF\{[^}]+\}",
+        r"\w+CTF\{[^}]+\}",
     ]
 
     for pattern in patterns:

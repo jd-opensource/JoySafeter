@@ -1,6 +1,7 @@
 """
 工作空间模型
 """
+
 import uuid
 from enum import Enum as PyEnum
 from typing import TYPE_CHECKING, List, Optional
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 
 class WorkspaceStatus(str, PyEnum):
     """工作空间状态"""
+
     active = "active"
     deprecated = "deprecated"
     archived = "archived"
@@ -24,12 +26,14 @@ class WorkspaceStatus(str, PyEnum):
 
 class WorkspaceType(str, PyEnum):
     """工作空间类型"""
+
     personal = "personal"  # 个人空间
     team = "team"  # 团队工作空间
 
 
 class WorkspaceMemberRole(str, PyEnum):
     """工作空间成员角色"""
+
     owner = "owner"
     admin = "admin"
     member = "member"
@@ -38,6 +42,7 @@ class WorkspaceMemberRole(str, PyEnum):
 
 class Workspace(BaseModel, SoftDeleteMixin):
     """工作空间"""
+
     __tablename__ = "workspaces"
 
     # 基本信息
@@ -80,6 +85,7 @@ class Workspace(BaseModel, SoftDeleteMixin):
 
 class WorkspaceMember(BaseModel):
     """工作空间成员"""
+
     __tablename__ = "workspace_members"
 
     # 关联
@@ -114,6 +120,7 @@ class WorkspaceMember(BaseModel):
 
 class WorkspaceFolder(BaseModel, SoftDeleteMixin):
     """工作空间文件夹"""
+
     __tablename__ = "workspace_folder"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -151,4 +158,3 @@ class WorkspaceFolder(BaseModel, SoftDeleteMixin):
         Index("workspace_folder_parent_sort_idx", "parent_id", "sort_order"),
         Index("workspace_folder_deleted_at_idx", "deleted_at"),
     )
-

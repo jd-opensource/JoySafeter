@@ -38,9 +38,7 @@ def merge_dicts(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def add_task_results(
-    left: List[Dict[str, Any]], right: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
+def add_task_results(left: List[Dict[str, Any]], right: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Reducer function to combine task results for parallel execution."""
     if not left:
         return right if right else []
@@ -49,10 +47,7 @@ def add_task_results(
     return left + right
 
 
-def merge_loop_states(
-    left: Dict[str, Dict[str, Any]],
-    right: Dict[str, Dict[str, Any]]
-) -> Dict[str, Dict[str, Any]]:
+def merge_loop_states(left: Dict[str, Dict[str, Any]], right: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Deep merge loop states to avoid concurrent write conflicts.
 
     Merges nested dictionaries, with right taking precedence for conflicts.
@@ -68,18 +63,12 @@ def merge_loop_states(
     return result
 
 
-def merge_task_states(
-    left: Dict[str, Dict[str, Any]],
-    right: Dict[str, Dict[str, Any]]
-) -> Dict[str, Dict[str, Any]]:
+def merge_task_states(left: Dict[str, Dict[str, Any]], right: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Deep merge task states for parallel execution."""
     return merge_loop_states(left, right)  # Same logic
 
 
-def merge_node_contexts(
-    left: Dict[str, Dict[str, Any]],
-    right: Dict[str, Dict[str, Any]]
-) -> Dict[str, Dict[str, Any]]:
+def merge_node_contexts(left: Dict[str, Dict[str, Any]], right: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Deep merge node contexts."""
     return merge_loop_states(left, right)  # Same logic
 
@@ -94,6 +83,7 @@ class BusinessState(TypedDict, total=False):
         context: 业务上下文数据（用户输入、处理结果等）
         messages: 消息列表（继承自 MessagesState）
     """
+
     context: Dict[str, Any]
     # 注意：messages 继承自 MessagesState，属于业务数据
 
@@ -117,6 +107,7 @@ class ExecutionState(TypedDict, total=False):
         node_contexts: 节点上下文隔离
         todos: 待办事项列表（用于 TodoListMiddleware）
     """
+
     current_node: Optional[str]
     route_decision: str  # Route key selected by router nodes
     route_history: Annotated[List[str], operator.add]  # History of route decisions
@@ -156,6 +147,7 @@ class GraphState(MessagesState, BusinessState, ExecutionState):
     - Conditional routing
     - Loops with state isolation
     """
+
     # Messages 继承自 MessagesState（属于业务数据）
     messages: Annotated[List[BaseMessage], add_messages]
 
@@ -191,4 +183,3 @@ class GraphState(MessagesState, BusinessState, ExecutionState):
 
     # Todos field for TodoListMiddleware - supports concurrent updates
     todos: NotRequired[Annotated[List[Dict[str, Any]], add_todos]]
-

@@ -19,6 +19,7 @@ from loguru import logger
 @dataclass
 class CompensationResult:
     """Result of tool compensation."""
+
     success: bool
     code: str = ""
     error: str | None = None
@@ -47,7 +48,6 @@ def web_search(query: str) -> str:
         data = json.loads(response.read())
         return data.get("AbstractText", "No results found")
 ''',
-
     "http_get": '''
 import urllib.request
 import json
@@ -57,7 +57,6 @@ def http_get(url: str) -> str:
     with urllib.request.urlopen(url) as response:
         return response.read().decode("utf-8")
 ''',
-
     "http_post": '''
 import urllib.request
 import json
@@ -70,7 +69,6 @@ def http_post(url: str, data: dict) -> str:
     with urllib.request.urlopen(req) as response:
         return response.read().decode("utf-8")
 ''',
-
     # File operations
     "read_file": '''
 def read_file(path: str) -> str:
@@ -78,7 +76,6 @@ def read_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 ''',
-
     "write_file": '''
 def write_file(path: str, content: str) -> str:
     """Write content to file."""
@@ -86,7 +83,6 @@ def write_file(path: str, content: str) -> str:
         f.write(content)
     return f"File written: {path}"
 ''',
-
     "list_files": '''
 import os
 
@@ -94,7 +90,6 @@ def list_files(directory: str = ".") -> list:
     """List files in directory."""
     return os.listdir(directory)
 ''',
-
     # Data operations
     "load_csv": '''
 import csv
@@ -104,7 +99,6 @@ def load_csv(path: str) -> list:
     with open(path, "r", newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
 ''',
-
     "save_csv": '''
 import csv
 
@@ -119,7 +113,6 @@ def save_csv(path: str, data: list, headers: list = None) -> str:
         writer.writerows(data)
     return f"Saved {len(data)} rows to {path}"
 ''',
-
     "load_json": '''
 import json
 
@@ -128,7 +121,6 @@ def load_json(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 ''',
-
     "save_json": '''
 import json
 
@@ -138,7 +130,6 @@ def save_json(path: str, data: dict, indent: int = 2) -> str:
         json.dump(data, f, indent=indent, ensure_ascii=False)
     return f"Saved to {path}"
 ''',
-
     # Math/Statistics
     "calculate_statistics": '''
 import statistics
@@ -155,7 +146,6 @@ def calculate_statistics(numbers: list) -> dict:
         "count": len(numbers),
     }
 ''',
-
     # Text processing
     "extract_urls": '''
 import re
@@ -165,7 +155,6 @@ def extract_urls(text: str) -> list:
     pattern = r'https?://[^\\s<>"{}|\\\\^`\\[\\]]+'
     return re.findall(pattern, text)
 ''',
-
     "extract_emails": '''
 import re
 
@@ -463,6 +452,7 @@ def create_compensator(
     Returns:
         Configured ToolCompensator instance.
     """
+
     async def llm_generator(prompt: str, params: dict) -> str:
         if llm is None:
             raise ValueError("No LLM provided")
@@ -485,4 +475,3 @@ __all__ = [
     "PACKAGE_TOOL_MAP",
     "TOOL_PACKAGE_MAP",
 ]
-

@@ -1,6 +1,7 @@
 """
 自定义工具模型
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -36,4 +37,3 @@ class CustomTool(BaseModel):
         UniqueConstraint("owner_id", "name", name="custom_tools_owner_name_unique"),
         Index("custom_tools_owner_idx", "owner_id"),
     )
-

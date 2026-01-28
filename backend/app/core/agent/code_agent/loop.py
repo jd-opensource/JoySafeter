@@ -90,6 +90,7 @@ class LoopConfig:
 @dataclass
 class StepEvent:
     """Event emitted during loop execution."""
+
     event_type: str  # "thought", "code", "observation", "error", "final_answer", "planning"
     content: Any
     step_number: int
@@ -283,9 +284,9 @@ class CodeAgentLoop:
 
                 # Optional: Update planning
                 if (
-                    self.config.enable_plan_updates and
-                    self._current_step > 0 and
-                    self._current_step % self.config.plan_update_interval == 0
+                    self.config.enable_plan_updates
+                    and self._current_step > 0
+                    and self._current_step % self.config.plan_update_interval == 0
                 ):
                     async for event in self._do_planning(task, initial=False):
                         yield event
@@ -534,4 +535,3 @@ __all__ = [
     "CodeAgentLoop",
     "create_simple_llm_call",
 ]
-

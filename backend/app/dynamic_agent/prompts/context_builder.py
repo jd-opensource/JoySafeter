@@ -15,6 +15,7 @@ from app.dynamic_agent.models.session_context import SessionContext
 def _get_static_prompt() -> str:
     """Lazy load static prompt from registry to avoid circular import."""
     from app.dynamic_agent.prompts.registry import get_registry
+
     try:
         registry = get_registry()
         prompt = registry.get("system/static_main_agent")
@@ -48,10 +49,7 @@ def build_messages(
     messages = []
 
     # 1. Static System Prompt (100% KV Cache hit)
-    messages.append({
-        "role": "system",
-        "content": system_prompt or _get_static_prompt()
-    })
+    messages.append({"role": "system", "content": system_prompt or _get_static_prompt()})
 
     # 2. History (incremental cache)
     if history:
@@ -64,10 +62,7 @@ def build_messages(
     else:
         content = user_message
 
-    messages.append({
-        "role": "user",
-        "content": content
-    })
+    messages.append({"role": "user", "content": content})
 
     return messages
 
@@ -153,8 +148,8 @@ def extract_context_from_message(message: str) -> tuple[Optional[str], str]:
     if end_idx == -1:
         return None, message
 
-    context_block = message[start_idx:end_idx + len(end_tag)]
-    remaining = message[end_idx + len(end_tag):].strip()
+    context_block = message[start_idx : end_idx + len(end_tag)]
+    remaining = message[end_idx + len(end_tag) :].strip()
 
     return context_block, remaining
 

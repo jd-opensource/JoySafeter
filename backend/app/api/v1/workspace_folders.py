@@ -98,6 +98,7 @@ async def update_folder(
     existing = await repo.get(folder_id)
     if not existing:
         from app.common.exceptions import NotFoundException
+
         raise NotFoundException("Folder not found")
 
     workspace_id = body.workspaceId or existing.workspace_id
@@ -126,6 +127,7 @@ async def delete_folder(
     existing = await repo.get(folder_id)
     if not existing:
         from app.common.exceptions import NotFoundException
+
         raise NotFoundException("Folder not found")
 
     service = FolderService(db)
@@ -192,6 +194,7 @@ async def list_folder_graphs(
     folder = await repo.get(folder_id)
     if not folder:
         from app.common.exceptions import NotFoundException
+
         raise NotFoundException("Folder not found")
 
     # 验证用户权限（读权限）
@@ -200,10 +203,11 @@ async def list_folder_graphs(
 
     # 查询该 folder 下的所有 graphs
     GraphRepository(db)
-    stmt = select(AgentGraph).where(
-        AgentGraph.folder_id == folder_id,
-        AgentGraph.user_id == current_user.id
-    ).order_by(AgentGraph.updated_at.desc())
+    stmt = (
+        select(AgentGraph)
+        .where(AgentGraph.folder_id == folder_id, AgentGraph.user_id == current_user.id)
+        .order_by(AgentGraph.updated_at.desc())
+    )
 
     result = await db.execute(stmt)
     graphs = list(result.scalars().all())
@@ -224,22 +228,23 @@ async def list_folder_graphs(
     # 序列化 graphs
     data = []
     for graph in graphs:
-        data.append({
-            "id": str(graph.id),
-            "userId": str(graph.user_id),
-            "workspaceId": str(graph.workspace_id) if graph.workspace_id else None,
-            "folderId": str(graph.folder_id) if graph.folder_id else None,
-            "parentId": str(graph.parent_id) if graph.parent_id else None,
-            "name": graph.name,
-            "description": graph.description,
-            "color": graph.color,
-            "isDeployed": graph.is_deployed,
-            "variables": graph.variables or {},
-            "createdAt": graph.created_at.isoformat() if graph.created_at else None,
-            "updatedAt": graph.updated_at.isoformat() if graph.updated_at else None,
-            "nodeCount": node_counts.get(graph.id, 0),
-        })
+        data.append(
+            {
+                "id": str(graph.id),
+                "userId": str(graph.user_id),
+                "workspaceId": str(graph.workspace_id) if graph.workspace_id else None,
+                "folderId": str(graph.folder_id) if graph.folder_id else None,
+                "parentId": str(graph.parent_id) if graph.parent_id else None,
+                "name": graph.name,
+                "description": graph.description,
+                "color": graph.color,
+                "isDeployed": graph.is_deployed,
+                "variables": graph.variables or {},
+                "createdAt": graph.created_at.isoformat() if graph.created_at else None,
+                "updatedAt": graph.updated_at.isoformat() if graph.updated_at else None,
+                "nodeCount": node_counts.get(graph.id, 0),
+            }
+        )
 
     base = success_response(data={"graphs": data}, message="Fetched graphs")
     return {**base, "graphs": data}
-

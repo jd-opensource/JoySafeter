@@ -70,17 +70,14 @@ DATA_IO_MODULES = [
 
 # All data analysis modules combined
 ALL_DATA_ANALYSIS_MODULES = (
-    CORE_DATA_MODULES +
-    VISUALIZATION_MODULES +
-    ML_MODULES +
-    STATISTICS_MODULES +
-    DATA_IO_MODULES
+    CORE_DATA_MODULES + VISUALIZATION_MODULES + ML_MODULES + STATISTICS_MODULES + DATA_IO_MODULES
 )
 
 
 # ============================================================================
 # Built-in Helper Functions
 # ============================================================================
+
 
 def create_data_analysis_tools() -> dict[str, Callable]:
     """
@@ -103,6 +100,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
         """
         try:
             import io
+
             buffer = io.StringIO()
 
             buffer.write("=== DataFrame Overview ===\n")
@@ -119,7 +117,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
             buffer.write(df.head().to_string())
 
             buffer.write("\n\n=== Numeric Statistics ===\n")
-            numeric_df = df.select_dtypes(include=['number'])
+            numeric_df = df.select_dtypes(include=["number"])
             if not numeric_df.empty:
                 buffer.write(numeric_df.describe().to_string())
             else:
@@ -145,6 +143,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
         """
         try:
             import os
+
             output_dir = "/tmp/plots"
             os.makedirs(output_dir, exist_ok=True)
 
@@ -170,9 +169,10 @@ def create_data_analysis_tools() -> dict[str, Callable]:
         """
         try:
             import io
+
             buffer = io.StringIO()
 
-            numeric_df = df.select_dtypes(include=['number'])
+            numeric_df = df.select_dtypes(include=["number"])
             if numeric_df.empty:
                 return "No numeric columns for correlation analysis"
 
@@ -216,6 +216,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
             import io
 
             import numpy as np
+
             buffer = io.StringIO()
 
             if column not in df.columns:
@@ -238,7 +239,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
 
             buffer.write(f"=== Outlier Detection ({method}) for '{column}' ===\n")
             buffer.write(f"Total values: {len(data)}\n")
-            buffer.write(f"Outliers found: {len(outliers)} ({len(outliers)/len(data)*100:.2f}%)\n")
+            buffer.write(f"Outliers found: {len(outliers)} ({len(outliers) / len(data) * 100:.2f}%)\n")
 
             if len(outliers) > 0:
                 buffer.write("\nOutlier statistics:\n")
@@ -268,6 +269,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
         """
         try:
             import io
+
             buffer = io.StringIO()
 
             buffer.write("=" * 60 + "\n")
@@ -298,14 +300,14 @@ def create_data_analysis_tools() -> dict[str, Callable]:
             buffer.write("\n")
 
             # Numeric summary
-            numeric_cols = df.select_dtypes(include=['number']).columns[:max_cols]
+            numeric_cols = df.select_dtypes(include=["number"]).columns[:max_cols]
             if len(numeric_cols) > 0:
                 buffer.write("=== Numeric Columns Summary ===\n")
                 buffer.write(df[numeric_cols].describe().to_string())
                 buffer.write("\n\n")
 
             # Categorical summary
-            cat_cols = df.select_dtypes(include=['object', 'category']).columns[:max_cols]
+            cat_cols = df.select_dtypes(include=["object", "category"]).columns[:max_cols]
             if len(cat_cols) > 0:
                 buffer.write("=== Categorical Columns Summary ===\n")
                 for col in cat_cols:
@@ -313,7 +315,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
                     top_values = df[col].value_counts().head(5)
                     buffer.write(f"\n{col} (unique: {n_unique}):\n")
                     for val, count in top_values.items():
-                        buffer.write(f"  {val}: {count} ({count/len(df)*100:.1f}%)\n")
+                        buffer.write(f"  {val}: {count} ({count / len(df) * 100:.1f}%)\n")
 
             return buffer.getvalue()
         except Exception as e:
@@ -348,9 +350,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
             X = df.drop(columns=[target_column])
             y = df[target_column]
 
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=test_size, random_state=random_state
-            )
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
 
             return {
                 "X_train": X_train,
@@ -370,6 +370,7 @@ def create_data_analysis_tools() -> dict[str, Callable]:
 # ============================================================================
 # Preset Configurations
 # ============================================================================
+
 
 class DataAnalysisPreset:
     """
@@ -495,4 +496,3 @@ __all__ = [
     "PRESET_FULL",
     "get_preset",
 ]
-

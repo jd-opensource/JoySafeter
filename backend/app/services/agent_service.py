@@ -15,11 +15,7 @@ from app.core.tools.tool_registry import get_global_registry
 from app.models import AgentToolMap
 
 
-async def resolve_tools_for_agent(
-    db: AsyncSession,
-    agent_id: int,
-    user_id: Optional[str] = None
-) -> List[Any]:
+async def resolve_tools_for_agent(db: AsyncSession, agent_id: int, user_id: Optional[str] = None) -> List[Any]:
     """
     Resolve the list of LangChain Tool objects for a given agent.
 
@@ -60,6 +56,7 @@ async def resolve_tools_for_agent(
         # Validate servers exist and are enabled
         if server_names:
             from app.core.agent.node_tools import _validate_mcp_servers
+
             valid_servers = await _validate_mcp_servers(server_names, user_id=user_id)
             logger.debug(
                 f"[resolve_tools_for_agent] Validated {len(valid_servers)}/{len(server_names)} "
@@ -83,6 +80,7 @@ async def resolve_tools_for_agent(
                 else:
                     # 没有 user_id，直接从 registry 获取（不验证）
                     from app.core.tools.mcp_tool_utils import parse_mcp_tool_name
+
                     server_name, tool_name = parse_mcp_tool_name(row.tool_name)
                     if server_name and tool_name:
                         tool = registry.get_mcp_tool(server_name, tool_name)
@@ -92,10 +90,7 @@ async def resolve_tools_for_agent(
                 if tool:
                     tools.append(tool)
                 else:
-                    logger.warning(
-                        f"MCP tool '{row.tool_name}' not found or not accessible "
-                        f"for agent_id={agent_id}"
-                    )
+                    logger.warning(f"MCP tool '{row.tool_name}' not found or not accessible for agent_id={agent_id}")
             else:
                 logger.warning(f"Unknown tool source '{row.source}' for tool '{row.tool_name}', skipping")
         except Exception as e:

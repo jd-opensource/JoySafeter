@@ -21,8 +21,8 @@ class CurlRequestHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['curl']
+        """Handler related commands"""
+        return ["curl"]
 
     def handle(self, data: Dict) -> Any:
         """Execute HTTP request using curl"""

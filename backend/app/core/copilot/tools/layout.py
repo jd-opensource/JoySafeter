@@ -15,32 +15,21 @@ from app.core.copilot.tools.context import get_current_graph_context
 
 class AutoLayoutInput(BaseModel):
     """Input schema for auto_layout tool."""
+
     layout_type: str = Field(
         default="horizontal",
-        description="Layout type: 'horizontal' (left-to-right), 'vertical' (top-to-bottom), 'tree' (hierarchical), 'grid' (grid arrangement)"
+        description="Layout type: 'horizontal' (left-to-right), 'vertical' (top-to-bottom), 'tree' (hierarchical), 'grid' (grid arrangement)",
     )
-    node_spacing_x: float = Field(
-        default=300,
-        description="Horizontal spacing between nodes"
-    )
-    node_spacing_y: float = Field(
-        default=150,
-        description="Vertical spacing between nodes"
-    )
-    start_x: float = Field(
-        default=100,
-        description="Starting X position"
-    )
-    start_y: float = Field(
-        default=100,
-        description="Starting Y position"
-    )
+    node_spacing_x: float = Field(default=300, description="Horizontal spacing between nodes")
+    node_spacing_y: float = Field(default=150, description="Vertical spacing between nodes")
+    start_x: float = Field(default=100, description="Starting X position")
+    start_y: float = Field(default=100, description="Starting Y position")
     reasoning: str = Field(description="Explanation for why auto layout is needed")
 
 
 @tool(
     args_schema=AutoLayoutInput,
-    description="Automatically rearrange nodes for better visualization. Layout types: horizontal, vertical, tree, grid."
+    description="Automatically rearrange nodes for better visualization. Layout types: horizontal, vertical, tree, grid.",
 )
 def auto_layout(
     reasoning: str,
@@ -70,10 +59,13 @@ def auto_layout(
     edges = graph_context.get("edges", [])
 
     if not nodes:
-        return json.dumps({
-            "error": "No nodes in the current graph to layout",
-            "suggestion": "Create some nodes first before applying auto layout"
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "error": "No nodes in the current graph to layout",
+                "suggestion": "Create some nodes first before applying auto layout",
+            },
+            ensure_ascii=False,
+        )
 
     actions = []
 
@@ -118,14 +110,13 @@ def auto_layout(
             new_x = start_x + col * node_spacing_x
             new_y = start_y + row * node_spacing_y
 
-            actions.append({
-                "type": "UPDATE_POSITION",
-                "payload": {
-                    "id": node_id,
-                    "position": {"x": new_x, "y": new_y}
-                },
-                "reasoning": f"Auto-layout: placing node in column {col}, row {row}"
-            })
+            actions.append(
+                {
+                    "type": "UPDATE_POSITION",
+                    "payload": {"id": node_id, "position": {"x": new_x, "y": new_y}},
+                    "reasoning": f"Auto-layout: placing node in column {col}, row {row}",
+                }
+            )
 
     elif layout_type == "vertical":
         # Similar to horizontal but swap x and y
@@ -153,14 +144,13 @@ def auto_layout(
             new_x = start_x + col * node_spacing_x
             new_y = start_y + row * node_spacing_y
 
-            actions.append({
-                "type": "UPDATE_POSITION",
-                "payload": {
-                    "id": node_id,
-                    "position": {"x": new_x, "y": new_y}
-                },
-                "reasoning": f"Auto-layout (vertical): placing node in row {row}, column {col}"
-            })
+            actions.append(
+                {
+                    "type": "UPDATE_POSITION",
+                    "payload": {"id": node_id, "position": {"x": new_x, "y": new_y}},
+                    "reasoning": f"Auto-layout (vertical): placing node in row {row}, column {col}",
+                }
+            )
 
     elif layout_type == "tree":
         # Tree layout with root at top
@@ -192,14 +182,13 @@ def auto_layout(
                 new_x = start_x + 400 + start_offset + i * node_spacing_x  # Center around 400
                 new_y = start_y + level * node_spacing_y
 
-                actions.append({
-                    "type": "UPDATE_POSITION",
-                    "payload": {
-                        "id": node_id,
-                        "position": {"x": new_x, "y": new_y}
-                    },
-                    "reasoning": f"Auto-layout (tree): level {level}, position {i+1}/{count}"
-                })
+                actions.append(
+                    {
+                        "type": "UPDATE_POSITION",
+                        "payload": {"id": node_id, "position": {"x": new_x, "y": new_y}},
+                        "reasoning": f"Auto-layout (tree): level {level}, position {i + 1}/{count}",
+                    }
+                )
 
     elif layout_type == "grid":
         # Simple grid arrangement
@@ -210,20 +199,21 @@ def auto_layout(
             new_x = start_x + col * node_spacing_x
             new_y = start_y + row * node_spacing_y
 
-            actions.append({
-                "type": "UPDATE_POSITION",
-                "payload": {
-                    "id": node.get("id"),
-                    "position": {"x": new_x, "y": new_y}
-                },
-                "reasoning": f"Auto-layout (grid): row {row}, col {col}"
-            })
+            actions.append(
+                {
+                    "type": "UPDATE_POSITION",
+                    "payload": {"id": node.get("id"), "position": {"x": new_x, "y": new_y}},
+                    "reasoning": f"Auto-layout (grid): row {row}, col {col}",
+                }
+            )
 
-    return json.dumps({
-        "layout_type": layout_type,
-        "nodes_repositioned": len(actions),
-        "actions": actions,
-        "reasoning": reasoning,
-    }, ensure_ascii=False, indent=2)
-
-
+    return json.dumps(
+        {
+            "layout_type": layout_type,
+            "nodes_repositioned": len(actions),
+            "actions": actions,
+            "reasoning": reasoning,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )

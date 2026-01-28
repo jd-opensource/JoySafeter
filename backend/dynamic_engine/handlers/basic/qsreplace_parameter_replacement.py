@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class QsreplaceHandler(AbstractHandler):
     """Handler for qsreplace functionality"""
 
@@ -13,8 +14,8 @@ class QsreplaceHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['qsreplace']
+        """Handler related commands"""
+        return ["qsreplace"]
 
     def handle(self, data: Dict) -> Any:
         """Execute qsreplace with enhanced logging"""

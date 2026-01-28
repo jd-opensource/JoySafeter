@@ -18,7 +18,7 @@ from typing import Optional
 
 import asyncpg
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
 
 # logging.basicConfig(
 #     level=logging.INFO,
@@ -50,7 +50,7 @@ class DatabaseInitializer:
                 user=self.user,
                 password=self.password,
                 min_size=1,
-                max_size=5
+                max_size=5,
             )
             logger.info(f"Connected to {self.database} at {self.host}:{self.port}")
         except Exception as e:
@@ -104,26 +104,22 @@ class DatabaseInitializer:
 
 async def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description='Initialize database schema')
-    parser.add_argument('--host', default='localhost', help='Database host')
-    parser.add_argument('--port', type=int, default=5432, help='Database port')
-    parser.add_argument('--database', default='agent_storage', help='Database name')
-    parser.add_argument('--user', default='postgres', help='Database user')
-    parser.add_argument('--password', default='', help='Database password')
-    parser.add_argument('--reset', action='store_true', help='Drop existing tables before initialization')
+    parser = argparse.ArgumentParser(description="Initialize database schema")
+    parser.add_argument("--host", default="localhost", help="Database host")
+    parser.add_argument("--port", type=int, default=5432, help="Database port")
+    parser.add_argument("--database", default="agent_storage", help="Database name")
+    parser.add_argument("--user", default="postgres", help="Database user")
+    parser.add_argument("--password", default="", help="Database password")
+    parser.add_argument("--reset", action="store_true", help="Drop existing tables before initialization")
 
     args = parser.parse_args()
 
     initializer = DatabaseInitializer(
-        host=args.host,
-        port=args.port,
-        database=args.database,
-        user=args.user,
-        password=args.password
+        host=args.host, port=args.port, database=args.database, user=args.user, password=args.password
     )
 
     await initializer.run(reset=args.reset)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

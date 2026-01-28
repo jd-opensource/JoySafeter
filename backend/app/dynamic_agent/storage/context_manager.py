@@ -17,6 +17,7 @@ from app.dynamic_agent.storage.container.binding import ContainerBindingInfo
 @dataclass
 class SessionContext:
     """Session context containing all session state."""
+
     session_id: str
     user_id: str
     created_at: datetime
@@ -49,14 +50,12 @@ class ContextManager:
         self._lock = asyncio.Lock()
 
     async def create_session(
-        self,
-        user_id: str,
-        session_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        self, user_id: str, session_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None
     ) -> SessionContext:
         """Create a new session."""
         if session_id is None:
             from uuid import uuid4
+
             session_id = str(uuid4())
 
         context = SessionContext(
@@ -64,7 +63,7 @@ class ContextManager:
             user_id=user_id,
             created_at=datetime.now(),
             updated_at=datetime.now(),
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
         async with self._lock:
@@ -92,11 +91,7 @@ class ContextManager:
             await self.backend.save_context(context)
 
     async def add_message(
-            self,
-            session_id: str,
-            role: str,
-            content: str,
-            metadata: Optional[Dict[str, Any]] = None
+        self, session_id: str, role: str, content: str, metadata: Optional[Dict[str, Any]] = None
     ) -> Optional[int]:
         """Add message to conversation history and return its ID."""
         logger.debug(f"ContextManager.add_message called for session {session_id}")
@@ -118,7 +113,7 @@ class ContextManager:
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat(),
-            "metadata": metadata or {}
+            "metadata": metadata or {},
         }
 
         context.messages.append(message)
@@ -138,8 +133,8 @@ class ContextManager:
         role: str,
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
-            tool_calls: Optional[List[Dict[str, Any]]] = None,
-            tool_call_id: Optional[str] = None
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+        tool_call_id: Optional[str] = None,
     ) -> Optional[int]:
         """
         Add message to conversation history.
@@ -172,7 +167,7 @@ class ContextManager:
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat(),
-            "metadata": metadata or {}
+            "metadata": metadata or {},
         }
 
         # Add tool_calls for assistant messages (OpenAI format)
@@ -193,11 +188,7 @@ class ContextManager:
 
         return message_id
 
-    async def get_conversation_history(
-        self,
-        session_id: str,
-        limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_conversation_history(self, session_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get conversation history."""
         context = await self.get_session(session_id)
         if not context:
@@ -209,12 +200,7 @@ class ContextManager:
 
         return messages
 
-    async def set_container_context(
-        self,
-        session_id: str,
-        container_id: str,
-        working_directory: str = "/"
-    ):
+    async def set_container_context(self, session_id: str, container_id: str, working_directory: str = "/"):
         """Set container context."""
         context = await self.get_session(session_id)
         if not context:
@@ -224,11 +210,7 @@ class ContextManager:
         context.working_directory = working_directory
         await self.update_session(context)
 
-    async def identify_scenario(
-        self,
-        session_id: str,
-        user_message: str
-    ) -> str:
+    async def identify_scenario(self, session_id: str, user_message: str) -> str:
         """Identify testing scenario from user message."""
         # Simple keyword matching - can be enhanced with LLM
         # NOTE: Order matters! More specific scenarios should come first
@@ -258,28 +240,16 @@ class ContextManager:
 
         return "general"
 
-    async def set_target_info(
-        self,
-        session_id: str,
-        target: str,
-        info: Dict[str, Any]
-    ):
+    async def set_target_info(self, session_id: str, target: str, info: Dict[str, Any]):
         """Set target information."""
         context = await self.get_session(session_id)
         if not context:
             raise ValueError(f"Session {session_id} not found")
 
-        context.target_info[target] = {
-            **info,
-            "updated_at": datetime.now().isoformat()
-        }
+        context.target_info[target] = {**info, "updated_at": datetime.now().isoformat()}
         await self.update_session(context)
 
-    async def get_target_info(
-        self,
-        session_id: str,
-        target: str
-    ) -> Optional[Dict[str, Any]]:
+    async def get_target_info(self, session_id: str, target: str) -> Optional[Dict[str, Any]]:
         """Get target information."""
         context = await self.get_session(session_id)
         if not context:

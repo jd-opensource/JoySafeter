@@ -1,6 +1,7 @@
 """
 应用配置
 """
+
 import os
 import socket
 from pathlib import Path
@@ -36,62 +37,52 @@ class Settings(BaseSettings):
     )
 
     # App
-    app_name: str = Field(
-        default="JoySafeter",
-        description="Application name"
-    )
-    app_version: str = Field(
-        default="0.1.0",
-        description="Application version"
-    )
+    app_name: str = Field(default="JoySafeter", description="Application name")
+    app_version: str = Field(default="0.1.0", description="Application version")
     debug: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("DEBUG", "APP_DEBUG"),
-        description="Enable debug mode"
+        default=False, validation_alias=AliasChoices("DEBUG", "APP_DEBUG"), description="Enable debug mode"
     )
     environment: str = Field(
         default="development",
         validation_alias=AliasChoices("ENVIRONMENT", "ENV", "APP_ENV"),
-        description="Application environment (development, staging, production)"
+        description="Application environment (development, staging, production)",
     )
 
     # Server
     host: str = Field(
         default="0.0.0.0",
         validation_alias=AliasChoices("BACKEND_HOST", "HOST", "SERVER_HOST"),
-        description="Backend server host"
+        description="Backend server host",
     )
     port: int = Field(
         default=8000,
         validation_alias=AliasChoices("BACKEND_PORT", "PORT", "SERVER_PORT"),
-        description="Backend server port"
+        description="Backend server port",
     )
     reload: bool = Field(
         default=True,
         validation_alias=AliasChoices("RELOAD", "AUTO_RELOAD"),
-        description="Enable auto-reload on code changes"
+        description="Enable auto-reload on code changes",
     )
     workers: int = Field(
-        default=1,
-        validation_alias=AliasChoices("WORKERS", "UVICORN_WORKERS"),
-        description="Number of worker processes"
+        default=1, validation_alias=AliasChoices("WORKERS", "UVICORN_WORKERS"), description="Number of worker processes"
     )
 
     # Database
     database_echo: bool = Field(
         default=False,
         validation_alias=AliasChoices("DATABASE_ECHO", "DB_ECHO", "SQL_ECHO"),
-        description="Enable SQL query logging"
+        description="Enable SQL query logging",
     )
     database_pool_size: int = Field(
         default=10,
         validation_alias=AliasChoices("DATABASE_POOL_SIZE", "DB_POOL_SIZE"),
-        description="Database connection pool size"
+        description="Database connection pool size",
     )
     database_max_overflow: int = Field(
         default=20,
         validation_alias=AliasChoices("DATABASE_MAX_OVERFLOW", "DB_MAX_OVERFLOW"),
-        description="Database connection pool max overflow"
+        description="Database connection pool max overflow",
     )
 
     @computed_field
@@ -119,8 +110,7 @@ class Settings(BaseSettings):
             postgres_port = "5432"
 
         database_url = (
-            f"postgresql+asyncpg://{postgres_user}:{postgres_password}"
-            f"@{postgres_host}:{postgres_port}/{postgres_db}"
+            f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
         )
 
         # 针对 localhost 的端口自动修复逻辑 (参考 scripts/view_db.py)
@@ -150,91 +140,91 @@ class Settings(BaseSettings):
         return self.database_url.replace("+asyncpg", "")
 
     # Redis (缓存 & 限流)
-    redis_url: Optional[str] = Field(
-        default=None,
-        validation_alias="REDIS_URL",
-        description="Redis connection URL"
-    )
+    redis_url: Optional[str] = Field(default=None, validation_alias="REDIS_URL", description="Redis connection URL")
     redis_pool_size: int = Field(
         default=10,
         validation_alias=AliasChoices("REDIS_POOL_SIZE", "REDIS_CONNECTION_POOL_SIZE"),
-        description="Redis connection pool size"
+        description="Redis connection pool size",
     )
 
     # 限流配置
     rate_limit_rpm: int = Field(
         default=60,
         validation_alias=AliasChoices("RATE_LIMIT_RPM", "RATE_LIMIT_PER_MINUTE"),
-        description="Rate limit: requests per minute"
+        description="Rate limit: requests per minute",
     )
     rate_limit_rph: int = Field(
         default=1000,
         validation_alias=AliasChoices("RATE_LIMIT_RPH", "RATE_LIMIT_PER_HOUR"),
-        description="Rate limit: requests per hour"
+        description="Rate limit: requests per hour",
     )
 
     # 并发控制
     max_concurrent_llm_calls: int = Field(
         default=50,
         validation_alias=AliasChoices("MAX_CONCURRENT_LLM_CALLS", "MAX_LLM_CONCURRENCY"),
-        description="Maximum concurrent LLM calls"
+        description="Maximum concurrent LLM calls",
     )
     max_concurrent_per_user: int = Field(
         default=5,
         validation_alias=AliasChoices("MAX_CONCURRENT_PER_USER", "MAX_USER_CONCURRENCY"),
-        description="Maximum concurrent requests per user"
+        description="Maximum concurrent requests per user",
     )
 
     # Auth
     secret_key: str = Field(
         ...,  # 强制要求配置，不提供默认值
         validation_alias=AliasChoices("SECRET_KEY", "JWT_SECRET_KEY", "AUTH_SECRET_KEY"),
-        description="JWT secret key (REQUIRED - must be set in environment)"
+        description="JWT secret key (REQUIRED - must be set in environment)",
     )
     algorithm: str = Field(
         default="HS256",
         validation_alias=AliasChoices("JWT_ALGORITHM", "AUTH_ALGORITHM"),
-        description="JWT signing algorithm"
+        description="JWT signing algorithm",
     )
     access_token_expire_minutes: int = Field(
         default=60 * 24 * 3,  # 3 days (安全优化：从 7 天缩短到 3 天)
-        validation_alias=AliasChoices("ACCESS_TOKEN_EXPIRE_MINUTES", "JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "AUTH_ACCESS_TOKEN_EXPIRE_MINUTES"),
-        description="Access token expiration time in minutes"
+        validation_alias=AliasChoices(
+            "ACCESS_TOKEN_EXPIRE_MINUTES", "JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "AUTH_ACCESS_TOKEN_EXPIRE_MINUTES"
+        ),
+        description="Access token expiration time in minutes",
     )
     refresh_token_expire_days: int = Field(
         default=30,  # 30 days
-        validation_alias=AliasChoices("REFRESH_TOKEN_EXPIRE_DAYS", "JWT_REFRESH_TOKEN_EXPIRE_DAYS", "AUTH_REFRESH_TOKEN_EXPIRE_DAYS"),
-        description="Refresh token expiration time in days"
+        validation_alias=AliasChoices(
+            "REFRESH_TOKEN_EXPIRE_DAYS", "JWT_REFRESH_TOKEN_EXPIRE_DAYS", "AUTH_REFRESH_TOKEN_EXPIRE_DAYS"
+        ),
+        description="Refresh token expiration time in days",
     )
     disable_auth: bool = Field(
         default=False,  # 默认启用认证（安全第一）
-        description="Disable API authentication (ONLY for development - NOT recommended)"
+        description="Disable API authentication (ONLY for development - NOT recommended)",
     )
     require_email_verification: bool = Field(
         default=False,  # 默认不强制（兼容性考虑）
-        description="Require email verification before login (recommended for production)"
+        description="Require email verification before login (recommended for production)",
     )
 
     # Cookie 配置
     cookie_name: str = Field(
         default="auth_token",
         validation_alias=AliasChoices("COOKIE_NAME", "AUTH_COOKIE_NAME"),
-        description="Authentication cookie name"
+        description="Authentication cookie name",
     )
     cookie_domain: Optional[str] = Field(
         default=None,  # 生产环境设置为 ".example.com"
         validation_alias=AliasChoices("COOKIE_DOMAIN", "AUTH_COOKIE_DOMAIN"),
-        description="Cookie domain (e.g., '.example.com' for production)"
+        description="Cookie domain (e.g., '.example.com' for production)",
     )
     cookie_secure: bool = Field(
         default=False,
         validation_alias=AliasChoices("COOKIE_SECURE", "AUTH_COOKIE_SECURE"),
-        description="Cookie Secure flag (auto-enabled in production)"
+        description="Cookie Secure flag (auto-enabled in production)",
     )
     cookie_samesite: str = Field(
         default="lax",  # "lax" | "strict" | "none"
         validation_alias=AliasChoices("COOKIE_SAMESITE", "AUTH_COOKIE_SAMESITE"),
-        description="Cookie SameSite attribute (lax, strict, none)"
+        description="Cookie SameSite attribute (lax, strict, none)",
     )
 
     @computed_field
@@ -251,7 +241,7 @@ class Settings(BaseSettings):
     cors_origins: List[str] = Field(
         default=["http://localhost:3000", "http://localhost:3001"],
         validation_alias=AliasChoices("CORS_ORIGINS", "CORS_ALLOWED_ORIGINS"),
-        description="Allowed CORS origins (comma-separated string or JSON array)"
+        description="Allowed CORS origins (comma-separated string or JSON array)",
     )
 
     @field_validator("cors_origins", mode="before")
@@ -270,39 +260,35 @@ class Settings(BaseSettings):
     frontend_url: str = Field(
         default="http://localhost:3001",
         validation_alias=AliasChoices("FRONTEND_URL", "FRONTEND_URI", "APP_FRONTEND_URL"),
-        description="Frontend URL for email links and redirects"
+        description="Frontend URL for email links and redirects",
     )
 
     # Email / SMTP
     smtp_host: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("SMTP_HOST", "EMAIL_HOST"),
-        description="SMTP server host"
+        default=None, validation_alias=AliasChoices("SMTP_HOST", "EMAIL_HOST"), description="SMTP server host"
     )
     smtp_port: int = Field(
-        default=587,
-        validation_alias=AliasChoices("SMTP_PORT", "EMAIL_PORT"),
-        description="SMTP server port"
+        default=587, validation_alias=AliasChoices("SMTP_PORT", "EMAIL_PORT"), description="SMTP server port"
     )
     smtp_user: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("SMTP_USER", "SMTP_USERNAME", "EMAIL_USER", "EMAIL_USERNAME"),
-        description="SMTP authentication username"
+        description="SMTP authentication username",
     )
     smtp_password: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("SMTP_PASSWORD", "EMAIL_PASSWORD"),
-        description="SMTP authentication password"
+        description="SMTP authentication password",
     )
     from_email: str = Field(
         default="noreply@joysafeter.ai",
         validation_alias=AliasChoices("FROM_EMAIL", "EMAIL_FROM", "SMTP_FROM_EMAIL"),
-        description="Default sender email address"
+        description="Default sender email address",
     )
     from_name: str = Field(
         default="JoySafeter",
         validation_alias=AliasChoices("FROM_NAME", "EMAIL_FROM_NAME", "SMTP_FROM_NAME"),
-        description="Default sender name"
+        description="Default sender name",
     )
 
     # 注意：所有模型配置和凭据应通过前端页面配置，存储在数据库中
@@ -311,41 +297,33 @@ class Settings(BaseSettings):
     # - 凭据配置：存储在 ModelCredential 表中（加密存储）
 
     # Langfuse (Observability)
-    langfuse_public_key: Optional[str] = Field(
-        default=None,
-        description="Langfuse public key for observability"
-    )
-    langfuse_secret_key: Optional[str] = Field(
-        default=None,
-        description="Langfuse secret key for observability"
-    )
+    langfuse_public_key: Optional[str] = Field(default=None, description="Langfuse public key for observability")
+    langfuse_secret_key: Optional[str] = Field(default=None, description="Langfuse secret key for observability")
     langfuse_host: Optional[str] = Field(
-        default="https://cloud.langfuse.com",
-        description="Langfuse host URL (default: cloud.langfuse.com)"
+        default="https://cloud.langfuse.com", description="Langfuse host URL (default: cloud.langfuse.com)"
     )
     langfuse_enabled: bool = Field(
-        default=False,
-        description="Enable Langfuse tracing (requires langfuse_public_key and langfuse_secret_key)"
+        default=False, description="Enable Langfuse tracing (requires langfuse_public_key and langfuse_secret_key)"
     )
 
     # UV Package Manager Configuration
     uv_index_url: str = Field(
         default="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple",
         validation_alias=AliasChoices("UV_INDEX_URL", "PIP_INDEX_URL"),
-        description="PyPI index URL for UV and pip"
+        description="PyPI index URL for UV and pip",
     )
 
     # Model Provider Sync
     auto_sync_providers_on_startup: bool = Field(
         default=False,
-        description="[已废弃] 供应商信息现在直接从代码加载，此配置已不再使用。如需同步模型列表和全局凭据，请手动调用 /api/v1/model-providers/sync 接口"
+        description="[已废弃] 供应商信息现在直接从代码加载，此配置已不再使用。如需同步模型列表和全局凭据，请手动调用 /api/v1/model-providers/sync 接口",
     )
 
     # Credential Encryption
     credential_encryption_key: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("ENCRYPTION_KEY", "CREDENTIAL_ENCRYPTION_KEY"),
-        description="凭据加密密钥（生产环境必须配置，否则每次重启会生成随机密钥导致无法解密）"
+        description="凭据加密密钥（生产环境必须配置，否则每次重启会生成随机密钥导致无法解密）",
     )
 
     # Default Model Cache (runtime cache, not from env)
@@ -368,4 +346,3 @@ def set_default_model_config(config: Dict[str, Any]) -> None:
 def clear_default_model_config() -> None:
     """清除默认模型配置缓存"""
     settings._default_model_config = None
-

@@ -76,9 +76,7 @@ async def get_graph_variables(
     )
     nodes = nodes_result.scalars().all()
 
-    edges_result = await db.execute(
-        select(GraphEdge).where(GraphEdge.graph_id == graph_id)
-    )
+    edges_result = await db.execute(select(GraphEdge).where(GraphEdge.graph_id == graph_id))
     edges = edges_result.scalars().all()
 
     # 分析变量
@@ -88,25 +86,31 @@ async def get_graph_variables(
     # 转换为 API 响应格式
     variables_list = []
     for var_name, var_info in variables_info.items():
-        variables_list.append({
-            "name": var_name,
-            "path": var_info.definitions[0].path if var_info.definitions else var_info.usages[0].path if var_info.usages else f"context.{var_name}",
-            "source": var_info.definitions[0].source_node_label if var_info.definitions else "Unknown",
-            "source_node_id": var_info.definitions[0].source_node_id if var_info.definitions else None,
-            "scope": var_info.scope,
-            "description": var_info.definitions[0].description if var_info.definitions else None,
-            "value_type": var_info.definitions[0].value_type if var_info.definitions else None,
-            "is_defined": var_info.is_defined,
-            "is_used": var_info.is_used,
-            "usages": [
-                {
-                    "node_id": usage.used_in_node_id,
-                    "node_label": usage.used_in_node_label,
-                    "usage_type": usage.usage_type,
-                }
-                for usage in var_info.usages
-            ],
-        })
+        variables_list.append(
+            {
+                "name": var_name,
+                "path": var_info.definitions[0].path
+                if var_info.definitions
+                else var_info.usages[0].path
+                if var_info.usages
+                else f"context.{var_name}",
+                "source": var_info.definitions[0].source_node_label if var_info.definitions else "Unknown",
+                "source_node_id": var_info.definitions[0].source_node_id if var_info.definitions else None,
+                "scope": var_info.scope,
+                "description": var_info.definitions[0].description if var_info.definitions else None,
+                "value_type": var_info.definitions[0].value_type if var_info.definitions else None,
+                "is_defined": var_info.is_defined,
+                "is_used": var_info.is_used,
+                "usages": [
+                    {
+                        "node_id": usage.used_in_node_id,
+                        "node_label": usage.used_in_node_label,
+                        "usage_type": usage.usage_type,
+                    }
+                    for usage in var_info.usages
+                ],
+            }
+        )
 
     return {"variables": variables_list}
 
@@ -158,9 +162,7 @@ async def get_node_available_variables(
     )
     nodes = nodes_result.scalars().all()
 
-    edges_result = await db.execute(
-        select(GraphEdge).where(GraphEdge.graph_id == graph_id)
-    )
+    edges_result = await db.execute(select(GraphEdge).where(GraphEdge.graph_id == graph_id))
     edges = edges_result.scalars().all()
 
     # 检查节点是否存在
@@ -233,9 +235,7 @@ async def validate_variables(
     )
     nodes = nodes_result.scalars().all()
 
-    edges_result = await db.execute(
-        select(GraphEdge).where(GraphEdge.graph_id == graph_id)
-    )
+    edges_result = await db.execute(select(GraphEdge).where(GraphEdge.graph_id == graph_id))
     edges = edges_result.scalars().all()
 
     # 验证变量
@@ -249,17 +249,16 @@ async def validate_variables(
 
     variables_info = []
     for var_name, var_path in used_vars.items():
-        variables_info.append({
-            "name": var_name,
-            "path": var_path,
-            "available": var_name in available_var_names or any(
-                v["path"] == var_path for v in available_vars
-            ),
-        })
+        variables_info.append(
+            {
+                "name": var_name,
+                "path": var_path,
+                "available": var_name in available_var_names or any(v["path"] == var_path for v in available_vars),
+            }
+        )
 
     return {
         "valid": len(errors) == 0,
         "errors": errors,
         "variables": variables_info,
     }
-

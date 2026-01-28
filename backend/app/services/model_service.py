@@ -1,6 +1,7 @@
 """
 模型服务
 """
+
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -91,10 +92,7 @@ class ModelService(BaseService):
                 model_list = provider_instance.get_model_list(model_type, provider_credentials)
 
                 # 在模型列表中查找匹配的模型
-                matched_model = next(
-                    (m for m in model_list if m.get("name") == instance.model_name),
-                    None
-                )
+                matched_model = next((m for m in model_list if m.get("name") == instance.model_name), None)
 
                 if matched_model:
                     display_name = matched_model.get("display_name", instance.model_name)
@@ -151,14 +149,16 @@ class ModelService(BaseService):
                 await self.db.flush()
 
         # 创建模型实例配置
-        instance = await self.repo.create({
-            "user_id": user_id,
-            "workspace_id": workspace_id,
-            "provider_id": provider.id,
-            "model_name": model_name,
-            "model_parameters": model_parameters or {},
-            "is_default": is_default,
-        })
+        instance = await self.repo.create(
+            {
+                "user_id": user_id,
+                "workspace_id": workspace_id,
+                "provider_id": provider.id,
+                "model_name": model_name,
+                "model_parameters": model_parameters or {},
+                "is_default": is_default,
+            }
+        )
 
         await self.commit()
 
@@ -173,12 +173,17 @@ class ModelService(BaseService):
                 )
                 if credentials:
                     from app.core.settings import set_default_model_config
-                    set_default_model_config({
-                        "model": model_name,
-                        "api_key": credentials.get("api_key", ""),
-                        "base_url": credentials.get("base_url"),
-                        "timeout": instance.model_parameters.get("timeout", 30) if instance.model_parameters else 30,
-                    })
+
+                    set_default_model_config(
+                        {
+                            "model": model_name,
+                            "api_key": credentials.get("api_key", ""),
+                            "base_url": credentials.get("base_url"),
+                            "timeout": instance.model_parameters.get("timeout", 30)
+                            if instance.model_parameters
+                            else 30,
+                        }
+                    )
             except Exception as e:
                 # 缓存更新失败不影响主要功能，只记录日志
                 print(f"Warning: Failed to update model cache: {e}")
@@ -243,12 +248,17 @@ class ModelService(BaseService):
                 )
                 if credentials:
                     from app.core.settings import set_default_model_config
-                    set_default_model_config({
-                        "model": model_name,
-                        "api_key": credentials.get("api_key", ""),
-                        "base_url": credentials.get("base_url"),
-                        "timeout": instance.model_parameters.get("timeout", 30) if instance.model_parameters else 30,
-                    })
+
+                    set_default_model_config(
+                        {
+                            "model": model_name,
+                            "api_key": credentials.get("api_key", ""),
+                            "base_url": credentials.get("base_url"),
+                            "timeout": instance.model_parameters.get("timeout", 30)
+                            if instance.model_parameters
+                            else 30,
+                        }
+                    )
             except Exception as e:
                 # 缓存更新失败不影响主要功能，只记录日志
                 print(f"Warning: Failed to update model cache: {e}")
@@ -256,6 +266,7 @@ class ModelService(BaseService):
             # 取消默认状态时清除缓存
             try:
                 from app.core.settings import clear_default_model_config
+
                 clear_default_model_config()
             except Exception as e:
                 print(f"Warning: Failed to clear model cache: {e}")

@@ -121,16 +121,13 @@ class CopilotService:
                 if not api_key:
                     raise CopilotCredentialError(
                         "No API key found. Please configure your LLM credentials in settings.",
-                        data={"has_db": self.db is not None}
+                        data={"has_db": self.db is not None},
                     )
             except CopilotCredentialError:
                 raise
             except Exception as e:
                 logger.error(f"[CopilotService] Credential error: {e}")
-                raise CopilotCredentialError(
-                    "Failed to retrieve credentials",
-                    original_error=e
-                )
+                raise CopilotCredentialError("Failed to retrieve credentials", original_error=e)
 
             # Create the Copilot agent (with db for model preloading)
             try:
@@ -144,26 +141,17 @@ class CopilotService:
                 )
             except Exception as e:
                 logger.error(f"[CopilotService] Agent creation error: {e}")
-                raise CopilotAgentError(
-                    "Failed to create Copilot agent",
-                    original_error=e
-                )
+                raise CopilotAgentError("Failed to create Copilot agent", original_error=e)
 
             # Build messages
             messages = self._build_messages(prompt, conversation_history)
 
             # Invoke the agent with explicit recursion limit
             try:
-                result = await agent.ainvoke(
-                    {"messages": messages},
-                    config={"recursion_limit": 300}
-                )
+                result = await agent.ainvoke({"messages": messages}, config={"recursion_limit": 300})
             except Exception as e:
                 logger.error(f"[CopilotService] Agent invocation error: {e}")
-                raise CopilotLLMError(
-                    "Failed to process request with LLM",
-                    original_error=e
-                )
+                raise CopilotLLMError("Failed to process request with LLM", original_error=e)
 
             # Extract actions from result
             try:
@@ -171,10 +159,7 @@ class CopilotService:
                 final_message = self._extract_final_message(result)
             except Exception as e:
                 logger.error(f"[CopilotService] Action extraction error: {e}")
-                raise CopilotAgentError(
-                    "Failed to extract actions from agent result",
-                    original_error=e
-                )
+                raise CopilotAgentError("Failed to extract actions from agent result", original_error=e)
 
             logger.info(f"[CopilotService] generate_actions success actions_count={len(actions)}")
 
@@ -188,10 +173,7 @@ class CopilotService:
             raise
         except Exception as e:
             logger.exception(f"[CopilotService] generate_actions failed: {e}")
-            raise CopilotAgentError(
-                "An unexpected error occurred while processing your request",
-                original_error=e
-            )
+            raise CopilotAgentError("An unexpected error occurred while processing your request", original_error=e)
 
     async def generate_actions_stream(
         self,
@@ -240,14 +222,14 @@ class CopilotService:
                 if not api_key:
                     raise CopilotCredentialError(
                         "No API key found. Please configure your LLM credentials in settings.",
-                        data={"has_db": self.db is not None}
+                        data={"has_db": self.db is not None},
                     )
             except CopilotCredentialError:
                 # Re-raise as error event
                 yield {
                     "type": "error",
                     "message": "Credential error: No API key found. Please configure your LLM credentials.",
-                    "code": "CREDENTIAL_ERROR"
+                    "code": "CREDENTIAL_ERROR",
                 }
                 return
             except Exception as e:
@@ -255,7 +237,7 @@ class CopilotService:
                 yield {
                     "type": "error",
                     "message": f"Failed to retrieve credentials: {str(e)}",
-                    "code": "CREDENTIAL_ERROR"
+                    "code": "CREDENTIAL_ERROR",
                 }
                 return
 
@@ -271,11 +253,7 @@ class CopilotService:
                 )
             except Exception as e:
                 logger.error(f"[CopilotService] Agent creation error: {e}")
-                yield {
-                    "type": "error",
-                    "message": f"Failed to create Copilot agent: {str(e)}",
-                    "code": "AGENT_ERROR"
-                }
+                yield {"type": "error", "message": f"Failed to create Copilot agent: {str(e)}", "code": "AGENT_ERROR"}
                 return
 
             # Build messages
@@ -292,9 +270,7 @@ class CopilotService:
 
             # Stream events from the agent with explicit recursion limit
             async for event in agent.astream_events(
-                {"messages": messages},
-                version="v2",
-                config={"recursion_limit": 300}
+                {"messages": messages}, version="v2", config={"recursion_limit": 300}
             ):
                 event_kind = event.get("event", "")
 
@@ -307,10 +283,11 @@ class CopilotService:
                         yield {"type": "content", "content": content}
 
                     # Handle thought step extraction
-                    accumulated_content, last_streamed_thought, last_streamed_steps_count, thought_step_event = \
+                    accumulated_content, last_streamed_thought, last_streamed_steps_count, thought_step_event = (
                         self._handle_chat_model_stream_event(
                             event, accumulated_content, last_streamed_thought, last_streamed_steps_count
                         )
+                    )
 
                     # Yield thought step event if extracted
                     if thought_step_event:
@@ -389,18 +366,10 @@ class CopilotService:
             yield {"type": "error", "message": "Request cancelled by user", "code": "CANCELLED"}
         except (CopilotLLMError, CopilotAgentError) as e:
             logger.error(f"[CopilotService] Stream failed: {e}")
-            yield {
-                "type": "error",
-                "message": str(e),
-                "code": type(e).__name__
-            }
+            yield {"type": "error", "message": str(e), "code": type(e).__name__}
         except Exception as e:
             logger.exception(f"[CopilotService] generate_actions_stream failed: {e}")
-            yield {
-                "type": "error",
-                "message": f"An unexpected error occurred: {str(e)}",
-                "code": "UNKNOWN_ERROR"
-            }
+            yield {"type": "error", "message": f"An unexpected error occurred: {str(e)}", "code": "UNKNOWN_ERROR"}
 
     def _handle_chat_model_stream_event(
         self,
@@ -471,21 +440,20 @@ class CopilotService:
         for action_data in collected_actions:
             try:
                 action_type = GraphActionType(action_data.get("type"))
-                actions.append(GraphAction(
-                    type=action_type,
-                    payload=action_data.get("payload", {}),
-                    reasoning=action_data.get("reasoning", ""),
-                ))
+                actions.append(
+                    GraphAction(
+                        type=action_type,
+                        payload=action_data.get("payload", {}),
+                        reasoning=action_data.get("reasoning", ""),
+                    )
+                )
             except (ValueError, KeyError):
                 pass
 
         # Validate actions before returning
         if actions:
             existing_ids = extract_existing_node_ids(graph_context)
-            action_dicts = [
-                {"type": a.type.value, "payload": a.payload, "reasoning": a.reasoning}
-                for a in actions
-            ]
+            action_dicts = [{"type": a.type.value, "payload": a.payload, "reasoning": a.reasoning} for a in actions]
             validation_result = validate_actions(action_dicts, existing_ids)
 
             # Log validation results
@@ -503,11 +471,13 @@ class CopilotService:
                 for action_data in valid_actions:
                     try:
                         action_type = GraphActionType(action_data.get("type"))
-                        actions.append(GraphAction(
-                            type=action_type,
-                            payload=action_data.get("payload", {}),
-                            reasoning=action_data.get("reasoning", ""),
-                        ))
+                        actions.append(
+                            GraphAction(
+                                type=action_type,
+                                payload=action_data.get("payload", {}),
+                                reasoning=action_data.get("reasoning", ""),
+                            )
+                        )
                     except (ValueError, KeyError):
                         pass
 
@@ -528,7 +498,6 @@ class CopilotService:
         """
         return parse_tool_output(tool_output_raw, tool_name)
 
-
     def _build_messages(
         self,
         prompt: str,
@@ -541,10 +510,7 @@ class CopilotService:
         """
         return build_langchain_messages(prompt, conversation_history)
 
-    def _extract_actions_from_result(
-        self,
-        result: Dict[str, Any]
-    ) -> List[GraphAction]:
+    def _extract_actions_from_result(self, result: Dict[str, Any]) -> List[GraphAction]:
         """
         Extract GraphAction objects from agent result.
 
@@ -568,10 +534,7 @@ class CopilotService:
         return ""
 
     def _process_actions(
-        self,
-        actions: List[Dict[str, Any]],
-        initial_nodes: List[Dict[str, Any]],
-        initial_edges: List[Dict[str, Any]]
+        self, actions: List[Dict[str, Any]], initial_nodes: List[Dict[str, Any]], initial_edges: List[Dict[str, Any]]
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Process graph actions to compute final nodes and edges.
@@ -617,23 +580,21 @@ class CopilotService:
                 target = payload.get("target")
                 if source and target:
                     # Check if edge already exists
-                    if not any(
-                        e.get("source") == source and e.get("target") == target
-                        for e in processed_edges
-                    ):
-                        processed_edges.append({
-                            "id": f"e-{source}-{target}",
-                            "source": source,
-                            "target": target,
-                        })
+                    if not any(e.get("source") == source and e.get("target") == target for e in processed_edges):
+                        processed_edges.append(
+                            {
+                                "id": f"e-{source}-{target}",
+                                "source": source,
+                                "target": target,
+                            }
+                        )
 
             elif action_type == "DELETE_NODE":
                 node_id = payload.get("id")
                 if node_id:
                     processed_nodes = [n for n in processed_nodes if n.get("id") != node_id]
                     processed_edges = [
-                        e for e in processed_edges
-                        if e.get("source") != node_id and e.get("target") != node_id
+                        e for e in processed_edges if e.get("source") != node_id and e.get("target") != node_id
                     ]
                     # Rebuild index after deletion
                     node_index = {node.get("id"): i for i, node in enumerate(processed_nodes)}
@@ -731,15 +692,17 @@ class CopilotService:
                         except (ValueError, AttributeError):
                             pass
 
-                    messages.append(CopilotMessage(
-                        id=msg_data.get("id", f"msg_{uuid_lib.uuid4().hex[:12]}"),
-                        role=msg_data.get("role", "user"),
-                        content=msg_data.get("content", ""),
-                        created_at=created_at,
-                        actions=msg_data.get("actions"),
-                        thought_steps=thought_steps,
-                        tool_calls=tool_calls,
-                    ))
+                    messages.append(
+                        CopilotMessage(
+                            id=msg_data.get("id", f"msg_{uuid_lib.uuid4().hex[:12]}"),
+                            role=msg_data.get("role", "user"),
+                            content=msg_data.get("content", ""),
+                            created_at=created_at,
+                            actions=msg_data.get("actions"),
+                            thought_steps=thought_steps,
+                            tool_calls=tool_calls,
+                        )
+                    )
                 except Exception as e:
                     logger.warning(f"[CopilotService] Failed to parse message: {e}")
                     continue
@@ -805,11 +768,14 @@ class CopilotService:
                 thought_steps=[
                     CopilotThoughtStep(index=s.get("index", 0), content=s.get("content", ""))
                     for s in collected_thought_steps
-                ] if collected_thought_steps else None,
+                ]
+                if collected_thought_steps
+                else None,
                 tool_calls=[
-                    CopilotToolCall(tool=tc.get("tool", ""), input=tc.get("input", {}))
-                    for tc in collected_tool_calls
-                ] if collected_tool_calls else None,
+                    CopilotToolCall(tool=tc.get("tool", ""), input=tc.get("input", {})) for tc in collected_tool_calls
+                ]
+                if collected_tool_calls
+                else None,
             )
 
             # Save using the existing save_messages method
@@ -864,14 +830,10 @@ class CopilotService:
                 if msg.actions:
                     data["actions"] = msg.actions
                 if msg.thought_steps:
-                    data["thought_steps"] = [
-                        {"index": s.index, "content": s.content}
-                        for s in msg.thought_steps
-                    ]
+                    data["thought_steps"] = [{"index": s.index, "content": s.content} for s in msg.thought_steps]
                 if msg.tool_calls:
                     data["tool_calls"] = [
-                        {"tool": tc.tool, "input": tc.input, "output": tc.output}
-                        for tc in msg.tool_calls
+                        {"tool": tc.tool, "input": tc.input, "output": tc.output} for tc in msg.tool_calls
                     ]
                 return data
 
@@ -986,18 +948,14 @@ class CopilotService:
         if not RedisClient.is_available():
             logger.error(f"[CopilotService] Redis not available for async task session_id={session_id}")
             await RedisClient.set_copilot_status(session_id, "failed")
-            await RedisClient.publish_copilot_event(
-                session_id,
-                {"type": "error", "message": "Redis not available"}
-            )
+            await RedisClient.publish_copilot_event(session_id, {"type": "error", "message": "Redis not available"})
             return
 
         try:
             # Set initial status
             await RedisClient.set_copilot_status(session_id, "generating")
             await RedisClient.publish_copilot_event(
-                session_id,
-                {"type": "status", "stage": "thinking", "message": "正在思考..."}
+                session_id, {"type": "status", "stage": "thinking", "message": "正在思考..."}
             )
 
             # Collect data for persistence
@@ -1028,16 +986,20 @@ class CopilotService:
                     step = event.get("step", {})
                     collected_thought_steps.append(step)
                 elif event_type == "tool_call":
-                    collected_tool_calls.append({
-                        "tool": event.get("tool", ""),
-                        "input": event.get("input", {}),
-                    })
+                    collected_tool_calls.append(
+                        {
+                            "tool": event.get("tool", ""),
+                            "input": event.get("input", {}),
+                        }
+                    )
                 elif event_type == "result":
                     final_message = event.get("message", "")
                     final_actions = event.get("actions", [])
 
             # Save to database if graph_id is provided
-            logger.info(f"[CopilotService] generate_actions_async: graph_id={graph_id}, final_actions_count={len(final_actions) if final_actions else 0}, graph_context={'present' if graph_context else 'missing'}")
+            logger.info(
+                f"[CopilotService] generate_actions_async: graph_id={graph_id}, final_actions_count={len(final_actions) if final_actions else 0}, graph_context={'present' if graph_context else 'missing'}"
+            )
 
             if graph_id:
                 # Create new database session for background task (original session may be closed)
@@ -1059,9 +1021,13 @@ class CopilotService:
                             final_actions=final_actions,
                         )
                         if saved:
-                            logger.info(f"[CopilotService] Async task saved messages for session_id={session_id}, graph_id={graph_id}")
+                            logger.info(
+                                f"[CopilotService] Async task saved messages for session_id={session_id}, graph_id={graph_id}"
+                            )
                         else:
-                            logger.warning(f"[CopilotService] Async task failed to save messages for session_id={session_id}, graph_id={graph_id}")
+                            logger.warning(
+                                f"[CopilotService] Async task failed to save messages for session_id={session_id}, graph_id={graph_id}"
+                            )
                         # save_messages 内部会调用 commit()，事务自动结束
                     except Exception as e:
                         # 如果 save_messages 内部已 commit，这里可能不在事务中
@@ -1070,7 +1036,7 @@ class CopilotService:
                         logger.error(
                             f"[CopilotService] Failed to save conversation for session_id={session_id}, "
                             f"graph_id={graph_id}: {e}",
-                            exc_info=True
+                            exc_info=True,
                         )
 
                 # 事务 2: 保存图状态（独立事务，使用新的 session）
@@ -1129,9 +1095,9 @@ class CopilotService:
                             logger.error(
                                 f"[CopilotService] Failed to save graph state for session_id={session_id}, "
                                 f"graph_id={graph_id}: {e}",
-                                exc_info=True
+                                exc_info=True,
                             )
-            #logger.info(f"[CopilotService] Async task completed successfully for session_id={session_id}, graph_id={graph_id}， actions={json.dumps(final_actions) if final_actions else 0}")
+            # logger.info(f"[CopilotService] Async task completed successfully for session_id={session_id}, graph_id={graph_id}， actions={json.dumps(final_actions) if final_actions else 0}")
 
             # Calculate execution time
             execution_time = time.time() - start_time
@@ -1163,10 +1129,7 @@ class CopilotService:
                 f"session_id={session_id} graph_id={graph_id} "
                 f"user_id={self.user_id} execution_time_ms={execution_time_ms} "
                 f"error_type={type(e).__name__} error={e}",
-                exc_info=True
+                exc_info=True,
             )
             await RedisClient.set_copilot_status(session_id, "failed")
-            await RedisClient.publish_copilot_event(
-                session_id,
-                {"type": "error", "message": str(e)}
-            )
+            await RedisClient.publish_copilot_event(session_id, {"type": "error", "message": str(e)})

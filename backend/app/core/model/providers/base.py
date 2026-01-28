@@ -1,6 +1,7 @@
 """
 供应商基类
 """
+
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -10,6 +11,7 @@ from langchain_core.language_models.base import BaseLanguageModel
 
 class ModelType(str, Enum):
     """模型类型枚举"""
+
     CHAT = "chat"
     EMBEDDING = "embedding"
     RERANK = "rerank"
@@ -85,7 +87,9 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    def get_model_list(self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def get_model_list(
+        self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
         """
         获取模型列表
 

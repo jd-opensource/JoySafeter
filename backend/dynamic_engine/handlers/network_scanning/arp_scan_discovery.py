@@ -14,8 +14,8 @@ class ArpScanHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['arp-scan']
+        """Handler related commands"""
+        return ["arp-scan"]
 
     def handle(self, data: Dict) -> Any:
         """Execute arp_scan with enhanced logging"""

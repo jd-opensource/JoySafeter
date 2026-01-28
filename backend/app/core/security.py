@@ -1,6 +1,7 @@
 """
 安全相关 - JWT 和密码处理
 """
+
 import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -33,6 +34,7 @@ def generate_email_verify_token() -> tuple[str, datetime]:
 
 class TokenPayload(BaseModel):
     """Token 载荷"""
+
     sub: str  # user_id
     exp: datetime
     iat: datetime
@@ -41,6 +43,7 @@ class TokenPayload(BaseModel):
 
 class Token(BaseModel):
     """Token 响应"""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int
@@ -63,10 +66,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     hashed_password = hashed_password.lower().strip()
 
     # 验证格式（必须是 SHA-256）
-    if len(plain_password) != 64 or not all(c in '0123456789abcdef' for c in plain_password):
+    if len(plain_password) != 64 or not all(c in "0123456789abcdef" for c in plain_password):
         return False
 
-    if len(hashed_password) != 64 or not all(c in '0123456789abcdef' for c in hashed_password):
+    if len(hashed_password) != 64 or not all(c in "0123456789abcdef" for c in hashed_password):
         return False
 
     # 直接比较两个 SHA-256 哈希值
@@ -84,23 +87,18 @@ def get_password_hash(password: str) -> str:
     password = password.strip().lower()
 
     # 验证格式（必须是 SHA-256）
-    if len(password) != 64 or not all(c in '0123456789abcdef' for c in password):
+    if len(password) != 64 or not all(c in "0123456789abcdef" for c in password):
         raise ValueError("Password must be a SHA-256 hash (64 hex characters)")
 
     return password
 
 
-def create_access_token(
-    subject: str | Any,
-    expires_delta: Optional[timedelta] = None
-) -> str:
+def create_access_token(subject: str | Any, expires_delta: Optional[timedelta] = None) -> str:
     """创建访问令牌"""
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(
-            minutes=settings.access_token_expire_minutes
-        )
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
 
     to_encode = {
         "sub": str(subject),
@@ -109,11 +107,7 @@ def create_access_token(
         "type": "access",
     }
 
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.secret_key,
-        algorithm=settings.algorithm
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
     return encoded_jwt
 
 
@@ -124,9 +118,7 @@ def generate_refresh_token(length: int = 64) -> str:
 
 def create_csrf_token(user_id: str) -> str:
     """创建 CSRF token（JWT）"""
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.access_token_expire_minutes
-    )
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
 
     to_encode = {
         "sub": str(user_id),
@@ -135,22 +127,14 @@ def create_csrf_token(user_id: str) -> str:
         "type": "csrf",
     }
 
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.secret_key,
-        algorithm=settings.algorithm
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
     return encoded_jwt
 
 
 def decode_token(token: str) -> Optional[TokenPayload]:
     """解码令牌"""
     try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key,
-            algorithms=[settings.algorithm]
-        )
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         return TokenPayload(**payload)
     except JWTError:
         return None
@@ -171,11 +155,7 @@ def verify_csrf_token(csrf_token: str, user_id: str) -> bool:
         return False
 
     try:
-        payload = jwt.decode(
-            csrf_token,
-            settings.secret_key,
-            algorithms=[settings.algorithm]
-        )
+        payload = jwt.decode(csrf_token, settings.secret_key, algorithms=[settings.algorithm])
 
         # 验证 token 类型
         if payload.get("type") != "csrf":
@@ -190,4 +170,3 @@ def verify_csrf_token(csrf_token: str, user_id: str) -> bool:
 
     except JWTError:
         return False
-

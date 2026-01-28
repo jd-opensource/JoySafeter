@@ -1,6 +1,7 @@
 """
 基础 Service
 """
+
 from typing import Generic, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,4 +26,3 @@ class BaseService(Generic[T]):
     async def rollback(self):
         """回滚事务"""
         await self.db.rollback()
-

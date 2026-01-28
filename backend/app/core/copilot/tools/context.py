@@ -8,8 +8,7 @@ import contextvars
 from typing import Any, Dict, List
 
 # Thread-safe context variable for graph context (per-request isolation)
-_current_graph_context: contextvars.ContextVar[Dict[str, Any]] = \
-    contextvars.ContextVar('graph_context', default={})
+_current_graph_context: contextvars.ContextVar[Dict[str, Any]] = contextvars.ContextVar("graph_context", default={})
 
 
 def set_current_graph_context(context: Dict[str, Any]) -> None:
@@ -23,8 +22,7 @@ def get_current_graph_context() -> Dict[str, Any]:
 
 
 # Thread-safe context variable for preloaded models (per-request isolation)
-_preloaded_models: contextvars.ContextVar[List[Dict[str, Any]]] = \
-    contextvars.ContextVar('preloaded_models', default=[])
+_preloaded_models: contextvars.ContextVar[List[Dict[str, Any]]] = contextvars.ContextVar("preloaded_models", default=[])
 
 
 def set_preloaded_models(models: List[Dict[str, Any]]) -> None:

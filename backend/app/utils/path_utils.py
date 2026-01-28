@@ -48,7 +48,7 @@ def sanitize_path_component(
     value_str = str(value).strip()
 
     # Remove path separators and relative path symbols
-    value_str = value_str.replace('..', '').replace('./', '').replace('.\\', '')
+    value_str = value_str.replace("..", "").replace("./", "").replace(".\\", "")
 
     # Handle spaces based on allow_spaces flag
     if not allow_spaces:
@@ -59,22 +59,22 @@ def sanitize_path_component(
     # For filenames: also allow spaces if allow_spaces=True
     if allow_spaces:
         # Allow alphanumeric, spaces, dots, underscores, hyphens
-        value_str = re.sub(r'[^\w\s\-.]', '_', value_str)
+        value_str = re.sub(r"[^\w\s\-.]", "_", value_str)
         # Remove control characters
-        value_str = re.sub(r'[\x00-\x1f]', '_', value_str)
+        value_str = re.sub(r"[\x00-\x1f]", "_", value_str)
     else:
         # Only allow alphanumeric, underscore, hyphen, dot
-        value_str = re.sub(r'[^\w\-.]', '', value_str)
+        value_str = re.sub(r"[^\w\-.]", "", value_str)
 
     # Remove leading/trailing dots and spaces
-    value_str = value_str.strip('. ')
+    value_str = value_str.strip(". ")
 
     # Limit length
     if len(value_str) > max_length:
         value_str = value_str[:max_length]
 
     # If sanitized result is empty or dangerous, use default
-    if not value_str or value_str in ('.', '..', '/'):
+    if not value_str or value_str in (".", "..", "/"):
         return default
 
     return value_str

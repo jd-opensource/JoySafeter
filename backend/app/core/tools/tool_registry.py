@@ -85,7 +85,7 @@ class ToolRegistry:
         tool_input: Union[EnhancedTool, BaseTool, Callable],
         overwrite: bool = False,
         use_label_name_as_key: bool = False,
-        **meta_kwargs
+        **meta_kwargs,
     ) -> EnhancedTool:
         """
         全能注册接口。支持:
@@ -142,7 +142,7 @@ class ToolRegistry:
         description: Optional[str] = None,
         tags: Optional[Set[str]] = None,
         category: Optional[str] = None,
-        **metadata_kwargs
+        **metadata_kwargs,
     ) -> EnhancedTool:
         """注册内置工具"""
         # 确保 tool_type 在注册时就存储在 custom_attrs 中
@@ -154,14 +154,11 @@ class ToolRegistry:
             tags=tags or set(),
             category=category,
             custom_attrs=custom_attrs,
-            **metadata_kwargs
+            **metadata_kwargs,
         )
 
         tool = EnhancedTool.from_callable(
-            callable_func=callable_func,
-            name=name,
-            description=description,
-            tool_metadata=metadata
+            callable_func=callable_func, name=name, description=description, tool_metadata=metadata
         )
 
         return self.register(tool)
@@ -175,7 +172,7 @@ class ToolRegistry:
         owner_workspace_id: Optional[str] = None,
         tags: Optional[Set[str]] = None,
         category: Optional[str] = None,
-        **metadata_kwargs
+        **metadata_kwargs,
     ) -> EnhancedTool:
         """注册 MCP 工具
 
@@ -197,7 +194,7 @@ class ToolRegistry:
             tags=tags or set(),
             category=category,
             custom_attrs=custom_attrs,
-            **metadata_kwargs
+            **metadata_kwargs,
         )
 
         tool.name = mcp_tool_name
@@ -213,7 +210,7 @@ class ToolRegistry:
         priority: int = 0,
         enabled: bool = True,
         source_type: Optional[ToolSourceType] = None,
-        **metadata_kwargs
+        **metadata_kwargs,
     ) -> EnhancedTool:
         """注册 LangChain 工具
 
@@ -262,20 +259,15 @@ class ToolRegistry:
             priority=priority,
             enabled=enabled,
             custom_attrs=custom_attrs,
-            **metadata_kwargs
+            **metadata_kwargs,
         )
 
-        tool = EnhancedTool.from_langchain_tool(
-            tool=langchain_tool,
-            tool_metadata=metadata
-        )
+        tool = EnhancedTool.from_langchain_tool(tool=langchain_tool, tool_metadata=metadata)
 
         return self.register(tool)
 
     def register_batch(
-        self,
-        tools: List[EnhancedTool],
-        tool_metadata_list: Optional[List[ToolMetadata]] = None
+        self, tools: List[EnhancedTool], tool_metadata_list: Optional[List[ToolMetadata]] = None
     ) -> List[EnhancedTool]:
         """批量注册工具"""
         registered = []
@@ -446,9 +438,7 @@ class ToolRegistry:
         return self._tools.get(name)
 
     def get_tools(
-        self,
-        filter_config: Optional[ToolFilter] = None,
-        sort_by_priority: bool = True
+        self, filter_config: Optional[ToolFilter] = None, sort_by_priority: bool = True
     ) -> List[EnhancedTool]:
         """根据过滤条件获取工具列表"""
         if filter_config is None:
@@ -587,7 +577,7 @@ class ToolRegistry:
                     "external_execution": tool.tool_metadata.external_execution,
                     "owner_user_id": tool.tool_metadata.owner_user_id,
                     "owner_workspace_id": tool.tool_metadata.owner_workspace_id,
-                }
+                },
             }
             for name, tool in self._tools.items()
         }
@@ -596,14 +586,8 @@ class ToolRegistry:
         """获取注册统计信息"""
         return {
             "total_tools": len(self._tools),
-            "by_source_type": {
-                source_type.value: len(tools)
-                for source_type, tools in self._source_type_index.items()
-            },
-            "by_category": {
-                category: len(tools)
-                for category, tools in self._category_index.items()
-            },
+            "by_source_type": {source_type.value: len(tools) for source_type, tools in self._source_type_index.items()},
+            "by_category": {category: len(tools) for category, tools in self._category_index.items()},
             "mcp_servers": list(self._mcp_server_index.keys()),
             "tags": list(self._tag_index.keys()),
             "owner_users": list(self._owner_user_index.keys()),

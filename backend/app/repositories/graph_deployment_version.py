@@ -1,6 +1,7 @@
 """
 Graph 部署版本 Repository
 """
+
 from __future__ import annotations
 
 import uuid
@@ -21,9 +22,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
     def __init__(self, db: AsyncSession):
         super().__init__(GraphDeploymentVersion, db)
 
-    async def get_by_graph_and_version(
-        self, graph_id: uuid.UUID, version: int
-    ) -> Optional[GraphDeploymentVersion]:
+    async def get_by_graph_and_version(self, graph_id: uuid.UUID, version: int) -> Optional[GraphDeploymentVersion]:
         """获取指定 graph 的指定版本"""
         query = select(GraphDeploymentVersion).where(
             and_(
@@ -34,26 +33,24 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_active_version(
-        self, graph_id: uuid.UUID
-    ) -> Optional[GraphDeploymentVersion]:
+    async def get_active_version(self, graph_id: uuid.UUID) -> Optional[GraphDeploymentVersion]:
         """获取指定 graph 的活跃版本"""
-        query = select(GraphDeploymentVersion).where(
-            and_(
-                GraphDeploymentVersion.graph_id == graph_id,
-                GraphDeploymentVersion.is_active,
+        query = (
+            select(GraphDeploymentVersion)
+            .where(
+                and_(
+                    GraphDeploymentVersion.graph_id == graph_id,
+                    GraphDeploymentVersion.is_active,
+                )
             )
-        ).order_by(GraphDeploymentVersion.created_at.desc())
+            .order_by(GraphDeploymentVersion.created_at.desc())
+        )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def list_by_graph(
-        self, graph_id: uuid.UUID, include_inactive: bool = True
-    ) -> List[GraphDeploymentVersion]:
+    async def list_by_graph(self, graph_id: uuid.UUID, include_inactive: bool = True) -> List[GraphDeploymentVersion]:
         """获取指定 graph 的所有版本"""
-        query = select(GraphDeploymentVersion).where(
-            GraphDeploymentVersion.graph_id == graph_id
-        )
+        query = select(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id)
 
         if not include_inactive:
             query = query.where(GraphDeploymentVersion.is_active)
@@ -75,17 +72,13 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         Returns:
             tuple: (版本列表, 总数量)
         """
-        base_query = select(GraphDeploymentVersion).where(
-            GraphDeploymentVersion.graph_id == graph_id
-        )
+        base_query = select(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id)
 
         if not include_inactive:
             base_query = base_query.where(GraphDeploymentVersion.is_active)
 
         # 获取总数
-        count_query = select(func.count()).where(
-            GraphDeploymentVersion.graph_id == graph_id
-        )
+        count_query = select(func.count()).where(GraphDeploymentVersion.graph_id == graph_id)
         if not include_inactive:
             count_query = count_query.where(GraphDeploymentVersion.is_active)
         count_result = await self.db.execute(count_query)
@@ -93,9 +86,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
 
         # 分页查询
         offset = (page - 1) * page_size
-        query = base_query.order_by(
-            GraphDeploymentVersion.version.desc()
-        ).offset(offset).limit(page_size)
+        query = base_query.order_by(GraphDeploymentVersion.version.desc()).offset(offset).limit(page_size)
 
         result = await self.db.execute(query)
         versions = list(result.scalars().all())
@@ -113,11 +104,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
 
     async def deactivate_all_versions(self, graph_id: uuid.UUID) -> int:
         """停用指定 graph 的所有版本"""
-        stmt = (
-            update(GraphDeploymentVersion)
-            .where(GraphDeploymentVersion.graph_id == graph_id)
-            .values(is_active=False)
-        )
+        stmt = update(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id).values(is_active=False)
         result = await self.db.execute(stmt)
         return result.rowcount or 0
 
@@ -151,9 +138,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
 
         return instance
 
-    async def activate_version(
-        self, graph_id: uuid.UUID, version: int
-    ) -> Optional[GraphDeploymentVersion]:
+    async def activate_version(self, graph_id: uuid.UUID, version: int) -> Optional[GraphDeploymentVersion]:
         """激活指定版本"""
         await self.deactivate_all_versions(graph_id)
 
@@ -172,9 +157,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
 
         return await self.get_by_graph_and_version(graph_id, version)
 
-    async def rename_version(
-        self, graph_id: uuid.UUID, version: int, name: str
-    ) -> Optional[GraphDeploymentVersion]:
+    async def rename_version(self, graph_id: uuid.UUID, version: int, name: str) -> Optional[GraphDeploymentVersion]:
         """重命名版本"""
         stmt = (
             update(GraphDeploymentVersion)
@@ -193,17 +176,13 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
 
     async def count_by_graph(self, graph_id: uuid.UUID) -> int:
         """计算指定 graph 的版本数量"""
-        query = select(func.count()).where(
-            GraphDeploymentVersion.graph_id == graph_id
-        )
+        query = select(func.count()).where(GraphDeploymentVersion.graph_id == graph_id)
         result = await self.db.execute(query)
         return result.scalar() or 0
 
     async def delete_by_graph(self, graph_id: uuid.UUID) -> int:
         """删除指定 graph 的所有版本"""
-        stmt = delete(GraphDeploymentVersion).where(
-            GraphDeploymentVersion.graph_id == graph_id
-        )
+        stmt = delete(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id)
         result = await self.db.execute(stmt)
         return result.rowcount or 0
 

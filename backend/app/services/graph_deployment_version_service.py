@@ -1,6 +1,7 @@
 """
 Graph 部署版本 Service
 """
+
 from __future__ import annotations
 
 import json
@@ -80,9 +81,7 @@ class GraphDeploymentVersionService(BaseService):
                 return
         raise ForbiddenException("Only graph owner or workspace admin can deploy")
 
-    def _normalize_graph_state(
-        self, nodes: List, edges: List, variables: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _normalize_graph_state(self, nodes: List, edges: List, variables: Dict[str, Any]) -> Dict[str, Any]:
         """规范化图状态 - 存储到 deployment_version.state
 
         重要：需要深拷贝 node.data，否则 SQLAlchemy 代理对象可能导致序列化问题。
@@ -136,11 +135,13 @@ class GraphDeploymentVersionService(BaseService):
 
         normalized_edges = []
         for edge in edges:
-            normalized_edges.append({
-                "id": str(edge.id),
-                "source": str(edge.source_node_id),
-                "target": str(edge.target_node_id),
-            })
+            normalized_edges.append(
+                {
+                    "id": str(edge.id),
+                    "source": str(edge.source_node_id),
+                    "target": str(edge.target_node_id),
+                }
+            )
 
         return {
             "nodes": normalized_nodes,
@@ -152,14 +153,13 @@ class GraphDeploymentVersionService(BaseService):
     def _compute_state_hash(self, state: Dict[str, Any]) -> str:
         """计算状态的 hash 值，用于快速比较"""
         import hashlib
+
         # 排除 lastSaved 字段，因为它每次都不同
-        state_copy = {k: v for k, v in state.items() if k != 'lastSaved'}
+        state_copy = {k: v for k, v in state.items() if k != "lastSaved"}
         state_json = json.dumps(state_copy, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(state_json.encode()).hexdigest()[:16]
 
-    def _has_graph_changed(
-        self, current_state: Dict[str, Any], deployed_state: Dict[str, Any]
-    ) -> bool:
+    def _has_graph_changed(self, current_state: Dict[str, Any], deployed_state: Dict[str, Any]) -> bool:
         """检查图是否有变化（使用 hash 快速比较）"""
         current_hash = self._compute_state_hash(current_state)
         deployed_hash = self._compute_state_hash(deployed_state)
@@ -205,10 +205,13 @@ class GraphDeploymentVersionService(BaseService):
         )
 
         now = datetime.now(timezone.utc)
-        await self.graph_repo.update(graph_id, {
-            "is_deployed": True,
-            "deployed_at": now,
-        })
+        await self.graph_repo.update(
+            graph_id,
+            {
+                "is_deployed": True,
+                "deployed_at": now,
+            },
+        )
 
         await self.db.commit()
 
@@ -220,9 +223,7 @@ class GraphDeploymentVersionService(BaseService):
             needsRedeployment=False,
         )
 
-    async def undeploy(
-        self, graph_id: uuid.UUID, current_user: AuthUser
-    ) -> Dict[str, Any]:
+    async def undeploy(self, graph_id: uuid.UUID, current_user: AuthUser) -> Dict[str, Any]:
         """取消部署"""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
@@ -230,10 +231,13 @@ class GraphDeploymentVersionService(BaseService):
 
         await self._ensure_can_deploy(graph, current_user)
 
-        await self.graph_repo.update(graph_id, {
-            "is_deployed": False,
-            "deployed_at": None,
-        })
+        await self.graph_repo.update(
+            graph_id,
+            {
+                "is_deployed": False,
+                "deployed_at": None,
+            },
+        )
 
         await self.db.commit()
 
@@ -242,9 +246,7 @@ class GraphDeploymentVersionService(BaseService):
             "deployedAt": None,
         }
 
-    async def get_deployment_status(
-        self, graph_id: uuid.UUID, current_user: AuthUser
-    ) -> Dict[str, Any]:
+    async def get_deployment_status(self, graph_id: uuid.UUID, current_user: AuthUser) -> Dict[str, Any]:
         """获取部署状态"""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
@@ -285,9 +287,7 @@ class GraphDeploymentVersionService(BaseService):
 
         await self._ensure_access(graph, current_user)
 
-        versions, total = await self.version_repo.list_by_graph_paginated(
-            graph_id, page=page, page_size=page_size
-        )
+        versions, total = await self.version_repo.list_by_graph_paginated(graph_id, page=page, page_size=page_size)
 
         # 批量获取用户名
         user_ids = list(set(v.created_by for v in versions if v.created_by))
@@ -317,9 +317,7 @@ class GraphDeploymentVersionService(BaseService):
 
         await self._ensure_access(graph, current_user)
 
-        deployment_version = await self.version_repo.get_by_graph_and_version(
-            graph_id, version
-        )
+        deployment_version = await self.version_repo.get_by_graph_and_version(graph_id, version)
         if not deployment_version:
             raise NotFoundException("Deployment version not found")
 
@@ -337,9 +335,7 @@ class GraphDeploymentVersionService(BaseService):
 
         await self._ensure_access(graph, current_user)
 
-        deployment_version = await self.version_repo.get_by_graph_and_version(
-            graph_id, version
-        )
+        deployment_version = await self.version_repo.get_by_graph_and_version(graph_id, version)
         if not deployment_version:
             raise NotFoundException("Deployment version not found")
 
@@ -412,17 +408,18 @@ class GraphDeploymentVersionService(BaseService):
         if not activated_version:
             raise NotFoundException("Deployment version not found")
 
-        await self.graph_repo.update(graph_id, {
-            "deployed_at": datetime.now(timezone.utc),
-        })
+        await self.graph_repo.update(
+            graph_id,
+            {
+                "deployed_at": datetime.now(timezone.utc),
+            },
+        )
 
         await self.db.commit()
 
         return self._to_response_camel(activated_version)
 
-    async def revert_to_version(
-        self, graph_id: uuid.UUID, version: int, current_user: AuthUser
-    ) -> GraphRevertResponse:
+    async def revert_to_version(self, graph_id: uuid.UUID, version: int, current_user: AuthUser) -> GraphRevertResponse:
         """回滚到指定版本
 
         从部署版本中恢复完整的节点状态，包括 data.config 中的所有配置。
@@ -435,9 +432,7 @@ class GraphDeploymentVersionService(BaseService):
 
         await self._ensure_can_deploy(graph, current_user)
 
-        target_version = await self.version_repo.get_by_graph_and_version(
-            graph_id, version
-        )
+        target_version = await self.version_repo.get_by_graph_and_version(graph_id, version)
         if not target_version:
             raise NotFoundException("Deployment version not found")
 
@@ -452,6 +447,7 @@ class GraphDeploymentVersionService(BaseService):
 
         # 2. 恢复 nodes（使用原始 ID）
         from app.models.graph import GraphNode
+
         nodes_data = state["nodes"]
         for node_id, node_data in nodes_data.items():
             position = node_data.get("position", {})
@@ -499,6 +495,7 @@ class GraphDeploymentVersionService(BaseService):
 
         # 3. 恢复 edges
         from app.models.graph import GraphEdge
+
         edges_data = state.get("edges", [])
         for edge_data in edges_data:
             edge = GraphEdge(
@@ -510,16 +507,22 @@ class GraphDeploymentVersionService(BaseService):
             self.db.add(edge)
 
         # 4. 更新 variables
-        await self.graph_repo.update(graph_id, {
-            "variables": state.get("variables", {}),
-        })
+        await self.graph_repo.update(
+            graph_id,
+            {
+                "variables": state.get("variables", {}),
+            },
+        )
 
         # 5. 激活版本
         await self.version_repo.activate_version(graph_id, version)
 
-        await self.graph_repo.update(graph_id, {
-            "deployed_at": datetime.now(timezone.utc),
-        })
+        await self.graph_repo.update(
+            graph_id,
+            {
+                "deployed_at": datetime.now(timezone.utc),
+            },
+        )
 
         await self.db.commit()
 
@@ -548,9 +551,7 @@ class GraphDeploymentVersionService(BaseService):
 
         return self._to_response_camel(renamed_version)
 
-    async def delete_version(
-        self, graph_id: uuid.UUID, version: int, current_user: AuthUser
-    ) -> Dict[str, Any]:
+    async def delete_version(self, graph_id: uuid.UUID, version: int, current_user: AuthUser) -> Dict[str, Any]:
         """删除版本"""
         graph = await self.graph_repo.get(graph_id)
         if not graph:

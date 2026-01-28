@@ -16,9 +16,7 @@ class ChatHandler:
     def __init__(self, session_service: SessionService):
         self.session_service = session_service
 
-    async def handle_connection(
-        self, websocket: WebSocket, session_id: str, user_id: int = None
-    ):
+    async def handle_connection(self, websocket: WebSocket, session_id: str, user_id: int = None):
         """Handle a new WebSocket connection."""
         await manager.connect(websocket, session_id, user_id)
 
@@ -75,23 +73,15 @@ class ChatHandler:
                 message_type = message_data.get("type", "chat")
 
                 if message_type == "chat":
-                    await self._handle_chat_message(
-                        websocket, session_id, ai_adapter, message_data
-                    )
+                    await self._handle_chat_message(websocket, session_id, ai_adapter, message_data)
                 elif message_type == "ping":
-                    await manager.send_personal_message(
-                        {"type": "pong", "session_id": session_id}, websocket
-                    )
+                    await manager.send_personal_message({"type": "pong", "session_id": session_id}, websocket)
                 elif message_type == "memory_list":
                     await self._handle_memory_list(websocket, session_id, ai_adapter)
                 elif message_type == "memory_read":
-                    await self._handle_memory_read(
-                        websocket, session_id, ai_adapter, message_data
-                    )
+                    await self._handle_memory_read(websocket, session_id, ai_adapter, message_data)
                 elif message_type == "memory_write":
-                    await self._handle_memory_write(
-                        websocket, session_id, ai_adapter, message_data
-                    )
+                    await self._handle_memory_write(websocket, session_id, ai_adapter, message_data)
                 else:
                     await manager.send_personal_message(
                         {
@@ -198,9 +188,7 @@ class ChatHandler:
                 websocket,
             )
 
-    async def _handle_memory_list(
-        self, websocket: WebSocket, session_id: str, ai_adapter
-    ):
+    async def _handle_memory_list(self, websocket: WebSocket, session_id: str, ai_adapter):
         """Handle memory list request."""
         try:
             memory_files = ai_adapter.get_memory_files()

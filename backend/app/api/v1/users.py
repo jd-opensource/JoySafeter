@@ -1,6 +1,7 @@
 """
 用户相关 API（路径 /api/v1/users）
 """
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -20,11 +21,12 @@ from app.services.workspace_file_service import WorkspaceFileService
 router = APIRouter(prefix="/v1/users", tags=["Users"])
 
 
-
 # Schemas
+
 
 class UserCreateRequest(BaseModel):
     """创建用户请求"""
+
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
     image: Optional[str] = None
@@ -34,6 +36,7 @@ class UserCreateRequest(BaseModel):
 
 class UserUpdateRequest(BaseModel):
     """更新用户请求"""
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     email: Optional[EmailStr] = None
     image: Optional[str] = None
@@ -44,6 +47,7 @@ class UserUpdateRequest(BaseModel):
 
 class UserResponse(BaseModel):
     """用户响应"""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -59,6 +63,7 @@ class UserResponse(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     """更新设置请求"""
+
     autoConnect: Optional[bool] = None
     showTrainingControls: Optional[bool] = None
     superUserModeEnabled: Optional[bool] = None
@@ -69,6 +74,7 @@ class SettingsUpdateRequest(BaseModel):
 
 
 # Endpoints
+
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(
@@ -108,9 +114,7 @@ async def get_settings(
     current_user: User = Depends(get_current_user),
 ):
     """获取当前用户设置"""
-    result = await db.execute(
-        select(Settings).where(Settings.user_id == current_user.id)
-    )
+    result = await db.execute(select(Settings).where(Settings.user_id == current_user.id))
     settings = result.scalar_one_or_none()
 
     if not settings:
@@ -136,7 +140,7 @@ async def get_settings(
             "telemetryEnabled": settings.telemetry_enabled,
             "billingUsageNotificationsEnabled": settings.billing_usage_notifications_enabled,
             "errorNotificationsEnabled": settings.error_notifications_enabled,
-        }
+        },
     }
 
 
@@ -147,9 +151,7 @@ async def update_settings(
     current_user: User = Depends(get_current_user),
 ):
     """更新当前用户设置"""
-    result = await db.execute(
-        select(Settings).where(Settings.user_id == current_user.id)
-    )
+    result = await db.execute(select(Settings).where(Settings.user_id == current_user.id))
     settings = result.scalar_one_or_none()
 
     if not settings:
@@ -186,7 +188,7 @@ async def update_settings(
             "telemetryEnabled": settings.telemetry_enabled,
             "billingUsageNotificationsEnabled": settings.billing_usage_notifications_enabled,
             "errorNotificationsEnabled": settings.error_notifications_enabled,
-        }
+        },
     }
 
 
@@ -323,8 +325,8 @@ async def delete_user(
     return success_response(message="User deleted successfully")
 
 
-
 # Helpers
+
 
 def _user_to_response(user: User) -> dict:
     """将 User 模型转换为响应格式"""
@@ -339,6 +341,3 @@ def _user_to_response(user: User) -> dict:
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
     }
-
-
-

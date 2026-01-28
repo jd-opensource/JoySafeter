@@ -3,6 +3,7 @@ MCP Tool Builder - 从工具定义创建 EnhancedTool
 
 使用 lazy entrypoint，在执行时从 toolkit manager 获取 toolkit。
 """
+
 from typing import List, Optional
 
 from loguru import logger
@@ -119,4 +120,3 @@ def create_mcp_tools_from_definitions(
             continue
 
     return enhanced_tools
-

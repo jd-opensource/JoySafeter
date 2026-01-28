@@ -1,6 +1,7 @@
 """
 Graph 相关 Service
 """
+
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -139,6 +140,7 @@ class GraphService(BaseService):
         # 验证 folder_id 是否存在且属于指定的 workspace
         if folder_id:
             from app.repositories.workspace_folder import WorkflowFolderRepository
+
             folder_repo = WorkflowFolderRepository(self.db)
             folder = await folder_repo.get(folder_id)
             if not folder:
@@ -237,6 +239,7 @@ class GraphService(BaseService):
                 # 如果没有提供工作空间ID，查找用户的默认工作空间
                 if not workspace_id:
                     from app.repositories.workspace import WorkspaceRepository
+
                     workspace_repo = WorkspaceRepository(self.db)
                     workspace = await workspace_repo.get_by_name_and_owner(
                         name="默认工作空间",
@@ -307,8 +310,7 @@ class GraphService(BaseService):
             existing_db_node_ids.add(db_node_id)
 
         nodes_to_delete = [
-            node.id for node_id_str, node in existing_node_map.items()
-            if node.id not in existing_db_node_ids
+            node.id for node_id_str, node in existing_node_map.items() if node.id not in existing_db_node_ids
         ]
         if nodes_to_delete:
             await self.node_repo.delete_by_ids(graph_id, nodes_to_delete)
@@ -336,7 +338,9 @@ class GraphService(BaseService):
                 "width": float(node_data.get("width", 0)),
                 "height": float(node_data.get("height", 0)),
                 "prompt": "",
-                "tools": (config.get("tools") if isinstance(config, dict) else None) or data_payload.get("tools", {}) or {},
+                "tools": (config.get("tools") if isinstance(config, dict) else None)
+                or data_payload.get("tools", {})
+                or {},
                 "memory": data_payload.get("memory", {}) if isinstance(data_payload, dict) else {},
                 "data": data_payload,
             }
@@ -364,7 +368,9 @@ class GraphService(BaseService):
                 "position_absolute_y": float(position_absolute.get("y", position.get("y", 0))),
                 "width": float(node_data.get("width", 0)),
                 "height": float(node_data.get("height", 0)),
-                "tools": (config.get("tools") if isinstance(config, dict) else None) or data_payload.get("tools", {}) or {},
+                "tools": (config.get("tools") if isinstance(config, dict) else None)
+                or data_payload.get("tools", {})
+                or {},
                 "memory": data_payload.get("memory", {}) if isinstance(data_payload, dict) else {},
                 "data": data_payload,
             }
@@ -437,6 +443,7 @@ class GraphService(BaseService):
         # BaseModel 使用 updated_at 字段，SQLAlchemy 的 onupdate 会自动更新
         # 但为了确保更新，我们显式触发一次更新
         from app.utils.datetime import utc_now
+
         update_data["updated_at"] = utc_now()
 
         if update_data:
@@ -692,8 +699,7 @@ class GraphService(BaseService):
         # Check access permissions if current_user is provided
         if current_user:
             logger.debug(
-                f"[GraphService] Checking access permissions | "
-                f"user_id={current_user.id} | graph_owner={graph.user_id}"
+                f"[GraphService] Checking access permissions | user_id={current_user.id} | graph_owner={graph.user_id}"
             )
             await self._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
             logger.debug("[GraphService] Access permission check passed")
@@ -703,9 +709,7 @@ class GraphService(BaseService):
         nodes = await self.node_repo.list_by_graph(graph_id)
         edges = await self.edge_repo.list_by_graph(graph_id)
 
-        logger.info(
-            f"[GraphService] Loaded graph data | nodes_count={len(nodes)} | edges_count={len(edges)}"
-        )
+        logger.info(f"[GraphService] Loaded graph data | nodes_count={len(nodes)} | edges_count={len(edges)}")
 
         # Log node details
         for idx, node in enumerate(nodes):
@@ -741,4 +745,3 @@ class GraphService(BaseService):
         )
 
         return compiled_graph
-

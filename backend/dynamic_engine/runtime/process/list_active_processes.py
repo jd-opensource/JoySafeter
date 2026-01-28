@@ -26,13 +26,7 @@ class ListProcessesHandler(AbstractHandler):
                     info["eta_formatted"] = f"{eta:.1f}s"
                 else:
                     info["eta_formatted"] = "Unknown"
-            return {
-
-                "success": True,
-                "active_processes": processes,
-                "total_count": len(processes)
-
-            }
+            return {"success": True, "active_processes": processes, "total_count": len(processes)}
         except Exception as e:
             logger.error(f"💥 Error listing processes: {str(e)}")
             return {"error": f"Server error: {str(e)}"}

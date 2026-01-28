@@ -14,16 +14,17 @@ from app.core.copilot.tools.context import get_current_graph_context
 
 class AnalyzeWorkflowInput(BaseModel):
     """Input schema for analyze_workflow tool."""
+
     analysis_type: str = Field(
         default="comprehensive",
-        description="Type of analysis: 'comprehensive' (all checks), 'bottleneck' (performance issues), 'complexity' (complexity metrics), 'coverage' (missing handlers), 'quality' (best practices)"
+        description="Type of analysis: 'comprehensive' (all checks), 'bottleneck' (performance issues), 'complexity' (complexity metrics), 'coverage' (missing handlers), 'quality' (best practices)",
     )
     reasoning: str = Field(description="Explanation for why analysis is needed")
 
 
 @tool(
     args_schema=AnalyzeWorkflowInput,
-    description="Analyze workflow structure and provide optimization suggestions. Analysis types: comprehensive, bottleneck, complexity, coverage, quality."
+    description="Analyze workflow structure and provide optimization suggestions. Analysis types: comprehensive, bottleneck, complexity, coverage, quality.",
 )
 def analyze_workflow(
     reasoning: str,
@@ -45,10 +46,13 @@ def analyze_workflow(
     edges = graph_context.get("edges", [])
 
     if not nodes:
-        return json.dumps({
-            "error": "No nodes in the current graph to analyze",
-            "suggestion": "Create some nodes first before running analysis"
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "error": "No nodes in the current graph to analyze",
+                "suggestion": "Create some nodes first before running analysis",
+            },
+            ensure_ascii=False,
+        )
 
     analysis_result = {
         "analysis_type": analysis_type,
@@ -101,12 +105,14 @@ def analyze_workflow(
         node_type = data.get("type", "")
         label = data.get("label", node.get("id"))
         if node_type not in ["direct_reply", "human_input"]:
-            issues.append({
-                "type": "dead_end",
-                "severity": "warning",
-                "node_id": node.get("id"),
-                "message": f"Node '{label}' has no outgoing edges - workflow may end unexpectedly",
-            })
+            issues.append(
+                {
+                    "type": "dead_end",
+                    "severity": "warning",
+                    "node_id": node.get("id"),
+                    "message": f"Node '{label}' has no outgoing edges - workflow may end unexpectedly",
+                }
+            )
             recommendations.append(f"Add an outgoing edge from '{label}' or convert to a terminal node")
 
     # Check 2: Orphan nodes (no connections at all)
@@ -114,21 +120,25 @@ def analyze_workflow(
         node_id = node.get("id")
         label = node.get("data", {}).get("label", node_id)
         if not incoming.get(node_id) and not outgoing.get(node_id) and len(nodes) > 1:
-            issues.append({
-                "type": "orphan_node",
-                "severity": "error",
-                "node_id": node_id,
-                "message": f"Node '{label}' is not connected to any other node",
-            })
+            issues.append(
+                {
+                    "type": "orphan_node",
+                    "severity": "error",
+                    "node_id": node_id,
+                    "message": f"Node '{label}' is not connected to any other node",
+                }
+            )
             recommendations.append(f"Connect '{label}' to the workflow or remove it")
 
     # Check 3: Multiple root nodes (might be intentional, but worth noting)
     if len(root_nodes) > 1:
-        issues.append({
-            "type": "multiple_entry_points",
-            "severity": "info",
-            "message": f"Workflow has {len(root_nodes)} entry points - ensure this is intentional",
-        })
+        issues.append(
+            {
+                "type": "multiple_entry_points",
+                "severity": "info",
+                "message": f"Workflow has {len(root_nodes)} entry points - ensure this is intentional",
+            }
+        )
 
     # Check 4: Missing systemPrompts for agent nodes
     for node in nodes:
@@ -138,12 +148,14 @@ def analyze_workflow(
             system_prompt = config.get("systemPrompt", "")
             label = data.get("label", node.get("id"))
             if not system_prompt or len(system_prompt) < 50:
-                issues.append({
-                    "type": "weak_prompt",
-                    "severity": "warning",
-                    "node_id": node.get("id"),
-                    "message": f"Agent '{label}' has a weak or missing systemPrompt",
-                })
+                issues.append(
+                    {
+                        "type": "weak_prompt",
+                        "severity": "warning",
+                        "node_id": node.get("id"),
+                        "message": f"Agent '{label}' has a weak or missing systemPrompt",
+                    }
+                )
                 recommendations.append(f"Improve systemPrompt for '{label}' with specific instructions")
 
     # Check 5: DeepAgents without children
@@ -155,12 +167,14 @@ def analyze_workflow(
             label = data.get("label", node_id)
             children = outgoing.get(node_id, [])
             if not children:
-                issues.append({
-                    "type": "deep_agent_no_children",
-                    "severity": "error",
-                    "node_id": node_id,
-                    "message": f"DeepAgent '{label}' has no subagent children",
-                })
+                issues.append(
+                    {
+                        "type": "deep_agent_no_children",
+                        "severity": "error",
+                        "node_id": node_id,
+                        "message": f"DeepAgent '{label}' has no subagent children",
+                    }
+                )
                 recommendations.append(f"Add subagent nodes connected to '{label}'")
 
     # Check 6: Condition nodes without both branches
@@ -171,12 +185,14 @@ def analyze_workflow(
             label = data.get("label", node_id)
             out_edges = outgoing.get(node_id, [])
             if len(out_edges) < 2:
-                issues.append({
-                    "type": "incomplete_branching",
-                    "severity": "warning",
-                    "node_id": node_id,
-                    "message": f"Condition '{label}' has only {len(out_edges)} outgoing edges (expected 2+)",
-                })
+                issues.append(
+                    {
+                        "type": "incomplete_branching",
+                        "severity": "warning",
+                        "node_id": node_id,
+                        "message": f"Condition '{label}' has only {len(out_edges)} outgoing edges (expected 2+)",
+                    }
+                )
                 recommendations.append(f"Add missing branch(es) from '{label}'")
 
     # Summary
@@ -196,5 +212,3 @@ def analyze_workflow(
     analysis_result["recommendations"] = recommendations[:10]  # Top 10 recommendations
 
     return json.dumps(analysis_result, ensure_ascii=False, indent=2)
-
-

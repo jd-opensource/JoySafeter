@@ -24,9 +24,9 @@ from loguru import logger
 from app.dynamic_agent.infra.metadata_context import MetadataContext
 
 # Keys for storing tricks in MetadataContext
-_TRICKS_KEY = 'knowledge_tricks'      # Current available tricks
-_USED_FILES_KEY = 'used_knowledge_files'  # Already used knowledge file names (per context_id)
-_CURRENT_CONTEXT_ID_KEY = 'current_knowledge_context_id'  # Current context ID for tracking
+_TRICKS_KEY = "knowledge_tricks"  # Current available tricks
+_USED_FILES_KEY = "used_knowledge_files"  # Already used knowledge file names (per context_id)
+_CURRENT_CONTEXT_ID_KEY = "current_knowledge_context_id"  # Current context ID for tracking
 
 
 def normalize_results_to_xml(
@@ -58,7 +58,7 @@ def normalize_results_to_xml(
         # Extract tricks
         tricks = match.get("tricks", [])
         for trick in tricks[:max_tricks_per_match]:
-            if hasattr(trick, 'name'):
+            if hasattr(trick, "name"):
                 # Trick dataclass
                 t_name = trick.name
                 t_when = trick.when
@@ -74,15 +74,15 @@ def normalize_results_to_xml(
                 continue
 
             lines.append(f'  <trick name="{t_name}">')
-            lines.append(f'    <when>{t_when}</when>')
-            lines.append(f'    <how>{t_how}</how>')
+            lines.append(f"    <when>{t_when}</when>")
+            lines.append(f"    <how>{t_how}</how>")
             if t_payload:
                 # Escape special XML chars in payload
-                t_payload = t_payload.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                lines.append(f'    <payload>{t_payload}</payload>')
-            lines.append('  </trick>')
+                t_payload = t_payload.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                lines.append(f"    <payload>{t_payload}</payload>")
+            lines.append("  </trick>")
 
-        lines.append('</match>')
+        lines.append("</match>")
 
     lines.append("</knowledge_search>")
     return "\n".join(lines)
@@ -92,14 +92,11 @@ def _emit_search_event(event_type: str, data: Dict[str, Any]) -> None:
     """Emit WebSocket event for frontend visualization (T021)."""
     try:
         metadata = MetadataContext.get()
-        if metadata and 'stream_callback' in metadata:
+        if metadata and "stream_callback" in metadata:
             import time
-            event = {
-                "type": event_type,
-                "data": data,
-                "timestamp": int(time.time() * 1000)
-            }
-            metadata['stream_callback'](json.dumps(event))
+
+            event = {"type": event_type, "data": data, "timestamp": int(time.time() * 1000)}
+            metadata["stream_callback"](json.dumps(event))
     except Exception as e:
         logger.debug(f"Failed to emit search event: {e}")
 
@@ -216,7 +213,7 @@ def format_tricks_for_planning() -> str:
     lines = ["\n💡 Available tricks from knowledge base:"]
     for t in tricks[-5:]:  # Only show last 5 to keep it concise
         lines.append(f"- {t.get('name', 'unknown')}: {t.get('how', '')[:100]}")
-        if t.get('payload'):
+        if t.get("payload"):
             lines.append(f"  Payload: {t.get('payload', '')}")
 
     return "\n".join(lines)
@@ -237,16 +234,14 @@ def knowledge_search(query: str) -> str:
         Brief confirmation message (tricks are stored separately, not returned here)
     """
     import time
+
     start_time = time.time()
     node_id = f"ks_{int(start_time * 1000)}"
 
     logger.info(f"🔍 Knowledge search: {query}")
 
     # T021: Emit search start event
-    _emit_search_event("knowledge_search_start", {
-        "node_id": node_id,
-        "query": query
-    })
+    _emit_search_event("knowledge_search_start", {"node_id": node_id, "query": query})
 
     try:
         from app.dynamic_agent.core.knowledge import get_knowledge_loader
@@ -282,19 +277,14 @@ def knowledge_search(query: str) -> str:
 
             for trick in tricks:
                 # Handle both dataclass and dict formats
-                if hasattr(trick, 'name'):
-                    t_dict = {
-                        "name": trick.name,
-                        "when": trick.when,
-                        "how": trick.how,
-                        "payload": trick.payload or ""
-                    }
+                if hasattr(trick, "name"):
+                    t_dict = {"name": trick.name, "when": trick.when, "how": trick.how, "payload": trick.payload or ""}
                 elif isinstance(trick, dict):
                     t_dict = {
                         "name": trick.get("name", ""),
                         "when": trick.get("when", ""),
                         "how": trick.get("how", ""),
-                        "payload": trick.get("payload", "")
+                        "payload": trick.get("payload", ""),
                     }
                 else:
                     continue
@@ -320,16 +310,19 @@ def knowledge_search(query: str) -> str:
             logger.info(log_msg)
 
         # T021: Emit search complete event
-        _emit_search_event("knowledge_search_complete", {
-            "node_id": node_id,
-            "query": query,
-            "match_count": len(matches),
-            "new_tricks_count": len(new_tricks),
-            "filtered_files_count": len(used_files),
-            "selected_file": selected_file,
-            "selected_knowledge_name": selected_knowledge_name,
-            "duration_ms": duration_ms
-        })
+        _emit_search_event(
+            "knowledge_search_complete",
+            {
+                "node_id": node_id,
+                "query": query,
+                "match_count": len(matches),
+                "new_tricks_count": len(new_tricks),
+                "filtered_files_count": len(used_files),
+                "selected_file": selected_file,
+                "selected_knowledge_name": selected_knowledge_name,
+                "duration_ms": duration_ms,
+            },
+        )
 
         # Return actionable summary - tricks will be auto-injected to Sub-Agent
         if new_tricks:
@@ -341,14 +334,18 @@ def knowledge_search(query: str) -> str:
             lines = [response_header + ":"]
             for t in new_tricks[:5]:  # Show up to 5 tricks
                 lines.append(f"\n💡 **{t['name']}**")
-                if t.get('when'):
+                if t.get("when"):
                     lines.append(f"   When: {t['when']}")
-                lines.append(f"   How: {t['how'][:150]}..." if len(t.get('how', '')) > 150 else f"   How: {t.get('how', '')}")
-                if t.get('payload'):
+                lines.append(
+                    f"   How: {t['how'][:150]}..." if len(t.get("how", "")) > 150 else f"   How: {t.get('how', '')}"
+                )
+                if t.get("payload"):
                     lines.append(f"   Payload: `{t['payload']}`")
             if len(new_tricks) > 5:
                 lines.append(f"\n... and {len(new_tricks) - 5} more tricks from this file")
-            lines.append("\n➡️ Apply these techniques. If they don't work, search again to try a different knowledge base.")
+            lines.append(
+                "\n➡️ Apply these techniques. If they don't work, search again to try a different knowledge base."
+            )
             return "\n".join(lines)
         else:
             if used_files:
@@ -360,11 +357,7 @@ def knowledge_search(query: str) -> str:
         logger.error(f"Knowledge search failed: {e}")
 
         # T021: Emit search failed event
-        _emit_search_event("knowledge_search_failed", {
-            "node_id": node_id,
-            "query": query,
-            "error": str(e)
-        })
+        _emit_search_event("knowledge_search_failed", {"node_id": node_id, "query": query, "error": str(e)})
 
         return "⚠️ Knowledge search unavailable. Continue with current approach."
 

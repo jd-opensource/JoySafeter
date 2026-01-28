@@ -11,6 +11,7 @@ Features:
 - Color-coded status indicators
 - Collapsible long outputs
 """
+
 import json
 import re
 import threading
@@ -39,6 +40,7 @@ try:
     from rich.syntax import Syntax
     from rich.table import Table  # noqa: F401
     from rich.text import Text
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -71,8 +73,8 @@ def _seen_before(seen_set: set[str], key: Optional[str]) -> bool:
 
 def strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences from text."""
-    ansi_pattern = re.compile(r'\x1b\[[0-9;]*m')
-    return ansi_pattern.sub('', text)
+    ansi_pattern = re.compile(r"\x1b\[[0-9;]*m")
+    return ansi_pattern.sub("", text)
 
 
 def truncate_content(content: str, max_lines: int = MAX_LINES, max_chars: int = MAX_CHARS) -> tuple[str, bool]:
@@ -85,7 +87,7 @@ def truncate_content(content: str, max_lines: int = MAX_LINES, max_chars: int = 
     if not content:
         return "", False
 
-    lines = content.split('\n')
+    lines = content.split("\n")
     total_lines = len(lines)
 
     if total_lines <= max_lines and len(content) <= max_chars:
@@ -93,7 +95,7 @@ def truncate_content(content: str, max_lines: int = MAX_LINES, max_chars: int = 
 
     # Truncate by lines first
     truncated_lines = lines[:max_lines]
-    result = '\n'.join(truncated_lines)
+    result = "\n".join(truncated_lines)
 
     # Then truncate by chars if needed
     if len(result) > max_chars:
@@ -113,11 +115,11 @@ def detect_language(content: str, tool_name: str = "") -> str:
     # Check content patterns
     content_lower = content.lower()[:500] if content else ""
 
-    if content.strip().startswith('{') or content.strip().startswith('['):
+    if content.strip().startswith("{") or content.strip().startswith("["):
         return "json"
     if "def " in content_lower or "import " in content_lower or "class " in content_lower:
         return "python"
-    if content.strip().startswith('$') or "bash" in content_lower or "#!" in content[:20]:
+    if content.strip().startswith("$") or "bash" in content_lower or "#!" in content[:20]:
         return "shell"
 
     return ""  # No syntax highlighting
@@ -159,43 +161,43 @@ class RichConsoleCallback(BaseCallbackHandler):
         Returns:
             List of dicts with role, content, tool_calls, tool_call_id
         """
-        ROLE_MAP = {'human': 'user', 'ai': 'assistant'}
+        ROLE_MAP = {"human": "user", "ai": "assistant"}
         result = []
 
         for msg in messages:
             # Extract basic info
-            if hasattr(msg, 'type'):
+            if hasattr(msg, "type"):
                 role = ROLE_MAP.get(msg.type, msg.type)
-                content = getattr(msg, 'content', '') or ''
-            elif hasattr(msg, 'role'):
+                content = getattr(msg, "content", "") or ""
+            elif hasattr(msg, "role"):
                 role = ROLE_MAP.get(msg.role, msg.role)
-                content = getattr(msg, 'content', '') or ''
+                content = getattr(msg, "content", "") or ""
             elif isinstance(msg, dict):
-                role = ROLE_MAP.get(msg.get('role', ''), msg.get('role', 'unknown'))
-                content = msg.get('content', '')
+                role = ROLE_MAP.get(msg.get("role", ""), msg.get("role", "unknown"))
+                content = msg.get("content", "")
             else:
                 continue
 
-            entry = {'role': role, 'content': content}
+            entry = {"role": role, "content": content}
 
             # Extract tool_calls (for assistant messages)
-            if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                entry['tool_calls'] = [
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                entry["tool_calls"] = [
                     {
-                        'id': tc.get('id', '') if isinstance(tc, dict) else getattr(tc, 'id', ''),
-                        'name': tc.get('name', '') if isinstance(tc, dict) else getattr(tc, 'name', ''),
-                        'args': tc.get('args', {}) if isinstance(tc, dict) else getattr(tc, 'args', {})
+                        "id": tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", ""),
+                        "name": tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", ""),
+                        "args": tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {}),
                     }
                     for tc in msg.tool_calls
                 ]
-            elif isinstance(msg, dict) and msg.get('tool_calls'):
-                entry['tool_calls'] = msg['tool_calls']
+            elif isinstance(msg, dict) and msg.get("tool_calls"):
+                entry["tool_calls"] = msg["tool_calls"]
 
             # Extract tool_call_id (for tool messages)
-            if hasattr(msg, 'tool_call_id') and msg.tool_call_id:
-                entry['tool_call_id'] = msg.tool_call_id
-            elif isinstance(msg, dict) and msg.get('tool_call_id'):
-                entry['tool_call_id'] = msg['tool_call_id']
+            if hasattr(msg, "tool_call_id") and msg.tool_call_id:
+                entry["tool_call_id"] = msg.tool_call_id
+            elif isinstance(msg, dict) and msg.get("tool_call_id"):
+                entry["tool_call_id"] = msg["tool_call_id"]
 
             result.append(entry)
 
@@ -255,15 +257,15 @@ class RichConsoleCallback(BaseCallbackHandler):
 
         # Extract tool calls if any
         try:
-            if hasattr(response, 'generations') and response.generations:
+            if hasattr(response, "generations") and response.generations:
                 gen = response.generations[0][0] if response.generations[0] else None
-                if gen and hasattr(gen, 'message'):
+                if gen and hasattr(gen, "message"):
                     msg = gen.message
-                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
                         # Show decision for first tool
-                        tool_name = msg.tool_calls[0].get('name', 'unknown')
+                        tool_name = msg.tool_calls[0].get("name", "unknown")
                         if tool_name != THINK_TOOL_NAME:
-                            display_name = tool_name.replace('seclens_', '').replace('_', ' ')
+                            display_name = tool_name.replace("seclens_", "").replace("_", " ")
                             self.console.print(f"[cyan]🎯 Decision: {display_name}[/cyan]")
         except Exception as e:
             logger.debug(f"Failed to display LLM end event: {e}")
@@ -307,7 +309,7 @@ class RichConsoleCallback(BaseCallbackHandler):
 
         # Handle think tool specially
         if name == THINK_TOOL_NAME:
-            thought = input_obj.get('thought', '') if isinstance(input_obj, dict) else str(input_obj)
+            thought = input_obj.get("thought", "") if isinstance(input_obj, dict) else str(input_obj)
             self._show_thinking_panel(thought)
             self.depth += 1
             return
@@ -338,10 +340,10 @@ class RichConsoleCallback(BaseCallbackHandler):
         duration_str = ""
         if start_time:
             duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-            duration_str = f"{duration_ms}ms" if duration_ms < 1000 else f"{duration_ms/1000:.1f}s"
+            duration_str = f"{duration_ms}ms" if duration_ms < 1000 else f"{duration_ms / 1000:.1f}s"
 
         # Get output content - handle various types (string, list, dict, ToolMessage)
-        if hasattr(output, 'content'):
+        if hasattr(output, "content"):
             content = output.content
         else:
             content = output
@@ -433,12 +435,12 @@ class RichConsoleCallback(BaseCallbackHandler):
     def _show_agent_panel(self, input_obj: Dict[str, Any]) -> None:
         """Show agent tool invocation."""
         if not self._is_tty():
-            task_count = len(input_obj.get('task_details', []))
+            task_count = len(input_obj.get("task_details", []))
             logger.info(f"🤖 Agent: Spawning {task_count} sub-task(s)")
             return
 
-        context = input_obj.get('context', '')[:200]
-        task_details = input_obj.get('task_details', [])
+        context = input_obj.get("context", "")[:200]
+        task_details = input_obj.get("task_details", [])
 
         # Build content - simplified display without level
         content = f"[bold]Context:[/bold] {context}...\n\n"
@@ -459,9 +461,9 @@ class RichConsoleCallback(BaseCallbackHandler):
     def _show_tool_start_panel(self, name: str, input_obj: Dict[str, Any]) -> None:
         """Show tool start with input parameters."""
         # Special handling for agent_tool - show as sub-task delegation
-        if name == 'agent_tool':
-            task_details = input_obj.get('task_details', [])
-            task_summary = task_details[0][:100] if task_details else 'Execute sub-task'
+        if name == "agent_tool":
+            task_details = input_obj.get("task_details", [])
+            task_summary = task_details[0][:100] if task_details else "Execute sub-task"
             if not self._is_tty():
                 logger.info(f"🤖 Delegating sub-task: {task_summary}...")
                 return
@@ -476,7 +478,7 @@ class RichConsoleCallback(BaseCallbackHandler):
             return
 
         # Simplify tool name for display
-        display_name = name.replace('seclens_', '').replace('_', ' ')
+        display_name = name.replace("seclens_", "").replace("_", " ")
 
         if not self._is_tty():
             logger.info(f"🔧 Tool Execution: {display_name}")
@@ -511,21 +513,25 @@ class RichConsoleCallback(BaseCallbackHandler):
     def _show_tool_end_panel(self, name: str, output: str, duration: str, success: bool = True) -> None:
         """Show tool completion with output."""
         # Special handling for agent_tool
-        if name == 'agent_tool':
+        if name == "agent_tool":
             status = "✅" if success else "❌"
             if not self._is_tty():
                 logger.info(f"{status} Sub-task completed ({duration})")
                 return
             # For agent_tool, show simplified completion
             truncated, _ = truncate_content(strip_ansi(output))
-            content = Syntax(truncated, "json", theme="monokai", word_wrap=True) if truncated.strip().startswith('{') else Text(truncated)
+            content = (
+                Syntax(truncated, "json", theme="monokai", word_wrap=True)
+                if truncated.strip().startswith("{")
+                else Text(truncated)
+            )
             title = f"{status} Sub-task completed [dim]({duration})[/dim]"
             panel = Panel(content, title=title, border_style="green" if success else "red", box=box.ROUNDED)
             self.console.print(panel)
             return
 
         # Simplify tool name for display
-        display_name = name.replace('seclens_', '').replace('_', ' ')
+        display_name = name.replace("seclens_", "").replace("_", " ")
 
         if not self._is_tty():
             status = "✅" if success else "❌"
@@ -580,4 +586,3 @@ class RichConsoleCallback(BaseCallbackHandler):
             box=box.HEAVY,
         )
         self.console.print(panel)
-

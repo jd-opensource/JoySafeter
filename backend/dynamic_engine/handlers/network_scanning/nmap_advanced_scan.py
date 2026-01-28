@@ -14,8 +14,8 @@ class NmapAdvancedHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['nmap']
+        """Handler related commands"""
+        return ["nmap"]
 
     def handle(self, data: Dict) -> Any:
         """Execute nmap_advanced with enhanced logging"""

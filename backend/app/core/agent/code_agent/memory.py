@@ -15,6 +15,7 @@ from typing import Any
 
 class StepType(str, Enum):
     """Types of steps in agent execution."""
+
     SYSTEM_PROMPT = "system_prompt"
     USER_MESSAGE = "user_message"
     THOUGHT = "thought"
@@ -30,6 +31,7 @@ class StepType(str, Enum):
 @dataclass
 class StepMetrics:
     """Metrics for a single step."""
+
     start_time: datetime = field(default_factory=datetime.now)
     end_time: datetime | None = None
     duration_ms: float = 0.0
@@ -46,6 +48,7 @@ class StepMetrics:
 @dataclass
 class ChatMessage:
     """Represents a chat message for LLM interaction."""
+
     role: str  # "system", "user", "assistant"
     content: str
 
@@ -61,6 +64,7 @@ class ActionStep:
 
     This is the core unit of the Thought-Code-Observation cycle.
     """
+
     # Step identification
     step_number: int
 
@@ -164,6 +168,7 @@ class PlanningStep:
 
     Used when the agent needs to create or update a plan.
     """
+
     # The plan content
     plan: str = ""
 
@@ -207,6 +212,7 @@ class PlanningStep:
 @dataclass
 class ToolCallStep:
     """Represents a tool call step."""
+
     tool_name: str
     tool_args: dict = field(default_factory=dict)
     tool_result: Any = None
@@ -217,6 +223,7 @@ class ToolCallStep:
 @dataclass
 class MessageStep:
     """Represents a message step (system or user)."""
+
     role: str  # "system", "user", "assistant"
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
@@ -307,7 +314,7 @@ class AgentMemory:
         # Trim if exceeding max
         if len(self._steps) > self.max_steps:
             # Keep first step (usually system prompt) and last steps
-            self._steps = [self._steps[0]] + self._steps[-(self.max_steps - 1):]
+            self._steps = [self._steps[0]] + self._steps[-(self.max_steps - 1) :]
 
     def create_action_step(self) -> ActionStep:
         """Create a new action step with the next step number."""
@@ -364,7 +371,7 @@ class AgentMemory:
 
         # Truncate if needed (rough approximation: 4 chars per token)
         if max_tokens and len(history) > max_tokens * 4:
-            history = history[-(max_tokens * 4):]
+            history = history[-(max_tokens * 4) :]
             history = "...[truncated]\n\n" + history
 
         return history
@@ -457,25 +464,31 @@ class AgentMemory:
                 "type": type(step).__name__,
             }
             if isinstance(step, ActionStep):
-                step_dict.update({
-                    "step_number": step.step_number,
-                    "thought": step.thought,
-                    "code": step.code,
-                    "observation": step.observation,
-                    "error": step.error,
-                    "is_final_answer": step.is_final_answer,
-                    "success": step.success,
-                })
+                step_dict.update(
+                    {
+                        "step_number": step.step_number,
+                        "thought": step.thought,
+                        "code": step.code,
+                        "observation": step.observation,
+                        "error": step.error,
+                        "is_final_answer": step.is_final_answer,
+                        "success": step.success,
+                    }
+                )
             elif isinstance(step, PlanningStep):
-                step_dict.update({
-                    "plan": step.plan,
-                    "is_update": step.is_update,
-                })
+                step_dict.update(
+                    {
+                        "plan": step.plan,
+                        "is_update": step.is_update,
+                    }
+                )
             elif isinstance(step, MessageStep):
-                step_dict.update({
-                    "role": step.role,
-                    "content": step.content,
-                })
+                step_dict.update(
+                    {
+                        "role": step.role,
+                        "content": step.content,
+                    }
+                )
             result.append(step_dict)
         return result
 
@@ -509,4 +522,3 @@ __all__ = [
     "MessageStep",
     "AgentMemory",
 ]
-

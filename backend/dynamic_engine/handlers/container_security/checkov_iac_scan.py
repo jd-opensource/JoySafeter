@@ -14,8 +14,8 @@ class CheckovHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['checkov']
+        """Handler related commands"""
+        return ["checkov"]
 
     def handle(self, data: Dict) -> Any:
         """Execute checkov with enhanced logging"""

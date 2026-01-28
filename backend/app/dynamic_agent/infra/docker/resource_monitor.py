@@ -30,6 +30,7 @@ class ResourceSnapshot:
         block_write_bytes: Block device write bytes
         pids_current: Current process count
     """
+
     timestamp: datetime
     cpu_percent: float
     memory_usage: int
@@ -44,16 +45,16 @@ class ResourceSnapshot:
     def to_dict(self) -> dict:
         """Convert to dictionary"""
         return {
-            'timestamp': self.timestamp.isoformat(),
-            'cpu_percent': round(self.cpu_percent, 2),
-            'memory_usage': self.memory_usage,
-            'memory_limit': self.memory_limit,
-            'memory_percent': round(self.memory_percent, 2),
-            'network_rx_bytes': self.network_rx_bytes,
-            'network_tx_bytes': self.network_tx_bytes,
-            'block_read_bytes': self.block_read_bytes,
-            'block_write_bytes': self.block_write_bytes,
-            'pids_current': self.pids_current,
+            "timestamp": self.timestamp.isoformat(),
+            "cpu_percent": round(self.cpu_percent, 2),
+            "memory_usage": self.memory_usage,
+            "memory_limit": self.memory_limit,
+            "memory_percent": round(self.memory_percent, 2),
+            "network_rx_bytes": self.network_rx_bytes,
+            "network_tx_bytes": self.network_tx_bytes,
+            "block_read_bytes": self.block_read_bytes,
+            "block_write_bytes": self.block_write_bytes,
+            "pids_current": self.pids_current,
         }
 
 
@@ -67,6 +68,7 @@ class ResourceMetrics:
         start_time: Start time
         end_time: End time
     """
+
     snapshots: List[ResourceSnapshot] = field(default_factory=list)
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -111,16 +113,18 @@ class ResourceMetrics:
     def to_dict(self) -> dict:
         """Convert to dictionary"""
         return {
-            'start_time': self.start_time.isoformat() if self.start_time else None,
-            'end_time': self.end_time.isoformat() if self.end_time else None,
-            'duration_seconds': (self.end_time - self.start_time).total_seconds() if self.start_time and self.end_time else 0,
-            'snapshot_count': len(self.snapshots),
-            'avg_cpu_percent': round(self.get_avg_cpu(), 2),
-            'max_cpu_percent': round(self.get_max_cpu(), 2),
-            'avg_memory_bytes': self.get_avg_memory(),
-            'max_memory_bytes': self.get_max_memory(),
-            'avg_memory_percent': round(self.get_avg_memory_percent(), 2),
-            'snapshots': [s.to_dict() for s in self.snapshots],
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "duration_seconds": (self.end_time - self.start_time).total_seconds()
+            if self.start_time and self.end_time
+            else 0,
+            "snapshot_count": len(self.snapshots),
+            "avg_cpu_percent": round(self.get_avg_cpu(), 2),
+            "max_cpu_percent": round(self.get_max_cpu(), 2),
+            "avg_memory_bytes": self.get_avg_memory(),
+            "max_memory_bytes": self.get_max_memory(),
+            "avg_memory_percent": round(self.get_avg_memory_percent(), 2),
+            "snapshots": [s.to_dict() for s in self.snapshots],
         }
 
 
@@ -174,48 +178,47 @@ class ResourceMonitor:
             ResourceSnapshot: Resource snapshot
         """
         # Parse CPU usage
-        cpu_stats = stats.get('cpu_stats', {})
-        precpu_stats = stats.get('precpu_stats', {})
+        cpu_stats = stats.get("cpu_stats", {})
+        precpu_stats = stats.get("precpu_stats", {})
 
-        cpu_delta = cpu_stats.get('cpu_usage', {}).get('total_usage', 0) - \
-                   precpu_stats.get('cpu_usage', {}).get('total_usage', 0)
-        system_delta = cpu_stats.get('system_cpu_usage', 0) - \
-                      precpu_stats.get('system_cpu_usage', 0)
+        cpu_delta = cpu_stats.get("cpu_usage", {}).get("total_usage", 0) - precpu_stats.get("cpu_usage", {}).get(
+            "total_usage", 0
+        )
+        system_delta = cpu_stats.get("system_cpu_usage", 0) - precpu_stats.get("system_cpu_usage", 0)
 
         cpu_percent = 0.0
         if system_delta > 0:
-            cpu_percent = (cpu_delta / system_delta) * \
-                         len(cpu_stats.get('cpus', [])) * 100.0
+            cpu_percent = (cpu_delta / system_delta) * len(cpu_stats.get("cpus", [])) * 100.0
 
         # Parse memory usage
-        memory_stats = stats.get('memory_stats', {})
-        memory_usage = memory_stats.get('usage', 0)
-        memory_limit = memory_stats.get('limit', 0)
+        memory_stats = stats.get("memory_stats", {})
+        memory_usage = memory_stats.get("usage", 0)
+        memory_limit = memory_stats.get("limit", 0)
         memory_percent = 0.0
         if memory_limit > 0:
             memory_percent = (memory_usage / memory_limit) * 100.0
 
         # Parse network statistics
-        networks = stats.get('networks', {})
+        networks = stats.get("networks", {})
         network_rx_bytes = 0
         network_tx_bytes = 0
         for net_stats in networks.values():
-            network_rx_bytes += net_stats.get('rx_bytes', 0)
-            network_tx_bytes += net_stats.get('tx_bytes', 0)
+            network_rx_bytes += net_stats.get("rx_bytes", 0)
+            network_tx_bytes += net_stats.get("tx_bytes", 0)
 
         # Parse block device statistics
-        blkio_stats = stats.get('blkio_stats', {})
+        blkio_stats = stats.get("blkio_stats", {})
         block_read_bytes = 0
         block_write_bytes = 0
-        for io_stat in blkio_stats.get('io_service_bytes_recursive', []):
-            if io_stat.get('op') == 'Read':
-                block_read_bytes += io_stat.get('value', 0)
-            elif io_stat.get('op') == 'Write':
-                block_write_bytes += io_stat.get('value', 0)
+        for io_stat in blkio_stats.get("io_service_bytes_recursive", []):
+            if io_stat.get("op") == "Read":
+                block_read_bytes += io_stat.get("value", 0)
+            elif io_stat.get("op") == "Write":
+                block_write_bytes += io_stat.get("value", 0)
 
         # Parse process count
-        pids_stats = stats.get('pids_stats', {})
-        pids_current = pids_stats.get('current', 0)
+        pids_stats = stats.get("pids_stats", {})
+        pids_current = pids_stats.get("current", 0)
 
         return ResourceSnapshot(
             timestamp=datetime.now(),

@@ -3,6 +3,7 @@ Custom Tool CRUD API (User-level)
 - 读写：基于用户所有权
 - 用户级配额限制（默认 100）
 """
+
 from __future__ import annotations
 
 import uuid
@@ -131,4 +132,3 @@ async def delete_custom_tool(
     service = CustomToolService(db)
     await service.delete_tool(tool_id, current_user.id)
     return {"success": True}
-

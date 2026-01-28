@@ -1,6 +1,7 @@
 """
 工作空间权限检查工具函数
 """
+
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,4 +71,3 @@ async def check_workspace_access(
         return False
 
     return has_sufficient_role(member.role, required_role)
-

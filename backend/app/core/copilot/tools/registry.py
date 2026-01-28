@@ -96,8 +96,9 @@ class NodeIdRegistry:
 
 
 # Thread-safe context variable for node registry (per-request isolation)
-_node_registry_context: contextvars.ContextVar[Optional[NodeIdRegistry]] = \
-    contextvars.ContextVar('node_registry', default=None)
+_node_registry_context: contextvars.ContextVar[Optional[NodeIdRegistry]] = contextvars.ContextVar(
+    "node_registry", default=None
+)
 
 
 def get_node_registry() -> NodeIdRegistry:

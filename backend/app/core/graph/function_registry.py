@@ -67,6 +67,7 @@ class FunctionRegistry:
 
 # ==================== 预置函数库 ====================
 
+
 def _math_add(state: Dict[str, Any], a: Any, b: Any) -> Dict[str, Any]:
     """数学加法函数。"""
     try:
@@ -114,4 +115,3 @@ FunctionRegistry.register("math_multiply", _math_multiply)
 FunctionRegistry.register("string_concat", _string_concat)
 FunctionRegistry.register("dict_get", _dict_get)
 FunctionRegistry.register("dict_set", _dict_set)
-

@@ -1,6 +1,7 @@
 """
 数据访问层 (Repository Layer)
 """
+
 from .auth_session import AuthSessionRepository
 from .auth_user import AuthUserRepository
 from .base import BaseRepository
@@ -20,4 +21,3 @@ __all__ = [
     "GraphDeploymentVersionRepository",
     "McpServerRepository",
 ]
-

@@ -27,4 +27,3 @@ __all__ = [
     "WARNED_EXTENSIONS",
     "SYSTEM_FILES",
 ]
-

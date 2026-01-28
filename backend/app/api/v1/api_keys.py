@@ -4,6 +4,7 @@ API Key 管理
 - POST /api/v1/api-keys           创建（personal 或 workspace admin+）
 - DELETE /api/v1/api-keys/{id}    删除（personal 仅本人，workspace admin+）
 """
+
 from __future__ import annotations
 
 import uuid
@@ -72,4 +73,3 @@ async def delete_api_key(
     service = ApiKeyService(db)
     await service.delete_key(key_id=key_id, current_user_id=current_user.id)
     return {"success": True}
-

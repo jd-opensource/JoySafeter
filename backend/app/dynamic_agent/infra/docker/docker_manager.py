@@ -32,21 +32,21 @@ class ContainerInfo:
         self.id = container.id
         self.short_id = container.short_id
         self.name = container.name
-        self.image = container.image.tags[0] if container.image.tags else 'unknown'
+        self.image = container.image.tags[0] if container.image.tags else "unknown"
         self.status = container.status
-        self.created = container.attrs.get('Created')
-        self.started = container.attrs.get('State', {}).get('StartedAt')
+        self.created = container.attrs.get("Created")
+        self.started = container.attrs.get("State", {}).get("StartedAt")
 
     def to_dict(self) -> dict:
         """Convert to dictionary"""
         return {
-            'id': self.id,
-            'short_id': self.short_id,
-            'name': self.name,
-            'image': self.image,
-            'status': self.status,
-            'created': self.created,
-            'started': self.started,
+            "id": self.id,
+            "short_id": self.short_id,
+            "name": self.name,
+            "image": self.image,
+            "status": self.status,
+            "created": self.created,
+            "started": self.started,
         }
 
 
@@ -102,16 +102,20 @@ class DockerManager:
                             try:
                                 self.client = docker.from_env()
                             except Exception as colima_error:
-                                logger.error(f"Failed to connect to Docker even after Colima initialization: {colima_error}")
+                                logger.error(
+                                    f"Failed to connect to Docker even after Colima initialization: {colima_error}"
+                                )
                                 self.client = None
                     else:
                         logger.warning("Colima not found, cannot initialize Docker connection")
 
             # Test connection - only if client was successfully initialized
             if self.client is None:
-                raise DockerConnectionError("Docker client not initialized. Cannot connect to Docker daemon. "
-                                         "If running in a container, you may need to mount Docker socket: "
-                                         "-v /var/run/docker.sock:/var/run/docker.sock")
+                raise DockerConnectionError(
+                    "Docker client not initialized. Cannot connect to Docker daemon. "
+                    "If running in a container, you may need to mount Docker socket: "
+                    "-v /var/run/docker.sock:/var/run/docker.sock"
+                )
 
             self.client.ping()
             logger.info("Docker connection successful")
@@ -189,10 +193,10 @@ class DockerManager:
         environment: Optional[Dict[str, str]] = None,
         volumes: Optional[Dict[str, Dict[str, str]]] = None,
         ports: Optional[Dict[str, int]] = None,
-        network_mode: str = 'bridge',  # Use bridge with extra_hosts for macOS/Colima
+        network_mode: str = "bridge",  # Use bridge with extra_hosts for macOS/Colima
         detach: bool = True,
         auto_remove: bool = False,
-        **kwargs
+        **kwargs,
     ) -> ContainerInfo:
         """
         Create Docker container
@@ -241,35 +245,33 @@ class DockerManager:
 
             # Build container parameters
             container_kwargs = {
-                'image': image,
-                'command': command,
-                'detach': detach,
-                'auto_remove': auto_remove,
-                'network_mode': network_mode,
+                "image": image,
+                "command": command,
+                "detach": detach,
+                "auto_remove": auto_remove,
+                "network_mode": network_mode,
             }
 
             if name:
-                container_kwargs['name'] = name
+                container_kwargs["name"] = name
 
             if environment:
-                container_kwargs['environment'] = environment
+                container_kwargs["environment"] = environment
 
             if volumes:
-                container_kwargs['volumes'] = volumes
+                container_kwargs["volumes"] = volumes
 
             # host network mode is incompatible with port bindings
-            if ports and network_mode != 'host':
-                container_kwargs['ports'] = ports
+            if ports and network_mode != "host":
+                container_kwargs["ports"] = ports
 
             # macOS/Colima: Add extra_hosts to allow container to access host network
             # This maps 'host.docker.internal' to the host gateway IP
-            container_kwargs['extra_hosts'] = {
-                'host.docker.internal': 'host-gateway'
-            }
+            container_kwargs["extra_hosts"] = {"host.docker.internal": "host-gateway"}
 
             #  user=f"{uid}:{gid}"
-            container_kwargs['user'] = f'{os.environ[DOCKER_RUN_USER]}:{os.environ[DOCKER_RUN_GROUP]}'
-            container_kwargs['cap_add'] = DOCKER_RUN_CAPS
+            container_kwargs["user"] = f"{os.environ[DOCKER_RUN_USER]}:{os.environ[DOCKER_RUN_GROUP]}"
+            container_kwargs["cap_add"] = DOCKER_RUN_CAPS
             # Add resource limits
             if resource_limits:
                 container_kwargs.update(resource_limits.to_docker_kwargs())
@@ -289,7 +291,6 @@ class DockerManager:
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup failed container: {cleanup_error}")
                 raise e
-
 
             # Save container information
             info = ContainerInfo(container)
@@ -342,7 +343,7 @@ class DockerManager:
         try:
             # Check container status
             container.reload()
-            if container.status != 'running':
+            if container.status != "running":
                 raise ContainerStateError(f"Container not running: {container.status}")
 
             # Execute command
@@ -354,8 +355,8 @@ class DockerManager:
             )
 
             exit_code = result.exit_code
-            stdout = result.output.decode('utf-8', errors='ignore') if result.output else ''
-            stderr = ''  # Docker exec_run mixes stderr into stdout
+            stdout = result.output.decode("utf-8", errors="ignore") if result.output else ""
+            stderr = ""  # Docker exec_run mixes stderr into stdout
 
             logger.debug(f"Command execution completed: {command} (exit_code={exit_code})")
             return exit_code, stdout, stderr
@@ -587,7 +588,7 @@ class DockerManager:
         try:
             container = self.client.containers.get(container_id)
             logs = container.logs(tail=tail, follow=follow)
-            return logs.decode('utf-8', errors='ignore')
+            return logs.decode("utf-8", errors="ignore")
         except docker.errors.NotFound:
             raise ContainerNotFoundError(f"Container not found: {container_id}")
 

@@ -1,6 +1,7 @@
 """
 Graph API（路径 /api/v1/graphs）
 """
+
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -38,6 +39,7 @@ def _bind_log(request: Request, **kwargs):
 
 class GraphStatePayload(BaseModel):
     """图状态负载"""
+
     nodes: List[Dict[str, Any]] = Field(default_factory=list, description="节点列表")
     edges: List[Dict[str, Any]] = Field(default_factory=list, description="边列表")
     viewport: Optional[Dict[str, Any]] = Field(default=None, description="视口信息")
@@ -49,6 +51,7 @@ class GraphStatePayload(BaseModel):
 
 class CreateGraphRequest(BaseModel):
     """创建图请求"""
+
     name: str = Field(..., min_length=1, max_length=200, description="图名称")
     description: Optional[str] = Field(default=None, max_length=2000, description="图描述")
     color: Optional[str] = Field(default=None, max_length=2000, description="颜色")
@@ -60,6 +63,7 @@ class CreateGraphRequest(BaseModel):
 
 class UpdateGraphRequest(BaseModel):
     """更新图请求"""
+
     name: Optional[str] = Field(default=None, min_length=1, max_length=200, description="图名称")
     description: Optional[str] = Field(default=None, max_length=2000, description="图描述")
     color: Optional[str] = Field(default=None, max_length=2000, description="颜色")
@@ -194,12 +198,7 @@ async def list_graphs(
             node_counts[row.graph_id] = row.count
 
     log.info(f"graph.list success count={len(graphs)}")
-    return {
-        "data": [
-            _serialize_graph_row(graph, node_counts.get(graph.id, 0))
-            for graph in graphs
-        ]
-    }
+    return {"data": [_serialize_graph_row(graph, node_counts.get(graph.id, 0)) for graph in graphs]}
 
 
 @router.get("/deployed")
@@ -244,11 +243,7 @@ async def list_deployed_graphs(
 
     conditions.append(graph_condition)
 
-    query = (
-        select(AgentGraph)
-        .where(*conditions)
-        .order_by(AgentGraph.updated_at.desc())
-    )
+    query = select(AgentGraph).where(*conditions).order_by(AgentGraph.updated_at.desc())
     result = await db.execute(query)
     all_graphs = list(result.scalars().all())
 
@@ -281,12 +276,7 @@ async def list_deployed_graphs(
             node_counts[row.graph_id] = row.count
 
     log.info(f"graph.list_deployed success count={len(graphs)}")
-    return {
-        "data": [
-            _serialize_graph_row(graph, node_counts.get(graph.id, 0))
-            for graph in graphs
-        ]
-    }
+    return {"data": [_serialize_graph_row(graph, node_counts.get(graph.id, 0)) for graph in graphs]}
 
 
 @router.post("")
@@ -328,9 +318,7 @@ async def create_graph(
         variables=payload.variables,
     )
     await db.commit()
-    log.info(
-        f"graph.create success graph_id={graph.id} workspace_id={workspace_id} parent_id={parent_id}"
-    )
+    log.info(f"graph.create success graph_id={graph.id} workspace_id={workspace_id} parent_id={parent_id}")
     return {"data": _serialize_graph_row(graph)}
 
 
@@ -389,6 +377,7 @@ async def update_graph(
         # 如果提供了 folderId，验证它是否存在且属于当前 workspace
         if payload.folderId is not None:
             from app.repositories.workspace_folder import WorkflowFolderRepository
+
             folder_repo = WorkflowFolderRepository(db)
             folder = await folder_repo.get(payload.folderId)
             if not folder:
@@ -396,7 +385,10 @@ async def update_graph(
             # 确保 folder 属于 graph 的 workspace
             if graph.workspace_id and folder.workspace_id != graph.workspace_id:
                 from app.common.exceptions import BadRequestException
-                raise BadRequestException(f"Folder {payload.folderId} does not belong to workspace {graph.workspace_id}")
+
+                raise BadRequestException(
+                    f"Folder {payload.folderId} does not belong to workspace {graph.workspace_id}"
+                )
         # 允许设置为 None 来清除文件夹关系
         update_data["folder_id"] = payload.folderId
     if "parentId" in fields_set:
@@ -520,9 +512,7 @@ async def save_graph_state(
     # 注意：get_db() 不会自动提交，需要显式调用 commit()
     await db.commit()
 
-    log.info(
-        f"graph.state.save success nodes={len(payload.nodes)} edges={len(payload.edges)}"
-    )
+    log.info(f"graph.state.save success nodes={len(payload.nodes)} edges={len(payload.edges)}")
     return {"success": True, **result}
 
 
@@ -539,6 +529,7 @@ async def save_graph_state_put(
 
 
 # ==================== Copilot Endpoints ====================
+
 
 @router.get("/{graph_id}/copilot/history")
 async def get_copilot_history(
@@ -579,20 +570,18 @@ async def get_copilot_history(
                         "content": msg.content,
                         "created_at": msg.created_at.isoformat() if msg.created_at else None,
                         "actions": msg.actions,
-                        "thought_steps": [
-                            {"index": s.index, "content": s.content}
-                            for s in msg.thought_steps
-                        ] if msg.thought_steps else None,
-                        "tool_calls": [
-                            {"tool": tc.tool, "input": tc.input}
-                            for tc in msg.tool_calls
-                        ] if msg.tool_calls else None,
+                        "thought_steps": [{"index": s.index, "content": s.content} for s in msg.thought_steps]
+                        if msg.thought_steps
+                        else None,
+                        "tool_calls": [{"tool": tc.tool, "input": tc.input} for tc in msg.tool_calls]
+                        if msg.tool_calls
+                        else None,
                     }
                     for msg in history.messages
                 ],
                 "created_at": history.created_at.isoformat() if history.created_at else None,
                 "updated_at": history.updated_at.isoformat() if history.updated_at else None,
-            }
+            },
         }
     else:
         log.info("copilot.history.get success no_history")
@@ -603,7 +592,7 @@ async def get_copilot_history(
                 "messages": [],
                 "created_at": None,
                 "updated_at": None,
-            }
+            },
         }
 
 
@@ -681,7 +670,9 @@ async def save_copilot_messages(
             thought_steps=[
                 CopilotThoughtStep(index=step["index"], content=step["content"])
                 for step in assistant_msg_data.get("thought_steps", [])
-            ] if assistant_msg_data.get("thought_steps") else None,
+            ]
+            if assistant_msg_data.get("thought_steps")
+            else None,
         )
 
         service = CopilotService(user_id=str(current_user.id), db=db)
@@ -762,14 +753,12 @@ async def create_copilot_task(
     # Check Redis availability
     if not RedisClient.is_available():
         from app.core.copilot.exceptions import CopilotSessionError
+
         redis_status = "not configured" if not settings.redis_url else "connection failed"
         log.error(f"Redis {redis_status} - Copilot requires Redis for session management")
         raise CopilotSessionError(
             f"Redis {redis_status}. Copilot feature requires Redis to be running.",
-            data={
-                "redis_status": redis_status,
-                "has_redis_url": bool(settings.redis_url)
-            }
+            data={"redis_status": redis_status, "has_redis_url": bool(settings.redis_url)},
         )
 
     # Generate session ID
@@ -821,11 +810,11 @@ async def get_copilot_session(
     # Check Redis availability
     if not RedisClient.is_available():
         from app.core.copilot.exceptions import CopilotSessionError
+
         redis_status = "not configured" if not settings.redis_url else "connection failed"
         log.error(f"Redis {redis_status} - Cannot retrieve Copilot session")
         raise CopilotSessionError(
-            f"Redis {redis_status}. Copilot feature requires Redis to be running.",
-            data={"redis_status": redis_status}
+            f"Redis {redis_status}. Copilot feature requires Redis to be running.", data={"redis_status": redis_status}
         )
 
     # Get session data from Redis
@@ -860,4 +849,3 @@ async def get_copilot_session(
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
-

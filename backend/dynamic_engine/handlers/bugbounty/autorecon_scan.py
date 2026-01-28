@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class AutoreconHandler(AbstractHandler):
     """Handler for autorecon functionality"""
 
@@ -13,8 +14,8 @@ class AutoreconHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['autorecon']
+        """Handler related commands"""
+        return ["autorecon"]
 
     def handle(self, data: Dict) -> Any:
         """Execute autorecon with enhanced logging"""

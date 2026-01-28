@@ -14,8 +14,8 @@ class HydraHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['hydra']
+        """Handler related commands"""
+        return ["hydra"]
 
     def handle(self, data: Dict) -> Any:
         """Execute hydra with enhanced logging"""
@@ -29,18 +29,10 @@ class HydraHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not target or not service:
                 logger.warning("🎯 Hydra called without target or service parameter")
-                return {
-
-                    "error": "Target and service parameters are required"
-
-                }
+                return {"error": "Target and service parameters are required"}
             if not (username or username_file) or not (password or password_file):
                 logger.warning("🔑 Hydra called without username/password parameters")
-                return {
-
-                    "error": "Username/username_file and password/password_file are required"
-
-                }
+                return {"error": "Username/username_file and password/password_file are required"}
             command = "hydra -t 4"
             if username:
                 command += f" -l {username}"
@@ -59,8 +51,4 @@ class HydraHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in hydra endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

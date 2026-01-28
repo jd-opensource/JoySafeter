@@ -61,11 +61,7 @@ class ColimaDockerSetup:
 
         try:
             # Create resource limits
-            limits = ResourceLimits.from_human_readable(
-                cpu=cpu,
-                memory=memory,
-                disk=disk
-            )
+            limits = ResourceLimits.from_human_readable(cpu=cpu, memory=memory, disk=disk)
 
             # Create container
             container = self.manager.create_container(
@@ -101,11 +97,9 @@ def main():
     """Main function for testing"""
     import argparse
 
-    parser = argparse.ArgumentParser(description='Colima Docker Setup')
-    parser.add_argument('--no-auto-start', action='store_true',
-                       help='Do not auto-start Colima')
-    parser.add_argument('--test', action='store_true',
-                       help='Run test with Kali container')
+    parser = argparse.ArgumentParser(description="Colima Docker Setup")
+    parser.add_argument("--no-auto-start", action="store_true", help="Do not auto-start Colima")
+    parser.add_argument("--test", action="store_true", help="Run test with Kali container")
 
     args = parser.parse_args()
 
@@ -119,9 +113,9 @@ def main():
     # Test with Kali container if requested
     # if args.test:
     if True:
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("Testing with Kali Container")
-        print("="*70 + "\n")
+        print("=" * 70 + "\n")
 
         auto_remove = True
         container = setup.create_container(
@@ -139,10 +133,7 @@ def main():
 
             # Execute test command
             print("\n📋 Executing test command...")
-            exit_code, stdout, stderr = manager.execute_command(
-                container.id,
-                'echo "Kali container is working!"'
-            )
+            exit_code, stdout, stderr = manager.execute_command(container.id, 'echo "Kali container is working!"')
 
             if exit_code == 0:
                 print("✅ Test successful")
@@ -161,5 +152,5 @@ def main():
     print("\n✅ Setup complete!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -188,6 +188,7 @@ def create_runloop_sandbox(
             except Exception as e:
                 logger.info(f"[yellow]⚠ Cleanup failed: {e}[/yellow]")
 
+
 '''
 @contextmanager
 def create_daytona_sandbox(
@@ -266,7 +267,7 @@ def create_daytona_sandbox(
 _PROVIDER_TO_WORKING_DIR = {
     "modal": "/workspace",
     "runloop": "/home/user",
-# "daytona": "/home/daytona",
+    # "daytona": "/home/daytona",
 }
 
 
@@ -274,7 +275,7 @@ _PROVIDER_TO_WORKING_DIR = {
 _SANDBOX_PROVIDERS = {
     "modal": create_modal_sandbox,
     "runloop": create_runloop_sandbox,
-#    "daytona": create_daytona_sandbox,
+    #    "daytona": create_daytona_sandbox,
 }
 
 
@@ -299,10 +300,7 @@ def create_sandbox(
         (SandboxBackend, sandbox_id)
     """
     if provider not in _SANDBOX_PROVIDERS:
-        msg = (
-            f"Unknown sandbox provider: {provider}. "
-            f"Available providers: {', '.join(get_available_sandbox_types())}"
-        )
+        msg = f"Unknown sandbox provider: {provider}. Available providers: {', '.join(get_available_sandbox_types())}"
         raise ValueError(msg)
 
     sandbox_provider = _SANDBOX_PROVIDERS[provider]

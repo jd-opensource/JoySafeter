@@ -3,6 +3,7 @@ AuthSession Repository
 
 管理会话记录（drizzle `session` 表）。
 """
+
 from datetime import datetime
 from typing import Optional
 
@@ -35,4 +36,3 @@ class AuthSessionRepository(BaseRepository[AuthSession]):
         result = await self.db.execute(delete(AuthSession).where(AuthSession.expires_at < now))
         await self.db.flush()
         return result.rowcount or 0
-

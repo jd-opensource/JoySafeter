@@ -13,6 +13,7 @@ Provides:
 Backend:
 - PostgreSQL: Production-ready with async connection pooling, JSONB indexing, and full-text search
 """
+
 import asyncio
 from typing import Optional
 
@@ -56,13 +57,12 @@ from app.dynamic_agent.storage.storage_manage import StorageManager
 # from ..runtime.docker import UnifiedDockerManager
 
 __all__ = [
-    'initialize_storage',
-    'get_storage_manager',
-    'StorageManager',
-    'PostgreSQLBackend',
-    'StorageConfig',
+    "initialize_storage",
+    "get_storage_manager",
+    "StorageManager",
+    "PostgreSQLBackend",
+    "StorageConfig",
 ]
-
 
 
 # Application-level singleton for storage management
@@ -96,10 +96,10 @@ def get_storage_manager() -> StorageManager:
 
 
 async def initialize_storage(
-        docker_manager: Optional[UnifiedDockerManager],
-        llm_provider: BaseChatModel,
-        backend: Optional[PostgreSQLBackend] = None,
-        config: Optional[StorageConfig] = None
+    docker_manager: Optional[UnifiedDockerManager],
+    llm_provider: BaseChatModel,
+    backend: Optional[PostgreSQLBackend] = None,
+    config: Optional[StorageConfig] = None,
 ) -> StorageManager:
     """
     Initialize application-level storage manager with PostgreSQL backend (idempotent).
@@ -145,19 +145,15 @@ async def initialize_storage(
             backend_config = config.get_backend_config()
 
             backend = PostgreSQLBackend(
-                host=backend_config['host'],
-                port=backend_config['port'],
-                database=backend_config['database'],
-                user=backend_config['user'],
-                password=backend_config['password'],
-                min_pool_size=backend_config['min_pool_size'],
-                max_pool_size=backend_config['max_pool_size']
+                host=backend_config["host"],
+                port=backend_config["port"],
+                database=backend_config["database"],
+                user=backend_config["user"],
+                password=backend_config["password"],
+                min_pool_size=backend_config["min_pool_size"],
+                max_pool_size=backend_config["max_pool_size"],
             )
             await backend.initialize()
 
-        _global_storage = StorageManager(
-            backend=backend,
-            docker_manager=docker_manager,
-            llm_provider=llm_provider
-        )
+        _global_storage = StorageManager(backend=backend, docker_manager=docker_manager, llm_provider=llm_provider)
         return _global_storage

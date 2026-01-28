@@ -31,7 +31,7 @@ SCAN_JOBS = {}
 )
 async def upload_and_scan(
     file: UploadFile = File(...),
-    max_file_size: int = Query(10 * 1024 * 1024, description="Maximum file size in bytes (default: 10MB)")
+    max_file_size: int = Query(10 * 1024 * 1024, description="Maximum file size in bytes (default: 10MB)"),
 ):
     """
     Upload a ZIP file and start an async vulnerability scan.
@@ -47,7 +47,7 @@ async def upload_and_scan(
         HTTPException: If file is invalid or too large
     """
     # Validate file type
-    if not file.filename or not file.filename.lower().endswith('.zip'):
+    if not file.filename or not file.filename.lower().endswith(".zip"):
         logger.error(f"Invalid file type: {file.filename}")
         raise HTTPException(status_code=400, detail="File must be a ZIP archive")
 
@@ -63,8 +63,7 @@ async def upload_and_scan(
     if len(contents) > max_file_size:
         logger.error(f"File too large: {len(contents)} bytes (max: {max_file_size})")
         raise HTTPException(
-            status_code=400,
-            detail=f"File too large. Maximum size is {max_file_size / (1024*1024):.1f}MB"
+            status_code=400, detail=f"File too large. Maximum size is {max_file_size / (1024 * 1024):.1f}MB"
         )
 
     # Validate ZIP file
@@ -92,7 +91,7 @@ async def upload_and_scan(
     temp_path = os.path.join(temp_dir, f"{job_id}.zip")
 
     try:
-        with open(temp_path, 'wb') as f:
+        with open(temp_path, "wb") as f:
             f.write(contents)
 
         SCAN_JOBS[job_id]["file_path"] = temp_path
@@ -100,15 +99,12 @@ async def upload_and_scan(
         # Start scan in background
         # In production, this should be Celery or similar
         import asyncio
+
         asyncio.create_task(run_scan_async(job_id, temp_path))
 
         logger.info(f"✓ Started scan job {job_id} for file {file.filename}")
 
-        return ScanJobResponse(
-            job_id=job_id,
-            status=ScanStatus.QUEUED,
-            message=f"Scan started for {file.filename}"
-        )
+        return ScanJobResponse(job_id=job_id, status=ScanStatus.QUEUED, message=f"Scan started for {file.filename}")
 
     except Exception as e:
         logger.error(f"Failed to start scan: {e}")
@@ -213,4 +209,3 @@ async def run_scan_async(job_id: UUID, zip_path: str):
                 logger.info(f"Scan {job_id}: Cleaned up temporary files")
             except Exception as e:
                 logger.error(f"Scan {job_id}: Cleanup failed - {e}")
-

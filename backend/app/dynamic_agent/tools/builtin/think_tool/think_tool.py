@@ -1,4 +1,3 @@
-
 from langchain_core.tools import tool
 from loguru import logger
 
@@ -14,6 +13,7 @@ def think_tool(thought: str) -> str:
     """
 
     from app.dynamic_agent.tools.builtin.check_iteration_tool.check_iteration_tool import build_iteration_info
+
     logger.info(f"💭 thinking: {thought}")
     return f"""thought is logged.
 

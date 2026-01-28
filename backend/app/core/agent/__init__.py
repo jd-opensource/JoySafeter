@@ -8,4 +8,3 @@ Keep this module side-effect free: avoid importing heavy dependencies here.
 """
 
 __all__: list[str] = []
-

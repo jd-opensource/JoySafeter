@@ -44,9 +44,7 @@ class Chat(BaseModel):
 
     user: Mapped["AuthUser"] = relationship("AuthUser", lazy="selectin")
 
-    __table_args__ = (
-        UniqueConstraint("identifier", name="identifier_idx"),
-    )
+    __table_args__ = (UniqueConstraint("identifier", name="identifier_idx"),)
 
 
 class CopilotChat(BaseModel):

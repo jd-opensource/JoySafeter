@@ -18,9 +18,11 @@ class ToolSourceType(str, Enum):
     CUSTOM = "custom"
     LANGCHAIN = "langchain"
 
+
 @dataclass
 class ToolMetadata:
     """工具元数据，包含来源、权限、缓存等信息"""
+
     source_type: ToolSourceType
     tags: Set[str] = field(default_factory=set)
     category: Optional[str] = None
@@ -30,11 +32,11 @@ class ToolMetadata:
 
     # MCP specific fields
     mcp_server_name: Optional[str] = None  # MCP server identifier (unique per user)
-    mcp_tool_name: Optional[str] = None    # Original tool name from MCP server
+    mcp_tool_name: Optional[str] = None  # Original tool name from MCP server
 
     # Ownership fields - for scoped tool queries
-    owner_user_id: Optional[str] = None      # User who owns this tool/MCP server
-    owner_workspace_id: Optional[str] = None # Workspace scope (NULL = user-level, global)
+    owner_user_id: Optional[str] = None  # User who owns this tool/MCP server
+    owner_workspace_id: Optional[str] = None  # Workspace scope (NULL = user-level, global)
 
     # Execution control
     requires_confirmation: bool = False
@@ -50,9 +52,11 @@ class ToolMetadata:
     # Extension point
     custom_attrs: Dict[str, Any] = field(default_factory=dict)
 
+
 @dataclass
 class ToolFilter:
     """工具过滤器，用于查询符合条件的工具"""
+
     source_types: Optional[Set[ToolSourceType]] = None
     categories: Optional[Set[str]] = None
     include_tools: Optional[Set[str]] = None
@@ -67,9 +71,9 @@ class ToolFilter:
     external_execution_only: bool = False
 
     # Ownership filters
-    owner_user_id: Optional[str] = None       # Filter by owner user
+    owner_user_id: Optional[str] = None  # Filter by owner user
     owner_workspace_id: Optional[str] = None  # Filter by workspace scope
-    include_global: bool = True               # Include tools without owner (builtin, global)
+    include_global: bool = True  # Include tools without owner (builtin, global)
 
     def matches_tool(self, tool_name: str, metadata: ToolMetadata) -> bool:
         """检查工具是否匹配过滤条件"""
@@ -134,7 +138,9 @@ class ToolFilter:
 
         return True
 
+
 # ============= 2. 增强工具类 (适配器模式) =============
+
 
 class EnhancedTool(BaseTool):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -145,8 +151,7 @@ class EnhancedTool(BaseTool):
     label_name: Optional[str] = None
 
     tool_metadata: ToolMetadata = Field(
-        default_factory=lambda: ToolMetadata(source_type=ToolSourceType.CUSTOM),
-        exclude=True
+        default_factory=lambda: ToolMetadata(source_type=ToolSourceType.CUSTOM), exclude=True
     )
 
     _entrypoint: Optional[Callable] = PrivateAttr(default=None)
@@ -165,14 +170,13 @@ class EnhancedTool(BaseTool):
         filtered_kwargs = {k: v for k, v in kwargs.items() if k != "runtime"}
 
         # 打印工具调用信息：工具名称和参数
-        #logger.info(f"[Tool Call] 工具名称: {self.name}, 参数: {filtered_kwargs}")
+        # logger.info(f"[Tool Call] 工具名称: {self.name}, 参数: {filtered_kwargs}")
 
         try:
             if self._wrapped_tool:
                 # 关键：调用 ainvoke 解决 config 参数缺失问题
                 return await asyncio.wait_for(
-                    self._wrapped_tool.ainvoke(filtered_kwargs, config=config),
-                    timeout=timeout
+                    self._wrapped_tool.ainvoke(filtered_kwargs, config=config), timeout=timeout
                 )
 
             if self._entrypoint:
@@ -202,10 +206,7 @@ class EnhancedTool(BaseTool):
         metadata = tool_metadata or ToolMetadata(source_type=ToolSourceType.LANGCHAIN)
         # 提取原有描述
         instance = cls(
-            name=tool.name,
-            description=tool.description,
-            args_schema=tool.args_schema,
-            tool_metadata=metadata
+            name=tool.name, description=tool.description, args_schema=tool.args_schema, tool_metadata=metadata
         )
         instance._wrapped_tool = tool
         return instance
@@ -221,7 +222,7 @@ class EnhancedTool(BaseTool):
             name=t_name,
             description=t_desc,
             args_schema=create_schema_from_function(t_name, callable_func),
-            tool_metadata=metadata
+            tool_metadata=metadata,
         )
         instance._entrypoint = callable_func
         return instance
@@ -247,12 +248,7 @@ class EnhancedTool(BaseTool):
         """
         metadata = tool_metadata or ToolMetadata(source_type=ToolSourceType.CUSTOM)
 
-        instance = cls(
-            name=name,
-            description=description,
-            args_schema=args_schema,
-            tool_metadata=metadata
-        )
+        instance = cls(name=name, description=description, args_schema=args_schema, tool_metadata=metadata)
         instance._entrypoint = entrypoint
         return instance
 

@@ -101,10 +101,7 @@ def upgrade() -> None:
 
     # Step 5: Change column types
     # For name: String(255) -> String(64)
-    op.alter_column('skills', 'name',
-                    existing_type=sa.String(255),
-                    type_=sa.String(64),
-                    existing_nullable=False)
+    op.alter_column("skills", "name", existing_type=sa.String(255), type_=sa.String(64), existing_nullable=False)
 
     # For description: Text -> String(1024)
     # First convert to VARCHAR(1024), then we can change the type

@@ -2,6 +2,7 @@
 Rate limiting decorator for API endpoints
 使用 Redis 实现基于 IP 和用户的速率限制
 """
+
 import time
 from functools import wraps
 from typing import Callable, Optional
@@ -35,10 +36,7 @@ class RateLimiter:
 
         # 清理过期的请求记录
         cutoff_time = now - window_seconds
-        self._requests[key] = [
-            req_time for req_time in self._requests[key]
-            if req_time > cutoff_time
-        ]
+        self._requests[key] = [req_time for req_time in self._requests[key] if req_time > cutoff_time]
 
         # 检查是否超过限制
         if len(self._requests[key]) >= max_requests:
@@ -57,10 +55,7 @@ class RateLimiter:
             return max_requests
 
         # 清理过期记录
-        self._requests[key] = [
-            req_time for req_time in self._requests[key]
-            if req_time > cutoff_time
-        ]
+        self._requests[key] = [req_time for req_time in self._requests[key] if req_time > cutoff_time]
 
         used = len(self._requests[key])
         return max(0, max_requests - used)
@@ -89,11 +84,7 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-def rate_limit(
-    max_requests: int = 5,
-    window_seconds: int = 60,
-    key_func: Optional[Callable[[Request], str]] = None
-):
+def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Optional[Callable[[Request], str]] = None):
     """
     速率限制装饰器
 
@@ -109,6 +100,7 @@ def rate_limit(
         async def login(request: Request, ...):
             ...
     """
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -123,7 +115,7 @@ def rate_limit(
 
             # 从关键字参数查找（检查多个可能的名称）
             if not request:
-                for key in ['http_request', 'request', 'req']:
+                for key in ["http_request", "request", "req"]:
                     if key in kwargs and isinstance(kwargs[key], Request):
                         request = kwargs[key]
                         break
@@ -148,7 +140,7 @@ def rate_limit(
                         "X-RateLimit-Limit": str(max_requests),
                         "X-RateLimit-Remaining": str(remaining),
                         "X-RateLimit-Reset": str(int(time.time() + window_seconds)),
-                    }
+                    },
                 )
 
             # 添加速率限制响应头
@@ -160,6 +152,7 @@ def rate_limit(
             return result
 
         return wrapper
+
     return decorator
 
 

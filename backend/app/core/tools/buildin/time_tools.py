@@ -3,6 +3,7 @@
 
 提供获取当前时间和时间计算的功能
 """
+
 from datetime import datetime, timedelta
 from typing import Any, Dict
 
@@ -19,6 +20,7 @@ def get_current_time() -> str:
     """
     now = datetime.now()
     return now.strftime("%Y-%m-%d %H:%M:%S")
+
 
 @tool
 def calculate_date_offset(days: str) -> str:
@@ -62,7 +64,7 @@ def get_time_info() -> Dict[str, Any]:
         "day": now.day,
         "hour": now.hour,
         "minute": now.minute,
-        "second": now.second
+        "second": now.second,
     }
 
 

@@ -32,6 +32,7 @@ from app.dynamic_agent.tools.ctf.primitives import prioritize_tools as ctf_prior
 @dataclass
 class SelectionContext:
     """Context for tool selection."""
+
     user_query: str
     scenario: Optional[str] = None
     preferred_categories: Optional[List[ToolCategory]] = None
@@ -48,47 +49,55 @@ class IntentAnalyzer:
     # Scenario patterns
     SCENARIO_PATTERNS = {
         "ctf": [
-            r"\bctf\b", r"capture\s+the\s+flag", r"\bflag\b", r"flag\{",
-            r"\bpwn\b", r"pwnable", r"\breverse\b", r"reversing",
-            r"\bcrypto\b", r"cryptography", r"\bmisc\b", r"miscellaneous",
-            r"\bchallenge\b", r"jeopardy", r"attack.*defense",
-            r"get\s+flag", r"find\s+flag", r"submit\s+flag"
+            r"\bctf\b",
+            r"capture\s+the\s+flag",
+            r"\bflag\b",
+            r"flag\{",
+            r"\bpwn\b",
+            r"pwnable",
+            r"\breverse\b",
+            r"reversing",
+            r"\bcrypto\b",
+            r"cryptography",
+            r"\bmisc\b",
+            r"miscellaneous",
+            r"\bchallenge\b",
+            r"jeopardy",
+            r"attack.*defense",
+            r"get\s+flag",
+            r"find\s+flag",
+            r"submit\s+flag",
         ],
         "web_security": [
-            r"web\s+app", r"website", r"http", r"xss", r"sql\s+injection",
-            r"csrf", r"web\s+vulnerability", r"web\s+scan"
+            r"web\s+app",
+            r"website",
+            r"http",
+            r"xss",
+            r"sql\s+injection",
+            r"csrf",
+            r"web\s+vulnerability",
+            r"web\s+scan",
         ],
-        "api_security": [
-            r"\bapi\b", r"rest", r"graphql", r"jwt", r"token", r"endpoint"
-        ],
-        "network_scan": [
-            r"network\s+scan", r"port\s+scan", r"nmap", r"host\s+discovery"
-        ],
-        "reconnaissance": [
-            r"recon", r"information\s+gathering", r"osint", r"enumeration",
-            r"footprint", r"discover"
-        ],
-        "exploitation": [
-            r"exploit", r"attack", r"penetration", r"metasploit", r"payload"
-        ],
-        "code_analysis": [
-            r"code\s+review", r"static\s+analysis", r"sast", r"source\s+code",
-            r"vulnerability\s+scan"
-        ],
+        "api_security": [r"\bapi\b", r"rest", r"graphql", r"jwt", r"token", r"endpoint"],
+        "network_scan": [r"network\s+scan", r"port\s+scan", r"nmap", r"host\s+discovery"],
+        "reconnaissance": [r"recon", r"information\s+gathering", r"osint", r"enumeration", r"footprint", r"discover"],
+        "exploitation": [r"exploit", r"attack", r"penetration", r"metasploit", r"payload"],
+        "code_analysis": [r"code\s+review", r"static\s+analysis", r"sast", r"source\s+code", r"vulnerability\s+scan"],
         "reverse_engineering": [
-            r"reverse\s+engineering", r"binary\s+analysis", r"disassemble",
-            r"decompile", r"malware"
+            r"reverse\s+engineering",
+            r"binary\s+analysis",
+            r"disassemble",
+            r"decompile",
+            r"malware",
         ],
-        "password_cracking": [
-            r"password\s+crack", r"hash\s+crack", r"brute\s+force", r"dictionary"
-        ],
-        "forensics": [
-            r"forensic", r"incident\s+response", r"log\s+analysis", r"evidence"
-        ],
+        "password_cracking": [r"password\s+crack", r"hash\s+crack", r"brute\s+force", r"dictionary"],
+        "forensics": [r"forensic", r"incident\s+response", r"log\s+analysis", r"evidence"],
         "vulnerability_assessment": [
-            r"vulnerability\s+assessment", r"vuln\s+scan", r"security\s+audit",
-            r"penetration\s+test"
-        ]
+            r"vulnerability\s+assessment",
+            r"vuln\s+scan",
+            r"security\s+audit",
+            r"penetration\s+test",
+        ],
     }
 
     # Category keywords
@@ -179,14 +188,47 @@ class IntentAnalyzer:
         """Extract relevant keywords from query."""
         # Remove common stop words
         stop_words = {
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to",
-            "for", "of", "with", "by", "from", "is", "are", "was", "were",
-            "i", "you", "we", "they", "need", "want", "can", "could", "should",
-            "would", "please", "help", "me", "my", "how", "what", "when", "where"
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "from",
+            "is",
+            "are",
+            "was",
+            "were",
+            "i",
+            "you",
+            "we",
+            "they",
+            "need",
+            "want",
+            "can",
+            "could",
+            "should",
+            "would",
+            "please",
+            "help",
+            "me",
+            "my",
+            "how",
+            "what",
+            "when",
+            "where",
         }
 
         # Tokenize and filter
-        words = re.findall(r'\b\w+\b', query.lower())
+        words = re.findall(r"\b\w+\b", query.lower())
         keywords = {word for word in words if word not in stop_words and len(word) > 2}
 
         return keywords
@@ -232,25 +274,18 @@ class DynamicToolSelector:
 
         # Get candidate tools
         candidates = self._get_candidates(
-            scenario=scenario,
-            categories=categories,
-            keywords=keywords,
-            min_priority=context.min_priority
+            scenario=scenario, categories=categories, keywords=keywords, min_priority=context.min_priority
         )
 
         # Score and rank tools
-        scored_tools = self._score_tools(
-            candidates=candidates,
-            keywords=keywords,
-            scenario=scenario
-        )
+        scored_tools = self._score_tools(candidates=candidates, keywords=keywords, scenario=scenario)
 
         # Apply constraints and select
         selected = self._apply_constraints(
             scored_tools=scored_tools,
             max_tools=context.max_tools,
             cost_budget=context.cost_budget,
-            include_general=context.include_general
+            include_general=context.include_general,
         )
 
         # Resolve dependencies
@@ -269,7 +304,7 @@ class DynamicToolSelector:
         scenario: Optional[str],
         categories: List[ToolCategory],
         keywords: Set[str],
-        min_priority: Optional[ToolPriority]
+        min_priority: Optional[ToolPriority],
     ) -> List[ToolMetadata]:
         """Get candidate tools based on initial filters."""
         if scenario or categories:
@@ -278,22 +313,19 @@ class DynamicToolSelector:
                 keywords=keywords if keywords else None,
                 categories=categories if categories else None,
                 min_priority_score=min_priority,
-                scenario=scenario
+                scenario=scenario,
             )
         else:
             # Broad search with keywords
             candidates = self.registry.search(
                 keywords=keywords if keywords else None,
-                min_priority_score=ToolPriorityScore.get(min_priority, 50) or ToolPriority.LOW
+                min_priority_score=ToolPriorityScore.get(min_priority, 50) or ToolPriority.LOW,
             )
 
         return candidates
 
     def _score_tools(
-        self,
-        candidates: List[ToolMetadata],
-        keywords: Set[str],
-        scenario: Optional[str]
+        self, candidates: List[ToolMetadata], keywords: Set[str], scenario: Optional[str]
     ) -> List[Tuple[ToolMetadata, float]]:
         """
         Score tools based on relevance.
@@ -340,17 +372,14 @@ class DynamicToolSelector:
         scored_tools: List[Tuple[ToolMetadata, float]],
         max_tools: int,
         cost_budget: Optional[int],
-        include_general: bool
+        include_general: bool,
     ) -> List[ToolMetadata]:
         """Apply constraints and select final tools."""
         selected = []
         total_cost = 0
 
         # Always include critical tools first
-        critical_tools = [
-            tool for tool, score in scored_tools
-            if tool.priority == ToolPriority.CRITICAL
-        ]
+        critical_tools = [tool for tool, score in scored_tools if tool.priority == ToolPriority.CRITICAL]
 
         for tool in critical_tools[:max_tools]:
             selected.append(tool)
@@ -380,10 +409,7 @@ class DynamicToolSelector:
 
         return selected
 
-    def _resolve_dependencies(
-        self,
-        selected: List[ToolMetadata]
-    ) -> List[ToolMetadata]:
+    def _resolve_dependencies(self, selected: List[ToolMetadata]) -> List[ToolMetadata]:
         """Resolve tool dependencies and add missing tools."""
         final_tools = list(selected)
         selected_names = {tool.name for tool in selected}
@@ -409,11 +435,7 @@ class DynamicToolSelector:
         categories = self.registry.get_all_categories()
         return [cat.value for cat in categories]
 
-    def explain_selection(
-        self,
-        context: SelectionContext,
-        selected_tools: List[str]
-    ) -> str:
+    def explain_selection(self, context: SelectionContext, selected_tools: List[str]) -> str:
         """
         Provide explanation for tool selection.
 
@@ -482,71 +504,71 @@ class DynamicToolSelector:
                 action = generate_action_from_reference(ref)
                 if action:
                     return {
-                        'tool_type': action['tool_type'].value,
-                        'suggested_command': action.get('suggested_command', ''),
-                        'template_name': action.get('template_name', ''),
-                        'rationale': f"Based on reference: {action.get('source', 'unknown')}",
-                        'confidence': action.get('confidence', 0.5),
+                        "tool_type": action["tool_type"].value,
+                        "suggested_command": action.get("suggested_command", ""),
+                        "template_name": action.get("template_name", ""),
+                        "rationale": f"Based on reference: {action.get('source', 'unknown')}",
+                        "confidence": action.get("confidence", 0.5),
                     }
 
         # Fallback: suggest based on keywords
         query_lower = context.user_query.lower()
 
         # Crypto patterns
-        if any(kw in query_lower for kw in ['base64', 'decode', 'encode']):
-            template = get_template('base64_decode')
+        if any(kw in query_lower for kw in ["base64", "decode", "encode"]):
+            template = get_template("base64_decode")
             if template:
                 return {
-                    'tool_type': template.tool_type.value,
-                    'template_name': template.name,
-                    'description': template.description,
-                    'rationale': 'Detected encoding/decoding task',
-                    'confidence': 0.7,
+                    "tool_type": template.tool_type.value,
+                    "template_name": template.name,
+                    "description": template.description,
+                    "rationale": "Detected encoding/decoding task",
+                    "confidence": 0.7,
                 }
 
         # Web patterns
-        if any(kw in query_lower for kw in ['curl', 'http', 'url', 'web', 'request']):
-            template = get_template('curl_get')
+        if any(kw in query_lower for kw in ["curl", "http", "url", "web", "request"]):
+            template = get_template("curl_get")
             if template:
                 return {
-                    'tool_type': template.tool_type.value,
-                    'template_name': template.name,
-                    'description': template.description,
-                    'rationale': 'Detected web request task',
-                    'confidence': 0.7,
+                    "tool_type": template.tool_type.value,
+                    "template_name": template.name,
+                    "description": template.description,
+                    "rationale": "Detected web request task",
+                    "confidence": 0.7,
                 }
 
         # Pwn patterns
-        if any(kw in query_lower for kw in ['nc', 'netcat', 'connect', 'port', 'pwn']):
-            template = get_template('nc_connect')
+        if any(kw in query_lower for kw in ["nc", "netcat", "connect", "port", "pwn"]):
+            template = get_template("nc_connect")
             if template:
                 return {
-                    'tool_type': template.tool_type.value,
-                    'template_name': template.name,
-                    'description': template.description,
-                    'rationale': 'Detected network connection task',
-                    'confidence': 0.7,
+                    "tool_type": template.tool_type.value,
+                    "template_name": template.name,
+                    "description": template.description,
+                    "rationale": "Detected network connection task",
+                    "confidence": 0.7,
                 }
 
         # Misc patterns
-        if any(kw in query_lower for kw in ['strings', 'file', 'binary', 'extract']):
-            template = get_template('strings_extract')
+        if any(kw in query_lower for kw in ["strings", "file", "binary", "extract"]):
+            template = get_template("strings_extract")
             if template:
                 return {
-                    'tool_type': template.tool_type.value,
-                    'template_name': template.name,
-                    'description': template.description,
-                    'rationale': 'Detected file analysis task',
-                    'confidence': 0.6,
+                    "tool_type": template.tool_type.value,
+                    "template_name": template.name,
+                    "description": template.description,
+                    "rationale": "Detected file analysis task",
+                    "confidence": 0.6,
                 }
 
         # Default: suggest shell command for CTF
         return {
-            'tool_type': CtfToolType.SHELL.value,
-            'template_name': None,
-            'description': 'General shell command for CTF',
-            'rationale': 'CTF mode active - shell/python prioritized',
-            'confidence': 0.5,
+            "tool_type": CtfToolType.SHELL.value,
+            "template_name": None,
+            "description": "General shell command for CTF",
+            "rationale": "CTF mode active - shell/python prioritized",
+            "confidence": 0.5,
         }
 
     def apply_user_hints_to_actions(
@@ -571,12 +593,12 @@ class DynamicToolSelector:
         skipped_hints = []
 
         for i, hint_data in enumerate(hints):
-            content = hint_data.get('content', '') if isinstance(hint_data, dict) else str(hint_data)
+            content = hint_data.get("content", "") if isinstance(hint_data, dict) else str(hint_data)
 
             # Create a UserHint object for processing
             hint = UserHint(
                 content=content,
-                order=hint_data.get('order', i) if isinstance(hint_data, dict) else i,
+                order=hint_data.get("order", i) if isinstance(hint_data, dict) else i,
             )
 
             # Try to generate action from hint
@@ -584,25 +606,33 @@ class DynamicToolSelector:
 
             if action:
                 hint.apply()
-                planned_actions.append({
-                    'hint_content': content[:100],
-                    'hint_order': hint.order,
-                    'tool_type': action.get('tool_type', CtfToolType.SHELL).value if hasattr(action.get('tool_type'), 'value') else action.get('tool_type', 'shell'),
-                    'template_name': action.get('template_name'),
-                    'description': action.get('description', ''),
-                    'risk_level': action.get('risk_level', 'low').value if hasattr(action.get('risk_level'), 'value') else action.get('risk_level', 'low'),
-                    'status': 'applied',
-                })
+                planned_actions.append(
+                    {
+                        "hint_content": content[:100],
+                        "hint_order": hint.order,
+                        "tool_type": action.get("tool_type", CtfToolType.SHELL).value
+                        if hasattr(action.get("tool_type"), "value")
+                        else action.get("tool_type", "shell"),
+                        "template_name": action.get("template_name"),
+                        "description": action.get("description", ""),
+                        "risk_level": action.get("risk_level", "low").value
+                        if hasattr(action.get("risk_level"), "value")
+                        else action.get("risk_level", "low"),
+                        "status": "applied",
+                    }
+                )
             else:
                 # Could not generate action - mark as skipped
                 skip_reason = self._determine_skip_reason(content, context)
                 hint.skip(skip_reason)
-                skipped_hints.append({
-                    'hint_content': content[:100],
-                    'hint_order': hint.order,
-                    'status': 'skipped',
-                    'skip_reason': skip_reason,
-                })
+                skipped_hints.append(
+                    {
+                        "hint_content": content[:100],
+                        "hint_order": hint.order,
+                        "status": "skipped",
+                        "skip_reason": skip_reason,
+                    }
+                )
 
         return planned_actions, skipped_hints
 
@@ -616,14 +646,20 @@ class DynamicToolSelector:
 
         # Check for non-actionable hints
         non_actionable_patterns = [
-            'maybe', 'perhaps', 'might', 'could be', 'not sure',
-            'i think', 'possibly', 'probably',
+            "maybe",
+            "perhaps",
+            "might",
+            "could be",
+            "not sure",
+            "i think",
+            "possibly",
+            "probably",
         ]
         if any(p in content_lower for p in non_actionable_patterns):
             return "Hint is too vague or uncertain to convert to action"
 
         # Check for already-tried patterns
-        if 'already tried' in content_lower or 'didn\'t work' in content_lower:
+        if "already tried" in content_lower or "didn't work" in content_lower:
             return "Hint references previously attempted approach"
 
         # Default reason
@@ -650,6 +686,7 @@ def create_mock_tool_implementations() -> Dict[str, BaseTool]:
             def mock_tool(query: str) -> str:
                 """Mock tool implementation."""
                 return f"[Mock] {meta.name} executed with query: {query}"
+
             return mock_tool
 
         mock_tools[tool_name] = make_tool_func(metadata)

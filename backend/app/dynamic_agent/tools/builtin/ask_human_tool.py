@@ -5,18 +5,12 @@ Allows the Agent to pause and request specific information from the user
 when automated approaches have failed.
 """
 
-
 from langchain_core.tools import tool
 from loguru import logger
 
 
 @tool
-def ask_human(
-    question: str,
-    context: str,
-    tried_approaches: str,
-    specific_info_needed: str
-) -> str:
+def ask_human(question: str, context: str, tried_approaches: str, specific_info_needed: str) -> str:
     """
     Request human intervention to obtain critical information.
 
@@ -67,6 +61,7 @@ Please provide the requested information below:
     try:
         # Check if stdin is interactive
         import sys
+
         if not sys.stdin.isatty():
             # Non-interactive mode - STOP and require human intervention
             stop_msg = f"""

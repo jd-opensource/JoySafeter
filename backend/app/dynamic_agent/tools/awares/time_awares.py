@@ -20,10 +20,11 @@ from langchain.tools import tool
 
 # todo
 
+
 class ExecutionTimeTracker:
     """Execution Time Tracker - Track total task execution time"""
 
-    _instance: Optional['ExecutionTimeTracker'] = None
+    _instance: Optional["ExecutionTimeTracker"] = None
     _start_time: Optional[float] = None
     _session_start_times: Dict[str, float] = {}
 
@@ -98,15 +99,12 @@ def get_current_time() -> Dict[str, Any]:
         # "minute": now.minute,
         # "second": now.second,
         "day_of_week": now.strftime("%A"),
-        "date": now.strftime("%Y-%m-%d")
+        "date": now.strftime("%Y-%m-%d"),
     }
 
 
 @tool
-def get_execution_elapsed_time(
-    session_id: Optional[str] = None,
-    format_type: str = "detailed"
-) -> Dict[str, Any]:
+def get_execution_elapsed_time(session_id: Optional[str] = None, format_type: str = "detailed") -> Dict[str, Any]:
     """
     Get elapsed execution time information and depth recommendations.
 
@@ -184,14 +182,14 @@ def get_execution_elapsed_time(
         "elapsed_hours": round(elapsed / 3600, 2),
         "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
         "current_time": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-        "session_id": session_id or "global"
+        "session_id": session_id or "global",
     }
 
     if format_type == "simple":
         return {
             "elapsed_seconds": result["elapsed_seconds"],
             "elapsed_formatted": result["elapsed_formatted"],
-            "session_id": result["session_id"]
+            "session_id": result["session_id"],
         }
 
     if format_type == "analysis":
@@ -208,7 +206,7 @@ def get_execution_elapsed_time(
                 "Perform complete target analysis",
                 "Gather all available information",
                 "Establish comprehensive attack surface map",
-                "Do not skip any reconnaissance steps"
+                "Do not skip any reconnaissance steps",
             ]
         elif used_percentage < 50:
             current_depth = "medium"
@@ -217,7 +215,7 @@ def get_execution_elapsed_time(
                 "Continue detailed vulnerability analysis",
                 "Cross-verify with multiple tools",
                 "Gather more contextual information",
-                "Explore potential attack chains"
+                "Explore potential attack chains",
             ]
         elif used_percentage < 75:
             current_depth = "deep"
@@ -226,7 +224,7 @@ def get_execution_elapsed_time(
                 "Verify discovered vulnerabilities",
                 "Conduct in-depth technical analysis",
                 "Assess actual impact of vulnerabilities",
-                "Prepare detailed report"
+                "Prepare detailed report",
             ]
         elif used_percentage < 90:
             current_depth = "very_deep"
@@ -235,7 +233,7 @@ def get_execution_elapsed_time(
                 "Complete verification of all critical vulnerabilities",
                 "Perform final cross-checks",
                 "Prepare final report",
-                "Summarize key findings"
+                "Summarize key findings",
             ]
         else:
             current_depth = "critical"
@@ -244,7 +242,7 @@ def get_execution_elapsed_time(
                 "Immediately complete critical tasks",
                 "Summarize all findings",
                 "Provide final conclusions",
-                "Do not conduct new analysis"
+                "Do not conduct new analysis",
             ]
 
         # Time pressure assessment
@@ -261,32 +259,28 @@ def get_execution_elapsed_time(
             time_pressure_level = "critical"
             time_pressure_message = "Severely insufficient time, immediately complete analysis and provide conclusions"
 
-        result.update({
-            "time_budget": {
-                "total_budget": total_budget,
-                "remaining": round(remaining, 2),
-                "used_percentage": round(used_percentage, 2),
-                "remaining_percentage": round(100 - used_percentage, 2)
-            },
-            "depth_recommendation": {
-                "current_depth": current_depth,
-                "reason": depth_reason,
-                "suggested_actions": suggested_actions
-            },
-            "time_pressure": {
-                "level": time_pressure_level,
-                "message": time_pressure_message
+        result.update(
+            {
+                "time_budget": {
+                    "total_budget": total_budget,
+                    "remaining": round(remaining, 2),
+                    "used_percentage": round(used_percentage, 2),
+                    "remaining_percentage": round(100 - used_percentage, 2),
+                },
+                "depth_recommendation": {
+                    "current_depth": current_depth,
+                    "reason": depth_reason,
+                    "suggested_actions": suggested_actions,
+                },
+                "time_pressure": {"level": time_pressure_level, "message": time_pressure_message},
             }
-        })
+        )
 
     return result
 
 
 @tool
-def should_continue_analysis(
-    session_id: Optional[str] = None,
-    min_remaining_time: int = 300
-) -> Dict[str, Any]:
+def should_continue_analysis(session_id: Optional[str] = None, min_remaining_time: int = 300) -> Dict[str, Any]:
     """
     Determine whether to continue conducting in-depth analysis.
 
@@ -308,7 +302,9 @@ def should_continue_analysis(
     should_continue = remaining > min_remaining_time
 
     if should_continue:
-        reason = f"Sufficient time available ({int(remaining)} seconds remaining), recommend continuing in-depth analysis"
+        reason = (
+            f"Sufficient time available ({int(remaining)} seconds remaining), recommend continuing in-depth analysis"
+        )
         next_action = analysis["depth_recommendation"]["suggested_actions"][0]
     else:
         reason = f"Insufficient time ({int(remaining)} seconds remaining), should complete analysis"
@@ -320,15 +316,12 @@ def should_continue_analysis(
         "elapsed": analysis["elapsed_seconds"],
         "remaining": remaining,
         "next_action": next_action,
-        "depth_level": analysis["depth_recommendation"]["current_depth"]
+        "depth_level": analysis["depth_recommendation"]["current_depth"],
     }
 
 
 @tool
-def get_time_aware_guidance(
-    session_id: Optional[str] = None,
-    task_type: str = "security_assessment"
-) -> Dict[str, Any]:
+def get_time_aware_guidance(session_id: Optional[str] = None, task_type: str = "security_assessment") -> Dict[str, Any]:
     """
     Get detailed guidance based on time and task type.
 
@@ -355,29 +348,29 @@ def get_time_aware_guidance(
             "vulnerability_scanning": 1800,  # 30 minutes
             "detailed_analysis": 1800,  # 30 minutes
             "verification": 900,  # 15 minutes
-            "reporting": 900  # 15 minutes
+            "reporting": 900,  # 15 minutes
         },
         "vulnerability_hunting": {
             "target_analysis": 1200,  # 20 minutes
             "automated_scanning": 1800,  # 30 minutes
             "manual_testing": 2400,  # 40 minutes
             "verification": 600,  # 10 minutes
-            "documentation": 600  # 10 minutes
+            "documentation": 600,  # 10 minutes
         },
         "penetration_testing": {
             "planning": 1200,  # 20 minutes
             "reconnaissance": 1800,  # 30 minutes
             "exploitation": 2400,  # 40 minutes
             "post_exploitation": 1200,  # 20 minutes
-            "reporting": 600  # 10 minutes
+            "reporting": 600,  # 10 minutes
         },
         "bug_bounty": {
             "scope_analysis": 600,  # 10 minutes
             "reconnaissance": 1800,  # 30 minutes
             "vulnerability_hunting": 2400,  # 40 minutes
             "verification": 1200,  # 20 minutes
-            "documentation": 600  # 10 minutes
-        }
+            "documentation": 600,  # 10 minutes
+        },
     }
 
     allocation = time_allocations.get(task_type, time_allocations["security_assessment"])
@@ -401,7 +394,7 @@ def get_time_aware_guidance(
             "allocated": allocated,
             "used": round(max(0, used), 2),
             "remaining": round(remaining, 2),
-            "percentage": round((used / allocated * 100) if allocated > 0 else 0, 2)
+            "percentage": round((used / allocated * 100) if allocated > 0 else 0, 2),
         }
 
         cumulative += allocated
@@ -424,34 +417,30 @@ def get_time_aware_guidance(
         critical_tasks = [
             "Gather all available information",
             "Establish comprehensive attack surface map",
-            "Identify all potential targets"
+            "Identify all potential targets",
         ]
     elif current_phase in ["vulnerability_scanning", "automated_scanning"]:
         critical_tasks = [
             "Run multiple scanning tools for cross-verification",
             "Collect detailed scan results",
-            "Analyze all discovered vulnerabilities"
+            "Analyze all discovered vulnerabilities",
         ]
     elif current_phase in ["detailed_analysis", "vulnerability_hunting", "manual_testing"]:
         critical_tasks = [
             "Conduct in-depth technical analysis",
             "Verify findings from automated tools",
             "Explore potential attack chains",
-            "Perform manual testing to discover vulnerabilities missed by automated tools"
+            "Perform manual testing to discover vulnerabilities missed by automated tools",
         ]
     elif current_phase in ["verification", "exploitation", "post_exploitation"]:
         critical_tasks = [
             "Verify all discovered vulnerabilities",
             "Assess actual impact of vulnerabilities",
             "Conduct in-depth technical analysis",
-            "Complete all critical tasks"
+            "Complete all critical tasks",
         ]
     else:
-        critical_tasks = [
-            "Complete final report",
-            "Summarize all findings",
-            "Provide recommendations"
-        ]
+        critical_tasks = ["Complete final report", "Summarize all findings", "Provide recommendations"]
 
     # Actions to avoid
     avoid_actions = [
@@ -459,7 +448,7 @@ def get_time_aware_guidance(
         "Do not skip any critical steps",
         "Do not rely solely on automated tools, perform manual verification",
         "Do not provide conclusions without sufficient evidence",
-        "Do not ignore low-risk vulnerabilities, they may lead to high-risk attack chains"
+        "Do not ignore low-risk vulnerabilities, they may lead to high-risk attack chains",
     ]
 
     return {
@@ -470,7 +459,7 @@ def get_time_aware_guidance(
         "critical_tasks": critical_tasks,
         "avoid_actions": avoid_actions,
         "depth_level": analysis["depth_recommendation"]["current_depth"],
-        "time_pressure": analysis["time_pressure"]["level"]
+        "time_pressure": analysis["time_pressure"]["level"],
     }
 
 
@@ -480,5 +469,5 @@ __all__ = [
     "get_current_time",
     "get_execution_elapsed_time",
     "should_continue_analysis",
-    "get_time_aware_guidance"
+    "get_time_aware_guidance",
 ]

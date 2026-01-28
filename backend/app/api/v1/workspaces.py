@@ -1,4 +1,5 @@
 """工作空间相关 API"""
+
 import uuid
 from typing import Optional
 
@@ -72,6 +73,7 @@ async def create_workspace(
             workspace_type = WorkspaceType(payload.type)
         except ValueError:
             from app.common.exceptions import BadRequestException
+
             raise BadRequestException(f"Invalid workspace type: {payload.type}. Must be 'personal' or 'team'")
 
     service = WorkspaceService(db)
@@ -192,11 +194,7 @@ async def list_all_invitations(
 ):
     """获取当前用户所有的工作空间邀请（支持分页和状态筛选）"""
     service = WorkspaceService(db)
-    result = await service.list_all_invitations_for_user_paginated(
-        current_user,
-        pagination,
-        status=status
-    )
+    result = await service.list_all_invitations_for_user_paginated(current_user, pagination, status=status)
     return result
 
 
@@ -321,7 +319,7 @@ async def get_my_permission(
             "permissionType": role_to_permission.get(role, "read"),
             "isOwner": is_owner,
         },
-        message="Permission retrieved successfully"
+        message="Permission retrieved successfully",
     )
 
 
@@ -340,12 +338,14 @@ async def search_users_for_invitation(
     # 序列化用户信息
     result = []
     for user in users:
-        result.append({
-            "id": user.id,
-            "email": user.email,
-            "name": user.name,
-            "image": user.image,
-        })
+        result.append(
+            {
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "image": user.image,
+            }
+        )
 
     return {"users": result}
 
@@ -369,6 +369,7 @@ async def update_member_role(
         new_role = WorkspaceMemberRole(payload.role)
     except ValueError:
         from app.common.exceptions import BadRequestException
+
         raise BadRequestException(f"Invalid role: {payload.role}")
 
     service = WorkspaceService(db)

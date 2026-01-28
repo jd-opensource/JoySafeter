@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 class AgenticMemoryState(AgentState):
     """Agentic Memory 中间件的扩展状态"""
+
     user_id: NotRequired[str | None]
     agent_memory_context: NotRequired[str | None]
 
@@ -127,7 +128,9 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                             if content:
                                 extracted = content if isinstance(content, str) else str(content)
                                 if extracted and extracted.strip():
-                                    logger.debug(f"Extracted user input from message type 'human': {extracted[:100]}...")
+                                    logger.debug(
+                                        f"Extracted user input from message type 'human': {extracted[:100]}..."
+                                    )
                                     return extracted
 
                     # 兼容性：检查字典格式的消息
@@ -191,7 +194,9 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                             if content:
                                 extracted = content if isinstance(content, str) else str(content)
                                 if extracted and extracted.strip():
-                                    logger.debug(f"Extracted assistant response from message type 'ai': {extracted[:100]}...")
+                                    logger.debug(
+                                        f"Extracted assistant response from message type 'ai': {extracted[:100]}..."
+                                    )
                                     return extracted
 
                     # 兼容性：检查字典格式的消息
@@ -202,7 +207,9 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                             if content:
                                 extracted = content if isinstance(content, str) else str(content)
                                 if extracted and extracted.strip():
-                                    logger.debug(f"Extracted assistant response from dict message: {extracted[:100]}...")
+                                    logger.debug(
+                                        f"Extracted assistant response from dict message: {extracted[:100]}..."
+                                    )
                                     return extracted
             except Exception as e:
                 logger.warning(f"Failed to extract assistant response from messages: {e}", exc_info=True)
@@ -251,10 +258,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                 user_id=user_id,
             )
             memory_count = len(memories) if memories else 0
-            logger.info(
-                f"Memory retrieval completed for user_id={user_id}: "
-                f"found {memory_count} memories"
-            )
+            logger.info(f"Memory retrieval completed for user_id={user_id}: found {memory_count} memories")
         except Exception as e:
             logger.warning(f"Memory retrieval failed for user_id={user_id}: {e}")
             memories = []

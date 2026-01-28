@@ -31,20 +31,21 @@ def _sanitize_command_for_logging(command: str) -> str:
     """
     # Patterns to match sensitive data
     patterns = [
-        (r'--password(?:=|\s+)(\S+)', '--password ****'),
-        (r'--pass(?:word-file|wd)?(?:=|\s+)(\S+)', '--password-file ****'),
-        (r'-p\s*\S+', '-p ****'),
-        (r'-p\S+', '-p****'),
-        (r'SSH_AUTH_SOCK[^\s]*', 'SSH_AUTH_SOCK=****'),
-        (r'--token(?:=|\s+)(\S+)', '--token ****'),
-        (r'--api-key(?:=|\s+)(\S+)', '--api-key ****'),
-        (r'--secret(?:=|\s+)(\S+)', '--secret ****'),
+        (r"--password(?:=|\s+)(\S+)", "--password ****"),
+        (r"--pass(?:word-file|wd)?(?:=|\s+)(\S+)", "--password-file ****"),
+        (r"-p\s*\S+", "-p ****"),
+        (r"-p\S+", "-p****"),
+        (r"SSH_AUTH_SOCK[^\s]*", "SSH_AUTH_SOCK=****"),
+        (r"--token(?:=|\s+)(\S+)", "--token ****"),
+        (r"--api-key(?:=|\s+)(\S+)", "--api-key ****"),
+        (r"--secret(?:=|\s+)(\S+)", "--secret ****"),
     ]
 
     result = command
     for pattern, replacement in patterns:
         result = re.sub(pattern, replacement, result)
     return result
+
 
 # Global state
 active_processes = {}
@@ -68,7 +69,7 @@ class ProcessPool:
             "tasks_failed": 0,
             "avg_task_time": 0.0,
             "cpu_usage": 0.0,
-            "memory_usage": 0.0
+            "memory_usage": 0.0,
         }
 
         # Initialize minimum workers
@@ -86,7 +87,7 @@ class ProcessPool:
             "args": args,
             "kwargs": kwargs,
             "submitted_at": time.time(),
-            "status": "queued"
+            "status": "queued",
         }
 
         with self.pool_lock:
@@ -139,15 +140,16 @@ class ProcessPool:
                             "result": result,
                             "execution_time": execution_time,
                             "worker_id": worker_id,
-                            "completed_at": time.time()
+                            "completed_at": time.time(),
                         }
 
                         # Update performance metrics
                         self.performance_metrics["tasks_completed"] += 1
                         self.performance_metrics["avg_task_time"] = (
-                            (self.performance_metrics["avg_task_time"] * (self.performance_metrics["tasks_completed"] - 1) + execution_time) /
-                            self.performance_metrics["tasks_completed"]
-                        )
+                            self.performance_metrics["avg_task_time"]
+                            * (self.performance_metrics["tasks_completed"] - 1)
+                            + execution_time
+                        ) / self.performance_metrics["tasks_completed"]
 
                         # Remove from active tasks
                         if task_id in self.active_tasks:
@@ -163,7 +165,7 @@ class ProcessPool:
                             "error": str(e),
                             "execution_time": time.time() - start_time,
                             "worker_id": worker_id,
-                            "failed_at": time.time()
+                            "failed_at": time.time(),
                         }
 
                         self.performance_metrics["tasks_failed"] += 1
@@ -196,20 +198,24 @@ class ProcessPool:
                 if active_workers > 0:
                     load_ratio = (active_tasks_count + queue_size) / active_workers
                 else:
-                    load_ratio = float('inf')
+                    load_ratio = float("inf")
 
                 # Auto-scaling logic
                 if load_ratio > self.scale_threshold and active_workers < self.max_workers:
                     # Scale up
                     new_workers = min(2, self.max_workers - active_workers)
                     self._scale_up(new_workers)
-                    logger.info(f"📈 Scaled up process pool: +{new_workers} workers (total: {active_workers + new_workers})")
+                    logger.info(
+                        f"📈 Scaled up process pool: +{new_workers} workers (total: {active_workers + new_workers})"
+                    )
 
                 elif load_ratio < 0.3 and active_workers > self.min_workers:
                     # Scale down
                     workers_to_remove = min(1, active_workers - self.min_workers)
                     self._scale_down(workers_to_remove)
-                    logger.info(f"📉 Scaled down process pool: -{workers_to_remove} workers (total: {active_workers - workers_to_remove})")
+                    logger.info(
+                        f"📉 Scaled down process pool: -{workers_to_remove} workers (total: {active_workers - workers_to_remove})"
+                    )
 
                 # Update performance metrics
                 try:
@@ -256,7 +262,7 @@ class ProcessPool:
                 "active_tasks": len(self.active_tasks),
                 "performance_metrics": self.performance_metrics.copy(),
                 "min_workers": self.min_workers,
-                "max_workers": self.max_workers
+                "max_workers": self.max_workers,
             }
 
 
@@ -275,7 +281,7 @@ class ProcessManager:
                 "status": "running",
                 "progress": 0.0,
                 "last_output": "",
-                "bytes_processed": 0
+                "bytes_processed": 0,
             }
             logger.info(f"🆔 REGISTERED: Process {pid} - {_sanitize_command_for_logging(command)[:50]}...")
 
@@ -373,18 +379,18 @@ class ProcessManager:
                     logger.error(f"💥 Error resuming process {pid}: {str(e)}")
             return False
 
-# Enhanced color codes and visual elements for modern terminal output
-# All color references consolidated to ModernVisualEngine.COLORS for consistency
-    BG_GREEN = '\033[42m'
-    BG_YELLOW = '\033[43m'
-    BG_BLUE = '\033[44m'
-    BG_MAGENTA = '\033[45m'
-    BG_CYAN = '\033[46m'
-    BG_WHITE = '\033[47m'
+    # Enhanced color codes and visual elements for modern terminal output
+    # All color references consolidated to ModernVisualEngine.COLORS for consistency
+    BG_GREEN = "\033[42m"
+    BG_YELLOW = "\033[43m"
+    BG_BLUE = "\033[44m"
+    BG_MAGENTA = "\033[45m"
+    BG_CYAN = "\033[46m"
+    BG_WHITE = "\033[47m"
 
     # Text effects
-    DIM = '\033[2m'
-    UNDERLINE = '\033[4m'
+    DIM = "\033[2m"
+    UNDERLINE = "\033[4m"
 
 
 class EnhancedProcessManager:
@@ -401,12 +407,7 @@ class EnhancedProcessManager:
 
         # Auto-scaling configuration
         self.auto_scaling_enabled = True
-        self.resource_thresholds = {
-            "cpu_high": 85.0,
-            "memory_high": 90.0,
-            "disk_high": 95.0,
-            "load_high": 0.8
-        }
+        self.resource_thresholds = {"cpu_high": 85.0, "memory_high": 90.0, "disk_high": 95.0, "load_high": 0.8}
 
         # Start background monitoring
         self.monitor_thread = threading.Thread(target=self._monitor_system, daemon=True)
@@ -424,12 +425,7 @@ class EnhancedProcessManager:
         #     return cached_result
 
         # Submit to process pool
-        self.process_pool.submit_task(
-            task_id,
-            self._execute_command_internal,
-            command,
-            context or {}
-        )
+        self.process_pool.submit_task(task_id, self._execute_command_internal, command, context or {})
 
         return task_id
 
@@ -454,7 +450,7 @@ class EnhancedProcessManager:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                preexec_fn=os.setsid if os.name != 'nt' else None
+                preexec_fn=os.setsid if os.name != "nt" else None,
             )
 
             # Register process
@@ -464,7 +460,7 @@ class EnhancedProcessManager:
                     "process": process,
                     "start_time": start_time,
                     "context": context,
-                    "status": "running"
+                    "status": "running",
                 }
 
             # Monitor process execution
@@ -500,7 +496,7 @@ class EnhancedProcessManager:
                 "stderr": str(e),
                 "return_code": -1,
                 "execution_time": execution_time,
-                "error": str(e)
+                "error": str(e),
             }
 
             # self.performance_dashboard.record_execution(command, error_result)
@@ -509,7 +505,7 @@ class EnhancedProcessManager:
         finally:
             # Cleanup process registry
             with self.registry_lock:
-                if hasattr(process, 'pid') and process.pid in self.process_registry:
+                if hasattr(process, "pid") and process.pid in self.process_registry:
                     del self.process_registry[process.pid]
 
     def get_task_result(self, task_id: str) -> Dict[str, Any]:
@@ -571,8 +567,10 @@ class EnhancedProcessManager:
         current_workers = pool_stats["active_workers"]
 
         # Scale down if resources are constrained
-        if (resource_usage["cpu_percent"] > self.resource_thresholds["cpu_high"] or
-            resource_usage["memory_percent"] > self.resource_thresholds["memory_high"]):
+        if (
+            resource_usage["cpu_percent"] > self.resource_thresholds["cpu_high"]
+            or resource_usage["memory_percent"] > self.resource_thresholds["memory_high"]
+        ):
             pass
 
             # if current_workers > self.process_pool.min_workers:
@@ -580,10 +578,11 @@ class EnhancedProcessManager:
             #     logger.info(f"📉 Auto-scaled down due to high resource usage: CPU {resource_usage['cpu_percent']:.1f}%, Memory {resource_usage['memory_percent']:.1f}%")
 
         # Scale up if resources are available and there's demand
-        elif (resource_usage["cpu_percent"] < 60 and
-              resource_usage["memory_percent"] < 70 and
-              pool_stats["queue_size"] > 2):
-
+        elif (
+            resource_usage["cpu_percent"] < 60
+            and resource_usage["memory_percent"] < 70
+            and pool_stats["queue_size"] > 2
+        ):
             if current_workers < self.process_pool.max_workers:
                 # self.process_pool._scale_up(1)
                 logger.info("📈 Auto-scaled up due to available resources and demand")
@@ -597,7 +596,8 @@ class EnhancedProcessManager:
             "active_processes": len(self.process_registry),
             # "performance_dashboard": self.performance_dashboard.get_summary(),
             "auto_scaling_enabled": self.auto_scaling_enabled,
-            "resource_thresholds": self.resource_thresholds
+            "resource_thresholds": self.resource_thresholds,
         }
+
 
 enhanced_process_manager = EnhancedProcessManager()

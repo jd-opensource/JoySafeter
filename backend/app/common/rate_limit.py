@@ -2,6 +2,7 @@
 速率限制工具
 使用内存存储（简单实现），生产环境建议使用 Redis
 """
+
 import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -20,12 +21,7 @@ class RateLimiter:
         self._records: Dict[str, list] = defaultdict(list)
         self._lock = asyncio.Lock()
 
-    async def check_rate_limit(
-        self,
-        key: str,
-        max_requests: int,
-        window_seconds: int
-    ) -> Tuple[bool, int]:
+    async def check_rate_limit(self, key: str, max_requests: int, window_seconds: int) -> Tuple[bool, int]:
         """
         检查是否超过速率限制
 
@@ -75,11 +71,7 @@ def get_client_identifier(request: Request) -> str:
     return client_ip
 
 
-async def check_rate_limit_decorator(
-    max_requests: int,
-    window_seconds: int,
-    key_func=None
-):
+async def check_rate_limit_decorator(max_requests: int, window_seconds: int, key_func=None):
     """
     速率限制装饰器
 
@@ -89,6 +81,7 @@ async def check_rate_limit_decorator(
         async def login(...):
             ...
     """
+
     def decorator(func):
         async def wrapper(*args, **kwargs):
             # 从参数中获取 request
@@ -116,9 +109,7 @@ async def check_rate_limit_decorator(
 
             # 检查速率限制
             allowed, remaining = await rate_limiter.check_rate_limit(
-                f"{func.__name__}:{identifier}",
-                max_requests,
-                window_seconds
+                f"{func.__name__}:{identifier}", max_requests, window_seconds
             )
 
             if not allowed:
@@ -129,5 +120,5 @@ async def check_rate_limit_decorator(
             return await func(*args, **kwargs)
 
         return wrapper
-    return decorator
 
+    return decorator

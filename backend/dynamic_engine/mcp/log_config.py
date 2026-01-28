@@ -16,22 +16,16 @@ def setup_logging():
         logging.basicConfig(
             level=getattr(logging, LOG_LEVEL.upper()),
             format=LOG_FORMAT,
-            handlers=[
-                logging.StreamHandler(sys.stdout),
-                logging.FileHandler(LOG_FILE)
-            ]
+            handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(LOG_FILE)],
         )
     except PermissionError:
         # Fallback to console-only logging if file creation fails
         logging.basicConfig(
-            level=getattr(logging, LOG_LEVEL.upper()),
-            format=LOG_FORMAT,
-            handlers=[
-                logging.StreamHandler(sys.stdout)
-            ]
+            level=getattr(logging, LOG_LEVEL.upper()), format=LOG_FORMAT, handlers=[logging.StreamHandler(sys.stdout)]
         )
 
     return logging.getLogger(__name__)
+
 
 # Initialize logger
 logger = setup_logging()

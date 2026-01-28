@@ -16,6 +16,7 @@ from loguru import logger
 
 try:
     from langgraph.types import Command
+
     COMMAND_AVAILABLE = True
 except ImportError:
     COMMAND_AVAILABLE = False
@@ -24,6 +25,7 @@ except ImportError:
 
 try:
     from cachetools import TTLCache
+
     CACHE_AVAILABLE = True
 except ImportError:
     # Fallback to dict if cachetools not available
@@ -96,18 +98,22 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         route_key = edge_data.get("route_key", "default")
 
         if edge_type not in allowed_edge_types:
-            raise GraphValidationError([
-                f"Invalid edge_type '{edge_type}' for edge {edge.source_node_id} -> {edge.target_node_id}. "
-                f"Allowed types: {allowed_edge_types}"
-            ])
+            raise GraphValidationError(
+                [
+                    f"Invalid edge_type '{edge_type}' for edge {edge.source_node_id} -> {edge.target_node_id}. "
+                    f"Allowed types: {allowed_edge_types}"
+                ]
+            )
 
         # Additional validation for special route keys
         if route_key in ["continue_loop", "exit_loop"]:
             if edge_type not in ["loop_back", "conditional", "normal"]:
-                raise GraphValidationError([
-                    f"Edge with route_key '{route_key}' must have edge_type in "
-                    f"['loop_back', 'conditional', 'normal'], got '{edge_type}'"
-                ])
+                raise GraphValidationError(
+                    [
+                        f"Edge with route_key '{route_key}' must have edge_type in "
+                        f"['loop_back', 'conditional', 'normal'], got '{edge_type}'"
+                    ]
+                )
 
     def _build_conditional_edges_generic(
         self,
@@ -147,9 +153,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
     ) -> None:
         """Validate that all router branches have corresponding downstream nodes."""
         if not conditional_map:
-            logger.warning(
-                f"[LanggraphModelBuilder] Router node '{router_node_id}' has no conditional edges"
-            )
+            logger.warning(f"[LanggraphModelBuilder] Router node '{router_node_id}' has no conditional edges")
             return
 
         # Check that all route keys have targets
@@ -165,7 +169,9 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             f"node_id={router_node_id} | routes={list(conditional_map.keys())}"
         )
 
-    def _process_router_edge(self, edge: Any, conditional_map: Dict[str, str], handle_to_route_map: Dict[str, str]) -> None:
+    def _process_router_edge(
+        self, edge: Any, conditional_map: Dict[str, str], handle_to_route_map: Dict[str, str]
+    ) -> None:
         """处理路由器节点的边数据"""
         # Validate edge data
         self._validate_edge_data(edge, ["conditional", "normal"])
@@ -185,8 +191,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             # Log with label if available
             if edge_label:
                 logger.debug(
-                    f"[LanggraphModelBuilder] Router edge: {edge_label} | "
-                    f"route_key={route_key} | target={target_name}"
+                    f"[LanggraphModelBuilder] Router edge: {edge_label} | route_key={route_key} | target={target_name}"
                 )
 
     def _create_router_wrapper(
@@ -203,6 +208,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         Returns:
             包装后的路由函数，总是返回字符串 route_key
         """
+
         async def router_wrapper(state: GraphState) -> str:
             """包装路由函数，处理 Command 对象。
 
@@ -213,7 +219,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
 
             # 如果返回 Command 对象，提取 goto 信息
             if COMMAND_AVAILABLE and isinstance(result, Command):
-                goto = result.goto if hasattr(result, 'goto') else None
+                goto = result.goto if hasattr(result, "goto") else None
                 if goto:
                     # 尝试从 conditional_map 反向查找 route_key
                     # 如果 goto 直接匹配某个 route_key，使用它
@@ -276,7 +282,9 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             use_command_mode = config.get("useCommandMode", False) and COMMAND_AVAILABLE
 
             # 如果启用 Command 模式，使用包装函数
-            router_func = self._create_router_wrapper(router_executor, conditional_map) if use_command_mode else router_executor
+            router_func = (
+                self._create_router_wrapper(router_executor, conditional_map) if use_command_mode else router_executor
+            )
 
             workflow.add_conditional_edges(
                 router_node_name,
@@ -290,7 +298,9 @@ class LanggraphModelBuilder(BaseGraphBuilder):
                 f"command_mode={use_command_mode}"
             )
 
-    def _process_condition_edge(self, edge: Any, conditional_map: Dict[str, str], handle_to_route_map: Dict[str, str]) -> None:
+    def _process_condition_edge(
+        self, edge: Any, conditional_map: Dict[str, str], handle_to_route_map: Dict[str, str]
+    ) -> None:
         """处理条件节点的边数据"""
         # Validate edge data
         self._validate_edge_data(edge, ["conditional", "normal"])
@@ -337,6 +347,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         Returns:
             包装后的条件函数，总是返回字符串 route_key，并更新状态
         """
+
         async def condition_wrapper(state: GraphState) -> str:
             """包装条件函数，处理 Command 对象和状态更新。
 
@@ -347,9 +358,9 @@ class LanggraphModelBuilder(BaseGraphBuilder):
 
             # 如果返回 Command 对象，提取 goto 信息并更新状态
             if COMMAND_AVAILABLE and isinstance(result, Command):
-                goto = result.goto if hasattr(result, 'goto') else None
+                goto = result.goto if hasattr(result, "goto") else None
                 # 更新状态（通过返回字典，LangGraph 会自动合并）
-                if hasattr(result, 'update') and isinstance(result.update, dict):
+                if hasattr(result, "update") and isinstance(result.update, dict):
                     # 注意：这里不能直接更新 state，因为这是路由函数
                     # 状态更新应该通过节点的正常执行来完成
                     pass
@@ -372,7 +383,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
                     return goto
 
                 # Command 没有 goto，尝试从 update 中提取 route_decision
-                if hasattr(result, 'update') and isinstance(result.update, dict):
+                if hasattr(result, "update") and isinstance(result.update, dict):
                     route_decision = result.update.get("route_decision")
                     if route_decision:
                         return str(route_decision)
@@ -438,7 +449,9 @@ class LanggraphModelBuilder(BaseGraphBuilder):
                 f"node={condition_node_name} | routes={list(conditional_map.keys())}"
             )
 
-    def _process_loop_edge(self, edge: Any, conditional_map: Dict[str, str], handle_to_route_map: Dict[str, str]) -> None:
+    def _process_loop_edge(
+        self, edge: Any, conditional_map: Dict[str, str], handle_to_route_map: Dict[str, str]
+    ) -> None:
         """处理循环节点的边数据"""
         # Validate edge data (allow loop_back for loop edges)
         self._validate_edge_data(edge, ["loop_back", "conditional", "normal"])
@@ -503,10 +516,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         validation_errors = []
 
         # 首先收集所有循环条件节点
-        loop_condition_nodes = [
-            node for node in self.nodes
-            if self._node_types[node.id] == "loop_condition_node"
-        ]
+        loop_condition_nodes = [node for node in self.nodes if self._node_types[node.id] == "loop_condition_node"]
 
         # 预构建节点到出边的映射，避免嵌套循环 O(V*E) → O(E)
         node_outgoing_edges = {}
@@ -563,10 +573,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
 
         # 检查循环嵌套（循环体本身是循环条件节点）
         for body_node_name, loop_node_name in loop_bodies.items():
-            body_node = next(
-                (node for node in self.nodes if self._get_node_name(node) == body_node_name),
-                None
-            )
+            body_node = next((node for node in self.nodes if self._get_node_name(node) == body_node_name), None)
             if body_node and self._node_types[body_node.id] == "loop_condition_node":
                 logger.warning(
                     f"[LanggraphModelBuilder] Detected nested loop structure | "
@@ -596,16 +603,11 @@ class LanggraphModelBuilder(BaseGraphBuilder):
 
         # 使用 Counter 一次性统计所有出边，O(E) 复杂度
         outgoing_count = Counter(
-            node_names[edge.source_node_id]
-            for edge in self.edges
-            if edge.source_node_id in valid_source_ids
+            node_names[edge.source_node_id] for edge in self.edges if edge.source_node_id in valid_source_ids
         )
 
         # 出边数 > 1 的节点是 Fan-Out 节点
-        parallel_nodes = {
-            node_name for node_name, count in outgoing_count.items()
-            if count > 1
-        }
+        parallel_nodes = {node_name for node_name, count in outgoing_count.items() if count > 1}
 
         # 记录日志
         for node_name in parallel_nodes:
@@ -616,7 +618,6 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             )
 
         return parallel_nodes
-
 
     async def _get_or_create_executor(
         self,
@@ -708,13 +709,16 @@ class LanggraphModelBuilder(BaseGraphBuilder):
 
         if not self.nodes:
             logger.warning("[LanggraphModelBuilder] No nodes, creating pass-through graph")
+
             async def pass_through(state: GraphState) -> Dict[str, Any]:
                 return {"messages": [AIMessage(content="No workflow nodes configured.")]}
+
             workflow.add_node("pass_through", pass_through)
             workflow.add_edge(START, "pass_through")
             workflow.add_edge("pass_through", END)
             # Empty graph doesn't need interrupt configuration
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
             compiled = workflow.compile(checkpointer=get_checkpointer())
 
             elapsed_ms = (time.time() - build_start_time) * 1000
@@ -804,25 +808,19 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         for router_node, router_node_name in router_nodes:
             executor = await self._get_or_create_executor(router_node, router_node_name)
             if isinstance(executor, RouterNodeExecutor):
-                self._build_conditional_edges_for_router(
-                    workflow, router_node, router_node_name, executor
-                )
+                self._build_conditional_edges_for_router(workflow, router_node, router_node_name, executor)
 
         # Build conditional edges for condition nodes
         for condition_node, condition_node_name in condition_nodes:
             executor = await self._get_or_create_executor(condition_node, condition_node_name)
             if isinstance(executor, ConditionNodeExecutor):
-                self._build_conditional_edges_for_condition(
-                    workflow, condition_node, condition_node_name, executor
-                )
+                self._build_conditional_edges_for_condition(workflow, condition_node, condition_node_name, executor)
 
         # Build conditional edges for loop nodes
         for loop_node, loop_node_name in loop_nodes:
             executor = await self._get_or_create_executor(loop_node, loop_node_name)
             if isinstance(executor, LoopConditionNodeExecutor):
-                self._build_conditional_edges_for_loop(
-                    workflow, loop_node, loop_node_name, executor
-                )
+                self._build_conditional_edges_for_loop(workflow, loop_node, loop_node_name, executor)
 
         # Step 4: Add START edges
         start_nodes = self._find_start_nodes()
@@ -861,8 +859,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
                     if incoming_from_loop_body_only:
                         loop_condition_start_nodes.append(node)
                         logger.debug(
-                            f"[LanggraphModelBuilder] Identified loop condition as start node | "
-                            f"node={node_name}"
+                            f"[LanggraphModelBuilder] Identified loop condition as start node | node={node_name}"
                         )
 
         # Add START edges for regular start nodes
@@ -898,16 +895,12 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             # Check for interrupt_before configuration
             if config.get("interrupt_before", False):
                 interrupt_before.append(node_name)
-                logger.debug(
-                    f"[LanggraphModelBuilder] Node '{node_name}' configured for interrupt_before"
-                )
+                logger.debug(f"[LanggraphModelBuilder] Node '{node_name}' configured for interrupt_before")
 
             # Check for interrupt_after configuration
             if config.get("interrupt_after", False):
                 interrupt_after.append(node_name)
-                logger.debug(
-                    f"[LanggraphModelBuilder] Node '{node_name}' configured for interrupt_after"
-                )
+                logger.debug(f"[LanggraphModelBuilder] Node '{node_name}' configured for interrupt_after")
 
         if interrupt_before or interrupt_after:
             logger.info(
@@ -917,6 +910,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
 
         # Step 8: Compile the workflow with interrupt configuration
         from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
         compiled = workflow.compile(
             checkpointer=get_checkpointer(),
             interrupt_before=interrupt_before if interrupt_before else None,
@@ -931,4 +925,3 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         )
 
         return compiled
-

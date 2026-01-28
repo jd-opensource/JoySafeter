@@ -34,7 +34,7 @@ class PostgreSQLBackend:
         user: str = "postgres",
         password: str = "",
         min_pool_size: int = 10,
-        max_pool_size: int = 20
+        max_pool_size: int = 20,
     ):
         self.db_manager = DatabaseManager(
             host=host,
@@ -43,7 +43,7 @@ class PostgreSQLBackend:
             user=user,
             password=password,
             min_pool_size=min_pool_size,
-            max_pool_size=max_pool_size
+            max_pool_size=max_pool_size,
         )
         self.pool: Optional[asyncpg.Pool] = None
         self.session_dao: Optional[SessionDAO] = None
@@ -87,7 +87,9 @@ class PostgreSQLBackend:
             raise RuntimeError("Backend not initialized")
         return await self.session_dao.load_context(session_id)
 
-    async def add_message(self, session_id: str, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> int:
+    async def add_message(
+        self, session_id: str, role: str, content: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> int:
         """Add a message directly to the database."""
         if not self.session_dao:
             raise RuntimeError("Backend not initialized")
@@ -111,11 +113,7 @@ class PostgreSQLBackend:
 
         if existing:
             # Update
-            await self.task_dao.update_task(
-                task_id=task.task_id,
-                status=task.status,
-                completed_at=task.completed_at
-            )
+            await self.task_dao.update_task(task_id=task.task_id, status=task.status, completed_at=task.completed_at)
         else:
             # Create
             # We store extra fields in metadata.
@@ -124,13 +122,11 @@ class PostgreSQLBackend:
                 "parameters": task.parameters,
                 "result": task.result,
                 "error": task.error,
-                "container_id": task.container_id
+                "container_id": task.container_id,
             }
 
             await self.task_dao.create_task(
-                session_id=task.session_id,
-                user_input=f"Execute tool: {task.tool_name}",
-                metadata=metadata
+                session_id=task.session_id, user_input=f"Execute tool: {task.tool_name}", metadata=metadata
             )
 
     async def load_task(self, task_id: str):
@@ -160,7 +156,8 @@ class PostgreSQLBackend:
     async def save_memory(self, memory):
         """Save memory."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 INSERT INTO memories VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 ON CONFLICT (memory_id) DO UPDATE SET
                     accessed_count = EXCLUDED.accessed_count,
@@ -178,16 +175,13 @@ class PostgreSQLBackend:
                 json.dumps(memory.tags, default=str),
                 memory.category,
                 json.dumps(memory.related_memories, default=str),
-                memory.source
+                memory.source,
             )
 
     async def load_memory(self, session_id: str, key: str):
         """Load memory by key."""
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM memories WHERE session_id = $1 AND key = $2",
-                session_id, key
-            )
+            row = await conn.fetchrow("SELECT * FROM memories WHERE session_id = $1 AND key = $2", session_id, key)
 
             if not row:
                 return None
@@ -195,19 +189,19 @@ class PostgreSQLBackend:
             from app.dynamic_agent.storage.memory_store import Memory, MemoryType
 
             return Memory(
-                memory_id=row['memory_id'],
-                session_id=row['session_id'],
-                memory_type=MemoryType(row['memory_type']),
-                key=row['key'],
-                value=json.loads(row['value']),
-                created_at=row['created_at'],
-                accessed_count=row['accessed_count'],
-                last_accessed=row['last_accessed'],
-                importance=row['importance'],
-                tags=json.loads(row['tags']) if row['tags'] else [],
-                category=row['category'],
-                related_memories=json.loads(row['related_memories']) if row['related_memories'] else [],
-                source=row['source']
+                memory_id=row["memory_id"],
+                session_id=row["session_id"],
+                memory_type=MemoryType(row["memory_type"]),
+                key=row["key"],
+                value=json.loads(row["value"]),
+                created_at=row["created_at"],
+                accessed_count=row["accessed_count"],
+                last_accessed=row["last_accessed"],
+                importance=row["importance"],
+                tags=json.loads(row["tags"]) if row["tags"] else [],
+                category=row["category"],
+                related_memories=json.loads(row["related_memories"]) if row["related_memories"] else [],
+                source=row["source"],
             )
 
     # ... (Other methods like search_memories, save_container, save_snapshot need to be kept or moved to DAOs)
@@ -219,7 +213,6 @@ class PostgreSQLBackend:
 
     # Crucial: The _init_db is removed as it is replaced by SchemaManager.
 
-
     async def search_memories(
         self,
         session_id: str,
@@ -228,7 +221,7 @@ class PostgreSQLBackend:
         tags: Optional[List[str]] = None,
         category: Optional[str] = None,
         min_importance: float = 0.0,
-        limit: int = 10
+        limit: int = 10,
     ) -> List:
         """Search memories with PostgreSQL full-text search."""
         async with self.pool.acquire() as conn:
@@ -265,35 +258,38 @@ class PostgreSQLBackend:
 
             memories = []
             for row in rows:
-                memories.append(Memory(
-                    memory_id=row['memory_id'],
-                    session_id=row['session_id'],
-                    memory_type=MemoryType(row['memory_type']),
-                    key=row['key'],
-                    value=json.loads(row['value']),
-                    created_at=row['created_at'],
-                    accessed_count=row['accessed_count'],
-                    last_accessed=row['last_accessed'],
-                    importance=row['importance'],
-                    tags=json.loads(row['tags']) if row['tags'] else [],
-                    category=row['category'],
-                    related_memories=json.loads(row['related_memories']) if row['related_memories'] else [],
-                    source=row['source']
-                ))
+                memories.append(
+                    Memory(
+                        memory_id=row["memory_id"],
+                        session_id=row["session_id"],
+                        memory_type=MemoryType(row["memory_type"]),
+                        key=row["key"],
+                        value=json.loads(row["value"]),
+                        created_at=row["created_at"],
+                        accessed_count=row["accessed_count"],
+                        last_accessed=row["last_accessed"],
+                        importance=row["importance"],
+                        tags=json.loads(row["tags"]) if row["tags"] else [],
+                        category=row["category"],
+                        related_memories=json.loads(row["related_memories"]) if row["related_memories"] else [],
+                        source=row["source"],
+                    )
+                )
 
             return memories
 
     async def update_memory_stats(self, memory):
         """Update memory access statistics."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 UPDATE memories
                 SET accessed_count = $1, last_accessed = $2
                 WHERE memory_id = $3
             """,
                 memory.accessed_count,
                 memory.last_accessed,
-                memory.memory_id
+                memory.memory_id,
             )
 
     async def delete_memory(self, memory_id: str):
@@ -305,7 +301,8 @@ class PostgreSQLBackend:
     async def save_container(self, container):
         """Save container context."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 INSERT INTO container_contexts VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 ON CONFLICT (container_id) DO UPDATE SET
                     status = EXCLUDED.status,
@@ -328,16 +325,13 @@ class PostgreSQLBackend:
                 container.cpu_usage,
                 container.memory_usage,
                 container.created_at,
-                container.last_accessed
+                container.last_accessed,
             )
 
     async def load_container(self, container_id: str):
         """Load container context."""
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM container_contexts WHERE container_id = $1",
-                container_id
-            )
+            row = await conn.fetchrow("SELECT * FROM container_contexts WHERE container_id = $1", container_id)
 
             if not row:
                 return None
@@ -345,28 +339,25 @@ class PostgreSQLBackend:
             from app.dynamic_agent.storage.container_context import ContainerContext
 
             return ContainerContext(
-                container_id=row['container_id'],
-                session_id=row['session_id'],
-                image=row['image'],
-                status=row['status'],
-                working_directory=row['working_directory'],
-                mounted_volumes=json.loads(row['mounted_volumes']) if row['mounted_volumes'] else {},
-                environment=json.loads(row['environment']) if row['environment'] else {},
-                installed_tools=json.loads(row['installed_tools']) if row['installed_tools'] else [],
-                command_history=json.loads(row['command_history']) if row['command_history'] else [],
-                cpu_usage=row['cpu_usage'],
-                memory_usage=row['memory_usage'],
-                created_at=row['created_at'],
-                last_accessed=row['last_accessed']
+                container_id=row["container_id"],
+                session_id=row["session_id"],
+                image=row["image"],
+                status=row["status"],
+                working_directory=row["working_directory"],
+                mounted_volumes=json.loads(row["mounted_volumes"]) if row["mounted_volumes"] else {},
+                environment=json.loads(row["environment"]) if row["environment"] else {},
+                installed_tools=json.loads(row["installed_tools"]) if row["installed_tools"] else [],
+                command_history=json.loads(row["command_history"]) if row["command_history"] else [],
+                cpu_usage=row["cpu_usage"],
+                memory_usage=row["memory_usage"],
+                created_at=row["created_at"],
+                last_accessed=row["last_accessed"],
             )
 
     async def get_container_by_session(self, session_id: str):
         """Get container for a session."""
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM container_contexts WHERE session_id = $1",
-                session_id
-            )
+            row = await conn.fetchrow("SELECT * FROM container_contexts WHERE session_id = $1", session_id)
 
             if not row:
                 return None
@@ -374,26 +365,27 @@ class PostgreSQLBackend:
             from app.dynamic_agent.storage.container_context import ContainerContext
 
             return ContainerContext(
-                container_id=row['container_id'],
-                session_id=row['session_id'],
-                image=row['image'],
-                status=row['status'],
-                working_directory=row['working_directory'],
-                mounted_volumes=json.loads(row['mounted_volumes']) if row['mounted_volumes'] else {},
-                environment=json.loads(row['environment']) if row['environment'] else {},
-                installed_tools=json.loads(row['installed_tools']) if row['installed_tools'] else [],
-                command_history=json.loads(row['command_history']) if row['command_history'] else [],
-                cpu_usage=row['cpu_usage'],
-                memory_usage=row['memory_usage'],
-                created_at=row['created_at'],
-                last_accessed=row['last_accessed']
+                container_id=row["container_id"],
+                session_id=row["session_id"],
+                image=row["image"],
+                status=row["status"],
+                working_directory=row["working_directory"],
+                mounted_volumes=json.loads(row["mounted_volumes"]) if row["mounted_volumes"] else {},
+                environment=json.loads(row["environment"]) if row["environment"] else {},
+                installed_tools=json.loads(row["installed_tools"]) if row["installed_tools"] else [],
+                command_history=json.loads(row["command_history"]) if row["command_history"] else [],
+                cpu_usage=row["cpu_usage"],
+                memory_usage=row["memory_usage"],
+                created_at=row["created_at"],
+                last_accessed=row["last_accessed"],
             )
 
     # Snapshot Operations
     async def save_snapshot(self, snapshot):
         """Save snapshot."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 INSERT INTO snapshots VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             """,
                 snapshot.snapshot_id,
@@ -405,16 +397,13 @@ class PostgreSQLBackend:
                 json.dumps(snapshot.container_state, default=str),
                 json.dumps(snapshot.memory_state, default=str),
                 snapshot.description,
-                snapshot.checkpoint_type
+                snapshot.checkpoint_type,
             )
 
     async def load_snapshot(self, snapshot_id: str):
         """Load snapshot."""
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM snapshots WHERE snapshot_id = $1",
-                snapshot_id
-            )
+            row = await conn.fetchrow("SELECT * FROM snapshots WHERE snapshot_id = $1", snapshot_id)
 
             if not row:
                 return None
@@ -422,40 +411,41 @@ class PostgreSQLBackend:
             from app.dynamic_agent.storage.snapshot import SessionSnapshot
 
             return SessionSnapshot(
-                snapshot_id=row['snapshot_id'],
-                session_id=row['session_id'],
-                created_at=row['created_at'],
-                context=json.loads(row['context']),
-                active_tasks=json.loads(row['active_tasks']) if row['active_tasks'] else [],
-                container_state=json.loads(row['container_state']) if row['container_state'] else None,
-                memory_state=json.loads(row['memory_state']) if row['memory_state'] else [],
-                description=row['description'],
-                checkpoint_type=row['checkpoint_type']
+                snapshot_id=row["snapshot_id"],
+                session_id=row["session_id"],
+                created_at=row["created_at"],
+                context=json.loads(row["context"]),
+                active_tasks=json.loads(row["active_tasks"]) if row["active_tasks"] else [],
+                container_state=json.loads(row["container_state"]) if row["container_state"] else None,
+                memory_state=json.loads(row["memory_state"]) if row["memory_state"] else [],
+                description=row["description"],
+                checkpoint_type=row["checkpoint_type"],
             )
 
     async def list_snapshots(self, session_id: str, limit: int = 10) -> List:
         """List snapshots for a session."""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM snapshots WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2",
-                session_id, limit
+                "SELECT * FROM snapshots WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2", session_id, limit
             )
 
             from app.dynamic_agent.storage.snapshot import SessionSnapshot
 
             snapshots = []
             for row in rows:
-                snapshots.append(SessionSnapshot(
-                    snapshot_id=row['snapshot_id'],
-                    session_id=row['session_id'],
-                    created_at=row['created_at'],
-                    context=json.loads(row['context']),
-                    active_tasks=json.loads(row['active_tasks']) if row['active_tasks'] else [],
-                    container_state=json.loads(row['container_state']) if row['container_state'] else None,
-                    memory_state=json.loads(row['memory_state']) if row['memory_state'] else [],
-                    description=row['description'],
-                    checkpoint_type=row['checkpoint_type']
-                ))
+                snapshots.append(
+                    SessionSnapshot(
+                        snapshot_id=row["snapshot_id"],
+                        session_id=row["session_id"],
+                        created_at=row["created_at"],
+                        context=json.loads(row["context"]),
+                        active_tasks=json.loads(row["active_tasks"]) if row["active_tasks"] else [],
+                        container_state=json.loads(row["container_state"]) if row["container_state"] else None,
+                        memory_state=json.loads(row["memory_state"]) if row["memory_state"] else [],
+                        description=row["description"],
+                        checkpoint_type=row["checkpoint_type"],
+                    )
+                )
 
             return snapshots
 
@@ -475,12 +465,13 @@ class PostgreSQLBackend:
         mcp_api: str,
         docker_api: str,
         session_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         """Create a new container binding for a user."""
         async with self.pool.acquire() as conn:
             now = datetime.utcnow()
-            await conn.execute("""
+            await conn.execute(
+                """
                                INSERT INTO container_bindings
                                (binding_id, user_id, session_id, container_id, container_name, image,
                                    docker_api, mcp_api,
@@ -492,166 +483,199 @@ class PostgreSQLBackend:
                                    is_active = EXCLUDED.is_active,
                                    metadata = EXCLUDED.metadata
                                """,
-                               binding_id, user_id, session_id, container_id, container_name, image,
-                               docker_api, mcp_api,
-                               'active', now, now, True, json.dumps(metadata or {})
-                               )
+                binding_id,
+                user_id,
+                session_id,
+                container_id,
+                container_name,
+                image,
+                docker_api,
+                mcp_api,
+                "active",
+                now,
+                now,
+                True,
+                json.dumps(metadata or {}),
+            )
 
     async def get_active_container_for_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get the active container for a user (if any)."""
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("""
+            row = await conn.fetchrow(
+                """
                 SELECT * FROM container_bindings
                 WHERE user_id = $1 AND is_active = TRUE
                 ORDER BY last_used_at DESC
                 LIMIT 1
-            """, user_id)
+            """,
+                user_id,
+            )
 
             if row:
                 return {
-                    'binding_id': row['binding_id'],
-                    'user_id': row['user_id'],
-                    'session_id': row['session_id'],
-                    'container_id': row['container_id'],
-                    'container_name': row['container_name'],
-                    'image': row['image'],
-                    'status': row['status'],
-                    'created_at': row['created_at'],
-                    'last_used_at': row['last_used_at'],
-                    'is_active': row['is_active'],
-                    'metadata': json.loads(row['metadata']) if row['metadata'] else {},
-                    'docker_api': row['docker_api'],
-                    'mcp_api': row['mcp_api']
+                    "binding_id": row["binding_id"],
+                    "user_id": row["user_id"],
+                    "session_id": row["session_id"],
+                    "container_id": row["container_id"],
+                    "container_name": row["container_name"],
+                    "image": row["image"],
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "last_used_at": row["last_used_at"],
+                    "is_active": row["is_active"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                    "docker_api": row["docker_api"],
+                    "mcp_api": row["mcp_api"],
                 }
             return None
 
-    async def update_container_binding_session(
-        self,
-        container_id: str,
-        session_id: str
-    ):
+    async def update_container_binding_session(self, container_id: str, session_id: str):
         """Update the session associated with a container binding."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 UPDATE container_bindings
                 SET session_id = $1, last_used_at = $2
                 WHERE container_id = $3
-            """, session_id, datetime.utcnow(), container_id)
+            """,
+                session_id,
+                datetime.utcnow(),
+                container_id,
+            )
 
-    async def update_container_binding_status(
-        self,
-        container_id: str,
-        status: str
-    ):
+    async def update_container_binding_status(self, container_id: str, status: str):
         """Update container binding status."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 UPDATE container_bindings
                 SET status = $1, last_used_at = $2
                 WHERE container_id = $3
-            """, status, datetime.utcnow(), container_id)
+            """,
+                status,
+                datetime.utcnow(),
+                container_id,
+            )
 
     async def deactivate_container_binding(self, container_id: str):
         """Deactivate a container binding."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 UPDATE container_bindings
                 SET is_active = FALSE, last_used_at = $1
                 WHERE container_id = $2
-            """, datetime.utcnow(), container_id)
+            """,
+                datetime.utcnow(),
+                container_id,
+            )
 
     async def deactivate_user_containers(self, user_id: str):
         """Deactivate all containers for a user."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 UPDATE container_bindings
                 SET is_active = FALSE, last_used_at = $1
                 WHERE user_id = $2
-            """, datetime.utcnow(), user_id)
+            """,
+                datetime.utcnow(),
+                user_id,
+            )
 
     async def get_container_binding(self, container_id: str) -> Optional[Dict[str, Any]]:
         """Get container binding by container ID."""
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("""
+            row = await conn.fetchrow(
+                """
                 SELECT * FROM container_bindings
                 WHERE container_id = $1
-            """, container_id)
+            """,
+                container_id,
+            )
 
             if row:
                 return {
-                    'binding_id': row['binding_id'],
-                    'user_id': row['user_id'],
-                    'session_id': row['session_id'],
-                    'container_id': row['container_id'],
-                    'container_name': row['container_name'],
-                    'image': row['image'],
-                    'status': row['status'],
-                    'created_at': row['created_at'],
-                    'last_used_at': row['last_used_at'],
-                    'is_active': row['is_active'],
-                    'metadata': json.loads(row['metadata']) if row['metadata'] else {},
-                    'docker_api': row['docker_api'],
-                    'mcp_api': row['mcp_api']
+                    "binding_id": row["binding_id"],
+                    "user_id": row["user_id"],
+                    "session_id": row["session_id"],
+                    "container_id": row["container_id"],
+                    "container_name": row["container_name"],
+                    "image": row["image"],
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "last_used_at": row["last_used_at"],
+                    "is_active": row["is_active"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                    "docker_api": row["docker_api"],
+                    "mcp_api": row["mcp_api"],
                 }
             return None
 
-    async def list_user_containers(
-        self,
-        user_id: str,
-        active_only: bool = True
-    ) -> List[Dict[str, Any]]:
+    async def list_user_containers(self, user_id: str, active_only: bool = True) -> List[Dict[str, Any]]:
         """List all containers for a user."""
         async with self.pool.acquire() as conn:
             if active_only:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM container_bindings
                     WHERE user_id = $1 AND is_active = TRUE
                     ORDER BY last_used_at DESC
-                """, user_id)
+                """,
+                    user_id,
+                )
             else:
-                rows = await conn.fetch("""
+                rows = await conn.fetch(
+                    """
                     SELECT * FROM container_bindings
                     WHERE user_id = $1
                     ORDER BY last_used_at DESC
-                """, user_id)
+                """,
+                    user_id,
+                )
 
             containers = []
             for row in rows:
-                containers.append({
-                    'binding_id': row['binding_id'],
-                    'user_id': row['user_id'],
-                    'session_id': row['session_id'],
-                    'container_id': row['container_id'],
-                    'container_name': row['container_name'],
-                    'image': row['image'],
-                    'status': row['status'],
-                    'created_at': row['created_at'],
-                    'last_used_at': row['last_used_at'],
-                    'is_active': row['is_active'],
-                    'metadata': json.loads(row['metadata']) if row['metadata'] else {},
-                    'docker_api': row['docker_api'],
-                    'mcp_api': row['mcp_api']
-                })
+                containers.append(
+                    {
+                        "binding_id": row["binding_id"],
+                        "user_id": row["user_id"],
+                        "session_id": row["session_id"],
+                        "container_id": row["container_id"],
+                        "container_name": row["container_name"],
+                        "image": row["image"],
+                        "status": row["status"],
+                        "created_at": row["created_at"],
+                        "last_used_at": row["last_used_at"],
+                        "is_active": row["is_active"],
+                        "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                        "docker_api": row["docker_api"],
+                        "mcp_api": row["mcp_api"],
+                    }
+                )
             return containers
 
     async def delete_container_binding(self, container_id: str):
         """Delete a container binding."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 DELETE FROM container_bindings
                 WHERE container_id = $1
-            """, container_id)
+            """,
+                container_id,
+            )
 
-    async def update_container_binding_service(
-        self,
-        container_id: str,
-        docker_api: str = None,
-        mcp_api: str = None
-    ):
+    async def update_container_binding_service(self, container_id: str, docker_api: str = None, mcp_api: str = None):
         """Update container binding with API endpoints."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 UPDATE container_bindings
                 SET docker_api = $1, mcp_api = $2
                 WHERE container_id = $3
-            """, docker_api, mcp_api, container_id)
+            """,
+                docker_api,
+                mcp_api,
+                container_id,
+            )

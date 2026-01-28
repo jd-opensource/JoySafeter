@@ -31,6 +31,7 @@ MAX_SAME_ERRORS = 3
 
 class TerminationReason(Enum):
     """Reasons for terminating the ReAct loop."""
+
     SUCCESS = "success"
     MAX_ITERATIONS = "max_iterations"
     TIMEOUT = "timeout"
@@ -41,6 +42,7 @@ class TerminationReason(Enum):
 @dataclass
 class IterationLog:
     """Log entry for a single iteration of the ReAct loop."""
+
     iteration: int
     action: str  # 'generate' or 'fix'
     code_snippet: str  # First 200 chars of code
@@ -53,6 +55,7 @@ class IterationLog:
 @dataclass
 class PythonCoderResult:
     """Result of the Python coder tool execution."""
+
     success: bool
     code: str
     output: str
@@ -65,18 +68,18 @@ class PythonCoderResult:
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         result = asdict(self)
-        result['termination_reason'] = self.termination_reason.value
-        result['iteration_logs'] = [asdict(log) for log in self.iteration_logs]
+        result["termination_reason"] = self.termination_reason.value
+        result["iteration_logs"] = [asdict(log) for log in self.iteration_logs]
         return result
 
 
 # Unrecoverable error types that cannot be fixed by code changes
 UNRECOVERABLE_ERRORS = [
-    'PermissionError',
-    'FileNotFoundError',
-    'ConnectionError',
-    'ConnectionRefusedError',
-    'TimeoutError',
+    "PermissionError",
+    "FileNotFoundError",
+    "ConnectionError",
+    "ConnectionRefusedError",
+    "TimeoutError",
 ]
 
 
@@ -91,22 +94,17 @@ def _parse_error(stderr: str) -> dict:
         Dictionary with error_type, line_number, message, and is_recoverable
     """
     # Extract error type
-    error_match = re.search(r'(\w+Error|\w+Exception):', stderr)
+    error_match = re.search(r"(\w+Error|\w+Exception):", stderr)
     error_type = error_match.group(1) if error_match else "UnknownError"
 
     # Extract line number
-    line_match = re.search(r'line (\d+)', stderr)
+    line_match = re.search(r"line (\d+)", stderr)
     line_number = int(line_match.group(1)) if line_match else None
 
     # Check if error is recoverable
     is_recoverable = error_type not in UNRECOVERABLE_ERRORS
 
-    return {
-        "error_type": error_type,
-        "line_number": line_number,
-        "message": stderr,
-        "is_recoverable": is_recoverable
-    }
+    return {"error_type": error_type, "line_number": line_number, "message": stderr, "is_recoverable": is_recoverable}
 
 
 def _clean_code(code: str) -> str:
@@ -163,7 +161,7 @@ def _execute_code(code: str) -> dict:
 
     try:
         # Write code to temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir='/tmp') as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, dir="/tmp") as f:
             f.write(code)
             script_path = f.name
 
@@ -181,12 +179,7 @@ def _execute_code(code: str) -> dict:
         return result
     except Exception as e:
         logger.error(f"💥 Error executing code: {e}")
-        return {
-            "stdout": "",
-            "stderr": str(e),
-            "return_code": -1,
-            "error": str(e)
-        }
+        return {"stdout": "", "stderr": str(e), "return_code": -1, "error": str(e)}
 
 
 def _fix_code(code: str, error_info: dict) -> str:
@@ -200,13 +193,13 @@ def _fix_code(code: str, error_info: dict) -> str:
     Returns:
         Fixed Python code
     """
-    line_info = f"Error line: {error_info['line_number']}" if error_info.get('line_number') else ""
+    line_info = f"Error line: {error_info['line_number']}" if error_info.get("line_number") else ""
 
     prompt = CODE_FIX_PROMPT.format(
         code=code,
-        error_message=error_info['message'][:1000],  # Truncate long error messages
-        error_type=error_info['error_type'],
-        line_info=line_info
+        error_message=error_info["message"][:1000],  # Truncate long error messages
+        error_type=error_info["error_type"],
+        line_info=line_info,
     )
     response = get_default_llm().invoke([HumanMessage(content=prompt)])
     return _clean_code(response.content)
@@ -231,11 +224,7 @@ def _check_repeated_errors(error_history: List[str], max_same: int = MAX_SAME_ER
 
 
 @tool(description=PYTHON_CODER_DESCRIPTION)
-def python_coder_tool(
-    task_description: str,
-    max_iterations: int = MAX_ITERATIONS,
-    timeout: int = TOTAL_TIMEOUT
-) -> str:
+def python_coder_tool(task_description: str, max_iterations: int = MAX_ITERATIONS, timeout: int = TOTAL_TIMEOUT) -> str:
     """
     Execute Python code with auto-correction using ReAct pattern.
 
@@ -274,7 +263,7 @@ def python_coder_tool(
                 iterations=iteration,
                 iteration_logs=iteration_logs,
                 total_time_ms=int(elapsed_time * 1000),
-                termination_reason=TerminationReason.TIMEOUT
+                termination_reason=TerminationReason.TIMEOUT,
             )
             return json.dumps(result.to_dict(), ensure_ascii=False)
 
@@ -289,7 +278,7 @@ def python_coder_tool(
                 iterations=iteration,
                 iteration_logs=iteration_logs,
                 total_time_ms=int(elapsed_time * 1000),
-                termination_reason=TerminationReason.MAX_ITERATIONS
+                termination_reason=TerminationReason.MAX_ITERATIONS,
             )
             return json.dumps(result.to_dict(), ensure_ascii=False)
 
@@ -304,7 +293,7 @@ def python_coder_tool(
                 iterations=iteration,
                 iteration_logs=iteration_logs,
                 total_time_ms=int(elapsed_time * 1000),
-                termination_reason=TerminationReason.REPEATED_ERROR
+                termination_reason=TerminationReason.REPEATED_ERROR,
             )
             return json.dumps(result.to_dict(), ensure_ascii=False)
 
@@ -323,15 +312,17 @@ def python_coder_tool(
                 action = "fix"
         except Exception as e:
             logger.error(f"💥 LLM error: {e}")
-            iteration_logs.append(IterationLog(
-                iteration=iteration,
-                action="generate" if iteration == 1 else "fix",
-                code_snippet=code[:200] if code else "",
-                result="error",
-                error_type="LLMError",
-                error_message=str(e)[:500],
-                execution_time_ms=int((time.time() - iter_start) * 1000)
-            ))
+            iteration_logs.append(
+                IterationLog(
+                    iteration=iteration,
+                    action="generate" if iteration == 1 else "fix",
+                    code_snippet=code[:200] if code else "",
+                    result="error",
+                    error_type="LLMError",
+                    error_message=str(e)[:500],
+                    execution_time_ms=int((time.time() - iter_start) * 1000),
+                )
+            )
             error_history.append("LLMError")
             continue
 
@@ -342,55 +333,59 @@ def python_coder_tool(
         iter_time_ms = int((time.time() - iter_start) * 1000)
 
         # Check execution result
-        if exec_result.get('return_code', -1) == 0:
+        if exec_result.get("return_code", -1) == 0:
             logger.info(f"✅ Python Coder success after {iteration} iteration(s)")
-            iteration_logs.append(IterationLog(
-                iteration=iteration,
-                action=action,
-                code_snippet=code[:200],
-                result="success",
-                execution_time_ms=iter_time_ms
-            ))
+            iteration_logs.append(
+                IterationLog(
+                    iteration=iteration,
+                    action=action,
+                    code_snippet=code[:200],
+                    result="success",
+                    execution_time_ms=iter_time_ms,
+                )
+            )
 
             result = PythonCoderResult(
                 success=True,
                 code=code,
-                output=exec_result.get('stdout', ''),
+                output=exec_result.get("stdout", ""),
                 iterations=iteration,
                 iteration_logs=iteration_logs,
                 total_time_ms=int((time.time() - start_time) * 1000),
-                termination_reason=TerminationReason.SUCCESS
+                termination_reason=TerminationReason.SUCCESS,
             )
             return json.dumps(result.to_dict(), ensure_ascii=False)
 
         # Analyze error
-        stderr = exec_result.get('stderr', '') or exec_result.get('error', '')
+        stderr = exec_result.get("stderr", "") or exec_result.get("error", "")
         last_error = _parse_error(stderr)
-        error_history.append(last_error['error_type'])
+        error_history.append(last_error["error_type"])
 
         logger.warning(f"❌ Execution failed: {last_error['error_type']}")
 
-        iteration_logs.append(IterationLog(
-            iteration=iteration,
-            action=action,
-            code_snippet=code[:200],
-            result="error",
-            error_type=last_error['error_type'],
-            error_message=last_error['message'][:500],
-            execution_time_ms=iter_time_ms
-        ))
+        iteration_logs.append(
+            IterationLog(
+                iteration=iteration,
+                action=action,
+                code_snippet=code[:200],
+                result="error",
+                error_type=last_error["error_type"],
+                error_message=last_error["message"][:500],
+                execution_time_ms=iter_time_ms,
+            )
+        )
 
         # Check if error is recoverable
-        if not last_error['is_recoverable']:
+        if not last_error["is_recoverable"]:
             logger.warning(f"🚫 Unrecoverable error: {last_error['error_type']}")
             result = PythonCoderResult(
                 success=False,
                 code=code,
                 output="",
-                error=last_error['message'],
+                error=last_error["message"],
                 iterations=iteration,
                 iteration_logs=iteration_logs,
                 total_time_ms=int((time.time() - start_time) * 1000),
-                termination_reason=TerminationReason.UNRECOVERABLE
+                termination_reason=TerminationReason.UNRECOVERABLE,
             )
             return json.dumps(result.to_dict(), ensure_ascii=False)

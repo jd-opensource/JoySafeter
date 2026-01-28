@@ -15,8 +15,8 @@ class Radare2Handler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['r2']
+        """Handler related commands"""
+        return ["r2"]
 
     def handle(self, data: Dict) -> Any:
         """Execute radare2 with enhanced logging"""
@@ -26,11 +26,7 @@ class Radare2Handler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not binary:
                 logger.warning("🔧 Radare2 called without binary parameter")
-                return {
-
-                    "error": "Binary parameter is required"
-
-                }
+                return {"error": "Binary parameter is required"}
             if commands:
                 temp_script = "/tmp/r2_commands.txt"
                 with open(temp_script, "w") as f:
@@ -52,8 +48,4 @@ class Radare2Handler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in radare2 endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

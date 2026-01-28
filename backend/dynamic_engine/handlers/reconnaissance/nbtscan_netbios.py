@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class NbtscanHandler(AbstractHandler):
     """Handler for nbtscan functionality"""
 
@@ -13,8 +14,8 @@ class NbtscanHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['nbtscan']
+        """Handler related commands"""
+        return ["nbtscan"]
 
     def handle(self, data: Dict) -> Any:
         """Execute nbtscan with enhanced logging"""

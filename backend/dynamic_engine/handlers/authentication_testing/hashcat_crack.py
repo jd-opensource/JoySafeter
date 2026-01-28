@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class HashcatHandler(AbstractHandler):
     """Handler for hashcat functionality"""
 
@@ -13,8 +14,8 @@ class HashcatHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['hashcat']
+        """Handler related commands"""
+        return ["hashcat"]
 
     def handle(self, data: Dict) -> Any:
         """Execute hashcat with enhanced logging"""
@@ -27,16 +28,10 @@ class HashcatHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not hash_file:
                 logger.warning("🔐 Hashcat called without hash_file parameter")
-                return {
-                    "error": "Hash file parameter is required"
-                }
+                return {"error": "Hash file parameter is required"}
             if not hash_type:
                 logger.warning("🔐 Hashcat called without hash_type parameter")
-                return {
-
-                    "error": "Hash type parameter is required"
-
-                }
+                return {"error": "Hash type parameter is required"}
             command = f"hashcat -m {hash_type} -a {attack_mode} {hash_file}"
             if attack_mode == "0" and wordlist:
                 command += f" {wordlist}"
@@ -50,8 +45,4 @@ class HashcatHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in hashcat endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

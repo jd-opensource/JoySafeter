@@ -204,4 +204,3 @@ class NodeTypeRegistry:
     def validate_node_type(cls, node_type: str) -> bool:
         """验证节点类型是否已注册。"""
         return node_type in cls._registry
-

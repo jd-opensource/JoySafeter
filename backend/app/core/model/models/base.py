@@ -1,4 +1,5 @@
 """模型基类包装器"""
+
 from typing import Any, Generic, Type, TypeVar, Union
 
 T = TypeVar("T")
@@ -72,10 +73,4 @@ class BaseModelWrapper(Generic[T]):
         Returns:
             对象的字符串表示
         """
-        return (
-            f"{self.__class__.__name__}("
-            f"provider_name={self.provider_name!r}, "
-            f"model_name={self.model_name!r}"
-            f")"
-        )
-
+        return f"{self.__class__.__name__}(provider_name={self.provider_name!r}, model_name={self.model_name!r})"

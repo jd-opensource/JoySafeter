@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class SteghideHandler(AbstractHandler):
     """Handler for steghide functionality"""
 
@@ -13,8 +14,8 @@ class SteghideHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['steghide']
+        """Handler related commands"""
+        return ["steghide"]
 
     def handle(self, data: Dict) -> Any:
         """Execute steghide with enhanced logging"""
@@ -27,11 +28,7 @@ class SteghideHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not cover_file:
                 logger.warning("🖼️ Steghide called without cover_file parameter")
-                return {
-
-                    "error": "Cover file parameter is required"
-
-                }
+                return {"error": "Cover file parameter is required"}
             if action == "extract":
                 command = f"steghide extract -sf {cover_file}"
                 if output_file:
@@ -56,8 +53,4 @@ class SteghideHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in steghide endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

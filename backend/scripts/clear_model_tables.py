@@ -2,6 +2,7 @@
 """
 清空 model_credential 和 model_instance 表
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -55,6 +56,7 @@ async def clear_model_tables():
     except Exception as e:
         print(f"❌ 发生错误: {e}")
         import traceback
+
         traceback.print_exc()
         raise
     finally:
@@ -69,7 +71,7 @@ async def main():
     print()
 
     # 检查是否有 --force 参数
-    force = '--force' in sys.argv or '-f' in sys.argv
+    force = "--force" in sys.argv or "-f" in sys.argv
 
     if not force:
         # 确认操作
@@ -80,7 +82,7 @@ async def main():
 
         try:
             response = input("确认继续？(yes/no): ")
-            if response.lower() not in ['yes', 'y']:
+            if response.lower() not in ["yes", "y"]:
                 print("❌ 操作已取消")
                 return
         except EOFError:
@@ -98,13 +100,10 @@ async def main():
     except Exception as e:
         print(f"\n❌ 发生错误: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-

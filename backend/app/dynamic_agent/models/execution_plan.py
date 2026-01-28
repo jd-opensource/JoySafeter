@@ -86,10 +86,7 @@ class ExecutionPlan:
     @classmethod
     def from_descriptions(cls, descriptions: List[str]) -> "ExecutionPlan":
         """Create a plan from a list of step descriptions."""
-        steps = [
-            PlanStep(step_id=str(i + 1), description=desc)
-            for i, desc in enumerate(descriptions)
-        ]
+        steps = [PlanStep(step_id=str(i + 1), description=desc) for i, desc in enumerate(descriptions)]
         return cls.create(steps)
 
     def start(self) -> None:
@@ -149,12 +146,14 @@ class ExecutionPlan:
         - New information discovered requiring plan adjustment
         """
         # Record history
-        self.replan_history.append({
-            "timestamp": datetime.now().isoformat(),
-            "reason": reason,
-            "old_steps": [s.description for s in self.steps],
-            "new_steps": [s.description for s in new_steps],
-        })
+        self.replan_history.append(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "reason": reason,
+                "old_steps": [s.description for s in self.steps],
+                "new_steps": [s.description for s in new_steps],
+            }
+        )
 
         # Keep completed steps, replace pending ones
         completed_steps = [s for s in self.steps if s.status == "completed"]

@@ -38,10 +38,13 @@ class NotificationManager:
             "connected_at": datetime.utcnow().isoformat(),
         }
 
-        await self.send_to_connection(websocket, {
-            "type": NotificationType.CONNECTED.value,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
+        await self.send_to_connection(
+            websocket,
+            {
+                "type": NotificationType.CONNECTED.value,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
 
     def disconnect(self, websocket: WebSocket) -> None:
         metadata = self.connection_metadata.get(websocket)
@@ -113,4 +116,3 @@ class NotificationManager:
 
 
 notification_manager = NotificationManager()
-

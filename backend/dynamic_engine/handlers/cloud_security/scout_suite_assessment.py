@@ -15,8 +15,8 @@ class ScoutSuiteHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['scout']
+        """Handler related commands"""
+        return ["scout"]
 
     def handle(self, data: Dict) -> Any:
         """Execute scout_suite with enhanced logging"""

@@ -8,7 +8,8 @@ logger = logging.getLogger(__name__)
 
 
 class HandlerType(Enum):
-    """"handler type"""
+    """ "handler type"""
+
     MARKDOWN = "markdown"
     COMMAND = "command"
     PYTHON = "python"
@@ -27,7 +28,7 @@ class AbstractHandler(ABC):
         pass
 
     def commands(self) -> List[str]:
-        '''handler related commands'''
+        """handler related commands"""
         return []
 
     def available(self) -> bool:

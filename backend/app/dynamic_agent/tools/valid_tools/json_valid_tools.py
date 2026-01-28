@@ -17,9 +17,9 @@ def valid_json_array(json_array_str: str) -> str:
     try:
         temp = json.loads(json_array_str)
         if isinstance(temp, list):
-            return 'ok'
+            return "ok"
         else:
-            return f'Error: expect json array str but got {type(temp)} str instead'
+            return f"Error: expect json array str but got {type(temp)} str instead"
     except Exception as e:
         logger.error(f"Error parsing JSON array: {e}, json_array_str: {json_array_str}")
         raise e
@@ -36,12 +36,13 @@ def valid_json_dict(json_dict_str: str) -> str:
     try:
         temp = json.loads(json_dict_str)
         if not isinstance(temp, dict):
-            return 'ok'
+            return "ok"
         else:
-            return f'Error: expect json dict str but got {type(temp)} instead'
+            return f"Error: expect json dict str but got {type(temp)} instead"
     except Exception as e:
         logger.error(f"Error parsing JSON array: {e}, json_array_str: {json_dict_str}")
         raise e
+
 
 @tool
 def valid_json_dict_plus(json_dict_str: str, keys: List[str]) -> str:
@@ -59,17 +60,17 @@ def valid_json_dict_plus(json_dict_str: str, keys: List[str]) -> str:
 
         # Check if it's a dictionary
         if not isinstance(data, dict):
-            return f'Error: expect json dict str but got {type(data)} instead'
+            return f"Error: expect json dict str but got {type(data)} instead"
 
         # Validate each key path
         for key_path in keys:
             if not _validate_key_path(data, key_path):
                 return f'Error: key path "{key_path}" does not exist in the JSON dict'
 
-        return 'ok'
+        return "ok"
     except json.JSONDecodeError as e:
         logger.error(f"Error parsing JSON dict: {e}, json_dict_str: {json_dict_str}")
-        return f'Error: invalid JSON format - {str(e)}'
+        return f"Error: invalid JSON format - {str(e)}"
     except Exception as e:
         logger.error(f"Error validating JSON dict: {e}, json_dict_str: {json_dict_str}")
         raise e
@@ -90,14 +91,14 @@ def _validate_key_path(data: dict, key_path: str) -> bool:
     """
     # Split the path by dots, but preserve array indices
     # Convert 'a[0].b[1].c' to ['a', '[0]', 'b', '[1]', 'c']
-    parts = re.split(r'\.(?![^\[]*\])', key_path)
+    parts = re.split(r"\.(?![^\[]*\])", key_path)
 
     current = data
 
     for part in parts:
         # Check if this part contains array indices
         # Match pattern like 'key[0][1]' or just 'key' or just '[0]'
-        matches = re.findall(r'^([^\[]*)((?:\[\d+\])*)$', part)
+        matches = re.findall(r"^([^\[]*)((?:\[\d+\])*)$", part)
         if not matches:
             return False
 
@@ -112,7 +113,7 @@ def _validate_key_path(data: dict, key_path: str) -> bool:
         # Process array indices if any
         if indices:
             # Extract all indices like [0][1] -> ['0', '1']
-            index_list = re.findall(r'\[(\d+)\]', indices)
+            index_list = re.findall(r"\[(\d+)\]", indices)
             for idx_str in index_list:
                 idx = int(idx_str)
                 if not isinstance(current, list) or idx >= len(current):

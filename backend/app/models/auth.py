@@ -1,6 +1,7 @@
 """
 Auth 用户与会话表模型
 """
+
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
@@ -148,4 +149,3 @@ class AuthSession(Base, TimestampMixin):
         "Organization",
         lazy="selectin",
     )
-

@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class HakrawlerHandler(AbstractHandler):
     """Handler for hakrawler functionality"""
 
@@ -13,8 +14,8 @@ class HakrawlerHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['hakrawler']
+        """Handler related commands"""
+        return ["hakrawler"]
 
     def handle(self, data: Dict) -> Any:
         try:
@@ -27,11 +28,7 @@ class HakrawlerHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not url:
                 logger.warning("🕷️ Hakrawler called without URL parameter")
-                return {
-
-                    "error": "URL parameter is required"
-
-                }
+                return {"error": "URL parameter is required"}
             command = f"echo '{url}' | hakrawler -d {depth}"
             if forms:
                 command += " -s"  # Show sources (includes forms)
@@ -46,8 +43,4 @@ class HakrawlerHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in hakrawler endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

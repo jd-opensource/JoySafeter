@@ -82,8 +82,7 @@ class DockerPythonExecutor(PythonExecutor):
         self.FINAL_ANSWER_MARKER = "__FINAL_ANSWER_MARKER__:"
 
         logger.info(
-            f"DockerPythonExecutor initialized with image={image}, "
-            f"memory={memory_limit}, network={network_mode}"
+            f"DockerPythonExecutor initialized with image={image}, memory={memory_limit}, network={network_mode}"
         )
 
     def _get_backend(self):
@@ -123,9 +122,7 @@ class DockerPythonExecutor(PythonExecutor):
                 ) from e
             except Exception as e:
                 logger.error(f"Failed to create PydanticSandboxAdapter: {e}")
-                raise RuntimeError(
-                    f"Failed to initialize Docker backend: {e}"
-                ) from e
+                raise RuntimeError(f"Failed to initialize Docker backend: {e}") from e
 
         return self._backend
 
@@ -217,7 +214,7 @@ class DockerPythonExecutor(PythonExecutor):
 
             if write_result.get("error"):
                 # File might exist, try a new name
-                code_path = f"{self.working_dir}/code_{int(time.time()*1000)}.py"
+                code_path = f"{self.working_dir}/code_{int(time.time() * 1000)}.py"
                 backend.execute(f"rm -f {code_path}")  # Force cleanup
                 write_result = backend.write(code_path, prepared_code)
                 if write_result.get("error"):
@@ -241,7 +238,7 @@ class DockerPythonExecutor(PythonExecutor):
                 try:
                     # Parse final answer from output
                     marker_pos = output.find(self.FINAL_ANSWER_MARKER)
-                    answer_json = output[marker_pos + len(self.FINAL_ANSWER_MARKER):].strip()
+                    answer_json = output[marker_pos + len(self.FINAL_ANSWER_MARKER) :].strip()
                     # Find the JSON part
                     answer_data = json.loads(answer_json.split("\n")[0])
                     final_answer_value = answer_data.get("answer")
@@ -302,12 +299,7 @@ class DockerPythonExecutor(PythonExecutor):
         self.cleanup()
 
     def __repr__(self) -> str:
-        return (
-            f"DockerPythonExecutor("
-            f"image={self.image}, "
-            f"memory={self.memory_limit}, "
-            f"network={self.network_mode})"
-        )
+        return f"DockerPythonExecutor(image={self.image}, memory={self.memory_limit}, network={self.network_mode})"
 
 
 def create_docker_executor(
@@ -339,4 +331,3 @@ __all__ = [
     "DockerPythonExecutor",
     "create_docker_executor",
 ]
-

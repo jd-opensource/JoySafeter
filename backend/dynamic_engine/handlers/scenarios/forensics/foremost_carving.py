@@ -15,8 +15,8 @@ class ForemostHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['foremost']
+        """Handler related commands"""
+        return ["foremost"]
 
     def handle(self, data: Dict) -> Any:
         """Execute foremost with enhanced logging"""
@@ -27,11 +27,7 @@ class ForemostHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not input_file:
                 logger.warning("📁 Foremost called without input_file parameter")
-                return {
-
-                    "error": "Input file parameter is required"
-
-                }
+                return {"error": "Input file parameter is required"}
             Path(output_dir).mkdir(parents=True, exist_ok=True)
             command = f"foremost -o {output_dir}"
             if file_types:
@@ -46,8 +42,4 @@ class ForemostHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in foremost endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

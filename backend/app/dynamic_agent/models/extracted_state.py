@@ -172,7 +172,7 @@ def extract_key_state(result: str) -> ExtractedState:
     # === Target URL Extraction (CRITICAL for sub-agent context) ===
 
     # Extract URLs from the result (http/https with host:port)
-    url_pattern = r'https?://[a-zA-Z0-9\-\.]+(?::\d+)?'
+    url_pattern = r"https?://[a-zA-Z0-9\-\.]+(?::\d+)?"
     url_matches = re.findall(url_pattern, result)
     if url_matches:
         # Use the first complete URL as target
@@ -181,29 +181,31 @@ def extract_key_state(result: str) -> ExtractedState:
     # === HTTP State Extraction (Universal) ===
 
     # Extract Set-Cookie headers
-    cookie_matches = re.findall(r'Set-Cookie:\s*([^;\n]+)', result, re.IGNORECASE)
+    cookie_matches = re.findall(r"Set-Cookie:\s*([^;\n]+)", result, re.IGNORECASE)
     for cookie in cookie_matches:
-        if '=' in cookie:
-            name, value = cookie.split('=', 1)
+        if "=" in cookie:
+            name, value = cookie.split("=", 1)
             state.cookies[name.strip()] = value.strip()
 
     # Extract Cookie header
-    cookie_header = re.search(r'Cookie:\s*([^\n]+)', result, re.IGNORECASE)
+    cookie_header = re.search(r"Cookie:\s*([^\n]+)", result, re.IGNORECASE)
     if cookie_header:
-        for part in cookie_header.group(1).split(';'):
-            if '=' in part:
-                name, value = part.split('=', 1)
+        for part in cookie_header.group(1).split(";"):
+            if "=" in part:
+                name, value = part.split("=", 1)
                 state.cookies[name.strip()] = value.strip()
 
     # === Authentication Tokens (Universal patterns) ===
 
     # Bearer token
-    bearer_match = re.search(r'Authorization:\s*Bearer\s+([a-zA-Z0-9_\-\.]+)', result, re.IGNORECASE)
+    bearer_match = re.search(r"Authorization:\s*Bearer\s+([a-zA-Z0-9_\-\.]+)", result, re.IGNORECASE)
     if bearer_match:
-        state.auth_tokens['Bearer'] = bearer_match.group(1)
+        state.auth_tokens["Bearer"] = bearer_match.group(1)
 
     # Generic token patterns (token, jwt, access_token, etc.)
-    token_match = re.search(r'["\']?(token|jwt|access_token|api_key)["\']?\s*[=:]\s*["\']?([a-zA-Z0-9_\-\.]+)', result, re.IGNORECASE)
+    token_match = re.search(
+        r'["\']?(token|jwt|access_token|api_key)["\']?\s*[=:]\s*["\']?([a-zA-Z0-9_\-\.]+)', result, re.IGNORECASE
+    )
     if token_match:
         state.auth_tokens[token_match.group(1)] = token_match.group(2)
 
@@ -221,8 +223,8 @@ def extract_key_state(result: str) -> ExtractedState:
 
     # Files created/saved
     file_patterns = [
-        r'(?:created|saved|wrote|written|output)\s+(?:to\s+)?([/\w\-\.]+\.\w+)',
-        r'(?:file|output):\s*([/\w\-\.]+\.\w+)',
+        r"(?:created|saved|wrote|written|output)\s+(?:to\s+)?([/\w\-\.]+\.\w+)",
+        r"(?:file|output):\s*([/\w\-\.]+\.\w+)",
     ]
     for pattern in file_patterns:
         matches = re.findall(pattern, result, re.IGNORECASE)
@@ -233,9 +235,9 @@ def extract_key_state(result: str) -> ExtractedState:
 
     # Extract lines containing flags or success indicators
     finding_patterns = [
-        r'.*FLAG\{[^}]+\}.*',  # Flag pattern
-        r'.*flag\{[^}]+\}.*',
-        r'.*(?:success|authenticated|logged in|access granted).*',
+        r".*FLAG\{[^}]+\}.*",  # Flag pattern
+        r".*flag\{[^}]+\}.*",
+        r".*(?:success|authenticated|logged in|access granted).*",
     ]
     for pattern in finding_patterns:
         matches = re.findall(pattern, result, re.IGNORECASE)
@@ -246,7 +248,7 @@ def extract_key_state(result: str) -> ExtractedState:
     # === Valid Endpoints ===
 
     # Extract successful endpoint paths (HTTP 200 responses)
-    endpoint_pattern = r'(?:GET|POST|PUT|DELETE)\s+(https?://[^\s]+|/[^\s]+).*?(?:200|OK)'
+    endpoint_pattern = r"(?:GET|POST|PUT|DELETE)\s+(https?://[^\s]+|/[^\s]+).*?(?:200|OK)"
     endpoint_matches = re.findall(endpoint_pattern, result, re.IGNORECASE)
     for endpoint in endpoint_matches[:10]:
         state.valid_endpoints.append(endpoint)
@@ -255,9 +257,9 @@ def extract_key_state(result: str) -> ExtractedState:
 
     # Extract error messages for learning
     error_patterns = [
-        r'(?:error|failed|denied|unauthorized|forbidden|not found)[:\s]+([^\n]{10,100})',
-        r'(?:curl|http).*?(?:error|failed)[:\s]*([^\n]{10,100})',
-        r'(?:4\d{2}|5\d{2})\s+([^\n]{10,50})',  # HTTP error codes
+        r"(?:error|failed|denied|unauthorized|forbidden|not found)[:\s]+([^\n]{10,100})",
+        r"(?:curl|http).*?(?:error|failed)[:\s]*([^\n]{10,100})",
+        r"(?:4\d{2}|5\d{2})\s+([^\n]{10,50})",  # HTTP error codes
     ]
     for pattern in error_patterns:
         matches = re.findall(pattern, result, re.IGNORECASE)

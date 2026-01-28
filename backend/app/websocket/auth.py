@@ -45,10 +45,7 @@ async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[s
     return True, payload.sub
 
 
-async def authenticate_websocket_with_user(
-    websocket: WebSocket,
-    db: AsyncSession
-) -> Tuple[bool, Optional[User]]:
+async def authenticate_websocket_with_user(websocket: WebSocket, db: AsyncSession) -> Tuple[bool, Optional[User]]:
     is_authenticated, user_id = await authenticate_websocket(websocket)
 
     if not is_authenticated or not user_id:
@@ -67,13 +64,10 @@ async def authenticate_websocket_with_user(
 
 
 async def reject_websocket(
-    websocket: WebSocket,
-    code: int = WebSocketCloseCode.UNAUTHORIZED,
-    reason: str = "Unauthorized"
+    websocket: WebSocket, code: int = WebSocketCloseCode.UNAUTHORIZED, reason: str = "Unauthorized"
 ) -> None:
     try:
         await websocket.accept()
         await websocket.close(code=code, reason=reason)
     except Exception as e:
         logger.warning(f"WebSocket rejection failed: {e}")
-

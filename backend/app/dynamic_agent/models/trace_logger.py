@@ -17,7 +17,9 @@ from typing import Any, Dict, List, Literal, Optional
 LOG_DIR = Path(__file__).parent.parent / "logs"
 
 # Event types
-EventType = Literal["prompt", "tool_call", "tool_result", "summary", "error", "LLM_CALL", "LLM_RESPONSE", "TOOL_CALL", "ERROR"]
+EventType = Literal[
+    "prompt", "tool_call", "tool_result", "summary", "error", "LLM_CALL", "LLM_RESPONSE", "TOOL_CALL", "ERROR"
+]
 
 # Level types
 LevelType = Literal["main_agent", "subagent", "tool"]
@@ -38,6 +40,7 @@ class TraceLogEntry:
         parent_id: Parent entry ID for tree structure
         duration_ms: Execution duration if applicable
     """
+
     id: str
     timestamp: str
     session_id: str
@@ -68,7 +71,7 @@ class TraceLogEntry:
         if self.duration_ms is not None:
             data["duration_ms"] = self.duration_ms
 
-        return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
     @classmethod
     def from_jsonl(cls, line: str) -> "TraceLogEntry":

@@ -27,7 +27,7 @@ class TodoDisplayManager:
     - Auto-refresh without blocking execution
     """
 
-    _instance: Optional['TodoDisplayManager'] = None
+    _instance: Optional["TodoDisplayManager"] = None
     _lock = threading.Lock()
 
     def __init__(self):
@@ -37,7 +37,7 @@ class TodoDisplayManager:
         self._running = False
 
     @classmethod
-    def get_instance(cls) -> 'TodoDisplayManager':
+    def get_instance(cls) -> "TodoDisplayManager":
         """Get or create singleton instance."""
         if cls._instance is None:
             with cls._lock:
@@ -203,7 +203,7 @@ class TodoDisplayManager:
             self.panel.replan_reason = None
             self.update()
 
-    def __enter__(self) -> 'TodoDisplayManager':
+    def __enter__(self) -> "TodoDisplayManager":
         self.start_display()
         return self
 

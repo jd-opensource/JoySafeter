@@ -3,6 +3,7 @@
 
 只包含基础用户信息查询，认证相关查询在 AuthUserRepository 中。
 """
+
 from typing import List, Optional
 
 from sqlalchemy import or_, select
@@ -60,4 +61,3 @@ class UserRepository(BaseRepository[User]):
         query = select(User).limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())
-

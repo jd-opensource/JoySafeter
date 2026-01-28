@@ -41,6 +41,7 @@ class AppException(HTTPException):
 
 # 常用 HTTP 异常（业务侧可直接 raise）
 
+
 class NotFoundException(AppException):
     """资源未找到（404）"""
 
@@ -135,6 +136,7 @@ ResourceConflictException = ConflictException
 
 
 # 统一错误响应构造 & 全局异常 handler
+
 
 def create_error_response(*, status_code: int, code: int, message: str, data: Any = None) -> Response:
     """构造统一错误响应（符合 app.common.response.error_response）。"""
@@ -234,6 +236,7 @@ def register_exception_handlers(app: Any) -> None:
 
 # 便捷 raise_*（来自历史 app/exceptions.py）
 
+
 def raise_validation_error(message: str, data: Any = None) -> None:
     raise ParameterValidationException(message, code=1001, data=data)
 
@@ -264,4 +267,3 @@ def raise_business_error(message: str, data: Any = None) -> None:
 
 def raise_internal_error(message: str = "Internal server error", data: Any = None) -> None:
     raise InternalServerException(message, code=1007, data=data)
-

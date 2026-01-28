@@ -1,4 +1,3 @@
-
 from langchain_core.tools import tool
 from loguru import logger
 
@@ -25,4 +24,4 @@ def final_response(response: str) -> str:
         str: The formatted final response for the user
     """
     logger.info(f"📝 Final response: {response[:200]}...")  # Log first 200 chars
-    return 'Final response generated'
+    return "Final response generated"

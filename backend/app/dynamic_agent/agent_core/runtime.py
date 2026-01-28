@@ -34,6 +34,7 @@ from app.dynamic_agent.agent_core.utils.messages import (
 MAX_TOOL_USE_CONCURRENCY = 10
 INTERRUPT_MESSAGE = "<<INTERRUPT>>"
 
+
 # todo remove?
 class AgentRuntime:
     """
@@ -48,7 +49,7 @@ class AgentRuntime:
         provider: LLMProvider,
         permissions: PermissionStrategy,
         logger: Logger,
-        concurrency: int = MAX_TOOL_USE_CONCURRENCY
+        concurrency: int = MAX_TOOL_USE_CONCURRENCY,
     ):
         """
         Initialize agent runtime.
@@ -71,7 +72,7 @@ class AgentRuntime:
         tools: List[Tool],
         abort_event: asyncio.Event,
         options: AgentRuntimeOptions,
-        read_file_timestamps: dict[str, float]
+        read_file_timestamps: dict[str, float],
     ) -> AsyncGenerator[Message, None]:
         """
         Run agent conversation loop.
@@ -115,7 +116,7 @@ class AgentRuntime:
                     model=options.slow_and_capable_model,
                     max_thinking_tokens=options.max_thinking_tokens,
                     dangerous_skip_permissions=options.dangerous_skip_permissions,
-                )
+                ),
             )
         except Exception as e:
             self.logger.error(e)
@@ -126,10 +127,7 @@ class AgentRuntime:
         yield assistant_message
 
         # Extract tool use blocks
-        tool_use_blocks = [
-            block for block in assistant_message.content
-            if isinstance(block, ToolUseBlock)
-        ]
+        tool_use_blocks = [block for block in assistant_message.content if isinstance(block, ToolUseBlock)]
 
         # If no tool use, we're done
         if not tool_use_blocks:
@@ -157,11 +155,9 @@ class AgentRuntime:
                 tools,
                 assistant_message,
                 ToolUseContext(
-                    abort_event=abort_event,
-                    options=options.model_dump(),
-                    read_file_timestamps=read_file_timestamps
+                    abort_event=abort_event, options=options.model_dump(), read_file_timestamps=read_file_timestamps
                 ),
-                options.dangerous_skip_permissions
+                options.dangerous_skip_permissions,
             ):
                 yield message
                 if isinstance(message, UserMessage):
@@ -173,11 +169,9 @@ class AgentRuntime:
                 tools,
                 assistant_message,
                 ToolUseContext(
-                    abort_event=abort_event,
-                    options=options.model_dump(),
-                    read_file_timestamps=read_file_timestamps
+                    abort_event=abort_event, options=options.model_dump(), read_file_timestamps=read_file_timestamps
                 ),
-                options.dangerous_skip_permissions
+                options.dangerous_skip_permissions,
             ):
                 yield message
                 if isinstance(message, UserMessage):
@@ -195,7 +189,7 @@ class AgentRuntime:
             tools=tools,
             abort_event=abort_event,
             options=options,
-            read_file_timestamps=read_file_timestamps
+            read_file_timestamps=read_file_timestamps,
         ):
             yield message
 
@@ -205,7 +199,7 @@ class AgentRuntime:
         tools: List[Tool],
         assistant_message: AssistantMessage,
         context: ToolUseContext,
-        skip_permissions: bool
+        skip_permissions: bool,
     ) -> AsyncGenerator[Message, None]:
         """Execute tools concurrently with semaphore."""
         semaphore = asyncio.Semaphore(self.concurrency)
@@ -214,12 +208,7 @@ class AgentRuntime:
             async with semaphore:
                 results = []
                 async for msg in self._run_tool_use(
-                    block,
-                    set(b.id for b in tool_use_blocks),
-                    tools,
-                    assistant_message,
-                    context,
-                    skip_permissions
+                    block, set(b.id for b in tool_use_blocks), tools, assistant_message, context, skip_permissions
                 ):
                     results.append(msg)
                 return results
@@ -239,17 +228,12 @@ class AgentRuntime:
         tools: List[Tool],
         assistant_message: AssistantMessage,
         context: ToolUseContext,
-        skip_permissions: bool
+        skip_permissions: bool,
     ) -> AsyncGenerator[Message, None]:
         """Execute tools serially."""
         for block in tool_use_blocks:
             async for msg in self._run_tool_use(
-                block,
-                set(b.id for b in tool_use_blocks),
-                tools,
-                assistant_message,
-                context,
-                skip_permissions
+                block, set(b.id for b in tool_use_blocks), tools, assistant_message, context, skip_permissions
             ):
                 yield msg
 
@@ -260,43 +244,29 @@ class AgentRuntime:
         tools: List[Tool],
         assistant_message: AssistantMessage,
         context: ToolUseContext,
-        skip_permissions: bool
+        skip_permissions: bool,
     ) -> AsyncGenerator[Message, None]:
         """Execute a single tool use."""
         tool = self._find_tool(tools, tool_use.name)
 
         # Check if tool exists
         if tool is None:
-            self.logger.event("tool_use_error", {
-                "error": f"No such tool: {tool_use.name}",
-                "tool_name": tool_use.name,
-                "tool_use_id": tool_use.id
-            })
-            yield create_user_message(
-                tool_use.id,
-                f"Error: No such tool available: {tool_use.name}",
-                is_error=True
+            self.logger.event(
+                "tool_use_error",
+                {"error": f"No such tool: {tool_use.name}", "tool_name": tool_use.name, "tool_use_id": tool_use.id},
             )
+            yield create_user_message(tool_use.id, f"Error: No such tool available: {tool_use.name}", is_error=True)
             return
 
         # Check for abort
         if context.abort_event.is_set():
-            self.logger.event("tool_use_cancelled", {
-                "tool_name": tool.name,
-                "tool_use_id": tool_use.id
-            })
+            self.logger.event("tool_use_cancelled", {"tool_name": tool.name, "tool_use_id": tool_use.id})
             yield create_user_message(tool_use.id, "Cancelled", is_error=True)
             return
 
         # Execute with permission checks and validation
         async for msg in self._check_permissions_and_call_tool(
-            tool,
-            tool_use.id,
-            sibling_ids,
-            tool_use.input,
-            context,
-            assistant_message,
-            skip_permissions
+            tool, tool_use.id, sibling_ids, tool_use.input, context, assistant_message, skip_permissions
         ):
             yield msg
 
@@ -308,7 +278,7 @@ class AgentRuntime:
         input_data: dict,
         context: ToolUseContext,
         assistant_message: AssistantMessage,
-        skip_permissions: bool
+        skip_permissions: bool,
     ) -> AsyncGenerator[Message, None]:
         """Validate input, check permissions, and call tool."""
 
@@ -316,88 +286,47 @@ class AgentRuntime:
         try:
             validated_input = tool.input_schema(**input_data)
         except Exception as e:
-            self.logger.event("tool_use_error", {
-                "error": f"InputValidationError: {str(e)}",
-                "tool_name": tool.name,
-                "tool_use_id": tool_use_id
-            })
-            yield create_user_message(
-                tool_use_id,
-                f"InputValidationError: {str(e)}",
-                is_error=True
+            self.logger.event(
+                "tool_use_error",
+                {"error": f"InputValidationError: {str(e)}", "tool_name": tool.name, "tool_use_id": tool_use_id},
             )
+            yield create_user_message(tool_use_id, f"InputValidationError: {str(e)}", is_error=True)
             return
 
         # 2. Tool-specific validation
         validation = await tool.validate_input(validated_input, context)
         if not validation.result:
-            self.logger.event("tool_use_error", {
-                "error": validation.message,
-                "tool_name": tool.name,
-                "tool_use_id": tool_use_id
-            })
-            yield create_user_message(
-                tool_use_id,
-                validation.message or "Validation failed",
-                is_error=True
+            self.logger.event(
+                "tool_use_error", {"error": validation.message, "tool_name": tool.name, "tool_use_id": tool_use_id}
             )
+            yield create_user_message(tool_use_id, validation.message or "Validation failed", is_error=True)
             return
 
         # 3. Permission check
         if not skip_permissions and tool.needs_permissions(validated_input):
-            permission = await self.permissions.check(
-                tool,
-                input_data,
-                context,
-                assistant_message
-            )
+            permission = await self.permissions.check(tool, input_data, context, assistant_message)
             if not permission.result:
-                yield create_user_message(
-                    tool_use_id,
-                    permission.message or "Permission denied",
-                    is_error=True
-                )
+                yield create_user_message(tool_use_id, permission.message or "Permission denied", is_error=True)
                 return
 
         # 4. Execute tool
         try:
             async for result in tool.call(validated_input, context, None):
                 if result.type == "result":
-                    self.logger.event("tool_use_success", {
-                        "tool_name": tool.name,
-                        "tool_use_id": tool_use_id
-                    })
+                    self.logger.event("tool_use_success", {"tool_name": tool.name, "tool_use_id": tool_use_id})
                     yield create_user_message(
-                        tool_use_id,
-                        result.result_for_assistant,
-                        is_error=False,
-                        data=result.data
+                        tool_use_id, result.result_for_assistant, is_error=False, data=result.data
                     )
                     return
                 elif result.type == "progress":
-                    self.logger.event("tool_use_progress", {
-                        "tool_name": tool.name,
-                        "tool_use_id": tool_use_id
-                    })
+                    self.logger.event("tool_use_progress", {"tool_name": tool.name, "tool_use_id": tool_use_id})
                     yield create_progress_message(
-                        tool_use_id,
-                        sibling_ids,
-                        result.content,
-                        result.normalized_messages,
-                        result.tools
+                        tool_use_id, sibling_ids, result.content, result.normalized_messages, result.tools
                     )
         except Exception as e:
             self.logger.error(e)
-            self.logger.event("tool_use_error", {
-                "error": str(e),
-                "tool_name": tool.name,
-                "tool_use_id": tool_use_id
-            })
-            yield create_user_message(
-                tool_use_id,
-                f"Error: {str(e)}",
-                is_error=True
-            )
+            self.logger.event("tool_use_error", {"error": str(e), "tool_name": tool.name, "tool_use_id": tool_use_id})
+            yield create_user_message(tool_use_id, f"Error: {str(e)}", is_error=True)
 
     def _format_system_prompt(self, parts: List[str]) -> List[str]:
         """Format system prompt parts."""
@@ -415,5 +344,5 @@ class AgentRuntime:
         return {
             "name": tool.name,
             "description": tool.__doc__ or "",
-            "input_schema": tool.input_schema.model_json_schema()
+            "input_schema": tool.input_schema.model_json_schema(),
         }

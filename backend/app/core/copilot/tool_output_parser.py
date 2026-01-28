@@ -74,9 +74,9 @@ def parse_tool_output(tool_output_raw: Any, tool_name: Optional[str] = None) -> 
                     brace_count = 0
                     end_idx = start_idx
                     for i in range(start_idx, len(tool_output)):
-                        if tool_output[i] == '{':
+                        if tool_output[i] == "{":
                             brace_count += 1
-                        elif tool_output[i] == '}':
+                        elif tool_output[i] == "}":
                             brace_count -= 1
                             if brace_count == 0:
                                 end_idx = i + 1

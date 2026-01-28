@@ -103,9 +103,7 @@ async def update_session_title(
 ):
     """Update session title."""
     try:
-        updated_session = await session_service.update_session_title(
-            session_id, title, user_id=current_user.id
-        )
+        updated_session = await session_service.update_session_title(session_id, title, user_id=current_user.id)
         if not updated_session:
             raise HTTPException(status_code=404, detail="Session not found")
         return updated_session
@@ -138,9 +136,7 @@ async def get_session_messages(
 ):
     """Get messages for a session."""
     try:
-        messages = await session_service.get_session_messages(
-            session_id, limit, user_id=current_user.id
-        )
+        messages = await session_service.get_session_messages(session_id, limit, user_id=current_user.id)
         return [
             SessionMessageResponse(
                 id=msg.id,

@@ -19,8 +19,10 @@ from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+
 async def get_db_pool() -> asyncpg.Pool:
     from app.dynamic_agent.main import init_storage
+
     try:
         # storage = get_storage_manager()
         storage = await init_storage()
@@ -28,6 +30,7 @@ async def get_db_pool() -> asyncpg.Pool:
     except RuntimeError:
         # Storage not initialized yet
         raise HTTPException(status_code=500, detail="Storage manager not initialized")
+
 
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(
@@ -94,7 +97,7 @@ async def get_task_with_steps(
 
     for step in steps:
         # Skip AGENT type steps (they can run longer)
-        if step.step_type == 'AGENT':
+        if step.step_type == "AGENT":
             steps_list.append(step)
             continue
 
@@ -120,21 +123,20 @@ async def get_task_with_steps(
                 input_data=step.input_data,
                 output_data=step.output_data,
                 status=ExecutionStepStatus.FAILED,
-                error_message=f'Execution timeout: exceeded {timeout_threshold_min} minutes',
+                error_message=f"Execution timeout: exceeded {timeout_threshold_min} minutes",
                 agent_trace=step.agent_trace,
                 start_time=step.start_time,
                 end_time=step.end_time,
-                created_at=step.created_at
+                created_at=step.created_at,
             )
-            logger.warning(f"Step {step.id} ({step.name}) marked as FAILED in response due to timeout ({elapsed_ms / 1000:.1f}s)")
+            logger.warning(
+                f"Step {step.id} ({step.name}) marked as FAILED in response due to timeout ({elapsed_ms / 1000:.1f}s)"
+            )
 
         steps_list.append(step)
 
     # TaskWithStepsResponse inherits from TaskResponse, so we can unpack
-    return TaskWithStepsResponse(
-        **task.model_dump(),
-        steps=steps_list
-    )
+    return TaskWithStepsResponse(**task.model_dump(), steps=steps_list)
 
 
 @router.get("/{task_id}/stream")
@@ -247,7 +249,7 @@ async def get_task_subtasks(
         steps_list = []
         for step in steps:
             # Skip AGENT type steps (they can run longer)
-            if step.step_type == 'AGENT':
+            if step.step_type == "AGENT":
                 steps_list.append(step)
                 continue
 
@@ -273,21 +275,20 @@ async def get_task_subtasks(
                     input_data=step.input_data,
                     output_data=step.output_data,
                     status=ExecutionStepStatus.FAILED,
-                    error_message=f'Execution timeout: exceeded {timeout_threshold_min} minutes',
+                    error_message=f"Execution timeout: exceeded {timeout_threshold_min} minutes",
                     agent_trace=step.agent_trace,
                     start_time=step.start_time,
                     end_time=step.end_time,
-                    created_at=step.created_at
+                    created_at=step.created_at,
                 )
-                logger.warning(f"Step {step.id} ({step.name}) in subtask {subtask.id} marked as FAILED in response due to timeout ({elapsed_ms / 1000:.1f}s)")
+                logger.warning(
+                    f"Step {step.id} ({step.name}) in subtask {subtask.id} marked as FAILED in response due to timeout ({elapsed_ms / 1000:.1f}s)"
+                )
 
             steps_list.append(step)
 
         # Build subtask response with steps
-        subtasks_with_steps.append({
-            **subtask.model_dump(),
-            "steps": steps_list
-        })
+        subtasks_with_steps.append({**subtask.model_dump(), "steps": steps_list})
 
     return {
         "subtasks": subtasks_with_steps,
@@ -321,10 +322,7 @@ async def get_tasks_batch(
         task = tasks_dict.get(task_id)
         if task:
             steps = steps_dict.get(task_id, [])
-            result[str(task_id)] = {
-                **task.model_dump(),
-                "steps": [step.model_dump() for step in steps]
-            }
+            result[str(task_id)] = {**task.model_dump(), "steps": [step.model_dump() for step in steps]}
 
     return result
 

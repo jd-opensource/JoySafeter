@@ -211,4 +211,3 @@ class SkillFormatter:
                     lines.append(f"{prefix} {icon} {filename}")
 
         return "\n".join(lines)
-

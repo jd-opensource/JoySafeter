@@ -13,10 +13,7 @@ MAX_SKILL_DESCRIPTION_LENGTH = 1024
 MAX_COMPATIBILITY_LENGTH = 500
 
 
-def validate_skill_name(
-    name: str,
-    directory_name: Optional[str] = None
-) -> Tuple[bool, str]:
+def validate_skill_name(name: str, directory_name: Optional[str] = None) -> Tuple[bool, str]:
     """Validate skill name per Agent Skills specification.
 
     Requirements per spec:

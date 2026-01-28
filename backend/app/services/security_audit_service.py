@@ -1,6 +1,7 @@
 """
 安全审计服务
 """
+
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -70,9 +71,7 @@ class SecurityAuditService(BaseService):
         event_type: Optional[str] = None,
     ) -> list[SecurityAuditLog]:
         """获取用户的安全审计日志"""
-        query = select(SecurityAuditLog).where(
-            SecurityAuditLog.user_id == user_id
-        )
+        query = select(SecurityAuditLog).where(SecurityAuditLog.user_id == user_id)
 
         if event_type:
             query = query.where(SecurityAuditLog.event_type == event_type)
@@ -101,10 +100,14 @@ class SecurityAuditService(BaseService):
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         # 获取最近的安全事件
-        query = select(SecurityAuditLog).where(
-            SecurityAuditLog.user_id == user_id,
-            SecurityAuditLog.created_at >= cutoff,
-        ).order_by(SecurityAuditLog.created_at.desc())
+        query = (
+            select(SecurityAuditLog)
+            .where(
+                SecurityAuditLog.user_id == user_id,
+                SecurityAuditLog.created_at >= cutoff,
+            )
+            .order_by(SecurityAuditLog.created_at.desc())
+        )
 
         result = await self.db.execute(query)
         logs = list(result.scalars().all())
@@ -114,12 +117,14 @@ class SecurityAuditService(BaseService):
         # 检测：多次登录失败
         failed_logins = [log for log in logs if log.event_type == "login_failure"]
         if len(failed_logins) >= 3:
-            anomalies.append({
-                "type": "multiple_failed_logins",
-                "count": len(failed_logins),
-                "severity": "high",
-                "message": f"Detected {len(failed_logins)} failed login attempts in the last {hours} hours",
-            })
+            anomalies.append(
+                {
+                    "type": "multiple_failed_logins",
+                    "count": len(failed_logins),
+                    "severity": "high",
+                    "message": f"Detected {len(failed_logins)} failed login attempts in the last {hours} hours",
+                }
+            )
 
         # 检测：新设备登录
         # 这里需要与用户历史设备对比，简化实现
@@ -128,12 +133,13 @@ class SecurityAuditService(BaseService):
             latest_login = successful_logins[0]
             if latest_login.device_fingerprint:
                 # 检查是否是已知设备（简化：需要设备历史表）
-                anomalies.append({
-                    "type": "new_device_login",
-                    "device": latest_login.device_fingerprint,
-                    "severity": "medium",
-                    "message": "Login from new device detected",
-                })
+                anomalies.append(
+                    {
+                        "type": "new_device_login",
+                        "device": latest_login.device_fingerprint,
+                        "severity": "medium",
+                        "message": "Login from new device detected",
+                    }
+                )
 
         return anomalies
-

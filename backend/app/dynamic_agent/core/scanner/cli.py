@@ -51,26 +51,26 @@ def cmd_scan(args):
         print(f"  Info: {result['summary']['info']}")
 
         # Print findings
-        if result['findings']:
+        if result["findings"]:
             print("\n" + "=" * 60)
             print("DETAILED FINDINGS")
             print("=" * 60)
 
-            for i, finding in enumerate(result['findings'], 1):
+            for i, finding in enumerate(result["findings"], 1):
                 print(f"\n[{i}] {finding['type']}")
                 print(f"    Severity: {finding['severity']}")
                 print(f"    File: {finding['file_path']}")
                 print(f"    Line: {finding['line_number']}")
                 print(f"    Code: {finding['code_snippet'][:80]}...")
                 print(f"    Agent: {finding['agent_verification']}")
-                if finding['agent_comment']:
+                if finding["agent_comment"]:
                     print(f"    Comment: {finding['agent_comment']}")
         else:
             print("\nNo vulnerabilities found!")
 
         # Save to file if specified
         if output_file:
-            with open(output_file, 'w') as f:
+            with open(output_file, "w") as f:
                 json.dump(result, f, indent=2)
             print(f"\nResults saved to {output_file}")
 
@@ -88,21 +88,15 @@ def main():
 Examples:
   %(prog)s scan /path/to/code.zip
   %(prog)s scan /path/to/code.zip --output results.json
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Scan command
     scan_parser = subparsers.add_parser("scan", help="Scan a ZIP file for vulnerabilities")
-    scan_parser.add_argument(
-        "zip_path",
-        help="Path to ZIP file containing source code"
-    )
-    scan_parser.add_argument(
-        "-o", "--output",
-        help="Output file for JSON results (optional)"
-    )
+    scan_parser.add_argument("zip_path", help="Path to ZIP file containing source code")
+    scan_parser.add_argument("-o", "--output", help="Output file for JSON results (optional)")
     scan_parser.set_defaults(func=cmd_scan)
 
     # Parse arguments

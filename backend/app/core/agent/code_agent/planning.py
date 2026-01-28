@@ -18,6 +18,7 @@ from loguru import logger
 
 class PlanStatus(str, Enum):
     """Status of a plan step."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -29,6 +30,7 @@ class PlanStatus(str, Enum):
 @dataclass
 class PlanStep:
     """A single step in a plan."""
+
     step_id: int
     name: str
     description: str
@@ -86,6 +88,7 @@ class PlanStep:
 @dataclass
 class Plan:
     """A complete execution plan."""
+
     task: str
     goal: str = ""
     steps: list[PlanStep] = field(default_factory=list)
@@ -101,8 +104,7 @@ class Plan:
             if step.status in (PlanStatus.PENDING, PlanStatus.IN_PROGRESS):
                 # Check dependencies
                 deps_completed = all(
-                    self.get_step(dep_id) and
-                    self.get_step(dep_id).status == PlanStatus.COMPLETED
+                    self.get_step(dep_id) and self.get_step(dep_id).status == PlanStatus.COMPLETED
                     for dep_id in step.dependencies
                 )
                 if deps_completed:
@@ -264,10 +266,10 @@ class PlanningEngine:
 {task}
 
 ## 可用工具
-{', '.join(tools) if tools else '无特定工具限制'}
+{", ".join(tools) if tools else "无特定工具限制"}
 
 ## 上下文
-{context or '无'}
+{context or "无"}
 
 ## 要求
 1. 将任务分解为 {self.max_steps} 个以内的步骤
@@ -297,13 +299,14 @@ class PlanningEngine:
         if self.llm_call:
             try:
                 import json
+
                 response = await self._call_llm(prompt)
 
                 # Extract JSON from response
                 json_match = response.find("```json")
                 if json_match != -1:
                     json_end = response.find("```", json_match + 7)
-                    json_str = response[json_match + 7:json_end]
+                    json_str = response[json_match + 7 : json_end]
                 else:
                     json_str = response
 
@@ -375,7 +378,7 @@ class PlanningEngine:
 {progress}
 
 ## 遇到的问题
-{chr(10).join(f'- {issue}' for issue in (issues or [])) or '暂无'}
+{chr(10).join(f"- {issue}" for issue in (issues or [])) or "暂无"}
 
 ## 要求
 1. 保留已完成的步骤
@@ -389,13 +392,14 @@ class PlanningEngine:
         if self.llm_call:
             try:
                 import json
+
                 response = await self._call_llm(prompt)
 
                 # Extract JSON
                 json_match = response.find("```json")
                 if json_match != -1:
                     json_end = response.find("```", json_match + 7)
-                    json_str = response[json_match + 7:json_end]
+                    json_str = response[json_match + 7 : json_end]
                 else:
                     json_str = response
 
@@ -523,4 +527,3 @@ __all__ = [
     "PlanningEngine",
     "create_planning_engine",
 ]
-

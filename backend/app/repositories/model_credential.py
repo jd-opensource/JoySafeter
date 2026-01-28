@@ -1,6 +1,7 @@
 """
 ModelCredential Repository
 """
+
 import uuid
 from typing import Optional
 
@@ -30,9 +31,7 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
             conditions.append(ModelCredential.provider_id == provider_id)
 
         if conditions:
-            result = await self.db.execute(
-                select(ModelCredential).where(and_(*conditions))
-            )
+            result = await self.db.execute(select(ModelCredential).where(and_(*conditions)))
         else:
             result = await self.db.execute(select(ModelCredential))
         return result.scalar_one_or_none()
@@ -59,17 +58,10 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
     ) -> list[ModelCredential]:
         """获取所有凭据（所有用户和工作空间可见）"""
         # 移除所有 user_id 和 workspace_id 过滤
-        result = await self.db.execute(
-            select(ModelCredential)
-            .options(selectinload(ModelCredential.provider))
-        )
+        result = await self.db.execute(select(ModelCredential).options(selectinload(ModelCredential.provider)))
         return list(result.scalars().all())
 
     async def list_all(self) -> list[ModelCredential]:
         """获取所有凭据（所有用户和工作空间可见）"""
-        result = await self.db.execute(
-            select(ModelCredential)
-            .options(selectinload(ModelCredential.provider))
-        )
+        result = await self.db.execute(select(ModelCredential).options(selectinload(ModelCredential.provider)))
         return list(result.scalars().all())
-

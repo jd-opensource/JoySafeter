@@ -8,7 +8,7 @@ def calculate_cost(
     input_cost_per_m: float,
     output_cost_per_m: float,
     cache_write_cost_per_m: float = 0.0,
-    cache_read_cost_per_m: float = 0.0
+    cache_read_cost_per_m: float = 0.0,
 ) -> float:
     """
     Calculate cost in USD based on token usage.
@@ -29,10 +29,10 @@ def calculate_cost(
     cache_read = usage.get("cache_read_input_tokens", 0)
 
     cost = (
-        (input_tokens / 1_000_000) * input_cost_per_m +
-        (output_tokens / 1_000_000) * output_cost_per_m +
-        (cache_creation / 1_000_000) * cache_write_cost_per_m +
-        (cache_read / 1_000_000) * cache_read_cost_per_m
+        (input_tokens / 1_000_000) * input_cost_per_m
+        + (output_tokens / 1_000_000) * output_cost_per_m
+        + (cache_creation / 1_000_000) * cache_write_cost_per_m
+        + (cache_read / 1_000_000) * cache_read_cost_per_m
     )
 
     return cost

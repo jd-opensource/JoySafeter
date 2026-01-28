@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class PwninitHandler(AbstractHandler):
     """Handler for pwninit functionality"""
 
@@ -13,8 +14,8 @@ class PwninitHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['pwninit']
+        """Handler related commands"""
+        return ["pwninit"]
 
     def handle(self, data: Dict) -> Any:
         """Execute pwninit with enhanced logging"""

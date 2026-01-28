@@ -27,22 +27,26 @@ class TaskState:
                 "max_attempts": max_attempts,
                 "findings": [],
                 "blockers": [],
-                "methods": []
+                "methods": [],
             }
         return cls._tasks[task_id]
 
     @classmethod
-    def record_attempt(cls, task_id: str, method: str, success: bool, result: str,
-                      finding: Optional[str] = None, blocker: Optional[str] = None):
+    def record_attempt(
+        cls,
+        task_id: str,
+        method: str,
+        success: bool,
+        result: str,
+        finding: Optional[str] = None,
+        blocker: Optional[str] = None,
+    ):
         """Record an attempt"""
         task = cls.get_or_create(task_id)
         task["attempts"] += 1
-        task["methods"].append({
-            "method": method,
-            "success": success,
-            "result": result,
-            "timestamp": datetime.now().isoformat()
-        })
+        task["methods"].append(
+            {"method": method, "success": success, "result": result, "timestamp": datetime.now().isoformat()}
+        )
         if finding:
             task["findings"].append(finding)
         if blocker:
@@ -51,10 +55,7 @@ class TaskState:
 
 @tool
 def should_continue_task(
-    task_id: str,
-    description: str = "",
-    max_attempts: int = 10,
-    last_success: bool = False
+    task_id: str, description: str = "", max_attempts: int = 10, last_success: bool = False
 ) -> Dict[str, Any]:
     """
     Determine if Agent should continue exploring methods to complete the task.
@@ -92,7 +93,7 @@ def should_continue_task(
         suggestions = [
             "Try primary method for this task type",
             "Document approach and results",
-            "Prepare alternative methods"
+            "Prepare alternative methods",
         ]
     elif last_success and remaining > 0:
         guidance = f"Method succeeded! Continue exploring ({remaining} attempts left) for comprehensive coverage."
@@ -100,7 +101,7 @@ def should_continue_task(
         suggestions = [
             "Verify findings with alternative methods",
             "Cross-check results for accuracy",
-            "Explore edge cases and variations"
+            "Explore edge cases and variations",
         ]
     elif remaining > 3:
         guidance = f"Still have {remaining} attempts. Must continue exploration with different methods."
@@ -108,7 +109,7 @@ def should_continue_task(
         suggestions = [
             "Try alternative method or approach",
             "Adjust parameters or configuration",
-            "Combine multiple techniques"
+            "Combine multiple techniques",
         ]
     elif remaining > 0:
         guidance = f"Limited attempts remaining ({remaining}). Use them wisely on most promising methods."
@@ -116,25 +117,16 @@ def should_continue_task(
         suggestions = [
             "Focus on high-impact techniques",
             "Prepare final verification steps",
-            "Ensure all critical paths explored"
+            "Ensure all critical paths explored",
         ]
     else:
         guidance = "All attempts exhausted. Prepare final conclusions and report."
         urgency = "critical"
-        suggestions = [
-            "Summarize all findings",
-            "Prepare final report",
-            "Document lessons learned"
-        ]
+        suggestions = ["Summarize all findings", "Prepare final report", "Document lessons learned"]
 
     # Record this check
     if attempts > 0:
-        TaskState.record_attempt(
-            task_id,
-            f"check_attempt_{attempts}",
-            last_success,
-            guidance
-        )
+        TaskState.record_attempt(task_id, f"check_attempt_{attempts}", last_success, guidance)
 
     return {
         "should_continue": should_continue,
@@ -148,7 +140,7 @@ def should_continue_task(
         "next_steps": suggestions,
         "findings_count": len(task["findings"]),
         "blockers_count": len(task["blockers"]),
-        "critical_message": "Do NOT give up until all methods are exhausted!"
+        "critical_message": "Do NOT give up until all methods are exhausted!",
     }
 
 

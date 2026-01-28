@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class SmbmapHandler(AbstractHandler):
     """Handler for smbmap functionality"""
 
@@ -13,8 +14,8 @@ class SmbmapHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['smbmap']
+        """Handler related commands"""
+        return ["smbmap"]
 
     def handle(self, data: Dict) -> Any:
         """Execute smbmap with enhanced logging"""
@@ -26,11 +27,7 @@ class SmbmapHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not target:
                 logger.warning("🎯 SMBMap called without target parameter")
-                return {
-
-                    "error": "Target parameter is required"
-
-                }
+                return {"error": "Target parameter is required"}
             command = f"smbmap -H {target}"
             if username:
                 command += f" -u {username}"
@@ -46,8 +43,4 @@ class SmbmapHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in smbmap endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

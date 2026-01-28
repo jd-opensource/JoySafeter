@@ -4,6 +4,7 @@ MCP Server Service - MCP 服务器管理服务
 职责：MCP 服务器配置的 CRUD 操作
 单一职责：只负责服务器配置的数据库持久化
 """
+
 from __future__ import annotations
 
 import uuid
@@ -61,19 +62,21 @@ class McpServerService(BaseService[McpServer]):
             logger.warning(f"[McpServerService] Duplicate name: {data.name} for user {user_id}")
             raise BadRequestException(f"MCP server with name '{data.name}' already exists")
 
-        server = await self.repo.create({
-            "user_id": user_id,
-            "created_by": user_id,
-            "name": data.name,
-            "description": data.description,
-            "transport": data.transport,
-            "url": data.url,
-            "headers": data.headers,
-            "timeout": data.timeout,
-            "retries": data.retries,
-            "enabled": data.enabled,
-            "connection_status": "disconnected",
-        })
+        server = await self.repo.create(
+            {
+                "user_id": user_id,
+                "created_by": user_id,
+                "name": data.name,
+                "description": data.description,
+                "transport": data.transport,
+                "url": data.url,
+                "headers": data.headers,
+                "timeout": data.timeout,
+                "retries": data.retries,
+                "enabled": data.enabled,
+                "connection_status": "disconnected",
+            }
+        )
 
         await self.commit()
         logger.info(f"Created MCP server: {server.name} (id={server.id})")
@@ -336,4 +339,3 @@ class McpServerService(BaseService[McpServer]):
             UUID -> McpServer 的映射字典
         """
         return await self.repo.get_by_ids(server_ids, user_id)
-

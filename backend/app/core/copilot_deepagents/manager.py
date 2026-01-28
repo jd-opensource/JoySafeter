@@ -23,6 +23,7 @@ from app.core.copilot.tool_output_parser import parse_tool_output
 try:
     from deepagents import FilesystemMiddleware, SubAgent, create_deep_agent
     from deepagents.backends.filesystem import FilesystemBackend
+
     DEEPAGENTS_AVAILABLE = True
 except ImportError:
     create_deep_agent = None
@@ -41,7 +42,7 @@ from .schemas import ValidationReport, WorkflowBlueprint
 
 # ==================== Manager System Prompt ====================
 
-MANAGER_SYSTEM_PROMPT = '''你是一个 Agent 工作流生成专家（DeepAgents Copilot Manager）。
+MANAGER_SYSTEM_PROMPT = """你是一个 Agent 工作流生成专家（DeepAgents Copilot Manager）。
 
 ## 核心职责
 
@@ -141,12 +142,12 @@ MANAGER_SYSTEM_PROMPT = '''你是一个 Agent 工作流生成专家（DeepAgents
 2. 边的连接关系
 3. 验证分数（health_score）
 4. 任何需要用户关注的警告
-'''
+"""
 
 
 # ==================== SubAgent Prompts ====================
 
-REQUIREMENTS_ANALYST_PROMPT = '''你是一个专业的需求分析专家，专注于 Agent 工作流设计前的需求梳理。
+REQUIREMENTS_ANALYST_PROMPT = """你是一个专业的需求分析专家，专注于 Agent 工作流设计前的需求梳理。
 
 ## 你的核心职责
 
@@ -235,9 +236,9 @@ write(path="/analysis.json", data=<json_string>)
 - **保持简洁**：摘要控制在 100 字以内
 - **聚焦核心**：忽略无关细节
 - **不包含原始数据**：分析结果不要复述用户的完整请求
-'''
+"""
 
-WORKFLOW_ARCHITECT_PROMPT = '''你是一个专业的 Agent 工作流架构师，专注于设计高质量、可执行的工作流结构。
+WORKFLOW_ARCHITECT_PROMPT = """你是一个专业的 Agent 工作流架构师，专注于设计高质量、可执行的工作流结构。
 
 ## 核心职责
 
@@ -431,9 +432,9 @@ write(path="/blueprint.json", data=<fixed_json_string>)
 - DeepAgents 子代理必须有 description
 - 仅支持 2 层结构（Manager → 子代理）
 - 子代理不能有自己的子代理
-'''
+"""
 
-VALIDATOR_PROMPT = '''你是一个专业的工作流质量验证专家，确保生成的工作流结构正确、可执行、高质量。
+VALIDATOR_PROMPT = """你是一个专业的工作流质量验证专家，确保生成的工作流结构正确、可执行、高质量。
 
 ## 核心职责
 
@@ -585,10 +586,11 @@ is_valid = len([i for i in issues if i.severity == "error"]) == 0
 - 每个 issue 必须有可操作的 fix_hint
 - 不输出 blueprint 的原始内容
 - 摘要保持在 100 字以内
-'''
+"""
 
 
 # ==================== Manager Factory ====================
+
 
 def get_artifacts_root() -> Path:
     """获取产物根目录"""
@@ -709,8 +711,8 @@ def create_copilot_manager(
     subagent_specs = _build_subagents(backend)
 
     # FilesystemMiddleware 让 Agent 和子代理都能使用 filesystem 工具
-    #DeepAgents 已包含 FilesystemMiddleware
-    #filesystem_middleware = FilesystemMiddleware(backend=backend)
+    # DeepAgents 已包含 FilesystemMiddleware
+    # filesystem_middleware = FilesystemMiddleware(backend=backend)
 
     # 创建 DeepAgents Manager
     manager = create_deep_agent(
@@ -718,7 +720,7 @@ def create_copilot_manager(
         system_prompt=MANAGER_SYSTEM_PROMPT,
         tools=copilot_tools,
         subagents=subagent_specs,
-        #middleware=[filesystem_middleware],
+        # middleware=[filesystem_middleware],
         name="copilot-deepagents-manager",
     )
 
@@ -768,17 +770,19 @@ async def run_copilot_manager(
     full_prompt = f"""用户请求: {user_prompt}
 
 当前图状态:
-- 节点数: {context_summary['nodes']}
-- 边数: {context_summary['edges']}
+- 节点数: {context_summary["nodes"]}
+- 边数: {context_summary["edges"]}
 
 请按照工作流程生成完整的 Agent 工作流图。"""
 
     # 保存请求
-    store.write_request({
-        "user_prompt": user_prompt,
-        "graph_context_summary": context_summary,
-        "conversation_history": conversation_history or [],
-    })
+    store.write_request(
+        {
+            "user_prompt": user_prompt,
+            "graph_context_summary": context_summary,
+            "conversation_history": conversation_history or [],
+        }
+    )
 
     # 调用 Manager
     result = await manager.ainvoke({"messages": [HumanMessage(content=full_prompt)]})
@@ -793,13 +797,15 @@ async def run_copilot_manager(
     store.write_actions(actions)
 
     # 写入 index
-    store.write_index({
-        "graph_id": graph_id,
-        "run_id": store.run_id,
-        "user_id": user_id,
-        "actions_count": len(actions),
-        "ok": True,
-    })
+    store.write_index(
+        {
+            "graph_id": graph_id,
+            "run_id": store.run_id,
+            "user_id": user_id,
+            "actions_count": len(actions),
+            "ok": True,
+        }
+    )
 
     return {
         "message": final_message,
@@ -854,17 +860,19 @@ async def stream_copilot_manager(
         full_prompt = f"""用户请求: {user_prompt}
 
 当前图状态:
-- 节点数: {context_summary['nodes']}
-- 边数: {context_summary['edges']}
+- 节点数: {context_summary["nodes"]}
+- 边数: {context_summary["edges"]}
 
 请按照工作流程生成完整的 Agent 工作流图。"""
 
         # 保存请求
-        store.write_request({
-            "user_prompt": user_prompt,
-            "graph_context_summary": context_summary,
-            "conversation_history": conversation_history or [],
-        })
+        store.write_request(
+            {
+                "user_prompt": user_prompt,
+                "graph_context_summary": context_summary,
+                "conversation_history": conversation_history or [],
+            }
+        )
 
         # 收集 actions
         collected_actions: List[Dict[str, Any]] = []
@@ -934,14 +942,16 @@ async def stream_copilot_manager(
         validation = safe_read_validation(store)
         health_score = validation.health_score if validation else None
 
-        store.write_index({
-            "graph_id": graph_id,
-            "run_id": store.run_id,
-            "user_id": user_id,
-            "actions_count": len(collected_actions),
-            "health_score": health_score,
-            "ok": True,
-        })
+        store.write_index(
+            {
+                "graph_id": graph_id,
+                "run_id": store.run_id,
+                "user_id": user_id,
+                "actions_count": len(collected_actions),
+                "health_score": health_score,
+                "ok": True,
+            }
+        )
 
         # 批量发送最终结果（一次性发送所有 actions，避免前端闪烁）
         yield {
@@ -961,6 +971,7 @@ async def stream_copilot_manager(
 
 
 # ==================== Schema Validation Helpers ====================
+
 
 def safe_read_blueprint(store: ArtifactStore) -> Optional[WorkflowBlueprint]:
     """
@@ -1037,6 +1048,7 @@ def read_and_layout_blueprint(store: ArtifactStore) -> Optional[Dict[str, Any]]:
 
 # ==================== Helpers ====================
 
+
 def _extract_actions_from_result(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     从 agent 结果中提取 actions。
@@ -1054,11 +1066,13 @@ def _extract_actions_from_result(result: Dict[str, Any]) -> List[Dict[str, Any]]
     # Convert to dict format for compatibility
     actions = []
     for action in graph_actions:
-        actions.append({
-            "type": action.type.value,
-            "payload": action.payload,
-            "reasoning": action.reasoning,
-        })
+        actions.append(
+            {
+                "type": action.type.value,
+                "payload": action.payload,
+                "reasoning": action.reasoning,
+            }
+        )
 
     return actions
 
@@ -1077,10 +1091,7 @@ def _extract_final_message(result: Dict[str, Any]) -> str:
     return ""
 
 
-def _apply_layout_to_actions(
-    actions: List[Dict[str, Any]],
-    store: ArtifactStore
-) -> List[Dict[str, Any]]:
+def _apply_layout_to_actions(actions: List[Dict[str, Any]], store: ArtifactStore) -> List[Dict[str, Any]]:
     """
     应用自动布局优化 actions 中的坐标。
 
@@ -1123,10 +1134,7 @@ def _apply_layout_to_actions(
     return updated_actions
 
 
-def _fix_edge_node_ids(
-    actions: List[Dict[str, Any]],
-    store: ArtifactStore
-) -> List[Dict[str, Any]]:
+def _fix_edge_node_ids(actions: List[Dict[str, Any]], store: ArtifactStore) -> List[Dict[str, Any]]:
     """
     Fix node IDs in CONNECT_NODES actions.
 

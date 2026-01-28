@@ -1,4 +1,5 @@
 """模型供应商管理API"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +55,7 @@ async def get_provider(
 
     if not provider:
         from app.common.exceptions import NotFoundException
+
         raise NotFoundException(f"供应商不存在: {provider_name}")
 
     return success_response(data=provider, message="获取供应商详情成功")
@@ -77,5 +79,3 @@ async def sync_providers(
     service = ModelProviderService(db)
     result = await service.sync_all()
     return success_response(data=result, message="同步完成")
-
-

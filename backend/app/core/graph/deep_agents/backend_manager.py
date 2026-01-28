@@ -93,7 +93,7 @@ class DeepAgentsBackendManager:
                 network_mode="none",
                 working_dir="/workspace",
             )
-            if hasattr(backend, 'is_started') and backend.is_started():
+            if hasattr(backend, "is_started") and backend.is_started():
                 logger.debug(f"{LOG_PREFIX} Shared Docker backend started: id={backend.id}")
             self._shared_backend = backend
             return backend
@@ -108,7 +108,7 @@ class DeepAgentsBackendManager:
 
         if self._shared_backend:
             try:
-                if hasattr(self._shared_backend, 'cleanup'):
+                if hasattr(self._shared_backend, "cleanup"):
                     self._shared_backend.cleanup()
                 logger.info(f"{LOG_PREFIX} Cleaned up shared Docker backend")
             except Exception as e:

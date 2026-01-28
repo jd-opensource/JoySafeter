@@ -25,12 +25,14 @@ except ImportError:
     # Fallback to relative import (when running from backend directory)
     import sys
     from pathlib import Path
+
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from app.dynamic_agent.main import init_storage, run, startup
 
 from loguru import logger
 
 # ==================== Mode Validation ====================
+
 
 def validate_mode(metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -76,8 +78,10 @@ def validate_mode(metadata: Dict[str, Any]) -> Dict[str, Any]:
 
 # ==================== Request/Response Models ====================
 
+
 class ChatRequest(BaseModel):
     """Chat message request"""
+
     message: str
     session_id: Optional[str] = None
     user_id: Optional[str] = None
@@ -86,6 +90,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """Chat message response"""
+
     session_id: str
     user_id: str
     message: str
@@ -95,6 +100,7 @@ class ChatResponse(BaseModel):
 
 class SessionInfo(BaseModel):
     """Session information"""
+
     session_id: str
     user_id: str
     created_at: str
@@ -104,12 +110,14 @@ class SessionInfo(BaseModel):
 
 class ToolInfo(BaseModel):
     """Tool information"""
+
     name: str
     description: str
     category: str
 
 
 # ==================== Lifespan Management ====================
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -158,28 +166,28 @@ async def lifespan(app: FastAPI):
 DYNAMIC_AGENT_PREFIX = "/dynamic"
 app = APIRouter()
 
+
 @app.get("/dynamic")
 def root():
     return RedirectResponse(url="/dynamic/chat")
+
 
 # ==================== Register Web API Routes ====================
 
 try:
     from app.dynamic_agent.web import router as web_router
+
     app.include_router(web_router)
     logger.info("✓ Web visualization API routes registered")
 except ImportError as e:
     logger.warning(f"⚠️ Failed to import web routes: {e}")
 # ==================== Health Check ====================
 
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint with database pool status"""
-    health_info = {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "service": "agent-server"
-    }
+    health_info = {"status": "healthy", "timestamp": datetime.now().isoformat(), "service": "agent-server"}
 
     # Add database pool status if storage is initialized
     try:
@@ -189,10 +197,14 @@ async def health_check():
             if pool:
                 # Use asyncpg 0.31.0+ public API
                 pool_stats = {
-                    "min_size": pool.get_min_size() if hasattr(pool, 'get_min_size') else getattr(pool, '_minsize', 'N/A'),
-                    "max_size": pool.get_max_size() if hasattr(pool, 'get_max_size') else getattr(pool, '_maxsize', 'N/A'),
-                    "size": pool.get_size() if hasattr(pool, 'get_size') else 'N/A',
-                    "idle": pool.get_idle_size() if hasattr(pool, 'get_idle_size') else 'N/A',
+                    "min_size": pool.get_min_size()
+                    if hasattr(pool, "get_min_size")
+                    else getattr(pool, "_minsize", "N/A"),
+                    "max_size": pool.get_max_size()
+                    if hasattr(pool, "get_max_size")
+                    else getattr(pool, "_maxsize", "N/A"),
+                    "size": pool.get_size() if hasattr(pool, "get_size") else "N/A",
+                    "idle": pool.get_idle_size() if hasattr(pool, "get_idle_size") else "N/A",
                 }
                 health_info["db_pool"] = pool_stats
             else:
@@ -207,13 +219,16 @@ async def health_check():
 
 # ==================== Mode Detection Endpoint ====================
 
+
 class DetectModeRequest(BaseModel):
     """Mode detection request"""
+
     message: str
 
 
 class DetectModeResponse(BaseModel):
     """Mode detection response"""
+
     mode: str  # "ctf" or "pentest"
     confidence: str  # "high" or "low"
 
@@ -264,6 +279,7 @@ async def detect_mode(request: DetectModeRequest):
 
 # ==================== Chat Endpoints ====================
 
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
@@ -283,12 +299,14 @@ async def chat(request: ChatRequest):
         # Prepare metadata with response_queue
         metadata = request.metadata or {}
         response_queue_obj = queue.Queue()
-        metadata.update({
-            "langfuse_session_id": session_id,
-            "langfuse_user_id": user_id,
-            "timestamp": datetime.now().isoformat(),
-            "response_queue": response_queue_obj,
-        })
+        metadata.update(
+            {
+                "langfuse_session_id": session_id,
+                "langfuse_user_id": user_id,
+                "timestamp": datetime.now().isoformat(),
+                "response_queue": response_queue_obj,
+            }
+        )
 
         logger.info(f"📨 Chat request: session={session_id}, user={user_id}")
         logger.info(f"   Message: {request.message[:100]}...")
@@ -299,7 +317,7 @@ async def chat(request: ChatRequest):
         # Collect all streaming responses from queue
         reply_parts = []
         timeout_per_chunk = 300
-        total_timeout = 2*3600  # 2 hours total timeout
+        total_timeout = 2 * 3600  # 2 hours total timeout
         start_time = asyncio.get_event_loop().time()
 
         while True:
@@ -315,8 +333,7 @@ async def chat(request: ChatRequest):
                 chunk_timeout = min(timeout_per_chunk, int(remaining_timeout))
                 try:
                     response_data = await asyncio.wait_for(
-                        asyncio.to_thread(response_queue_obj.get, timeout=chunk_timeout),
-                        timeout=chunk_timeout + 1
+                        asyncio.to_thread(response_queue_obj.get, timeout=chunk_timeout), timeout=chunk_timeout + 1
                     )
                 except asyncio.TimeoutError:
                     logger.warning(f"⏱️ Timeout waiting for chunk (timeout={chunk_timeout}s), continuing...")
@@ -404,7 +421,9 @@ async def chat_stream(request: ChatRequest):
                     session_metadata["non_ctf_guard"] = metadata["non_ctf_guard"]
 
                 await storage.context.create_session(user_id, session_id, metadata=session_metadata)
-                logger.info(f"✓ Created new session: {session_id} for user: {user_id} with mode: {session_metadata.get('mode', 'not specified')}")
+                logger.info(
+                    f"✓ Created new session: {session_id} for user: {user_id} with mode: {session_metadata.get('mode', 'not specified')}"
+                )
 
                 # Verify session was created
                 verify_session = await storage.context.get_session(session_id)
@@ -435,7 +454,9 @@ async def chat_stream(request: ChatRequest):
                 if needs_update:
                     existing_session.metadata = session_metadata
                     await storage.context.update_session(existing_session)
-                    logger.info(f"✓ Updated session {session_id} with mode: {session_metadata.get('mode', 'not specified')}")
+                    logger.info(
+                        f"✓ Updated session {session_id} with mode: {session_metadata.get('mode', 'not specified')}"
+                    )
             except Exception as e:
                 logger.error(f"❌ Failed to update session metadata: {e}", exc_info=True)
                 # Don't fail the request if metadata update fails
@@ -445,13 +466,15 @@ async def chat_stream(request: ChatRequest):
         task_id_holder = {}
 
         # Update validated metadata with runtime objects
-        metadata.update({
-            "langfuse_session_id": session_id,
-            "langfuse_user_id": user_id,
-            "response_queue": response_queue_obj,
-            "task_id_event": task_id_event,
-            "task_id_holder": task_id_holder,
-        })
+        metadata.update(
+            {
+                "langfuse_session_id": session_id,
+                "langfuse_user_id": user_id,
+                "response_queue": response_queue_obj,
+                "task_id_event": task_id_event,
+                "task_id_holder": task_id_holder,
+            }
+        )
 
         async def generate():
             """Generator for streaming response"""
@@ -465,7 +488,7 @@ async def chat_stream(request: ChatRequest):
                 # Wait for task_id to be created (with timeout)
                 try:
                     await asyncio.wait_for(task_id_event.wait(), timeout=60.0)
-                    task_id = task_id_holder.get('task_id')
+                    task_id = task_id_holder.get("task_id")
                     if task_id:
                         yield f"data: {json.dumps({'type': 'task_created', 'task_id': str(task_id)})}\n\n"
                         logger.info(f"✅ Sent task_created event: {task_id}")
@@ -476,7 +499,7 @@ async def chat_stream(request: ChatRequest):
 
                 # Stream responses from queue as they arrive (both intermediate and final)
                 timeout_per_chunk = 300
-                total_timeout = 2*3600  # 2 hours total timeout
+                total_timeout = 2 * 3600  # 2 hours total timeout
                 start_time = asyncio.get_event_loop().time()
                 total_length = 0
 
@@ -495,7 +518,7 @@ async def chat_stream(request: ChatRequest):
                         try:
                             response_data = await asyncio.wait_for(
                                 asyncio.to_thread(response_queue_obj.get, timeout=chunk_timeout),
-                                timeout=chunk_timeout + 1
+                                timeout=chunk_timeout + 1,
                             )
                         except asyncio.TimeoutError:
                             logger.warning(f"⏱️ Timeout waiting for chunk (timeout={chunk_timeout}s), continuing...")
@@ -517,10 +540,10 @@ async def chat_stream(request: ChatRequest):
                             yield f"data: {json.dumps({'type': 'error', 'message': data})}\n\n"
                             break
                         elif status == "success":
-                            if 'intermediate' == data_type:
-                            # if data:
+                            if "intermediate" == data_type:
+                                # if data:
                                 # Check if this is intermediate message or final reply chunk
-                            # if any(marker in data for marker in ["🔧", "🟢", "thinking:", "Input:", "Output:"]):
+                                # if any(marker in data for marker in ["🔧", "🟢", "thinking:", "Input:", "Output:"]):
                                 # Intermediate message
                                 yield f"data: {json.dumps({'type': 'intermediate', 'data': data})}\n\n"
                                 logger.info(f"✓ Streamed intermediate: {len(data)} chars")
@@ -554,6 +577,7 @@ async def chat_stream(request: ChatRequest):
 
 # ==================== Session Endpoints ====================
 
+
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str):
     """
@@ -575,8 +599,8 @@ async def get_session(session_id: str):
         return {
             "session_id": session_id,
             "user_id": context.user_id,
-            "created_at": context.created_at.isoformat() if hasattr(context, 'created_at') else None,
-            "message_count": len(context.messages) if hasattr(context, 'messages') else 0,
+            "created_at": context.created_at.isoformat() if hasattr(context, "created_at") else None,
+            "message_count": len(context.messages) if hasattr(context, "messages") else 0,
         }
 
     except HTTPException:
@@ -618,7 +642,7 @@ async def get_user_sessions_history(
         # Get messages for each session
         sessions_with_history = []
         for session_data in sessions_data:
-            session_id = session_data['session_id']
+            session_id = session_data["session_id"]
             context = await storage.context.get_session(session_id)
 
             if context:
@@ -626,16 +650,18 @@ async def get_user_sessions_history(
                 history = await storage.context.get_conversation_history(session_id, limit=limit)
 
                 # Apply offset for pagination
-                paginated_history = history[offset:offset + limit]
+                paginated_history = history[offset : offset + limit]
 
-                sessions_with_history.append({
-                    "session_id": session_id,
-                    "title": session_id,
-                    "created_at": session_data.get('created_at'),
-                    "updated_at": session_data.get('updated_at'),
-                    "message_count": len(history),
-                    "messages": paginated_history,
-                })
+                sessions_with_history.append(
+                    {
+                        "session_id": session_id,
+                        "title": session_id,
+                        "created_at": session_data.get("created_at"),
+                        "updated_at": session_data.get("updated_at"),
+                        "message_count": len(history),
+                        "messages": paginated_history,
+                    }
+                )
 
         return {
             "user_id": user_id,
@@ -687,7 +713,7 @@ async def get_session_history(
         history = await storage.context.get_conversation_history(session_id, limit=limit)
 
         # Apply offset for pagination
-        paginated_history = history[offset:offset + limit]
+        paginated_history = history[offset : offset + limit]
 
         return {
             "user_id": user_id,
@@ -734,6 +760,7 @@ async def delete_session(session_id: str):
 
 # ==================== Tool Endpoints ====================
 
+
 @app.get("/api/tools")
 async def list_tools():
     """
@@ -749,11 +776,13 @@ async def list_tools():
         for tool_name in tool_registry.get_all_tools():
             tool = tool_registry.get_tool(tool_name)
             if tool:
-                tools.append({
-                    "name": tool_name,
-                    "description": getattr(tool, 'description', ''),
-                    "category": getattr(tool, 'category', 'default'),
-                })
+                tools.append(
+                    {
+                        "name": tool_name,
+                        "description": getattr(tool, "description", ""),
+                        "category": getattr(tool, "category", "default"),
+                    }
+                )
 
         return {
             "total": len(tools),
@@ -785,7 +814,7 @@ async def execute_tool(tool_name: str, params: Dict[str, Any]):
             raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 
         # Execute tool
-        result = await tool.ainvoke(params) if hasattr(tool, 'ainvoke') else tool(**params)
+        result = await tool.ainvoke(params) if hasattr(tool, "ainvoke") else tool(**params)
 
         return {
             "tool": tool_name,
@@ -802,6 +831,7 @@ async def execute_tool(tool_name: str, params: Dict[str, Any]):
 
 
 # ==================== WebSocket Endpoints ====================
+
 
 @app.websocket("/ws/chat/{session_id}")
 async def websocket_chat(websocket: WebSocket, session_id: str):
@@ -844,7 +874,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                 # Stream responses from queue as they arrive (both intermediate and final)
                 timeout_per_chunk = 300
-                total_timeout = 2*3600  # 2 hours total timeout
+                total_timeout = 2 * 3600  # 2 hours total timeout
                 start_time = asyncio.get_event_loop().time()
 
                 while True:
@@ -854,10 +884,12 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                         if remaining_timeout <= 0:
                             logger.error("❌ Total timeout exceeded")
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": "Agent response timeout",
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "message": "Agent response timeout",
+                                }
+                            )
                             break
 
                         # Get next chunk from queue with per-chunk timeout
@@ -865,7 +897,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         try:
                             response_data = await asyncio.wait_for(
                                 asyncio.to_thread(response_queue_obj.get, timeout=chunk_timeout),
-                                timeout=chunk_timeout + 1
+                                timeout=chunk_timeout + 1,
                             )
                         except asyncio.TimeoutError:
                             logger.warning(f"⏱️ Timeout waiting for chunk (timeout={chunk_timeout}s), continuing...")
@@ -879,46 +911,56 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                         if status == "complete":
                             logger.info("✓ Stream completed")
-                            await websocket.send_json({
-                                "type": "complete",
-                                "message": user_message,
-                                "timestamp": datetime.now().isoformat(),
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "complete",
+                                    "message": user_message,
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
                             break
                         elif status == "error":
                             logger.error(f"❌ Agent error: {data}")
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": data,
-                                "timestamp": datetime.now().isoformat(),
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "message": data,
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
                             break
                         elif status == "success":
                             if data:
                                 # Check if this is intermediate message or final reply chunk
                                 if any(marker in data for marker in ["🔧", "🟢", "thinking:", "Input:", "Output:"]):
                                     # Intermediate message
-                                    await websocket.send_json({
-                                        "type": "intermediate",
-                                        "data": data,
-                                        "timestamp": datetime.now().isoformat(),
-                                    })
+                                    await websocket.send_json(
+                                        {
+                                            "type": "intermediate",
+                                            "data": data,
+                                            "timestamp": datetime.now().isoformat(),
+                                        }
+                                    )
                                     logger.info(f"✓ Sent intermediate: {len(data)} chars")
                                 else:
                                     # Final reply chunk
-                                    await websocket.send_json({
-                                        "type": "chunk",
-                                        "data": data,
-                                        "timestamp": datetime.now().isoformat(),
-                                    })
+                                    await websocket.send_json(
+                                        {
+                                            "type": "chunk",
+                                            "data": data,
+                                            "timestamp": datetime.now().isoformat(),
+                                        }
+                                    )
                                     logger.info(f"✓ Sent chunk: {len(data)} chars")
 
                     except Exception as e:
                         logger.error(f"❌ Unexpected error in websocket loop: {e}")
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": str(e),
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": str(e),
+                            }
+                        )
                         break
 
                 # Wait for run task to complete
@@ -929,10 +971,12 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
             except Exception as e:
                 logger.error(f"Agent error: {e}")
-                await websocket.send_json({
-                    "type": "error",
-                    "message": str(e),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
 
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
@@ -987,6 +1031,7 @@ if __name__ == "__main__":
             logger.info("🐛 Hypercorn not available, using uvicorn with minimal config")
 
             import uvicorn
+
             uvicorn.run(
                 app,
                 host=host,

@@ -68,13 +68,13 @@ async def _process_one_with_retry(
 
     # T006: Get ExecutionPlan from metadata if available
     metadata = MetadataContext.get() or {}
-    plan: Optional[ExecutionPlan] = metadata.get('execution_plan')
+    plan: Optional[ExecutionPlan] = metadata.get("execution_plan")
 
     # 006 T018: Get TodoPanel from metadata if available
-    todo_panel: Optional[TodoPanel] = metadata.get('todo_panel')
+    todo_panel: Optional[TodoPanel] = metadata.get("todo_panel")
 
     # T016: Get HintTracker from metadata if available
-    hint_tracker: Optional[HintTracker] = metadata.get('hint_tracker')
+    hint_tracker: Optional[HintTracker] = metadata.get("hint_tracker")
 
     # T013: Add accumulated state to task context
     if accumulated_state and not accumulated_state.is_empty():
@@ -148,48 +148,50 @@ Please try a different approach."""
                     logger.debug(f"✅ Hint {next_hint.hint_id} marked as success")
 
             # 007 T013: Update AgentSessionContext Findings from SubagentSummary
-            agent_session_context = metadata.get('agent_session_context') if metadata else None
+            agent_session_context = metadata.get("agent_session_context") if metadata else None
             if agent_session_context:
                 try:
                     # Try to parse result as SubagentSummary JSON
-                    result_text = result.result if hasattr(result, 'result') else str(result)
+                    result_text = result.result if hasattr(result, "result") else str(result)
                     if result_text:
                         # Note: FLAG detection is handled by report_finding tool
                         # No need to duplicate here - Sub-Agent calls report_finding(key="flag", value="...")
 
                         # Try XML parsing for structured results (preferred format)
                         try:
-                            if '<result>' in result_text and '</result>' in result_text:
+                            if "<result>" in result_text and "</result>" in result_text:
                                 # Extract discovery_type
-                                discovery_match = re.search(r'<discovery_type>([^<]+)</discovery_type>', result_text)
-                                if discovery_match and discovery_match.group(1) != 'none':
+                                discovery_match = re.search(r"<discovery_type>([^<]+)</discovery_type>", result_text)
+                                if discovery_match and discovery_match.group(1) != "none":
                                     discovery_type = discovery_match.group(1).strip()
-                                    agent_session_context.add_finding('last_discovery_type', discovery_type)
+                                    agent_session_context.add_finding("last_discovery_type", discovery_type)
                                     logger.debug(f"🔍 Discovery type: {discovery_type}")
 
                                 # Extract suggested_next
-                                suggested_match = re.search(r'<suggested_next>([^<]+)</suggested_next>', result_text)
+                                suggested_match = re.search(r"<suggested_next>([^<]+)</suggested_next>", result_text)
                                 if suggested_match:
                                     suggested = suggested_match.group(1).strip()
-                                    agent_session_context.add_finding('suggested_next', suggested)
+                                    agent_session_context.add_finding("suggested_next", suggested)
                                     logger.debug(f"💡 Suggested next: {suggested}")
 
                                 # Extract extracted_values
-                                values_match = re.search(r'<extracted_values>(.*?)</extracted_values>', result_text, re.DOTALL)
+                                values_match = re.search(
+                                    r"<extracted_values>(.*?)</extracted_values>", result_text, re.DOTALL
+                                )
                                 if values_match:
                                     values_block = values_match.group(1)
-                                    for tag in ['cookie', 'flag', 'credentials', 'endpoint', 'token', 'session']:
-                                        tag_match = re.search(rf'<{tag}>([^<]+)</{tag}>', values_block)
+                                    for tag in ["cookie", "flag", "credentials", "endpoint", "token", "session"]:
+                                        tag_match = re.search(rf"<{tag}>([^<]+)</{tag}>", values_block)
                                         if tag_match:
                                             value = tag_match.group(1).strip()
                                             agent_session_context.add_finding(tag, value)
                                             logger.debug(f"🔑 Added finding: {tag}={value[:50]}")
 
                                 # Extract key_findings
-                                findings = re.findall(r'<finding>([^<]+)</finding>', result_text)
+                                findings = re.findall(r"<finding>([^<]+)</finding>", result_text)
                                 for finding in findings[:5]:
                                     if len(finding) <= 100:
-                                        agent_session_context.add_finding('discovery', finding.strip())
+                                        agent_session_context.add_finding("discovery", finding.strip())
                                         logger.debug(f"📝 Added key finding: {finding[:50]}")
                         except Exception as xml_err:
                             logger.debug(f"XML parsing failed: {xml_err}")
@@ -240,7 +242,7 @@ Please try a different approach."""
                 logger.info(f"🔄 Triggering replan after {attempt + 1} failed attempts...")
 
                 # 007 T024: Update AgentSessionContext with replan reason
-                agent_session_context = metadata.get('agent_session_context') if metadata else None
+                agent_session_context = metadata.get("agent_session_context") if metadata else None
                 replan_reason = f"Retry exhausted: {last_error[:50]}"
                 if agent_session_context:
                     agent_session_context.set_replan_reason(replan_reason)
@@ -292,7 +294,7 @@ Please try a different approach."""
                 guidance_msg = _request_user_guidance(plan, last_error)
 
                 # 007 T025: Update session context to indicate pause
-                agent_session_context = metadata.get('agent_session_context') if metadata else None
+                agent_session_context = metadata.get("agent_session_context") if metadata else None
                 if agent_session_context:
                     agent_session_context.set_replan_reason(
                         f"⏸️ PAUSED: Replan failed. Awaiting user guidance. Error: {last_error[:30]}"

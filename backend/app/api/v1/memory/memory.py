@@ -65,6 +65,7 @@ def _normalize_memory_dict(mem: Dict[str, Any]) -> Dict[str, Any]:
         norm["user_id"] = str(norm["user_id"])
     return norm
 
+
 def parse_topics(
     topics: Optional[str] = Query(
         default=None,
@@ -400,7 +401,9 @@ async def optimize_memories(
 
         # Calculate statistics (clamp to 0 when summarization increases tokens)
         tokens_saved = max(0, tokens_before - tokens_after)
-        reduction_percentage = max(0.0, (tokens_before - tokens_after) / tokens_before * 100.0) if tokens_before > 0 else 0.0
+        reduction_percentage = (
+            max(0.0, (tokens_before - tokens_after) / tokens_before * 100.0) if tokens_before > 0 else 0.0
+        )
 
         # Convert to schema objects
         optimized_memory_schemas = [
@@ -411,7 +414,9 @@ async def optimize_memories(
                 agent_id=mem.agent_id,
                 team_id=mem.team_id,
                 user_id=mem.user_id,
-                updated_at=datetime.fromtimestamp(mem.updated_at, tz=timezone.utc) if isinstance(mem.updated_at, (int, float)) else mem.updated_at,  # type: ignore
+                updated_at=datetime.fromtimestamp(mem.updated_at, tz=timezone.utc)
+                if isinstance(mem.updated_at, (int, float))
+                else mem.updated_at,  # type: ignore
             )
             for mem in optimized_memories
         ]

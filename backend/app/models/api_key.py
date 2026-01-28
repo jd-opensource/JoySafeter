@@ -56,4 +56,3 @@ class ApiKey(BaseModel):
         Index("api_key_workspace_id_idx", "workspace_id"),
         Index("api_key_key_idx", "key"),
     )
-

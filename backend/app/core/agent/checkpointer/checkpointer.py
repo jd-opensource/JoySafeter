@@ -41,11 +41,11 @@ class CheckpointerManager:
         Raises:
             ValueError: 如果必需的环境变量未设置
         """
-        user = os.getenv('POSTGRES_USER')
-        password = os.getenv('POSTGRES_PASSWORD')
-        host = os.getenv('POSTGRES_HOST', 'localhost')
-        port = os.getenv('POSTGRES_PORT', '5432')
-        database = os.getenv('POSTGRES_DB')
+        user = os.getenv("POSTGRES_USER")
+        password = os.getenv("POSTGRES_PASSWORD")
+        host = os.getenv("POSTGRES_HOST", "localhost")
+        port = os.getenv("POSTGRES_PORT", "5432")
+        database = os.getenv("POSTGRES_DB")
 
         if not user:
             raise ValueError("POSTGRES_USER environment variable is required")
@@ -83,7 +83,7 @@ class CheckpointerManager:
                 min_size=int(os.getenv("DB_POOL_MIN_SIZE", 1)),
                 max_size=int(os.getenv("DB_POOL_MAX_SIZE", 10)),
                 kwargs={"autocommit": True, "prepare_threshold": 0},
-                open=False  # 不在构造函数中自动打开
+                open=False,  # 不在构造函数中自动打开
             )
             # 显式打开连接池
             await cls._pool.open()
@@ -122,6 +122,7 @@ class CheckpointerManager:
             raise RuntimeError("Pool not initialized. Call initialize() first.")
 
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
         checkpointer = AsyncPostgresSaver(cls._pool)
         await checkpointer.setup()
         logger.info("Checkpointer tables ready.")
@@ -139,8 +140,7 @@ class CheckpointerManager:
         """
         if not cls._pool:
             raise RuntimeError(
-                "CheckpointerManager not initialized. "
-                "Call CheckpointerManager.initialize() at application startup."
+                "CheckpointerManager not initialized. Call CheckpointerManager.initialize() at application startup."
             )
         return cls._pool
 
@@ -159,6 +159,7 @@ class CheckpointerManager:
         """
         pool = cls._get_pool()
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
         return AsyncPostgresSaver(pool)
 
     @classmethod
@@ -211,10 +212,7 @@ async def delete_thread_checkpoints(thread_id: str) -> None:
     """
     checkpointer = get_checkpointer()
     if checkpointer is None:
-        raise RuntimeError(
-            "Checkpoint is not enabled. "
-            "Enable checkpoint in settings to use this function."
-        )
+        raise RuntimeError("Checkpoint is not enabled. Enable checkpoint in settings to use this function.")
 
     try:
         await checkpointer.adelete_thread(thread_id)

@@ -12,4 +12,4 @@ Uses PostgreSQL as the production-ready backend with:
 # Use psycopg2 driver for VPN stability
 from .postgresql_backend import PostgreSQLBackend
 
-__all__ = ['PostgreSQLBackend']
+__all__ = ["PostgreSQLBackend"]

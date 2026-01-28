@@ -22,8 +22,8 @@ class TLSConfig:
     """TLS configuration for Docker Remote API"""
 
     client_cert: str  # Path to client certificate
-    client_key: str   # Path to client key
-    ca_cert: str      # Path to CA certificate
+    client_key: str  # Path to client key
+    ca_cert: str  # Path to CA certificate
     verify: bool = True  # Verify server certificate
 
     def validate(self) -> bool:
@@ -37,9 +37,7 @@ class TLSConfig:
     def to_docker_tls(self) -> docker.tls.TLSConfig:
         """Convert to docker.tls.TLSConfig"""
         return docker.tls.TLSConfig(
-            client_cert=(self.client_cert, self.client_key),
-            ca_cert=self.ca_cert,
-            verify=self.verify
+            client_cert=(self.client_cert, self.client_key), ca_cert=self.ca_cert, verify=self.verify
         )
 
 
@@ -114,16 +112,9 @@ class DockerRemoteAPIManager:
             # Create Docker client
             if host.tls_config:
                 tls = host.tls_config.to_docker_tls()
-                client = docker.DockerClient(
-                    base_url=host.base_url,
-                    tls=tls,
-                    timeout=30
-                )
+                client = docker.DockerClient(base_url=host.base_url, tls=tls, timeout=30)
             else:
-                client = docker.DockerClient(
-                    base_url=host.base_url,
-                    timeout=30
-                )
+                client = docker.DockerClient(base_url=host.base_url, timeout=30)
 
             # Test connection
             client.ping()
@@ -178,7 +169,7 @@ class DockerRemoteAPIManager:
         environment: Optional[Dict[str, str]] = None,
         ports: Optional[Dict[str, int]] = None,
         volumes: Optional[Dict[str, Dict[str, str]]] = None,
-        **kwargs
+        **kwargs,
     ) -> Optional[Dict[str, Any]]:
         """
         Create container on remote host
@@ -211,23 +202,23 @@ class DockerRemoteAPIManager:
 
             # Build container parameters
             container_kwargs = {
-                'image': image,
-                'command': command,
-                'detach': True,
+                "image": image,
+                "command": command,
+                "detach": True,
             }
 
             if name:
-                container_kwargs['name'] = name
+                container_kwargs["name"] = name
             if environment:
-                container_kwargs['environment'] = environment
+                container_kwargs["environment"] = environment
             if ports:
-                container_kwargs['ports'] = ports
+                container_kwargs["ports"] = ports
             if volumes:
-                container_kwargs['volumes'] = volumes
+                container_kwargs["volumes"] = volumes
 
             #  user=f"{uid}:{gid}"
-            container_kwargs['user'] = f'{os.environ[DOCKER_RUN_USER]}:{os.environ[DOCKER_RUN_GROUP]}'
-            container_kwargs['cap_add'] = DOCKER_RUN_CAPS
+            container_kwargs["user"] = f"{os.environ[DOCKER_RUN_USER]}:{os.environ[DOCKER_RUN_GROUP]}"
+            container_kwargs["cap_add"] = DOCKER_RUN_CAPS
 
             container_kwargs.update(kwargs)
 
@@ -246,12 +237,12 @@ class DockerRemoteAPIManager:
             logger.info(f"Container created on {host_name}: {container.short_id}")
 
             return {
-                'host': host_name,
-                'container_id': container.id,
-                'container_short_id': container.short_id,
-                'name': container.name,
-                'image': image,
-                'status': container.status,
+                "host": host_name,
+                "container_id": container.id,
+                "container_short_id": container.short_id,
+                "name": container.name,
+                "image": image,
+                "status": container.status,
             }
 
         except Exception as e:
@@ -284,16 +275,11 @@ class DockerRemoteAPIManager:
                 return None
 
             container = client.containers.get(container_id)
-            result = container.exec_run(
-                cmd=command,
-                stdout=True,
-                stderr=True,
-                timeout=timeout
-            )
+            result = container.exec_run(cmd=command, stdout=True, stderr=True, timeout=timeout)
 
             exit_code = result.exit_code
-            stdout = result.output.decode('utf-8', errors='ignore') if result.output else ''
-            stderr = ''
+            stdout = result.output.decode("utf-8", errors="ignore") if result.output else ""
+            stderr = ""
 
             logger.debug(f"Command executed on {host_name}: {command} (exit_code={exit_code})")
             return exit_code, stdout, stderr
@@ -432,12 +418,12 @@ class DockerRemoteAPIManager:
 
             return [
                 {
-                    'id': c.id,
-                    'short_id': c.short_id,
-                    'name': c.name,
-                    'image': c.image.tags[0] if c.image.tags else 'unknown',
-                    'status': c.status,
-                    'created': c.attrs.get('Created'),
+                    "id": c.id,
+                    "short_id": c.short_id,
+                    "name": c.name,
+                    "image": c.image.tags[0] if c.image.tags else "unknown",
+                    "status": c.status,
+                    "created": c.attrs.get("Created"),
                 }
                 for c in containers
             ]
@@ -470,14 +456,14 @@ class DockerRemoteAPIManager:
             container = client.containers.get(container_id)
 
             return {
-                'id': container.id,
-                'short_id': container.short_id,
-                'name': container.name,
-                'image': container.image.tags[0] if container.image.tags else 'unknown',
-                'status': container.status,
-                'created': container.attrs.get('Created'),
-                'state': container.attrs.get('State', {}),
-                'config': container.attrs.get('Config', {}),
+                "id": container.id,
+                "short_id": container.short_id,
+                "name": container.name,
+                "image": container.image.tags[0] if container.image.tags else "unknown",
+                "status": container.status,
+                "created": container.attrs.get("Created"),
+                "state": container.attrs.get("State", {}),
+                "config": container.attrs.get("Config", {}),
             }
 
         except Exception as e:
@@ -510,7 +496,7 @@ class DockerRemoteAPIManager:
             container = client.containers.get(container_id)
             logs = container.logs(tail=tail)
 
-            return logs.decode('utf-8', errors='ignore')
+            return logs.decode("utf-8", errors="ignore")
 
         except Exception as e:
             logger.error(f"Failed to get logs from {host_name}: {e}")
@@ -535,16 +521,16 @@ class DockerRemoteAPIManager:
             info = client.info()
 
             return {
-                'host': host_name,
-                'docker_version': client.version()['Version'],
-                'os': info.get('OperatingSystem'),
-                'kernel_version': info.get('KernelVersion'),
-                'cpu_count': info.get('NCPU'),
-                'memory_bytes': info.get('MemTotal'),
-                'containers_total': info.get('Containers'),
-                'containers_running': info.get('ContainersRunning'),
-                'containers_paused': info.get('ContainersPaused'),
-                'containers_stopped': info.get('ContainersStopped'),
+                "host": host_name,
+                "docker_version": client.version()["Version"],
+                "os": info.get("OperatingSystem"),
+                "kernel_version": info.get("KernelVersion"),
+                "cpu_count": info.get("NCPU"),
+                "memory_bytes": info.get("MemTotal"),
+                "containers_total": info.get("Containers"),
+                "containers_running": info.get("ContainersRunning"),
+                "containers_paused": info.get("ContainersPaused"),
+                "containers_stopped": info.get("ContainersStopped"),
             }
 
         except Exception as e:

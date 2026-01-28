@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class OneGadgetHandler(AbstractHandler):
     """Handler for one_gadget functionality"""
 
@@ -13,8 +14,8 @@ class OneGadgetHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['one_gadget']
+        """Handler related commands"""
+        return ["one_gadget"]
 
     def handle(self, data: Dict) -> Any:
         """Execute one_gadget with enhanced logging"""

@@ -14,8 +14,8 @@ class KubeHunterHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['kube-hunter']
+        """Handler related commands"""
+        return ["kube-hunter"]
 
     def handle(self, data: Dict) -> Any:
         """Execute kube_hunter with enhanced logging"""

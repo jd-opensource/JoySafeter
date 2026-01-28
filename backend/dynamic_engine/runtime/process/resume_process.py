@@ -15,20 +15,13 @@ class ResumeProcessHandler(AbstractHandler):
 
     def handle(self, data: Dict) -> Any:
         try:
-            pid = data.get('pid')
+            pid = data.get("pid")
             success = ProcessManager.resume_process(pid)
             if success:
                 logger.info(f"▶️ Process {pid} resumed successfully")
-                return {
-                    "success": True,
-                    "message": f"Process {pid} resumed successfully"
-                }
+                return {"success": True, "message": f"Process {pid} resumed successfully"}
             else:
-                return {
-                    "success": False,
-                    "error": f"Failed to resume process {pid} or process not found"
-                }
+                return {"success": False, "error": f"Failed to resume process {pid} or process not found"}
         except Exception as e:
             logger.error(f"💥 Error resuming process {pid}: {str(e)}")
             return {"error": f"Server error: {str(e)}"}
-

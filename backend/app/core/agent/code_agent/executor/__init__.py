@@ -56,4 +56,3 @@ __all__ = [
     "DANGEROUS_PATTERNS",
     "DATA_ANALYSIS_PATTERNS",
 ]
-

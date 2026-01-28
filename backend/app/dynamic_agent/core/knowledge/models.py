@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 # From: app/dynamic_agent/core/knowledge/models.py
 # To:   dynamic_engine/handlers/knowledge/ctf
 # Need 5 parents: knowledge -> core -> dynamic_agent -> app -> backend
-CTF_KNOWLEDGE_PATH_LOCAL = Path(__file__).parent.parent.parent.parent.parent / "dynamic_engine" / "handlers" / "knowledge" / "ctf"
+CTF_KNOWLEDGE_PATH_LOCAL = (
+    Path(__file__).parent.parent.parent.parent.parent / "dynamic_engine" / "handlers" / "knowledge" / "ctf"
+)
 # Container path (mounted volume)
 CTF_KNOWLEDGE_PATH_CONTAINER = Path("/opt/ctf/knowledge")
 
@@ -58,10 +60,7 @@ def _get_ctf_knowledge_path() -> Path:
             return env_path
 
         # Path not allowed or doesn't exist, log warning and fallback
-        logger.warning(
-            f"Path {CTF_KNOWLEDGE_PATH_ENV} not allowed or missing, "
-            f"falling back to default path"
-        )
+        logger.warning(f"Path {CTF_KNOWLEDGE_PATH_ENV} not allowed or missing, falling back to default path")
 
     # Check container path first (for Docker environment)
     if CTF_KNOWLEDGE_PATH_CONTAINER.exists():
@@ -92,8 +91,16 @@ FILE_TYPE_MAPPING: dict[str, str] = {
 
 # Base keywords for CTF searches
 BASE_KEYWORDS = [
-    "flag", "ctf", "exploit", "vulnerability", "bypass",
-    "injection", "overflow", "shell", "reverse", "crypto"
+    "flag",
+    "ctf",
+    "exploit",
+    "vulnerability",
+    "bypass",
+    "injection",
+    "overflow",
+    "shell",
+    "reverse",
+    "crypto",
 ]
 
 # Type-specific keywords
@@ -110,15 +117,17 @@ TYPE_KEYWORDS: dict[str, list[str]] = {
 @dataclass
 class Trick:
     """Single solving trick for CTF challenges (simplified format)."""
-    name: str           # trick name
-    when: str           # when to use
-    how: str            # how to do it (one sentence)
-    payload: str = ""   # example payload (optional)
+
+    name: str  # trick name
+    when: str  # when to use
+    how: str  # how to do it (one sentence)
+    payload: str = ""  # example payload (optional)
 
 
 @dataclass
 class CtfKnowledge:
     """CTF knowledge configuration loaded from YAML."""
+
     name: str
     category: str
     tags: list[str] = field(default_factory=list)
@@ -136,6 +145,7 @@ class CtfKnowledge:
 @dataclass
 class KeywordSearchContext:
     """Context for keyword-guided search."""
+
     challenge_type: str
     user_hints: list[str] = field(default_factory=list)
     file_signals: list[str] = field(default_factory=list)
@@ -176,4 +186,4 @@ class KeywordSearchContext:
             add_keyword(kw)
 
         # Cap total keywords
-        return keywords[:self.max_keywords]
+        return keywords[: self.max_keywords]

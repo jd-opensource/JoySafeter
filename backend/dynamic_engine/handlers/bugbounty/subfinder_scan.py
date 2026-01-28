@@ -14,8 +14,8 @@ class SubfinderHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['subfinder']
+        """Handler related commands"""
+        return ["subfinder"]
 
     def handle(self, data: Dict) -> Any:
         """Execute subfinder with enhanced logging"""
@@ -26,11 +26,7 @@ class SubfinderHandler(AbstractHandler):
             additional_args = data.get("additional_args", "")
             if not domain:
                 logger.warning("🌐 Subfinder called without domain parameter")
-                return {
-
-                    "error": "Domain parameter is required"
-
-                }
+                return {"error": "Domain parameter is required"}
             command = f"subfinder -d {domain}"
             if silent:
                 command += " -silent"
@@ -44,8 +40,4 @@ class SubfinderHandler(AbstractHandler):
             return result
         except Exception as e:
             logger.error(f"💥 Error in subfinder endpoint: {str(e)}")
-            return {
-
-                "error": f"Server error: {str(e)}"
-
-            }
+            return {"error": f"Server error: {str(e)}"}

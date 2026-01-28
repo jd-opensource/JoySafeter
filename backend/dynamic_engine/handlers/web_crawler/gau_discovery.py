@@ -14,8 +14,8 @@ class GauHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['gau']
+        """Handler related commands"""
+        return ["gau"]
 
     def handle(self, data: Dict) -> Any:
         """Execute gau with enhanced logging"""

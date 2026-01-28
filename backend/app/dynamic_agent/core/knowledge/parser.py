@@ -72,11 +72,7 @@ def normalize_knowledge(yaml_data: dict[str, Any]) -> dict[str, Any]:
         "indicators": yaml_data.get("indicators", []),
         "tricks": [],
         "difficulty": yaml_data.get("severity", "medium"),
-        "references": [
-            ref.get("url", "")
-            for ref in yaml_data.get("references", [])
-            if isinstance(ref, dict)
-        ],
+        "references": [ref.get("url", "") for ref in yaml_data.get("references", []) if isinstance(ref, dict)],
     }
 
     # Convert attack_steps to tricks
@@ -102,5 +98,3 @@ def normalize_knowledge(yaml_data: dict[str, Any]) -> dict[str, Any]:
             )
 
     return normalized
-
-

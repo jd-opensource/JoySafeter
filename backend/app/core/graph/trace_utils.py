@@ -163,7 +163,3 @@ def log_node_execution(
             f"node_id={node_id} | node_type={node_type} | "
             f"duration={trace.duration_ms:.2f}ms"
         )
-
-
-
-

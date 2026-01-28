@@ -8,36 +8,64 @@ import yaml
 
 # Pattern to match YAML frontmatter at the beginning of a file
 # Matches: ---\n<yaml content>\n---\n
-YAML_FRONTMATTER_PATTERN = re.compile(r'^---\s*\n(.*?)\n---\s*\n?', re.DOTALL)
+YAML_FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
 # File extensions that are commonly used and safe
 COMMON_EXTENSIONS = {
-    ".md", ".txt", ".rst",  # Documentation
-    ".py", ".js", ".ts", ".jsx", ".tsx",  # Scripts
-    ".sh", ".bash", ".zsh",  # Shell scripts
-    ".json", ".yaml", ".yml", ".toml",  # Config files
-    ".html", ".css", ".scss",  # Web assets
-    ".svg", ".xml",  # Other formats
+    ".md",
+    ".txt",
+    ".rst",  # Documentation
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",  # Scripts
+    ".sh",
+    ".bash",
+    ".zsh",  # Shell scripts
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",  # Config files
+    ".html",
+    ".css",
+    ".scss",  # Web assets
+    ".svg",
+    ".xml",  # Other formats
 }
 
 # File extensions that should trigger a warning (potentially unsafe/binary)
 WARNED_EXTENSIONS = {
-    ".exe", ".dll", ".bin", ".so", ".dylib",  # Executables
-    ".class", ".jar", ".war",  # Java
-    ".o", ".a", ".lib",  # Object files
-    ".zip", ".tar", ".gz", ".rar", ".7z",  # Archives
-    ".db", ".sqlite", ".sqlite3",  # Databases
+    ".exe",
+    ".dll",
+    ".bin",
+    ".so",
+    ".dylib",  # Executables
+    ".class",
+    ".jar",
+    ".war",  # Java
+    ".o",
+    ".a",
+    ".lib",  # Object files
+    ".zip",
+    ".tar",
+    ".gz",
+    ".rar",
+    ".7z",  # Archives
+    ".db",
+    ".sqlite",
+    ".sqlite3",  # Databases
 }
 
 # System files that should be automatically filtered
 SYSTEM_FILES = {
-    ".DS_Store",           # macOS
-    "Thumbs.db",           # Windows
-    ".gitkeep",            # Git
-    "desktop.ini",         # Windows
-    ".Spotlight-V100",     # macOS
-    ".Trashes",            # macOS
-    "__MACOSX",            # macOS (zip extraction artifact)
+    ".DS_Store",  # macOS
+    "Thumbs.db",  # Windows
+    ".gitkeep",  # Git
+    "desktop.ini",  # Windows
+    ".Spotlight-V100",  # macOS
+    ".Trashes",  # macOS
+    "__MACOSX",  # macOS (zip extraction artifact)
 }
 
 
@@ -62,7 +90,7 @@ def parse_skill_md(content: str) -> Tuple[Dict[str, Any], str]:
         except yaml.YAMLError:
             # If YAML parsing fails, treat entire content as body
             return {}, content
-        body = content[match.end():]
+        body = content[match.end() :]
         return frontmatter, body
 
     return {}, content
@@ -82,13 +110,16 @@ def generate_skill_md(name: str, description: str, body: str = "") -> str:
     # Escape any special characters in the description for YAML
     # Use literal block style if description contains newlines
     if "\n" in description:
-        desc_yaml = f'description: |\n  {description.replace(chr(10), chr(10) + "  ")}'
+        desc_yaml = f"description: |\n  {description.replace(chr(10), chr(10) + '  ')}"
     else:
         # Quote the description if it contains special YAML characters
-        if any(c in description for c in [':', '#', '[', ']', '{', '}', ',', '&', '*', '!', '|', '>', "'", '"', '%', '@', '`']):
+        if any(
+            c in description
+            for c in [":", "#", "[", "]", "{", "}", ",", "&", "*", "!", "|", ">", "'", '"', "%", "@", "`"]
+        ):
             desc_yaml = f'description: "{description}"'
         else:
-            desc_yaml = f'description: {description}'
+            desc_yaml = f"description: {description}"
 
     frontmatter = f"""---
 name: {name}
@@ -200,7 +231,7 @@ def is_valid_text_content(content: str) -> Tuple[bool, Optional[str]]:
     # Check if content can be encoded/decoded as UTF-8
     try:
         # Try to encode and decode to ensure it's valid UTF-8
-        content.encode('utf-8').decode('utf-8')
+        content.encode("utf-8").decode("utf-8")
     except UnicodeDecodeError as e:
         return False, f"File is not valid UTF-8 text: {str(e)}"
     except UnicodeEncodeError as e:
@@ -208,7 +239,7 @@ def is_valid_text_content(content: str) -> Tuple[bool, Optional[str]]:
 
     # Check for high ratio of non-printable characters (excluding common whitespace)
     # This is a heuristic to detect binary files
-    non_printable = sum(1 for c in content if ord(c) < 32 and c not in '\n\r\t')
+    non_printable = sum(1 for c in content if ord(c) < 32 and c not in "\n\r\t")
     total_chars = len(content)
 
     if total_chars > 0 and non_printable / total_chars > 0.05:

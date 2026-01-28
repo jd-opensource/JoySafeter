@@ -79,7 +79,7 @@ class BackendFactory:
         data = node.data or {}
         config = data.get("config", {})
         backend_type = config.get("backend_type", BACKEND_TYPE_FILESYSTEM)
-        node_label = data.get('label', 'unknown')
+        node_label = data.get("label", "unknown")
 
         if backend_type == BACKEND_TYPE_DOCKER:
             return BackendFactory._create_docker_backend(config, node_label)
@@ -154,12 +154,8 @@ class BackendFactory:
             )
             return backend
         except Exception as e:
-            logger.error(
-                f"{LOG_PREFIX} Failed to create PydanticSandboxAdapter for node '{node_label}': {e}"
-            )
-            raise RuntimeError(
-                f"{LOG_PREFIX} Failed to create Docker backend for node '{node_label}': {e}"
-            ) from e
+            logger.error(f"{LOG_PREFIX} Failed to create PydanticSandboxAdapter for node '{node_label}': {e}")
+            raise RuntimeError(f"{LOG_PREFIX} Failed to create Docker backend for node '{node_label}': {e}") from e
 
     @staticmethod
     def _create_filesystem_backend(
@@ -194,12 +190,11 @@ class BackendFactory:
             ) from e
 
         # 获取基础路径
-        workspace_root = os.getenv('DEEPAGENTS_WORKSPACE_ROOT', '/tmp/deepagents_workspaces')
+        workspace_root = os.getenv("DEEPAGENTS_WORKSPACE_ROOT", "/tmp/deepagents_workspaces")
 
         # 安全清理所有路径组件
         user_dir = sanitize_path_component(user_id, default="default")
         subdir = sanitize_path_component(workspace_subdir, default="default")
-
 
         # 构建完整路径: {workspace_root}/{user_id}/{workspace_subdir}/
         workspace_dir = Path(workspace_root) / user_dir / subdir
@@ -227,9 +222,7 @@ class BackendFactory:
             )
             return backend
         except Exception as e:
-            raise RuntimeError(
-                f"{LOG_PREFIX} Failed to create FilesystemBackend for node '{node_label}': {e}"
-            ) from e
+            raise RuntimeError(f"{LOG_PREFIX} Failed to create FilesystemBackend for node '{node_label}': {e}") from e
 
     @staticmethod
     def create_backend_with_fallback(
@@ -253,7 +246,7 @@ class BackendFactory:
         data = node.data or {}
         config = data.get("config", {})
         backend_type = config.get("backend_type", BACKEND_TYPE_FILESYSTEM)
-        node_label = data.get('label', 'unknown')
+        node_label = data.get("label", "unknown")
 
         # If already filesystem, create directly
         if backend_type == BACKEND_TYPE_FILESYSTEM:

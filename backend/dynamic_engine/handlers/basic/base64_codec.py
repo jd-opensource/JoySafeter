@@ -21,7 +21,7 @@ class Base64CodecHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
+        """Handler related commands"""
         return []
 
     def handle(self, data: Dict) -> Any:

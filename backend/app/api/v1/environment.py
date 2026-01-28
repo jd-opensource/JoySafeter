@@ -31,9 +31,7 @@ class EnvPayload(BaseModel):
     variables: Dict[str, str] = Field(default_factory=dict)
 
 
-async def _ensure_workspace_role(
-    db: AsyncSession, workspace_id: uuid.UUID, user: User, min_role: WorkspaceMemberRole
-):
+async def _ensure_workspace_role(db: AsyncSession, workspace_id: uuid.UUID, user: User, min_role: WorkspaceMemberRole):
     repo = WorkspaceMemberRepository(db)
     member = await repo.get_member(workspace_id, user.id)
     if not member:
@@ -57,6 +55,7 @@ async def get_user_environment(
     # Note: EnvironmentService expects uuid.UUID but user.id and Environment.user_id are both strings.
     # Converting str to UUID for compatibility with service signature
     import uuid as uuid_lib
+
     user_id = uuid_lib.UUID(current_user.id) if isinstance(current_user.id, str) else current_user.id
     variables = await service.get_user_env(user_id)
     return {"success": True, "variables": service.mask_variables(variables)}
@@ -72,6 +71,7 @@ async def update_user_environment(
     # Note: EnvironmentService expects uuid.UUID but user.id and Environment.user_id are both strings.
     # Converting str to UUID for compatibility with service signature
     import uuid as uuid_lib
+
     user_id = uuid_lib.UUID(current_user.id) if isinstance(current_user.id, str) else current_user.id
     variables = await service.upsert_user_env(user_id, payload.variables)
     return {"success": True, "variables": service.mask_variables(variables)}
@@ -98,5 +98,3 @@ async def update_workspace_environment(
     service = EnvironmentService(db)
     variables = await service.upsert_workspace_env(workspace_id, payload.variables)
     return {"success": True, "variables": service.mask_variables(variables)}
-
-

@@ -6,4 +6,4 @@ THINK_TOOL = "think_tool"
 MAX_AGENT_DEPTH = 3
 MAX_SUBAGENT_NUM_ONCE = 2
 
-WORKSPACE = '/workspace'
+WORKSPACE = "/workspace"

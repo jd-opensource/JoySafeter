@@ -24,21 +24,14 @@ __all__ = [
     "get_time_aware_guidance",
     # Task autonomy tools
     "TaskState",
-    "should_continue_task"
+    "should_continue_task",
 ]
 
 # Export LangChain tools list
-time_aware_tools = [
-    get_current_time,
-    get_execution_elapsed_time,
-    should_continue_analysis,
-    get_time_aware_guidance
-]
+time_aware_tools = [get_current_time, get_execution_elapsed_time, should_continue_analysis, get_time_aware_guidance]
 
 # Task autonomy tools list
-task_autonomy_tools = [
-    should_continue_task
-]
+task_autonomy_tools = [should_continue_task]
 
 # All awareness tools
 all_aware_tools = time_aware_tools + task_autonomy_tools

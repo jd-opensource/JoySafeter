@@ -275,4 +275,3 @@ class NodeConfigHelper:
             logger.warning(f"HTTP request config validation errors: {errors}")
 
         return config
-

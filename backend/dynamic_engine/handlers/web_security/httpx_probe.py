@@ -6,6 +6,7 @@ from dynamic_engine.runtime.command.command_executor import execute_command
 
 logger = logging.getLogger(__name__)
 
+
 class HttpxHandler(AbstractHandler):
     """Handler for httpx functionality"""
 
@@ -13,8 +14,8 @@ class HttpxHandler(AbstractHandler):
         return HandlerType.PYTHON
 
     def commands(self) -> list:
-        '''Handler related commands'''
-        return ['httpx']
+        """Handler related commands"""
+        return ["httpx"]
 
     def handle(self, data: Dict) -> Any:
         """Execute httpx with enhanced logging"""
