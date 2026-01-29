@@ -2,13 +2,13 @@
 
 /**
  * CopilotPanel - Main Copilot component
- * 
+ *
  * Architecture:
  * - useCopilotState: Unified state management
  * - useCopilotWebSocketHandler: WebSocket event handling
  * - useCopilotActions: Business logic (send, stop, reset)
  * - useCopilotEffects: Side effects (session recovery, auto-scroll, URL params)
- * 
+ *
  * This component is now focused solely on UI rendering and composition.
  */
 
@@ -37,10 +37,10 @@ export const CopilotPanel: React.FC = () => {
   const { t } = useTranslation()
   const params = useParams()
   const graphId = params.agentId as string | undefined
-  
+
   // Unified state management
   const { state, actions, refs } = useCopilotState(graphId)
-  
+
   // WebSocket event handlers
   const webSocketCallbacks = useCopilotWebSocketHandler({
     state,
@@ -48,7 +48,7 @@ export const CopilotPanel: React.FC = () => {
     refs,
     graphId,
   })
-  
+
   // Business logic handlers
   const {
     handleSend,
@@ -62,7 +62,7 @@ export const CopilotPanel: React.FC = () => {
     refs,
     graphId,
   })
-  
+
   // Side effects (session recovery, auto-scroll, URL params, etc.)
   useCopilotEffects({
     state,
@@ -71,29 +71,29 @@ export const CopilotPanel: React.FC = () => {
     graphId,
     handleSendWithInput,
   })
-  
+
   // WebSocket connection
   useCopilotWebSocket({
     sessionId: state.currentSessionId,
     callbacks: webSocketCallbacks,
     autoReconnect: true,
   })
-  
+
   // Stage config
   const stageConfig = getStageConfig(t)
-  
+
   // Copy streaming content handler
   const handleCopyStreaming = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(state.streamingContent)
       if (!refs.isMountedRef.current) return
-      
+
       // Clear previous timeout if exists
       if (refs.copyTimeoutRef.current) {
         clearTimeout(refs.copyTimeoutRef.current)
         refs.copyTimeoutRef.current = null
       }
-      
+
       actions.setCopiedStreaming(true)
       refs.copyTimeoutRef.current = setTimeout(() => {
         if (refs.isMountedRef.current) {
@@ -105,7 +105,7 @@ export const CopilotPanel: React.FC = () => {
       console.error('Failed to copy:', err)
     }
   }, [state.streamingContent, actions, refs])
-  
+
   return (
     <CopilotErrorBoundary>
       <div className="flex flex-col h-full bg-white relative">
@@ -121,7 +121,7 @@ export const CopilotPanel: React.FC = () => {
               <span className="text-xs text-gray-500">{t('workspace.loadingHistory')}</span>
             </div>
           )}
-          
+
           {/* Chat messages */}
           <CopilotChat
             messages={state.messages}
@@ -130,7 +130,7 @@ export const CopilotPanel: React.FC = () => {
             onToggleExpand={actions.toggleExpand}
             formatActionContent={formatActionContent}
           />
-          
+
           {/* Streaming content */}
           <CopilotStreaming
             loading={state.loading}
@@ -146,7 +146,7 @@ export const CopilotPanel: React.FC = () => {
             onCopyStreaming={handleCopyStreaming}
           />
         </div>
-        
+
         {/* Input area */}
         <CopilotInput
           input={state.input}

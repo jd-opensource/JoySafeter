@@ -14,7 +14,7 @@ interface ModelsPageProps {
 
 export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPageProps) {
   const { t } = useTranslation()
-  
+
   const { data: providers = [], isLoading: providersLoading } = useModelProviders()
   const { data: credentials = [], isLoading: credentialsLoading } = useModelCredentials(workspaceId)
 
@@ -124,4 +124,3 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
     </div>
   )
 }
-

@@ -37,14 +37,14 @@ function getStatusInfo(status: ExecutionStatus): { color: string; icon: string; 
 
 /**
  * AgentNode component - displays individual agent information
- * 
+ *
  * Props:
  * - agent: Agent data to display
  * - isSelected: Whether this agent is currently selected
  * - isExpanded: Whether child agents are expanded
  * - onToggleExpand: Callback when expand/collapse button is clicked
  * - onJumpToParent: Callback when jump to parent button is clicked
- * 
+ *
  * Features:
  * - Level-based indentation and color coding
  * - Level badge display
@@ -54,8 +54,8 @@ function getStatusInfo(status: ExecutionStatus): { color: string; icon: string; 
  * - Status indicator with color and icon
  * - Hover tooltip with task description
  */
-export const AgentNode: React.FC<AgentNodeProps> = React.memo(({ 
-  agent, 
+export const AgentNode: React.FC<AgentNodeProps> = React.memo(({
+  agent,
   isSelected = false,
   isExpanded = false,
   onToggleExpand,
@@ -76,7 +76,7 @@ export const AgentNode: React.FC<AgentNodeProps> = React.memo(({
   const isRoot = agent.level === 1;
 
   return (
-    <div 
+    <div
       className={`agent-node ${isSelected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''} ${isRunning ? 'running' : ''} ${isRoot ? 'root-node' : ''}`}
       style={{ marginLeft: `${levelIndent}px` }}
     >
@@ -96,7 +96,7 @@ export const AgentNode: React.FC<AgentNodeProps> = React.memo(({
             {agent.name}
           </div>
           <div className="agent-meta">
-            <span 
+            <span
               className="agent-level-badge"
               style={{ backgroundColor: levelColor }}
             >

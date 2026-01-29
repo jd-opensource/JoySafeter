@@ -650,5 +650,3 @@ export const validateNodeConfig = (
 
   return errors
 }
-
-

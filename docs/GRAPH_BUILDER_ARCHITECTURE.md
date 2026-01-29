@@ -33,41 +33,41 @@ flowchart TB
         PropsPanel[PropertiesPanel<br/>节点配置面板]
         Types[graph.ts<br/>类型定义]
     end
-    
+
     subgraph Factory["GraphBuilder 工厂层"]
         GB[GraphBuilder<br/>自动选择构建器]
     end
-    
+
     subgraph Builders["构建器层"]
         LGB[LanggraphModelBuilder<br/>标准 LangGraph]
         DAGB[DeepAgentsGraphBuilder<br/>DeepAgents 星型结构]
     end
-    
+
     subgraph DeepAgents["DeepAgents 组件"]
         BM[BackendManager<br/>共享后端管理]
         SM[SkillsManager<br/>技能管理]
         NF[NodeFactory<br/>节点工厂]
         AC[AgentConfig<br/>配置解析]
     end
-    
+
     subgraph Backend["后端层 Python/FastAPI"]
         BaseBuilder[BaseGraphBuilder<br/>基础构建器]
         Executors[NodeExecutors<br/>节点执行器]
         State[GraphState<br/>状态定义]
         Validator[NodeConfigValidator<br/>配置验证器]
     end
-    
+
     subgraph Runtime["运行时层"]
         LG[LangGraph<br/>StateGraph]
         DA[DeepAgents<br/>Manager/SubAgent]
         Checkpointer[Checkpointer<br/>状态持久化]
     end
-    
+
     subgraph Data["数据层"]
         DB[(PostgreSQL<br/>图存储)]
         API[REST API<br/>GraphRouter]
     end
-    
+
     UI --> Store
     Store --> API
     API --> GB
@@ -150,11 +150,11 @@ def _create_builder(self) -> BaseGraphBuilder:
 ```python
 class GraphBuilder:
     """Factory class that selects appropriate builder based on graph configuration.
-    
+
     Automatically detects if DeepAgents mode should be used and delegates
     to the appropriate builder implementation.
     """
-    
+
     def _has_deep_agents_nodes(self) -> bool:
         """检查是否有节点启用了 DeepAgents"""
         for node in self.nodes:
@@ -162,14 +162,14 @@ class GraphBuilder:
             if config.get("useDeepAgents", False) is True:
                 return True
         return False
-    
+
     def _create_builder(self) -> BaseGraphBuilder:
         """创建合适的构建器实例"""
         if self._has_deep_agents_nodes():
             return DeepAgentsGraphBuilder(...)
         else:
             return LanggraphModelBuilder(...)
-    
+
     async def build(self) -> CompiledStateGraph:
         """异步构建并编译 StateGraph"""
         builder = self._create_builder()
@@ -218,13 +218,13 @@ compiled_graph = await builder.build()
 ```python
 class LanggraphModelBuilder(BaseGraphBuilder):
     """构建标准 LangGraph，支持 START/END 节点。
-    
+
     支持:
     - 条件路由 (RouterNodeExecutor, ConditionNodeExecutor)
     - 循环 (LoopConditionNodeExecutor)
     - 并行执行 (Fan-Out/Fan-In)
     """
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._conditional_nodes: Set[str] = set()      # 条件边节点
@@ -249,7 +249,7 @@ flowchart LR
         E[添加 END 边]
         CO[编译图]
     end
-    
+
     V --> L --> P --> N --> C --> S --> R --> E --> CO
 ```
 
@@ -301,7 +301,7 @@ class BaseGraphBuilder(ABC):
 async def _create_node_executor(self, node: GraphNode, node_name: str) -> Any:
     """根据节点类型创建对应的执行器"""
     node_type = self._get_node_type(node)
-    
+
     if node_type == "agent":
         return AgentNodeExecutor(node, node_name, ...)
     elif node_type == "condition":
@@ -338,13 +338,13 @@ async def _create_node_executor(self, node: GraphNode, node_name: str) -> Any:
 ```python
 class RouterNodeExecutor:
     """多规则路由执行器"""
-    
+
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
         self.rules = self._get_rules()  # 按优先级排序
         self.handle_to_route_map: Dict[str, str] = {}
-    
+
     async def __call__(self, state: GraphState) -> str:
         """返回 route_key，映射到条件边"""
         for rule in self.rules:
@@ -361,26 +361,26 @@ class RouterNodeExecutor:
 ```python
 class GraphState(MessagesState):
     """工作流图状态，支持复杂流程模式"""
-    
+
     # ==================== 基础字段 ====================
     messages: Annotated[List[BaseMessage], add_messages]
     current_node: Optional[str]
     context: Dict[str, Any]
     todos: NotRequired[Annotated[List[Dict[str, Any]], add_todos]]
-    
+
     # ==================== 路由控制 ====================
     route_decision: NotRequired[str]
     route_history: NotRequired[Annotated[List[str], operator.add]]
-    
+
     # ==================== 循环控制 ====================
     loop_count: NotRequired[int]
     loop_condition_met: NotRequired[bool]
     max_loop_iterations: NotRequired[int]
-    
+
     # ==================== 并行执行 ====================
     task_results: NotRequired[Annotated[List[Dict[str, Any]], add_task_results]]
     parallel_results: NotRequired[Annotated[List[Any], operator.add]]
-    
+
     # ==================== 作用域状态 ====================
     loop_states: NotRequired[Annotated[Dict[str, Dict[str, Any]], merge_loop_states]]
     task_states: NotRequired[Annotated[Dict[str, Dict[str, Any]], merge_task_states]]
@@ -445,7 +445,7 @@ export const nodeRegistry = {
   getGrouped: () => ({
     Agents: ['agent', 'llm_node'],
     'Flow Control': ['condition', 'condition_agent', 'router_node', 'loop_condition_node'],
-    Actions: ['custom_function', 'http', 'http_request_node', 'human_input', 'direct_reply', 
+    Actions: ['custom_function', 'http', 'http_request_node', 'human_input', 'direct_reply',
               'tool_node', 'function_node', 'json_parser_node'],
     Aggregation: ['aggregator_node'],
   }),
@@ -466,11 +466,11 @@ interface BuilderState {
   rfInstance: ReactFlowInstance | null
   selectedNodeId: string | null
   selectedEdgeId: string | null
-  
+
   // 历史状态 (Undo/Redo)
   past: HistoryState[]
   future: HistoryState[]
-  
+
   // 持久化状态
   graphId: string | null
   graphName: string | null
@@ -500,10 +500,10 @@ onConnect: (connection: Connection) => {
   const sourceType = sourceNode?.data?.type || ''
   const isConditionalSource = ['router_node', 'condition', 'loop_condition_node']
     .includes(sourceType)
-  
+
   // 自动设置 edge_type
   let edgeType: EdgeData['edge_type'] = isConditionalSource ? 'conditional' : 'normal'
-  
+
   // 自动推断 route_key
   if (sourceType === 'condition') {
     const hasTrueEdge = edges.some(e => e.data?.route_key === 'true')
@@ -565,19 +565,19 @@ const getHandleIdSuggestions = () => {
 export interface EdgeData {
   /** 路由键：匹配 Executor 返回值 */
   route_key?: string
-  
+
   /** React Flow Handle ID */
   source_handle_id?: string
-  
+
   /** 边类型 */
   edge_type?: 'normal' | 'conditional' | 'loop_back'
-  
+
   /** 显示标签 */
   label?: string
-  
+
   /** 条件表达式（边级别条件） */
   condition?: string
-  
+
   /** 路径控制点（loop_back 边） */
   waypoints?: Array<{ x: number; y: number }>
 }
@@ -607,7 +607,7 @@ sequenceDiagram
     participant Store as builderStore
     participant API as REST API
     participant DB as PostgreSQL
-    
+
     User->>Canvas: 编辑节点/边
     Canvas->>Store: updateNodeConfig / updateEdge
     Store->>Store: triggerAutoSave (防抖 2s)
@@ -628,24 +628,24 @@ sequenceDiagram
     participant Base as BaseGraphBuilder
     participant Exec as NodeExecutors
     participant LG as LangGraph
-    
+
     API->>Builder: build(graph, nodes, edges)
     Builder->>Builder: validate_graph_structure()
     Builder->>Builder: _identify_loop_bodies()
     Builder->>Builder: _identify_parallel_nodes()
-    
+
     loop 每个节点
         Builder->>Base: _create_node_executor(node)
         Base->>Exec: new XxxNodeExecutor(node, name)
         Exec-->>Builder: executor
         Builder->>LG: workflow.add_node(name, executor)
     end
-    
+
     loop 条件节点
         Builder->>Builder: _build_conditional_edges_for_xxx()
         Builder->>LG: workflow.add_conditional_edges()
     end
-    
+
     Builder->>LG: workflow.add_edge(START, first_node)
     Builder->>LG: workflow.add_edge(last_node, END)
     Builder->>LG: workflow.compile(checkpointer)
@@ -662,10 +662,10 @@ sequenceDiagram
     participant Graph as CompiledGraph
     participant Exec as NodeExecutor
     participant State as GraphState
-    
+
     Client->>API: POST /api/chat (SSE)
     API->>Graph: ainvoke({"messages": [...]})
-    
+
     loop 每个节点
         Graph->>State: 读取当前状态
         Graph->>Exec: __call__(state)
@@ -675,7 +675,7 @@ sequenceDiagram
         Graph-->>API: SSE event (node_start/node_end)
         API-->>Client: 流式推送
     end
-    
+
     Graph-->>API: 最终结果
     API-->>Client: SSE event (end)
 ```
@@ -689,19 +689,19 @@ flowchart LR
         E1["边 1 配置<br/>route_key: 'high'"]
         E2["边 2 配置<br/>route_key: 'low'"]
     end
-    
+
     subgraph Backend["后端处理"]
         B1["_build_conditional_edges_for_router()"]
         B2["conditional_map = {<br/>'high': 'node_a',<br/>'low': 'node_b'}"]
         B3["add_conditional_edges(<br/>router_name,<br/>executor,<br/>conditional_map)"]
     end
-    
+
     subgraph Runtime["运行时"]
         R2["RouterNodeExecutor.__call__()"]
         R3["返回 route_key: 'high'"]
         R4["LangGraph 选择边<br/>→ node_a"]
     end
-    
+
     R1 --> B1
     E1 --> B1
     E2 --> B1
@@ -924,20 +924,20 @@ result = {
 interface EdgeData {
   /**
    * 路由键 - 匹配节点执行器返回的路由决策
-   * 
+   *
    * 示例:
    * - Condition 节点: "true" | "false"
    * - Router 节点: 自定义键如 "high_score", "default"
    * - Loop 节点: "continue_loop" | "exit_loop"
    */
   route_key?: string
-  
+
   /**
    * React Flow Handle ID
    * 可选，用于高级场景的精确 Handle 绑定
    */
   source_handle_id?: string
-  
+
   /**
    * 边类型
    * - normal: 普通连接（灰色）
@@ -945,17 +945,17 @@ interface EdgeData {
    * - loop_back: 循环回边（紫色虚线）
    */
   edge_type?: 'normal' | 'conditional' | 'loop_back'
-  
+
   /**
    * 显示标签
    */
   label?: string
-  
+
   /**
    * 条件表达式（边级别条件，较少使用）
    */
   condition?: string
-  
+
   /**
    * 路径控制点（loop_back 边可调整路径）
    */
@@ -1018,25 +1018,25 @@ interface EdgeData {
 def _build_conditional_edges_for_router(self, workflow, router_node, router_node_name, router_executor):
     conditional_map = {}
     handle_to_route_map = {}
-    
+
     for edge in self.edges:
         if edge.source_node_id == router_node.id:
             edge_data = edge.data or {}
             source_handle_id = edge_data.get("source_handle_id")
             route_key = edge_data.get("route_key", "default")
-            
+
             # 构建 Handle ID 到 route_key 的映射
             if source_handle_id:
                 handle_to_route_map[source_handle_id] = route_key
-            
+
             # 构建 route_key 到目标节点的映射
             target_name = self._node_id_to_name.get(edge.target_node_id)
             if target_name:
                 conditional_map[route_key] = target_name
-    
+
     # 设置 Handle 映射到执行器
     router_executor.set_handle_to_route_map(handle_to_route_map)
-    
+
     # 添加条件边
     workflow.add_conditional_edges(
         router_node_name,
@@ -1132,7 +1132,7 @@ eval_context = {
     "current_node": state.get("current_node"),
     "loop_count": state.get("loop_count", 0),
     "route_decision": state.get("route_decision"),
-    
+
     # 循环节点额外变量
     "loop_state": loop_states.get(self.node_id, {}),  # 当前循环状态
 }
@@ -1361,7 +1361,7 @@ compiled_graph = await builder.build()  # 内部自动选择实现
 ```python
 class DeepAgentsGraphBuilder(BaseGraphBuilder):
     """Two-level star structure: Root (DeepAgent) → Children (CompiledSubAgent)."""
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._backend_manager = DeepAgentsBackendManager(self.nodes)
@@ -1374,12 +1374,12 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
 ```mermaid
 flowchart TB
     Manager[Manager Agent<br/>根节点 DeepAgent]
-    
+
     Manager -->|task| Worker1[Worker 1<br/>CompiledSubAgent]
     Manager -->|task| Worker2[Worker 2<br/>CompiledSubAgent]
     Manager -->|task| Worker3[Worker 3<br/>CompiledSubAgent]
     Manager -->|task| CodeAgent[CodeAgent<br/>CompiledSubAgent]
-    
+
     style Manager fill:#e1f5ff
     style Worker1 fill:#fff4e1
     style Worker2 fill:#fff4e1
@@ -1425,12 +1425,12 @@ flowchart TD
 ```python
 class DeepAgentsBackendManager:
     """Manages shared Docker backend for DeepAgents graph."""
-    
+
     async def create_shared_backend(self) -> PydanticSandboxAdapter:
         """创建共享 Docker 后端"""
-        
+
     async def get_backend_for_node(
-        self, node: GraphNode, has_skills: bool, 
+        self, node: GraphNode, has_skills: bool,
         create_backend_for_node: callable
     ) -> Optional[Any]:
         """获取节点的后端（优先共享后端）"""
@@ -1451,12 +1451,12 @@ class DeepAgentsBackendManager:
 ```python
 class DeepAgentsSkillsManager:
     """Manages skills for DeepAgents graph."""
-    
+
     async def preload_skills_to_backend(
         self, node: GraphNode, backend: Any
     ) -> None:
         """预加载技能到后端沙箱"""
-        
+
     @staticmethod
     def get_skills_paths(
         has_skills: bool, backend: Optional[Any]
@@ -1479,21 +1479,21 @@ class DeepAgentsSkillsManager:
 ```python
 class DeepAgentsNodeBuilder:
     """Builds nodes for DeepAgents graph."""
-    
+
     async def build_root_node(
         self, node: GraphNode, node_name: str
     ) -> Any:
         """构建根节点（独立 DeepAgent）"""
-        
+
     async def build_manager_node(
-        self, node: GraphNode, node_name: str, 
+        self, node: GraphNode, node_name: str,
         subagents: list[Any], is_root: bool = False
     ) -> Any:
         """构建管理器节点（带 SubAgents 的 DeepAgent）"""
-        
+
     async def build_worker_node(self, node: GraphNode) -> Any:
         """构建工作节点（CompiledSubAgent）"""
-        
+
     async def build_code_agent_node(self, node: GraphNode) -> Any:
         """构建 CodeAgent 节点（CompiledSubAgent）"""
 ```
@@ -1523,10 +1523,10 @@ class AgentConfig:
     middleware: list[Any]
     skills: Optional[list[str]]
     backend: Optional[Any]
-    
+
     @classmethod
     async def from_node(
-        cls, node: GraphNode, builder: Any, 
+        cls, node: GraphNode, builder: Any,
         node_id_to_name: dict
     ) -> "AgentConfig":
         """从节点解析配置"""
@@ -1593,7 +1593,7 @@ sequenceDiagram
     participant User as 用户
     participant Manager as Manager Agent
     participant SubAgent as SubAgent
-    
+
     User->>Manager: 输入任务
     Manager->>Manager: 分析任务
     Manager->>SubAgent: task("具体子任务")
@@ -1815,20 +1815,20 @@ A: CodeAgent 的 `runnable` 必须返回 `AIMessage` 对象，而不是字典。
 ### B.2 数据流完整性
 
 ```
-1. 用户在 GraphSettingsPanel 配置变量   
-   └─▶ builderStore.updateGraphContext('retry_count', 3)   
+1. 用户在 GraphSettingsPanel 配置变量
+   └─▶ builderStore.updateGraphContext('retry_count', 3)
 
-2. 自动保存触发   
-   └─▶ agentService.saveGraphState({ variables: { context: {...} } })   
+2. 自动保存触发
+   └─▶ agentService.saveGraphState({ variables: { context: {...} } })
 
-3. 后端保存   
-   └─▶ graph_service.save_graph_state() → graph.variables = {...}   
+3. 后端保存
+   └─▶ graph_service.save_graph_state() → graph.variables = {...}
 
-4. 用户运行图   
-   └─▶ chat.py: get_user_config(graph_id) → initial_context   
-   └─▶ graph.ainvoke({ "context": initial_context })   
+4. 用户运行图
+   └─▶ chat.py: get_user_config(graph_id) → initial_context
+   └─▶ graph.ainvoke({ "context": initial_context })
 
-5. 条件节点执行   
+5. 条件节点执行
    └─▶ RouterNodeExecutor: eval("context.get('retry_count') < 3") → True ✅
 ```
 
@@ -1852,4 +1852,3 @@ A: CodeAgent 的 `runnable` 必须返回 `AIMessage` 对象，而不是字典。
 | 1.0 | 2026-01-02 | 初始版本，整合所有过程设计文档 |
 | 1.1 | 2026-01-02 | 完善前后端 State 协同架构说明 |
 | 1.2 | 2026-01-22 | 添加 GraphBuilder 工厂模式和 DeepAgents 架构完整文档 |
-

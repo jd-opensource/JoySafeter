@@ -43,7 +43,7 @@
 
 ## 为什么选择 JoySafeter？
 
-> **JoySafeter 不仅是一个提效工具，更是安全能力的「操作系统」**  
+> **JoySafeter 不仅是一个提效工具，更是安全能力的「操作系统」**
 > 它通过可视化的智能编排，将割裂的安全工具统合为协同的 AI 军团，将个人的专家经验沉淀为组织的数字资产，率先在行业内定义了 **AI 驱动安全运营（AISecOps）** 的新范式。
 
 ### 项目背景
@@ -378,12 +378,12 @@ flowchart TB
         Workspace[工作区管理<br/>RBAC]
         Copilot[Copilot AI<br/>图构建助手]
     end
-    
+
     subgraph API["API 层 (FastAPI)"]
         REST[REST API<br/>认证/图/对话/技能]
         SSE[SSE 流式输出<br/>实时事件]
     end
-    
+
     subgraph Services["服务层"]
         GraphSvc[GraphService]
         SkillSvc[SkillService]
@@ -391,7 +391,7 @@ flowchart TB
         McpSvc[McpClientService]
         ToolSvc[ToolService]
     end
-    
+
     subgraph Engine["核心引擎"]
         Builder[GraphBuilder<br/>工厂模式]
         LangBuilder[LanggraphModelBuilder<br/>标准工作流]
@@ -401,38 +401,38 @@ flowchart TB
         SkillSys[技能系统<br/>渐进式披露]
         MemorySys[记忆系统<br/>长短期记忆]
     end
-    
+
     subgraph Runtime["运行时层"]
         LangGraph[LangGraph Runtime<br/>StateGraph]
         Checkpoint[Checkpointer<br/>状态持久化]
     end
-    
+
     subgraph Data["数据层"]
         PG[(PostgreSQL<br/>图/技能/记忆)]
         Redis[(Redis<br/>缓存/限流)]
     end
-    
+
     subgraph MCP["MCP 工具生态"]
         MCPServers[MCP 服务器<br/>200+ 安全工具]
         Tools[工具注册表<br/>统一管理]
     end
-    
+
     UI --> REST
     Trace --> SSE
     Workspace --> REST
     Copilot --> REST
-    
+
     REST --> Services
     SSE --> Services
-    
+
     Services --> Engine
     Engine --> Runtime
     Runtime --> MCP
     Runtime --> Data
-    
+
     MCP --> MCPServers
     MCPServers --> Tools
-    
+
     style Frontend fill:#e1f5ff
     style API fill:#f3e5f5
     style Services fill:#fff3e0
@@ -453,16 +453,16 @@ flowchart LR
     Config[图配置] --> Factory[GraphBuilder 工厂]
     Factory -->|标准节点| LangBuilder[LanggraphModelBuilder]
     Factory -->|useDeepAgents=True| DeepBuilder[DeepAgentsBuilder]
-    
+
     LangBuilder --> BaseBuilder[BaseGraphBuilder]
     DeepBuilder --> BaseBuilder
-    
+
     BaseBuilder --> Executors[节点执行器]
     BaseBuilder --> State[GraphState]
-    
+
     Executors --> LangGraph[LangGraph Runtime]
     State --> LangGraph
-    
+
     style Factory fill:#e1f5ff
     style LangBuilder fill:#fff3e0
     style DeepBuilder fill:#e8f5e8
@@ -482,21 +482,21 @@ DeepAgents 实现星型拓扑，一个 Manager 协调多个 Worker：
 ```mermaid
 flowchart TB
     Manager[Manager Agent<br/>useDeepAgents=True<br/>DeepAgent]
-    
+
     Manager -->|task| Worker1[Worker 1<br/>CompiledSubAgent]
     Manager -->|task| Worker2[Worker 2<br/>CompiledSubAgent]
     Manager -->|task| Worker3[Worker 3<br/>CompiledSubAgent]
     Manager -->|task| CodeAgent[CodeAgent<br/>CompiledSubAgent]
-    
+
     subgraph Backend["共享 Docker 后端"]
         Skills["/workspace/skills/<br/>预加载技能"]
     end
-    
+
     Worker1 --> Backend
     Worker2 --> Backend
     Worker3 --> Backend
     CodeAgent --> Backend
-    
+
     style Manager fill:#e1f5ff
     style Worker1 fill:#fff4e1
     style Worker2 fill:#fff4e1
@@ -522,16 +522,16 @@ sequenceDiagram
     participant Loader as SkillSandboxLoader
     participant Backend as Docker 后端
     participant Filesystem as FilesystemMiddleware
-    
+
     Node->>Middleware: 节点配置（技能 UUIDs）
     Middleware->>Loader: 预加载技能
     Loader->>Backend: 写入技能文件到 /workspace/skills/
     Backend-->>Loader: 技能已加载
     Loader-->>Middleware: 预加载完成
-    
+
     Middleware->>Node: 注入技能摘要到系统提示
     Node->>Node: Agent 仅看到技能摘要
-    
+
     Node->>Filesystem: Agent 读取 /workspace/skills/{skill_name}/SKILL.md
     Filesystem-->>Node: Agent 获得技能内容
 ```
@@ -553,7 +553,7 @@ sequenceDiagram
     participant Manager as MemoryManager
     participant DB as PostgreSQL
     participant Agent as Agent
-    
+
     User->>Middleware: 用户消息
     Middleware->>Manager: 检索相关记忆
     Manager->>DB: 按 user_id/topics 查询记忆
@@ -562,7 +562,7 @@ sequenceDiagram
     Middleware->>Agent: 注入记忆到系统提示
     Agent->>Agent: 带上下文处理
     Agent-->>User: 响应
-    
+
     User->>Middleware: 用户输入（after_model）
     Middleware->>Manager: 存储/更新记忆
     Manager->>DB: 持久化记忆
@@ -581,19 +581,19 @@ sequenceDiagram
 ```mermaid
 flowchart TB
     Node[节点配置] --> Resolver[中间件解析器<br/>策略模式]
-    
+
     Resolver --> SkillMW[SkillMiddleware<br/>优先级: 50]
     Resolver --> MemoryMW[MemoryMiddleware<br/>优先级: 50]
     Resolver --> TagMW[TaggingMiddleware<br/>优先级: 100]
     Resolver --> CustomMW[自定义中间件<br/>可扩展]
-    
+
     SkillMW --> Merge[合并并按优先级排序]
     MemoryMW --> Merge
     TagMW --> Merge
     CustomMW --> Merge
-    
+
     Merge --> Agent[带中间件链的 Agent]
-    
+
     style Resolver fill:#e1f5ff
     style Merge fill:#fff3e0
     style Agent fill:#e8f5e8
@@ -628,7 +628,7 @@ sequenceDiagram
     participant Base as BaseGraphBuilder
     participant Executors as 节点执行器
     participant Runtime as LangGraph Runtime
-    
+
     Frontend->>API: 保存图（nodes, edges, variables）
     API->>Factory: build(graph, nodes, edges)
     Factory->>Factory: 检测 useDeepAgents
@@ -654,20 +654,20 @@ sequenceDiagram
     participant Runtime as LangGraph Runtime
     participant Executors as 节点执行器
     participant SSE as SSE 流式输出
-    
+
     Frontend->>API: POST /api/chat (SSE)
     API->>Service: 加载图配置
     Service->>Builder: 构建编译后的图
     Builder-->>Service: CompiledStateGraph
     Service->>Runtime: ainvoke({"messages": [...]})
-    
+
     loop 每个节点
         Runtime->>Executors: 执行节点
         Executors-->>Runtime: 更新状态
         Runtime->>SSE: 推送事件（node_start/node_end）
         SSE-->>Frontend: 流式更新
     end
-    
+
     Runtime-->>Service: 最终结果
     Service-->>SSE: 结束事件
     SSE-->>Frontend: 流式输出完成
@@ -682,7 +682,7 @@ sequenceDiagram
     participant Backend as 共享后端
     participant Worker1 as Worker 1
     participant Worker2 as Worker 2
-    
+
     User->>Manager: 任务请求
     Manager->>Manager: 分析任务
     Manager->>Backend: 检查预加载技能
@@ -690,12 +690,12 @@ sequenceDiagram
     Worker1->>Backend: 使用技能/代码执行
     Backend-->>Worker1: 结果
     Worker1-->>Manager: 子任务 1 结果
-    
+
     Manager->>Worker2: task("子任务 2")
     Worker2->>Backend: 使用技能/代码执行
     Backend-->>Worker2: 结果
     Worker2-->>Manager: 子任务 2 结果
-    
+
     Manager->>Manager: 整合结果
     Manager-->>User: 最终响应
 ```
@@ -1045,4 +1045,3 @@ git push origin feature/amazing-feature
 <p align="center">
   <sub>如需咨询商业方案，请联系京东科技解决方案团队，联系方式：<a href="mailto:org.ospo1@jd.com">org.ospo1@jd.com</a></sub>
 </p>
-

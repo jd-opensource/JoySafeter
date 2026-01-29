@@ -63,11 +63,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const handleSubmit = () => {
     if (isProcessing) return
     // Allow submit even if input is empty if there are files (for APK auto-submit)
-    const text = input.trim() || (currentMode === 'apk-vulnerability' && files.length > 0 
+    const text = input.trim() || (currentMode === 'apk-vulnerability' && files.length > 0
       ? t('chat.apkVulnerabilityTaskStart', { defaultValue: '开启任务：APK IntentBridge 漏洞挖掘' })
       : '')
     if (!text && files.length === 0) return
-    
+
     onSubmit(text, currentMode, null, files.length > 0 ? files : undefined)
     // Clear files after submit
     setFiles([])
@@ -312,4 +312,3 @@ const ChatInput: React.FC<ChatInputProps> = ({
 }
 
 export default ChatInput
-

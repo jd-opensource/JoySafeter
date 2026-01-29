@@ -1,6 +1,6 @@
 /**
  * Mode Configuration
- * 
+ *
  * Mode configuration, defines all available chat modes and their metadata
  */
 
@@ -25,7 +25,7 @@ export interface ModeConfig {
 
 /**
  * Mode configuration list
- * 
+ *
  * This configuration is used for:
  * 1. Generating mode cards in UI
  * 2. Associating with mode handlers
@@ -75,7 +75,7 @@ export const modeConfigs: ModeConfig[] = [
 
 /**
  * Get configuration by mode ID
- * 
+ *
  * @param modeId Mode ID
  * @returns Mode configuration, or undefined if not found
  */
@@ -89,4 +89,3 @@ export function getModeConfig(modeId: string): ModeConfig | undefined {
 export function getAllModeConfigs(): ModeConfig[] {
   return modeConfigs
 }
-

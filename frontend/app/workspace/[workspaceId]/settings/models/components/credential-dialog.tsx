@@ -43,7 +43,7 @@ export function ModelCredentialDialog({
   // Parse form fields from credential_schema
   const formFields = useMemo(() => {
     if (!provider.credential_schema) return []
-    
+
     // credential_schema may be a JSON Schema object
     // Simplified here, assuming it's an object with properties
     const schema = provider.credential_schema
@@ -57,7 +57,7 @@ export function ModelCredentialDialog({
         default: value.default,
       }))
     }
-    
+
     // If no properties, return empty array
     return []
   }, [provider.credential_schema])
@@ -98,7 +98,7 @@ export function ModelCredentialDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     // Filter out empty values
     const filteredData: Record<string, string> = {}
     Object.entries(formData).forEach(([key, value]) => {
@@ -106,7 +106,7 @@ export function ModelCredentialDialog({
         filteredData[key] = value.trim()
       }
     })
-    
+
     try {
       await createCredential.mutateAsync({
         provider_name: provider.provider_name,
@@ -114,15 +114,15 @@ export function ModelCredentialDialog({
         workspaceId,
         validate: true,
       })
-      
+
       // Use concise message on success
       toast({
         variant: 'success',
-        description: credential 
+        description: credential
           ? t('settings.credentialUpdated')
           : t('settings.credentialCreated'),
       })
-      
+
       onOpenChange(false)
       // Reset form
       const initial: Record<string, string> = {}
@@ -137,8 +137,8 @@ export function ModelCredentialDialog({
     } catch (error) {
       toast({
         title: t('settings.error'),
-        description: error instanceof Error 
-          ? error.message 
+        description: error instanceof Error
+          ? error.message
           : (credential ? t('settings.failedToUpdateCredential') : t('settings.failedToCreateCredential')),
         variant: 'destructive',
       })
@@ -275,4 +275,3 @@ export function ModelCredentialDialog({
     </Dialog>
   )
 }
-

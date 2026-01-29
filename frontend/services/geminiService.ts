@@ -46,7 +46,7 @@ export const streamGeminiResponse = async (
 
 // --- Existing Text Gen Method (Keep as is) ---
 export const generateGeminiResponse = async (
-    prompt: string, 
+    prompt: string,
     systemInstruction: string = "You are a helpful assistant.",
     jsonMode: boolean = false
 ): Promise<string> => {
@@ -82,26 +82,26 @@ export const generateGraphActions = async (
         // Find the last node to help with context positioning if needed
         const nodes = graphContext.nodes || [];
         const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : null;
-        
+
         const contextStr = JSON.stringify({
             existingNodes: nodes.map((n: any) => ({ id: n.id, type: n.type, label: n.label, position: n.position })),
             lastNodePosition: lastNode?.position || { x: 0, y: 0 }
         }, null, 2);
-        
+
         const systemPrompt = `
         You are an AI Agent Builder Copilot with "God Mode" access to a ReactFlow canvas.
-        
+
         Your Goal: Help the user build, debug, or optimize their agent flow by executing ACTIONS.
-        
+
         Current Graph Context:
         ${contextStr}
-        
+
         Available Node Types: 'agent', 'condition', 'http', 'custom_function', 'direct_reply', 'human_input'.
-        
+
         LAYOUT RULES (CRITICAL):
         1. **Compactness**: Keep the graph tight. Avoid long connecting lines.
         2. **Horizontal Flow**: The standard flow is Left-to-Right.
-        3. **Spacing**: 
+        3. **Spacing**:
            - **X Axis**: When connecting Node A -> Node B, place Node B exactly **350px** to the right of Node A. (e.g., if A.x is 100, B.x should be 450).
            - **Y Axis**: Keep aligned (Y offset 0) for main flow. If branching, offset Y by **150px**.
         4. **Start Point**: If the graph is empty, start at { x: 100, y: 100 }.
@@ -111,19 +111,19 @@ export const generateGraphActions = async (
         1. Analyze the user's request and the current graph.
         2. If the user wants to modify the graph (add, connect, delete, config), generate a JSON plan.
         3. If the user just wants to chat, return an empty actions array.
-        
+
         RESPONSE FORMAT (JSON ONLY):
         {
             "message": "I have added a translation node...",
             "actions": [
                 {
                     "type": "CREATE_NODE",
-                    "payload": { 
-                        "id": "generated_id", 
-                        "type": "agent", 
-                        "label": "Translator", 
-                        "position": { "x": 450, "y": 100 }, 
-                        "config": { "systemPrompt": "Translate to Spanish" } 
+                    "payload": {
+                        "id": "generated_id",
+                        "type": "agent",
+                        "label": "Translator",
+                        "position": { "x": 450, "y": 100 },
+                        "config": { "systemPrompt": "Translate to Spanish" }
                     },
                     "reasoning": "Placing 350px to the right of the previous node"
                 },
@@ -147,7 +147,7 @@ export const generateGraphActions = async (
         });
 
         if (!response.text) throw new Error("No response from AI");
-        
+
         return JSON.parse(response.text) as CopilotResponse;
 
     } catch (error) {

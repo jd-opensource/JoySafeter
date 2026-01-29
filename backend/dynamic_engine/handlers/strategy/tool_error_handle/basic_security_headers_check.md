@@ -36,7 +36,7 @@ HTTP security header validation performs the following steps:
   ```python
   vulns = degradation_manager._basic_security_check("https://example.com")
   # Returns: [
-  #   {"type": "missing_security_header", "severity": "medium", 
+  #   {"type": "missing_security_header", "severity": "medium",
   #    "description": "Clickjacking protection missing", "header": "X-Frame-Options"},
   #   ...
   # ]
@@ -52,7 +52,7 @@ HTTP security header validation performs the following steps:
       "Strict-Transport-Security": "HTTPS enforcement missing",
       "Content-Security-Policy": "Content Security Policy missing"
   }
-  
+
   for header, description in security_headers.items():
       if header not in headers:
           vulnerabilities.append({

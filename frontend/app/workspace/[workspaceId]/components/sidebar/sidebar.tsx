@@ -144,7 +144,7 @@ export function Sidebar() {
   const deleteWorkspaceMutation = useDeleteWorkspace()
   const duplicateWorkspaceMutation = useDuplicateWorkspace()
   const queryClient = useQueryClient()
-  
+
   // Use unified useGraphs hook to ensure cache sharing with other components
   const { data: graphsData, isLoading: isAgentsLoading } = useGraphs(workspaceId)
 
@@ -173,13 +173,13 @@ export function Sidebar() {
     onSuccess: (graph: AgentGraph) => {
       // Refresh agent list
       queryClient.invalidateQueries({ queryKey: graphKeys.list(workspaceId) })
-      
+
       // Show success toast
       toast({
         title: t('workspace.agentCreateSuccess'),
         variant: 'success',
       })
-      
+
       // Automatically navigate to the newly created agent
       if (graph?.id) {
         router.push(`/workspace/${workspaceId}/${graph.id}`)
@@ -194,7 +194,7 @@ export function Sidebar() {
           error.message.includes('Forbidden') ||
           error.message.includes('insufficient') ||
           error.message.includes('Insufficient')
-        
+
         if (isPermissionError) {
           errorMessage = t('workspace.cannotCreateAgent')
         } else {
@@ -264,7 +264,7 @@ export function Sidebar() {
           error.message.includes('Forbidden') ||
           error.message.includes('insufficient') ||
           error.message.includes('Insufficient')
-        
+
         if (isPermissionError) {
           errorMessage = t('workspace.cannotDeleteAgent')
         } else {
@@ -299,7 +299,7 @@ export function Sidebar() {
           error.message.includes('Forbidden') ||
           error.message.includes('insufficient') ||
           error.message.includes('Insufficient')
-        
+
         if (isPermissionError) {
           errorMessage = t('workspace.cannotCreateAgent')
         } else {
@@ -392,11 +392,11 @@ export function Sidebar() {
       const query = searchQuery.toLowerCase().trim()
       folders.forEach((folder) => {
         const agentsInFolder = agents.filter((a) => a.folderId === folder.id)
-        const hasMatchingAgents = agentsInFolder.some((agent) => 
+        const hasMatchingAgents = agentsInFolder.some((agent) =>
           agent.name.toLowerCase().includes(query)
         )
         const folderNameMatches = folder.name.toLowerCase().includes(query)
-        
+
         if ((hasMatchingAgents || folderNameMatches) && !expandedFolders.has(folder.id)) {
           toggleExpanded(folder.id)
         }
@@ -440,7 +440,7 @@ export function Sidebar() {
               error.message.includes('Forbidden') ||
               error.message.includes('insufficient') ||
               error.message.includes('Insufficient')
-            
+
             if (isPermissionError) {
               errorMessage = t('workspace.cannotDeleteFolder')
             } else {
@@ -492,7 +492,7 @@ export function Sidebar() {
               error.message.includes('Forbidden') ||
               error.message.includes('insufficient') ||
               error.message.includes('Insufficient')
-            
+
             if (isPermissionError) {
               errorMessage = t('workspace.cannotCreateFolder')
             } else {
@@ -675,9 +675,9 @@ export function Sidebar() {
 
   if (isCollapsed) {
     return (
-      <div 
+      <div
         className='fixed top-[14px] z-10 max-w-[232px] rounded-[8px] border border-[var(--border)] bg-[var(--surface-2)] px-[12px] py-[8px] transition-all duration-300'
-        style={{ 
+        style={{
           left: isAppSidebarCollapsed ? '78px' : '154px'
         }}
       >
@@ -708,7 +708,7 @@ export function Sidebar() {
           'sidebar-container fixed inset-y-0 overflow-hidden bg-[var(--surface-2)] transition-all duration-300',
           isCollapsed ? 'z-0 pointer-events-none' : 'z-10'
         )}
-        style={{ 
+        style={{
           left: isCollapsed ? '-1000px' : isAppSidebarCollapsed ? '64px' : '140px',
           width: isCollapsed ? '0px' : `${sidebarWidth}px`,
           opacity: isCollapsed ? 0 : 1,
@@ -768,8 +768,8 @@ export function Sidebar() {
                         <FolderPlus className='h-[14px] w-[14px] text-[var(--text-secondary)]' />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent 
-                      side='bottom' 
+                    <TooltipContent
+                      side='bottom'
                       sideOffset={4}
                       className='rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg'
                     >
@@ -793,8 +793,8 @@ export function Sidebar() {
                         <Plus className='h-[14px] w-[14px] text-[var(--text-secondary)]' />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent 
-                      side='bottom' 
+                    <TooltipContent
+                      side='bottom'
                       sideOffset={4}
                       className='rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg'
                     >

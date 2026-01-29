@@ -23,4 +23,3 @@ Please add the following images for the README:
 ## Placeholder
 
 If you don't have the actual screenshots yet, the README will still render correctly - the image elements will simply not display.
-

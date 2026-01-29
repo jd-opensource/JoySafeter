@@ -45,7 +45,7 @@ export function getBaseDomain(): string {
 
 /**
  * Returns the domain for email addresses, stripping www subdomain for Resend compatibility
- * @returns The email domain 
+ * @returns The email domain
  */
 export function getEmailDomain(): string {
   try {

@@ -15,13 +15,3 @@ export function getApiBaseUrl(fallback: string = '/dynamic'): string {
 
   return normalized.endsWith('/dynamic') ? normalized : `${normalized}/dynamic`;
 }
-
-
-
-
-
-
-
-
-
-

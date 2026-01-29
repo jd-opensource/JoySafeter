@@ -39,7 +39,7 @@
 def _optimize_hydra_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Hydra parameters"""
     params = {"target": profile.target}
-    
+
     if 22 in profile.open_ports:
         params["service"] = "ssh"
     elif 21 in profile.open_ports:
@@ -48,7 +48,7 @@ def _optimize_hydra_params(self, profile: TargetProfile, context: Dict[str, Any]
         params["service"] = "http-get"
     else:
         params["service"] = "ssh"
-    
+
     params["additional_args"] = "-t 4 -w 30"
     return params
 ```

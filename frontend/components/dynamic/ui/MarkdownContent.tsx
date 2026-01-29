@@ -1,7 +1,7 @@
 /**
  * MarkdownContent component
  * Renders markdown content with syntax highlighting and code block wrap toggle
- * 
+ *
  * Security: Uses DOMPurify with strict configuration to prevent XSS attacks
  */
 
@@ -21,24 +21,24 @@ if (typeof window !== 'undefined') {
     // Process <a> tags
     if (node.tagName === 'A') {
       const href = node.getAttribute('href') || '';
-      
+
       // Detect external links or target="_blank"
       const isExternal = href.startsWith('http://') || href.startsWith('https://') || href.startsWith('//');
       const hasTargetBlank = node.getAttribute('target') === '_blank';
-      
+
       if (isExternal || hasTargetBlank) {
         // Force add security attributes to prevent tabnabbing attacks
         node.setAttribute('rel', 'noopener noreferrer nofollow');
         node.setAttribute('target', '_blank');
       }
-      
+
       // Block javascript: and other dangerous protocols (extra protection layer)
       if (/^(javascript|data|vbscript|file):/i.test(href)) {
         node.removeAttribute('href');
         node.setAttribute('href', '#blocked');
       }
     }
-    
+
     // Process <img> tags - block dangerous src
     if (node.tagName === 'IMG') {
       const src = node.getAttribute('src') || '';
@@ -87,7 +87,7 @@ const ALLOWED_ATTR = [
 // Forbidden event handler attributes (comprehensive coverage)
 const FORBID_ATTR = [
   // Mouse events
-  'onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onmouseover', 
+  'onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onmouseover',
   'onmouseout', 'onmousemove', 'onmouseenter', 'onmouseleave',
   // Keyboard events
   'onkeydown', 'onkeyup', 'onkeypress',
@@ -129,7 +129,7 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => 
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
       // Remove on* event attributes
       .replace(/\s+on\w+\s*=/gi, ' data-blocked=');
-    
+
     const rendered = md.render(sanitizedContent);
 
     // Use DOMPurify to sanitize HTML, strictly prevent XSS attacks
@@ -140,8 +140,8 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => 
       ALLOW_UNKNOWN_PROTOCOLS: false,
       ALLOW_ARIA_ATTR: false,
       ALLOW_SELF_CLOSE_IN_ATTR: false,
-      FORBID_TAGS: ['script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed', 
-                    'form', 'input', 'button', 'select', 'textarea', 'applet', 'base', 
+      FORBID_TAGS: ['script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed',
+                    'form', 'input', 'button', 'select', 'textarea', 'applet', 'base',
                     'link', 'meta', 'noscript', 'template', 'svg', 'math'],
       FORBID_ATTR: [...FORBID_ATTR],
       // Use safe URL protocols - STRICT whitelist to prevent protocol bypass attacks
@@ -167,7 +167,7 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => 
   useEffect(() => {
     // Add toggle buttons to code blocks
     let preElements: NodeListOf<HTMLPreElement> | null = null;
-    
+
     // Try to find the markdown-content div
     const markdownDivs = document.querySelectorAll('.markdown-content');
     if (markdownDivs.length > 0) {
@@ -198,7 +198,7 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => 
       // Create wrapper - must wrap the pre element
       const wrapper = document.createElement('div');
       wrapper.className = 'code-block-wrapper';
-      
+
       // Insert wrapper before pre element
       const parent = pre.parentNode;
       if (parent) {
@@ -223,7 +223,7 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => 
         e.stopPropagation();
 
         const currentMode = button.getAttribute('data-mode');
-        
+
         if (currentMode === 'soft') {
           // Switch to hard-wrap mode (show horizontal scrollbar)
           pre.classList.remove('code-soft-wrap');

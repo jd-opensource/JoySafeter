@@ -51,9 +51,9 @@ const generateColorFromId = (id: string): string => {
   return colors[Math.abs(hash) % colors.length]
 }
 
-function AgentItem({ 
-  agent, 
-  active, 
+function AgentItem({
+  agent,
+  active,
   indented = false,
   indentLevel = 0,
   onDragStart,
@@ -72,7 +72,7 @@ function AgentItem({
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState(agent.name)
   const inputRef = useRef<HTMLInputElement>(null)
-  
+
   // Get color for agent (use stored color or generate from ID)
   const agentColor = agent.color || generateColorFromId(agent.id)
 
@@ -164,7 +164,7 @@ function AgentItem({
         <div className='flex cursor-grab items-center px-[4px] py-[6px] opacity-0 transition-opacity group-hover:opacity-100'>
           <GripVertical className='h-[12px] w-[12px] text-[var(--text-tertiary)]' />
         </div>
-        
+
         {isEditing ? (
           <div className='flex flex-1 items-center gap-[6px] py-[3px] pr-[6px] animate-in fade-in duration-150'>
             <Bot
@@ -221,8 +221,8 @@ function AgentItem({
                   <span className='truncate font-medium text-[12px]'>{agent.name}</span>
                 </Link>
               </TooltipTrigger>
-              <TooltipContent 
-                side='bottom' 
+              <TooltipContent
+                side='bottom'
                 className='max-w-[280px] break-words bg-[var(--surface-1)] text-[var(--text-primary)] border border-[var(--border)] shadow-lg'
               >
                 {agent.name}
@@ -422,8 +422,8 @@ function FolderItem({
       <div
         className={cn(
           'group flex items-center rounded-[6px] py-[5px] pr-[6px] text-[var(--text-secondary)] transition-all',
-          isDragOver 
-            ? 'bg-[var(--brand-primary)]/20 ring-2 ring-[var(--brand-primary)]' 
+          isDragOver
+            ? 'bg-[var(--brand-primary)]/20 ring-2 ring-[var(--brand-primary)]'
             : 'hover:bg-[var(--surface-5)]',
           isDragActive && !isDragOver && 'ring-1 ring-dashed ring-[var(--border)]'
         )}
@@ -630,11 +630,11 @@ function FolderItem({
 
           {/* Empty State */}
           {agents.length === 0 && subfolders.length === 0 && (
-            <div 
+            <div
               className={cn(
                 'rounded-[6px] py-[8px] text-[11px] font-normal',
-                isDragOver 
-                  ? 'bg-[var(--brand-primary)]/10 text-[var(--text-secondary)]' 
+                isDragOver
+                  ? 'bg-[var(--brand-primary)]/10 text-[var(--text-secondary)]'
                   : 'text-[var(--text-subtle)] opacity-60'
               )}
               style={{ marginLeft: `${24 + indentPadding}px` }}
@@ -919,4 +919,3 @@ export function AgentList({
     </div>
   )
 }
-

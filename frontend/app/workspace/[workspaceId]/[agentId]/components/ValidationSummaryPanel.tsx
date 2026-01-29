@@ -25,7 +25,7 @@ interface ValidationSummaryPanelProps {
 
 /**
  * ValidationSummaryPanel - Display all validation errors in the graph
- * 
+ *
  * Categories:
  * - Node configuration errors
  * - Edge configuration errors
@@ -287,4 +287,3 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
     </div>
   )
 }
-

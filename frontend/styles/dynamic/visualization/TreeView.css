@@ -25,7 +25,7 @@
 
 .tree-content {
   /* Just let it be natural height */
-  flex: none; 
+  flex: none;
 }
 
 .tree-node-wrapper {

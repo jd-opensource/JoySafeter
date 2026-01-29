@@ -1,6 +1,6 @@
 /**
  * Edge Validator - Validates edge data consistency and routing rules
- * 
+ *
  * Provides validation for:
  * - Route rule to edge matching
  * - Edge type consistency
@@ -209,4 +209,3 @@ export function getErrorsForField(
 export function hasCriticalErrors(errors: ValidationError[]): boolean {
   return errors.some((error) => error.severity === 'error')
 }
-

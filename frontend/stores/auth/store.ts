@@ -125,7 +125,7 @@ export const useAuthStore = create<AuthState>()(
  */
 export function clearAllAuthStorage(): void {
   if (typeof window === 'undefined') return
-  
+
   // Clear auth data in sessionStorage
   sessionStorage.removeItem('auth-state')
 

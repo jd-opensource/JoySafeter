@@ -121,4 +121,3 @@ export const FindingList: React.FC<FindingListProps> = ({ findings }) => {
     </div>
   );
 };
-

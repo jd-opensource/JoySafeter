@@ -39,7 +39,7 @@ check_config() {
         echo "请先运行安装脚本: cd $DEPLOY_DIR && ./install.sh"
         exit 1
     fi
-    
+
     if [ ! -f "$DEPLOY_DIR/../backend/.env" ]; then
         log_error "backend/.env 文件不存在"
         echo "请先运行安装脚本: cd $DEPLOY_DIR && ./install.sh"
@@ -50,20 +50,20 @@ check_config() {
 # 启动服务
 start_services() {
     log_info "启动开发环境服务..."
-    
+
     cd "$DEPLOY_DIR"
-    
+
     # 确保中间件已启动
     log_info "检查中间件服务..."
     if ! docker-compose -f docker-compose-middleware.yml ps | grep -q "Up"; then
         log_info "启动中间件..."
         "$DEPLOY_DIR/scripts/start-middleware.sh"
     fi
-    
+
     # 启动完整服务
     log_info "启动完整服务（开发模式）..."
     docker-compose up -d --build
-    
+
     log_success "开发环境服务启动完成"
 }
 
@@ -73,17 +73,17 @@ show_info() {
     echo "=========================================="
     echo "  开发环境服务信息"
     echo "=========================================="
-    
+
     # 读取端口配置
     local backend_port=8000
     local frontend_port=3000
-    
+
     if [ -f "$DEPLOY_DIR/.env" ]; then
         source "$DEPLOY_DIR/.env" 2>/dev/null || true
         backend_port=${BACKEND_PORT_HOST:-8000}
         frontend_port=${FRONTEND_PORT_HOST:-3000}
     fi
-    
+
     echo ""
     echo "访问地址:"
     echo "  前端: http://localhost:$frontend_port"
@@ -109,16 +109,15 @@ main() {
     echo "  开发环境启动"
     echo "=========================================="
     echo ""
-    
+
     check_config
-    
+
     start_services
-    
+
     show_info
-    
+
     log_success "开发环境已就绪！"
 }
 
 # 运行主函数
 main "$@"
-

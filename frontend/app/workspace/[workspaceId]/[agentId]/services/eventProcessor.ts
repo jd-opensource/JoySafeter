@@ -302,5 +302,3 @@ export function createEventProcessorContext(
     getSteps,
   }
 }
-
-

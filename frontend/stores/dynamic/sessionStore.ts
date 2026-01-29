@@ -97,12 +97,12 @@ export const useSessionStore = create<SessionStore>()(
           // Import sessionService dynamically to avoid circular dependency
           const { sessionService } = await import('@/lib/api/dynamic/sessionService');
           const sessions = await sessionService.getSessions(userId);
-          
+
           // Clear currentSession if it doesn't belong to this user or doesn't exist
           set((state) => {
-            const currentSessionValid = state.currentSession && 
+            const currentSessionValid = state.currentSession &&
               sessions.some(s => s.id === state.currentSession?.id);
-            
+
             return {
               sessions,
               currentSession: currentSessionValid ? state.currentSession : null,

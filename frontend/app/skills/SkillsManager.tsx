@@ -1,7 +1,7 @@
 'use client'
 
-import { 
-    Search, Plus, ShieldCheck, Trash2, Save, FileText, 
+import {
+    Search, Plus, ShieldCheck, Trash2, Save, FileText,
     Loader2, FolderOpen, Folder, Pencil,
     FileCode, Upload, AlertCircle, CheckCircle,
     Globe, Lock, ChevronRight
@@ -29,8 +29,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { UnifiedDialog, ValidationBox, FileListBox } from "@/components/ui/unified-dialog";
 import { useToast } from '@/hooks/use-toast';
-import { 
-    skillService, 
+import {
+    skillService,
     generateSkillMd,
     createSkillFile,
     getFilenameFromPath,
@@ -38,8 +38,8 @@ import {
     validateFilePath,
     parseSkillMd,
 } from '@/services/skillService';
-import { 
-    Skill, 
+import {
+    Skill,
     SkillFile,
 } from '@/types';
 import { cn } from '@/lib/core/utils/cn';
@@ -73,11 +73,11 @@ import { useCreateSkill, useUpdateSkill } from '@/hooks/queries/skills';
 export default function SkillsManager() {
     const { t } = useTranslation();
     const { toast } = useToast();
-    
+
     // Mutation hooks for skill operations
     const createSkillMutation = useCreateSkill();
     const updateSkillMutation = useUpdateSkill();
-    
+
     // Use extracted hooks
     const skillManager = useSkillManager();
     const {
@@ -138,7 +138,7 @@ export default function SkillsManager() {
                     form.setValue('files', updates.files);
                 }
             });
-            
+
             const skillData = {
                 name: formData.name,
                 description: formData.description || '',
@@ -151,12 +151,12 @@ export default function SkillsManager() {
                 source: formData.source || 'local',
                 is_public: formData.is_public || false,
             };
-            
+
             // Use mutation hooks instead of direct API calls
             const saved = selectedSkill?.id
                 ? await updateSkillMutation.mutateAsync({ id: selectedSkill.id, ...skillData })
                 : await createSkillMutation.mutateAsync(skillData);
-            
+
             // React Query will automatically refresh the data after mutation
             setSelectedSkill(saved);
             toast({ title: t('skills.skillSaved') });
@@ -178,7 +178,7 @@ export default function SkillsManager() {
             e.preventDefault();
             e.stopPropagation();
         }
-        
+
         // Check if form is valid before submitting
         if (!form.formState.isValid) {
             // Trigger validation to show errors
@@ -189,17 +189,17 @@ export default function SkillsManager() {
             if (errors.name) errorMessages.push(t('skills.name') + ': ' + errors.name.message);
             if (errors.description) errorMessages.push(t('skills.description') + ': ' + errors.description.message);
             if (errors.compatibility) errorMessages.push('Compatibility: ' + errors.compatibility.message);
-            
+
             toast({
                 variant: 'destructive',
                 title: t('skills.validationFailed') || 'Validation Failed',
-                description: errorMessages.length > 0 
-                    ? errorMessages.join(', ') 
+                description: errorMessages.length > 0
+                    ? errorMessages.join(', ')
                     : t('skills.pleaseFixErrors') || 'Please fix the errors in the form',
             });
             return;
         }
-        
+
         // Use react-hook-form's handleSubmit to validate and then call save
         form.handleSubmit(handleSaveInternal)(e);
     }, [handleSaveInternal, form, toast, t]);
@@ -251,9 +251,9 @@ export default function SkillsManager() {
         const name = 'new-skill';
         const description = 'A new skill description';
         const body = `# ${name}\n\n## Overview\n\nAdd your skill instructions here.\n\n## Usage\n\nDescribe how to use this skill.`;
-        
+
         const skillMdContent = generateSkillMd(name, description, body, { license: 'MIT' });
-        
+
         const newFiles: SkillFile[] = [
             {
                 id: '',
@@ -271,7 +271,7 @@ export default function SkillsManager() {
                 language: 'markdown',
             }
         ];
-        
+
         setSelectedSkill(null);
         form.reset({
             name,
@@ -299,16 +299,16 @@ export default function SkillsManager() {
         const formEl = e.target as HTMLFormElement;
         const filename = (formEl.elements.namedItem('filename') as HTMLInputElement).value;
         const fileType = (formEl.elements.namedItem('filetype') as HTMLInputElement).value || 'text';
-        
+
         if (!filename.trim()) {
             toast({ variant: 'destructive', title: 'Filename is required' });
             return;
         }
-        
+
         const newFile = createSkillFile(newFileDirectory, filename, fileType, '');
         const currentFiles = form.getValues('files') || [];
         form.setValue('files', [...currentFiles, newFile as SkillFile]);
-        
+
         setActiveFilePath(newFile.path || null);
         setImportModal(null);
     };
@@ -318,13 +318,13 @@ export default function SkillsManager() {
         if (!fileToDelete) {
             return;
         }
-        
+
         setFileOperationLoading(true);
         try {
             // If the file has a database ID, delete from backend
             if (fileToDelete.id && selectedSkill?.id) {
                 await skillService.deleteFile(fileToDelete.id);
-                
+
                 // Refresh skill from backend
                 const updatedSkill = await skillService.getSkill(selectedSkill.id);
                 if (updatedSkill) {
@@ -336,12 +336,12 @@ export default function SkillsManager() {
                 const currentFiles = form.getValues('files') || [];
                 form.setValue('files', currentFiles.filter((f: SkillFile) => f.path !== fileToDelete.path));
             }
-            
+
             // If deleted file was active, clear selection
             if (activeFilePath === fileToDelete.path) {
                 setActiveFilePath(null);
             }
-            
+
             toast({ title: t('skills.fileDeleted') });
         } catch (e) {
             console.error('Failed to delete file:', e);
@@ -357,19 +357,19 @@ export default function SkillsManager() {
         if (!fileToRename || !renameValue.trim()) {
             return;
         }
-        
+
         // Get directory from old path (everything before the last /)
         const lastSlashIndex = fileToRename.path.lastIndexOf('/');
         const oldDirectory = lastSlashIndex > 0 ? fileToRename.path.substring(0, lastSlashIndex) : null;
         const newPath = createFilePath(oldDirectory, renameValue.trim());
-        
+
         // Validate new path
         const validation = validateFilePath(newPath);
         if (!validation.valid) {
             toast({ variant: 'destructive', title: validation.error || t('skills.invalidPath') });
             return;
         }
-        
+
         setFileOperationLoading(true);
         try {
             // If the file has a database ID, update via backend
@@ -378,7 +378,7 @@ export default function SkillsManager() {
                     path: newPath,
                     file_name: renameValue.trim(),
                 });
-                
+
                 // Refresh skill from backend
                 const updatedSkill = await skillService.getSkill(selectedSkill.id);
                 if (updatedSkill) {
@@ -388,18 +388,18 @@ export default function SkillsManager() {
             } else {
                 // File is only in local state, just update form
                 const currentFiles = form.getValues('files') || [];
-                form.setValue('files', currentFiles.map((f: SkillFile) => 
-                    f.path === fileToRename.path 
+                form.setValue('files', currentFiles.map((f: SkillFile) =>
+                    f.path === fileToRename.path
                         ? { ...f, path: newPath, file_name: renameValue.trim(), name: renameValue.trim() }
                         : f
                 ));
             }
-            
+
             // If renamed file was active, update path
             if (activeFilePath === fileToRename.path) {
                 setActiveFilePath(newPath);
             }
-            
+
             toast({ title: t('skills.fileRenamed') });
         } catch (e) {
             console.error('Failed to rename file:', e);
@@ -449,8 +449,8 @@ export default function SkillsManager() {
                     </div>
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                        <Input 
-                            placeholder={t('skills.searchCapabilities')} 
+                        <Input
+                            placeholder={t('skills.searchCapabilities')}
                             className="pl-9 h-9 text-xs bg-gray-50/50 border-gray-200"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
@@ -464,13 +464,13 @@ export default function SkillsManager() {
                     ) : (
                         <div className="space-y-1">
                             {filteredSkills.map(skill => (
-                                <div 
+                                <div
                                     key={skill.id}
                                     onClick={() => handleSelectSkill(skill)}
                                     className={cn(
                                         "p-3 rounded-xl cursor-pointer transition-all border group min-w-0",
-                                        selectedSkill?.id === skill.id 
-                                            ? "bg-white border-emerald-100 shadow-sm ring-1 ring-emerald-50" 
+                                        selectedSkill?.id === skill.id
+                                            ? "bg-white border-emerald-100 shadow-sm ring-1 ring-emerald-50"
                                             : "border-transparent hover:bg-white hover:border-gray-200"
                                     )}
                                 >
@@ -494,7 +494,7 @@ export default function SkillsManager() {
                                                 </Badge>
                                             )}
                                         </div>
-                                        <button 
+                                        <button
                                             onClick={(e) => { e.stopPropagation(); handleDelete(skill.id); }}
                                             className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity shrink-0"
                                         >
@@ -523,9 +523,9 @@ export default function SkillsManager() {
                         <div className="w-48 border-r border-gray-100 flex flex-col bg-white shrink-0">
                             <div className="p-3 border-b border-gray-100 flex items-center justify-between">
                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('skills.workspace') || 'Workspace'}</span>
-                                <Button 
-                                    variant="ghost" 
-                                    size="icon" 
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
                                     className="h-6 w-6 hover:bg-gray-100"
                                     onClick={() => handleAddFile(null)}
                                     title="Add file to root"
@@ -571,8 +571,8 @@ export default function SkillsManager() {
                                             className="data-[state=checked]:bg-emerald-500"
                                         />
                                     </div>
-                                    
-                                    <Button 
+
+                                    <Button
                                         onClick={handleSubmit}
                                         disabled={isSaving}
                                         className="bg-emerald-600 hover:bg-emerald-700 h-8 gap-2 shadow-sm text-xs px-4 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -593,11 +593,11 @@ export default function SkillsManager() {
                                     onToggleAdvancedFields={() => setShowAdvancedFields(!showAdvancedFields)}
                                     onUpdateFileContent={(filePath, content) => {
                                         const currentFiles = form.getValues('files') || [];
-                                        const updatedFiles = currentFiles.map((f: SkillFile) => 
+                                        const updatedFiles = currentFiles.map((f: SkillFile) =>
                                             f.path === filePath ? { ...f, content } : f
                                         );
                                         form.setValue('files', updatedFiles);
-                                        
+
                                         // Update form fields if SKILL.md
                                         if (filePath === 'SKILL.md') {
                                             updateFileContent(filePath, content, (updates) => {
@@ -626,7 +626,7 @@ export default function SkillsManager() {
                                 <FolderOpen size={16} /> {t('skills.importFromLocal')}
                             </Button>
                         </div>
-                        
+
                         {/* Skill Structure Info */}
                         <div className="mt-12 max-w-md text-left bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
                             <h4 className="text-xs font-bold text-gray-700 mb-3">Skill Structure</h4>
@@ -656,16 +656,16 @@ export default function SkillsManager() {
                 icon={<FolderOpen size={18} />}
                 footer={
                     <>
-                        <Button 
-                            type="button" 
-                            variant="outline" 
+                        <Button
+                            type="button"
+                            variant="outline"
                             onClick={() => resetImport()}
                             className="h-10 px-4 border-gray-200 hover:bg-gray-50"
                         >
                             {t('common.cancel')}
                         </Button>
-                        <Button 
-                            type="button" 
+                        <Button
+                            type="button"
                             disabled={actionLoading || !localImportValidation?.valid}
                             onClick={() => handleImportLocal(async (skillFiles, frontmatter) => {
                                 // Use mutation hook for creating skill
@@ -701,9 +701,9 @@ export default function SkillsManager() {
                         className="hidden"
                         onChange={handleFolderSelect}
                     />
-                    <Button 
-                        type="button" 
-                        variant="outline" 
+                    <Button
+                        type="button"
+                        variant="outline"
                         onClick={() => folderInputRef.current?.click()}
                         className="gap-2 h-10 bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-colors"
                     >
@@ -742,7 +742,7 @@ export default function SkillsManager() {
                                 icon={<AlertCircle size={16} />}
                                 title={t('skills.binaryFilesRejected')}
                                 items={rejectedFiles.map(f => {
-                                    const reason = f.reason === 'binary' 
+                                    const reason = f.reason === 'binary'
                                         ? t('skills.binaryFileReason')
                                         : f.reason === 'read_error'
                                         ? t('skills.binaryFileReadError')
@@ -798,7 +798,7 @@ export default function SkillsManager() {
                             Add New File
                         </DialogTitle>
                         <DialogDescription>
-                            {newFileDirectory 
+                            {newFileDirectory
                                 ? <>Create a new file in <code className="bg-gray-100 px-1 rounded">{newFileDirectory}/</code></>
                                 : <>Create a new file at root level</>
                             }
@@ -808,9 +808,9 @@ export default function SkillsManager() {
                         <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
                                 <Label htmlFor="directory">Directory (optional)</Label>
-                                <Input 
-                                    id="directory" 
-                                    name="directory" 
+                                <Input
+                                    id="directory"
+                                    name="directory"
                                     value={newFileDirectory || ''}
                                     onChange={(e) => setNewFileDirectory(e.target.value || null)}
                                     placeholder="e.g., src, lib/utils (leave empty for root)"
@@ -818,11 +818,11 @@ export default function SkillsManager() {
                             </div>
                             <div className="grid gap-2">
                                 <Label htmlFor="filename">Filename</Label>
-                                <Input 
-                                    id="filename" 
-                                    name="filename" 
-                                    placeholder="e.g., main.py, config.json, README.md" 
-                                    required 
+                                <Input
+                                    id="filename"
+                                    name="filename"
+                                    placeholder="e.g., main.py, config.json, README.md"
+                                    required
                                 />
                             </div>
                             <div className="grid gap-2">
@@ -867,14 +867,14 @@ export default function SkillsManager() {
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="gap-2 sm:gap-0">
-                        <Button 
-                            variant="outline" 
+                        <Button
+                            variant="outline"
                             onClick={() => setFileToDelete(null)}
                             disabled={fileOperationLoading}
                         >
                             {t('common.cancel')}
                         </Button>
-                        <Button 
+                        <Button
                             variant="destructive"
                             onClick={handleDeleteFile}
                             disabled={fileOperationLoading}
@@ -900,7 +900,7 @@ export default function SkillsManager() {
                     </DialogHeader>
                     <div className="py-4">
                         <Label htmlFor="newFilename">{t('skills.newFilename')}</Label>
-                        <Input 
+                        <Input
                             id="newFilename"
                             value={renameValue}
                             onChange={(e) => setRenameValue(e.target.value)}
@@ -914,14 +914,14 @@ export default function SkillsManager() {
                         )}
                     </div>
                     <DialogFooter className="gap-2 sm:gap-0">
-                        <Button 
-                            variant="outline" 
+                        <Button
+                            variant="outline"
                             onClick={() => { setFileToRename(null); setRenameValue(''); }}
                             disabled={fileOperationLoading}
                         >
                             {t('common.cancel')}
                         </Button>
-                        <Button 
+                        <Button
                             onClick={handleRenameFile}
                             disabled={fileOperationLoading || !renameValue.trim()}
                             className="bg-blue-600 hover:bg-blue-700"

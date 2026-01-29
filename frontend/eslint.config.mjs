@@ -8,13 +8,13 @@ const eslintConfig = [
     rules: {
       // Warn on console.log usage (should use Logger instead)
       'no-console': ['warn', { allow: ['warn', 'error'] }],
-      
+
       // TypeScript specific rules
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-require-imports': 'warn',
       '@typescript-eslint/ban-ts-comment': ['warn', { minimumDescriptionLength: 0 }],
-      
+
       // React rules
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
@@ -26,7 +26,7 @@ const eslintConfig = [
       'react-hooks/purity': 'warn',
       'react/no-unescaped-entities': 'warn',
       'prefer-const': 'warn',
-      
+
       // Import ordering
       'import/order': [
         'warn',
@@ -41,4 +41,3 @@ const eslintConfig = [
 ]
 
 export default eslintConfig
-

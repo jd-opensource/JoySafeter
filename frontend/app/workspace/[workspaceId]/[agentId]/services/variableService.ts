@@ -55,7 +55,7 @@ function isValidUUID(str: string): boolean {
 
 /**
  * Get available variables for a specific node.
- * 
+ *
  * Note: Only calls API if nodeId is a valid UUID (i.e., node is saved to database).
  * For temporary nodes (e.g., "node_xxx"), returns empty array and caller should use frontend fallback.
  */
@@ -83,7 +83,7 @@ export async function getNodeAvailableVariables(
 
 /**
  * Validate variable usage in an expression.
- * 
+ *
  * Note: Only calls API if nodeId is a valid UUID (i.e., node is saved to database).
  * For temporary nodes, returns a basic validation result.
  */
@@ -119,4 +119,3 @@ export async function validateVariableUsage(
     }
   }
 }
-

@@ -230,4 +230,3 @@ async def __call__(self, state: GraphState) -> Union[RouteKey, Command]:
 1. **更智能的路由映射**: 自动处理 Command goto 到 route_key 的映射
 2. **状态分离工具**: 提供工具函数帮助分离业务状态和执行状态
 3. **类型验证**: 在构建时验证路由键的有效性
-

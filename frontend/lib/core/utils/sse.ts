@@ -11,32 +11,32 @@ export interface SSEEvent {
 
 export function encodeSSE(event: SSEEvent): Uint8Array {
   let message = ''
-  
+
   if (event.event) {
     message += `event: ${event.event}\n`
   }
-  
+
   if (event.id) {
     message += `id: ${event.id}\n`
   }
-  
+
   if (event.retry) {
     message += `retry: ${event.retry}\n`
   }
-  
-  const data = typeof event.data === 'string' 
-    ? event.data 
+
+  const data = typeof event.data === 'string'
+    ? event.data
     : JSON.stringify(event.data)
-  
+
   message += `data: ${data}\n\n`
-  
+
   return new TextEncoder().encode(message)
 }
 
 export function decodeSSE(message: string): SSEEvent | null {
   const lines = message.split('\n')
   const event: Partial<SSEEvent> = {}
-  
+
   for (const line of lines) {
     if (line.startsWith('event:')) {
       event.event = line.slice(6).trim()
@@ -53,7 +53,7 @@ export function decodeSSE(message: string): SSEEvent | null {
       event.retry = parseInt(line.slice(6).trim(), 10)
     }
   }
-  
+
   return event.data !== undefined ? (event as SSEEvent) : null
 }
 
@@ -81,4 +81,3 @@ export function createSSEStream() {
     },
   }
 }
-

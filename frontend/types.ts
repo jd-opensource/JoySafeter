@@ -143,7 +143,7 @@ export interface CanvasNode {
   isStreaming?: boolean;
   createdAt: number;
   toolCalls?: ToolCall[];
-  data?: any; 
+  data?: any;
 }
 
 export interface Edge {

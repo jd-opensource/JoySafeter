@@ -36,4 +36,4 @@ else:
 - [S1] high_risk_indicators = ["system", "exec", "eval", "cmd", "shell", "passwd", "etc"]
 
 ## References
-- 
+-

@@ -131,4 +131,3 @@ export const LoadModal: React.FC<LoadModalProps> = ({ onClose, onLoad }) => {
     </Dialog>
   )
 }
-

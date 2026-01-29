@@ -41,7 +41,3 @@ export const DEFAULT_MCP_FORM_CONFIG = {
   timeout: 30000,
   enabled: true,
 } as const
-
-
-
-

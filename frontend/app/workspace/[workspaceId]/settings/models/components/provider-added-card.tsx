@@ -62,7 +62,7 @@ export function ModelProviderAddedCard({
         </div>
 
         {collapsed && (
-          <div 
+          <div
             className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 cursor-pointer hover:bg-gray-100/50 transition-colors"
             onClick={() => setCollapsed(false)}
           >
@@ -99,4 +99,3 @@ export function ModelProviderAddedCard({
     </>
   )
 }
-

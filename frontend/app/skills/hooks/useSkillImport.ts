@@ -77,7 +77,7 @@ export function useSkillImport() {
       const parsed = parseSkillMd(skillMdFile.content)
 
       await onImportSuccess(skillFiles, parsed.frontmatter)
-      
+
       // Reset import state
       setImportModal(null)
       toast({ title: t('skills.localImportSuccess') })

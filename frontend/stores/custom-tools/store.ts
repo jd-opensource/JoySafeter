@@ -93,4 +93,3 @@ export const useCustomToolsStore = create<CustomToolsStore>((set, get) => ({
 
   setError: (error) => set({ error }),
 }))
-

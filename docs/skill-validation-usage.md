@@ -144,7 +144,7 @@ const handleSave = async () => {
     toast({ variant: 'destructive', title: t('skills.nameRequired') });
     return;
   }
-  
+
   // 验证技能名称
   const { validateSkillName, validateSkillDescription } = await import('@/utils/skillValidators');
   const nameValidation = validateSkillName(formData.name);
@@ -156,7 +156,7 @@ const handleSave = async () => {
     });
     return;
   }
-  
+
   // 验证描述
   if (formData.description) {
     const descValidation = validateSkillDescription(formData.description);
@@ -169,7 +169,7 @@ const handleSave = async () => {
       return;
     }
   }
-  
+
   // 继续保存逻辑...
 };
 ```

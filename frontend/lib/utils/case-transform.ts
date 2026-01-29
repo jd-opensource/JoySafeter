@@ -105,6 +105,3 @@ export function createMapper<T>(
 ): (data: Record<string, any>) => T {
   return transform
 }
-
-
-

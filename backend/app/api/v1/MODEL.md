@@ -73,7 +73,7 @@
 #### 3. 同步供应商、模型和认证信息
 - **端点**: `POST /api/v1/model-providers/sync`
 - **功能**: 统一同步接口，将供应商、模型和认证信息同步到数据库
-- **说明**: 
+- **说明**:
   - 同步供应商信息（从工厂同步）
   - 同步模型信息（从工厂同步到 model_instance 表，全局记录）
   - 同步认证信息（从 .env 读取并同步到 model_credential 表，全局记录）
@@ -153,4 +153,3 @@ Repository 层 (ModelInstanceRepository, ModelProviderRepository, ModelCredentia
 2. 使用 `@router.get/post/put/delete` 装饰器
 3. 通过 Service 层处理业务逻辑
 4. 返回统一的响应格式（使用 `success_response`）
-

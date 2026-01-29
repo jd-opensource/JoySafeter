@@ -45,5 +45,3 @@
 ## Limitations and Caveats
 - URL encoding only replaces spaces and angle brackets per code.
 - Only first 5 payload variants become test cases.
-
- 

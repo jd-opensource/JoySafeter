@@ -46,19 +46,19 @@ export function createExecutionContext(graphId: string): ExecutionContext {
  */
 export class ExecutionManager {
   private static instance: ExecutionManager | null = null
-  
+
   /** Access order record (for LRU) */
   private accessOrder: string[] = []
-  
+
   private constructor() {}
-  
+
   static getInstance(): ExecutionManager {
     if (!ExecutionManager.instance) {
       ExecutionManager.instance = new ExecutionManager()
     }
     return ExecutionManager.instance
   }
-  
+
   /**
    * Record graph access (update LRU order)
    */
@@ -69,7 +69,7 @@ export class ExecutionManager {
     }
     this.accessOrder.push(graphId)
   }
-  
+
   /**
    * Get list of graph IDs to evict
    *
@@ -78,11 +78,11 @@ export class ExecutionManager {
    */
   getGraphsToEvict(contexts: Map<string, ExecutionContext>): string[] {
     const toEvict: string[] = []
-    
+
     while (this.accessOrder.length > EXECUTION_CONFIG.MAX_CACHED_GRAPHS) {
       const oldestGraphId = this.accessOrder[0]
       const context = contexts.get(oldestGraphId)
-      
+
       // Do not evict graphs that are running or have interrupts
       if (context && !context.state.isExecuting && context.state.pendingInterrupts.size === 0) {
         this.accessOrder.shift()
@@ -96,10 +96,10 @@ export class ExecutionManager {
         break // Avoid infinite loop
       }
     }
-    
+
     return toEvict
   }
-  
+
   /**
    * Remove from access record
    */
@@ -109,14 +109,14 @@ export class ExecutionManager {
       this.accessOrder.splice(index, 1)
     }
   }
-  
+
   /**
    * Get access order (for debugging)
    */
   getAccessOrder(): readonly string[] {
     return this.accessOrder
   }
-  
+
   /**
    * Reset (for testing)
    */
@@ -127,5 +127,3 @@ export class ExecutionManager {
 
 // Export singleton getter method
 export const getExecutionManager = () => ExecutionManager.getInstance()
-
-

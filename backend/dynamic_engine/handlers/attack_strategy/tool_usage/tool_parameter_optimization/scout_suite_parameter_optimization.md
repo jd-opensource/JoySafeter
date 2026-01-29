@@ -33,11 +33,11 @@
 def _optimize_scout_suite_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Scout Suite parameters"""
     params = {"target": profile.target}
-    
+
     params["provider"] = context.get("cloud_provider", "aws")
     params["profile"] = context.get("profile", "default")
     params["report_dir"] = context.get("report_dir", "/tmp/scout-suite-report")
-    
+
     return params
 ```
 

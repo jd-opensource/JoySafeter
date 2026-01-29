@@ -30,7 +30,7 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
                 <stop offset="100%" stopColor="#0ea5e9" />
               </linearGradient>
             </defs>
-            
+
             {/* Central AI symbol - white circle with "A" */}
             <g transform="translate(12, 12)">
               <circle r="4.5" fill="white" opacity="0.95" />
@@ -43,11 +43,11 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
                 fill="none"
               />
             </g>
-            
+
             {/* Two accent nodes */}
             <circle cx="6" cy="6" r="2" fill="white" opacity="0.8" />
             <circle cx="18" cy="18" r="2" fill="white" opacity="0.8" />
-            
+
             {/* Connection curve */}
             <path
               d="M 8,6 Q 12,12 16,18"

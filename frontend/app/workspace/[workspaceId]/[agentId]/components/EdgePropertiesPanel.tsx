@@ -375,4 +375,3 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
     </div>
   )
 }
-

@@ -158,4 +158,3 @@ export default function WhiteboxScanPage() {
     </div>
   );
 }
-

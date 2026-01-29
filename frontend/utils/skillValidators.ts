@@ -1,6 +1,6 @@
 /**
  * Skill validation utilities per Agent Skills specification.
- * 
+ *
  * Reference: https://agentskills.io/specification
  */
 
@@ -19,13 +19,13 @@ export interface ValidationResult {
 
 /**
  * Validate skill name per Agent Skills specification.
- * 
+ *
  * Requirements:
  * - Max 64 characters
  * - Lowercase alphanumeric and hyphens only (a-z, 0-9, -)
  * - Cannot start or end with hyphen
  * - No consecutive hyphens
- * 
+ *
  * @param name - Skill name to validate
  * @param directoryName - Optional directory name for matching validation
  * @returns Validation result with error message if invalid
@@ -64,10 +64,10 @@ export function validateSkillName(
 
 /**
  * Validate skill description length per Agent Skills specification.
- * 
+ *
  * Requirements:
  * - Max 1024 characters
- * 
+ *
  * @param description - Skill description to validate
  * @returns Validation result with error message if invalid
  */
@@ -88,10 +88,10 @@ export function validateSkillDescription(description: string): ValidationResult 
 
 /**
  * Validate compatibility field length per Agent Skills specification.
- * 
+ *
  * Requirements:
  * - Max 500 characters (if provided)
- * 
+ *
  * @param compatibility - Compatibility string (optional)
  * @returns Validation result with error message if invalid
  */
@@ -112,7 +112,7 @@ export function validateCompatibility(compatibility?: string): ValidationResult 
 
 /**
  * Truncate description to max length if needed.
- * 
+ *
  * @param description - Skill description
  * @returns Truncated description (if needed) or original description
  */
@@ -125,7 +125,7 @@ export function truncateDescription(description: string): string {
 
 /**
  * Truncate compatibility to max length if needed.
- * 
+ *
  * @param compatibility - Compatibility string (optional)
  * @returns Truncated compatibility (if needed) or original compatibility
  */
@@ -142,9 +142,9 @@ export function truncateCompatibility(compatibility?: string): string | undefine
 
 /**
  * Normalize skill name to valid format (lowercase, replace spaces/invalid chars with hyphens).
- * 
+ *
  * This is a helper function to help users create valid skill names.
- * 
+ *
  * @param name - Original skill name
  * @returns Normalized skill name
  */

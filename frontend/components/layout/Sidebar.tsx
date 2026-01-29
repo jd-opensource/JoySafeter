@@ -1,10 +1,10 @@
 
-import { 
-  Plus, 
-  LayoutGrid, 
-  Compass, 
-  ChevronDown, 
-  Clock, 
+import {
+  Plus,
+  LayoutGrid,
+  Compass,
+  ChevronDown,
+  Clock,
   MessageSquare,
   Workflow,
   Loader2,
@@ -89,22 +89,22 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadHistory, activeView,
       }
   };
 
-  const NavButton = ({ 
-    icon: Icon, 
-    label, 
-    isActive, 
-    onClick, 
-    rightAction 
-  }: { 
-    icon: any, 
-    label: string, 
-    isActive?: boolean, 
+  const NavButton = ({
+    icon: Icon,
+    label,
+    isActive,
+    onClick,
+    rightAction
+  }: {
+    icon: any,
+    label: string,
+    isActive?: boolean,
     onClick: () => void,
-    rightAction?: React.ReactNode 
+    rightAction?: React.ReactNode
   }) => (
     <Tooltip>
         <TooltipTrigger asChild>
-            <button 
+            <button
               onClick={onClick}
               className={`
                 w-full flex items-center gap-2 py-2 text-sm rounded-lg transition-colors group relative
@@ -127,7 +127,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadHistory, activeView,
 
   return (
     <TooltipProvider>
-        <div 
+        <div
             className={`
                 h-full border-r border-gray-200 bg-white flex flex-col flex-shrink-0 z-20 relative select-none transition-all duration-300 ease-in-out
                 ${isCollapsed ? 'w-16' : 'w-56'}
@@ -141,28 +141,28 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadHistory, activeView,
         </div>
 
         <div className={`py-2 space-y-1 ${isCollapsed ? 'px-2' : 'px-2'}`}>
-            <NavButton 
-                icon={MessageSquare} 
-                label="Chat Canvas" 
-                isActive={activeView === 'chat'} 
-                onClick={() => onViewChange('chat')} 
+            <NavButton
+                icon={MessageSquare}
+                label="Chat Canvas"
+                isActive={activeView === 'chat'}
+                onClick={() => onViewChange('chat')}
                 rightAction={
                     <div onClick={(e) => { e.stopPropagation(); onNewChat(); }} className="p-1 hover:bg-gray-200 rounded text-gray-500" title="New Chat">
                         <Plus size={14} />
                     </div>
                 }
             />
-            <NavButton 
-                icon={Workflow} 
-                label="Agent Builder" 
-                isActive={activeView === 'builder'} 
-                onClick={() => onViewChange('builder')} 
+            <NavButton
+                icon={Workflow}
+                label="Agent Builder"
+                isActive={activeView === 'builder'}
+                onClick={() => onViewChange('builder')}
             />
-            <NavButton 
-                icon={ShieldCheck} 
-                label="Skills" 
-                isActive={activeView === 'skills'} 
-                onClick={() => onViewChange('skills')} 
+            <NavButton
+                icon={ShieldCheck}
+                label="Skills"
+                isActive={activeView === 'skills'}
+                onClick={() => onViewChange('skills')}
             />
             <NavButton icon={Compass} label="Discover" onClick={() => {}} />
         </div>
@@ -187,7 +187,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadHistory, activeView,
                     ) : (
                         <div className="space-y-1">
                             {historyItems.map(item => (
-                                <div 
+                                <div
                                     key={item.id}
                                     onClick={() => onLoadHistory(item.id)}
                                     className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer group"
@@ -198,7 +198,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadHistory, activeView,
                                     </div>
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild>
-                                             <button 
+                                             <button
                                                 onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }}
                                                 className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-0.5"
                                             >

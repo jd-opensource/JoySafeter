@@ -1,6 +1,6 @@
 /**
  * DeepAgents Validator - Validates DeepAgents graph structure
- * 
+ *
  * Validates DeepAgents-specific rules based on backend deep_agents_builder.py:
  * - Root node requirements
  * - DeepAgents structure constraints
@@ -50,7 +50,7 @@ function getNodesByIds(nodeIds: string[], nodes: Node[]): Node[] {
 
 /**
  * Validate DeepAgents graph structure
- * 
+ *
  * Rules based on backend deep_agents_builder.py:
  * 1. Must have at least one root node
  * 2. Root node without children must have DeepAgents enabled
@@ -68,7 +68,7 @@ export function validateDeepAgentsStructure(
 
   // 1. Check root nodes
   const rootNodes = getRootNodes(nodes, edges)
-  
+
   if (rootNodes.length === 0) {
     errors.push({
       field: 'deepAgents.rootNodes',
@@ -87,7 +87,7 @@ export function validateDeepAgentsStructure(
       message: `Graph has ${rootNodes.length} root nodes (disconnected components). Graph should have only one entry point.`,
       severity: 'error',
     })
-    
+
     // Also check if backend can select a root node
     const deepAgentsRoots = rootNodes.filter(node => isDeepAgentsEnabled(node))
     if (deepAgentsRoots.length === 0) {
@@ -147,7 +147,7 @@ export function validateDeepAgentsStructure(
     // Validate SubAgents (only if root has children and DeepAgents enabled)
     if (hasChildren && deepAgentsEnabled) {
       const childNodes = getNodesByIds(children, nodes)
-      
+
       // 4.1 Check SubAgent count (3-8 recommended)
       if (childNodes.length < 3) {
         errors.push({
@@ -192,7 +192,7 @@ export function validateDeepAgentsStructure(
       for (const edge of edges) {
         const sourceIsChild = children.includes(edge.source)
         const targetIsChild = children.includes(edge.target)
-        
+
         if (sourceIsChild && targetIsChild) {
           errors.push({
             field: `deepAgents.edge.betweenSubAgents.${edge.id}`,

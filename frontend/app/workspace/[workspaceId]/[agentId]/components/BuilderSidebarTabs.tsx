@@ -44,16 +44,16 @@ export const BuilderSidebarTabs: React.FC = () => {
 
       {/* Tab Contents */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        <TabsContent 
-          value="copilot" 
+        <TabsContent
+          value="copilot"
           className="h-full m-0 p-0 focus-visible:outline-none data-[state=active]:block data-[state=inactive]:hidden"
         >
           <div className="h-full">
             <CopilotPanel />
           </div>
         </TabsContent>
-        <TabsContent 
-          value="toolbox" 
+        <TabsContent
+          value="toolbox"
           className="h-full m-0 p-0 focus-visible:outline-none data-[state=active]:block data-[state=inactive]:hidden"
         >
           <div className="h-full">
@@ -64,4 +64,3 @@ export const BuilderSidebarTabs: React.FC = () => {
     </Tabs>
   )
 }
-

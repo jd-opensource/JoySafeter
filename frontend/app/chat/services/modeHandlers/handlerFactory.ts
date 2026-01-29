@@ -1,6 +1,6 @@
 /**
  * Mode Handler Factory
- * 
+ *
  * Creates mode handlers from configuration, ensuring consistency between config and handlers
  */
 
@@ -14,7 +14,7 @@ import type { ModeHandler, ModeMetadata } from './types'
 
 /**
  * Create a mode handler from configuration
- * 
+ *
  * @param config Mode configuration
  * @returns Mode handler instance, or null if creation fails
  */
@@ -51,4 +51,3 @@ export function createHandlerFromConfig(config: ModeConfig): ModeHandler | null 
 
   return null
 }
-

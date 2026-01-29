@@ -50,10 +50,10 @@ export default function ExecutionVisualizationPage() {
           // Load real data from API
           // For now, use the session ID from URL or default
           const sessionId = initialSessionId || 'default_session';
-          
+
           try {
             const { tasks } = await taskService.getSessionTasks(sessionId, 50, 0);
-            
+
             // Convert TaskResponse to Task format
             const convertedTasks: Task[] = tasks.map(t => ({
               id: t.id,
@@ -63,7 +63,7 @@ export default function ExecutionVisualizationPage() {
               status: t.status.toLowerCase() as ExecutionStatus,
               start_time: new Date(t.created_at).getTime(),
               end_time: t.completed_at ? new Date(t.completed_at).getTime() : Date.now(),
-              duration_ms: t.completed_at 
+              duration_ms: t.completed_at
                 ? new Date(t.completed_at).getTime() - new Date(t.created_at).getTime()
                 : Date.now() - new Date(t.created_at).getTime(),
               execution_id: t.id,
@@ -77,10 +77,10 @@ export default function ExecutionVisualizationPage() {
 
             // Create a session from tasks
             // Use first task's title as session title, or show full session ID
-            const sessionTitle = convertedTasks[0]?.title 
+            const sessionTitle = convertedTasks[0]?.title
               ? `${convertedTasks[0].title.slice(0, 30)}${convertedTasks[0].title.length > 30 ? '...' : ''}`
               : sessionId;
-            
+
             const realSession: Session = {
               id: sessionId,
               title: sessionTitle,
@@ -89,7 +89,7 @@ export default function ExecutionVisualizationPage() {
             };
 
             setSessions([realSession]);
-            
+
             // Fetch real execution trees for each task
             const realExecutions: ExecutionTree[] = [];
             for (const task of convertedTasks) {
@@ -178,7 +178,7 @@ export default function ExecutionVisualizationPage() {
     if (exec) {
       setExecution(exec);
       updateExecution(exec);
-      
+
       // Update URL
       const params = new URLSearchParams(searchParams.toString());
       params.set('taskId', taskId);
@@ -193,7 +193,7 @@ export default function ExecutionVisualizationPage() {
   const handleLoadSubtasks = useCallback(async (agentId: string, taskId: string) => {
     try {
       const subAgents = await loadSubtasksForAgent(taskId, "");
-      
+
       // Update execution tree with loaded subtasks
       const currentExec = executions.find(e => e.id === taskId);
       if (currentExec) {
@@ -211,19 +211,19 @@ export default function ExecutionVisualizationPage() {
             sub_agents: agent.sub_agents.map(findAndUpdateAgent),
           };
         };
-        
+
         const updatedRootAgent = findAndUpdateAgent(currentExec.root_agent);
         const updatedExecution: ExecutionTree = {
           ...currentExec,
           root_agent: updatedRootAgent,
         };
-        
+
         // Update executions array
-        const updatedExecutions = executions.map(e => 
+        const updatedExecutions = executions.map(e =>
           e.id === taskId ? updatedExecution : e
         );
         setExecutions(updatedExecutions);
-        
+
         // Update current execution if it's selected
         if (selectedTaskId === taskId) {
           setExecution(updatedExecution);
@@ -275,4 +275,3 @@ export default function ExecutionVisualizationPage() {
     </div>
   );
 }
-

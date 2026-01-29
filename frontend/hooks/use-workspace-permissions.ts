@@ -74,16 +74,16 @@ export const workspacePermissionKeys = {
  * Only fetch the first page, which is usually sufficient for permission checks
  */
 async function fetchWorkspacePermissions(workspaceId: string): Promise<WorkspacePermissions> {
-  const result = await apiGet<{ 
+  const result = await apiGet<{
     items: WorkspaceMemberResponse[]
     total: number
-    pages: number 
+    pages: number
   }>(
     `${API_ENDPOINTS.workspaces}/${workspaceId}/members?page=1&page_size=100`
   )
-  
+
   const members = result.items || []
-  
+
   const users: WorkspaceUser[] = members.map((member) => ({
     userId: member.userId,
     email: member.email,
@@ -114,7 +114,7 @@ async function fetchMyPermission(
     permissionType: 'read' | 'write' | 'admin'
     isOwner: boolean
   }>(`${API_ENDPOINTS.workspaces}/${workspaceId}/my-permission`)
-  
+
   // 复用现有的 mapRoleToPermissionType 函数
   const users: WorkspaceUser[] = [{
     userId: userId,
@@ -123,7 +123,7 @@ async function fetchMyPermission(
     image: null,
     permissionType: mapRoleToPermissionType(result.role),
   }]
-  
+
   return {
     users,
     total: 1,
@@ -159,21 +159,21 @@ export function useWorkspacePermissions(
     if (options?.useFullList) {
       return () => fetchWorkspacePermissions(workspaceId!)
     }
-    
+
     // 轻量级获取：需要用户信息
     const userEmail = session?.user?.email
     const userId = session?.user?.id || ''
     const userName = session?.user?.name || null
-    
+
     if (!userEmail) {
       throw new Error('User session not found')
     }
-    
+
     return () => fetchMyPermission(workspaceId!, userEmail, userId, userName)
   }, [workspaceId, options?.useFullList, session])
 
   const { data, isLoading, error, refetch: queryRefetch } = useQuery({
-    queryKey: options?.useFullList 
+    queryKey: options?.useFullList
       ? workspacePermissionKeys.detail(workspaceId || '')
       : [...workspacePermissionKeys.detail(workspaceId || ''), 'my-permission'],
     queryFn: fetchFn,
@@ -188,7 +188,7 @@ export function useWorkspacePermissions(
    */
   const updatePermissions = (newPermissions: WorkspacePermissions): void => {
     if (workspaceId) {
-      const queryKey = options?.useFullList 
+      const queryKey = options?.useFullList
         ? workspacePermissionKeys.detail(workspaceId)
         : [...workspacePermissionKeys.detail(workspaceId), 'my-permission']
       queryClient.setQueryData(queryKey, newPermissions)
@@ -222,10 +222,10 @@ export function useWorkspacePermissions(
  */
 export function useInvalidateWorkspacePermissions() {
   const queryClient = useQueryClient()
-  
+
   return (workspaceId: string) => {
-    queryClient.invalidateQueries({ 
-      queryKey: workspacePermissionKeys.detail(workspaceId) 
+    queryClient.invalidateQueries({
+      queryKey: workspacePermissionKeys.detail(workspaceId)
     })
   }
 }

@@ -2,14 +2,14 @@
 
 /**
  * Builder Store - Graph/Canvas State Management
- * 
+ *
  * This store manages only the graph building functionality:
  * - Nodes and edges
  * - History (undo/redo)
  * - Graph persistence (load/save/import/export)
- * 
+ *
  * Execution state is managed separately in executionStore.ts
- * 
+ *
  * Save Management:
  * - All save operations are managed by SaveManager (see utils/saveManager.ts)
  * - SaveManager handles: manual saves, auto-saves, and debounced saves
@@ -353,7 +353,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
     // Set default edge data with smart route_key suggestion
     let defaultRouteKey: string | undefined = undefined
-    
+
     if (isConditionalSource) {
       // Try to suggest a route_key based on source node type and existing routes
       if (sourceType === 'router_node') {
@@ -386,7 +386,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
             ((e.data || {}) as EdgeData).route_key === 'continue_loop'
         )
         defaultRouteKey = hasContinueEdge ? 'exit_loop' : 'continue_loop'
-        
+
         // If this is a continue_loop edge and source == target, it's a loop back
         if (defaultRouteKey === 'continue_loop' && connection.source === connection.target) {
           edgeType = 'loop_back'
@@ -441,7 +441,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     }
   },
   setGraphName: (graphName) => set({ graphName }),
-  
+
   // Sync SaveManager's lastSavedHash from state (without changing graphId)
   // Used when lastSavedStateHash is updated after graphId is already set
   syncLastSavedHash: () => {
@@ -539,7 +539,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     const newY = nodeToDuplicate.position.y + offsetY
     const sidebarLeftBoundary = isSidebarCollapsed ? 190 : 0
     const sidebarRightBoundary = isSidebarCollapsed ? 422 : sidebarWidth
-    
+
     if (newX < sidebarRightBoundary + 50) {
       newX = sidebarRightBoundary + 50
     }
@@ -555,20 +555,20 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
   },
 
   selectNode: (id) => set({ selectedNodeId: id, selectedEdgeId: null }),
-  
+
   // Edge Actions
   updateEdge: (id, data) => {
     set((state) => ({
       edges: state.edges.map((e) => {
         if (e.id !== id) return e
-        
+
         const updatedData = { ...(e.data || {}), ...data } as EdgeData
         const edgeType = updatedData.edge_type
-        
+
         // Update edge type and style based on edge_type
         let edgeTypeForReactFlow: string = 'default'
         let edgeStyle: React.CSSProperties = { ...e.style }
-        
+
         if (edgeType === 'loop_back') {
           edgeTypeForReactFlow = 'loop_back'
           edgeStyle = {
@@ -591,7 +591,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
             strokeWidth: 1.5,
           }
         }
-        
+
         return {
           ...e,
           type: edgeTypeForReactFlow,
@@ -604,7 +604,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     get().triggerAutoSave()
   },
   selectEdge: (id) => set({ selectedEdgeId: id, selectedNodeId: null }),
-  
+
   getOutgoingEdges: (nodeId) => {
     return get().edges.filter((e) => e.source === nodeId)
   },
@@ -639,7 +639,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           )
           return !hasMatchingEdge
         })
-        
+
         if (unmatchedRoute) {
           return {
             ...edge,
@@ -675,23 +675,23 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       if (graphId) {
         const state = await agentService.loadGraphState(graphId)
         let { nodes, edges, variables } = state
-        
+
         // Apply data migration if needed
         if (needsMigration(nodes, edges)) {
           const migrated = migrateGraphData(nodes, edges)
           nodes = migrated.nodes
           edges = migrated.edges
         }
-        
+
         // Process edges to ensure correct type and style based on edge_type
         const processedEdges = edges.map((edge) => {
           const edgeData = (edge.data || {}) as EdgeData
           const edgeType = edgeData.edge_type
-          
+
           // Set React Flow edge type and style based on edge_type
           let edgeTypeForReactFlow: string = 'default'
           let edgeStyle: React.CSSProperties = edge.style || {}
-          
+
           if (edgeType === 'loop_back') {
             edgeTypeForReactFlow = 'loop_back'
             edgeStyle = {
@@ -714,44 +714,44 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
               strokeWidth: edgeStyle.strokeWidth || 1.5,
             }
           }
-          
+
           return {
             ...edge,
             type: edgeTypeForReactFlow,
             style: edgeStyle,
           }
         })
-        
+
         // Load graph variables from variables.context
         const contextVariables = (variables?.context as Record<string, ContextVariable>) || {}
-        
-        set({ 
-          nodes, 
-          edges: processedEdges, 
+
+        set({
+          nodes,
+          edges: processedEdges,
           graphVariables: contextVariables,
-          past: [], 
-          future: [], 
-          isInitializing: false 
+          past: [],
+          future: [],
+          isInitializing: false
         })
       } else {
         let { nodes, edges } = await agentService.getInitialGraph()
-        
+
         // Apply data migration if needed
         if (needsMigration(nodes, edges)) {
           const migrated = migrateGraphData(nodes, edges)
           nodes = migrated.nodes
           edges = migrated.edges
         }
-        
+
         // Process edges to ensure correct type and style based on edge_type
         const processedEdges = edges.map((edge) => {
           const edgeData = (edge.data || {}) as EdgeData
           const edgeType = edgeData.edge_type
-          
+
           // Set React Flow edge type and style based on edge_type
           let edgeTypeForReactFlow: string = 'default'
           let edgeStyle: React.CSSProperties = edge.style || {}
-          
+
           if (edgeType === 'loop_back') {
             edgeTypeForReactFlow = 'loop_back'
             edgeStyle = {
@@ -774,14 +774,14 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
               strokeWidth: edgeStyle.strokeWidth || 1.5,
             }
           }
-          
+
           return {
             ...edge,
             type: edgeTypeForReactFlow,
             style: edgeStyle,
           }
         })
-        
+
         set({ nodes, edges: processedEdges, past: [], future: [], isInitializing: false })
       }
     } catch {
@@ -798,11 +798,11 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       const variables = {
         context: graphVariables,
       }
-      const { graphId } = await agentService.saveGraph({ 
-        name, 
-        nodes, 
-        edges, 
-        viewport, 
+      const { graphId } = await agentService.saveGraph({
+        name,
+        nodes,
+        edges,
+        viewport,
         workspaceId,
         variables,
       })
@@ -829,22 +829,22 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
   triggerAutoSave: () => {
     const { graphId } = get()
-    
+
     if (!graphId) return
-    
+
     set({ hasPendingChanges: true })
     saveManager.debouncedSave()
   },
 
   startAutoSave: () => {
     const { lastSavedStateHash } = get()
-    
+
     // 同步 lastSavedHash 到 SaveManager（如果还未同步）
     // 这确保在启动自动保存前，SaveManager 知道当前状态的 hash
     if (lastSavedStateHash) {
       saveManager.setLastSavedHash(lastSavedStateHash)
     }
-    
+
     // 立即保存当前状态以建立基线（但会检查 hash，如果匹配则跳过）
     saveManager.save('auto')
   },
@@ -852,7 +852,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
   stopAutoSave: () => {
     saveManager.stopAll()
     // Clear timer references in state for backward compatibility
-    set({ 
+    set({
       autoSaveTimer: null,
       autoSaveDebounceTimer: null,
     })
@@ -865,7 +865,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
   exportGraph: () => {
     const { nodes, edges, rfInstance } = get()
     const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
-    
+
     const nodesWithSizes = nodes.map((node) => {
       const nodeCopy = { ...node }
       if (!nodeCopy.width || nodeCopy.width === 0) {
@@ -879,7 +879,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       }
       return nodeCopy
     })
-    
+
     const data = {
       version: '1.0',
       nodes: nodesWithSizes,
@@ -1004,19 +1004,19 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       currentNodesCount: get().nodes.length,
       currentEdgesCount: get().edges.length,
     })
-    
+
     get().takeSnapshot()
     set((state) => ({
       // Use explicit undefined check to allow empty arrays
       nodes: nodes !== undefined ? nodes : state.nodes,
       edges: edges !== undefined ? edges : state.edges,
     }))
-    
+
     console.log('[BuilderStore] applyAIChanges completed', {
       newNodesCount: get().nodes.length,
       newEdgesCount: get().edges.length,
     })
-    
+
     // ⭐ For Copilot actions, use immediate save instead of debounced save
     // This ensures data is saved immediately without waiting for the 2-second debounce delay
     const { graphId } = get()
@@ -1036,9 +1036,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     const { nodes, edges } = get()
     return {
       nodes: nodes,
-      edges: edges.map((e) => ({ 
-        source: e.source, 
-        target: e.target 
+      edges: edges.map((e) => ({
+        source: e.source,
+        target: e.target
       })),
     }
   },

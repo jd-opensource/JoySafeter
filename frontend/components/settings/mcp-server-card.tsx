@@ -237,4 +237,3 @@ export function BuiltinToolCard({
     </TooltipProvider>
   )
 }
-

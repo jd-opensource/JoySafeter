@@ -12,7 +12,7 @@ import { EdgeData } from '../types/graph'
 
 /**
  * LoopBackEdge - Custom edge component for loop back connections with Manhattan Routing
- * 
+ *
  * Features:
  * - Orthogonal path (Manhattan Routing) with only horizontal/vertical segments
  * - Three draggable handles: vertical channel (Y offset), left/right segments (X offsets)
@@ -20,13 +20,13 @@ import { EdgeData } from '../types/graph'
  * - Elegant thin dashed line style with rounded caps
  * - Handles only visible when edge is selected
  * - Supports both true loopback (source == target) and backward connections
- * 
+ *
  * Implementation:
  * - Uses offsetY for vertical channel position
  * - Uses leftOffsetX and rightOffsetX for horizontal segment positions
  * - Automatically calculates default path if offsets are not set
  * - Optimized with useMemo for path calculation and style
- * 
+ *
  * Based on reference implementation with improvements for current project architecture
  */
 
@@ -42,7 +42,7 @@ const getSmartOrthogonalPath = (
 ): [string, number, number, number, number, number, number] => {
   // Is this a backward loop? (Target is to the left of Source)
   const isLoopback = targetX < sourceX + 50
-  
+
   let d = ''
   let labelX = 0
   let labelY = 0
@@ -60,16 +60,16 @@ const getSmartOrthogonalPath = (
     // 5. Go Right to target
 
     const channelY = offsetY !== 0 ? offsetY : Math.min(sourceY, targetY) - 60
-    
+
     // Calculate right and left limits with offsets
     const defaultRightLimit = Math.max(sourceX, targetX) + 60
     const defaultLeftLimit = Math.min(sourceX, targetX) - 60
-    
+
     const rightLimit = rightOffsetX !== 0 ? rightOffsetX : defaultRightLimit
     const leftLimit = leftOffsetX !== 0 ? leftOffsetX : defaultLeftLimit
 
     d = `M ${sourceX} ${sourceY} L ${rightLimit} ${sourceY} L ${rightLimit} ${channelY} L ${leftLimit} ${channelY} L ${leftLimit} ${targetY} L ${targetX} ${targetY}`
-    
+
     labelX = (rightLimit + leftLimit) / 2
     labelY = channelY
     leftX = leftLimit
@@ -92,12 +92,12 @@ const getSmartOrthogonalPath = (
 
     const defaultStartStub = sourceX + 30
     const defaultEndStub = targetX - 30
-    
+
     const startStub = leftOffsetX !== 0 ? leftOffsetX : defaultStartStub
     const endStub = rightOffsetX !== 0 ? rightOffsetX : defaultEndStub
 
     d = `M ${sourceX} ${sourceY} L ${startStub} ${sourceY} L ${startStub} ${channelY} L ${endStub} ${channelY} L ${endStub} ${targetY} L ${targetX} ${targetY}`
-    
+
     labelX = (startStub + endStub) / 2
     labelY = channelY
     leftX = startStub
@@ -129,10 +129,10 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
   const updateEdge = useBuilderStore((state) => state.updateEdge)
   const takeSnapshot = useBuilderStore((state) => state.takeSnapshot)
   const rfInstance = useBuilderStore((state) => state.rfInstance)
-  
+
   const isSelected = selected || selectedEdgeId === id
   const [draggingHandle, setDraggingHandle] = useState<'vertical' | 'left' | 'right' | null>(null)
-  
+
   // Track active event listeners for cleanup on unmount
   const activeListenersRef = useRef<{
     onMouseMove?: (e: MouseEvent | TouchEvent) => void
@@ -147,10 +147,10 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
   // Memoize path calculation to avoid unnecessary recalculations
   const pathData = useMemo(() => {
     return getSmartOrthogonalPath(
-      sourceX, 
-      sourceY, 
-      targetX, 
-      targetY, 
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
       currentOffsetY,
       currentLeftOffsetX,
       currentRightOffsetX
@@ -185,10 +185,10 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
         const currentPos = isTouchMove
           ? (handleType === 'vertical' ? moveEvent.touches[0].clientY : moveEvent.touches[0].clientX)
           : (handleType === 'vertical' ? moveEvent.clientY : moveEvent.clientX)
-        
+
         const viewportZoom = rfInstance?.getViewport().zoom || 1
         const delta = (currentPos - startPos) / viewportZoom
-        
+
         updateEdge(id, updateData(initialValue + delta))
       }
 
@@ -277,7 +277,7 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
         style={loopBackStyle}
         markerEnd={markerEnd}
       />
-      
+
       {/* Edge label if available */}
       {edgeData.label && (
         <EdgeLabelRenderer>
@@ -376,4 +376,3 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
     </>
   )
 }
-

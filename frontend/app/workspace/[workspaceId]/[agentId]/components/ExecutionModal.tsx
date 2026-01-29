@@ -182,4 +182,3 @@ export const ExecutionModal: React.FC<ExecutionModalProps> = ({ onClose }) => {
     </div>
   )
 }
-

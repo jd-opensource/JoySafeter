@@ -1,6 +1,6 @@
 /**
  * Node Configuration Templates - Predefined templates for easy node configuration.
- * 
+ *
  * Provides ready-to-use configuration templates for complex nodes.
  */
 
@@ -141,4 +141,3 @@ export const applyTemplate = (
   const template = templates.find((t) => t.name === templateName)
   return template ? template.config : null
 }
-

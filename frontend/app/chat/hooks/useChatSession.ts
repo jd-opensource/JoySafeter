@@ -1,6 +1,6 @@
 /**
  * useChatSession Hook
- * 
+ *
  * Unified management of chat session state using reducer pattern to ensure consistent state updates
  */
 
@@ -158,7 +158,7 @@ const AUTO_REDIRECT_KEY = 'chat_auto_redirect_to_copilot'
 
 /**
  * useChatSession Hook
- * 
+ *
  * Provides unified state management and operation methods
  */
 export function useChatSession() {
@@ -258,4 +258,3 @@ export function useChatSession() {
     resetInput,
   }
 }
-

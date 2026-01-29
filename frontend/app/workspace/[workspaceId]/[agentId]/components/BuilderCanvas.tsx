@@ -419,9 +419,9 @@ export const BuilderCanvas: React.FC = () => {
       {/* Status Bar - Top Left */}
       {/* Adjust position based on sidebar state to avoid overlap */}
       {/* Sidebar header when collapsed is at left-[190px] with max-w-[232px], but actual content is narrower */}
-      <div 
+      <div
         className="absolute top-4 z-[100]"
-        style={{ 
+        style={{
           left: isSidebarCollapsed ? '320px' : '16px'
         }}
       >
@@ -567,4 +567,3 @@ export const BuilderCanvas: React.FC = () => {
     </div>
   )
 }
-

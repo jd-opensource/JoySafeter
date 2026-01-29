@@ -52,7 +52,7 @@ check_command() {
 check_port() {
     local port=$1
     local service=$2
-    
+
     if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 || \
        netstat -an 2>/dev/null | grep -q ":$port.*LISTEN" || \
        (command -v ss >/dev/null && ss -tuln | grep -q ":$port "); then
@@ -67,22 +67,22 @@ check_port() {
 # 检查 Docker
 check_docker() {
     log_info "检查 Docker..."
-    
+
     if ! check_command docker; then
         log_error "Docker 未安装"
         echo "  安装方法: https://docs.docker.com/get-docker/"
         return 1
     fi
-    
+
     local docker_version=$(docker --version 2>/dev/null | cut -d' ' -f3 | cut -d',' -f1)
     log_success "Docker 已安装 (版本: $docker_version)"
-    
+
     # 检查 Docker 是否运行
     if ! docker info &> /dev/null; then
         log_error "Docker 未运行，请启动 Docker"
         return 1
     fi
-    
+
     log_success "Docker 正在运行"
     return 0
 }
@@ -90,7 +90,7 @@ check_docker() {
 # 检查 Docker Compose
 check_docker_compose() {
     log_info "检查 Docker Compose..."
-    
+
     # 检查 docker compose (v2) 或 docker-compose (v1)
     if docker compose version &> /dev/null; then
         local compose_version=$(docker compose version 2>/dev/null | cut -d' ' -f4)
@@ -110,14 +110,14 @@ check_docker_compose() {
 # 检查端口占用
 check_ports() {
     log_info "检查端口占用情况..."
-    
+
     # 读取 .env 文件获取端口配置（如果存在）
     local env_file="$DEPLOY_DIR/.env"
     local backend_port=8000
     local frontend_port=3000
     local postgres_port=5432
     local redis_port=6379
-    
+
     if [ -f "$env_file" ]; then
         # 从 .env 文件读取端口配置
         source "$env_file" 2>/dev/null || true
@@ -126,7 +126,7 @@ check_ports() {
         postgres_port=${POSTGRES_PORT_HOST:-5432}
         redis_port=${REDIS_PORT_HOST:-6379}
     fi
-    
+
     check_port "$backend_port" "后端服务"
     check_port "$frontend_port" "前端服务"
     check_port "$postgres_port" "PostgreSQL"
@@ -136,7 +136,7 @@ check_ports() {
 # 检查配置文件
 check_config_files() {
     log_info "检查配置文件..."
-    
+
     # 检查 deploy/.env
     if [ ! -f "$DEPLOY_DIR/.env" ]; then
         log_warning "deploy/.env 文件不存在"
@@ -146,7 +146,7 @@ check_config_files() {
     else
         log_success "deploy/.env 文件存在"
     fi
-    
+
     # 检查 backend/.env
     if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
         log_warning "backend/.env 文件不存在"
@@ -156,7 +156,7 @@ check_config_files() {
     else
         log_success "backend/.env 文件存在"
     fi
-    
+
     # 检查 frontend/.env (可选)
     if [ ! -f "$PROJECT_ROOT/frontend/.env" ] && [ ! -f "$PROJECT_ROOT/frontend/.env.local" ]; then
         log_info "frontend/.env 文件不存在（可选配置）"
@@ -168,62 +168,62 @@ check_config_files() {
 # 检查示例文件
 check_example_files() {
     log_info "检查示例配置文件..."
-    
+
     local missing=0
-    
+
     if [ ! -f "$DEPLOY_DIR/.env.example" ]; then
         log_warning "deploy/.env.example 文件不存在"
         missing=$((missing + 1))
     else
         log_success "deploy/.env.example 文件存在"
     fi
-    
+
     if [ ! -f "$PROJECT_ROOT/backend/env.example" ]; then
         log_warning "backend/env.example 文件不存在"
         missing=$((missing + 1))
     else
         log_success "backend/env.example 文件存在"
     fi
-    
+
     return $missing
 }
 
 # 检查 Docker Compose 文件
 check_docker_compose_files() {
     log_info "检查 Docker Compose 配置文件..."
-    
+
     local missing=0
-    
+
     if [ ! -f "$DEPLOY_DIR/docker-compose.yml" ]; then
         log_error "docker-compose.yml 文件不存在"
         missing=$((missing + 1))
     else
         log_success "docker-compose.yml 文件存在"
     fi
-    
+
     if [ ! -f "$DEPLOY_DIR/docker-compose-middleware.yml" ]; then
         log_warning "docker-compose-middleware.yml 文件不存在（可选）"
     else
         log_success "docker-compose-middleware.yml 文件存在"
     fi
-    
+
     if [ ! -f "$DEPLOY_DIR/docker-compose.prod.yml" ]; then
         log_warning "docker-compose.prod.yml 文件不存在（可选）"
     else
         log_success "docker-compose.prod.yml 文件存在"
     fi
-    
+
     return $missing
 }
 
 # 检查磁盘空间（可选）
 check_disk_space() {
     log_info "检查磁盘空间..."
-    
+
     # 检查可用空间（至少需要 5GB）
     local min_space_gb=5
     local available_space_gb=0
-    
+
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         available_space_gb=$(df -g "$DEPLOY_DIR" | tail -1 | awk '{print $4}')
@@ -231,7 +231,7 @@ check_disk_space() {
         # Linux
         available_space_gb=$(df -BG "$DEPLOY_DIR" | tail -1 | awk '{print $4}' | sed 's/G//')
     fi
-    
+
     if [ "$available_space_gb" -lt "$min_space_gb" ]; then
         log_warning "可用磁盘空间不足 (${available_space_gb}GB < ${min_space_gb}GB)"
         echo "  建议: 清理磁盘空间或使用更大的磁盘"
@@ -249,34 +249,34 @@ main() {
     log_info "项目根目录: $PROJECT_ROOT"
     log_info "部署目录: $DEPLOY_DIR"
     echo ""
-    
+
     # 执行检查
     check_docker
     echo ""
-    
+
     check_docker_compose
     echo ""
-    
+
     check_ports
     echo ""
-    
+
     check_config_files
     echo ""
-    
+
     check_example_files
     echo ""
-    
+
     check_docker_compose_files
     echo ""
-    
+
     check_disk_space
     echo ""
-    
+
     # 总结
     echo "=========================================="
     echo "  检查结果"
     echo "=========================================="
-    
+
     if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
         log_success "所有检查通过！"
         echo ""
@@ -300,4 +300,3 @@ main() {
 
 # 运行主函数
 main "$@"
-

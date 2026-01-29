@@ -48,10 +48,10 @@ interface GraphSettingsPanelProps {
 
 /**
  * GraphSettingsPanel - Configure graph-level context variables
- * 
+ *
  * These variables are available in condition expressions and are
  * passed to GraphState.context at runtime.
- * 
+ *
  * Usage in condition expressions:
  * - context.get('retry_count', 0) < 3
  * - context.get('user_type') == 'vip'
@@ -137,7 +137,7 @@ export const GraphSettingsPanel: React.FC<GraphSettingsPanelProps> = ({
       } else if (newVariable.type === 'boolean') {
         parsedValue = newVariable.value === 'true' || newVariable.value === true
       } else if (newVariable.type === 'object') {
-        parsedValue = typeof newVariable.value === 'string' 
+        parsedValue = typeof newVariable.value === 'string'
           ? JSON.parse(newVariable.value || '{}')
           : newVariable.value
       }
@@ -207,8 +207,8 @@ export const GraphSettingsPanel: React.FC<GraphSettingsPanelProps> = ({
   // Format value for display
   const formatValueForDisplay = (variable: ContextVariable): string => {
     if (variable.type === 'object') {
-      return typeof variable.value === 'string' 
-        ? variable.value 
+      return typeof variable.value === 'string'
+        ? variable.value
         : JSON.stringify(variable.value, null, 2)
     }
     return String(variable.value)
@@ -349,7 +349,7 @@ export const GraphSettingsPanel: React.FC<GraphSettingsPanelProps> = ({
                       <Trash2 size={12} />
                     </Button>
                   </div>
-                  
+
                   <div className="space-y-1.5">
                     <Label className="text-[9px] font-bold text-gray-400">{t('workspace.value')}</Label>
                     {renderValueInput(
@@ -466,4 +466,3 @@ export const GraphSettingsPanel: React.FC<GraphSettingsPanelProps> = ({
     </Dialog>
   )
 }
-

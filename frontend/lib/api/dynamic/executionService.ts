@@ -289,4 +289,3 @@ export async function searchExecutions(_sessionId: string, _query: string): Prom
   console.warn('Search executions not implemented yet');
   return [];
 }
-

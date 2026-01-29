@@ -35,18 +35,18 @@
 def _optimize_arjun_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Arjun parameters"""
     params = {"target": profile.target}
-    
+
     params["url"] = profile.target
     params["method"] = context.get("http_method", "GET")
     params["wordlist"] = context.get("wordlist", "default")
-    
+
     if context.get("quick", False):
         params["threads"] = 10
         params["timeout"] = 5
     else:
         params["threads"] = 50
         params["timeout"] = 10
-    
+
     return params
 ```
 

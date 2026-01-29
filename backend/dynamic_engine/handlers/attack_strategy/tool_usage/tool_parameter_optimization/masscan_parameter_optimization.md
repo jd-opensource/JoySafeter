@@ -35,17 +35,17 @@
 def _optimize_masscan_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Masscan parameters"""
     params = {"target": profile.target}
-    
+
     if context.get("stealth", False):
         params["rate"] = 100
     elif context.get("aggressive", False):
         params["rate"] = 10000
     else:
         params["rate"] = 1000
-    
+
     if context.get("service_detection", True):
         params["banners"] = True
-    
+
     return params
 ```
 

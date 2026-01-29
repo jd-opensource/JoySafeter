@@ -16,7 +16,7 @@ interface ParallelExecutionViewProps {
  * 并行任务执行可视化组件
  * 显示并行任务列表、执行状态和结果
  */
-export const ParallelExecutionView: React.FC<ParallelExecutionViewProps> = ({ 
+export const ParallelExecutionView: React.FC<ParallelExecutionViewProps> = ({
   taskStates,
   showResults = true
 }) => {
@@ -107,13 +107,13 @@ export const ParallelExecutionView: React.FC<ParallelExecutionViewProps> = ({
                    taskState.status === 'running' ? t('workspace.taskRunning') : t('workspace.taskPending')}
                 </span>
               </div>
-              
+
               {taskState.error_msg && (
                 <div className="mt-1 text-xs text-red-600">
                   {t('workspace.errorLabel')}: {taskState.error_msg}
                 </div>
               )}
-              
+
               {showResults && taskState.result !== undefined && taskState.status === 'completed' && (
                 <details className="mt-1">
                   <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-800">
@@ -133,4 +133,3 @@ export const ParallelExecutionView: React.FC<ParallelExecutionViewProps> = ({
     </div>
   )
 }
-

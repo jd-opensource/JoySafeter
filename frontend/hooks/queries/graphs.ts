@@ -12,9 +12,9 @@ import type { Node, Edge } from 'reactflow'
 import type { AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
-import type { 
+import type {
   GraphDeploymentVersion as DeploymentVersion,
-  GraphDeploymentStatus as DeploymentStatus 
+  GraphDeploymentStatus as DeploymentStatus
 } from '@/services/graphDeploymentService'
 
 import { STALE_TIME, CACHE_TIME } from './constants'
@@ -42,27 +42,27 @@ export interface GraphState {
 
 export const graphKeys = {
   all: ['graphs'] as const,
-  
+
   // Lists
   lists: () => [...graphKeys.all, 'list'] as const,
   list: (workspaceId?: string) => [...graphKeys.lists(), workspaceId] as const,
   deployed: () => [...graphKeys.all, 'deployed'] as const,
-  
+
   // Details
   details: () => [...graphKeys.all, 'detail'] as const,
   detail: (id: string) => [...graphKeys.details(), id] as const,
-  
+
   // Graph state (nodes, edges)
   states: () => [...graphKeys.all, 'state'] as const,
   state: (id: string) => [...graphKeys.states(), id] as const,
-  
+
   // Deployment
   deployments: () => [...graphKeys.all, 'deployment'] as const,
   deployment: (id: string) => [...graphKeys.deployments(), id] as const,
-  
+
   // Deployment versions
   versions: (id: string) => [...graphKeys.deployments(), id, 'versions'] as const,
-  
+
   // Copilot history
   copilotHistory: (id: string) => [...graphKeys.all, 'copilot', id] as const,
 } as const
@@ -98,7 +98,7 @@ async function fetchGraphState(graphId: string): Promise<GraphState> {
       return true
     })
   }
-  
+
   return data
 }
 
@@ -182,7 +182,7 @@ export function useDeployedGraphs() {
  */
 export function useGraphState(
   graphId?: string,
-  options?: { 
+  options?: {
     enabled?: boolean
     refetchOnMount?: boolean | 'always'
   }
@@ -226,8 +226,8 @@ export function useDeploymentStatus(graphId?: string, options?: { enabled?: bool
  * @param options.enabled - Whether to enable query (for conditional loading, e.g., when panel opens)
  */
 export function useDeploymentVersions(
-  graphId?: string, 
-  page: number = 1, 
+  graphId?: string,
+  page: number = 1,
   pageSize: number = 10,
   options?: { enabled?: boolean }
 ) {
@@ -269,7 +269,7 @@ export function useCopilotHistory(graphId?: string, options?: { enabled?: boolea
  */
 export function useSaveGraphState() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (params: {
       graphId: string
@@ -302,7 +302,7 @@ export function useSaveGraphState() {
  */
 export function useCreateGraph() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (params: {
       name: string
@@ -328,7 +328,7 @@ export function useCreateGraph() {
  */
 export function useUpdateGraph() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (params: {
       id: string
@@ -357,7 +357,7 @@ export function useUpdateGraph() {
  */
 export function useDeleteGraph() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (params: { id: string; workspaceId?: string }) => {
       await apiDelete(`graphs/${params.id}`)
@@ -381,7 +381,7 @@ export function useDeleteGraph() {
  */
 export function useDeployGraph() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (params: { graphId: string; name?: string }) => {
       return apiPost<{ message: string; version?: number }>(`graphs/${params.graphId}/deploy`, {
@@ -404,7 +404,7 @@ export function useDeployGraph() {
  */
 export function useUndeployGraph() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (graphId: string) => {
       await apiDelete(`graphs/${graphId}/deploy`)
@@ -434,7 +434,7 @@ export function useGraphFromCache(graphId?: string, workspaceId?: string) {
  */
 export function useInvalidateGraphs() {
   const queryClient = useQueryClient()
-  
+
   return (workspaceId?: string) => {
     if (workspaceId) {
       queryClient.invalidateQueries({ queryKey: graphKeys.list(workspaceId) })
@@ -443,4 +443,3 @@ export function useInvalidateGraphs() {
     }
   }
 }
-

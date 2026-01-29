@@ -89,7 +89,7 @@ export const copilotService = {
     graphId: string | null
   }): Promise<{ session_id: string; status: string; created_at: string }> {
     const { userPrompt, graphContext, conversationHistory, graphId } = params
-    
+
     const response = await apiPost<{ session_id: string; status: string; created_at: string }>(
       'graphs/copilot/actions/create',
       {
@@ -99,7 +99,7 @@ export const copilotService = {
         conversation_history: conversationHistory.length > 0 ? conversationHistory : undefined,
       }
     )
-    
+
     return response
   },
 
@@ -123,4 +123,3 @@ export const copilotService = {
     return response
   },
 }
-

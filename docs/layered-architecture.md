@@ -33,14 +33,14 @@ flowchart TB
             MemoryService[Memory Service<br/>记忆管理]
             MCPService[MCP Service<br/>工具协议管理]
         end
-        
+
         subgraph Core["Core层"]
             GraphBuilder[Graph Builder<br/>LangGraph/DeepAgents构建器]
             AgentExecutor[Agent Executor<br/>智能体执行引擎]
             Middleware[Middleware System<br/>中间件系统]
             CopilotEngine[Copilot Engine<br/>AI辅助引擎]
         end
-        
+
         DynamicAgent[Dynamic Agent<br/>动态智能体系统]
     end
 
@@ -79,45 +79,45 @@ flowchart TB
     ReactFlow --> GraphBuilder
     StateMgmt --> FastAPI
     UIComponents --> NextJS
-    
+
     FastAPI --> AgentService
     FastAPI --> GraphService
     WebSocket --> DynamicAgent
     CopilotAPI --> CopilotEngine
     AuthAPI --> AgentService
-    
+
     AgentService --> Repository
     GraphService --> Repository
     SkillService --> Repository
     MemoryService --> Repository
     MCPService --> Repository
-    
+
     GraphBuilder --> LangGraph
     AgentExecutor --> LangGraph
     AgentExecutor --> DeepAgents
     Middleware --> AgentExecutor
     CopilotEngine --> GraphBuilder
-    
+
     DynamicAgent --> DockerSandbox
     DynamicAgent --> MCPProtocol
-    
+
     Repository --> Model
     Model --> Database
     Database --> PostgreSQL
-    
+
     LangGraph --> Redis
     DeepAgents --> DockerSandbox
     MCPProtocol --> MCPServer
-    
+
     DockerSandbox --> Docker
     MCPServer --> DockerCompose
     FastAPI --> DockerCompose
     NextJS --> DockerCompose
-    
+
     PostgreSQL --> Infrastructure
     Redis --> Infrastructure
     FileStorage --> Infrastructure
-    
+
     Monitoring --> LangGraph
     Monitoring --> AgentExecutor
 ```

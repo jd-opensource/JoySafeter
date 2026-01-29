@@ -45,8 +45,8 @@ export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({ className }) => {
           'bg-white rounded-xl overflow-hidden',
           'border border-gray-200/80 shadow-2xl shadow-black/10',
           'transition-all duration-300 ease-out',
-          isOpen 
-            ? 'right-[290px] opacity-100 translate-x-0' 
+          isOpen
+            ? 'right-[290px] opacity-100 translate-x-0'
             : 'right-[290px] opacity-0 translate-x-4 pointer-events-none'
         )}
       >

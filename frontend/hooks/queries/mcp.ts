@@ -108,7 +108,7 @@ export function useCreateMcpServer() {
   return useMutation({
     mutationFn: async ({ config }: { config: McpServerConfig }) => {
       const data = await apiPost<{ serverId: string }>('mcp/servers', config)
-      
+
       logger.info(`Created MCP server: ${config.name}`)
       return data
     },
@@ -123,12 +123,12 @@ export function useUpdateMcpServer() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ serverId, updates }: { 
+    mutationFn: async ({ serverId, updates }: {
       serverId: string
-      updates: Partial<McpServerConfig> 
+      updates: Partial<McpServerConfig>
     }) => {
       const data = await apiPut<McpServer>(`mcp/servers/${serverId}`, updates)
-      
+
       logger.info(`Updated MCP server: ${serverId}`)
       return data
     },

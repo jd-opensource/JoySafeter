@@ -36,17 +36,17 @@
 def _optimize_sqlmap_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize SQLMap parameters"""
     params = {"url": profile.target}
-    
+
     if TechnologyStack.PHP in profile.technologies:
         params["additional_args"] = "--dbms=mysql --batch"
     elif TechnologyStack.DOTNET in profile.technologies:
         params["additional_args"] = "--dbms=mssql --batch"
     else:
         params["additional_args"] = "--batch"
-    
+
     if context.get("aggressive", False):
         params["additional_args"] += " --level=3 --risk=2"
-    
+
     return params
 ```
 

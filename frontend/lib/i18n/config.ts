@@ -11,7 +11,7 @@ import zh from './locales/zh'
 if (typeof window !== 'undefined' && !i18n.isInitialized) {
   i18n
     .use(LanguageDetector)
-    .use(initReactI18next) 
+    .use(initReactI18next)
     .init({
       resources: {
         en: {
@@ -22,15 +22,15 @@ if (typeof window !== 'undefined' && !i18n.isInitialized) {
         },
       },
       defaultNS: 'translation',
-      fallbackLng: 'en', 
+      fallbackLng: 'en',
       interpolation: {
-        escapeValue: false, 
+        escapeValue: false,
       },
       detection: {
-        order: ['localStorage', 'cookie', 'navigator'], 
-        caches: ['localStorage', 'cookie'], 
-        lookupLocalStorage: 'i18nextLng', 
-        lookupCookie: 'i18next', 
+        order: ['localStorage', 'cookie', 'navigator'],
+        caches: ['localStorage', 'cookie'],
+        lookupLocalStorage: 'i18nextLng',
+        lookupCookie: 'i18next',
       },
     })
 }

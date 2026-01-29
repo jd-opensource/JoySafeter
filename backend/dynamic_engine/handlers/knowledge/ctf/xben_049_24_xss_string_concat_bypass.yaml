@@ -47,4 +47,3 @@ tricks:
       # Template literals: alert(`X${'SS'}`)
       # Array join: alert(['X','SS'].join(''))
       # String.fromCharCode: alert(String.fromCharCode(88,83,83))
-

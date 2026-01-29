@@ -150,4 +150,3 @@ const displayName = parsed ? parsed.toolName : toolId
 - **后端**: API 响应简化，不再返回冗余的 `serverId`
 - **前端**: 类型定义简化，组件逻辑更清晰
 - **用户体验**: 无影响（格式已经统一）
-

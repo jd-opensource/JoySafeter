@@ -15,11 +15,11 @@ import { StateViewer } from './StateViewer'
  * Integrates all visualization components, displaying execution status, routing decisions, loops, and parallel tasks
  */
 export const ExecutionControlPanel: React.FC = () => {
-  const { 
-    currentState, 
-    executionTrace, 
+  const {
+    currentState,
+    executionTrace,
     routeDecisions,
-    isExecuting 
+    isExecuting
   } = useExecutionStore()
 
   // Get current node type (inferred from node data or routing decisions)
@@ -61,8 +61,8 @@ export const ExecutionControlPanel: React.FC = () => {
     <div className="execution-control-panel space-y-4 p-4 bg-gray-50">
       {/* Current State */}
       <div>
-        <StateViewer 
-          state={currentState} 
+        <StateViewer
+          state={currentState}
           nodeId={currentState.current_node}
           compact={false}
         />
@@ -71,7 +71,7 @@ export const ExecutionControlPanel: React.FC = () => {
       {/* Routing Decision */}
       {latestRouteDecision && (
         <div>
-          <RouteDecisionDisplay 
+          <RouteDecisionDisplay
             nodeId={latestRouteDecision.nodeId}
             nodeType={latestRouteDecision.nodeType}
             decision={latestRouteDecision.decision}
@@ -82,7 +82,7 @@ export const ExecutionControlPanel: React.FC = () => {
       {/* Loop Information */}
       {currentState.loop_count !== undefined && currentState.loop_count > 0 && (
         <div>
-          <LoopExecutionView 
+          <LoopExecutionView
             loopCount={currentState.loop_count}
             maxIterations={currentState.max_loop_iterations || 0}
             conditionMet={currentState.loop_condition_met ?? false}
@@ -92,10 +92,10 @@ export const ExecutionControlPanel: React.FC = () => {
       )}
 
       {/* Parallel Tasks */}
-      {currentState.parallel_mode && currentState.task_states && 
+      {currentState.parallel_mode && currentState.task_states &&
        Object.keys(currentState.task_states).length > 0 && (
         <div>
-          <ParallelExecutionView 
+          <ParallelExecutionView
             taskStates={currentState.task_states}
             showResults={true}
           />
@@ -119,4 +119,3 @@ export const ExecutionControlPanel: React.FC = () => {
     </div>
   )
 }
-

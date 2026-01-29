@@ -92,7 +92,7 @@ executionStore 更新状态
    ```python
    # 在 StreamState 中添加
    self.last_node_goto: dict[str, str] = {}  # node_name -> next_node
-   
+
    # 在 handle_node_start 中更新
    if previous_node:
        state.last_node_goto[previous_node] = current_node
@@ -150,4 +150,3 @@ executionStore 更新状态
 
 ### 总体评价
 实现质量良好，核心功能已闭环。goto 信息获取是主要限制，但不影响基本可视化功能。建议优先实现 goto 信息追踪机制，以完善用户体验。
-

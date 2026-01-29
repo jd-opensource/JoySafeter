@@ -184,7 +184,7 @@ Agent: 已读取 PDF 处理技能说明。现在我可以：
       - 解析 PDF 内容
       - 提取文本
       - 处理表格数据
-      
+
       请提供 PDF 文件路径...
 ```
 
@@ -254,8 +254,8 @@ middleware = DatabaseSkillAdapter(
 
 {skills_prompt}
 
-When you need detailed information about a skill, read the skill files 
-directly from /workspace/skills/{skill_name}/. Start with SKILL.md for 
+When you need detailed information about a skill, read the skill files
+directly from /workspace/skills/{skill_name}/. Start with SKILL.md for
 instructions, then read other files as needed.
 """
 ```
@@ -564,4 +564,3 @@ result = await agent.ainvoke({
 1. 查看日志文件获取详细错误信息
 2. 检查数据库连接和权限设置
 3. 联系开发团队
-

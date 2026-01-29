@@ -12,7 +12,7 @@ export interface GraphState {
   // Business State
   context?: Record<string, any>
   messages?: any[]
-  
+
   // Execution State
   current_node?: string
   route_decision?: string
@@ -229,4 +229,3 @@ export const StateViewer: React.FC<StateViewerProps> = ({
     </div>
   )
 }
-

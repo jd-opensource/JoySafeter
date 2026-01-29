@@ -134,11 +134,11 @@ function addSecurityHeaders(
 function getBackendApiDomains(): string {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
   if (!apiUrl) return ''
-  
+
   try {
     const url = new URL(apiUrl)
     const host = url.host
-    
+
     // Return both HTTP and HTTPS protocols (CSP needs explicit protocol specification)
     // Also support ws:// and wss:// WebSocket connections
     if (url.protocol === 'https:') {
@@ -177,7 +177,7 @@ function generateCSPHeader(
   // Enhanced strict CSP policy
   // Only enable upgrade-insecure-requests in production and when HTTPS is explicitly enabled
   const upgradeInsecureRequests = isProduction && process.env.NEXT_PUBLIC_FORCE_HTTPS === 'true' ? 'upgrade-insecure-requests;' : ''
-  
+
   let cspHeader = `
     default-src 'self' ${csp} ${whiteList};
     connect-src 'self' ${schemeSource} ${backendApiDomains} ${whiteList} http://*.jd.com https://*.jd.com;
@@ -296,4 +296,3 @@ export const config = {
     },
   ],
 }
-

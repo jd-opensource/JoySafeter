@@ -36,4 +36,4 @@ ${7*7}
 - [S1] "ssti": { "basic": ["{{7*7}}", "${7*7}", ...], "advanced": ["{{config}}", "{{''.__class__.__mro__[2].__subclasses__()}}", ...] }
 
 ## References
-- 
+-

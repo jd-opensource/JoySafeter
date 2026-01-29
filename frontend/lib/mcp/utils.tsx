@@ -41,7 +41,7 @@ export function getConnectionStatusText(status?: string, t?: (key: string) => st
         return 'Disconnected'
     }
   }
-  
+
   switch (status as McpConnectionStatus) {
     case 'connected':
       return t('settings.connected')

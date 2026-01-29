@@ -50,13 +50,13 @@ Nuclei parameter optimization is essential for:
 def _optimize_nuclei_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Nuclei parameters"""
     params = {"target": profile.target}
-    
+
     # Severity filtering
     if context.get("quick", False):
         params["severity"] = "critical,high"
     else:
         params["severity"] = "critical,high,medium"
-    
+
     # Technology-specific tags
     tags = []
     for tech in profile.technologies:
@@ -66,10 +66,10 @@ def _optimize_nuclei_params(self, profile: TargetProfile, context: Dict[str, Any
             tags.append("drupal")
         elif tech == TechnologyStack.JOOMLA:
             tags.append("joomla")
-    
+
     if tags:
         params["tags"] = ",".join(tags)
-    
+
     return params
 ```
 

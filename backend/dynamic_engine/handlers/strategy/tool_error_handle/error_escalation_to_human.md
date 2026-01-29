@@ -165,14 +165,14 @@ error_stats = handler.get_error_statistics()
 # Check if escalation is needed
 if error_stats['total_errors'] > 10:
     print("Multiple errors detected, escalating to human")
-    
+
     escalation_data = {
         "timestamp": datetime.now().isoformat(),
         "error_summary": error_stats,
         "message": "Multiple errors detected in tool execution",
         "urgency": "high"
     }
-    
+
     # Log escalation
     print(json.dumps(escalation_data, indent=2))
 ```
@@ -182,29 +182,29 @@ if error_stats['total_errors'] > 10:
 ```python
 def send_escalation_notification(escalation_data):
     """Send escalation notification to human operators"""
-    
+
     message = f"""
     ERROR ESCALATION REQUIRED
-    
+
     Tool: {escalation_data['tool']}
     Target: {escalation_data['target']}
     Error Type: {escalation_data['error_type']}
     Urgency: {escalation_data['urgency']}
-    
+
     Error Message:
     {escalation_data['error_message']}
-    
+
     Suggested Actions:
     """
-    
+
     for i, action in enumerate(escalation_data['suggested_actions'], 1):
         message += f"\n    {i}. {action}"
-    
+
     message += f"\n\nContext:\n{json.dumps(escalation_data['context'], indent=2)}"
-    
+
     # Send notification (email, Slack, PagerDuty, etc.)
     # notify_operators(message)
-    
+
     return message
 ```
 
@@ -213,9 +213,9 @@ def send_escalation_notification(escalation_data):
 ```python
 def get_escalation_history(handler):
     """Get history of escalated errors"""
-    
+
     escalations = []
-    
+
     for error in handler.error_history:
         # Check if error was escalated
         if error.error_type in [
@@ -231,7 +231,7 @@ def get_escalation_history(handler):
                 "error_type": error.error_type.value,
                 "error_message": error.error_message
             })
-    
+
     return escalations
 ```
 

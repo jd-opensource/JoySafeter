@@ -30,12 +30,12 @@ export const SessionItem: React.FC<SessionItemProps> = ({
       <div className="session-item-count">
         {session.messageCount} msg
       </div>
-      
+
       {/* Tooltip on hover */}
       <div className="session-item-tooltip">
         {session.title}
       </div>
-      
+
       {onDelete && (
         <button
           className={`text-xs mt-1 transition-opacity ${

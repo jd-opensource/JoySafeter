@@ -19,4 +19,3 @@ export interface ToolCallGroup {
   toolCalls: ToolCallState[]
   summary?: string
 }
-

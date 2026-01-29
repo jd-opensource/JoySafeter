@@ -23,7 +23,7 @@ const logger = createLogger('WorkspacePage')
 export default function WorkspacePage() {
   const router = useRouter()
   const { data: session, isPending: isSessionPending } = useSession()
-  
+
   // Use React Query hook to get workspace list (shared cache)
   const { data: workspaces = [], isLoading: isWorkspacesLoading } = useWorkspaces()
 

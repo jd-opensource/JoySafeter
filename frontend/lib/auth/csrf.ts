@@ -26,25 +26,25 @@ export function getCsrfToken(): string | null {
 
   // Read from Cookie (fallback)
   if (typeof document === 'undefined') return null
-  
+
   const cookieNames = [
     '__Host-csrf_token',
     'csrf_token',
     '__Host-auth_token_csrf',
     'auth_token_csrf',
   ]
-  
+
   for (const name of cookieNames) {
     const value = document.cookie
       .split('; ')
       .find(row => row.startsWith(`${name}=`))
       ?.split('=')[1]
-    
+
     if (value) {
       return decodeURIComponent(value)
     }
   }
-  
+
   return null
 }
 
@@ -54,4 +54,3 @@ export function getCsrfToken(): string | null {
 export function clearCsrfToken(): void {
   csrfTokenMemory = null
 }
-

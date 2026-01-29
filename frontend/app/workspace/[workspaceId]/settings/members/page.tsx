@@ -92,7 +92,7 @@ export default function WorkspaceMembersPage() {
     { useFullList: true } // 明确需要完整列表
   )
   const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
-  
+
   // Get sidebar state to adjust layout
   const isSidebarCollapsed = useSidebarStore((state) => state.isCollapsed)
   const sidebarWidth = useSidebarStore((state) => state.sidebarWidth)
@@ -153,11 +153,11 @@ export default function WorkspaceMembersPage() {
     onError: (error: any) => {
       const rawMessage = error?.message || error?.detail || String(error) || ''
       const errorMessage = rawMessage.toLowerCase()
-      
+
       const isAlreadyMember =
         errorMessage.includes('already a member') ||
         errorMessage.includes('is already a member')
-      
+
       if (isAlreadyMember) {
         toastError(
           t('workspace.userAlreadyMemberDescription', { email: inviteEmail }),
@@ -256,9 +256,9 @@ export default function WorkspaceMembersPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div 
+      <div
         className="flex-shrink-0 border-b border-gray-200 bg-white py-4 px-6 transition-all duration-300"
-        style={{ 
+        style={{
           marginLeft: isSidebarCollapsed ? '280px' : '0px',
         }}
       >
@@ -308,7 +308,7 @@ export default function WorkspaceMembersPage() {
                         className="w-full"
                       />
                       {emailPopoverOpen && (
-                        <div 
+                        <div
                           className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto"
                           onMouseDown={(e) => {
                             e.preventDefault()
@@ -363,20 +363,20 @@ export default function WorkspaceMembersPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="z-[10000001] rounded-lg border border-gray-200 shadow-xl bg-white py-1.5 min-w-[8rem] [&_span[data-radix-select-item-indicator]]:bg-blue-50 [&_span[data-radix-select-item-indicator]]:rounded-full [&_span[data-radix-select-item-indicator]]:w-5 [&_span[data-radix-select-item-indicator]]:h-5 [&_span[data-radix-select-item-indicator]]:flex [&_span[data-radix-select-item-indicator]]:items-center [&_span[data-radix-select-item-indicator]]:justify-center [&_span[data-radix-select-item-indicator]]:shadow-sm [&_span[data-radix-select-item-indicator]]:left-2 [&_svg]:text-blue-600 [&_svg]:w-3.5 [&_svg]:h-3.5 [&_svg]:stroke-[2.5]">
-                        <SelectItem 
-                          value="admin" 
+                        <SelectItem
+                          value="admin"
                           className="cursor-pointer hover:bg-blue-50 active:bg-blue-100 py-2.5 pl-10 pr-3 rounded-md mx-1 transition-colors focus:bg-blue-50"
                         >
                           {t('workspace.roles.admin')}
                         </SelectItem>
-                        <SelectItem 
-                          value="member" 
+                        <SelectItem
+                          value="member"
                           className="cursor-pointer hover:bg-blue-50 active:bg-blue-100 py-2.5 pl-10 pr-3 rounded-md mx-1 transition-colors focus:bg-blue-50"
                         >
                           {t('workspace.roles.member')}
                         </SelectItem>
-                        <SelectItem 
-                          value="viewer" 
+                        <SelectItem
+                          value="viewer"
                           className="cursor-pointer hover:bg-blue-50 active:bg-blue-100 py-2.5 pl-10 pr-3 rounded-md mx-1 transition-colors focus:bg-blue-50"
                         >
                           {t('workspace.roles.viewer')}
@@ -409,9 +409,9 @@ export default function WorkspaceMembersPage() {
         </div>
       </div>
 
-      <div 
+      <div
         className="flex-1 overflow-y-auto p-6 transition-all duration-300"
-        style={{ 
+        style={{
           marginLeft: isSidebarCollapsed ? '280px' : '0px',
         }}
       >
@@ -640,4 +640,3 @@ export default function WorkspaceMembersPage() {
     </div>
   )
 }
-

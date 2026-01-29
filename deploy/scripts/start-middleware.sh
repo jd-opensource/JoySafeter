@@ -42,12 +42,12 @@ counter=0
 
 while [ $counter -lt $timeout ]; do
     health_status=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "none")
-    
+
     if [ "$health_status" = "healthy" ]; then
         echo -e "${GREEN}✅ 数据库已就绪${NC}"
         break
     fi
-    
+
     sleep 2
     counter=$((counter + 2))
     echo -n "."
@@ -78,14 +78,14 @@ while [ $mcp_counter -lt $mcp_timeout ]; do
     if docker ps --format '{{.Names}}' | grep -q "^${MCP_CONTAINER_NAME}$"; then
         # 检查容器是否健康（如果健康检查已配置）
         health_status=$(docker inspect --format='{{.State.Health.Status}}' "$MCP_CONTAINER_NAME" 2>/dev/null || echo "none")
-        
+
         # 尝试检查 supervisord 是否运行
         if docker exec "$MCP_CONTAINER_NAME" supervisorctl -c /export/App/supervisor/supervisord.conf status >/dev/null 2>&1; then
             echo -e "${GREEN}✅ MCP 容器已就绪${NC}"
             break
         fi
     fi
-    
+
     sleep 2
     mcp_counter=$((mcp_counter + 2))
     echo -n "."
@@ -106,7 +106,7 @@ if docker ps --format '{{.Names}}' | grep -q "^${MCP_CONTAINER_NAME}$"; then
     echo -e "${GREEN}✅ MCP 容器运行中${NC}"
     container_status=$(docker inspect --format='{{.State.Status}}' "$MCP_CONTAINER_NAME" 2>/dev/null || echo "unknown")
     echo "  容器状态: $container_status"
-    
+
     # 显示 supervisord 管理的进程状态
     echo ""
     echo -e "${GREEN}Supervisord 管理的进程状态：${NC}"

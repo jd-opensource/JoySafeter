@@ -35,7 +35,7 @@ export const SkillForm: React.FC<SkillFormProps> = ({
   onToggleAdvancedFields,
 }) => {
   const { t } = useTranslation()
-  
+
   const name = form.watch('name')
   const description = form.watch('description')
   const compatibility = form.watch('compatibility')
@@ -46,7 +46,7 @@ export const SkillForm: React.FC<SkillFormProps> = ({
         <FileText size={16} className="text-emerald-500" />
         <span className="text-xs font-bold text-gray-600">SKILL.md Metadata (YAML Frontmatter)</span>
       </div>
-      
+
       <Form {...form}>
         <div className="grid gap-4">
           {/* Name Field */}
@@ -60,10 +60,10 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                     {t('skills.name') || 'Name'} *
                   </FormLabel>
                   <span className={`text-[10px] ${
-                    (name?.length || 0) > MAX_SKILL_NAME_LENGTH 
-                      ? 'text-red-500' 
-                      : (name?.length || 0) > 50 
-                        ? 'text-amber-500' 
+                    (name?.length || 0) > MAX_SKILL_NAME_LENGTH
+                      ? 'text-red-500'
+                      : (name?.length || 0) > 50
+                        ? 'text-amber-500'
                         : 'text-gray-400'
                   }`}>
                     {(name?.length || 0)}/{MAX_SKILL_NAME_LENGTH}
@@ -93,10 +93,10 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                     {t('skills.description') || 'Description'} *
                   </FormLabel>
                   <span className={`text-[10px] ${
-                    (description?.length || 0) > MAX_SKILL_DESCRIPTION_LENGTH 
-                      ? 'text-red-500' 
-                      : (description?.length || 0) > 900 
-                        ? 'text-amber-500' 
+                    (description?.length || 0) > MAX_SKILL_DESCRIPTION_LENGTH
+                      ? 'text-red-500'
+                      : (description?.length || 0) > 900
+                        ? 'text-amber-500'
                         : 'text-gray-400'
                   }`}>
                     {(description?.length || 0)}/{MAX_SKILL_DESCRIPTION_LENGTH}
@@ -136,20 +136,20 @@ export const SkillForm: React.FC<SkillFormProps> = ({
               </FormItem>
             )}
           />
-          
+
           {/* Advanced Fields Toggle */}
           <button
             type="button"
             onClick={onToggleAdvancedFields}
             className="flex items-center gap-2 text-[10px] text-gray-500 hover:text-gray-700 transition-colors mt-2"
           >
-            <ChevronDown 
-              size={12} 
+            <ChevronDown
+              size={12}
               className={`transition-transform ${showAdvancedFields ? 'rotate-180' : ''}`}
             />
             <span>Advanced Options (Agent Skills Spec)</span>
           </button>
-          
+
           {/* Advanced Fields (Collapsible) */}
           {showAdvancedFields && (
             <div className="space-y-4 pt-2 border-t border-gray-200">
@@ -165,10 +165,10 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                         <span className="ml-1 text-gray-400 font-normal">(optional)</span>
                       </FormLabel>
                       <span className={`text-[10px] ${
-                        (compatibility?.length || 0) > MAX_COMPATIBILITY_LENGTH 
-                          ? 'text-red-500' 
-                          : (compatibility?.length || 0) > 450 
-                            ? 'text-amber-500' 
+                        (compatibility?.length || 0) > MAX_COMPATIBILITY_LENGTH
+                          ? 'text-red-500'
+                          : (compatibility?.length || 0) > 450
+                            ? 'text-amber-500'
                             : 'text-gray-400'
                       }`}>
                         {(compatibility?.length || 0)}/{MAX_COMPATIBILITY_LENGTH}
@@ -190,7 +190,7 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                   </FormItem>
                 )}
               />
-              
+
               {/* Allowed Tools Field */}
               <FormField
                 control={form.control}
@@ -220,7 +220,7 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                   </FormItem>
                 )}
               />
-              
+
               {/* Metadata Field (JSON) */}
               <FormField
                 control={form.control}

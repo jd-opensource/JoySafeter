@@ -46,35 +46,35 @@ software_relationships = {
         "productivity": ["office", "exchange", "sharepoint", "teams"],
         "management": ["sccm", "wsus", "group_policy"]
     },
-    
+
     "linux": {
         "core": ["ssh", "systemd", "bash", "cron"],
         "web": ["apache", "nginx", "php", "python", "nodejs"],
         "database": ["mysql", "postgresql", "mongodb", "redis"],
         "container": ["docker", "kubernetes", "containerd"]
     },
-    
+
     # Web Application Stacks
     "lamp_stack": ["linux", "apache", "mysql", "php"],
     "lemp_stack": ["linux", "nginx", "mysql", "php"],
     "mean_stack": ["mongodb", "express", "angular", "nodejs"],
     "mern_stack": ["mongodb", "express", "react", "nodejs"],
-    
+
     # Enterprise Stacks
     "microsoft_365": ["exchange_online", "sharepoint_online", "teams", "onedrive", "azure_ad"],
     "aws_web": ["ec2", "rds", "s3", "cloudfront", "route53", "elb"],
     "kubernetes_stack": ["etcd", "kube-apiserver", "kubelet", "docker", "helm"],
-    
+
     # Database Ecosystems
     "mysql_ecosystem": ["phpmyadmin", "mysql_workbench", "percona", "mariadb"],
     "postgresql_ecosystem": ["pgadmin", "postgrest", "timescaledb"],
     "mssql_ecosystem": ["ssms", "ssis", "ssrs", "ssas"],
-    
+
     # Development Stacks
     "java_stack": ["tomcat", "spring", "maven", "jenkins"],
     "python_stack": ["django", "flask", "celery", "gunicorn", "nginx"],
     "ruby_stack": ["rails", "puma", "sidekiq", "redis"],
-    
+
     # Cloud Native
     "docker_stack": ["docker", "docker-compose", "portainer", "registry"],
     "ci_cd": ["jenkins", "gitlab", "github_actions", "artifactory"]
@@ -88,11 +88,11 @@ software_relationships = {
 ```python
 def analyze_attack_surface(compromised_software):
     """Analyze attack surface after initial compromise"""
-    
+
     # Step 1: Identify ecosystem
     if compromised_software == "iis":
         ecosystem = "windows"
-        
+
         # Step 2: Enumerate likely co-deployed software
         likely_present = {
             "high_confidence": [
@@ -110,7 +110,7 @@ def analyze_attack_surface(compromised_software):
                 "office"         # Desktop apps (varies by server role)
             ]
         }
-        
+
         # Step 3: Identify lateral movement paths
         lateral_movement_paths = [
             {
@@ -132,7 +132,7 @@ def analyze_attack_surface(compromised_software):
                 "tools": ["mimikatz", "bloodhound"]
             }
         ]
-        
+
         return {
             "ecosystem": ecosystem,
             "likely_software": likely_present,
@@ -165,7 +165,7 @@ def analyze_attack_surface(compromised_software):
 ```python
 def find_lateral_movement_paths(source_ecosystem, target_ecosystem):
     """Find lateral movement paths between ecosystems"""
-    
+
     cross_ecosystem_bridges = {
         ("windows", "linux"): [
             {"protocol": "ssh", "requirement": "SSH server on Linux, SSH client on Windows"},
@@ -183,7 +183,7 @@ def find_lateral_movement_paths(source_ecosystem, target_ecosystem):
             {"protocol": "mssql", "requirement": "Integrated authentication"}
         ]
     }
-    
+
     return cross_ecosystem_bridges.get((source_ecosystem, target_ecosystem), [])
 
 # Example usage
@@ -200,7 +200,7 @@ paths = find_lateral_movement_paths("windows", "linux")
 ```python
 def assess_vulnerability_impact(vulnerable_software, software_relationships):
     """Assess cascading impact of vulnerability in ecosystem"""
-    
+
     # Example: Apache Log4j vulnerability
     if vulnerable_software == "log4j":
         affected_ecosystem = [
@@ -211,7 +211,7 @@ def assess_vulnerability_impact(vulnerable_software, software_relationships):
             "tomcat",         # May use Log4j
             "spring"          # May use Log4j
         ]
-        
+
         impact_assessment = {
             "direct_impact": "Remote Code Execution in Java applications",
             "affected_software": affected_ecosystem,
@@ -223,7 +223,7 @@ def assess_vulnerability_impact(vulnerable_software, software_relationships):
                 "Segment Java application network"
             ]
         }
-        
+
         return impact_assessment
 ```
 
@@ -264,7 +264,7 @@ nmap -sV -p 445,3389,1433,5985 target.com
 
 **Splunk - Detect Lateral Movement Within Ecosystem**
 ```spl
-index=network_traffic 
+index=network_traffic
 | eval src_ecosystem=case(
     match(src_software, "iis|exchange|sharepoint"), "windows",
     match(src_software, "apache|nginx|php"), "linux",
@@ -299,24 +299,24 @@ level: medium
 def map_asset_relationships(asset_inventory):
     """Build relationship graph from asset inventory"""
     import networkx as nx
-    
+
     G = nx.Graph()
-    
+
     for asset in asset_inventory:
         # Add node with ecosystem attribute
         ecosystem = determine_ecosystem(asset['software'])
         G.add_node(asset['hostname'], ecosystem=ecosystem, software=asset['software'])
-        
+
         # Add edges for network connections
         for connection in asset['connections']:
             G.add_edge(asset['hostname'], connection['target'])
-    
+
     # Find cross-ecosystem connections (potential lateral movement paths)
     cross_ecosystem_edges = [
         (u, v) for u, v in G.edges()
         if G.nodes[u]['ecosystem'] != G.nodes[v]['ecosystem']
     ]
-    
+
     return G, cross_ecosystem_edges
 ```
 
@@ -338,7 +338,7 @@ segments:
         port: 1433
     blocked:
       - destination: linux_tier  # Prevent cross-ecosystem lateral movement
-  
+
   - name: linux_tier
     allowed_inbound:
       - source: dmz

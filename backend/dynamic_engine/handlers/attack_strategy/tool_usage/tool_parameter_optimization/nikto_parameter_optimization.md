@@ -27,11 +27,11 @@
 def _optimize_nikto_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Nikto parameters"""
     params = {"target": profile.target}
-    
+
     params["url"] = profile.target
     params["plugins"] = context.get("plugins", "all")
     params["output_format"] = context.get("output_format", "html")
-    
+
     return params
 ```
 

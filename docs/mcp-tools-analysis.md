@@ -200,7 +200,7 @@ useMcpToolsQuery() - React Query
     ↓
 GET /api/v1/mcp/tools
     ↓
-后端 ToolService.get_available_tools() 
+后端 ToolService.get_available_tools()
     ↓
 ToolRegistry.get_tools_for_scope() - 查询 Registry
     ↓
@@ -352,7 +352,7 @@ ToolRegistry.get_mcp_tool(serverName, toolName)
 #### 前端可能无用代码
 
 1. **可能未使用的方法**：
-   - `useMcpTools().getToolById()` 
+   - `useMcpTools().getToolById()`
    - `useMcpTools().getToolsByServer()`
    - `useMcpTools().refreshTools()`
 
@@ -401,4 +401,3 @@ ToolRegistry.get_mcp_tool(serverName, toolName)
 - 🟢 **低优先级**：
   - 优化索引系统（如果采用方案A）
   - 前端代码优化和重构
-

@@ -86,10 +86,10 @@ function extractKeyStateFields(state: any): { key: string; value: any }[] {
   }
 
   const keyFields: { key: string; value: any }[] = []
-  
+
   // Priority display of common fields
   const priorityFields = ['messages', 'context', 'input', 'output', 'result', 'data']
-  
+
   for (const key of priorityFields) {
     if (key in state) {
       const value = state[key]
@@ -103,7 +103,7 @@ function extractKeyStateFields(state: any): { key: string; value: any }[] {
       }
     }
   }
-  
+
   // Add other fields (display up to 10)
   const otherKeys = Object.keys(state).filter(k => !priorityFields.includes(k)).slice(0, 10)
   for (const key of otherKeys) {
@@ -116,7 +116,7 @@ function extractKeyStateFields(state: any): { key: string; value: any }[] {
       keyFields.push({ key, value: String(value).slice(0, 50) })
     }
   }
-  
+
   return keyFields
 }
 
@@ -234,7 +234,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
     try {
       // Find target node
       const targetNode = nodes.find(n => n.id === nodeId)
-      
+
       // Use unified node name conversion tool (ensure consistency with backend LangGraph format)
       const nodeName = targetNode
         ? getNodeNameFromFlowNode({

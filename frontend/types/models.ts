@@ -113,6 +113,3 @@ export interface TestModelOutputRequest {
 export interface TestModelOutputResponse {
   output: string
 }
-
-
-

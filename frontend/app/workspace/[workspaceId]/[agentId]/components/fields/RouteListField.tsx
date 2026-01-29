@@ -98,8 +98,8 @@ const RouteRuleItem: React.FC<RouteRuleItemProps> = ({
       const targetNode = targetNodes.find((n) => n.id === edge.target)
       const targetLabel = (targetNode?.data as { label?: string })?.label || targetNode?.id || edge.target
       // Ensure routeKey is never empty string - use edgeId as fallback
-      const routeKey = (edgeData.route_key && edgeData.route_key.trim() !== '') 
-        ? edgeData.route_key 
+      const routeKey = (edgeData.route_key && edgeData.route_key.trim() !== '')
+        ? edgeData.route_key
         : edge.id
 
       return {
@@ -262,7 +262,7 @@ const RouteRuleItem: React.FC<RouteRuleItemProps> = ({
                 )}
               </div>
             )}
-            
+
             {/* Show create edge option if route key doesn't match any edge */}
             {edgeOptions.length > 0 && rule.targetEdgeKey && !edgeOptions.find((opt) => opt.routeKey === rule.targetEdgeKey) && onCreateEdge && (
               <div className="space-y-1.5 pt-1 border-t border-gray-100">
@@ -466,4 +466,3 @@ export const RouteListField: React.FC<RouteListFieldProps> = ({
     </div>
   )
 }
-

@@ -37,4 +37,3 @@ tricks:
       # If available, use POP chains
       # Common: __destruct, __wakeup magic methods
       # Look for classes with file operations
-

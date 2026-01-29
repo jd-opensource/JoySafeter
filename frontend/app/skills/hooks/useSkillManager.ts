@@ -18,7 +18,7 @@ export function useSkillManager() {
 
   // Use React Query hook to get user's skills
   const { data: skills = [], isLoading: loading, refetch } = useMySkills()
-  
+
   // Delete mutation hook
   const deleteSkillMutation = useDeleteSkill()
 
@@ -41,7 +41,7 @@ export function useSkillManager() {
 
   // Filter skills based on search query
   const filteredSkills = useMemo(() => {
-    return skills.filter(s => 
+    return skills.filter(s =>
       s.name.toLowerCase().includes(searchQuery.toLowerCase())
     )
   }, [skills, searchQuery])

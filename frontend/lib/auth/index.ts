@@ -12,4 +12,3 @@ export const getSession = async () => {
 
 // Type exports
 export type { AuthUser, AuthSession, AuthError } from './auth-client'
-

@@ -1,6 +1,6 @@
 /**
  * Simple Mode Handler
- * 
+ *
  * Handles simple modes that only need to set the mode type, no special processing required
  */
 
@@ -17,7 +17,7 @@ import type {
 
 /**
  * Create a simple mode handler
- * 
+ *
  * @param metadata Mode metadata
  * @returns ModeHandler instance
  */
@@ -54,4 +54,3 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
 
 // Note: These handlers are now created from config via handlerFactory
 // Keeping these exports for backward compatibility, but recommend using createHandlerFromConfig
-

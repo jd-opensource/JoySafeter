@@ -61,7 +61,7 @@ export const useChat = (sessionId: string) => {
         let fullContent = '';
         let intermediateContent = '';
         let taskId: string | undefined;
-        
+
         for await (const event of chatService.sendMessage(
           sessionId,
           content,

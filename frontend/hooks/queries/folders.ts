@@ -101,7 +101,7 @@ export function useCreateFolder() {
   return useMutation({
     mutationFn: async ({ workspaceId, name, parentId, color }: CreateFolderVariables) => {
       logger.info('Creating folder', { workspaceId, name })
-      
+
       const result = await apiPost<CreateFolderResponse>(API_ENDPOINTS.folders, {
         workspaceId,
         name,
@@ -143,7 +143,7 @@ export function useUpdateFolder() {
   return useMutation({
     mutationFn: async ({ workspaceId, id, updates }: UpdateFolderVariables) => {
       logger.info('Updating folder', { id, workspaceId, updates })
-      
+
       const payload: Record<string, unknown> = {
         workspaceId,
       }
@@ -197,7 +197,7 @@ export function useDeleteFolderMutation() {
   return useMutation({
     mutationFn: async ({ workspaceId, id }: DeleteFolderVariables) => {
       logger.info('Deleting folder', { id, workspaceId })
-      
+
       await apiDelete<unknown>(`${API_ENDPOINTS.folders}/${encodeURIComponent(id)}`)
       return { success: true }
     },
@@ -238,7 +238,7 @@ export function useDuplicateFolderMutation() {
   return useMutation({
     mutationFn: async ({ workspaceId, id, name, parentId, color }: DuplicateFolderVariables) => {
       logger.info('Duplicating folder', { id, name, workspaceId })
-      
+
       const result = await apiPost<DuplicateFolderResponse>(
         `${API_ENDPOINTS.folders}/${encodeURIComponent(id)}/duplicate`,
         {
@@ -248,7 +248,7 @@ export function useDuplicateFolderMutation() {
           color,
         }
       )
-      
+
       const dto: WorkflowFolderDto = {
         id: result.id,
         name: result.name,

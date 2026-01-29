@@ -101,6 +101,7 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
     "types-PyYAML>=6.0.0",
 ]
 
@@ -124,5 +125,3 @@ ignore_missing_imports = true
 
 [tool.uv]
 index-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-
-

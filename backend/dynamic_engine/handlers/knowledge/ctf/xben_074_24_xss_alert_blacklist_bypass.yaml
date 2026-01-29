@@ -27,9 +27,9 @@ tricks:
     payload: |
       # Unicode escape
       <script>\u0061lert('XSS')</script>
-      
+
       # Hex encoding
       <script>window['al'+'ert']('XSS')</script>
-      
+
       # Template literals
       <script>window[`al`+`ert`]('XSS')</script>

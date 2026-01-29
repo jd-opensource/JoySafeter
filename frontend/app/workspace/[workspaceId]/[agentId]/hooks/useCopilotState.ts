@@ -1,6 +1,6 @@
 /**
  * useCopilotState - Unified state management hook for Copilot
- * 
+ *
  * This hook provides a single source of truth for all Copilot-related state,
  * encapsulating the complexity of managing multiple state domains.
  */
@@ -16,20 +16,20 @@ export interface CopilotState {
   // Message state
   messages: ReturnType<typeof useCopilotMessages>['messages']
   loadingHistory: boolean
-  
+
   // Streaming state
   streamingContent: string
   currentStage: { stage: StageType; message: string } | null
   currentToolCall: { tool: string; input: Record<string, unknown> } | null
   toolResults: Array<{ type: string; payload: Record<string, unknown>; reasoning?: string }>
   expandedToolTypes: Set<string>
-  
+
   // Action execution state
   executingActions: boolean
-  
+
   // Session state
   currentSessionId: string | null
-  
+
   // Local UI state
   input: string
   loading: boolean
@@ -45,7 +45,7 @@ export interface CopilotActions {
   setThinkingMessage: () => void
   finalizeCurrentMessage: (message: string, actions?: any[]) => void
   removeCurrentMessage: () => void
-  
+
   // Streaming actions
   setCurrentStage: (stage: { stage: StageType; message: string } | null) => void
   setCurrentToolCall: (call: { tool: string; input: Record<string, unknown> } | null) => void
@@ -54,14 +54,14 @@ export interface CopilotActions {
   clearStreaming: () => void
   toggleToolType: (type: string) => void
   setStreamingContent: (content: string) => void
-  
+
   // Action execution
   executeActions: (actions: any[]) => Promise<void>
-  
+
   // Session actions
   setSession: (sessionId: string) => void
   clearSession: () => void
-  
+
   // Local UI actions
   setInput: (input: string) => void
   setLoading: (loading: boolean) => void
@@ -83,29 +83,29 @@ export interface CopilotRefs {
 export function useCopilotState(graphId?: string) {
   // Message state
   const messagesHook = useCopilotMessages(graphId)
-  
+
   // Streaming state
   const streamingHook = useCopilotStreaming()
-  
+
   // Action execution state
   const actionExecutorHook = useActionExecutor()
-  
+
   // Session state
   const sessionHook = useCopilotSession(graphId)
-  
+
   // Local UI state
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [expandedItems, setExpandedItems] = useState<Set<string | number>>(new Set())
   const [copiedStreaming, setCopiedStreaming] = useState(false)
-  
+
   // Refs for lifecycle and cleanup
   const isMountedRef = useRef(true)
   const isCreatingSessionRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastScrollContentRef = useRef<string>('')
-  
+
   // Set up mount status tracking and cleanup
   useEffect(() => {
     isMountedRef.current = true
@@ -118,7 +118,7 @@ export function useCopilotState(graphId?: string) {
       }
     }
   }, [])
-  
+
   // Toggle expand helper
   const toggleExpand = useCallback((key: string | number) => {
     setExpandedItems((prev) => {
@@ -131,12 +131,12 @@ export function useCopilotState(graphId?: string) {
       return next
     })
   }, [])
-  
+
   // Clear expanded items helper
   const clearExpandedItems = useCallback(() => {
     setExpandedItems(new Set())
   }, [])
-  
+
   // State object
   const state: CopilotState = {
     messages: messagesHook.messages,
@@ -153,7 +153,7 @@ export function useCopilotState(graphId?: string) {
     expandedItems,
     copiedStreaming,
   }
-  
+
   // Actions object
   const actions: CopilotActions = {
     // Message actions
@@ -163,7 +163,7 @@ export function useCopilotState(graphId?: string) {
     setThinkingMessage: messagesHook.setThinkingMessage,
     finalizeCurrentMessage: messagesHook.finalizeCurrentMessage,
     removeCurrentMessage: messagesHook.removeCurrentMessage,
-    
+
     // Streaming actions
     setCurrentStage: streamingHook.setCurrentStage,
     setCurrentToolCall: streamingHook.setCurrentToolCall,
@@ -172,14 +172,14 @@ export function useCopilotState(graphId?: string) {
     clearStreaming: streamingHook.clearStreaming,
     toggleToolType: streamingHook.toggleToolType,
     setStreamingContent: streamingHook.setStreamingContent,
-    
+
     // Action execution
     executeActions: actionExecutorHook.executeActions,
-    
+
     // Session actions
     setSession: sessionHook.setSession,
     clearSession: sessionHook.clearSession,
-    
+
     // Local UI actions
     setInput,
     setLoading,
@@ -187,7 +187,7 @@ export function useCopilotState(graphId?: string) {
     clearExpandedItems,
     setCopiedStreaming,
   }
-  
+
   // Refs object
   const refs: CopilotRefs = {
     isMountedRef,
@@ -198,7 +198,7 @@ export function useCopilotState(graphId?: string) {
     copyTimeoutRef,
     lastScrollContentRef,
   }
-  
+
   return {
     state,
     actions,

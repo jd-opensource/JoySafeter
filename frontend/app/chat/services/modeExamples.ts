@@ -95,4 +95,3 @@ export const modeExamples: Record<string, ModeExample[]> = {
     },
   ],
 }
-

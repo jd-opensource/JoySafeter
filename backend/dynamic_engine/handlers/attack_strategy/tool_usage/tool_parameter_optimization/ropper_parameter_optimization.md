@@ -33,17 +33,17 @@
 def _optimize_ropper_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Ropper parameters"""
     params = {"target": profile.target}
-    
+
     if context.get("exploit_type") == "jop":
         params["gadget_type"] = "jop"
     else:
         params["gadget_type"] = "rop"
-    
+
     if context.get("quick", False):
         params["quality"] = 1
     else:
         params["quality"] = 3
-    
+
     return params
 ```
 

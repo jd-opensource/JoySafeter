@@ -1,10 +1,10 @@
 'use client'
 
-import { 
-    ShieldCheck, 
-    FileText, 
-    Clock, 
-    User, 
+import {
+    ShieldCheck,
+    FileText,
+    Clock,
+    User,
     Scale,
     Copy,
     Eye,
@@ -50,9 +50,9 @@ function formatRelativeTime(dateString: string): string {
     return date.toLocaleDateString()
 }
 
-export const SkillCard: React.FC<SkillCardProps> = ({ 
-    skill, 
-    onView, 
+export const SkillCard: React.FC<SkillCardProps> = ({
+    skill,
+    onView,
     onCopy,
     isOwner = false,
     variant = 'grid'
@@ -213,17 +213,17 @@ export const SkillCard: React.FC<SkillCardProps> = ({
                 {skill.tags && skill.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-3">
                         {skill.tags.slice(0, 3).map((tag, index) => (
-                            <Badge 
-                                key={index} 
-                                variant="outline" 
+                            <Badge
+                                key={index}
+                                variant="outline"
                                 className="text-[9px] px-1.5 py-0 bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
                             >
                                 {tag}
                             </Badge>
                         ))}
                         {skill.tags.length > 3 && (
-                            <Badge 
-                                variant="outline" 
+                            <Badge
+                                variant="outline"
                                 className="text-[9px] px-1.5 py-0 bg-gray-50 text-gray-400 border-gray-200"
                             >
                                 +{skill.tags.length - 3}

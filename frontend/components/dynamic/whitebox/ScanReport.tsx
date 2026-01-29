@@ -92,4 +92,3 @@ export const ScanReport: React.FC<ScanReportProps> = ({ report, onBack }) => {
     </div>
   );
 };
-

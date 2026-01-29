@@ -73,7 +73,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const queryClient = useQueryClient()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [conversationToDelete, setConversationToDelete] = useState<{ threadId: string; title: string } | null>(null)
-  
+
   // Collapse states: today expanded by default, others collapsed
   const [isTodayCollapsed, setIsTodayCollapsed] = useState(false)
   const [isThisMonthCollapsed, setIsThisMonthCollapsed] = useState(true)

@@ -90,8 +90,8 @@ export function CopilotStreaming({
         {/* Streaming content display with tool call info integrated */}
         {(streamingContent || currentToolCall) && (
           <div className={`rounded-2xl rounded-bl-none border shadow-sm animate-in fade-in duration-200 overflow-hidden ${
-            streamingContent 
-              ? 'bg-white border-gray-100' 
+            streamingContent
+              ? 'bg-white border-gray-100'
               : 'bg-amber-50 border-amber-200'
           }`}>
             {/* Tool call info - fixed at top, always visible */}
@@ -131,7 +131,7 @@ export function CopilotStreaming({
                   )}
                 </button>
                 {/* Scrollable content */}
-                <div 
+                <div
                   ref={streamingContentRef}
                   className="p-3 pr-5 max-h-64 overflow-y-auto custom-scrollbar"
                 >

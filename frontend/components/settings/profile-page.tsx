@@ -53,7 +53,7 @@ const PASSWORD_VALIDATIONS = {
  */
 function getAccessTokenFromCookie(): string | null {
   if (typeof document === 'undefined') return null
-  
+
   // Try various cookie names that might contain the access token
   const cookieNames = [
     'auth_token',
@@ -62,18 +62,18 @@ function getAccessTokenFromCookie(): string | null {
     'access_token',
     'auth-token',
   ]
-  
+
   for (const name of cookieNames) {
     const value = document.cookie
       .split('; ')
       .find(row => row.startsWith(`${name}=`))
       ?.split('=')[1]
-    
+
     if (value) {
       return decodeURIComponent(value)
     }
   }
-  
+
   return null
 }
 
@@ -98,7 +98,7 @@ export function ProfilePage() {
   const { t } = useTranslation()
   const router = useRouter()
   const session = useSession()
-  
+
   const user = session.data?.user
   const [isEditingName, setIsEditingName] = useState(false)
   const [displayName, setDisplayName] = useState(user?.name || '')
@@ -192,14 +192,14 @@ export function ProfilePage() {
       // Call API to reset password for current user (no old password required)
       // Hash password using SHA-256 (same as other auth endpoints)
       const hashedPassword = CryptoJS.SHA256(newPassword).toString()
-      
+
       // Get access token from cookie and add to Authorization header
       const accessToken = getAccessTokenFromCookie()
       const headers: Record<string, string> = {}
       if (accessToken) {
         headers['Authorization'] = `Bearer ${accessToken}`
       }
-      
+
       await apiPost('auth/me/reset-password', {
         new_password: hashedPassword,
       }, {
@@ -270,7 +270,7 @@ export function ProfilePage() {
                 {getInitials(user?.name, user?.email)}
               </AvatarFallback>
             </Avatar>
-            
+
             <div className="flex-1 space-y-1">
               {isEditingName ? (
                 <div className="flex items-center gap-2">

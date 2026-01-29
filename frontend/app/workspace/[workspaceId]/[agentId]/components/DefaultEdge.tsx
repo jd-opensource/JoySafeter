@@ -7,7 +7,7 @@ import { EdgeData } from '../types/graph'
 
 /**
  * DefaultEdge - Custom edge component for normal and conditional edges
- * 
+ *
  * Features:
  * - Supports label display on the edge line
  * - Different colors for conditional vs normal edges
@@ -26,7 +26,7 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
   data,
 }) => {
   const edgeData = (data || {}) as EdgeData
-  
+
   // Calculate edge path and label position
   const { edgePath, labelX, labelY } = useMemo(() => {
     const [path, labelX, labelY] = getBezierPath({
@@ -37,7 +37,7 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
       targetY,
       targetPosition,
     })
-    
+
     return { edgePath: path, labelX, labelY }
   }, [sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition])
 
@@ -85,4 +85,3 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
     </>
   )
 }
-

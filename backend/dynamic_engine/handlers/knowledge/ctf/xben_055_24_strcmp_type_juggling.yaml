@@ -41,4 +41,3 @@ tricks:
       # if (strcmp($password, $expected) === 0)
       # Or better: password_verify() for passwords
       # Always use === for security-critical comparisons
-

@@ -10,13 +10,13 @@ optimization_strategies:
     parameters:
       url: Target API endpoint URL
       method: HTTP method (GET, POST, PUT, DELETE)
-  
+
   - name: wordlist_selection
     description: Select appropriate wordlist for parameter discovery
     parameters:
       wordlist: Parameter wordlist file
       custom_wordlist: Custom parameter list
-  
+
   - name: threading_optimization
     description: Adjust threading based on target responsiveness
     parameters:
@@ -29,7 +29,7 @@ context_aware_optimization:
     parameters:
       threads: 10
       timeout: 5
-  
+
   - mode: comprehensive
     description: Thorough parameter discovery
     parameters:

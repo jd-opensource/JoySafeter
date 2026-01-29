@@ -36,4 +36,3 @@ tricks:
       X-Forwarded-For: localhost
       X-Forwarded-For: 127.0.0.1
       X-Real-IP: 127.0.0.1
-

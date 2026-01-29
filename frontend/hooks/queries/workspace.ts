@@ -4,7 +4,7 @@
  * Follow project standards:
  * - Use camelCase for types
  * - API response: { success: true, data: {...} }
- * 
+ *
  * Note: This file handles workspace detail/settings queries.
  * For workspace list queries, see workspaces.ts
  */
@@ -40,7 +40,7 @@ export const workspaceDetailKeys = {
  */
 async function fetchWorkspaceSettings(workspaceId: string) {
   logger.info('Fetching workspace settings', { workspaceId })
-  
+
   const [settingsResult, permissionsResult] = await Promise.allSettled([
     apiGet<{ workspace: any }>(`${API_ENDPOINTS.workspaces}/${workspaceId}`),
     apiGet<any>(`${API_ENDPOINTS.workspaces}/${workspaceId}/permissions`),
@@ -126,7 +126,7 @@ async function fetchAdminWorkspaces(userId: string | undefined): Promise<AdminWo
   }
 
   logger.info('Fetching admin workspaces', { userId })
-  
+
   const workspacesData = await apiGet<{ workspaces: any[] }>(API_ENDPOINTS.workspaces)
   const allUserWorkspaces = workspacesData.workspaces || []
 

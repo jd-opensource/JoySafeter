@@ -25,4 +25,3 @@ Add any other context or screenshots about the feature request here.
 - [ ] Yes, I would like to implement this feature
 - [ ] Yes, I can help with testing
 - [ ] No, but I would love to see it implemented
-

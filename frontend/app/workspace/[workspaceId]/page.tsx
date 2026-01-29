@@ -51,7 +51,7 @@ export default function WorkspaceDetailPage() {
         setIsCreating(true)
         try {
           logger.info('Workspace is empty, creating default graph', { workspaceId })
-          
+
           // Use agentService to create new graph
           const graphName = t('workspace.defaultGraphName')
           const graph = await agentService.createGraph({
@@ -73,10 +73,10 @@ export default function WorkspaceDetailPage() {
           })
 
           logger.info('Default graph created and saved', { graphId })
-          
+
           // Refresh sidebar graph list (invalidate React Query cache)
           await queryClient.invalidateQueries({ queryKey: graphKeys.list(workspaceId) })
-          
+
           // Redirect to newly created graph
           setHasAttemptedRedirect(true)
           router.replace(`/workspace/${workspaceId}/${graphId}`)
@@ -99,7 +99,7 @@ export default function WorkspaceDetailPage() {
         <div className='text-center'>
           <Loader2 className='mx-auto h-8 w-8 animate-spin text-muted-foreground' />
           <p className='mt-4 text-sm text-muted-foreground'>
-            {isCreating 
+            {isCreating
               ? t('workspace.creatingDefaultGraph')
               : t('workspace.loadingAgents')}
           </p>

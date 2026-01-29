@@ -28,4 +28,3 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
 };
 
 ErrorBanner.displayName = 'ErrorBanner';
-

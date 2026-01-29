@@ -99,7 +99,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
         wsRef.current.onmessage = null
         wsRef.current.onclose = null // Prevent triggering reconnect
         wsRef.current.onerror = null
-        
+
         // Close connection if still open or connecting
         if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
           wsRef.current.close()
@@ -136,10 +136,10 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
         setError(null)
         reconnectAttemptsRef.current = 0
         lastPongRef.current = Date.now()
-        
+
         // Notify connection established
         callbacksRef.current.onConnect?.()
-        
+
         // Start heartbeat (ping every 30 seconds)
         heartbeatIntervalRef.current = setInterval(() => {
           if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -220,7 +220,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
                 // Extract error code if available
                 const errorCode = (data as any).code
                 let errorMessage = data.message
-                
+
                 // Provide user-friendly error messages based on error code
                 if (errorCode === 'CREDENTIAL_ERROR') {
                   errorMessage = 'Authentication error. Please check your API credentials in settings.'
@@ -232,10 +232,10 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
                   cleanup()
                   return
                 }
-                
+
                 cbs.onError(errorMessage)
                 setError(errorMessage)
-                
+
                 // For critical errors, don't attempt to reconnect
                 if (errorCode === 'CREDENTIAL_ERROR' || errorCode === 'AGENT_ERROR') {
                   cleanup()
@@ -254,10 +254,10 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
 
       ws.onclose = (event) => {
         setIsConnected(false)
-        
+
         // Notify disconnection
         callbacksRef.current.onDisconnect?.()
-        
+
         // Clear heartbeat interval
         if (heartbeatIntervalRef.current) {
           clearInterval(heartbeatIntervalRef.current)
@@ -269,13 +269,13 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
         // - Max attempts reached
         // - Manual close (cleanup was called)
         const noReconnectCodes = [1000]
-        
+
         // Calculate exponential backoff (cap at 30 seconds)
         const backoffDelay = Math.min(
           reconnectInterval * Math.pow(1.5, reconnectAttemptsRef.current),
           30000
         )
-        
+
         if (
           autoReconnect &&
           !noReconnectCodes.includes(event.code) &&

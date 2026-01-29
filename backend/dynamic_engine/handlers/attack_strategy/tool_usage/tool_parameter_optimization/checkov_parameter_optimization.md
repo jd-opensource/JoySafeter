@@ -29,11 +29,11 @@
 def _optimize_checkov_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Checkov parameters"""
     params = {"target": profile.target}
-    
+
     params["framework"] = context.get("framework", "auto")
     params["directory"] = profile.target
     params["output_format"] = "json"
-    
+
     return params
 ```
 

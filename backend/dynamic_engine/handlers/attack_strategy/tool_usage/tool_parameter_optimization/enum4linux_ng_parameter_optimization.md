@@ -34,19 +34,19 @@
 def _optimize_enum4linux_ng_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Enum4linux-ng parameters"""
     params = {"target": profile.target}
-    
+
     params["shares"] = True
     params["users"] = True
     params["groups"] = True
     params["policy"] = True
-    
+
     if context.get("username"):
         params["username"] = context["username"]
     if context.get("password"):
         params["password"] = context["password"]
     if context.get("domain"):
         params["domain"] = context["domain"]
-    
+
     return params
 ```
 

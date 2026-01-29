@@ -162,4 +162,3 @@ volumes:
 networks:
   joysafeter-network:
     driver: bridge
-

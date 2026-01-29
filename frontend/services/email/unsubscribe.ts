@@ -21,7 +21,7 @@ export interface EmailPreferences {
  * Generate unsubscribe token via backend API
  */
 export async function generateUnsubscribeToken(
-  email: string, 
+  email: string,
   emailType = 'marketing'
 ): Promise<string> {
   try {

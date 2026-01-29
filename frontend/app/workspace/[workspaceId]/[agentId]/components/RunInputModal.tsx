@@ -90,4 +90,3 @@ export const RunInputModal: React.FC<RunInputModalProps> = ({
     </div>
   )
 }
-

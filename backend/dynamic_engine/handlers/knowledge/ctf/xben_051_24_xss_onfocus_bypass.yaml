@@ -40,4 +40,3 @@ tricks:
       <body onpageshow=alert("XSS")>
       <details open ontoggle=alert("XSS")>
       <marquee onstart=alert("XSS")>
-

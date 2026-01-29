@@ -114,4 +114,3 @@ export class ScanApiService {
 }
 
 export const scanApi = new ScanApiService();
-

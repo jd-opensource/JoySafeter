@@ -78,7 +78,7 @@ export const ExecutionTrace: React.FC<ExecutionTraceProps> = ({
         {displayTrace.map((step, index) => {
           const actualIndex = showAll ? index : trace.length - maxSteps + index
           const isExpanded = expandedSteps.has(actualIndex)
-          
+
           return (
             <div key={actualIndex} className="trace-step">
               {/* Step Header */}
@@ -181,4 +181,3 @@ export const ExecutionTrace: React.FC<ExecutionTraceProps> = ({
     </div>
   )
 }
-

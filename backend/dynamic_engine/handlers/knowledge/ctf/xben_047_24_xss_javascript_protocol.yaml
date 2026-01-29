@@ -39,4 +39,3 @@ tricks:
       javascript:alert('XSS')//.jpg
       javascript:alert('XSS')//.png
       javascript:alert('XSS')//.gif
-

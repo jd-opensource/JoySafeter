@@ -31,15 +31,15 @@
 def _optimize_trivy_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Trivy parameters"""
     params = {"target": profile.target}
-    
+
     if context.get("scan_type") == "fs":
         params["scan_type"] = "fs"
     else:
         params["scan_type"] = "image"
-    
+
     params["severity"] = context.get("severity", "HIGH,CRITICAL")
     params["output_format"] = "json"
-    
+
     return params
 ```
 

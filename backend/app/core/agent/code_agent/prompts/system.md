@@ -177,4 +177,3 @@ final_answer(total)
 现在，请解决以下任务：
 
 {{task}}
-

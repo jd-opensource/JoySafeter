@@ -28,7 +28,7 @@ const defaultState: GeneralSettingsState = {
 
 export const useGeneralStore = create<GeneralSettingsStore>((set) => ({
   ...defaultState,
-  
+
   setSettings: (settings) => {
     set((state) => ({
       ...state,
@@ -36,4 +36,3 @@ export const useGeneralStore = create<GeneralSettingsStore>((set) => ({
     }))
   },
 }))
-

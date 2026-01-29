@@ -19,7 +19,7 @@ tricks:
     how: "Check form hidden fields"
     payload: |
       <input type="hidden" name="user_id" value="10032">
-      
+
       # Vulnerable code (routes.py):
       if User.query.get(request.form['user_id']):
           session['user_id'] = request.form['user_id']  # IDOR!
@@ -44,4 +44,3 @@ tricks:
           'user_id': '10001'  # Flag user's ID
       })
       dashboard = s.get(f'{url}/dashboard')  # Shows flag user info
-

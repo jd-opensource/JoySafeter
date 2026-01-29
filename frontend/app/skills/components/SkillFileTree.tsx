@@ -33,7 +33,7 @@ interface SkillFileTreeProps {
  */
 export const getFileIcon = (path: string, fileType: string) => {
     const filename = getFilenameFromPath(path)
-    
+
     if (filename === 'SKILL.md') return <FileText size={14} className="text-emerald-500" />
     if (filename.endsWith('.md')) return <FileText size={14} className="text-blue-400" />
     if (filename.endsWith('.py')) return <Terminal size={14} className="text-yellow-500" />
@@ -42,7 +42,7 @@ export const getFileIcon = (path: string, fileType: string) => {
     if (filename.endsWith('.sh')) return <Terminal size={14} className="text-gray-500" />
     if (filename.endsWith('.yaml') || filename.endsWith('.yml')) return <FileCode size={14} className="text-purple-400" />
     if (filename.endsWith('.html') || filename.endsWith('.css')) return <FileCode size={14} className="text-pink-500" />
-    
+
     return <FileCode size={14} className="text-gray-400" />
 }
 
@@ -66,11 +66,11 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeComponentProps> = ({
     depth = 0,
 }) => {
     const [isExpanded, setIsExpanded] = useState(true)
-    
+
     if (node.isDirectory) {
         return (
             <div className="mb-0.5">
-                <div 
+                <div
                     className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-gray-50 cursor-pointer group"
                     onClick={() => setIsExpanded(!isExpanded)}
                     style={{ paddingLeft: `${depth * 12 + 8}px` }}
@@ -96,7 +96,7 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeComponentProps> = ({
                         <Plus size={10} />
                     </button>
                 </div>
-                
+
                 {isExpanded && node.children && node.children.length > 0 && (
                     <div>
                         {node.children.map(child => (
@@ -116,15 +116,15 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeComponentProps> = ({
             </div>
         )
     }
-    
+
     // File node
     return (
         <div
             onClick={() => onSelectFile(node.path)}
             className={cn(
                 "flex items-center justify-between gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors group/file",
-                activeFilePath === node.path 
-                    ? "bg-emerald-50 text-emerald-700 font-medium" 
+                activeFilePath === node.path
+                    ? "bg-emerald-50 text-emerald-700 font-medium"
                     : "text-gray-600 hover:bg-gray-50"
             )}
             style={{ paddingLeft: `${depth * 12 + 8}px` }}
@@ -171,8 +171,8 @@ export const SkillFileTree: React.FC<SkillFileTreeProps> = ({
                     onClick={() => onSelectFile('SKILL.md')}
                     className={cn(
                         "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer transition-colors mb-2",
-                        activeFilePath === 'SKILL.md' 
-                            ? "bg-emerald-50 text-emerald-700 font-medium border border-emerald-200" 
+                        activeFilePath === 'SKILL.md'
+                            ? "bg-emerald-50 text-emerald-700 font-medium border border-emerald-200"
                             : "text-gray-700 hover:bg-gray-50 border border-transparent"
                     )}
                 >
@@ -180,7 +180,7 @@ export const SkillFileTree: React.FC<SkillFileTreeProps> = ({
                     <span className="font-medium">SKILL.md</span>
                 </div>
             )}
-            
+
             {/* File Tree */}
             {fileTree.tree.length > 0 && (
                 <div className="border-t border-gray-100 pt-2 mt-1">
@@ -197,7 +197,7 @@ export const SkillFileTree: React.FC<SkillFileTreeProps> = ({
                     ))}
                 </div>
             )}
-            
+
             {/* Empty state */}
             {!fileTree.skillMdFile && fileTree.tree.length === 0 && (
                 <div className="text-center py-4 text-gray-400 text-xs">

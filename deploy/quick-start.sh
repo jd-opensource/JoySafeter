@@ -72,17 +72,17 @@ EOF
 # 检测 Docker 和 Docker Compose 环境
 check_docker_environment() {
     log_step "检测 Docker 和 Docker Compose 环境..."
-    
+
     # 检测 Docker
     if ! command -v docker &> /dev/null; then
         log_error "Docker 未安装"
         echo "  安装方法: https://docs.docker.com/get-docker/"
         return 1
     fi
-    
+
     local docker_version=$(docker --version 2>/dev/null | cut -d' ' -f3 | cut -d',' -f1)
     log_success "Docker 已安装 (版本: $docker_version)"
-    
+
     # 检测 Docker Compose (优先检测 v2)
     if docker compose version &> /dev/null; then
         local compose_version=$(docker compose version 2>/dev/null | cut -d' ' -f4)
@@ -104,9 +104,9 @@ check_docker_environment() {
 # 初始化 .env 文件
 init_env_files() {
     log_step "初始化 .env 文件..."
-    
+
     local missing=0
-    
+
     # 检查并初始化 deploy/.env
     if [ ! -f "$SCRIPT_DIR/.env" ]; then
         log_warning "deploy/.env 不存在，将从示例文件创建"
@@ -120,7 +120,7 @@ init_env_files() {
     else
         log_info "deploy/.env 已存在"
     fi
-    
+
     # 检查并初始化 backend/.env
     if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
         log_warning "backend/.env 不存在，将从示例文件创建"
@@ -134,7 +134,7 @@ init_env_files() {
     else
         log_info "backend/.env 已存在"
     fi
-    
+
     # 检查并初始化 frontend/.env（如果示例文件存在）
     if [ ! -f "$PROJECT_ROOT/frontend/.env" ]; then
         if [ -f "$PROJECT_ROOT/frontend/env.example" ]; then
@@ -147,7 +147,7 @@ init_env_files() {
     else
         log_info "frontend/.env 已存在"
     fi
-    
+
     if [ $missing -gt 0 ]; then
         log_warning "部分配置文件缺失，但将继续执行"
     else
@@ -158,16 +158,16 @@ init_env_files() {
 # 初始化数据库
 init_database() {
     log_step "初始化数据库..."
-    
+
     cd "$SCRIPT_DIR"
-    
+
     # 先启动数据库服务
     log_info "启动数据库服务..."
     if ! $DOCKER_COMPOSE_CMD up -d db; then
         log_error "启动数据库服务失败"
         return 1
     fi
-    
+
     # 等待数据库健康检查通过
     log_info "等待数据库就绪..."
     local max_attempts=30
@@ -190,14 +190,14 @@ init_database() {
         fi
         sleep 2
     done
-    
+
     if [ $attempt -eq $max_attempts ]; then
         log_error "数据库健康检查超时"
         log_info "数据库容器状态:"
         $DOCKER_COMPOSE_CMD ps db
         return 1
     fi
-    
+
     # 运行数据库初始化
     log_info "运行数据库初始化..."
     if $DOCKER_COMPOSE_CMD --profile init run --rm db-init; then
@@ -212,9 +212,9 @@ init_database() {
 # 启动 Docker Compose 服务
 start_docker_compose() {
     log_step "启动 Docker Compose 服务..."
-    
+
     cd "$SCRIPT_DIR"
-    
+
     # 检查是否已有服务在运行
     if $DOCKER_COMPOSE_CMD ps 2>/dev/null | grep -q "Up"; then
         log_warning "检测到已有服务在运行"
@@ -228,21 +228,21 @@ start_docker_compose() {
             return 0
         fi
     fi
-    
+
     log_info "启动 Docker Compose 服务..."
     if ! $DOCKER_COMPOSE_CMD up -d; then
         log_error "启动服务失败"
         return 1
     fi
-    
+
     # 等待服务就绪
     log_info "等待服务就绪..."
     sleep 5
-    
+
     # 检查服务状态
     log_info "检查服务状态..."
     $DOCKER_COMPOSE_CMD ps
-    
+
     log_success "服务启动完成"
 }
 
@@ -252,17 +252,17 @@ show_service_info() {
     echo "=========================================="
     echo "  服务信息"
     echo "=========================================="
-    
+
     # 读取端口配置
     local backend_port=8000
     local frontend_port=3000
-    
+
     if [ -f "$SCRIPT_DIR/.env" ]; then
         source "$SCRIPT_DIR/.env" 2>/dev/null || true
         backend_port=${BACKEND_PORT_HOST:-8000}
         frontend_port=${FRONTEND_PORT_HOST:-3000}
     fi
-    
+
     echo ""
     echo "访问地址:"
     echo "  前端: http://localhost:$frontend_port"
@@ -287,7 +287,7 @@ show_service_info() {
 main() {
     local SKIP_ENV=false
     local SKIP_DB_INIT=false
-    
+
     # 解析参数
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -310,19 +310,19 @@ main() {
                 ;;
         esac
     done
-    
+
     echo "=========================================="
     echo "  JoySafeter - 快速启动"
     echo "=========================================="
     echo ""
-    
+
     # 1. 检测 Docker 和 Docker Compose 环境
     if ! check_docker_environment; then
         log_error "环境检测失败，请先安装 Docker 和 Docker Compose"
         exit 1
     fi
     echo ""
-    
+
     # 2. 初始化 .env 文件
     if [ "$SKIP_ENV" = false ]; then
         init_env_files
@@ -331,7 +331,7 @@ main() {
         log_info "跳过 .env 文件初始化"
         echo ""
     fi
-    
+
     # 3. 初始化数据库
     if [ "$SKIP_DB_INIT" = false ]; then
         if ! init_database; then
@@ -343,17 +343,17 @@ main() {
         log_info "跳过数据库初始化"
         echo ""
     fi
-    
+
     # 4. 启动 Docker Compose 服务
     if ! start_docker_compose; then
         log_error "服务启动失败"
         exit 1
     fi
     echo ""
-    
+
     # 显示服务信息
     show_service_info
-    
+
     log_success "快速启动完成！"
     echo ""
     if [ -n "$DOCKER_COMPOSE_CMD" ]; then
@@ -365,4 +365,3 @@ main() {
 
 # 运行主函数
 main "$@"
-

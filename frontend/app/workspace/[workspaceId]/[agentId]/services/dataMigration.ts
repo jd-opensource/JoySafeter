@@ -1,6 +1,6 @@
 /**
  * Data Migration - Convert old graph data formats to new format
- * 
+ *
  * Handles migration of:
  * - Edge data: routeKey -> route_key
  * - Router node routes: target -> targetEdgeKey
@@ -18,9 +18,9 @@ import { EdgeData, RouteRule } from '../types/graph'
  */
 export function migrateEdgeData(edge: Edge): Edge {
   const edgeData = (edge.data || {}) as any
-  
+
   // Check if migration is needed
-  const needsMigration = 
+  const needsMigration =
     edgeData.routeKey !== undefined ||
     edgeData.edgeType !== undefined ||
     edgeData.sourceHandleId !== undefined
@@ -63,7 +63,7 @@ export function migrateEdgeData(edge: Edge): Edge {
  */
 export function migrateRouterNodeConfig(node: Node): Node {
   const nodeData = node.data as { type?: string; config?: Record<string, unknown> }
-  
+
   if (nodeData.type !== 'router_node' || !nodeData.config) {
     return node
   }
@@ -155,4 +155,3 @@ export function needsMigration(nodes: Node[], edges: Edge[]): boolean {
 
   return edgeNeedsMigration || nodeNeedsMigration
 }
-

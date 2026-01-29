@@ -42,7 +42,7 @@ export default function ChatPage() {
     resetActiveMode,
   } = useModeStore();
 
-  
+
   // Sidebar now always expanded
   const sidebarCollapsed = false;
   useSessions(userId ?? '');
@@ -121,7 +121,7 @@ export default function ChatPage() {
 
       clearMessages();
       setCurrentSessionId(currentSession.id);
-      
+
       // Load message history from backend using specific session endpoint
       const loadMessages = async () => {
         try {
@@ -136,14 +136,14 @@ export default function ChatPage() {
           });
         } catch (error: any) {
           console.error('Failed to load message history:', error);
-          
+
           // If session not found (404), it might be a newly created session
           // Just log and continue - don't clear the session
           if (error?.response?.status === 404) {
             console.warn(`Session ${currentSession.id} not found in backend yet, starting fresh...`);
             return;
           }
-          
+
           // If access denied (403), clear the invalid session
           if (error?.response?.status === 403) {
             console.warn(`Access denied to session ${currentSession.id}, clearing...`);
@@ -201,4 +201,3 @@ export default function ChatPage() {
     </div>
   );
 }
-

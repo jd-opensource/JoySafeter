@@ -37,7 +37,7 @@ function AcceptInvitationContent() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const { data: session, isPending: isSessionLoading } = useSession()
-  
+
   const token = searchParams.get('token')
   const [isAccepting, setIsAccepting] = useState(false)
 
@@ -66,7 +66,7 @@ function AcceptInvitationContent() {
       // Invalidate workspace list query to ensure newly joined workspace appears in the list
       await queryClient.invalidateQueries({ queryKey: ['workspaces'] })
       await queryClient.invalidateQueries({ queryKey: ['workspace'] })
-      
+
       toast({
         title: t('workspace.invitationAccepted'),
         description: t('workspace.invitationAcceptedDescription', { workspaceName: data.workspace?.name || '' }),
@@ -151,8 +151,8 @@ function AcceptInvitationContent() {
               {t('workspace.invitationInvalid')}
             </h1>
             <p className="text-sm text-gray-500 mb-6">
-              {invitationError instanceof Error 
-                ? invitationError.message 
+              {invitationError instanceof Error
+                ? invitationError.message
                 : t('workspace.invitationInvalidDescription')}
             </p>
             <Button
@@ -223,7 +223,7 @@ function AcceptInvitationContent() {
           {!emailMatches && (
             <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
               <p className="text-sm text-yellow-800">
-                {t('workspace.emailMismatch', { 
+                {t('workspace.emailMismatch', {
                   invitationEmail: invitation.email,
                   currentEmail: session?.user?.email || ''
                 })}
@@ -278,4 +278,3 @@ export default function AcceptInvitationPage() {
     </Suspense>
   )
 }
-

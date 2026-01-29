@@ -38,7 +38,7 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
     const [transport, setTransport] = useState<'streamable-http' | 'sse' | 'stdio'>(DEFAULT_MCP_FORM_CONFIG.transport);
     const [address, setAddress] = useState('');
     const [headers, setHeaders] = useState<HeaderItem[]>([]);
-    
+
     // Settings
     const [retryEnabled, setRetryEnabled] = useState(false);
     const [maxRetries, setMaxRetries] = useState(String(DEFAULT_MCP_FORM_CONFIG.retries));
@@ -201,12 +201,12 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                         {isEditMode ? t('settings.editMcpServer') : t('settings.addMcpServer')}
                     </DialogTitle>
                     <DialogDescription className="sr-only">
-                        {isEditMode 
+                        {isEditMode
                             ? t('settings.editMcpServerDescription')
                             : t('settings.addMcpServerDescription')}
                     </DialogDescription>
-                    <button 
-                        onClick={() => onOpenChange(false)} 
+                    <button
+                        onClick={() => onOpenChange(false)}
                         className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-1 rounded-full transition-colors"
                     >
                         <X size={18} />
@@ -215,7 +215,7 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
 
                 {/* Tabs */}
                 <div className="flex px-6 border-b border-gray-100 bg-white">
-                    <button 
+                    <button
                         onClick={() => setMode('form')}
                         className={cn(
                             "flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 transition-colors focus:outline-none",
@@ -224,7 +224,7 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                     >
                         <SquarePen size={14} /> {t('settings.formMode')}
                     </button>
-                    <button 
+                    <button
                         onClick={() => setMode('json')}
                         className={cn(
                             "flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 transition-colors focus:outline-none",
@@ -245,11 +245,11 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                                     <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
                                         <span className="text-red-500">*</span> {t('settings.name')}
                                     </Label>
-                                    <Input 
+                                    <Input
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        placeholder={t('settings.namePlaceholder')} 
-                                        className="h-10 bg-white border-gray-200 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500" 
+                                        placeholder={t('settings.namePlaceholder')}
+                                        className="h-10 bg-white border-gray-200 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500"
                                     />
                                 </div>
 
@@ -273,11 +273,11 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                                     <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
                                         <span className="text-red-500">*</span> {t('settings.addressCommand')}
                                     </Label>
-                                    <Input 
+                                    <Input
                                         value={address}
                                         onChange={(e) => setAddress(e.target.value)}
-                                        placeholder={t('settings.addressCommandPlaceholder')} 
-                                        className="h-10 bg-white border-gray-200 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 font-mono text-xs" 
+                                        placeholder={t('settings.addressCommandPlaceholder')}
+                                        className="h-10 bg-white border-gray-200 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 font-mono text-xs"
                                     />
                                 </div>
                             </div>
@@ -288,22 +288,22 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                                 <div className="space-y-2">
                                     {headers.map((header, idx) => (
                                         <div key={idx} className="flex gap-2 items-center animate-in fade-in slide-in-from-left-2 duration-200">
-                                            <Input 
-                                                placeholder={t('settings.headerKey')} 
+                                            <Input
+                                                placeholder={t('settings.headerKey')}
                                                 className="h-9 flex-1 bg-white text-xs font-mono"
                                                 value={header.key}
                                                 onChange={(e) => handleHeaderChange(idx, 'key', e.target.value)}
                                             />
                                             <span className="text-gray-300">:</span>
-                                            <Input 
-                                                placeholder={t('settings.headerValue')} 
+                                            <Input
+                                                placeholder={t('settings.headerValue')}
                                                 className="h-9 flex-1 bg-white text-xs font-mono"
                                                 value={header.value}
                                                 onChange={(e) => handleHeaderChange(idx, 'value', e.target.value)}
                                             />
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon" 
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
                                                 className="h-9 w-9 text-gray-400 hover:text-red-500 hover:bg-red-50"
                                                 onClick={() => handleHeaderRemove(idx)}
                                             >
@@ -311,8 +311,8 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                                             </Button>
                                         </div>
                                     ))}
-                                    <Button 
-                                        variant="outline" 
+                                    <Button
+                                        variant="outline"
                                         onClick={handleHeaderAdd}
                                         className="w-full h-9 border-dashed border-gray-300 text-gray-500 hover:text-emerald-600 hover:border-emerald-300 hover:bg-emerald-50/50 gap-2 text-xs"
                                     >
@@ -330,25 +330,25 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                                     </div>
                                     <Switch checked={retryEnabled} onCheckedChange={setRetryEnabled} />
                                 </div>
-                                
+
                                 {retryEnabled && (
                                     <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-1 fade-in duration-200 pt-2 border-t border-gray-50">
                                         <div className="space-y-1.5">
                                             <Label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">{t('settings.maxRetries')}</Label>
-                                            <Input 
-                                                type="number" 
+                                            <Input
+                                                type="number"
                                                 value={maxRetries}
                                                 onChange={(e) => setMaxRetries(e.target.value)}
-                                                className="h-8 bg-gray-50 border-gray-200 text-xs" 
+                                                className="h-8 bg-gray-50 border-gray-200 text-xs"
                                             />
                                         </div>
                                         <div className="space-y-1.5">
                                             <Label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">{t('settings.delayMs')}</Label>
-                                            <Input 
+                                            <Input
                                                 type="number"
                                                 value={retryDelay}
-                                                onChange={(e) => setRetryDelay(e.target.value)} 
-                                                className="h-8 bg-gray-50 border-gray-200 text-xs" 
+                                                onChange={(e) => setRetryDelay(e.target.value)}
+                                                className="h-8 bg-gray-50 border-gray-200 text-xs"
                                             />
                                         </div>
                                     </div>
@@ -367,7 +367,7 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                     ) : (
                         <div className="h-full flex flex-col space-y-2">
                             <Label className="text-xs font-semibold text-gray-700">{t('settings.configurationJson')}</Label>
-                            <Textarea 
+                            <Textarea
                                 value={jsonContent}
                                 onChange={(e) => setJsonContent(e.target.value)}
                                 className="flex-1 min-h-[300px] font-mono text-xs bg-white border-gray-200 resize-none p-4 leading-relaxed"
@@ -383,15 +383,15 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
 
                 {/* Footer */}
                 <div className="p-6 bg-white border-t border-gray-100 flex items-center justify-end gap-3">
-                    <Button 
-                        variant="ghost" 
-                        onClick={() => onOpenChange(false)} 
+                    <Button
+                        variant="ghost"
+                        onClick={() => onOpenChange(false)}
                         className="text-gray-500 hover:text-gray-900"
                         disabled={isSaving}
                     >
                         {t('settings.cancel')}
                     </Button>
-                    <Button 
+                    <Button
                         onClick={handleSave}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 shadow-lg px-6 gap-2"
                         disabled={isSaving || (!name && mode === 'form')}
@@ -404,4 +404,3 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
         </Dialog>
     );
 };
-

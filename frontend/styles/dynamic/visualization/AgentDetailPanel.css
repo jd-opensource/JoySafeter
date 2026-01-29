@@ -419,7 +419,7 @@
     grid-template-columns: 1fr;
     gap: 4px;
   }
-  
+
   .timing-row {
     flex-direction: row;
     justify-content: space-between;

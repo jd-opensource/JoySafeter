@@ -95,7 +95,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                   </span>
                 </div>
               </div>
-              
+
               {/* Key highlights */}
               <div className='space-y-2.5'>
                 <div className='flex items-center gap-4 group'>
@@ -117,7 +117,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                   </p>
                 </div>
               </div>
-              
+
               {/* Feature tags - 2x2 grid */}
               <div className='grid grid-cols-2 gap-3'>
                 <div className='flex items-center gap-2.5 px-4 py-3 rounded-xl bg-white/60 backdrop-blur-sm border border-gray-200/60 hover:border-blue-300/60 hover:bg-blue-50/40 transition-all group'>

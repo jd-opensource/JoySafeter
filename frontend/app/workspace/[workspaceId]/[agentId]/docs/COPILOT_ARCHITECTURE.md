@@ -52,16 +52,16 @@
 interface CopilotState {
   // Message state
   messages, loadingHistory
-  
+
   // Streaming state
   streamingContent, currentStage, currentToolCall, toolResults
-  
+
   // Action execution state
   executingActions
-  
+
   // Session state
   currentSessionId
-  
+
   // Local UI state
   input, loading, expandedItems, copiedStreaming
 }
@@ -252,12 +252,12 @@ useCopilotActions({
 export const CopilotPanel: React.FC = () => {
   // 1. 获取统一状态
   const { state, actions, refs } = useCopilotState(graphId)
-  
+
   // 2. 获取 WebSocket 处理器
   const webSocketCallbacks = useCopilotWebSocketHandler({
     state, actions, refs, graphId
   })
-  
+
   // 3. 获取业务逻辑处理器
   const {
     handleSend,
@@ -266,18 +266,18 @@ export const CopilotPanel: React.FC = () => {
   } = useCopilotActions({
     state, actions, refs, graphId
   })
-  
+
   // 4. 设置副作用
   useCopilotEffects({
     state, actions, refs, graphId, handleSendWithInput
   })
-  
+
   // 5. 连接 WebSocket
   useCopilotWebSocket({
     sessionId: state.currentSessionId,
     callbacks: webSocketCallbacks,
   })
-  
+
   // 6. 渲染 UI
   return <div>...</div>
 }
@@ -316,6 +316,6 @@ export const CopilotPanel: React.FC = () => {
 
 ---
 
-**架构设计者**：AI Assistant  
-**最后更新**：2026-01-19  
+**架构设计者**：AI Assistant
+**最后更新**：2026-01-19
 **版本**：2.0.0

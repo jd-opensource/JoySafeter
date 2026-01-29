@@ -10,13 +10,13 @@ optimization_strategies:
     parameters:
       url: Target web server URL
       port: Web server port (default 80/443)
-  
+
   - name: plugin_selection
     description: Select security check plugins based on scanning needs
     parameters:
       plugins: Plugin selection (all, specific plugins)
       exclude_plugins: Plugins to exclude
-  
+
   - name: output_format_selection
     description: Choose output format for reporting
     parameters:
@@ -29,7 +29,7 @@ context_aware_optimization:
     parameters:
       plugins: basic
       output_format: txt
-  
+
   - mode: comprehensive
     description: Thorough vulnerability assessment
     parameters:

@@ -140,7 +140,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
                 </div>
               </div>
             )}
-            
+
               {isCollapsed ? (
                 <Tooltip>
                   <TooltipTrigger asChild>

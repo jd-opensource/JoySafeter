@@ -20,4 +20,3 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children }) => {
 };
 
 Tooltip.displayName = 'Tooltip';
-

@@ -40,4 +40,3 @@ tricks:
       # They can be easily modified by users
       # Authorization should be server-side only
       # Never use hidden fields for access control
-

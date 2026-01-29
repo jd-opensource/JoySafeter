@@ -20,23 +20,23 @@ export default function SkillsPage() {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <Tabs 
-        value={activeTab} 
+      <Tabs
+        value={activeTab}
         onValueChange={setActiveTab}
         className="flex flex-col h-full"
       >
         {/* Tab navigation header */}
         <div className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-3">
           <TabsList className="h-10 bg-gray-100/80 p-1 rounded-lg">
-            <TabsTrigger 
-              value="store" 
+            <TabsTrigger
+              value="store"
               className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm"
             >
               <Store className="w-4 h-4" />
               {t('skills.marketplace')}
             </TabsTrigger>
-            <TabsTrigger 
-              value="my" 
+            <TabsTrigger
+              value="my"
               className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm"
             >
               <FolderOpen className="w-4 h-4" />

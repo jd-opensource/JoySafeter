@@ -25,15 +25,15 @@
 - **Password Reset Token Reuse** (manual)
   - Reuse password reset tokens multiple times
   - Test token expiration and invalidation
-  
+
 - **JWT Algorithm Confusion** (automated with jwt_tool)
   - Test algorithm switching (HS256 → none)
   - Test key confusion attacks
-  
+
 - **Session Fixation** (manual)
   - Attempt to set session IDs
   - Test session fixation vulnerabilities
-  
+
 - **OAuth Flow Manipulation** (manual)
   - Test redirect URI validation
   - Test state parameter handling
@@ -45,11 +45,11 @@
 - **Horizontal Privilege Escalation** (automated with arjun)
   - Access other users' resources
   - Modify other users' data
-  
+
 - **Vertical Privilege Escalation** (manual)
   - Attempt to access admin functions
   - Test role-based access control
-  
+
 - **Role-based Access Control Bypass** (manual)
   - Test RBAC implementation
   - Attempt to modify roles/permissions
@@ -60,15 +60,15 @@
 - **Race Conditions** (automated with race_the_web)
   - Concurrent request handling
   - Double-spend vulnerabilities
-  
+
 - **Price Manipulation** (manual)
   - Modify prices before checkout
   - Test price validation
-  
+
 - **Quantity Limits Bypass** (manual)
   - Exceed purchase quantity limits
   - Test inventory constraints
-  
+
 - **Workflow State Manipulation** (manual)
   - Skip workflow steps
   - Reverse workflow states
@@ -79,11 +79,11 @@
 - **File Upload Restrictions** (automated with upload_scanner)
   - Upload executable files
   - Test file type validation
-  
+
 - **Content-Type Bypass** (manual)
   - Modify Content-Type headers
   - Test MIME type validation
-  
+
 - **Size Limit Bypass** (manual)
   - Upload oversized files
   - Test size validation

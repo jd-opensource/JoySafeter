@@ -57,11 +57,11 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   const pendingInterrupts = useExecutionStore((state) => state.pendingInterrupts)
   const isInterrupted = pendingInterrupts.has(id)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  
+
   // Check if node has tools configuration (needed for display)
   const hasTools = useMemo(() => {
     const tools = data.config?.tools
-    return !!(tools && typeof tools === 'object' && 
+    return !!(tools && typeof tools === 'object' &&
       (Array.isArray((tools as any).builtin) || Array.isArray((tools as any).mcp)))
   }, [data.config?.tools])
 
@@ -134,7 +134,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
             .join(' ')
         }
         return String(value)
-      
+
       case 'toolSelector':
         if (typeof value === 'object' && value !== null) {
           const toolsValue = value as { builtin?: string[]; mcp?: string[] }
@@ -142,45 +142,45 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           const mcpIds = toolsValue.mcp || []
           const total = builtinIds.length + mcpIds.length
           if (total === 0) return '-'
-          
+
           // Get tool labels
           const builtinLabels = builtinIds
             .map(id => builtinTools.find(t => t.id === id)?.label || id)
             .filter(Boolean)
-          
+
           // Parse MCP tool IDs: format is "server_name::tool_name"
           // Extract tool name part for display
           const mcpLabels = mcpIds.map(id => {
             const parts = id.split('::')
             return parts.length === 2 ? parts[1] : id
           })
-          
+
           if (total === 1) {
             return builtinLabels[0] || mcpLabels[0] || '-'
           }
           if (total === 2 && builtinLabels.length > 0) {
-            return builtinLabels.length === 2 
+            return builtinLabels.length === 2
               ? `${builtinLabels[0]}, ${builtinLabels[1]}`
               : `${builtinLabels[0]}, ${mcpLabels[0] || ''}`
           }
           return t('workspace.toolsCount', { count: total })
         }
         return '-'
-      
+
       case 'select':
         return String(value)
-      
+
       case 'boolean':
         return value === true ? t('workspace.enabled') : t('workspace.disabled')
-      
+
       case 'text':
       case 'textarea':
         const textValue = String(value)
         return textValue.length > 30 ? `${textValue.slice(0, 30)}...` : textValue
-      
+
       case 'number':
         return String(value)
-      
+
       default:
         return String(value)
     }
@@ -387,13 +387,13 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
               ))}
             </div>
           )}
-          
+
           {/* Route Indicator - Show goto information */}
           {(() => {
             const config = data.config || {}
-            const goto = config.goto || config.trueGoto || config.falseGoto || 
-                        (config.rules && Array.isArray(config.rules) && config.rules.length > 0 
-                          ? config.rules.find((r: any) => r.commandGoto)?.commandGoto 
+            const goto = config.goto || config.trueGoto || config.falseGoto ||
+                        (config.rules && Array.isArray(config.rules) && config.rules.length > 0
+                          ? config.rules.find((r: any) => r.commandGoto)?.commandGoto
                           : null) ||
                         config.commandDefaultGoto
             const routeDecisions = useExecutionStore.getState().routeDecisions
@@ -401,9 +401,9 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
               .filter(d => d.nodeId === id)
               .sort((a, b) => b.timestamp - a.timestamp)[0]
             const actualGoto = latestDecision?.decision.goto || goto
-            
+
             if (!actualGoto) return null
-            
+
             return (
               <div className="mt-2 pt-2 border-t border-gray-100/50">
                 <div className="flex items-center gap-1 text-[7px] text-blue-600">
@@ -415,7 +415,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
               </div>
             )
           })()}
-          
+
           {isExecuting && (
             <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-100/50">
               <Loader2 size={8} className="text-blue-500 animate-spin" />

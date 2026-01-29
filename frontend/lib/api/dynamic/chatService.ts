@@ -199,7 +199,7 @@ export const chatService = {
       // Get userId from store if not provided
       const { useUserStore } = await import('@/stores/dynamic/userStore');
       const currentUserId = userId || useUserStore.getState().userId;
-      
+
       if (!currentUserId) {
         console.warn('No userId available for fetching messages');
         return [];
@@ -217,7 +217,7 @@ export const chatService = {
       );
 
       const { messages } = response.data;
-      
+
       // Map backend response to frontend Message format
       return (messages || []).map((msg: any) => ({
         id: msg.id,

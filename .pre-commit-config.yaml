@@ -79,4 +79,3 @@ ci:
   autofix_commit_msg: 'style: auto-fix by pre-commit hooks'
   autoupdate_commit_msg: 'chore: update pre-commit hooks'
   skip: [mypy]  # Skip mypy in CI (requires full dependencies)
-

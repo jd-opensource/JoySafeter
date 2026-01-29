@@ -38,7 +38,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
     selectedToolIndex,
     setSelectedToolIndex,
   } = useToolPanelStore()
-  
+
   const [copiedInput, setCopiedInput] = useState(false)
   const [copiedOutput, setCopiedOutput] = useState(false)
 

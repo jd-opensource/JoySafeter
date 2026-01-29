@@ -1,6 +1,6 @@
 /**
  * Agent Mode Handler
- * 
+ *
  * Handles agent selection mode
  * Used when user selects a deployed agent
  */
@@ -18,7 +18,7 @@ import type {
 
 /**
  * Agent Mode Handler
- * 
+ *
  * This is a special handler for handling user selection of deployed agents
  */
 export const agentModeHandler: ModeHandler = {
@@ -87,4 +87,3 @@ export const agentModeHandler: ModeHandler = {
     return context.selectedAgentId || null
   },
 }
-

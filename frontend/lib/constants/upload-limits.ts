@@ -63,20 +63,19 @@ export function formatFileSize(bytes: number): string {
 
 export function isAllowedFile(file: File): { allowed: boolean; reason?: string } {
   const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-  
+
   if (!ALLOWED_EXTENSIONS.includes(ext as any)) {
     return { allowed: false, reason: `File type ${ext} is not supported` };
   }
-  
+
   if (file.size > UPLOAD_LIMITS.MAX_FILE_SIZE_BYTES) {
     return {
       allowed: false,
       reason: `File size (${formatFileSize(file.size)}) exceeds ${UPLOAD_LIMITS.MAX_FILE_SIZE_MB}MB limit`
     };
   }
-  
+
   return { allowed: true };
 }
 
 export const ALLOWED_EXTENSIONS_STRING = ALLOWED_EXTENSIONS.join(',');
-

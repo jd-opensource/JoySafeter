@@ -36,17 +36,17 @@
 def _optimize_ffuf_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize FFuf parameters"""
     params = {"url": profile.target}
-    
+
     if profile.target_type == TargetType.API_ENDPOINT:
         params["match_codes"] = "200,201,202,204,301,302,401,403"
     else:
         params["match_codes"] = "200,204,301,302,307,401,403"
-    
+
     if context.get("stealth", False):
         params["additional_args"] = "-t 10 -p 1"
     else:
         params["additional_args"] = "-t 40"
-    
+
     return params
 ```
 

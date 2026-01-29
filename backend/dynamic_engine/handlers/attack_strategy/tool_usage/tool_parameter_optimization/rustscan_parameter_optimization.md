@@ -38,7 +38,7 @@
 def _optimize_rustscan_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Rustscan parameters"""
     params = {"target": profile.target}
-    
+
     if context.get("stealth", False):
         params["ulimit"] = 1000
         params["batch_size"] = 500
@@ -51,10 +51,10 @@ def _optimize_rustscan_params(self, profile: TargetProfile, context: Dict[str, A
         params["ulimit"] = 5000
         params["batch_size"] = 4500
         params["timeout"] = 1500
-    
+
     if context.get("objective", "normal") == "comprehensive":
         params["scripts"] = True
-    
+
     return params
 ```
 

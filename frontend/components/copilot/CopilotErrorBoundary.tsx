@@ -34,7 +34,7 @@ export class CopilotErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[CopilotErrorBoundary] Error caught:', error, errorInfo)
     this.setState({ errorInfo })
-    
+
     if (this.props.onError) {
       this.props.onError(error, errorInfo)
     }

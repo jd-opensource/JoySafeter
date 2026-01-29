@@ -35,7 +35,7 @@
 def _optimize_nmap_advanced_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize advanced Nmap parameters"""
     params = {"target": profile.target}
-    
+
     if context.get("stealth", False):
         params["timing"] = "-T2"
         params["scripts"] = "safe"
@@ -44,12 +44,12 @@ def _optimize_nmap_advanced_params(self, profile: TargetProfile, context: Dict[s
         params["timing"] = "-T4"
         params["scripts"] = "default,intrusive"
         params["os_detection"] = True
-    
+
     if profile.target_type == TargetType.WEB_APPLICATION:
         params["scripts"] = "http-*,ssl-*,web-*"
     elif profile.target_type == TargetType.NETWORK_HOST:
         params["scripts"] = "smb-*,snmp-*,ssh-*"
-    
+
     return params
 ```
 

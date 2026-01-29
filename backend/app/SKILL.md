@@ -443,4 +443,3 @@ skill = await service.update_skill(
 - 业务逻辑：`app/services/skill_service.py`
 - API 端点：`app/api/v1/skills.py`
 - 数据库迁移：`alembic/versions/`
-

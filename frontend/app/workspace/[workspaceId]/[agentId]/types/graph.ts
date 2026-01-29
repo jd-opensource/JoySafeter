@@ -1,6 +1,6 @@
 /**
  * Graph Types - Unified type definitions for graph nodes and edges
- * 
+ *
  * This file provides type-safe interfaces for graph data structures,
  * ensuring consistency between frontend and backend.
  */
@@ -14,28 +14,28 @@ import { Node, Edge } from 'reactflow'
 export interface EdgeData {
   /** Route key for conditional routing (matches RouterNodeExecutor return value) */
   route_key?: string
-  
+
   /** React Flow Handle ID (e.g., "Yes", "No", "Unknown") */
   source_handle_id?: string
-  
+
   /** Edge type: normal, conditional, or loop_back */
   edge_type?: 'normal' | 'conditional' | 'loop_back'
-  
+
   /** Display label for the edge */
   label?: string
-  
+
   /** Optional condition expression for edge-level conditions */
   condition?: string
-  
+
   /** Path waypoints for loop_back edges (stored as array of {x, y} in flow coordinates) */
   waypoints?: Array<{ x: number; y: number }>
-  
+
   /** Vertical offset for loop_back edges horizontal channel (in flow coordinates) */
   offsetY?: number
-  
+
   /** Horizontal offset for left vertical segment (in flow coordinates) */
   leftOffsetX?: number
-  
+
   /** Horizontal offset for right vertical segment (in flow coordinates) */
   rightOffsetX?: number
 }
@@ -47,16 +47,16 @@ export interface EdgeData {
 export interface RouteRule {
   /** Unique identifier for the rule */
   id: string
-  
+
   /** Python expression that evaluates to boolean */
   condition: string
-  
+
   /** Route key that matches the target edge's route_key */
   targetEdgeKey: string
-  
+
   /** Display label for the route (e.g., "High Score", "Default") */
   label: string
-  
+
   /** Priority/order for rule evaluation (lower = higher priority) */
   priority?: number
 }
@@ -67,7 +67,7 @@ export interface RouteRule {
 export interface RouterNodeConfig {
   /** List of routing rules (evaluated in priority order) */
   routes: RouteRule[]
-  
+
   /** Default route key when no conditions match */
   defaultRoute: string
 }
@@ -78,13 +78,13 @@ export interface RouterNodeConfig {
 export interface LoopConditionNodeConfig {
   /** Loop type: forEach, while, or doWhile */
   conditionType?: 'forEach' | 'while' | 'doWhile'
-  
+
   /** For forEach: state key containing the list to iterate */
   listVariable?: string
-  
+
   /** For while/doWhile: Python expression returning boolean */
   condition?: string
-  
+
   /** Maximum number of iterations (safety limit) */
   maxIterations?: number
 }
@@ -95,10 +95,10 @@ export interface LoopConditionNodeConfig {
 export interface ConditionNodeConfig {
   /** Python expression that evaluates to True or False */
   expression: string
-  
+
   /** Label for the True branch */
   trueLabel?: string
-  
+
   /** Label for the False branch */
   falseLabel?: string
 }
@@ -127,11 +127,10 @@ export type TypedNode = Node & {
 export interface ValidationError {
   /** Field path (e.g., "routes[0].condition") */
   field: string
-  
+
   /** Error message */
   message: string
-  
+
   /** Optional severity level */
   severity?: 'error' | 'warning' | 'info'
 }
-

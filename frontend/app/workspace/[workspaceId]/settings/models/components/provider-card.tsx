@@ -85,4 +85,3 @@ export function ModelProviderCard({ provider, workspaceId }: ModelProviderCardPr
     </>
   )
 }
-

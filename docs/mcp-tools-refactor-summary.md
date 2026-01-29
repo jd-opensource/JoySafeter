@@ -116,4 +116,3 @@ tool = registry.get_mcp_tool(server_name, tool_name)
 2. 测试 Graph 节点使用 MCP 工具
 3. 测试工具执行 API
 4. 测试前端工具查询和选择功能
-

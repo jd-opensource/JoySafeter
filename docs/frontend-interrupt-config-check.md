@@ -63,7 +63,7 @@
   ```python
   data_payload = node_data.get("data", {}) or {}
   config = data_payload.get("config", {}) if isinstance(data_payload, dict) else {}
-  
+
   update_data = {
       # ... 其他字段
       "data": data_payload,  # 包含完整的 config
@@ -83,7 +83,7 @@
   ```python
   node_data = node.data or {}  # 从数据库加载
   frontend_node["data"] = node_data  # 包含 config
-  
+
   # 确保 config 字段存在
   if "config" not in frontend_node["data"]:
       frontend_node["data"]["config"] = {}
@@ -104,10 +104,10 @@
       node_name = self._node_id_to_name[node.id]
       data = node.data or {}
       config = data.get("config", {})
-      
+
       if config.get("interrupt_before", False):
           interrupt_before.append(node_name)
-      
+
       if config.get("interrupt_after", False):
           interrupt_after.append(node_name)
   ```
@@ -224,4 +224,3 @@ graph_service.save_graph_state()
 7. ✅ 数据流完整
 
 **无需额外修改**，配置能力已完备。
-

@@ -113,8 +113,8 @@ export const ExecutionItemDetailPanel: React.FC<ExecutionItemDetailPanelProps> =
           <h4 className="section-title">🎯 Context Information</h4>
           <div className="section-content">
             <p className="description-text">
-              {typeof agent!.context === 'string' 
-                ? agent!.context 
+              {typeof agent!.context === 'string'
+                ? agent!.context
                 : JSON.stringify(agent!.context, null, 2)}
             </p>
           </div>
@@ -1646,8 +1646,8 @@ export const ExecutionItemDetailPanel: React.FC<ExecutionItemDetailPanelProps> =
           <h4 className="section-title">📊 Success Rate</h4>
           <div className="success-rate">
             <div className="success-rate-bar">
-              <div 
-                className="success-rate-fill" 
+              <div
+                className="success-rate-fill"
                 style={{ width: `${agent!.success_rate}%` }}
               />
             </div>

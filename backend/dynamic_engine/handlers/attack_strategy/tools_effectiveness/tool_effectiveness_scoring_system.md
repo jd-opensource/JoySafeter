@@ -223,8 +223,8 @@ effectiveness_scores = {
 }
 
 # Tools are selected in descending order of effectiveness
-selected_tools = sorted(effectiveness_scores.items(), 
-                       key=lambda x: x[1], 
+selected_tools = sorted(effectiveness_scores.items(),
+                       key=lambda x: x[1],
                        reverse=True)
 # Result: nuclei (0.95), wpscan (0.95), gobuster (0.9), sqlmap (0.9), ...
 ```
@@ -246,7 +246,7 @@ effectiveness_scores = {
 }
 
 # Primary tools for comprehensive assessment
-primary_tools = [tool for tool, score in effectiveness_scores.items() 
+primary_tools = [tool for tool, score in effectiveness_scores.items()
                  if score >= 0.9]
 # Result: nmap-advanced, nmap, autorecon
 ```

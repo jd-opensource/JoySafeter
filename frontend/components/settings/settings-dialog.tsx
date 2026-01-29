@@ -1,8 +1,8 @@
 'use client'
 
-import { 
-    Settings, 
-    User, 
+import {
+    Settings,
+    User,
     Brain
 } from 'lucide-react';
 import React, { useState } from 'react';
@@ -19,23 +19,23 @@ interface SettingsDialogProps {
     onOpenChange: (open: boolean) => void;
 }
 
-const MenuItem = ({ 
-    icon: Icon, 
-    label, 
-    isActive, 
-    onClick 
-}: { 
-    icon: any, 
-    label: string, 
-    isActive: boolean, 
-    onClick: () => void 
+const MenuItem = ({
+    icon: Icon,
+    label,
+    isActive,
+    onClick
+}: {
+    icon: any,
+    label: string,
+    isActive: boolean,
+    onClick: () => void
 }) => (
     <button
         onClick={onClick}
         className={cn(
             "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200",
-            isActive 
-                ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-200" 
+            isActive
+                ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-200"
                 : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
         )}
     >
@@ -55,17 +55,17 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChan
                 <DialogDescription className="sr-only">
                     {t('settings.description')}
                 </DialogDescription>
-                
+
                 {/* Sidebar Navigation */}
                 <div className="w-60 bg-gray-50/80 backdrop-blur-sm border-r border-gray-200 flex flex-col p-4 flex-shrink-0">
                     <div className="mb-6 px-2">
                         <h2 className="text-lg font-bold text-gray-900 tracking-tight">{t('settings.title')}</h2>
                     </div>
-                    
+
                     <div className="space-y-1 flex-1">
                         <div className="px-3 mb-2 mt-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">{t('settings.account')}</div>
                         <MenuItem icon={User} label={t('settings.profile')} isActive={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
-                        
+
                         <div className="px-3 mb-2 mt-6 text-[10px] font-bold text-gray-400 uppercase tracking-wider">{t('settings.workspace')}</div>
                         <MenuItem icon={Brain} label={t('settings.models')} isActive={activeTab === 'models'} onClick={() => setActiveTab('models')} />
                     </div>
@@ -85,4 +85,3 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChan
         </Dialog>
     );
 };
-

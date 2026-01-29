@@ -68,4 +68,3 @@ export const DraggableItem = ({ def }: { def: NodeDefinition }) => {
     </div>
   )
 }
-

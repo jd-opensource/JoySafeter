@@ -1,6 +1,6 @@
 /**
  * Chat Mode Service
- * 
+ *
  * Encapsulates mode-related business logic, provides mode configuration management and query functionality
  */
 
@@ -20,7 +20,7 @@ class ChatModeService {
 
   /**
    * Get a mode handler
-   * 
+   *
    * @param modeId Mode ID
    * @returns Mode handler instance, or undefined if not found
    */
@@ -37,7 +37,7 @@ class ChatModeService {
 
   /**
    * Get metadata for a mode
-   * 
+   *
    * @param modeId Mode ID
    * @returns Mode metadata, or undefined if not found
    */
@@ -48,7 +48,7 @@ class ChatModeService {
 
   /**
    * Check if a mode exists
-   * 
+   *
    * @param modeId Mode ID
    * @returns Whether the mode exists
    */
@@ -66,4 +66,3 @@ class ChatModeService {
 
 // Export singleton instance
 export const chatModeService = new ChatModeService()
-

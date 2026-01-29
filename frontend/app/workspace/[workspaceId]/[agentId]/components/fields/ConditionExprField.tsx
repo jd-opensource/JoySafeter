@@ -26,7 +26,7 @@ interface ConditionExprFieldProps {
 
 /**
  * ConditionExprField - Code editor for condition expressions
- * 
+ *
  * Features:
  * - Syntax highlighting (Python)
  * - Variable support (via VariableInputField)
@@ -131,4 +131,3 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
     </div>
   )
 }
-

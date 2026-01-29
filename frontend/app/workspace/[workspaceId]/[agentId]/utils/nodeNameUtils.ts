@@ -86,4 +86,3 @@ export function extractNodeIdFromName(nodeName: string): string | null {
   }
   return null
 }
-

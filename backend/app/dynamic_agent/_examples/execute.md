@@ -12,4 +12,3 @@
 - Use tools only when they clearly move the task forward.
 - Prefer early, useful results with a clear TODO list over extended reasoning.
 </execution>
-

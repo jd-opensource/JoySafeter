@@ -1,6 +1,6 @@
 /**
  * Mode Handler Registry
- * 
+ *
  * Registry for mode handlers, used to manage and lookup different mode handlers
  */
 
@@ -8,7 +8,7 @@ import type { ModeHandler } from './types'
 
 /**
  * Mode Handler Registry
- * 
+ *
  * Uses singleton pattern to ensure only one registry instance globally
  */
 class ModeHandlerRegistry {
@@ -16,7 +16,7 @@ class ModeHandlerRegistry {
 
   /**
    * Register a mode handler
-   * 
+   *
    * @param modeId Mode ID
    * @param handler Mode handler instance
    */
@@ -29,7 +29,7 @@ class ModeHandlerRegistry {
 
   /**
    * Get a mode handler
-   * 
+   *
    * @param modeId Mode ID
    * @returns Mode handler instance, or undefined if not found
    */
@@ -39,7 +39,7 @@ class ModeHandlerRegistry {
 
   /**
    * Get all registered mode handlers
-   * 
+   *
    * @returns Array of all mode handlers
    */
   getAll(): ModeHandler[] {
@@ -48,7 +48,7 @@ class ModeHandlerRegistry {
 
   /**
    * Check if a mode handler is registered
-   * 
+   *
    * @param modeId Mode ID
    * @returns Whether the handler is registered
    */
@@ -58,7 +58,7 @@ class ModeHandlerRegistry {
 
   /**
    * Get all registered mode IDs
-   * 
+   *
    * @returns Array of mode IDs
    */
   getModeIds(): string[] {
@@ -75,4 +75,3 @@ class ModeHandlerRegistry {
 
 // Export singleton instance
 export const modeHandlerRegistry = new ModeHandlerRegistry()
-

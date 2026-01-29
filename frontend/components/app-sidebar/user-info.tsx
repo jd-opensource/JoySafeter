@@ -132,7 +132,7 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
                   <Languages className="h-3.5 w-3.5" />
                   <span>{t('common.language')}</span>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent 
+                <DropdownMenuSubContent
                   sideOffset={4}
                   alignOffset={-5}
                   className="min-w-[110px] bg-white"
@@ -173,8 +173,8 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
           </DropdownMenu>
         </div>
       </div>
-      <SettingsDialog 
-        open={settingsOpen} 
+      <SettingsDialog
+        open={settingsOpen}
         onOpenChange={setSettingsOpen}
       />
     </>

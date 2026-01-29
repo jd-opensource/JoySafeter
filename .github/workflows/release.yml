@@ -38,9 +38,9 @@ jobs:
           release_name: Release ${{ github.event.release.tag_name || github.event.inputs.version }}
           body: |
             ## What's Changed
-            
+
             ${{ steps.changelog.outputs.changelog }}
-            
+
             **Full Changelog**: ${{ github.event.repository.html_url }}/compare/${{ github.event.release.target_commitish }}...${{ github.event.release.tag_name || github.event.inputs.version }}
           draft: false
           prerelease: false

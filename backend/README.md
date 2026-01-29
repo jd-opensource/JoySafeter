@@ -53,7 +53,7 @@ uv sync
 
 2. **`.env` 文件**: 在 `.env` 中设置 `UV_INDEX_URL` 变量
 
-3. **配置文件**: 
+3. **配置文件**:
    - 编辑 `pyproject.toml` 中的 `[tool.uv]` 部分 (推荐)
    - 编辑 `uv.toml` 中的 `[index]` 部分
 
@@ -221,4 +221,3 @@ docker-compose --profile production up -d --scale app=4
 ## 📄 License
 
 Apache 2.0
-

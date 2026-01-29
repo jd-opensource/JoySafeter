@@ -31,4 +31,4 @@
 - [S1] behaviors = {"xss": "JavaScript execution or popup alert", "sqli": "Database error or data extraction", ...}
 
 ## References
-- 
+-

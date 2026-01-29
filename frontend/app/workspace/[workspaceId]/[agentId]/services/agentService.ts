@@ -187,14 +187,14 @@ export const agentService = {
 
   async loadGraphState(
     graphId: string
-  ): Promise<{ 
+  ): Promise<{
     nodes: Node[]
     edges: Edge[]
     viewport?: { x: number; y: number; zoom: number }
     variables?: { context?: Record<string, unknown> }
   }> {
     const response = await apiGet<{
-      data: { 
+      data: {
         nodes: Node[]
         edges: Edge[]
         viewport?: { x: number; y: number; zoom: number }
@@ -202,9 +202,9 @@ export const agentService = {
       }
     }>(`graphs/${graphId}/state`)
     setCachedGraphId(graphId)
-    
+
     let data = response.data || { nodes: [], edges: [] }
-    
+
     if (data.edges && data.edges.length > 0) {
       const seenEdges = new Set<string>()
       data.edges = data.edges.filter(edge => {
@@ -216,7 +216,7 @@ export const agentService = {
         return true
       })
     }
-    
+
     // Apply data migration if needed
     if (data.nodes && data.edges && needsMigration(data.nodes, data.edges)) {
       const migrated = migrateGraphData(data.nodes, data.edges)
@@ -226,7 +226,7 @@ export const agentService = {
         edges: migrated.edges,
       }
     }
-    
+
     return data
   },
 
@@ -246,7 +246,7 @@ export const agentService = {
   }): Promise<AgentGraph> {
     clearCachedGraphId()
     clearCachedGraphName()
-    
+
     const response = await apiPost<{ data: AgentGraph }>('graphs', {
       name: params.name,
       description: params.description || '',
@@ -254,7 +254,7 @@ export const agentService = {
       variables: params.variables || {},
       workspaceId: params.workspaceId,
     })
-    
+
     return response.data
   },
 
@@ -293,14 +293,14 @@ export const agentService = {
     // Get original graph metadata
     const graphs = await this.listGraphs(options?.workspaceId || undefined)
     const originalGraph = graphs.find((g) => g.id === id)
-    
+
     if (!originalGraph) {
       throw new Error('Graph not found')
     }
-    
+
     clearCachedGraphId()
     clearCachedGraphName()
-    
+
     // Create new graph
     const createResponse = await apiPost<{ data: { id: string } }>('graphs', {
       name: options?.newName || `${originalGraph.name} (copy)`,
@@ -309,16 +309,16 @@ export const agentService = {
       variables: originalGraph.variables || {},
       workspaceId: options?.workspaceId || originalGraph.workspaceId || null,
     })
-    
+
     const newGraphId = createResponse.data.id
-    
+
     // Copy state
     await apiPost(`graphs/${newGraphId}/state`, {
       nodes: state.nodes,
       edges: state.edges,
       viewport: state.viewport,
     })
-    
+
     return newGraphId
   },
 
@@ -356,19 +356,19 @@ export const agentService = {
   async getDefaultModelId(workspaceId?: string): Promise<string> {
     try {
       const models = await this.getModels(workspaceId)
-      
+
       // Find model marked as default
       const defaultModel = models.find((m) => m.isDefault === true && m.isAvailable !== false)
       if (defaultModel) {
         return defaultModel.id
       }
-      
+
       // If no default model, return first available model
       const firstAvailable = models.find((m) => m.isAvailable !== false)
       if (firstAvailable) {
         return firstAvailable.id
       }
-      
+
       // If no available models, return empty string
       return ''
     } catch (error) {
@@ -450,4 +450,3 @@ export const agentService = {
   setCachedGraphName: setCachedGraphName,
   clearCachedGraphName: clearCachedGraphName,
 }
-

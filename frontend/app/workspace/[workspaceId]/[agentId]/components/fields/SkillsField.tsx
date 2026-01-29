@@ -207,4 +207,3 @@ export const SkillsField: React.FC<SkillsFieldProps> = ({ value, onChange }) => 
     </div>
   )
 }
-

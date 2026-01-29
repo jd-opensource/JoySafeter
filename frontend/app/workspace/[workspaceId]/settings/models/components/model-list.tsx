@@ -45,13 +45,13 @@ export function ModelList({ provider, models, onCollapse }: ModelListProps) {
           {t('settings.collapse')}
         </Button>
       </div>
-      
+
       {/* Models List */}
       <div className="max-h-[280px] overflow-y-auto">
         {sortedModels.map((model, index) => (
-          <ModelListItem 
-            key={model.name} 
-            model={model} 
+          <ModelListItem
+            key={model.name}
+            model={model}
             provider={provider}
             isLast={index === sortedModels.length - 1}
           />
@@ -70,4 +70,3 @@ export function ModelList({ provider, models, onCollapse }: ModelListProps) {
     </div>
   )
 }
-

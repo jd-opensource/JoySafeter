@@ -181,7 +181,7 @@ const SchemaFieldRenderer = ({
         'prompt',
         'template',
       ].includes(schema.key)
-      
+
       if (needsVariableSupport && nodes && edges && currentNodeId) {
         input = (
           <VariableInputField
@@ -373,13 +373,13 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   const config = nodeData.config || {}
   const nodeType = nodeData.type
-  
+
   // Get available templates for this node type
   const templates = getTemplatesForNodeType(nodeType)
-  
+
   // Validate configuration
   const validationErrors = validateNodeConfig(nodeType, config)
-  
+
   const updateConfig = (key: string, value: unknown) => {
     if (!userPermissions.canEdit) {
       toast({
@@ -394,7 +394,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     const newConfig = { ...config, [key]: value }
     onUpdate(node.id, { label: nodeData.label || '', config: newConfig })
   }
-  
+
   const applyTemplateConfig = (templateName: string) => {
     if (!userPermissions.canEdit) {
       toast({
@@ -588,7 +588,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
           </div>
         )}
-        
+
         {/* Validation Errors */}
         {validationErrors.length > 0 && (
           <div className="space-y-2">
@@ -608,7 +608,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
           </div>
         )}
-        
+
         {/* Section: General */}
         <div className="space-y-4">
           <SectionHeader icon={Settings} title={t('workspace.general')} />
@@ -793,4 +793,3 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 }
 
 export default PropertiesPanel
-

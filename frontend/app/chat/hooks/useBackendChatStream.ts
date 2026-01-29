@@ -54,10 +54,10 @@ export const useBackendChatStream = (
   const stopMessage = useCallback(async (threadId: string | null) => {
     // Use current threadId if provided, otherwise use the ref
     const targetThreadId = threadId || currentThreadIdRef.current
-    
+
     // Always abort the fetch request first
     abortRef.current?.abort()
-    
+
     if (!targetThreadId) {
       // If no threadId, just abort the current request
       setIsProcessing(false)
@@ -212,7 +212,7 @@ export const useBackendChatStream = (
             if (type === 'error') {
               const errorData = data as ErrorEventData
               const errorMsg = errorData?.message || 'Unknown error'
-              
+
               // Check if this is a stop event
               if (errorMsg === 'Stream stopped' || errorMsg.includes('stopped')) {
                 safeSetMessages((prev) =>

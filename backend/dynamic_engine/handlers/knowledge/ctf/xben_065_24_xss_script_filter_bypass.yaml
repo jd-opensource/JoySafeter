@@ -31,4 +31,3 @@ tricks:
     how: "Use iframe with javascript: protocol"
     payload: |
       <iframe src="javascript:alert('XSS')">
-

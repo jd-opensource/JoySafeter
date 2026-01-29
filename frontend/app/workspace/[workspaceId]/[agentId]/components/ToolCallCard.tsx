@@ -20,25 +20,25 @@ interface ToolCallCardProps {
  */
 function formatJsonWithNewlines(data: any): string {
   const jsonString = JSON.stringify(data, null, 2)
-  
+
   return jsonString.replace(
     /("(?:[^"\\]|\\.)*")\s*:\s*"((?:[^"\\]|\\.)*)"/g,
     (match, key, escapedValue) => {
       if (escapedValue.includes('\\n')) {
         try {
           const actualValue = JSON.parse(`"${escapedValue}"`)
-          
+
           if (typeof actualValue === 'string' && actualValue.includes('\n')) {
             const indentMatch = jsonString.substring(0, jsonString.indexOf(match)).match(/(\n\s*)$/)
             const baseIndent = indentMatch ? indentMatch[1].replace('\n', '') : ''
             const valueIndent = baseIndent + '    '
-            
+
             const lines = actualValue.split('\n')
             const formattedLines = lines.map((line, index) => {
               const escapedLine = line.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
               return index === 0 ? escapedLine : `\n${valueIndent}${escapedLine}`
             })
-            
+
             return `${key}: "${formattedLines.join('')}"`
           }
         } catch {
@@ -57,11 +57,11 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
 }) => {
   const { t } = useTranslation()
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
-  
+
   const toolData = step.data as ToolExecutionData | undefined
   const input = toolData?.request || toolData
   const output = toolData?.response
-  
+
   // Calculate duration
   const duration = useMemo(() => {
     if (step.endTime && step.startTime) {
@@ -69,13 +69,13 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
     }
     return step.duration
   }, [step.endTime, step.startTime, step.duration])
-  
+
   // Check if output should be auto-collapsed (exceeds threshold)
   const outputString = output ? JSON.stringify(output) : ''
   const shouldAutoCollapse = outputString.length > 1000
-  
+
   const [outputCollapsed, setOutputCollapsed] = useState(shouldAutoCollapse)
-  
+
   // Get status icon
   const getStatusIcon = () => {
     switch (step.status) {
@@ -89,7 +89,7 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
         return <Wrench size={12} className="text-gray-400" />
     }
   }
-  
+
   // Get status color
   const getStatusColor = () => {
     switch (step.status) {
@@ -103,7 +103,7 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
         return 'border-gray-200 bg-gray-50'
     }
   }
-  
+
   return (
     <div className={cn(
       'border rounded-lg transition-all duration-200',
@@ -146,7 +146,7 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
           </div>
         </div>
       )}
-      
+
       {!isCollapsed && (
         <div className="p-3 space-y-3 border-t border-gray-200 bg-white">
           {/* Input Section */}
@@ -189,7 +189,7 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
               </div>
             </div>
           )}
-          
+
           {/* Output Section */}
           {output !== undefined ? (
             <div className="space-y-1.5">
@@ -266,4 +266,3 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
     </div>
   )
 }
-

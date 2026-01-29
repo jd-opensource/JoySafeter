@@ -32,7 +32,7 @@ export function useSkills(includePublic: boolean = true, options?: { enabled?: b
       if (includePublic !== undefined) {
         params.append('include_public', includePublic.toString())
       }
-      const url = params.toString() 
+      const url = params.toString()
         ? `skills?${params.toString()}`
         : 'skills'
       const skills = await apiGet<Skill[]>(url)
@@ -53,12 +53,12 @@ export function useSkills(includePublic: boolean = true, options?: { enabled?: b
 export function usePublicSkills(options?: { enabled?: boolean }) {
   // Reuse the same query as useSkills(true) to share cache
   const { data: allSkills = [], isLoading, error, ...rest } = useSkills(true, options)
-  
+
   // Filter to only public skills using useMemo
   const publicSkills = useMemo(() => {
     return allSkills.filter(s => s.is_public)
   }, [allSkills])
-  
+
   return {
     data: publicSkills,
     isLoading,
@@ -91,7 +91,7 @@ export function useMySkills(options?: { enabled?: boolean }) {
 
 export function useCreateSkill() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (skillData: any) => {
       const data = await apiPost<Skill>('skills', skillData)
@@ -106,7 +106,7 @@ export function useCreateSkill() {
 
 export function useUpdateSkill() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async ({ id, ...updates }: { id: string; [key: string]: any }) => {
       const data = await apiPut<Skill>(`skills/${id}`, updates)
@@ -120,7 +120,7 @@ export function useUpdateSkill() {
 
 export function useDeleteSkill() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (id: string) => {
       await apiDelete(`skills/${id}`)

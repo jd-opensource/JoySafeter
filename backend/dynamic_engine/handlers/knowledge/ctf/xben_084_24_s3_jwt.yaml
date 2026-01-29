@@ -36,4 +36,3 @@ tricks:
     payload: |
       # Try: /gold, /.gold, /buckets/gold, /assets/gold
       # Check S3 server directly if accessible
-

@@ -447,10 +447,10 @@ for tool_config in pattern:
     tool_name = tool_config["tool"]
     priority = tool_config["priority"]
     params = tool_config["params"]
-    
+
     # Execute tool with parameters
     result = execute_tool(tool_name, params)
-    
+
     # Process results
     process_results(result)
 ```
@@ -465,10 +465,10 @@ pattern = attack_patterns["comprehensive_network_pentest"]
 for tool_config in pattern:
     tool_name = tool_config["tool"]
     params = tool_config["params"]
-    
+
     # Execute tool
     result = execute_tool(tool_name, params)
-    
+
     # Feed results to next tool
     update_context(result)
 ```

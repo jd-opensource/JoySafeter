@@ -206,7 +206,7 @@ function MyComponent() {
       return res.json()
     },
   })
-  
+
   // ...
 }
 ```

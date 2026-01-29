@@ -1,9 +1,9 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { 
-    Search, 
-    Store, 
+import {
+    Search,
+    Store,
     ShieldCheck,
     Loader2,
     X,
@@ -110,22 +110,22 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
     const filteredSkills = useMemo(() => {
         return skills.filter(skill => {
             // Search filter
-            const matchesSearch = !searchQuery || 
+            const matchesSearch = !searchQuery ||
                 skill.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 skill.description.toLowerCase().includes(searchQuery.toLowerCase())
-            
+
             // Tags filter
-            const matchesTags = selectedTags.length === 0 || 
+            const matchesTags = selectedTags.length === 0 ||
                 selectedTags.some(tag => skill.tags?.includes(tag))
-            
+
             return matchesSearch && matchesTags
         })
     }, [skills, searchQuery, selectedTags])
 
     // Toggle tag selection
     const toggleTag = (tag: string) => {
-        setSelectedTags(prev => 
-            prev.includes(tag) 
+        setSelectedTags(prev =>
+            prev.includes(tag)
                 ? prev.filter(t => t !== tag)
                 : [...prev, tag]
         )
@@ -194,11 +194,11 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                             {filteredSkills.length} {t('skills.skillsAvailable')}
                         </Badge>
                     </div>
-                    
+
                     {(searchQuery || selectedTags.length > 0) && (
-                        <Button 
-                            variant="ghost" 
-                            size="sm" 
+                        <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={clearFilters}
                             className="text-xs text-gray-500 hover:text-gray-700"
                         >
@@ -263,20 +263,20 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                             <ShieldCheck className="w-12 h-12 text-gray-300" />
                         </div>
                         <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                            {searchQuery || selectedTags.length > 0 
+                            {searchQuery || selectedTags.length > 0
                                 ? t('skills.noMatchingSkills')
                                 : t('skills.noPublicSkills')
                             }
                         </h3>
                         <p className="text-sm text-gray-500 max-w-md">
-                            {searchQuery || selectedTags.length > 0 
+                            {searchQuery || selectedTags.length > 0
                                 ? t('skills.tryDifferentFilters')
                                 : t('skills.beFirstToPublish')
                             }
                         </p>
                         {(searchQuery || selectedTags.length > 0) && (
-                            <Button 
-                                variant="outline" 
+                            <Button
+                                variant="outline"
                                 className="mt-4"
                                 onClick={clearFilters}
                             >
@@ -322,7 +322,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                                     {viewSkill.description}
                                 </DialogDescription>
                             </DialogHeader>
-                            
+
                             <div className="flex-1 overflow-hidden flex flex-col gap-4 py-4">
                                 {/* Tags */}
                                 {viewSkill.tags && viewSkill.tags.length > 0 && (

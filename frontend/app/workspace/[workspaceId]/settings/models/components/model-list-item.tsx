@@ -20,12 +20,12 @@ function RadioIndicator({ selected, disabled }: { selected: boolean; disabled?: 
   if (disabled) {
     return <Circle className="w-4 h-4 text-gray-200" />
   }
-  
+
   return (
     <div className={`
       w-4 h-4 rounded-full border-2 flex items-center justify-center
-      ${selected 
-        ? 'border-blue-500 bg-blue-500' 
+      ${selected
+        ? 'border-blue-500 bg-blue-500'
         : 'border-gray-300 bg-white group-hover:border-blue-300'
       }
       transition-colors
@@ -63,8 +63,8 @@ export function ModelListItem({ model, provider, isLast }: ModelListItemProps) {
         description: t('settings.defaultModelUpdated'),
       })
     } catch (error) {
-      const errorMessage = error instanceof Error 
-        ? error.message 
+      const errorMessage = error instanceof Error
+        ? error.message
         : t('settings.failedToUpdateDefaultModel')
       toast({
         title: t('settings.error'),
@@ -75,9 +75,9 @@ export function ModelListItem({ model, provider, isLast }: ModelListItemProps) {
   }
 
   return (
-    <div 
+    <div
       className={`
-        flex items-center justify-between px-4 py-2.5 
+        flex items-center justify-between px-4 py-2.5
         hover:bg-blue-50/50 group transition-colors
         ${!isLast ? 'border-b border-gray-50' : ''}
         ${model.is_default ? 'bg-blue-50/30' : 'bg-white'}
@@ -89,12 +89,12 @@ export function ModelListItem({ model, provider, isLast }: ModelListItemProps) {
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {/* Radio indicator */}
         <div className="shrink-0">
-          <RadioIndicator 
-            selected={model.is_default ?? false} 
-            disabled={!model.is_available} 
+          <RadioIndicator
+            selected={model.is_default ?? false}
+            disabled={!model.is_available}
           />
         </div>
-        
+
         {/* Model info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -132,4 +132,3 @@ export function ModelListItem({ model, provider, isLast }: ModelListItemProps) {
     </div>
   )
 }
-

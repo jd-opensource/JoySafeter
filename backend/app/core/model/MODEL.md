@@ -237,4 +237,3 @@ else:
 
 - 详细的供应商扩展指南请参考 `README_CN.md`
 - Schema 设计规范请参考 `docs/zh_Hans/schema.md`
-

@@ -75,4 +75,3 @@ Security updates are released as patch versions and announced through:
 - Project mailing list (if configured)
 
 We recommend always running the latest stable version.
-

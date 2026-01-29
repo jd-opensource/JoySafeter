@@ -1,6 +1,6 @@
 /**
  * Dynamic Mode Handler
- * 
+ *
  * Handles dynamic type modes (e.g., ctf, pentest, whitebox)
  * These modes directly redirect to /dynamic/chat page
  */
@@ -17,7 +17,7 @@ import type {
 
 /**
  * Create a Dynamic Mode Handler
- * 
+ *
  * @param metadata Mode metadata
  * @returns ModeHandler instance
  */
@@ -27,7 +27,7 @@ export function createDynamicModeHandler(metadata: ModeMetadata): ModeHandler {
 
     async onSelect(context: ModeContext): Promise<ModeSelectionResult> {
       const { scene } = metadata
-      
+
       if (!scene) {
         return {
           success: false,
@@ -65,4 +65,3 @@ export function createDynamicModeHandler(metadata: ModeMetadata): ModeHandler {
 
 // Note: These handlers are now created from config via handlerFactory
 // Keeping these exports for backward compatibility, but recommend using createHandlerFromConfig
-

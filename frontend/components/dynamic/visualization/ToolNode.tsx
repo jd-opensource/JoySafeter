@@ -42,9 +42,9 @@ function getStatusInfo(status: string): { color: string; icon: string } {
 /**
  * ToolNode component - displays individual tool in execution tree
  */
-export const ToolNode: React.FC<ToolNodeProps> = ({ 
-  tool, 
-  isAgentTool = false, 
+export const ToolNode: React.FC<ToolNodeProps> = ({
+  tool,
+  isAgentTool = false,
   childAgentCount = 0,
   isExpanded = false,
   onToggleExpand,
@@ -74,17 +74,17 @@ export const ToolNode: React.FC<ToolNodeProps> = ({
   const hasChildAgents = isAgentTool && childAgentCount > 0;
 
   return (
-    <div 
+    <div
       className={`tool-node ${isAgentTool ? 'agent-tool' : 'regular-tool'} ${isRunning ? 'running' : ''} ${isSelected ? 'selected' : ''}`}
       onClick={handleClick}
     >
-      <div 
+      <div
         className="tool-node-content"
         style={{ cursor: canExpand ? 'pointer' : 'default' }}
       >
         {/* Expand button for agent_tool (always show for agent_tool) */}
         {canExpand && (
-          <div 
+          <div
             className={`tool-expand-btn ${isExpanded ? 'expanded' : ''}`}
             onClick={handleExpandClick}
             title="Load subtasks"

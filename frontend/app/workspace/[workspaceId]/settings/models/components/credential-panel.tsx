@@ -31,7 +31,7 @@ export function CredentialPanel({ provider, credential, onSetup }: CredentialPan
           {t('settings.notConfigured')}
         </span>
       )}
-      
+
       {/* Setup link */}
       <Button
         variant="ghost"
@@ -45,4 +45,3 @@ export function CredentialPanel({ provider, credential, onSetup }: CredentialPan
     </div>
   )
 }
-

@@ -12,21 +12,21 @@ import type { Agent, ExecutionTree, LevelStatistics } from '@/types/dynamic/exec
  */
 export function getAllAgents(execution: ExecutionTree): Agent[] {
   const agents: Agent[] = [];
-  
+
   function traverse(agent: Agent) {
     agents.push(agent);
-    
+
     // Traverse sub_agents
     if (agent.sub_agents && agent.sub_agents.length > 0) {
       agent.sub_agents.forEach(traverse);
     }
-    
+
     // Traverse child_agents (spawned by agent_tool)
     if (agent.child_agents && agent.child_agents.length > 0) {
       agent.child_agents.forEach(traverse);
     }
   }
-  
+
   traverse(execution.root_agent);
   return agents;
 }
@@ -50,7 +50,7 @@ export function getAgentsByLevel(execution: ExecutionTree, level: number): Agent
 export function getMaxDepth(execution: ExecutionTree): number {
   const allAgents = getAllAgents(execution);
   if (allAgents.length === 0) return 0;
-  
+
   return Math.max(...allAgents.map(agent => agent.level));
 }
 
@@ -62,35 +62,35 @@ export function getMaxDepth(execution: ExecutionTree): number {
 export function calculateLevelStatistics(execution: ExecutionTree): LevelStatistics[] {
   const maxDepth = getMaxDepth(execution);
   const statistics: LevelStatistics[] = [];
-  
+
   for (let level = 1; level <= maxDepth; level++) {
     const agentsAtLevel = getAgentsByLevel(execution, level);
-    
+
     if (agentsAtLevel.length === 0) {
       continue;
     }
-    
+
     // Calculate tool count
     const toolCount = agentsAtLevel.reduce(
       (sum, agent) => sum + (agent.tool_invocations?.length || 0),
       0
     );
-    
+
     // Calculate total duration
     const totalDuration = agentsAtLevel.reduce(
       (sum, agent) => sum + agent.duration_ms,
       0
     );
-    
+
     // Calculate average duration
     const avgDuration = totalDuration / agentsAtLevel.length;
-    
+
     // Calculate success rate
     const completedAgents = agentsAtLevel.filter(
       agent => agent.status === 'completed'
     ).length;
     const successRate = (completedAgents / agentsAtLevel.length) * 100;
-    
+
     statistics.push({
       level,
       agent_count: agentsAtLevel.length,
@@ -100,7 +100,7 @@ export function calculateLevelStatistics(execution: ExecutionTree): LevelStatist
       total_duration_ms: totalDuration,
     });
   }
-  
+
   return statistics;
 }
 
@@ -118,7 +118,7 @@ export function getLevelColor(level: number): string {
     '#ef4444', // Level 5: Red
     '#8b5cf6', // Level 6: Violet
   ];
-  
+
   // Cycle through colors if level exceeds array length
   return colors[(level - 1) % colors.length];
 }
@@ -133,7 +133,7 @@ export function findParentAgent(execution: ExecutionTree, agentId: string): Agen
   if (execution.root_agent.id === agentId) {
     return null; // Root agent has no parent
   }
-  
+
   function search(agent: Agent): Agent | null {
     // Check sub_agents
     if (agent.sub_agents && agent.sub_agents.length > 0) {
@@ -145,7 +145,7 @@ export function findParentAgent(execution: ExecutionTree, agentId: string): Agen
         if (found) return found;
       }
     }
-    
+
     // Check child_agents
     if (agent.child_agents && agent.child_agents.length > 0) {
       for (const childAgent of agent.child_agents) {
@@ -156,10 +156,10 @@ export function findParentAgent(execution: ExecutionTree, agentId: string): Agen
         if (found) return found;
       }
     }
-    
+
     return null;
   }
-  
+
   return search(execution.root_agent);
 }
 
@@ -199,7 +199,7 @@ export function hasChildAgents(agent: Agent): boolean {
  */
 export function getAgentToolInvocations(agent: Agent) {
   if (!agent.tool_invocations) return [];
-  
+
   return agent.tool_invocations.filter((tool: any) => tool.is_agent_tool === true);
 }
 

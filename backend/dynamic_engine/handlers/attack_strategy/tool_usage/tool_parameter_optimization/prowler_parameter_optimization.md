@@ -27,12 +27,12 @@
 def _optimize_prowler_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Prowler parameters"""
     params = {"target": profile.target}
-    
+
     params["provider"] = "aws"
     params["profile"] = context.get("aws_profile", "default")
     params["region"] = context.get("aws_region", "us-east-1")
     params["output_format"] = "json"
-    
+
     return params
 ```
 

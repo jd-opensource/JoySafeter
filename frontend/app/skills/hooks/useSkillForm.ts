@@ -50,7 +50,7 @@ export function useSkillForm({ initialSkill, onSave, form: existingForm }: UseSk
       // Use source_type if available, otherwise fall back to legacy source field
       // source_type is the canonical field, source is legacy
       const source = initialSkill.source_type || initialSkill.source || 'local'
-      
+
       let formData: Partial<SkillFormData> = {
         name: initialSkill.name,
         description: initialSkill.description,

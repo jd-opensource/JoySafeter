@@ -11,12 +11,12 @@ import { useEffect } from 'react'
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 import { useCustomToolsStore } from '@/stores/custom-tools/store'
-import type { 
-  CustomToolDefinition, 
-  CustomToolSchema, 
-  CustomTool as LegacyCustomTool, 
-  LegacyCustomToolSchema, 
-  CustomToolParameter 
+import type {
+  CustomToolDefinition,
+  CustomToolSchema,
+  CustomTool as LegacyCustomTool,
+  LegacyCustomToolSchema,
+  CustomToolParameter
 } from '@/stores/custom-tools/types'
 
 import { STALE_TIME } from './constants'
@@ -88,7 +88,7 @@ function convertToLegacyTool(definition: CustomToolDefinition): LegacyCustomTool
   const functionSchema = definition.schema.function
   const name = functionSchema?.name || definition.title
   const description = functionSchema?.description || ''
-  
+
   // Convert OpenAI-style parameters to legacy format
   const parameters: CustomToolParameter[] = []
   if (functionSchema?.parameters?.properties) {
@@ -262,7 +262,7 @@ export function useCreateCustomTool() {
         createdAt: createdTool.createdAt,
         updatedAt: createdTool.updatedAt,
       })
-      
+
       return normalizedTool
     },
     onSuccess: () => {

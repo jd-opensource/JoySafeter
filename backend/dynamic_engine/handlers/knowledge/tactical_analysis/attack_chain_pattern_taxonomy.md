@@ -44,61 +44,61 @@ attack_patterns = {
         "remote", "network", "unauthenticated", "public-facing",
         "phishing", "drive-by", "supply chain", "exploit public"
     ],
-    
-    # TA0002 - Execution  
+
+    # TA0002 - Execution
     "execution": [
         "code execution", "rce", "command injection", "script",
         "macro", "scheduled task", "user execution"
     ],
-    
+
     # TA0003 - Persistence
     "persistence": [
         "service", "registry", "scheduled", "startup",
         "boot", "account creation", "web shell", "backdoor"
     ],
-    
+
     # TA0004 - Privilege Escalation
     "privilege_escalation": [
         "local", "kernel", "suid", "sudo", "setuid",
         "escalation", "elevated", "administrator", "root"
     ],
-    
+
     # TA0005 - Defense Evasion
     "defense_evasion": [
         "bypass", "obfuscation", "masquerading", "rootkit",
         "disable security", "log deletion", "process injection"
     ],
-    
+
     # TA0006 - Credential Access
     "credential_access": [
         "password", "credential", "hash", "keylogger",
         "brute force", "credential dump", "authentication"
     ],
-    
+
     # TA0007 - Discovery
     "discovery": [
         "enumeration", "reconnaissance", "network scan",
         "system information", "account discovery"
     ],
-    
+
     # TA0008 - Lateral Movement
     "lateral_movement": [
         "smb", "wmi", "ssh", "rdp", "psexec",
         "remote services", "pass the hash", "remote desktop"
     ],
-    
+
     # TA0009 - Collection
     "collection": [
         "data staged", "clipboard", "screen capture",
         "keylogging", "email collection"
     ],
-    
+
     # TA0010 - Exfiltration
     "data_exfiltration": [
         "file", "database", "memory", "network",
         "exfiltration", "data transfer", "c2", "command and control"
     ],
-    
+
     # TA0011 - Impact
     "impact": [
         "denial of service", "dos", "ransomware", "data destruction",
@@ -140,7 +140,7 @@ def classify_cve(cve_description, attack_patterns):
     """Classify CVE into tactical stages"""
     description_lower = cve_description.lower()
     matched_stages = []
-    
+
     for stage, keywords in attack_patterns.items():
         matches = [kw for kw in keywords if kw in description_lower]
         if matches:
@@ -149,7 +149,7 @@ def classify_cve(cve_description, attack_patterns):
                 "matched_keywords": matches,
                 "confidence": len(matches)
             })
-    
+
     return matched_stages
 
 # Example usage
@@ -166,7 +166,7 @@ results = classify_cve(cve, attack_patterns)
 ```python
 def find_attack_chain(target_software, vulnerabilities, attack_patterns):
     """Find complete attack chains from vulnerability set"""
-    
+
     # Step 1: Classify all vulnerabilities
     classified_vulns = {}
     for vuln in vulnerabilities:
@@ -176,7 +176,7 @@ def find_attack_chain(target_software, vulnerabilities, attack_patterns):
             if stage not in classified_vulns:
                 classified_vulns[stage] = []
             classified_vulns[stage].append(vuln)
-    
+
     # Step 2: Build chains following kill chain sequence
     kill_chain_sequence = [
         "initial_access",      # TA0001
@@ -185,11 +185,11 @@ def find_attack_chain(target_software, vulnerabilities, attack_patterns):
         "persistence",         # TA0003
         "lateral_movement"     # TA0008
     ]
-    
+
     chains = []
     for initial in classified_vulns.get("initial_access", []):
         chain = {"stages": [{"stage": "initial_access", "vuln": initial}]}
-        
+
         # Try to extend chain with subsequent stages
         for next_stage in kill_chain_sequence[1:]:
             if next_stage in classified_vulns:
@@ -197,10 +197,10 @@ def find_attack_chain(target_software, vulnerabilities, attack_patterns):
                     "stage": next_stage,
                     "vuln": classified_vulns[next_stage][0]
                 })
-        
+
         if len(chain["stages"]) >= 3:  # Minimum viable chain
             chains.append(chain)
-    
+
     return chains
 ```
 
@@ -216,7 +216,7 @@ def find_attack_chain(target_software, vulnerabilities, attack_patterns):
 
 **Splunk Query - Track Attack Chain Coverage**
 ```spl
-index=vuln_intel 
+index=vuln_intel
 | eval stage=case(
     match(description, "(?i)(local|kernel|suid|sudo)"), "privilege_escalation",
     match(description, "(?i)(remote|network|rce)"), "execution",
@@ -255,12 +255,12 @@ def detect_attack_stage(cve_text):
         "TA0003": r"\b(persistence|service|registry|startup)\b",
         "TA0008": r"\b(lateral movement|smb|wmi|rdp)\b"
     }
-    
+
     detected = []
     for tactic_id, pattern in patterns.items():
         if re.search(pattern, cve_text, re.IGNORECASE):
             detected.append(tactic_id)
-    
+
     return detected
 ```
 

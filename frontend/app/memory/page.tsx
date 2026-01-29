@@ -295,7 +295,7 @@ export default function KnowledgePage() {
           (() => {
             const hasFilters = searchQuery.trim() || selectedTopic
             return (
-              <div 
+              <div
                 className={`p-4 rounded-xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-center gap-2 bg-gray-50 ${hasFilters ? '' : 'hover:bg-white hover:border-gray-400 transition-colors cursor-pointer'} py-12`}
                 onClick={hasFilters ? undefined : openCreate}
               >
@@ -308,15 +308,15 @@ export default function KnowledgePage() {
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-gray-900">
-                    {hasFilters 
+                    {hasFilters
                       ? t('memory.noMemoriesFiltered', { defaultValue: 'No memories found' })
                       : t('memory.noMemories', { defaultValue: 'No memories yet' })
                     }
                   </h4>
                   <p className="text-xs text-gray-500 mt-1 max-w-md">
                     {hasFilters
-                      ? t('memory.noMemoriesFilteredDescription', { 
-                          defaultValue: 'Try adjusting your search or filter criteria' 
+                      ? t('memory.noMemoriesFilteredDescription', {
+                          defaultValue: 'Try adjusting your search or filter criteria'
                         })
                       : t('memory.noMemoriesDescription', { defaultValue: 'Click to add your first memory' })
                     }

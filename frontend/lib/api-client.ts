@@ -71,7 +71,7 @@ export interface ApiResponse<T> {
 export class ApiError extends Error {
   /** Error code, used to identify specific error types (e.g., 'EMAIL_NOT_VERIFIED', 'BAD_REQUEST') */
   public readonly code?: string
-  
+
   constructor(
     public readonly status: number,
     public readonly statusText: string,
@@ -112,7 +112,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
   try {
     const json = JSON.parse(text)
-    
+
     // Standard API response format
     if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
       if (!json.success) {
@@ -120,7 +120,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
       }
       return json.data
     }
-    
+
     return json as T
   } catch (e) {
     if (e instanceof ApiError) throw e
@@ -145,7 +145,7 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
   refreshPromise = (async () => {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), timeout)
-    
+
     try {
       const response = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
@@ -153,13 +153,13 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
       })
-      
+
       clearTimeout(timeoutId)
-      
+
       if (response.status === 401) {
         throw new Error('Refresh token expired, please login again')
       }
-      
+
       if (!response.ok) {
         throw new Error(`Token refresh failed: ${response.statusText}`)
       }

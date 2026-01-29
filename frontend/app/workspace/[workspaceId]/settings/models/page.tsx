@@ -14,7 +14,7 @@ export default function ModelsPage() {
   const { t } = useTranslation()
   const params = useParams()
   const workspaceId = params?.workspaceId as string | undefined
-  
+
   const { data: providers = [], isLoading: providersLoading } = useModelProviders()
   const { data: credentials = [], isLoading: credentialsLoading } = useModelCredentials(workspaceId)
 
@@ -120,4 +120,3 @@ export default function ModelsPage() {
     </div>
   )
 }
-

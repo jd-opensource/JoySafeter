@@ -37,18 +37,18 @@ export const TreeView: React.FC<TreeViewProps> = ({ execution, onLoadSubtasks })
   // Preserve expansion state during polling updates
   const executionIdRef = React.useRef<string | null>(null);
   const hasInitialized = React.useRef(false);
-  
+
   React.useEffect(() => {
     if (execution?.root_agent?.id) {
       // Only reset expansion state when execution ID actually changes (new task)
       // Don't reset during polling updates (same execution ID)
       const isNewExecution = executionIdRef.current !== execution.id;
-      
+
       if (isNewExecution) {
         executionIdRef.current = execution.id;
         hasInitialized.current = false;
       }
-      
+
       // Initialize only once per execution
       if (!hasInitialized.current) {
         setExpandedNodes(new Set([execution.root_agent.id]));
@@ -111,12 +111,12 @@ export const TreeView: React.FC<TreeViewProps> = ({ execution, onLoadSubtasks })
     (agent: Agent, depth: number = 0): React.ReactNode => {
       const isExpanded = isNodeExpanded(agent.id);
       const isSelected = selectedAgentId === agent.id;
-      
+
       const hasTools = agent.tool_invocations && agent.tool_invocations.length > 0;
       const isRunningOrPending = agent.status === 'running' || agent.status === 'pending';
       // Show expand button if agent has tools OR is currently running/pending (tools may be executing)
       const hasContent = hasTools || isRunningOrPending;
-      
+
       // Debug: Log child agent info
       if (depth > 0) {
         console.log(`[TreeView] Rendering agent at depth ${depth}:`, {
@@ -138,7 +138,7 @@ export const TreeView: React.FC<TreeViewProps> = ({ execution, onLoadSubtasks })
         <React.Fragment key={agent.id}>
           {/* Agent Node */}
           <div className="tree-node-wrapper" style={{ marginLeft: `${depth * 24}px` }}>
-            <div 
+            <div
               className={`tree-node ${isSelected ? 'selected' : ''}`}
               onClick={() => handleNodeClick(agent.id)}
             >
@@ -161,9 +161,9 @@ export const TreeView: React.FC<TreeViewProps> = ({ execution, onLoadSubtasks })
               )}
               {!hasContent && <div className="expand-button-placeholder" />}
 
-              <AgentNode 
-                agent={agent} 
-                isSelected={isSelected} 
+              <AgentNode
+                agent={agent}
+                isSelected={isSelected}
                 indent={false}
               />
             </div>
@@ -240,7 +240,7 @@ export const TreeView: React.FC<TreeViewProps> = ({ execution, onLoadSubtasks })
         <div className="tree-content">
           {renderAgentTree(execution.root_agent)}
         </div>
-        
+
         <div className="tree-footer">
           <div className="footer-content">
             End of execution tree

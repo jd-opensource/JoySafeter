@@ -36,12 +36,12 @@ export function InvitationNotification() {
       await queryClient.invalidateQueries({ queryKey: ['workspace-invitations'] })
       await queryClient.invalidateQueries({ queryKey: ['workspaces'] })
       await queryClient.invalidateQueries({ queryKey: ['workspace'] })
-      
+
       toast({
         title: t('workspace.invitationAccepted'),
         description: t('workspace.invitationAcceptedDescription', { workspaceName: data.workspace?.name || '' }),
       })
-      
+
       // Navigate to workspace
       if (data.workspace?.id) {
         router.push(`/workspace/${data.workspace.id}`)
@@ -62,12 +62,12 @@ export function InvitationNotification() {
     onSuccess: async (_, invitationId) => {
       // Invalidate related queries
       await queryClient.invalidateQueries({ queryKey: ['workspace-invitations'] })
-      
+
       toast({
         title: t('workspace.invitationRejected'),
         description: t('workspace.invitationRejectedDescription'),
       })
-      
+
       // Mark as dismissed
       setDismissedIds(prev => new Set(prev).add(invitationId))
     },
@@ -165,4 +165,3 @@ export function InvitationNotification() {
     </div>
   )
 }
-

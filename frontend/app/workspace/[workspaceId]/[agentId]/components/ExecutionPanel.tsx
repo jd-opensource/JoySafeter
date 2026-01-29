@@ -27,25 +27,25 @@ import { ToolCallCard } from './ToolCallCard'
  */
 function formatJsonWithNewlines(data: any): string {
   const jsonString = JSON.stringify(data, null, 2)
-  
+
   return jsonString.replace(
     /("(?:[^"\\]|\\.)*")\s*:\s*"((?:[^"\\]|\\.)*)"/g,
     (match, key, escapedValue) => {
       if (escapedValue.includes('\\n')) {
         try {
           const actualValue = JSON.parse(`"${escapedValue}"`)
-          
+
           if (typeof actualValue === 'string' && actualValue.includes('\n')) {
             const indentMatch = jsonString.substring(0, jsonString.indexOf(match)).match(/(\n\s*)$/)
             const baseIndent = indentMatch ? indentMatch[1].replace('\n', '') : ''
             const valueIndent = baseIndent + '    '
-            
+
             const lines = actualValue.split('\n')
             const formattedLines = lines.map((line, index) => {
               const escapedLine = line.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
               return index === 0 ? escapedLine : `\n${valueIndent}${escapedLine}`
             })
-            
+
             return `${key}: "${formattedLines.join('')}"`
           }
         } catch {
@@ -59,10 +59,10 @@ function formatJsonWithNewlines(data: any): string {
 
 export const ExecutionPanel: React.FC = () => {
   const { t } = useTranslation()
-  const { 
-    steps: executionSteps, 
-    isExecuting, 
-    togglePanel: toggleExecutionPanel, 
+  const {
+    steps: executionSteps,
+    isExecuting,
+    togglePanel: toggleExecutionPanel,
     clear: clearExecution,
     pendingInterrupts,
     getInterrupt,
@@ -73,9 +73,9 @@ export const ExecutionPanel: React.FC = () => {
   // Use useDeferredValue to delay steps updates, avoiding flushSync conflicts caused by high-frequency updates
   // React will update deferred values during idle time, not blocking user interaction
   const deferredSteps = useDeferredValue(executionSteps)
-  
+
   // Get the first interrupt (if any)
-  const firstInterrupt = pendingInterrupts.size > 0 
+  const firstInterrupt = pendingInterrupts.size > 0
     ? Array.from(pendingInterrupts.values())[0]
     : null
 
@@ -84,8 +84,8 @@ export const ExecutionPanel: React.FC = () => {
     if (isExecuting && executionSteps.length > 0) {
       const lastInterestingStep = [...executionSteps]
         .reverse()
-        .find((s) => 
-          s.stepType === 'tool_execution' || 
+        .find((s) =>
+          s.stepType === 'tool_execution' ||
           s.stepType === 'model_io' ||
           (s.stepType === 'agent_thought' && s.content)
         )
@@ -146,7 +146,7 @@ export const ExecutionPanel: React.FC = () => {
       <div className="flex-1 flex flex-col bg-gray-50 min-w-0">
         {firstInterrupt ? (
           <div className="flex-1 overflow-auto p-4">
-            <InterruptPanel 
+            <InterruptPanel
               interrupt={firstInterrupt}
               onClose={() => {
                 // Interrupt will be removed by the panel itself
@@ -226,4 +226,3 @@ export const ExecutionPanel: React.FC = () => {
     </div>
   )
 }
-

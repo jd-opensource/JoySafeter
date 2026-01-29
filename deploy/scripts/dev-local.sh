@@ -47,9 +47,9 @@ check_command() {
 # 检查本地开发环境
 check_local_env() {
     log_info "检查本地开发环境..."
-    
+
     local missing=0
-    
+
     # 检查 Python
     if ! check_command python3 && ! check_command python; then
         log_error "Python 未安装"
@@ -59,7 +59,7 @@ check_local_env() {
         local python_version=$($python_cmd --version 2>&1 | cut -d' ' -f2)
         log_success "Python 已安装 (版本: $python_version)"
     fi
-    
+
     # 检查 Node.js
     if ! check_command node; then
         log_error "Node.js 未安装"
@@ -68,7 +68,7 @@ check_local_env() {
         local node_version=$(node --version)
         log_success "Node.js 已安装 (版本: $node_version)"
     fi
-    
+
     # 检查 uv (Python 包管理器)
     if ! check_command uv; then
         log_warning "uv 未安装（推荐安装以加速 Python 依赖管理）"
@@ -76,7 +76,7 @@ check_local_env() {
     else
         log_success "uv 已安装"
     fi
-    
+
     # 检查 bun/npm/pnpm (Node.js 包管理器)
     if ! check_command bun && ! check_command npm && ! check_command pnpm; then
         log_error "Node.js 包管理器未安装（需要 bun、npm 或 pnpm）"
@@ -85,19 +85,19 @@ check_local_env() {
         local pkg_mgr=$(command -v bun || command -v pnpm || command -v npm)
         log_success "Node.js 包管理器已安装: $(basename $pkg_mgr)"
     fi
-    
+
     if [ $missing -gt 0 ]; then
         log_error "本地开发环境检查失败，请先安装缺失的依赖"
         exit 1
     fi
-    
+
     log_success "本地开发环境检查通过"
 }
 
 # 检查配置文件
 check_config() {
     log_info "检查配置文件..."
-    
+
     if [ ! -f "$BACKEND_DIR/.env" ]; then
         log_warning "backend/.env 文件不存在"
         if [ -f "$BACKEND_DIR/env.example" ]; then
@@ -108,7 +108,7 @@ check_config() {
             exit 1
         fi
     fi
-    
+
     # 确保数据库配置正确（本地开发使用 localhost）
     if grep -q "POSTGRES_HOST=db" "$BACKEND_DIR/.env"; then
         log_info "更新数据库配置为本地连接..."
@@ -120,7 +120,7 @@ check_config() {
         fi
         log_success "数据库配置已更新为 localhost"
     fi
-    
+
     if [ ! -f "$FRONTEND_DIR/.env.local" ] && [ ! -f "$FRONTEND_DIR/.env" ]; then
         log_warning "frontend/.env.local 文件不存在（可选）"
     fi
@@ -129,7 +129,7 @@ check_config() {
 # 启动中间件
 start_middleware() {
     log_info "启动中间件服务（PostgreSQL + Redis）..."
-    
+
     "$DEPLOY_DIR/scripts/start-middleware.sh"
 }
 
@@ -139,19 +139,19 @@ show_startup_info() {
     echo "=========================================="
     echo "  本地开发环境信息"
     echo "=========================================="
-    
+
     # 读取端口配置
     local postgres_port=5432
     local redis_port=6379
     local backend_port=8000
     local frontend_port=3000
-    
+
     if [ -f "$DEPLOY_DIR/.env" ]; then
         source "$DEPLOY_DIR/.env" 2>/dev/null || true
         postgres_port=${POSTGRES_PORT_HOST:-5432}
         redis_port=${REDIS_PORT_HOST:-6379}
     fi
-    
+
     echo ""
     echo "中间件服务:"
     echo "  PostgreSQL: localhost:$postgres_port"
@@ -189,18 +189,18 @@ main() {
     echo "  本地开发环境启动"
     echo "=========================================="
     echo ""
-    
+
     check_local_env
     echo ""
-    
+
     check_config
     echo ""
-    
+
     start_middleware
     echo ""
-    
+
     show_startup_info
-    
+
     log_success "本地开发环境已就绪！"
     echo ""
     log_info "提示: 现在可以在本地运行后端和前端服务了"
@@ -208,4 +208,3 @@ main() {
 
 # 运行主函数
 main "$@"
-

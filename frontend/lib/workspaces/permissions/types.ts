@@ -38,4 +38,3 @@ export function mapRoleToPermissionType(role: WorkspaceMemberRole): PermissionTy
 export const permissionTypeEnum = {
   enumValues: ['read', 'write', 'admin'] as const,
 } as const
-

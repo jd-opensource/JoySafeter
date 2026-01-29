@@ -26,9 +26,9 @@ class GraphTemplateService {
       if (!response.ok) {
         throw new Error(`Failed to load template: ${templateName}. Status: ${response.status}`)
       }
-      
+
       const data = await response.json()
-      
+
       // Validate template structure
       if (!data.nodes || !Array.isArray(data.nodes)) {
         throw new Error(`Invalid template format: missing or invalid nodes array`)
@@ -36,7 +36,7 @@ class GraphTemplateService {
       if (!data.edges || !Array.isArray(data.edges)) {
         throw new Error(`Invalid template format: missing or invalid edges array`)
       }
-      
+
       return {
         nodes: data.nodes,
         edges: data.edges,
@@ -54,7 +54,7 @@ class GraphTemplateService {
    * - Regenerates all node IDs to avoid conflicts
    * - Updates edge references to new node IDs
    * - Creates the graph and saves its state
-   * 
+   *
    * @param templateName Template name (without .json extension)
    * @param graphName Name for the new graph
    * @param workspaceId Workspace ID where the graph will be created
@@ -67,7 +67,7 @@ class GraphTemplateService {
   ): Promise<AgentGraph> {
     // 1. Load template
     const template = await this.loadTemplate(templateName)
-    
+
     // 2. Regenerate node IDs and create mapping
     const nodeIdMap = new Map<string, string>()
     const timestamp = Date.now()
@@ -80,7 +80,7 @@ class GraphTemplateService {
         id: newId,
       }
     })
-    
+
     // 3. Update edges with new source and target IDs
     const newEdges = template.edges.map((edge, index) => ({
       ...edge,
@@ -89,14 +89,14 @@ class GraphTemplateService {
       // Regenerate edge ID as well
       id: `edge_${timestamp}_${index}_${Math.random().toString(36).slice(2, 7)}`,
     }))
-    
+
     // 4. Create graph metadata
     const graph = await agentService.createGraph({
       name: graphName,
       description: 'APK Intent Bridge Security Analyzer',
       workspaceId: workspaceId,
     })
-    
+
     // 5. Save graph state (nodes, edges, viewport)
     await agentService.saveGraphState({
       graphId: graph.id,
@@ -104,10 +104,9 @@ class GraphTemplateService {
       edges: newEdges,
       viewport: template.viewport || { x: 0, y: 0, zoom: 1 },
     })
-    
+
     return graph
   }
 }
 
 export const graphTemplateService = new GraphTemplateService()
-

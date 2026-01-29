@@ -47,4 +47,3 @@ tricks:
       query = '{ jobs(jobType: "%s") { id name type description } }' % payload
       resp = requests.post(url, json={'query': query})
       # Flag in private job's description
-

@@ -66,7 +66,7 @@ export const conversationService = {
     pageSize?: number
   }): Promise<Conversation[]> {
     const { graphId, page = 1, pageSize = 100 } = params || {}
-    
+
     let url = `${API_ENDPOINTS.conversations}?page=${page}&page_size=${pageSize}`
     if (graphId) {
       url += `&graph_id=${graphId}`
@@ -74,7 +74,7 @@ export const conversationService = {
 
     try {
       const response = await apiGet<PaginatedConversationsResponse>(url)
-      
+
       return (response?.items || []).map((item) => ({
         id: item.id,
         thread_id: item.thread_id,
@@ -99,7 +99,7 @@ export const conversationService = {
     }
   ): Promise<ConversationMessage[]> {
     const { page = 1, pageSize = 100 } = params || {}
-    
+
     const response = await apiGet<PaginatedMessagesResponse>(
       `${API_ENDPOINTS.conversations}/${threadId}/messages?page=${page}&page_size=${pageSize}`
     )
@@ -114,6 +114,3 @@ export const conversationService = {
     await apiDelete(`${API_ENDPOINTS.conversations}/${threadId}`)
   },
 }
-
-
-

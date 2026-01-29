@@ -60,7 +60,7 @@ const AgentBuilderContent = () => {
     setDeployedAt,
     hasPendingChanges,
   } = useBuilderStore()
-  
+
   const { showPanel: showExecutionPanel, startExecution, setCurrentGraphId } = useExecutionStore()
 
   const queryClient = useQueryClient()
@@ -129,12 +129,12 @@ const AgentBuilderContent = () => {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const { hasPendingChanges, autoSaveDebounceTimer, nodes, edges, rfInstance, graphId } = useBuilderStore.getState()
-      
+
       if (hasPendingChanges || autoSaveDebounceTimer) {
         if (autoSaveDebounceTimer) {
           clearTimeout(autoSaveDebounceTimer)
         }
-        
+
         if (graphId) {
           try {
             const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
@@ -143,7 +143,7 @@ const AgentBuilderContent = () => {
               edges,
               viewport,
             })
-            
+
             const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || ''
             const url = `${apiBaseUrl}/v1/graphs/${graphId}/state`
             const blob = new Blob([payload], { type: 'application/json' })
@@ -151,7 +151,7 @@ const AgentBuilderContent = () => {
           } catch (error) {
             // Silent fail for sendBeacon
           }
-          
+
           e.preventDefault()
           e.returnValue = ''
           return ''
@@ -194,7 +194,7 @@ const AgentBuilderContent = () => {
 
     // Use React Query cached state data
     const state = graphStateData
-    
+
     agentService.setCachedGraphId(agentId)
     setGraphId(agentId)
 
@@ -251,7 +251,7 @@ const AgentBuilderContent = () => {
     const setViewportWhenReady = () => {
       const currentRfInstance = useBuilderStore.getState().rfInstance
       const currentNodes = useBuilderStore.getState().nodes
-      
+
       // Check if ReactFlow instance is ready and nodes are loaded
       if (currentRfInstance && currentNodes.length > 0) {
         // Wait a bit more for nodes to be fully rendered in the DOM
@@ -271,7 +271,7 @@ const AgentBuilderContent = () => {
         viewportTimersRef.current.push(retryTimer)
       }
     }
-    
+
     // Start trying to set viewport
     setViewportWhenReady()
 
@@ -653,4 +653,3 @@ const AgentBuilder = () => (
 )
 
 export default AgentBuilder
-

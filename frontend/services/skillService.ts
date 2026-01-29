@@ -1,10 +1,10 @@
 import { API_BASE, apiGet, apiPost, apiPut, apiDelete, ApiResponse } from '@/lib/api-client';
 
-import { 
-  Skill, 
-  SkillFile, 
-  SkillFrontmatter, 
-  ParsedSkillMd, 
+import {
+  Skill,
+  SkillFile,
+  SkillFrontmatter,
+  ParsedSkillMd,
   FileTreeNode,
   COMMON_EXTENSIONS,
   WARNED_EXTENSIONS,
@@ -18,13 +18,13 @@ const SKILLS_ENDPOINT = `${API_BASE}/skills`;
 
 /**
  * Parse SKILL.md content to extract YAML frontmatter and markdown body.
- * 
+ *
  * Expected format:
  * ---
  * name: skill-name
  * description: Skill description
  * ---
- * 
+ *
  * # Markdown content here
  */
 export function parseSkillMd(content: string): ParsedSkillMd {
@@ -115,16 +115,16 @@ export function parseSkillMd(content: string): ParsedSkillMd {
       .filter(tool => tool.trim().length > 0);
   } else if (frontmatter.allowed_tools && !Array.isArray(frontmatter.allowed_tools)) {
     // If already an array, ensure it's properly formatted
-    frontmatter.allowed_tools = Array.isArray(frontmatter.allowed_tools) 
-      ? frontmatter.allowed_tools 
+    frontmatter.allowed_tools = Array.isArray(frontmatter.allowed_tools)
+      ? frontmatter.allowed_tools
       : [];
   }
 
   // Ensure metadata is an object
   if (frontmatter.metadata && typeof frontmatter.metadata !== 'object') {
     try {
-      frontmatter.metadata = typeof frontmatter.metadata === 'string' 
-        ? JSON.parse(frontmatter.metadata) 
+      frontmatter.metadata = typeof frontmatter.metadata === 'string'
+        ? JSON.parse(frontmatter.metadata)
         : {};
     } catch {
       frontmatter.metadata = {};
@@ -138,8 +138,8 @@ export function parseSkillMd(content: string): ParsedSkillMd {
  * Generate SKILL.md content with YAML frontmatter.
  */
 export function generateSkillMd(
-  name: string, 
-  description: string, 
+  name: string,
+  description: string,
   body: string = '',
   additionalFields?: Record<string, any>
 ): string {
@@ -159,7 +159,7 @@ export function generateSkillMd(
   if (additionalFields) {
     for (const [key, value] of Object.entries(additionalFields)) {
       if (value === undefined || value === null) continue;
-      
+
       // Handle metadata (object -> YAML object)
       if (key === 'metadata' && typeof value === 'object' && !Array.isArray(value)) {
         const metadataObj = value as Record<string, any>;
@@ -230,21 +230,21 @@ export function validateFileExtension(path: string): { isCommon: boolean; warnin
   if (!path) {
     return { isCommon: false, warning: 'File path cannot be empty' };
   }
-  
+
   const ext = getFileExtension(path);
   if (!ext) {
     return { isCommon: true };  // No extension is OK
   }
-  
+
   if (WARNED_EXTENSIONS.has(ext)) {
     return { isCommon: false, warning: `File '${path}' has extension '${ext}' which may be binary or unsafe` };
   }
-  
+
   const isCommon = COMMON_EXTENSIONS.has(ext);
   if (!isCommon) {
     return { isCommon: false, warning: `File '${path}' has uncommon extension '${ext}'` };
   }
-  
+
   return { isCommon: true };
 }
 
@@ -263,7 +263,7 @@ export function buildFileTree(files: SkillFile[]): { skillMdFile: SkillFile | nu
 
   // Build tree structure using a nested map approach
   const root: FileTreeNode[] = [];
-  
+
   // Helper to find or create a node in an array
   const findOrCreateNode = (nodes: FileTreeNode[], name: string, path: string, isDirectory: boolean, file?: SkillFile): FileTreeNode => {
     let node = nodes.find(n => n.name === name);
@@ -333,7 +333,7 @@ export function buildFileTree(files: SkillFile[]): { skillMdFile: SkillFile | nu
  */
 export function flattenFileTree(tree: FileTreeNode[]): string[] {
   const paths: string[] = [];
-  
+
   const traverse = (nodes: FileTreeNode[]) => {
     for (const node of nodes) {
       if (node.file) {
@@ -344,7 +344,7 @@ export function flattenFileTree(tree: FileTreeNode[]): string[] {
       }
     }
   };
-  
+
   traverse(tree);
   return paths;
 }
@@ -475,8 +475,8 @@ function toBackendSkill(skill: Partial<Skill>): any {
     content: skill.content || '',
     tags: skill.tags || [],
     source_type: skill.source_type || (
-      skill.source === 'git' ? 'git' 
-      : skill.source === 's3' ? 's3' 
+      skill.source === 'git' ? 'git'
+      : skill.source === 's3' ? 's3'
       : 'local'
     ),
     source_url: skill.source_url || skill.sourceUrl || null,
@@ -494,7 +494,7 @@ function toBackendSkill(skill: Partial<Skill>): any {
 const createDefaultFiles = (name: string, description: string, body?: string): SkillFile[] => {
   const now = new Date().toISOString();
   const skillMdContent = generateSkillMd(name, description, body || `# ${name}\n\n## Overview\n\nAdd your skill instructions here.`);
-  
+
   return [
     {
       id: '',
@@ -529,7 +529,7 @@ export function createSkillFile(
 ): Partial<SkillFile> {
   const path = createFilePath(directory, filename);
   const now = new Date().toISOString();
-  
+
   return {
     id: '',
     skill_id: '',
@@ -656,7 +656,7 @@ export function validateImportedFiles(files: File[]): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const rejectedFiles: RejectedFile[] = [];
-  
+
   if (files.length === 0) {
     errors.push('No files selected');
     return { valid: false, errors, warnings, rejectedFiles };
@@ -667,18 +667,18 @@ export function validateImportedFiles(files: File[]): ValidationResult {
   for (const file of files) {
     const relativePath = extractRelativePath(file.webkitRelativePath || file.name);
     const filename = getFilenameFromPath(relativePath) || file.name;
-    
+
     // Skip system files silently (don't show to user)
     if (isSystemFile(filename)) {
       continue;
     }
-    
+
     validFiles.push(file);
   }
 
   // Calculate total size (only for valid files)
   const totalSize = validFiles.reduce((sum, f) => sum + f.size, 0);
-  
+
   // Check total size limit
   if (totalSize > COMPLIANCE_CONFIG.maxTotalSize) {
     errors.push(
@@ -691,7 +691,7 @@ export function validateImportedFiles(files: File[]): ValidationResult {
     const relativePath = extractRelativePath(f.webkitRelativePath || f.name);
     return relativePath === 'SKILL.md';
   });
-  
+
   if (!hasSkillMd) {
     errors.push('SKILL.md is required but not found in the directory');
   }
@@ -701,17 +701,17 @@ export function validateImportedFiles(files: File[]): ValidationResult {
     const relativePath = extractRelativePath(file.webkitRelativePath || file.name);
     const filename = getFilenameFromPath(relativePath) || file.name;
     const ext = getFileExtension(filename);
-    
+
     // Skip directories (some browsers include them)
     if (file.size === 0 && !ext) continue;
-    
+
     // Check file size
     if (file.size > COMPLIANCE_CONFIG.maxFileSize) {
       errors.push(
         `File "${relativePath}" (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds max size of ${COMPLIANCE_CONFIG.maxFileSize / 1024 / 1024}MB`
       );
     }
-    
+
     // Check file extension - just warn, don't reject
     const extValidation = validateFileExtension(relativePath);
     if (extValidation.warning) {
@@ -733,21 +733,21 @@ export function validateImportedFiles(files: File[]): ValidationResult {
 export function validateSkillMdContent(content: string): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
-  
+
   const parsed = parseSkillMd(content);
-  
+
   if (!parsed.frontmatter.name || parsed.frontmatter.name.trim() === '') {
     errors.push('SKILL.md frontmatter is missing required "name" field');
   }
-  
+
   if (!parsed.frontmatter.description || parsed.frontmatter.description.trim() === '') {
     errors.push('SKILL.md frontmatter is missing required "description" field');
   }
-  
+
   if (!parsed.body || parsed.body.trim() === '') {
     warnings.push('SKILL.md has no content body after frontmatter');
   }
-  
+
   return {
     valid: errors.length === 0,
     errors,
@@ -763,26 +763,26 @@ export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
   validation: ValidationResult;
 }> {
   const files = Array.from(fileList);
-  
+
   // Initial file structure validation (this filters system files)
   const validation = validateImportedFiles(files);
-  
+
   // Filter out system files from the files array
   const validFiles = files.filter(file => {
     const relativePath = extractRelativePath(file.webkitRelativePath || file.name);
     const filename = getFilenameFromPath(relativePath) || file.name;
     return !isSystemFile(filename);
   });
-  
+
   // Detect binary files early (for validation display)
   const rejectedFiles: RejectedFile[] = [];
   for (const file of validFiles) {
     const relativePath = extractRelativePath(file.webkitRelativePath || file.name);
     const filename = getFilenameFromPath(relativePath) || file.name;
-    
+
     // Skip empty files
     if (file.size === 0) continue;
-    
+
     try {
       const { isBinary } = await readFileAsText(file);
       if (isBinary) {
@@ -799,32 +799,32 @@ export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
       });
     }
   }
-  
+
   // Add rejected files to validation result
   validation.rejectedFiles = rejectedFiles;
-  
+
   // If there are structure errors, return early
   if (!validation.valid) {
     return { files: validFiles, validation };
   }
-  
+
   // Find and validate SKILL.md content (from valid files, excluding binary)
   const skillMdFile = validFiles.find(f => {
     const relativePath = extractRelativePath(f.webkitRelativePath || f.name);
     return relativePath === 'SKILL.md' && !rejectedFiles.some(rf => rf.path === relativePath);
   });
-  
+
   if (skillMdFile) {
     try {
       const { content, isBinary } = await readFileAsText(skillMdFile);
-      
+
       // Check if SKILL.md is binary (should never happen, but just in case)
       if (isBinary) {
         validation.errors.push('SKILL.md_BINARY'); // Will be translated in UI
         validation.valid = false;
       } else {
         const contentValidation = validateSkillMdContent(content);
-        
+
         // Merge content validation results
         validation.errors.push(...contentValidation.errors);
         validation.warnings.push(...contentValidation.warnings);
@@ -835,7 +835,7 @@ export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
       validation.valid = false;
     }
   }
-  
+
   return { files: validFiles, validation };
 }
 
@@ -866,23 +866,23 @@ export async function convertFilesToSkillFiles(
   const now = new Date().toISOString();
   const skillFiles: SkillFile[] = [];
   const rejectedFiles: RejectedFile[] = [];
-  
+
   for (const file of files) {
     const relativePath = extractRelativePath(file.webkitRelativePath || file.name);
     const filename = getFilenameFromPath(relativePath) || file.name;
     const ext = getFileExtension(filename);
-    
+
     // Skip system files silently (don't show to user)
     if (isSystemFile(filename)) {
       continue;
     }
-    
+
     // Skip empty files (directories)
     if (file.size === 0 && !ext) continue;
-    
+
     try {
       const { content, isBinary } = await readFileAsText(file);
-      
+
       // Reject binary files
       if (isBinary) {
         rejectedFiles.push({
@@ -891,9 +891,9 @@ export async function convertFilesToSkillFiles(
         });
         continue;
       }
-      
+
       const fileType = getFileTypeFromExtension(ext);
-      
+
       skillFiles.push({
         id: '',
         skill_id: '',
@@ -918,7 +918,7 @@ export async function convertFilesToSkillFiles(
       console.error(`Failed to read file ${relativePath}:`, e);
     }
   }
-  
+
   return { skillFiles, rejectedFiles };
 }
 
@@ -932,11 +932,11 @@ export const skillService = {
       if (tags && tags.length > 0) {
         tags.forEach(tag => params.append('tags', tag));
       }
-      
-      const url = params.toString() 
+
+      const url = params.toString()
         ? `${SKILLS_ENDPOINT}?${params.toString()}`
         : SKILLS_ENDPOINT;
-      
+
       // apiGet extracts data from ApiResponse automatically, so response is Skill[]
       const response = await apiGet<Skill[]>(url);
       const skills = Array.isArray(response) ? response : [];
@@ -964,7 +964,7 @@ export const skillService = {
   async saveSkill(skill: Partial<Omit<Skill, 'id' | 'updated_at' | 'created_at'>> & { id?: string; name: string }): Promise<Skill> {
     try {
       const backendSkill = toBackendSkill(skill);
-      
+
       let skillData: Skill;
       if (skill.id) {
         // Update existing skill
@@ -979,7 +979,7 @@ export const skillService = {
           backendSkill
         );
       }
-      
+
       if (skillData) {
         return normalizeSkill(skillData);
       }
@@ -1035,7 +1035,7 @@ export const skillService = {
       if (tags && tags.length > 0) {
         tags.forEach(tag => params.append('tags', tag));
       }
-      
+
       const url = `${SKILLS_ENDPOINT}?${params.toString()}`;
       const response = await apiGet<Skill[]>(url);
       const skills = Array.isArray(response) ? response : [];
@@ -1129,7 +1129,7 @@ export const skillService = {
     try {
       const params = new URLSearchParams();
       params.append('include_public', 'false');
-      
+
       const url = `${SKILLS_ENDPOINT}?${params.toString()}`;
       const response = await apiGet<Skill[]>(url);
       const skills = Array.isArray(response) ? response : [];

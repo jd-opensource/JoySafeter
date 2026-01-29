@@ -21,7 +21,7 @@ tricks:
     payload: |
       POST /register
       username=attacker&password=attacker123
-      
+
       POST /login
       username=attacker&password=attacker123
 
@@ -38,4 +38,3 @@ tricks:
     payload: |
       # Flag is in draft content
       # May need to view or edit to see full content
-

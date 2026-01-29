@@ -71,7 +71,7 @@ uv run python -m agent.server
 
 ## Prompt 与日志
 
-- Prompt 说明：`backend/agent/prompts/README.md`（简要）  
+- Prompt 说明：`backend/agent/prompts/README.md`（简要）
   完整文档：`docs/backend/agent/prompts/README.md`
 - 日志查看器：`backend/agent/logs/README.md`（打开 `viewer_tree.html`）
 
@@ -83,5 +83,3 @@ uv run python -m agent.server
 cd backend
 make test
 ```
-
-

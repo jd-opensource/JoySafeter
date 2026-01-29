@@ -5,7 +5,7 @@
 /**
  * Sync theme to next-themes
  * This function sets the theme in next-themes based on the provided theme value
- * 
+ *
  * @param theme - The theme to set ('light' | 'dark' | 'system')
  */
 export function syncThemeToNextThemes(theme: 'light' | 'dark' | 'system'): void {
@@ -15,7 +15,7 @@ export function syncThemeToNextThemes(theme: 'light' | 'dark' | 'system'): void 
 
   try {
     const storageKey = 'joysafeter-theme'
-    
+
     if (theme === 'system') {
       localStorage.removeItem(storageKey)
     } else {
@@ -40,4 +40,3 @@ export function syncThemeToNextThemes(theme: 'light' | 'dark' | 'system'): void 
     console.error('Failed to sync theme to next-themes:', error)
   }
 }
-

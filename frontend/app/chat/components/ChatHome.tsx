@@ -50,7 +50,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  
+
   // Use unified state management
   const {
     state,

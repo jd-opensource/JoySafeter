@@ -394,4 +394,3 @@ export default function ExecutionVisualizationPage() {
     </div>
   );
 }
-

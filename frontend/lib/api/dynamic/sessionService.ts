@@ -183,7 +183,7 @@ export const sessionService = {
       const sessionsKey = `sessions_${userId}`;
       const sessionsJson = localStorage.getItem(sessionsKey);
       const sessions: Session[] = sessionsJson ? JSON.parse(sessionsJson) : [];
-      
+
       // Update or add session
       const index = sessions.findIndex(s => s.id === session.id);
       if (index >= 0) {
@@ -191,7 +191,7 @@ export const sessionService = {
       } else {
         sessions.unshift(session);
       }
-      
+
       localStorage.setItem(sessionsKey, JSON.stringify(sessions));
     } catch (error) {
       console.error('Failed to save session to localStorage:', error);

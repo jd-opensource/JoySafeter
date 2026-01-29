@@ -1,6 +1,6 @@
 /**
  * Copilot Utility Functions
- * 
+ *
  * Shared utility functions for Copilot components
  */
 
@@ -12,10 +12,10 @@ import type { GraphAction } from '@/types/copilot'
  */
 export function formatActionContent(action: GraphAction): string {
   const parts: string[] = []
-  
+
   // Add action type
   parts.push(action.type)
-  
+
   // Add payload details based on action type
   if (action.payload) {
     switch (action.type) {
@@ -39,12 +39,12 @@ export function formatActionContent(action: GraphAction): string {
         break
     }
   }
-  
+
   // Add reasoning if available
   if (action.reasoning) {
     parts.push(action.reasoning)
   }
-  
+
   return parts.join(' • ')
 }
 
@@ -52,7 +52,7 @@ export function formatActionContent(action: GraphAction): string {
  * Check if there's a current message being streamed
  */
 export function hasCurrentMessage(
-  messages: Array<{ role: string; text?: string }>, 
+  messages: Array<{ role: string; text?: string }>,
   checkEmptyText = true
 ): boolean {
   if (messages.length === 0) return false
@@ -69,20 +69,20 @@ export function getStageConfig(
   t: (key: string, options?: { defaultValue?: string }) => string
 ): Record<StageType, { icon: string; color: string; label: string }> {
   return {
-    thinking: { 
-      icon: '💭', 
-      color: 'text-purple-600', 
-      label: t('copilot.stage.thinking', { defaultValue: '思考中' }) 
+    thinking: {
+      icon: '💭',
+      color: 'text-purple-600',
+      label: t('copilot.stage.thinking', { defaultValue: '思考中' })
     },
-    processing: { 
-      icon: '✨', 
-      color: 'text-green-600', 
-      label: t('copilot.stage.processing', { defaultValue: '处理中' }) 
+    processing: {
+      icon: '✨',
+      color: 'text-green-600',
+      label: t('copilot.stage.processing', { defaultValue: '处理中' })
     },
-    generating: { 
-      icon: '🔧', 
-      color: 'text-amber-600', 
-      label: t('copilot.stage.generating', { defaultValue: '生成节点' }) 
+    generating: {
+      icon: '🔧',
+      color: 'text-amber-600',
+      label: t('copilot.stage.generating', { defaultValue: '生成节点' })
     },
   }
 }

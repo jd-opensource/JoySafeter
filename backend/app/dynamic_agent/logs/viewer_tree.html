@@ -10,7 +10,7 @@
             margin: 0;
             padding: 0;
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: #1a1a2e;
@@ -18,12 +18,12 @@
             line-height: 1.6;
             padding: 20px;
         }
-        
+
         .container {
             max-width: 1600px;
             margin: 0 auto;
         }
-        
+
         h1 {
             color: #00d9ff;
             margin-bottom: 20px;
@@ -31,7 +31,7 @@
             align-items: center;
             gap: 10px;
         }
-        
+
         /* Controls */
         .controls {
             display: flex;
@@ -40,7 +40,7 @@
             flex-wrap: wrap;
             align-items: center;
         }
-        
+
         .controls button, .controls select {
             padding: 10px 20px;
             border-radius: 6px;
@@ -49,32 +49,32 @@
             font-size: 14px;
             transition: all 0.2s;
         }
-        
+
         .controls select {
             background: #2d2d44;
             color: #eee;
             min-width: 150px;
         }
-        
+
         .controls button {
             background: #4a4a6a;
             color: #eee;
         }
-        
+
         .controls button:hover {
             background: #5a5a7a;
         }
-        
+
         .controls button.primary {
             background: #00d9ff;
             color: #1a1a2e;
             font-weight: 600;
         }
-        
+
         .controls button.primary:hover {
             background: #00b8d9;
         }
-        
+
         .search-box {
             display: flex;
             align-items: center;
@@ -83,7 +83,7 @@
             padding: 8px 15px;
             border-radius: 6px;
         }
-        
+
         .search-box input {
             background: transparent;
             border: none;
@@ -92,11 +92,11 @@
             width: 200px;
             outline: none;
         }
-        
+
         .search-box input::placeholder {
             color: #666;
         }
-        
+
         .match-count {
             font-size: 12px;
             color: #00d9ff;
@@ -104,7 +104,7 @@
             background: rgba(0, 217, 255, 0.2);
             border-radius: 4px;
         }
-        
+
         .nav-btn {
             background: #4a4a6a;
             color: #eee;
@@ -116,16 +116,16 @@
             transition: all 0.2s;
             min-width: 28px;
         }
-        
+
         .nav-btn:hover {
             background: #5a5a7a;
         }
-        
+
         .nav-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
-        
+
         .auto-refresh {
             display: flex;
             align-items: center;
@@ -133,19 +133,19 @@
             font-size: 13px;
             color: #888;
         }
-        
+
         .auto-refresh input {
             width: 16px;
             height: 16px;
         }
-        
+
         /* View Toggle */
         .view-toggle {
             display: flex;
             gap: 5px;
             margin-bottom: 15px;
         }
-        
+
         .view-btn {
             padding: 8px 16px;
             border: none;
@@ -156,17 +156,17 @@
             font-size: 13px;
             transition: all 0.2s;
         }
-        
+
         .view-btn:hover {
             background: #4a4a6a;
         }
-        
+
         .view-btn.active {
             background: #00d9ff;
             color: #1a1a2e;
             font-weight: 600;
         }
-        
+
         /* Stats Bar */
         .stats {
             display: none;
@@ -177,33 +177,33 @@
             margin-bottom: 20px;
             flex-wrap: wrap;
         }
-        
+
         .stat-item {
             display: flex;
             flex-direction: column;
             align-items: center;
             min-width: 80px;
         }
-        
+
         .stat-label {
             font-size: 11px;
             color: #888;
             text-transform: uppercase;
             margin-bottom: 4px;
         }
-        
+
         .stat-value {
             font-size: 24px;
             font-weight: 700;
             color: #00d9ff;
         }
-        
+
         .stat-item:nth-child(2) .stat-value { color: #ffd700; }
         .stat-item:nth-child(3) .stat-value { color: #00ff88; }
         .stat-item:nth-child(4) .stat-value { color: #e74c3c; }
         .stat-item:nth-child(5) .stat-value { color: #ff6b6b; }
         .stat-item:nth-child(6) .stat-value { color: #9b59b6; }
-        
+
         /* Tree Container */
         .tree-container {
             background: #2d2d44;
@@ -211,44 +211,44 @@
             padding: 20px;
             min-height: 400px;
         }
-        
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
             color: #666;
         }
-        
+
         .empty-state h2 {
             margin-bottom: 10px;
             color: #888;
         }
-        
+
         /* Tree Node */
         .tree-node {
             position: relative;
             margin-left: 0;
         }
-        
+
         /* Depth-based indentation */
         .tree-node.depth-0 > .node-children { padding-left: 0; }
         .tree-node.depth-1 > .node-children { padding-left: 30px; border-left: 3px solid #9b59b6; margin-left: 15px; }
         .tree-node.depth-2 > .node-children { padding-left: 30px; border-left: 3px solid #e74c3c; margin-left: 15px; }
         .tree-node.depth-3 > .node-children { padding-left: 30px; border-left: 3px solid #f39c12; margin-left: 15px; }
         .tree-node.depth-4 > .node-children { padding-left: 30px; border-left: 3px solid #3498db; margin-left: 15px; }
-        
+
         /* Sub-Agent special styling - make it stand out */
         .tree-node > .node-header.sub_agent {
             margin-top: 15px;
             margin-bottom: 5px;
         }
-        
+
         .tree-node > .node-header.sub_agent + .node-content + .node-children {
             background: rgba(231, 76, 60, 0.05);
             border-radius: 8px;
             padding: 10px;
             margin-top: 5px;
         }
-        
+
         /* Node Header */
         .node-header {
             display: flex;
@@ -262,20 +262,20 @@
             border-left: 4px solid #4a4a6a;
             transition: all 0.2s;
         }
-        
+
         .node-header:hover {
             background: #252540;
         }
-        
+
         .node-header.highlighted {
             background: rgba(0, 217, 255, 0.15);
             box-shadow: 0 0 0 2px rgba(0, 217, 255, 0.5);
         }
-        
+
         .node-header.has-matching-child {
             border-left-color: #00d9ff;
         }
-        
+
         /* 关键字高亮样式 */
         .search-highlight {
             background: rgba(255, 215, 0, 0.4);
@@ -284,17 +284,17 @@
             border-radius: 3px;
             font-weight: 600;
         }
-        
+
         /* Node Type Colors */
-        .node-header.main_agent { 
-            border-left-color: #9b59b6; 
+        .node-header.main_agent {
+            border-left-color: #9b59b6;
             border-left-width: 6px;
             background: linear-gradient(90deg, rgba(155, 89, 182, 0.2) 0%, #1a1a2e 100%);
             font-size: 16px;
             font-weight: 600;
         }
-        .node-header.sub_agent { 
-            border-left-color: #e74c3c; 
+        .node-header.sub_agent {
+            border-left-color: #e74c3c;
             border-left-width: 6px;
             background: linear-gradient(90deg, rgba(231, 76, 60, 0.2) 0%, #1a1a2e 100%);
             font-weight: 600;
@@ -304,43 +304,43 @@
         .node-header.llm_call { border-left-color: #ffd700; }
         .node-header.llm_response { border-left-color: #00ff88; }
         .node-header.error { border-left-color: #ff4444; }
-        
+
         .node-icon {
             font-size: 18px;
             width: 24px;
             text-align: center;
         }
-        
+
         .node-title {
             flex: 1;
             font-weight: 500;
         }
-        
+
         .node-meta {
             display: flex;
             gap: 15px;
             font-size: 12px;
             color: #888;
         }
-        
+
         .node-status {
             font-size: 14px;
         }
-        
+
         .node-duration {
             color: #00d9ff;
             font-family: monospace;
         }
-        
+
         .expand-icon {
             transition: transform 0.2s;
             color: #666;
         }
-        
+
         .tree-node.expanded > .node-header .expand-icon {
             transform: rotate(90deg);
         }
-        
+
         /* Node Content (Details) */
         .node-content {
             display: none;
@@ -351,19 +351,19 @@
             border-radius: 6px;
             border-left: 2px solid #4a4a6a;
         }
-        
+
         .tree-node.expanded > .node-content {
             display: block;
         }
-        
+
         .detail-section {
             margin-bottom: 15px;
         }
-        
+
         .detail-section:last-child {
             margin-bottom: 0;
         }
-        
+
         .detail-title {
             font-size: 12px;
             color: #00d9ff;
@@ -371,7 +371,7 @@
             margin-bottom: 8px;
             font-weight: 600;
         }
-        
+
         .detail-content {
             background: #252540;
             padding: 12px;
@@ -383,34 +383,34 @@
             max-height: 300px;
             overflow-y: auto;
         }
-        
+
         .detail-content.system-prompt {
             border-left: 3px solid #ffd700;
             background: rgba(255, 215, 0, 0.05);
         }
-        
+
         .detail-content.response {
             border-left: 3px solid #00ff88;
             background: rgba(0, 255, 136, 0.05);
         }
-        
+
         .detail-content.tool-calls {
             border-left: 3px solid #00d9ff;
             background: rgba(0, 217, 255, 0.05);
         }
-        
+
         .detail-content.error {
             border-left: 3px solid #ff4444;
             background: rgba(255, 68, 68, 0.05);
         }
-        
+
         /* JSON Syntax Highlighting */
         .json-key { color: #9b59b6; }
         .json-string { color: #00ff88; }
         .json-number { color: #00d9ff; }
         .json-boolean { color: #ffd700; }
         .json-null { color: #888; }
-        
+
         /* Token Usage */
         .token-usage {
             display: flex;
@@ -419,38 +419,38 @@
             background: rgba(0,0,0,0.2);
             border-radius: 4px;
         }
-        
+
         .token-item {
             display: flex;
             flex-direction: column;
             align-items: center;
         }
-        
+
         .token-label {
             font-size: 10px;
             color: #666;
         }
-        
+
         .token-value {
             font-size: 16px;
             font-weight: 600;
             color: #00d9ff;
         }
-        
+
         /* Children Container */
         .node-children {
             display: none;
         }
-        
+
         .tree-node.expanded > .node-children {
             display: block;
         }
-        
+
         /* Collapsible Prompt Styles */
         .prompt-collapsible {
             margin: 8px 0;
         }
-        
+
         .prompt-toggle {
             display: flex;
             align-items: center;
@@ -462,21 +462,21 @@
             font-size: 13px;
             transition: background 0.2s;
         }
-        
+
         .prompt-toggle:hover {
             background: #3a3a4e;
         }
-        
+
         .prompt-toggle .toggle-icon {
             font-size: 10px;
             color: #888;
             transition: transform 0.2s;
         }
-        
+
         .prompt-toggle.expanded .toggle-icon {
             transform: rotate(90deg);
         }
-        
+
         .prompt-length {
             font-size: 10px;
             color: #666;
@@ -484,7 +484,7 @@
             padding: 2px 6px;
             border-radius: 3px;
         }
-        
+
         .prompt-content {
             display: none;
             padding: 12px;
@@ -500,22 +500,22 @@
             overflow-y: auto;
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
         }
-        
+
         .prompt-content.expanded {
             display: block;
         }
-        
+
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔄 Agent Interaction Viewer</h1>
-        
+
         <div class="controls">
             <select id="log-file-select">
                 <option value="">Loading log files...</option>
             </select>
-            
+
             <div class="search-box">
                 <span>🔍</span>
                 <input type="text" id="search-input" placeholder="搜索并跳转..." onkeydown="handleSearchKeydown(event)">
@@ -523,7 +523,7 @@
                 <button id="next-match" class="nav-btn" title="下一个匹配 (↓)" onclick="navigateMatch(1)" style="display: none;">↓</button>
                 <span class="match-count" id="match-count" style="display: none;">0/0</span>
             </div>
-            
+
             <select id="type-filter">
                 <option value="">All Types</option>
                 <option value="TOOL_CALL">🔧 Tool Calls</option>
@@ -531,16 +531,16 @@
                 <option value="LLM_RESPONSE">💬 LLM Responses</option>
                 <option value="ERROR">❌ Errors</option>
             </select>
-            
+
             <select id="status-filter">
                 <option value="">All Status</option>
                 <option value="success">✅ Success</option>
                 <option value="fail">❌ Failed</option>
                 <option value="running">⏳ Running</option>
             </select>
-            
+
         </div>
-        
+
         <div class="stats" id="stats">
             <div class="stat-item">
                 <span class="stat-label">LLM Rounds</span>
@@ -563,7 +563,7 @@
                 <span class="stat-value" id="stat-tokens">0</span>
             </div>
         </div>
-        
+
         <!-- Tree View Container -->
         <div class="tree-container" id="tree-container">
             <div class="tree-view" id="tree-view">
@@ -577,7 +577,7 @@
             </div>
         </div>
     </div>
-    
+
     <script>
         // Debug mode flag - set to false in production
         window.DEBUG_MODE = false;
@@ -594,7 +594,7 @@
         let matchingNodeIds = [];  // Ordered list of matching node IDs for navigation
         let currentMatchIndex = -1;  // Current position in matchingNodeIds
         let shownSystemPrompts = new Set();  // Track shown prompts for deduplication
-        
+
         // ============================================
         // DOM Elements
         // ============================================
@@ -605,18 +605,18 @@
         const treeContainer = document.getElementById('tree-container');
         const stats = document.getElementById('stats');
         const matchCountEl = document.getElementById('match-count');
-        
+
         // ============================================
         // Event Listeners
         // ============================================
         searchInput.addEventListener('input', debounce(handleSearch, 300));
         typeFilter.addEventListener('change', applyFilters);
         statusFilter.addEventListener('change', applyFilters);
-        
+
         // Initialize
         loadAvailableLogFiles();
         autoLoadLatestLog();
-        
+
         // ============================================
         // File Loading
         // ============================================
@@ -637,31 +637,31 @@
                     }
                 });
         }
-        
+
         // ============================================
         // Auto Load Latest Log
         // ============================================
         let availableLogFiles = [];
-        
+
         function loadAvailableLogFiles() {
             // Try to fetch directory listing - works with Python http.server
             fetch('./')
                 .then(response => response.text())
                 .then(html => {
                     availableLogFiles = [];
-                    
+
                     // Method 1: Parse HTML links (Python http.server format)
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(html, 'text/html');
                     const links = doc.querySelectorAll('a');
-                    
+
                     links.forEach(link => {
                         const href = link.getAttribute('href');
                         if (href && href.endsWith('.jsonl')) {
                             availableLogFiles.push(decodeURIComponent(href));
                         }
                     });
-                    
+
                     // Method 2: Try regex to find .jsonl files in raw HTML
                     if (availableLogFiles.length === 0) {
                         const matches = html.match(/[\w\-\.]+\.jsonl/g);
@@ -669,10 +669,10 @@
                             availableLogFiles = [...new Set(matches)];
                         }
                     }
-                    
+
                     // Sort by name (session files have timestamps) - newest first
                     availableLogFiles.sort().reverse();
-                    
+
                     // Update dropdown
                     updateLogFileDropdown();
 
@@ -687,17 +687,17 @@
                     updateLogFileDropdown();
                 });
         }
-        
+
         function updateLogFileDropdown() {
             const select = document.getElementById('log-file-select');
-            
+
             if (availableLogFiles.length === 0) {
                 select.innerHTML = '<option value="">No log files found</option>';
                 return;
             }
-            
+
             select.innerHTML = '<option value="">Select Log File (' + availableLogFiles.length + ')...</option>';
-            
+
             availableLogFiles.forEach(file => {
                 const option = document.createElement('option');
                 option.value = file;
@@ -707,12 +707,12 @@
                 select.appendChild(option);
             });
         }
-        
+
         function updateLogFileSelect(filename) {
             const select = document.getElementById('log-file-select');
             select.value = filename;
         }
-        
+
         function autoLoadLatestLog() {
             // Wait a bit for directory listing to load
             setTimeout(() => {
@@ -722,14 +722,14 @@
                 }
             }, 500);
         }
-        
+
         // Event listener for log file dropdown
         document.getElementById('log-file-select').addEventListener('change', (e) => {
             if (e.target.value) {
                 loadLogFile(e.target.value);
             }
         });
-        
+
         // ============================================
         // JSONL Parsing (T005, T008)
         // ============================================
@@ -737,7 +737,7 @@
             allLogs = [];
             const lines = content.trim().split('\n');
             let parseErrors = 0;
-            
+
             for (const line of lines) {
                 if (!line.trim()) continue;
                 try {
@@ -748,23 +748,23 @@
                     console.warn('Failed to parse line:', line.substring(0, 100));
                 }
             }
-            
+
             if (parseErrors > 0) {
                 console.warn(`Skipped ${parseErrors} malformed JSON lines`);
             }
-            
+
             // Sort by timestamp
             allLogs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-            
+
             // Build tree
             tree = buildTree(allLogs);
             shownSystemPrompts.clear();
-            
+
             // Update UI
             updateStats();
             applyFilters();
         }
-        
+
         // ============================================
         // Tree Building (T006, T007)
         // ============================================
@@ -783,17 +783,17 @@
                 highlighted: false,
                 hasMatchingChild: false
             };
-            
+
             // Stack to track current context: [{node, runId}]
             const contextStack = [{ node: root, runId: null }];
-            
+
             // Map to track tool call start events by run_id
             const toolCallStarts = new Map();
-            
+
             for (const entry of logs) {
                 const data = entry.data || {};
                 const currentContext = contextStack[contextStack.length - 1];
-                
+
                 if (entry.event_type === 'TOOL_CALL') {
                     if (data.phase === 'start') {
                         // Check if this is an agent_tool (sub-agent)
@@ -813,7 +813,7 @@
                                 hasMatchingChild: false,
                                 input: data.input
                             };
-                            
+
                             currentContext.node.children.push(subAgentNode);
                             contextStack.push({ node: subAgentNode, runId: data.run_id });
                             toolCallStarts.set(data.run_id, subAgentNode);
@@ -833,7 +833,7 @@
                                 hasMatchingChild: false,
                                 input: data.input
                             };
-                            
+
                             currentContext.node.children.push(toolNode);
                             toolCallStarts.set(data.run_id, toolNode);
                         }
@@ -845,7 +845,7 @@
                             startNode.status = data.success !== false ? 'success' : 'fail';
                             startNode.duration_ms = parseDuration(data.duration);
                             startNode.output = data.output;
-                            
+
                             // If this is an agent_tool end, pop from context stack
                             if (data.tool_name === 'agent_tool') {
                                 // Find and pop the matching context
@@ -875,7 +875,7 @@
                         messages: data.messages,
                         message_count: data.message_count
                     };
-                    
+
                     currentContext.node.children.push(inputNode);
                     // Track last LLM input for context
                     currentContext.lastLlmInput = inputNode;
@@ -899,25 +899,25 @@
                         temperature: data.temperature,
                         max_tokens: data.max_tokens
                     };
-                    
+
                     currentContext.node.children.push(llmNode);
                     // Track last LLM call for pairing with response
                     currentContext.lastLlmNode = llmNode;
                 } else if (entry.event_type === 'LLM_RESPONSE') {
                     // Deduplicate consecutive LLM_RESPONSE nodes with same content
                     const lastChild = currentContext.node.children[currentContext.node.children.length - 1];
-                    const isDuplicate = lastChild && 
-                                      lastChild.type === 'llm_response' && 
-                                      (data.content === lastChild.content || 
+                    const isDuplicate = lastChild &&
+                                      lastChild.type === 'llm_response' &&
+                                      (data.content === lastChild.content ||
                                        (JSON.stringify(data.tool_calls) === JSON.stringify(lastChild.tool_calls) && !data.content && !lastChild.content));
-                    
+
                     if (!isDuplicate) {
                         // Update the last LLM_CALL node status to success
                         if (currentContext.lastLlmNode) {
                             currentContext.lastLlmNode.status = 'success';
                             currentContext.lastLlmNode.usage = data.usage;
                         }
-                        
+
                         const responseNode = {
                             id: `response_${entry.timestamp}`,
                             type: 'llm_response',
@@ -934,7 +934,7 @@
                             tool_calls: data.tool_calls,
                             usage: data.usage
                         };
-                        
+
                         currentContext.node.children.push(responseNode);
                     } else {
                         // Merge usage info if available to the existing node
@@ -963,21 +963,21 @@
                         message: data.message,
                         stacktrace: data.stacktrace
                     };
-                    
+
                     currentContext.node.children.push(errorNode);
                 }
             }
-            
+
             // Update root status based on children
             if (root.children.length > 0) {
                 const hasError = root.children.some(c => c.status === 'fail');
                 const allDone = root.children.every(c => c.status !== 'running');
                 root.status = hasError ? 'fail' : (allDone ? 'success' : 'running');
             }
-            
+
             return root;
         }
-        
+
         function parseDuration(durationStr) {
             if (!durationStr) return null;
             // Parse formats like "1.5s", "150ms", "2m30s"
@@ -991,7 +991,7 @@
             }
             return null;
         }
-        
+
         // ============================================
         // Tree Rendering (T009, T010, T011, T012)
         // ============================================
@@ -1005,30 +1005,30 @@
                 `;
                 return;
             }
-            
+
             treeView.innerHTML = renderNode(tree);
             attachNodeEventListeners();
         }
-        
+
         function renderNode(node) {
             if (!shouldShowNode(node)) return '';
-            
+
             // Get tool name for tool_call nodes
             const toolName = node.entries?.[0]?.data?.tool_name;
             const icon = getNodeIcon(node.type, toolName);
             const statusIcon = getStatusIcon(node.status);
             const duration = formatDuration(node.duration_ms);
             const time = new Date(node.timestamp).toLocaleTimeString();
-            
+
             const expandedClass = expandedNodes.has(node.id) || !node.collapsed ? 'expanded' : '';
             const highlightedClass = node.highlighted ? 'highlighted' : '';
             const hasMatchClass = node.hasMatchingChild ? 'has-matching-child' : '';
-            
+
             const childrenHtml = node.children.map(child => renderNode(child)).join('');
-            
+
             // 高亮节点标题中的关键字
             const highlightedLabel = searchQuery ? highlightKeywords(node.label, searchQuery) : escapeHtml(node.label);
-            
+
             return `
                 <div class="tree-node depth-${node.depth} ${expandedClass}" data-id="${node.id}">
                     <div class="node-header ${node.type} ${highlightedClass} ${hasMatchClass}">
@@ -1050,11 +1050,11 @@
                 </div>
             `;
         }
-        
+
         function shouldShowNode(node) {
             const typeValue = typeFilter.value;
             const statusValue = statusFilter.value;
-            
+
             // Type filter
             if (typeValue) {
                 const typeMap = {
@@ -1071,17 +1071,17 @@
                     }
                 }
             }
-            
+
             // Status filter
             if (statusValue && node.status !== statusValue && node.type !== 'main_agent') {
                 if (!node.children.some(c => shouldShowNode(c))) {
                     return false;
                 }
             }
-            
+
             return true;
         }
-        
+
         function getToolIcon(toolName) {
             const toolIcons = {
                 // Thinking & Planning
@@ -1090,29 +1090,29 @@
                 'replan_tasks': '🔄',
                 'complete_task': '✅',
                 'fail_task': '❌',
-                
+
                 // Execution
                 'execute_shell_command': '💻',
                 'execute_python_script': '🐍',
                 'curl_request': '🌐',
                 'nc_connect': '🔌',
-                
+
                 // Knowledge & Search
                 'knowledge_search': '📚',
-                
+
                 // Agent
                 'agent_tool': '🔀',
-                
+
                 // File operations
                 'read_file': '📖',
                 'write_file': '✏️',
-                
+
                 // Default
                 'default': '🔧'
             };
             return toolIcons[toolName] || toolIcons['default'];
         }
-        
+
         function getNodeIcon(type, toolName) {
             if (type === 'tool_call' && toolName) {
                 return getToolIcon(toolName);
@@ -1128,7 +1128,7 @@
             };
             return icons[type] || '📄';
         }
-        
+
         function getStatusIcon(status) {
             const icons = {
                 'success': '✅',
@@ -1137,14 +1137,14 @@
             };
             return icons[status] || '';
         }
-        
+
         function formatDuration(ms) {
             if (ms === null || ms === undefined) return '';
             if (ms < 1000) return `${Math.round(ms)}ms`;
             if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
             return `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s`;
         }
-        
+
         // ============================================
         // Node Details Rendering (T017-T021)
         // ============================================
@@ -1168,13 +1168,13 @@
                     return `<div class="detail-content">${syntaxHighlightJson(node.entries)}</div>`;
             }
         }
-        
+
         function renderToolCallDetails(node) {
             const entry = node.entries[0];
             const data = entry?.data || {};
             const toolName = data.tool_name || 'Unknown';
             const isThinkTool = toolName === 'think_tool';
-            
+
             let html = `
                 <div class="detail-section">
                     <div class="detail-title">${isThinkTool ? '💭 Think Tool' : '🔧 Tool Info'}</div>
@@ -1184,7 +1184,7 @@ Status: ${node.status}
 Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                 </div>
             `;
-            
+
             // For think_tool, always show thought content prominently
             if (isThinkTool) {
                 const thought = node.input?.thought || data.input?.thought;
@@ -1211,7 +1211,7 @@ Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                     </div>
                 `;
             }
-            
+
             // For think_tool, skip the boring "logged successfully" output
             if (node.output !== undefined && !isThinkTool) {
                 html += `
@@ -1221,13 +1221,13 @@ Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                     </div>
                 `;
             }
-            
+
             return html;
         }
-        
+
         function renderSubAgentDetails(node) {
             const input = node.input || {};
-            
+
             let html = `
                 <div class="detail-section">
                     <div class="detail-title">🔀 Sub-Agent</div>
@@ -1235,7 +1235,7 @@ Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
 Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                 </div>
             `;
-            
+
             if (input.context) {
                 html += `
                     <div class="detail-section">
@@ -1244,7 +1244,7 @@ Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                     </div>
                 `;
             }
-            
+
             if (input.task_details) {
                 html += `
                     <div class="detail-section">
@@ -1253,7 +1253,7 @@ Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                     </div>
                 `;
             }
-            
+
             if (node.output) {
                 html += `
                     <div class="detail-section">
@@ -1262,10 +1262,10 @@ Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                     </div>
                 `;
             }
-            
+
             return html;
         }
-        
+
         function renderLLMInputDetails(node) {
             let html = `
                 <div class="detail-section">
@@ -1273,14 +1273,14 @@ Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                     <div class="detail-content">Message Count: ${node.message_count || 0}</div>
                 </div>
             `;
-            
+
             let promptIndex = 0;
-            
+
             // System Prompt
             if (node.system_prompt) {
                 html += renderCollapsiblePrompt(node.id, promptIndex++, 'System Prompt', '📝', node.system_prompt, []);
             }
-            
+
             // Messages (conversation history + current user message)
             if (node.messages && node.messages.length > 0) {
                 // Build a map of tool_call_id -> tool_name from assistant messages
@@ -1294,35 +1294,35 @@ Duration: ${formatDuration(node.duration_ms) || 'N/A'}</div>
                         }
                     }
                 }
-                
+
                 for (const msg of node.messages) {
                     const role = msg.role || 'unknown';
                     let icon = role === 'user' ? '👤' : (role === 'assistant' ? '🤖' : (role === 'tool' ? '🔧' : '📄'));
                     let title = `${role.charAt(0).toUpperCase() + role.slice(1)} Message`;
-                    
+
                     let content = msg.content || '';
-                    
+
                     // For assistant messages with tool_calls, show tool names in title
                     if (msg.tool_calls && msg.tool_calls.length > 0) {
                         const toolNames = msg.tool_calls.map(tc => tc.name).join(', ');
                         title = `🤖 Calls: ${toolNames}`;
                         content += '\n\n**Tool Calls:**\n' + JSON.stringify(msg.tool_calls, null, 2);
                     }
-                    
+
                     // For tool messages, show tool name instead of just ID
                     if (msg.tool_call_id) {
                         const toolName = toolCallIdToName[msg.tool_call_id] || 'unknown';
                         icon = getToolIcon(toolName);
                         title = `Tool Result: ${toolName}`;
                     }
-                    
+
                     html += renderCollapsiblePrompt(node.id, promptIndex++, title, icon, content, []);
                 }
             }
-            
+
             return html;
         }
-        
+
         function renderLLMCallDetails(node) {
             let html = `
                 <div class="detail-section">
@@ -1332,10 +1332,10 @@ Temperature: ${node.temperature ?? 'default'}
 Max Tokens: ${node.max_tokens ?? 'default'}</div>
                 </div>
             `;
-            
+
             // Render all prompts as collapsible sections
             let promptIndex = 0;
-            
+
             // 1. System Prompt - split by sources if multiple
             if (node.system_prompt) {
                 // Try to find sources from first system message
@@ -1346,7 +1346,7 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                         systemSources = sysMsg.sources;
                     }
                 }
-                
+
                 // If multiple sources, show each as separate collapsible
                 if (systemSources.length > 1) {
                     for (const source of systemSources) {
@@ -1361,22 +1361,22 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     html += renderCollapsiblePrompt(node.id, promptIndex++, sysTitle, '📝', node.system_prompt, systemSources);
                 }
             }
-            
+
             // 2. Tool Definitions - show available tools for this LLM call
             if (node.tools && node.tools.length > 0) {
-                let toolsContent = node.tools.map(t => 
+                let toolsContent = node.tools.map(t =>
                     `**${t.name}**\n${t.description || '(no description)'}`
                 ).join('\n\n---\n\n');
                 html += renderCollapsiblePrompt(
-                    node.id, 
-                    promptIndex++, 
-                    `Tools (${node.tools.length})`, 
-                    '🔧', 
+                    node.id,
+                    promptIndex++,
+                    `Tools (${node.tools.length})`,
+                    '🔧',
                     toolsContent,
                     ['tools']
                 );
             }
-            
+
             // 3. Messages - only show user inputs (system, human/user), skip tool results and AI responses
             if (node.messages && node.messages.length > 0) {
                 for (let i = 0; i < node.messages.length; i++) {
@@ -1385,43 +1385,43 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     const role = typeof msg === 'object' ? (msg.role || 'unknown') : 'message';
                     const type = typeof msg === 'object' ? msg.type : null;
                     const sources = typeof msg === 'object' ? (msg.sources || []) : [];
-                    
+
                     // Skip if same as system_prompt (already shown)
                     if (role === 'system' && content === node.system_prompt) continue;
-                    
+
                     // Skip tool results - these are not user inputs
                     if (role === 'tool' || type === 'tool_result') continue;
-                    
+
                     // Skip AI responses - these are not user inputs
                     if (role === 'ai' || role === 'assistant') continue;
-                    
+
                     // Identify prompt type - use sources if available, otherwise fallback
                     const promptInfo = identifyPromptType(content, role, type);
-                    
+
                     // Use sources as title if available
-                    const title = sources.length > 0 
-                        ? sources.join(' + ') 
+                    const title = sources.length > 0
+                        ? sources.join(' + ')
                         : promptInfo.name;
                     const tags = sources.length > 0 ? sources : promptInfo.tags;
-                    
+
                     html += renderCollapsiblePrompt(
-                        node.id, 
-                        promptIndex++, 
-                        title, 
-                        promptInfo.icon, 
+                        node.id,
+                        promptIndex++,
+                        title,
+                        promptInfo.icon,
                         content,
                         tags
                     );
                 }
             }
-            
+
             // 4. Raw prompts (fallback if messages were empty)
             if (node.raw_prompts && node.raw_prompts.length > 0 && (!node.messages || node.messages.length === 0)) {
                 for (let i = 0; i < node.raw_prompts.length; i++) {
                     const prompt = node.raw_prompts[i];
                     // Skip if same as system_prompt
                     if (prompt === node.system_prompt) continue;
-                    
+
                     const promptInfo = identifyPromptType(prompt, i === 0 ? 'system' : 'user');
                     html += renderCollapsiblePrompt(
                         node.id,
@@ -1433,10 +1433,10 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     );
                 }
             }
-            
+
             return html;
         }
-        
+
         function extractSourceContent(fullContent, source) {
             // Map source names to their XML tag markers
             const sourceMarkers = {
@@ -1447,16 +1447,16 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                 'think_tool.md': ['<think_tool>'],
                 'knowledge_search.md': ['<knowledge_search>'],
             };
-            
+
             const markers = sourceMarkers[source];
             if (!markers) {
                 return null;
             }
-            
+
             // Find content between first and last marker for this source
             let startPos = -1;
             let endPos = -1;
-            
+
             for (const marker of markers) {
                 const pos = fullContent.indexOf(marker);
                 if (pos !== -1) {
@@ -1471,20 +1471,20 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     }
                 }
             }
-            
+
             if (startPos !== -1 && endPos !== -1 && endPos > startPos) {
                 return fullContent.substring(startPos, endPos);
             }
-            
+
             // Fallback: return content if any marker found
             if (startPos !== -1) {
                 // Find next source's start or end of content
                 return fullContent.substring(startPos);
             }
-            
+
             return null;
         }
-        
+
         function identifyPromptType(content, role, type) {
             // Use type from log if available (set by rich_console.py)
             const typeMap = {
@@ -1494,11 +1494,11 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                 'user_request': { name: 'User Request', icon: '👤', tags: ['user'] },
                 'user_message': { name: 'User Message', icon: '👤', tags: ['user'] },
             };
-            
+
             if (type && typeMap[type]) {
                 return typeMap[type];
             }
-            
+
             // Fallback to role-based identification
             const roleMap = {
                 'system': { name: 'System Prompt', icon: '📝', tags: ['system'] },
@@ -1508,18 +1508,18 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                 'human': { name: 'User Message', icon: '👤', tags: ['user'] },
                 'user': { name: 'User Message', icon: '👤', tags: ['user'] },
             };
-            
+
             return roleMap[role] || { name: `Message (${role})`, icon: '💬', tags: [role] };
         }
-        
+
         function renderCollapsiblePrompt(nodeId, index, title, icon, content, tags = []) {
             const promptId = `prompt_${nodeId}_${index}`;
             const contentLength = content.length;
             const preview = content.substring(0, 60).replace(/\n/g, ' ').trim();
-            const tagsHtml = tags.length > 0 
+            const tagsHtml = tags.length > 0
                 ? tags.map(t => `<span style="background: #3a3a5a; padding: 2px 6px; border-radius: 3px; font-size: 10px; color: #888;">${t}</span>`).join(' ')
                 : '';
-            
+
             return `
                 <div class="detail-section prompt-collapsible">
                     <div class="prompt-toggle" onclick="togglePrompt('${promptId}', this)">
@@ -1533,10 +1533,10 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                 </div>
             `;
         }
-        
+
         function renderLLMResponseDetails(node) {
             let html = '';
-            
+
             if (node.content) {
                 html += `
                     <div class="detail-section">
@@ -1545,7 +1545,7 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     </div>
                 `;
             }
-            
+
             if (node.tool_calls && node.tool_calls.length > 0) {
                 html += `
                     <div class="detail-section">
@@ -1554,7 +1554,7 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     </div>
                 `;
             }
-            
+
             if (node.usage) {
                 html += `
                     <div class="detail-section">
@@ -1576,10 +1576,10 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     </div>
                 `;
             }
-            
+
             return html || '<div class="detail-content">No response data</div>';
         }
-        
+
         function renderErrorDetails(node) {
             let html = `
                 <div class="detail-section">
@@ -1587,7 +1587,7 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     <div class="detail-content error">${searchQuery ? highlightKeywords(node.message || 'Unknown error', searchQuery) : escapeHtml(node.message || 'Unknown error')}</div>
                 </div>
             `;
-            
+
             if (node.stacktrace) {
                 html += `
                     <div class="detail-section">
@@ -1596,10 +1596,10 @@ Max Tokens: ${node.max_tokens ?? 'default'}</div>
                     </div>
                 `;
             }
-            
+
             return html;
         }
-        
+
         function renderMainAgentDetails(node) {
             return `
                 <div class="detail-section">
@@ -1610,10 +1610,10 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 </div>
             `;
         }
-        
+
         function renderMessages(messages) {
             if (!Array.isArray(messages)) return escapeHtml(JSON.stringify(messages, null, 2));
-            
+
             return messages.map(msg => {
                 if (typeof msg === 'string') return escapeHtml(msg);
                 return `<div style="margin-bottom: 10px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
@@ -1622,7 +1622,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 </div>`;
             }).join('');
         }
-        
+
         // ============================================
         // JSON Syntax Highlighting (T021)
         // ============================================
@@ -1643,7 +1643,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 .replace(/\b(null)\b/g, '<span class="json-null">$1</span>')
                 .replace(/\b(-?\d+\.?\d*)\b/g, '<span class="json-number">$1</span>');
         }
-        
+
         // ============================================
         // Event Handlers (T013, T014, T015)
         // ============================================
@@ -1652,7 +1652,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 header.addEventListener('click', (e) => {
                     const node = header.parentElement;
                     const nodeId = node.dataset.id;
-                    
+
                     if (node.classList.contains('expanded')) {
                         node.classList.remove('expanded');
                         expandedNodes.delete(nodeId);
@@ -1663,13 +1663,13 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 });
             });
         }
-        
+
         // ============================================
         // Search & Navigation (T026, T027, T028)
         // ============================================
         function handleSearch() {
             searchQuery = searchInput.value.toLowerCase().trim();
-            
+
             if (!searchQuery) {
                 matchingNodes.clear();
                 matchingNodeIds = [];
@@ -1683,22 +1683,22 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 }
                 return;
             }
-            
+
             matchingNodes.clear();
             matchingNodeIds = [];
             if (tree) {
                 searchTree(tree, searchQuery);
-                
+
                 // 自动展开所有匹配节点的路径
                 if (matchingNodeIds.length > 0) {
                     matchingNodeIds.forEach(nodeId => {
                         expandNodePath(nodeId);
                     });
                 }
-                
+
                 matchCountEl.textContent = matchingNodeIds.length > 0 ? `${currentMatchIndex + 1}/${matchingNodeIds.length}` : '0/0';
                 matchCountEl.style.display = 'inline';
-                
+
                 // Show navigation buttons if there are matches
                 if (matchingNodeIds.length > 0) {
                     document.getElementById('prev-match').style.display = 'inline-block';
@@ -1710,9 +1710,9 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                     document.getElementById('next-match').style.display = 'none';
                     currentMatchIndex = -1;
                 }
-                
+
                 renderTree();
-                
+
                 // 渲染完成后跳转到第一个匹配项
                 if (matchingNodeIds.length > 0) {
                     setTimeout(() => {
@@ -1721,10 +1721,10 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 }
             }
         }
-        
+
         function searchTree(node, query) {
             let hasMatch = false;
-            
+
             // Check if this node matches
             const searchableText = [
                 node.label,
@@ -1734,7 +1734,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 node.content || '',
                 node.message || ''
             ].join(' ').toLowerCase();
-            
+
             if (searchableText.includes(query)) {
                 node.highlighted = true;
                 matchingNodes.add(node.id);
@@ -1743,7 +1743,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
             } else {
                 node.highlighted = false;
             }
-            
+
             // Check children
             node.hasMatchingChild = false;
             for (const child of node.children) {
@@ -1752,13 +1752,13 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                     hasMatch = true;
                 }
             }
-            
+
             return hasMatch;
         }
-        
+
         function navigateMatch(direction) {
             if (matchingNodeIds.length === 0) return;
-            
+
             // 移除之前当前匹配项的额外高亮
             if (currentMatchIndex >= 0 && currentMatchIndex < matchingNodeIds.length) {
                 const prevNodeId = matchingNodeIds[currentMatchIndex];
@@ -1770,26 +1770,26 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                     }
                 }
             }
-            
+
             currentMatchIndex += direction;
-            
+
             // Wrap around
             if (currentMatchIndex < 0) {
                 currentMatchIndex = matchingNodeIds.length - 1;
             } else if (currentMatchIndex >= matchingNodeIds.length) {
                 currentMatchIndex = 0;
             }
-            
+
             jumpToMatch(currentMatchIndex);
             updateMatchCounter();
         }
-        
+
         function jumpToMatch(index) {
             if (index < 0 || index >= matchingNodeIds.length) return;
-            
+
             const nodeId = matchingNodeIds[index];
             const nodeElement = document.querySelector(`[data-id="${nodeId}"]`);
-            
+
             if (!nodeElement) {
                 // Node not rendered yet, need to expand parents first
                 expandNodePath(nodeId);
@@ -1803,10 +1803,10 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 }, 100);
                 return;
             }
-            
+
             scrollToNode(nodeElement);
         }
-        
+
         function expandNodePath(nodeId) {
             // Find the node in the tree
             function findNode(node, targetId, path = []) {
@@ -1819,7 +1819,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 }
                 return null;
             }
-            
+
             if (!tree) return;
             const path = findNode(tree, nodeId);
             if (path) {
@@ -1829,7 +1829,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
             // Also expand the target node itself
             expandedNodes.add(nodeId);
         }
-        
+
         function scrollToNode(nodeElement) {
             // Expand the node if collapsed
             if (!nodeElement.classList.contains('expanded')) {
@@ -1837,10 +1837,10 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 const nodeId = nodeElement.dataset.id;
                 expandedNodes.add(nodeId);
             }
-            
+
             // Scroll to the node
             nodeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            
+
             // 确保匹配的节点保持高亮（高亮状态已经在渲染时通过 node.highlighted 设置）
             const header = nodeElement.querySelector('.node-header');
             if (header) {
@@ -1849,7 +1849,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 if (matchingNodes.has(nodeId)) {
                     header.classList.add('highlighted');
                 }
-                
+
                 // 添加一个短暂的脉冲效果来吸引注意力
                 header.style.transition = 'all 0.3s';
                 header.style.transform = 'scale(1.02)';
@@ -1858,13 +1858,13 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 }, 300);
             }
         }
-        
+
         function updateMatchCounter() {
             if (matchingNodeIds.length > 0) {
                 matchCountEl.textContent = `${currentMatchIndex + 1}/${matchingNodeIds.length}`;
             }
         }
-        
+
         function handleSearchKeydown(event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
@@ -1896,7 +1896,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 navigateMatch(1);
             }
         }
-        
+
         function clearHighlights(node) {
             node.highlighted = false;
             node.hasMatchingChild = false;
@@ -1904,64 +1904,64 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 clearHighlights(child);
             }
         }
-        
+
         // ============================================
         // Filters (T029)
         // ============================================
         function applyFilters() {
             renderTree();
         }
-        
+
         // ============================================
         // Stats
         // ============================================
         function updateStats() {
             // LLM rounds = LLM_INPUT events (each input triggers one LLM call)
             const llmRounds = allLogs.filter(l => l.event_type === 'LLM_INPUT').length;
-            
+
             // Tool calls (excluding agent_tool which is counted as sub-agent)
-            const toolCalls = allLogs.filter(l => 
-                l.event_type === 'TOOL_CALL' && 
-                l.data?.phase === 'start' && 
+            const toolCalls = allLogs.filter(l =>
+                l.event_type === 'TOOL_CALL' &&
+                l.data?.phase === 'start' &&
                 l.data?.tool_name !== 'agent_tool'
             ).length;
-            
+
             // Sub-agents
-            const subAgents = allLogs.filter(l => 
-                l.event_type === 'TOOL_CALL' && 
-                l.data?.tool_name === 'agent_tool' && 
+            const subAgents = allLogs.filter(l =>
+                l.event_type === 'TOOL_CALL' &&
+                l.data?.tool_name === 'agent_tool' &&
                 l.data?.phase === 'start'
             ).length;
-            
+
             // Errors
             const errors = allLogs.filter(l => l.event_type === 'ERROR').length;
-            
+
             // Total tokens from LLM_RESPONSE usage
             let totalTokens = 0;
             allLogs.filter(l => l.event_type === 'LLM_RESPONSE').forEach(l => {
                 const usage = l.data?.usage || {};
                 totalTokens += usage.total_tokens || 0;
             });
-            
+
             document.getElementById('stat-llm').textContent = llmRounds;
             document.getElementById('stat-tool').textContent = toolCalls;
             document.getElementById('stat-subagent').textContent = subAgents;
             document.getElementById('stat-error').textContent = errors;
             document.getElementById('stat-tokens').textContent = totalTokens.toLocaleString();
-            
+
             // Show stats bar
             document.getElementById('stats').style.display = 'flex';
         }
-        
+
         // ============================================
         // Collapsible Prompt Toggle
         // ============================================
         function togglePrompt(promptId, toggleEl) {
             const contentEl = document.getElementById(promptId);
             if (!contentEl) return;
-            
+
             const isExpanded = contentEl.classList.contains('expanded');
-            
+
             if (isExpanded) {
                 contentEl.classList.remove('expanded');
                 toggleEl.classList.remove('expanded');
@@ -1970,7 +1970,7 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
                 toggleEl.classList.add('expanded');
             }
         }
-        
+
         // ============================================
         // Utilities
         // ============================================
@@ -1980,20 +1980,20 @@ Started: ${new Date(node.timestamp).toLocaleString()}</div>
             div.textContent = text;
             return div.innerHTML;
         }
-        
+
         // 高亮关键字函数
         function highlightKeywords(text, query) {
             if (!query || !text) return escapeHtml(text);
-            
+
             const escapedText = escapeHtml(text);
             const escapedQuery = escapeHtml(query);
-            
+
             // 使用不区分大小写的正则表达式匹配
             const regex = new RegExp(`(${escapedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-            
+
             return escapedText.replace(regex, '<span class="search-highlight">$1</span>');
         }
-        
+
         function debounce(func, wait) {
             let timeout;
             return function executedFunction(...args) {

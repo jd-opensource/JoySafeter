@@ -18,9 +18,9 @@ import type { ExecutionStep } from '@/types'
 
 import type { GraphState, TraceStep } from '../../components/visualization'
 import { agentService } from '../../services/agentService'
-import { 
-  processEvent, 
-  createEventProcessorContext, 
+import {
+  processEvent,
+  createEventProcessorContext,
   generateId as genId,
   type EventProcessorStore,
 } from '../../services/eventProcessor'
@@ -30,11 +30,11 @@ import {
   createExecutionContext,
   getExecutionManager,
 } from './ExecutionManager'
-import type { 
-  ExecutionStore, 
-  ExecutionContext, 
-  GraphExecutionState, 
-  InterruptInfo 
+import type {
+  ExecutionStore,
+  ExecutionContext,
+  GraphExecutionState,
+  InterruptInfo
 } from './types'
 import { generateId } from './utils'
 
@@ -75,29 +75,29 @@ function syncComputedProperties(state: GraphExecutionState) {
 
 export const useExecutionStore = create<ExecutionStore>((set, get) => {
   const manager = getExecutionManager()
-  
+
   const getCurrentState = (): GraphExecutionState => {
     const { contexts, currentGraphId } = get()
     return getOrCreateContext(contexts, currentGraphId).state
   }
-  
+
   const updateCurrentState = (updates: Partial<GraphExecutionState>) => {
     const { contexts, currentGraphId } = get()
     if (!currentGraphId) return
-    
+
     const context = getOrCreateContext(contexts, currentGraphId)
     const newState = { ...context.state, ...updates }
     const newContext = { ...context, state: newState }
-    
+
     const newContexts = new Map(contexts)
     newContexts.set(currentGraphId, newContext)
-    
+
     set({
       contexts: newContexts,
       ...syncComputedProperties(newState),
     })
   }
-  
+
   return {
     // ============ State ============
     contexts: new Map<string, ExecutionContext>(),
@@ -110,20 +110,20 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
     currentState: null,
     executionTrace: [],
     routeDecisions: [],
-    
+
     // ============ Graph Switching ============
-    
+
     setCurrentGraphId: (graphId: string | null) => {
       const { contexts, clearGraphState } = get()
-      
+
       if (graphId) {
         manager.recordAccess(graphId)
         const toEvict = manager.getGraphsToEvict(contexts)
         toEvict.forEach(id => clearGraphState(id))
       }
-      
+
       const context = getOrCreateContext(contexts, graphId)
-      
+
       if (graphId && !contexts.has(graphId)) {
         const newContexts = new Map(contexts)
         newContexts.set(graphId, context)
@@ -139,60 +139,60 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         })
       }
     },
-    
+
     // ============ State Updates ============
-    
+
     updateGraphState: (graphId: string, updates: Partial<GraphExecutionState>) => {
       const { contexts, currentGraphId } = get()
       const context = getOrCreateContext(contexts, graphId)
       const newState = { ...context.state, ...updates }
       const newContext = { ...context, state: newState }
-      
+
       const newContexts = new Map(contexts)
       newContexts.set(graphId, newContext)
-      
+
       if (graphId === currentGraphId) {
         set({ contexts: newContexts, ...syncComputedProperties(newState) })
       } else {
         set({ contexts: newContexts })
       }
     },
-    
+
     // ============ Step Management ============
-    
+
     addStep: (step: ExecutionStep) => {
       const state = getCurrentState()
       if (state.steps.some(s => s.id === step.id)) return
       updateCurrentState({ steps: [...state.steps, step] })
     },
-    
+
     updateStep: (stepId: string, updates: Partial<ExecutionStep>) => {
       const state = getCurrentState()
       const idx = state.steps.findIndex(s => s.id === stepId)
       if (idx === -1) return
-      
+
       const step = state.steps[idx]
       const hasChanges = Object.keys(updates).some(
         k => step[k as keyof ExecutionStep] !== updates[k as keyof ExecutionStep]
       )
       if (!hasChanges) return
-      
+
       const newSteps = [...state.steps]
       // Deep merge data field instead of overwriting
-      const mergedData = updates.data 
+      const mergedData = updates.data
         ? { ...(step.data || {}), ...updates.data }
         : step.data
       newSteps[idx] = { ...step, ...updates, data: mergedData }
       updateCurrentState({ steps: newSteps })
     },
-    
+
     appendContent: (stepId: string, text: string) => {
       if (!text) return
-      
+
       // Accumulate to buffer instead of immediate update
       const existing = pendingContentUpdates.get(stepId) || ''
       pendingContentUpdates.set(stepId, existing + text)
-      
+
       // Schedule batch update (execute once per microtask cycle)
       if (!contentUpdateScheduled) {
         contentUpdateScheduled = true
@@ -200,11 +200,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
           contentUpdateScheduled = false
           const updates = new Map(pendingContentUpdates)
           pendingContentUpdates.clear()
-          
+
           const state = getCurrentState()
           const newSteps = [...state.steps]
           let hasChanges = false
-          
+
           updates.forEach((content, id) => {
             const idx = newSteps.findIndex(s => s.id === id)
             if (idx !== -1) {
@@ -215,32 +215,32 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
               hasChanges = true
             }
           })
-          
+
           if (hasChanges) {
             updateCurrentState({ steps: newSteps })
           }
         })
       }
     },
-    
+
     // ============ Panel ============
-    
+
     togglePanel: (show?: boolean) => {
       const state = getCurrentState()
       updateCurrentState({ showPanel: show ?? !state.showPanel })
     },
-    
+
     // ============ Interrupt Management ============
-    
+
     addInterrupt: (interrupt: InterruptInfo) => {
       const state = getCurrentState()
       const newInterrupts = new Map(state.pendingInterrupts)
       newInterrupts.set(interrupt.nodeId, interrupt)
-      
+
       const nodeStep = state.steps.find(
         s => s.nodeId === interrupt.nodeId && s.status === 'running'
       )
-      
+
       if (nodeStep) {
         const updatedSteps = state.steps.map(s =>
           s.id === nodeStep.id ? { ...s, status: 'waiting' as const } : s
@@ -250,22 +250,22 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         updateCurrentState({ pendingInterrupts: newInterrupts })
       }
     },
-    
+
     removeInterrupt: (nodeId: string) => {
       const state = getCurrentState()
       const newInterrupts = new Map(state.pendingInterrupts)
       newInterrupts.delete(nodeId)
       updateCurrentState({ pendingInterrupts: newInterrupts })
     },
-    
+
     clearInterrupts: () => {
       updateCurrentState({ pendingInterrupts: new Map() })
     },
-    
+
     getInterrupt: (nodeId: string) => getCurrentState().pendingInterrupts.get(nodeId),
-    
+
     // ============ Execution Control ============
-    
+
     clear: () => {
       updateCurrentState({
         steps: [],
@@ -274,27 +274,27 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         routeDecisions: [],
       })
     },
-    
+
     clearGraphState: (graphId: string) => {
       const { contexts, currentGraphId } = get()
-      
+
       const context = contexts.get(graphId)
       if (context?.abortController) {
         context.abortController.abort()
       }
-      
+
       manager.removeFromAccess(graphId)
-      
+
       const newContexts = new Map(contexts)
       newContexts.delete(graphId)
-      
+
       if (graphId === currentGraphId) {
         set({ contexts: newContexts, ...syncComputedProperties(createEmptyGraphState()) })
       } else {
         set({ contexts: newContexts })
       }
     },
-    
+
     getRunningGraphIds: () => {
       const { contexts } = get()
       const running: string[] = []
@@ -303,7 +303,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       })
       return running
     },
-    
+
     setExecuting: (isExecuting: boolean) => {
       const state = getCurrentState()
       updateCurrentState({
@@ -311,14 +311,14 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         activeNodeId: isExecuting ? state.activeNodeId : null,
       })
     },
-    
+
     // ============ Execution Context ============
-    
+
     getContext: (graphId: string) => {
       const { contexts } = get()
       return getOrCreateContext(contexts, graphId)
     },
-    
+
     setAbortController: (graphId: string, controller: AbortController | null) => {
       const { contexts } = get()
       const context = getOrCreateContext(contexts, graphId)
@@ -326,7 +326,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       newContexts.set(graphId, { ...context, abortController: controller })
       set({ contexts: newContexts })
     },
-    
+
     setThreadId: (graphId: string, threadId: string | null) => {
       const { contexts } = get()
       const context = getOrCreateContext(contexts, graphId)
@@ -334,9 +334,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       newContexts.set(graphId, { ...context, threadId })
       set({ contexts: newContexts })
     },
-    
+
     // ============ Command Mode ============
-    
+
     updateState: (stateUpdate: Partial<GraphState>) => {
       const state = getCurrentState()
       updateCurrentState({
@@ -345,12 +345,12 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
           : (stateUpdate as GraphState),
       })
     },
-    
+
     addTraceStep: (step: TraceStep) => {
       const state = getCurrentState()
       updateCurrentState({ executionTrace: [...state.executionTrace, step] })
     },
-    
+
     addRouteDecision: (nodeId, nodeType, decision) => {
       const state = getCurrentState()
       updateCurrentState({
@@ -360,9 +360,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         ],
       })
     },
-    
+
     // ============ Execution Methods ============
-    
+
     startExecution: async (input: string) => {
       const store = get()
       if (!input.trim()) return
@@ -435,13 +435,13 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
           signal: abortController.signal,
           onEvent: (evt: ChatStreamEvent) => {
             const s = get()
-            
+
             // Use shared event processor
             const eventResult = processEvent(evt, ctx, storeAdapter)
-            
+
             // Update currentThoughtId in context
             ctx.currentThoughtId = eventResult.currentThoughtId
-            
+
             // Special handling for stopped event to update workflow step
             if (eventResult.shouldStop && eventResult.stopReason === 'stopped') {
               s.updateStep(workflowId, { status: 'error', endTime: Date.now() })
@@ -478,7 +478,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         store.setAbortController(graphId, null)
       }
     },
-    
+
     stopExecution: async () => {
       const { currentGraphId, getContext, setAbortController, setThreadId, updateGraphState } = get()
       if (!currentGraphId) return

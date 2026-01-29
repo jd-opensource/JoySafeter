@@ -34,17 +34,17 @@
 def _optimize_angr_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Angr parameters"""
     params = {"target": profile.target}
-    
+
     if context.get("analysis_type") == "cfg":
         params["analysis_type"] = "cfg"
     elif context.get("analysis_type") == "static":
         params["analysis_type"] = "static"
     else:
         params["analysis_type"] = "symbolic"
-    
+
     params["find_addresses"] = context.get("find_addresses", [])
     params["avoid_addresses"] = context.get("avoid_addresses", [])
-    
+
     return params
 ```
 

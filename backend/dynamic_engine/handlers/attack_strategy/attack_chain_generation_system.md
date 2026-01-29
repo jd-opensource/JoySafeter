@@ -238,7 +238,7 @@ chain.risk_level = profile.risk_level  # "critical", "high", etc.
 def create_attack_chain(self, profile: TargetProfile, objective: str = "comprehensive") -> AttackChain:
     # Create empty chain
     chain = AttackChain(profile)
-    
+
     # Select pattern based on target type and objective
     if profile.target_type == TargetType.WEB_APPLICATION:
         if objective == "quick":
@@ -278,16 +278,16 @@ def create_attack_chain(self, profile: TargetProfile, objective: str = "comprehe
             pattern = self.attack_patterns["bug_bounty_high_impact"]
         else:
             pattern = self.attack_patterns["web_reconnaissance"]
-    
+
     # Create attack steps
     for step_config in pattern:
         tool = step_config["tool"]
         optimized_params = self.optimize_parameters(tool, profile)
-        
+
         # Calculate success probability
         effectiveness = self.tool_effectiveness.get(profile.target_type.value, {}).get(tool, 0.5)
         success_prob = effectiveness * profile.confidence_score
-        
+
         # Estimate execution time
         time_estimates = {
             "nmap": 120, "gobuster": 300, "nuclei": 180, "nikto": 240,
@@ -300,7 +300,7 @@ def create_attack_chain(self, profile: TargetProfile, objective: str = "comprehe
             "docker-bench-security": 180, "falco": 120, "checkov": 240, "terrascan": 200
         }
         exec_time = time_estimates.get(tool, 180)
-        
+
         # Create step
         step = AttackStep(
             tool=tool,
@@ -309,13 +309,13 @@ def create_attack_chain(self, profile: TargetProfile, objective: str = "comprehe
             success_probability=success_prob,
             execution_time_estimate=exec_time
         )
-        
+
         chain.add_step(step)
-    
+
     # Calculate overall chain metrics
     chain.calculate_success_probability()
     chain.risk_level = profile.risk_level
-    
+
     return chain
 ```
 

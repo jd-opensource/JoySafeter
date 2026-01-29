@@ -1,6 +1,6 @@
 /**
  * Variable Autocomplete - Provides variable suggestions for input fields.
- * 
+ *
  * Integrates with StateVariablePanel to provide autocomplete suggestions
  * when users are typing expressions or variable references.
  */
@@ -18,7 +18,7 @@ export interface VariableSuggestion {
 
 /**
  * Get variable suggestions for a given node.
- * 
+ *
  * This analyzes the graph structure to determine which variables
  * are available at a specific node.
  */
@@ -124,7 +124,7 @@ function getUpstreamNodes(
 
 /**
  * Extract variable references from an expression.
- * 
+ *
  * Used for validation and highlighting.
  */
 export function extractVariableReferences(expression: string): string[] {
@@ -149,7 +149,7 @@ export function extractVariableReferences(expression: string): string[] {
 
 /**
  * Validate variable references in an expression.
- * 
+ *
  * Returns errors for undefined variables.
  */
 export function validateVariableReferences(
@@ -206,4 +206,3 @@ export function getAutocompleteSuggestions(
     )
     .slice(0, 10)
 }
-

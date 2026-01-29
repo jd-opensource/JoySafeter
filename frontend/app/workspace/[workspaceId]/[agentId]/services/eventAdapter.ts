@@ -1,9 +1,9 @@
 /**
  * Event Adapter - Maps backend ChatStreamEvent to ExecutionStep format
- * 
+ *
  * This adapter provides a clean separation between backend event format
  * and frontend execution step representation.
- * 
+ *
  * Uses the standardized SSE envelope structure from backend.
  */
 
@@ -160,7 +160,7 @@ export function mapChatEventToExecutionStep(
     // Try to match using run_id, fallback to tool_name if not available
     const toolKey = run_id ? `${toolName}:${run_id}` : toolName
     let toolId = toolStepMap.get(toolKey)
-    
+
     // If not found, try using only tool_name (backward compatible)
     if (!toolId) {
       toolId = toolStepMap.get(toolName)
@@ -170,7 +170,7 @@ export function mapChatEventToExecutionStep(
         toolStepMap.set(toolKey, toolId)
       }
     }
-    
+
     if (!toolId) return { type: 'noop' }
 
     // Get existing step to preserve request data
@@ -197,11 +197,11 @@ export function mapChatEventToExecutionStep(
     const nodeData = data as NodeStartEventData
     const nodeId = node_name || nodeData?.node_name || 'unknown'
     const stepId = genId('node')
-    
+
     // Use node_name:run_id as key to support concurrent execution
     const nodeKey = run_id ? `${nodeId}:${run_id}` : nodeId
     nodeStepMap.set(nodeKey, stepId)
-    
+
     return {
       type: 'add_step',
       step: {
@@ -220,11 +220,11 @@ export function mapChatEventToExecutionStep(
   if (type === 'node_end') {
     const nodeData = data as NodeEndEventData
     const nodeId = node_name || nodeData?.node_name || 'unknown'
-    
+
     // Try to match using run_id
     const nodeKey = run_id ? `${nodeId}:${run_id}` : nodeId
     let stepId = nodeStepMap.get(nodeKey)
-    
+
     // If not found, try using only node_name (backward compatible)
     if (!stepId) {
       stepId = nodeStepMap.get(nodeId)
@@ -234,7 +234,7 @@ export function mapChatEventToExecutionStep(
         nodeStepMap.set(nodeKey, stepId)
       }
     }
-    
+
     // If found through mapping, update directly
     if (stepId) {
       nodeStepMap.delete(nodeKey)
@@ -248,14 +248,14 @@ export function mapChatEventToExecutionStep(
         },
       }
     }
-    
+
     // If not found in mapping, try searching through step list (backward compatible)
     const nodeStep = getSteps().find(
       (s) => s.stepType === 'node_lifecycle' &&
              (s.nodeId === nodeId || s.nodeId === nodeData?.node_name) &&
              s.status === 'running'
     )
-    
+
     if (nodeStep) {
       return {
         type: 'update_step',
@@ -267,7 +267,7 @@ export function mapChatEventToExecutionStep(
         },
       }
     }
-    
+
     // If corresponding start step not found, create a new step
     return {
       type: 'add_step',
@@ -304,12 +304,12 @@ export function mapChatEventToExecutionStep(
     const messages = modelData?.messages || []
 
     const stepId = genId('model_io')
-    
+
     // Use run_id to record this step's ID for subsequent model_output merging
     if (run_id) {
       modelStepMap.set(run_id, stepId)
     }
-    
+
     return {
       type: 'add_step',
       step: {
@@ -343,7 +343,7 @@ export function mapChatEventToExecutionStep(
     if (run_id && modelStepMap.has(run_id)) {
       const existingStepId = modelStepMap.get(run_id)!
       modelStepMap.delete(run_id) // Clean up to prevent duplicate updates
-      
+
       return {
         type: 'update_step',
         stepId: existingStepId,
@@ -357,7 +357,7 @@ export function mapChatEventToExecutionStep(
         },
       }
     }
-    
+
     // If corresponding input not found (rare case), create independent output step
     const stepId = genId('model_output')
     return {
@@ -505,8 +505,8 @@ export function mapChatEventToExecutionStep(
   // ========== CodeAgent Final Answer Event ==========
   if (type === 'code_agent_final_answer') {
     const answerData = data as CodeAgentFinalAnswerEventData
-    const answerStr = typeof answerData.answer === 'string' 
-      ? answerData.answer 
+    const answerStr = typeof answerData.answer === 'string'
+      ? answerData.answer
       : JSON.stringify(answerData.answer, null, 2)
     return {
       type: 'add_step',
@@ -604,4 +604,3 @@ export function createErrorStep(
     content: message,
   }
 }
-

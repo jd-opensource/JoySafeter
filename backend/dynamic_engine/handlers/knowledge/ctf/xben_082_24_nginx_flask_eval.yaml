@@ -35,4 +35,3 @@ tricks:
     payload: |
       GET /app
       # Flask fetches malicious URL and eval()s response
-

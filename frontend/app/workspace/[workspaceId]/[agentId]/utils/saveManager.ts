@@ -1,6 +1,6 @@
 /**
  * SaveManager - Unified save management for AgentGraph
- * 
+ *
  * Centralizes all save logic including:
  * - Manual saves
  * - Auto-saves (debounced)
@@ -32,40 +32,40 @@ export interface SaveManagerCallbacks {
 
 export class SaveManager {
   private debounceTimer: NodeJS.Timeout | null = null
-  
+
   private lastSavedHash: string | null = null
   private saveRetryCount = 0
   private readonly maxRetries = 3
-  
+
   constructor(
     private getState: () => GraphState,
     private callbacks: SaveManagerCallbacks
   ) {}
-  
+
   /**
    * Unified save entry point
-   * 
+   *
    * @param source - Source of the save request
    * @param force - Force save even if hash matches (default: false)
    */
   async save(source: SaveSource, force = false): Promise<void> {
     const state = this.getState()
-    
+
     // Check prerequisites - only graphId is required, graphName is optional
     // Backend API only needs graphId to save state
     if (!state.graphId) {
       return
     }
-    
+
     // Check network status
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       this.callbacks.onSaveError('offline')
       return
     }
-    
+
     // Compute current state hash
     const currentHash = computeGraphStateHash(state.nodes, state.edges)
-    
+
     // 优先从 state 同步 hash（如果 SaveManager 的 hash 还未设置，或者 state 中的 hash 更新）
     // 这确保在每次保存时都使用最新的 hash 进行比较
     if (state.lastSavedStateHash) {
@@ -74,13 +74,13 @@ export class SaveManager {
         this.lastSavedHash = state.lastSavedStateHash
       }
     }
-    
+
     // Skip if hash matches (unless forced)
     // 如果 hash 匹配且不强制保存，则跳过
     if (!force && this.lastSavedHash !== null && currentHash === this.lastSavedHash) {
       return
     }
-    
+
     try {
       // Deduplicate edges before saving
       const seenEdges = new Set<string>()
@@ -92,7 +92,7 @@ export class SaveManager {
         seenEdges.add(key)
         return true
       })
-      
+
       // Perform save
       await agentService.saveGraphState({
         graphId: state.graphId,
@@ -101,7 +101,7 @@ export class SaveManager {
         viewport: state.viewport,
         variables: { context: state.graphVariables },
       })
-      
+
       // Update state on success
       this.lastSavedHash = currentHash
       this.saveRetryCount = 0
@@ -110,39 +110,39 @@ export class SaveManager {
       this.handleSaveError(error, source)
     }
   }
-  
+
   /**
    * Debounced save - triggers after delay, cancels previous pending saves
-   * 
+   *
    * @param delay - Delay in milliseconds (default: 2000ms)
    */
   debouncedSave(delay = 2000): void {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer)
     }
-    
+
     this.debounceTimer = setTimeout(() => {
       this.save('debounce')
       this.debounceTimer = null
     }, delay)
   }
-  
+
   /**
    * Immediate save - saves without delay
    */
   async immediateSave(): Promise<void> {
     await this.save('auto', true)
   }
-  
+
   /**
    * Handle save errors with exponential backoff retry
    */
   private handleSaveError(error: unknown, source: SaveSource): void {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    
+
     if (this.saveRetryCount < this.maxRetries) {
       const delay = Math.pow(2, this.saveRetryCount) * 1000 // Exponential backoff
-      
+
       setTimeout(() => {
         // Check if graphId hasn't changed before retrying
         const currentState = this.getState()
@@ -150,14 +150,14 @@ export class SaveManager {
           this.save(source, true) // Force retry
         }
       }, delay)
-      
+
       this.saveRetryCount++
       this.callbacks.onSaveError(errorMessage)
     } else {
       this.callbacks.onSaveError(`Save failed after ${this.maxRetries} retries: ${errorMessage}`)
     }
   }
-  
+
   /**
    * Stop all save timers
    */
@@ -167,7 +167,7 @@ export class SaveManager {
       this.debounceTimer = null
     }
   }
-  
+
   /**
    * Get current save state
    */
@@ -182,7 +182,7 @@ export class SaveManager {
       hasActiveTimers: !!this.debounceTimer,
     }
   }
-  
+
   /**
    * Set last saved hash (used when loading initial state)
    */

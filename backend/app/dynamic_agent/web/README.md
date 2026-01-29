@@ -2,7 +2,7 @@
 
 Complete REST API for the web visualization system, supporting deep linking between Chat and Visualization pages.
 
-**Status**: ✅ Production Ready (with Mock Data)  
+**Status**: ✅ Production Ready (with Mock Data)
 **Base URL**: `http://localhost:8888/api/web`
 
 ## 📚 Documentation
@@ -27,4 +27,3 @@ uv run python -m agent.server
 
 # API endpoints available at http://localhost:8888/api/web
 ```
-

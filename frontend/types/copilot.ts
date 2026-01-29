@@ -1,6 +1,6 @@
 /**
  * Copilot Type Definitions
- * 
+ *
  * Unified type definitions for Copilot-related functionality.
  * These types should match the backend definitions in backend/app/core/copilot/action_types.py
  */

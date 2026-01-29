@@ -37,7 +37,7 @@ export const VisualizationLayout2: React.FC<VisualizationLayout2Props> = ({
 }) => {
   const [detailTab, setDetailTab] = useState<DetailTabType>('execution');
   const [isTasksPanelCollapsed, setIsTasksPanelCollapsed] = useState(false);
-  
+
   // Flatten tasks to find selected one
   const allTasks = sessions.flatMap(s => s.tasks);
   const selectedTask = selectedTaskId ? allTasks.find((t) => t.id === selectedTaskId) : null;
@@ -143,8 +143,8 @@ export const VisualizationLayout2: React.FC<VisualizationLayout2Props> = ({
             {/* Detail Content */}
             <div className="detail-content">
               {detailTab === 'execution' && execution && (
-                <VisualizationContainer 
-                  execution={execution} 
+                <VisualizationContainer
+                  execution={execution}
                   onLoadSubtasks={onLoadSubtasks}
                 />
               )}

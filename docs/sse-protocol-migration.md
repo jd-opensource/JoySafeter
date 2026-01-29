@@ -471,7 +471,7 @@ if (type === 'content') {
       // 创建新的消息块
       const newMsgId = generateId()
       runIdToMessageMap.current.set(run_id, newMsgId)
-      
+
       setMessages((prev) => [
         ...prev,
         {
@@ -547,4 +547,3 @@ if (type === 'content') {
 4. 可选：利用新字段增强 UI
 
 建议采用**渐进式迁移**，先支持兼容模式，再逐步完全迁移。
-

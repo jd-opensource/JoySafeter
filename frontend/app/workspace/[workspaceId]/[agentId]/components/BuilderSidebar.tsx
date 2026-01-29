@@ -55,4 +55,3 @@ export const BuilderSidebar: React.FC<BuilderSidebarProps> = ({ showHeader = tru
     </div>
   )
 }
-

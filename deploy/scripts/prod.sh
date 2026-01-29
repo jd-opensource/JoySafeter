@@ -39,22 +39,22 @@ check_config() {
         echo "请先运行安装脚本: cd $DEPLOY_DIR && ./install.sh --mode prod"
         exit 1
     fi
-    
+
     if [ ! -f "$DEPLOY_DIR/../backend/.env" ]; then
         log_error "backend/.env 文件不存在"
         echo "请先运行安装脚本: cd $DEPLOY_DIR && ./install.sh --mode prod"
         exit 1
     fi
-    
+
     # 检查生产环境配置
     log_info "检查生产环境配置..."
-    
+
     # 检查 SECRET_KEY
     if grep -q "CHANGE-THIS-IN-PRODUCTION" "$DEPLOY_DIR/../backend/.env"; then
         log_warning "⚠️  警告: SECRET_KEY 仍使用默认值，生产环境不安全！"
         echo "请修改 backend/.env 中的 SECRET_KEY 为强随机字符串"
     fi
-    
+
     # 检查 DEBUG 模式
     if grep -q "DEBUG=true" "$DEPLOY_DIR/../backend/.env"; then
         log_warning "⚠️  警告: DEBUG 模式已启用，生产环境建议关闭"
@@ -64,22 +64,22 @@ check_config() {
 # 拉取镜像
 pull_images() {
     log_info "拉取生产镜像..."
-    
+
     cd "$DEPLOY_DIR"
-    
+
     # 读取镜像配置
     local registry="${DOCKER_REGISTRY:-docker.io/jdopensource}"
     local tag="${IMAGE_TAG:-latest}"
-    
+
     if [ -f "$DEPLOY_DIR/.env" ]; then
         source "$DEPLOY_DIR/.env" 2>/dev/null || true
         registry=${DOCKER_REGISTRY:-$registry}
         tag=${IMAGE_TAG:-$tag}
     fi
-    
+
     log_info "镜像仓库: $registry"
     log_info "镜像标签: $tag"
-    
+
     # 使用 deploy.sh 拉取镜像
     if [ -f "$DEPLOY_DIR/deploy.sh" ]; then
         "$DEPLOY_DIR/deploy.sh" pull --registry "$registry" --tag "$tag" || {
@@ -93,20 +93,20 @@ pull_images() {
 # 启动服务
 start_services() {
     log_info "启动生产环境服务..."
-    
+
     cd "$DEPLOY_DIR"
-    
+
     # 确保中间件已启动
     log_info "检查中间件服务..."
     if ! docker-compose -f docker-compose-middleware.yml ps | grep -q "Up"; then
         log_info "启动中间件..."
         "$DEPLOY_DIR/scripts/start-middleware.sh"
     fi
-    
+
     # 启动生产服务
     log_info "启动生产服务..."
     docker-compose -f docker-compose.prod.yml up -d
-    
+
     log_success "生产环境服务启动完成"
 }
 
@@ -116,17 +116,17 @@ show_info() {
     echo "=========================================="
     echo "  生产环境服务信息"
     echo "=========================================="
-    
+
     # 读取端口配置
     local backend_port=8000
     local frontend_port=3000
-    
+
     if [ -f "$DEPLOY_DIR/.env" ]; then
         source "$DEPLOY_DIR/.env" 2>/dev/null || true
         backend_port=${BACKEND_PORT_HOST:-8000}
         frontend_port=${FRONTEND_PORT_HOST:-3000}
     fi
-    
+
     echo ""
     echo "访问地址:"
     echo "  前端: http://localhost:$frontend_port"
@@ -158,21 +158,20 @@ main() {
     echo "  生产环境启动"
     echo "=========================================="
     echo ""
-    
+
     check_config
     echo ""
-    
+
     pull_images
     echo ""
-    
+
     start_services
     echo ""
-    
+
     show_info
-    
+
     log_success "生产环境已就绪！"
 }
 
 # 运行主函数
 main "$@"
-

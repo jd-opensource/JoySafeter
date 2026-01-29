@@ -112,10 +112,10 @@ const AlertDialogContent = React.forwardRef<
           {...props}
         >
           {/* Top accent gradient bar */}
-          <div 
+          <div
             className={cn(
               'absolute top-0 left-0 right-0 h-1',
-              variant === 'destructive' 
+              variant === 'destructive'
                 ? 'bg-gradient-to-r from-red-500 via-rose-500 to-red-400'
                 : 'bg-gradient-to-r from-[#8e4cfb] via-[#6f3dfa] to-[#33b4ff] dark:from-[#38bdf8] dark:via-[#0ea5e9] dark:to-[#06b6d4]'
             )}
@@ -186,14 +186,14 @@ const AlertDialogAction = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Action>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action>
 >(({ className, ...props }, ref) => (
-  <AlertDialogPrimitive.Action 
-    ref={ref} 
+  <AlertDialogPrimitive.Action
+    ref={ref}
     className={cn(
-      buttonVariants(), 
+      buttonVariants(),
       'min-w-[80px] font-medium shadow-sm transition-all hover:shadow-md',
       className
-    )} 
-    {...props} 
+    )}
+    {...props}
   />
 ))
 AlertDialogAction.displayName = AlertDialogPrimitive.Action.displayName
@@ -205,7 +205,7 @@ const AlertDialogCancel = React.forwardRef<
   <AlertDialogPrimitive.Cancel
     ref={ref}
     className={cn(
-      buttonVariants({ variant: 'outline' }), 
+      buttonVariants({ variant: 'outline' }),
       'min-w-[80px] font-medium border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-600 dark:bg-transparent dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-gray-100',
       className
     )}

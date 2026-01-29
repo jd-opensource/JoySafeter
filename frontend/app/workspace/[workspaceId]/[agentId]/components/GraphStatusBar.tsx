@@ -27,12 +27,12 @@ export const GraphStatusBar: React.FC = () => {
     const now = new Date()
     const diffMs = now.getTime() - published.getTime()
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-    
+
     if (diffDays === 0) {
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
       if (diffHours === 0) {
         const diffMinutes = Math.floor(diffMs / (1000 * 60))
-        return diffMinutes <= 0 
+        return diffMinutes <= 0
           ? t('workspace.justPublished')
           : t('workspace.publishedMinutesAgo', { minutes: diffMinutes })
       }
@@ -45,7 +45,7 @@ export const GraphStatusBar: React.FC = () => {
   const renderSaveStatus = () => {
     // Check if graph is ready for saving
     const isGraphReady = graphId !== null
-    
+
     // Network offline status
     if (lastSaveError === 'offline') {
       return (
@@ -102,7 +102,7 @@ export const GraphStatusBar: React.FC = () => {
         </span>
       )
     }
-    
+
     // Normally display last save time
     if (lastAutoSaveTime) {
       return (
@@ -112,7 +112,7 @@ export const GraphStatusBar: React.FC = () => {
         </span>
       )
     }
-    
+
     return (
       <span className="text-gray-400">{t('workspace.autoSaved')} --:--:--</span>
     )
@@ -134,4 +134,3 @@ export const GraphStatusBar: React.FC = () => {
     </div>
   )
 }
-

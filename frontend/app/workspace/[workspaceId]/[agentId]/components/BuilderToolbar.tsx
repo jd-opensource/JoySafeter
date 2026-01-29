@@ -73,7 +73,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
 
   // Get UI state and operation methods from Zustand store
   const { isDeploying, deploy } = useDeploymentStore()
-  
+
   const { setDeployedAt, toggleGraphSettings, toggleValidationSummary, nodes, edges } = useBuilderStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showDeploymentHistory, setShowDeploymentHistory] = useState(false)
@@ -106,11 +106,11 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
 
     // Pre-deployment validation
     const allErrors: ValidationError[] = []
-    
+
     // 1. Graph structure errors
     const graphErrors = validateGraphConsistency(nodes, edges)
     allErrors.push(...graphErrors)
-    
+
     // 2. Node configuration errors
     nodes.forEach((node) => {
       const nodeType = (node.data as { type?: string })?.type || ''
@@ -124,19 +124,19 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
         })
       })
     })
-    
+
     // 3. DeepAgents structure errors
     const deepAgentsErrors = validateDeepAgentsStructure(nodes, edges)
     deepAgentsErrors.forEach((error) => {
       allErrors.push(error)
     })
-    
+
     const criticalErrors = allErrors.filter((e) => e.severity === 'error')
-    
+
     if (criticalErrors.length > 0) {
       toast({
         title: t('workspace.validationFailed', { defaultValue: 'Validation Failed' }),
-        description: t('workspace.cannotDeployWithErrors', { 
+        description: t('workspace.cannotDeployWithErrors', {
           count: criticalErrors.length,
           defaultValue: `Cannot deploy: ${criticalErrors.length} error(s) found. Please fix them first.`
         }),
@@ -154,7 +154,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
       queryClient.invalidateQueries({ queryKey: graphKeys.deployment(agentId) })
       queryClient.invalidateQueries({ queryKey: graphKeys.versions(agentId) })
       queryClient.invalidateQueries({ queryKey: graphKeys.deployed() })
-      
+
       if (result.message.includes('No changes')) {
         toast({
           title: t('workspace.noChanges'),

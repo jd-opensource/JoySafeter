@@ -81,4 +81,3 @@ export const StringArrayField: React.FC<StringArrayFieldProps> = ({
     </div>
   )
 }
-

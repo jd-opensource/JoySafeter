@@ -43,4 +43,3 @@ tricks:
         -d '{"query": "{ getPrescriptions(userId: 1) { id flag } }"}' \
         http://TARGET/graphql
       # FLAG in prescription flag field
-

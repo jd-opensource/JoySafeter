@@ -73,7 +73,7 @@ Backend will be available at http://localhost:8000
 
 2. **`.env` 文件**: 在 `.env` 中设置 `UV_INDEX_URL` 变量
 
-3. **配置文件**: 
+3. **配置文件**:
    - 编辑 `backend/pyproject.toml` 中的 `[tool.uv]` 部分 (推荐)
    - 编辑 `backend/uv.toml` 中的 `[index]` 部分
 
@@ -345,4 +345,3 @@ Recommended extensions:
 - Check [GitHub Issues](https://github.com/jd-opensource/JoySafeter/issues)
 - Read the [Contributing Guide](CONTRIBUTING.md)
 - Review [API Documentation](http://localhost:8000/docs)
-

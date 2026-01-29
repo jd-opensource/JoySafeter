@@ -45,7 +45,7 @@ const PreviewNode = ({ data }: { data: { type: string; label?: string; config?: 
         position={Position.Left}
         className="!bg-gray-300 !w-1.5 !h-1.5 !-left-[4px] !border-0"
       />
-      
+
       <div className="flex items-center gap-2">
         <div className={cn('p-1 rounded-md shrink-0 border border-black/5', bgClass, colorClass)}>
           <Icon size={12} />
@@ -59,7 +59,7 @@ const PreviewNode = ({ data }: { data: { type: string; label?: string; config?: 
           </div>
         </div>
       </div>
-      
+
       {/* Right output connection point */}
       <Handle
         type="source"
@@ -115,7 +115,7 @@ const PreviewContent: React.FC<{
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
       />
-      
+
       {/* Control buttons */}
       <div className="absolute bottom-2 right-2 flex items-center gap-0.5 bg-white/90 rounded-md shadow-sm border border-gray-200 p-0.5">
         <Button
@@ -159,7 +159,7 @@ export const GraphPreview: React.FC<GraphPreviewProps> = ({
 }) => {
   const nodes: Node[] = useMemo(() => {
     if (!state?.nodes) return []
-    
+
     return state.nodes.map((node) => ({
       id: node.id,
       type: 'custom',
@@ -172,19 +172,19 @@ export const GraphPreview: React.FC<GraphPreviewProps> = ({
 
   const edges: Edge[] = useMemo(() => {
     if (!state?.edges) return []
-    
+
     // Deduplicate: avoid React key conflicts
     const seen = new Set<string>()
     const result: Edge[] = []
-    
+
     for (const edge of state.edges) {
       const id = edge.id || `edge-${edge.source}-${edge.target}`
       // Use source-target combination as unique identifier
       const key = `${edge.source}-${edge.target}`
-      
+
       if (seen.has(key)) continue
       seen.add(key)
-      
+
       result.push({
         id,
         source: edge.source,
@@ -194,14 +194,14 @@ export const GraphPreview: React.FC<GraphPreviewProps> = ({
         style: { stroke: '#cbd5e1', strokeWidth: 1.5 },
       })
     }
-    
+
     return result
   }, [state?.edges])
 
   if (!state || nodes.length === 0) {
     return (
-      <div 
-        style={{ height, width }} 
+      <div
+        style={{ height, width }}
         className={cn(
           'flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50',
           className
@@ -220,4 +220,3 @@ export const GraphPreview: React.FC<GraphPreviewProps> = ({
     </ReactFlowProvider>
   )
 }
-

@@ -218,8 +218,8 @@ export const ExecutionStepCard: React.FC<ExecutionStepCardProps> = ({
             {step.stepType === 'code_agent_observation' && step.content && (
               <div className={cn(
                 "text-[10px] font-mono leading-relaxed border rounded p-2 whitespace-pre-wrap",
-                step.data?.has_error 
-                  ? "text-red-700 bg-red-50 border-red-200" 
+                step.data?.has_error
+                  ? "text-red-700 bg-red-50 border-red-200"
                   : "text-teal-700 bg-teal-50 border-teal-200"
               )}>
                 {step.content}
@@ -317,4 +317,3 @@ export const ExecutionStepCard: React.FC<ExecutionStepCardProps> = ({
     </div>
   )
 }
-

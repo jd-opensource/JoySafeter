@@ -73,7 +73,7 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
       wsRef.current.onmessage = null
       wsRef.current.onclose = null
       wsRef.current.onerror = null
-      
+
       // Close connection if still open or connecting
       if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
         wsRef.current.close()
@@ -143,7 +143,7 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
         }
 
         const noReconnectCodes = [1000, 4001, 4003]
-        
+
         if (autoReconnect && !noReconnectCodes.includes(event.code) && reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current++
           reconnectTimeoutRef.current = setTimeout(() => {
@@ -189,4 +189,3 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
 }
 
 export default useNotificationWebSocket
-

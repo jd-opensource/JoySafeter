@@ -82,10 +82,10 @@ const LanguageBadge: React.FC<{ language: string }> = ({ language }) => {
   )
 }
 
-const CodeViewer: React.FC<CodeViewerProps> = ({ 
-  code, 
-  language, 
-  filename, 
+const CodeViewer: React.FC<CodeViewerProps> = ({
+  code,
+  language,
+  filename,
   className,
   showLineNumbers = true,
   collapsible = false,
@@ -159,7 +159,7 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
 
       {/* Code Content */}
       {!isCollapsed && (
-        <div 
+        <div
           className="overflow-auto"
           style={{ maxHeight }}
         >

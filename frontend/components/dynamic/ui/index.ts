@@ -8,4 +8,3 @@ export { LoadingIndicator } from './LoadingIndicator';
 export { MarkdownContent } from './MarkdownContent';
 export { MessageBubble } from './MessageBubble';
 export { Tooltip } from './Tooltip';
-

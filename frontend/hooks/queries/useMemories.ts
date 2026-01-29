@@ -137,7 +137,7 @@ export function useCreateMemory() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (data: MemoryCreateRequest) => 
+    mutationFn: (data: MemoryCreateRequest) =>
       apiPost<UserMemory>(`${MEMORY_API}/memories`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: memoryKeys.all })
@@ -168,7 +168,7 @@ export function useDeleteMemory() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (memoryId: string) => 
+    mutationFn: (memoryId: string) =>
       apiDelete<void>(`${MEMORY_API}/memories/${memoryId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: memoryKeys.all })
@@ -205,4 +205,3 @@ export function useOptimizeMemories() {
     },
   })
 }
-

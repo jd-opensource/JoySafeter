@@ -65,11 +65,11 @@ class SkillFormatter:
     @staticmethod
     def format_skill_content(skill: Skill, include_file_contents: bool = True) -> str:
         """格式化技能内容为字符串（主要用于 API 响应）"""
-        
+
     @staticmethod
     def format_skill_list(skills: List[Skill]) -> str:
         """格式化技能列表为 Markdown"""
-        
+
     @staticmethod
     def format_skill_structure(skill: Skill) -> str:
         """格式化技能文件结构为树形视图"""
@@ -92,16 +92,16 @@ class SkillFormatter:
 ```python
 class SkillSandboxLoader:
     """加载技能文件到沙箱环境"""
-    
+
     SKILLS_BASE_DIR = "/workspace/skills"
-    
+
     async def load_skill_to_sandbox(
         skill_id: uuid.UUID,
         backend: BackendProtocol,
         user_id: Optional[str] = None
     ) -> bool:
         """加载单个技能到沙箱"""
-    
+
     async def load_skills_to_sandbox(
         skill_ids: list[uuid.UUID],
         backend: BackendProtocol,
@@ -138,7 +138,7 @@ class SkillSandboxLoader:
 ```python
 def parse_skill_md(content: str) -> tuple[dict, str]:
     """解析 SKILL.md，提取 YAML frontmatter 和 Markdown body"""
-    
+
 def generate_skill_md(
     name: str,
     description: str,
@@ -191,16 +191,16 @@ class SkillService(BaseService[Skill]):
         self.repo = SkillRepository(db)
         self.file_repo = SkillFileRepository(db)
         self.formatter = SkillFormatter()  # 使用核心格式化器
-    
+
     async def list_skills(...) -> List[Skill]:
         """获取技能列表（含权限过滤）"""
-    
+
     async def get_skill(...) -> Skill:
         """获取技能详情（含权限检查）"""
-    
+
     async def get_skill_by_name(...) -> Optional[Skill]:
         """根据名称查找技能（不区分大小写）"""
-    
+
     async def format_skill_content(self, skill: Skill) -> str:
         """格式化技能内容（委托给 formatter，主要用于 API）"""
 ```
@@ -225,7 +225,7 @@ class SkillService(BaseService[Skill]):
 class SkillRepository(BaseRepository[Skill]):
     async def list_by_user(...) -> List[Skill]:
         """根据用户和权限查询技能"""
-    
+
     async def get_with_files(self, skill_id: UUID) -> Optional[Skill]:
         """获取技能及其关联文件（使用 selectinload 预加载）"""
 ```
@@ -352,7 +352,7 @@ sequenceDiagram
     Middleware->>Backend: 读取 /workspace/skills/ 目录
     Backend-->>Middleware: 技能列表（name + description）
     Middleware->>Agent: 注入技能描述到系统提示
-    
+
     Agent->>Agent: 根据描述决定需要技能
     Agent->>Filesystem: 读取 /workspace/skills/pdf-skill/SKILL.md
     Filesystem->>Backend: read_file()
@@ -598,9 +598,9 @@ content = read_file("/workspace/skills/pdf-skill/SKILL.md")
 # name: pdf-skill
 # description: 处理 PDF 文件的专业技能
 # ---
-# 
+#
 # # PDF 处理技能
-# 
+#
 # ## 功能
 # - 解析 PDF 内容
 # - 提取文本
@@ -968,7 +968,7 @@ license: MIT
 
 ### Q4: 如何调试技能加载问题？
 
-**A**: 
+**A**:
 1. 检查日志：所有加载操作都会记录详细日志
 2. 检查权限：确保 `user_id` 有权限访问技能
 3. 检查 Backend：确保 Backend 正常工作
@@ -976,7 +976,7 @@ license: MIT
 
 ### Q5: 共享后端和独立后端有什么区别？
 
-**A**: 
+**A**:
 - **共享后端**：DeepAgents 中所有节点共享同一个 Docker 容器，文件持久化，性能更好
 - **独立后端**：每个 Agent 有独立的 Backend，文件隔离，适合多租户场景
 

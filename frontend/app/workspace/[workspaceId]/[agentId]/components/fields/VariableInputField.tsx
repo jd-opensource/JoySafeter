@@ -77,7 +77,7 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
       const newValue = before + variablePath + after
       setLocalValue(newValue)
       setShowVariablePanel(false)
-      
+
       // Set cursor position after inserted variable
       setTimeout(() => {
         textarea.focus()
@@ -136,4 +136,3 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
     </div>
   )
 }
-

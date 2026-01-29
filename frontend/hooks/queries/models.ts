@@ -107,7 +107,7 @@ export function useModelCredential(credentialId: string) {
 }
 
 export function useAvailableModels(
-  modelType: string = 'chat', 
+  modelType: string = 'chat',
   workspaceId?: string,
   options?: { enabled?: boolean }
 ) {
@@ -286,4 +286,3 @@ export function useUpdateModelInstanceDefault() {
     },
   })
 }
-

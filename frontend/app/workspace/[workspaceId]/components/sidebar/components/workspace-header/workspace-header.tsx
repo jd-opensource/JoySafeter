@@ -118,7 +118,7 @@ export function WorkspaceHeader({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [workspaceToDelete, setWorkspaceToDelete] = useState<{ id: string; name: string } | null>(null)
   const menuButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
-  
+
   const searchInputRef = useRef<HTMLInputElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
 
@@ -172,18 +172,18 @@ export function WorkspaceHeader({
       setEditName('')
       return
     }
-    
+
     const trimmedName = editName.trim()
     const currentName = activeWorkspace?.name || ''
     const isDifferent = trimmedName !== currentName
-    
+
     setIsRenaming(false)
     setEditName('')
-    
+
     if (!trimmedName || !isDifferent || !onRenameWorkspace) {
       return
     }
-    
+
     onRenameWorkspace(workspaceId, trimmedName)
   }, [editName, activeWorkspace?.name, activeWorkspace?.type, workspaceId, onRenameWorkspace])
 
@@ -219,14 +219,14 @@ export function WorkspaceHeader({
     const trimmedName = editName.trim()
     const currentName = workspace?.name || ''
     const isDifferent = trimmedName !== currentName
-    
+
     setEditingWorkspaceId(null)
     setEditName('')
-    
+
     if (!trimmedName || !isDifferent || !onRenameWorkspace) {
       return
     }
-    
+
     onRenameWorkspace(wsId, trimmedName)
   }, [editName, onRenameWorkspace, workspaces])
 
@@ -248,10 +248,10 @@ export function WorkspaceHeader({
       setMenuPosition(null)
       return
     }
-    
+
     setShowWorkspaceMenu(null)
     setMenuPosition(null)
-    
+
     if (workspace) {
       setWorkspaceToDelete({ id: wsId, name: workspace.name })
       setDeleteConfirmOpen(true)
@@ -267,7 +267,7 @@ export function WorkspaceHeader({
       setWorkspaceToDelete(null)
       return
     }
-    
+
     try {
       onDeleteWorkspace(workspaceToDelete.id)
       setDeleteConfirmOpen(false)
@@ -288,14 +288,14 @@ export function WorkspaceHeader({
       setMenuPosition(null)
       return
     }
-    
+
     setShowWorkspaceMenu(null)
     setMenuPosition(null)
-    
+
     if (!onDuplicateWorkspace) {
       return
     }
-    
+
     onDuplicateWorkspace(wsId)
   }, [onDuplicateWorkspace, workspaces])
 
@@ -410,8 +410,8 @@ export function WorkspaceHeader({
                       {activeWorkspace ? getWorkspaceDisplayName(activeWorkspace) : t('workspace.workspace')}
                     </h2>
                   </TooltipTrigger>
-                  <TooltipContent 
-                    side='bottom' 
+                  <TooltipContent
+                    side='bottom'
                     sideOffset={4}
                     className='rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg'
                   >
@@ -441,8 +441,8 @@ export function WorkspaceHeader({
                       <Pencil className='h-[12px] w-[12px] text-[var(--text-tertiary)]' />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent 
-                    side='bottom' 
+                  <TooltipContent
+                    side='bottom'
                     sideOffset={4}
                     className='rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg'
                   >
@@ -474,8 +474,8 @@ export function WorkspaceHeader({
                 />
               </button>
             </TooltipTrigger>
-            <TooltipContent 
-              side='bottom' 
+            <TooltipContent
+              side='bottom'
               sideOffset={4}
               className='rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg'
             >
@@ -497,12 +497,12 @@ export function WorkspaceHeader({
                   <PanelLeft className='h-[14px] w-[14px] text-[var(--text-secondary)]' />
                 </button>
               </TooltipTrigger>
-              <TooltipContent 
-                side='bottom' 
+              <TooltipContent
+                side='bottom'
                 sideOffset={4}
                 className='rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg'
               >
-                {isCollapsed 
+                {isCollapsed
                   ? t('workspace.expandSidebar')
                   : t('workspace.collapseSidebar')
                 }
@@ -539,8 +539,8 @@ export function WorkspaceHeader({
                           <Plus className='h-[14px] w-[14px] text-[var(--text-secondary)]' />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent 
-                        side='bottom' 
+                      <TooltipContent
+                        side='bottom'
                         sideOffset={4}
                         className='rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg'
                       >
@@ -653,8 +653,8 @@ export function WorkspaceHeader({
                                     <span className='truncate'>{getWorkspaceDisplayName(workspace)}</span>
                                   </button>
                                 </TooltipTrigger>
-                                <TooltipContent 
-                                  side='right' 
+                                <TooltipContent
+                                  side='right'
                                   sideOffset={8}
                                   className='max-w-[280px] break-words rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] px-[10px] py-[6px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg'
                                 >
@@ -662,7 +662,7 @@ export function WorkspaceHeader({
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
-                            
+
                             <div className='shrink-0 w-[44px] flex justify-center'>
                               {workspace.type === 'personal' ? (
                                 <span className='w-[36px] text-center rounded-[4px] bg-blue-100 dark:bg-blue-900/30 px-[4px] py-[1px] text-[10px] font-medium text-blue-600 dark:text-blue-400'>

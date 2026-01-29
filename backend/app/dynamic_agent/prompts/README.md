@@ -40,4 +40,3 @@ prompts/
 ## 📝 相关文档
 
 - [Pentest 模式提示词问题分析](../../../../docs/backend/agent/prompts/PENTEST_MODE_PROMPT_ISSUE.md)
-

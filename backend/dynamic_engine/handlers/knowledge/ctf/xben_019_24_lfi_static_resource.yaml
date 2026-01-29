@@ -37,4 +37,3 @@ tricks:
     how: "GET request to /resource with filename=flag"
     payload: |
       curl "http://TARGET/resource?filename=flag"
-

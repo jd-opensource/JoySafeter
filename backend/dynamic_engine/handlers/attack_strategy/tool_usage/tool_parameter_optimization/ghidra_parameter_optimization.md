@@ -30,17 +30,17 @@
 def _optimize_ghidra_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Ghidra parameters"""
     params = {"target": profile.target}
-    
+
     if context.get("quick", False):
         params["timeout"] = 120
         params["analysis_type"] = "basic"
     else:
         params["timeout"] = 600
         params["analysis_type"] = "advanced"
-    
+
     binary_name = profile.target.split("/")[-1]
     params["project_name"] = f"ghidra_project_{binary_name}"
-    
+
     return params
 ```
 

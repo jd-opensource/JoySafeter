@@ -20,25 +20,25 @@ interface ModelIOCardProps {
  */
 function formatJsonWithNewlines(data: any): string {
   const jsonString = JSON.stringify(data, null, 2)
-  
+
   return jsonString.replace(
     /("(?:[^"\\]|\\.)*")\s*:\s*"((?:[^"\\]|\\.)*)"/g,
     (match, key, escapedValue) => {
       if (escapedValue.includes('\\n')) {
         try {
           const actualValue = JSON.parse(`"${escapedValue}"`)
-          
+
           if (typeof actualValue === 'string' && actualValue.includes('\n')) {
             const indentMatch = jsonString.substring(0, jsonString.indexOf(match)).match(/(\n\s*)$/)
             const baseIndent = indentMatch ? indentMatch[1].replace('\n', '') : ''
             const valueIndent = baseIndent + '    '
-            
+
             const lines = actualValue.split('\n')
             const formattedLines = lines.map((line, index) => {
               const escapedLine = line.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
               return index === 0 ? escapedLine : `\n${valueIndent}${escapedLine}`
             })
-            
+
             return `${key}: "${formattedLines.join('')}"`
           }
         } catch {
@@ -81,7 +81,7 @@ const DataSection: React.FC<{
           <ChevronDown size={12} className="text-gray-400" />
         )}
       </button>
-      
+
       {!collapsed && (
         <div className="border-t border-gray-200 bg-white">
           <SyntaxHighlighter
@@ -124,18 +124,18 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
 }) => {
   const { t } = useTranslation()
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
-  
+
   const modelData = step.data as any
   const modelName = modelData?.model_name || 'unknown'
   const modelProvider = modelData?.model_provider || 'unknown'
   const messages = modelData?.messages
   const output = modelData?.output
   const usageMetadata = modelData?.usage_metadata
-  
+
   const hasInput = messages && messages.length > 0
   const hasOutput = output !== undefined
   const isRunning = step.status === 'running'
-  
+
   if (!showHeader) {
     // Full screen view in ExecutionPanel
     return (
@@ -156,7 +156,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
               </span>
             )}
           </div>
-          
+
           {/* Input Section */}
           {hasInput && (
             <DataSection
@@ -167,7 +167,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
               bgColor="border-blue-200"
             />
           )}
-          
+
           {/* Output Section */}
           {hasOutput && (
             <DataSection
@@ -178,7 +178,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
               bgColor="border-purple-200"
             />
           )}
-          
+
           {/* No output yet */}
           {!hasOutput && hasInput && (
             <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -190,7 +190,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
       </div>
     )
   }
-  
+
   // Collapsible card view
   return (
     <div className={cn(
@@ -215,7 +215,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
           <span className="text-[10px] text-gray-500 font-mono truncate">
             {modelProvider}/{modelName}
           </span>
-          
+
           {/* Status indicator */}
           <div className="flex items-center gap-1 ml-auto">
             {hasInput && (
@@ -238,7 +238,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
           </div>
         </div>
       </button>
-      
+
       {/* Content */}
       {!isCollapsed && (
         <div className="border-t border-gray-200 bg-white p-3 space-y-2">
@@ -253,7 +253,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
               defaultCollapsed={hasOutput} // Collapse input if output exists
             />
           )}
-          
+
           {/* Output Section */}
           {hasOutput && (
             <DataSection
@@ -264,7 +264,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
               bgColor="border-purple-200"
             />
           )}
-          
+
           {/* Waiting indicator */}
           {!hasOutput && hasInput && (
             <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded">

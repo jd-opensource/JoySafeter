@@ -247,16 +247,16 @@ export default function LoginPage() {
         {
           onError: (ctx: { error: AuthError }) => {
             logger.error('Login error:', ctx.error)
-            
+
             const errorCode = typeof ctx.error.code === 'string' ? ctx.error.code : ''
             const errorMessage = typeof ctx.error.message === 'string' ? ctx.error.message : ''
-            
+
             if (errorCode.includes('EMAIL_NOT_VERIFIED')) {
               return
             }
-            
+
             let displayMessage = t('auth.invalidCredentials')
-            
+
             if (
               errorCode.includes('BAD_REQUEST') ||
               errorMessage.includes('Email and password sign in is not enabled')
@@ -310,14 +310,14 @@ export default function LoginPage() {
           const error = result.error as AuthError
           const errorCode = typeof error.code === 'string' ? error.code : ''
           const errorMsg = typeof error.message === 'string' ? error.message : ''
-          
+
           let displayMessage = t('auth.invalidCredentials')
-          
-          if (errorCode.includes('INVALID_CREDENTIALS') || 
+
+          if (errorCode.includes('INVALID_CREDENTIALS') ||
               errorMsg.includes('invalid password') ||
               errorMsg.includes('Incorrect email or password')) {
             displayMessage = t('auth.invalidCredentials')
-          } else if (errorCode.includes('USER_NOT_FOUND') || 
+          } else if (errorCode.includes('USER_NOT_FOUND') ||
                      errorMsg.includes('not found')) {
             displayMessage = t('auth.userNotFound')
           } else if (errorCode.includes('too many attempts')) {
@@ -331,7 +331,7 @@ export default function LoginPage() {
           } else if (errorMsg) {
             displayMessage = errorMsg
           }
-          
+
           toastError(displayMessage)
         } else {
           toastError(t('auth.invalidCredentials'))
@@ -341,7 +341,7 @@ export default function LoginPage() {
       }
 
       logger.info('Login successful, result data:', result.data)
-      
+
       // Check CSRF token (not HttpOnly, can be read)
       const csrfToken = document.cookie
         .split('; ')
@@ -367,7 +367,7 @@ export default function LoginPage() {
       // Redirect immediately, don't wait for session refresh to complete
       // Cookie has been set by backend, browser will automatically send it in requests after redirect
       logger.info('Login successful, redirecting to:', safeCallbackUrl)
-      
+
       // Use setTimeout to ensure all async operations complete, but don't wait too long
       setTimeout(() => {
         logger.info('Executing redirect to:', safeCallbackUrl)
@@ -419,14 +419,14 @@ export default function LoginPage() {
       })
 
       toastSuccess('Password reset link sent to your email')
-      
+
       setTimeout(() => {
         setForgotPasswordOpen(false)
         setResetStatus({ type: null, message: '' })
       }, 2000)
     } catch (error) {
       logger.error('Error requesting password reset:', { error })
-      
+
       let errorMessage = 'Failed to request password reset'
       if (error instanceof Error) {
         if (error.message.includes('invalid email')) {
@@ -437,7 +437,7 @@ export default function LoginPage() {
           errorMessage = error.message
         }
       }
-      
+
       toastError(errorMessage)
     } finally {
       setIsSubmittingReset(false)

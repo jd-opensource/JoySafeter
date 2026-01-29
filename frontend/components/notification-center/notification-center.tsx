@@ -48,8 +48,8 @@ export function NotificationCenter({ children }: NotificationCenterProps) {
   const { data: invitationsData, isLoading } = useQuery<PaginatedInvitationsResponse>({
     queryKey: ['workspace-invitations', 'all', filter, page, pageSize],
     queryFn: () => {
-      const status = filter === 'pending' ? 'pending' 
-                   : filter === 'processed' ? 'processed' 
+      const status = filter === 'pending' ? 'pending'
+                   : filter === 'processed' ? 'processed'
                    : undefined
       return workspaceService.getAllInvitations({ page, pageSize, status })
     },
@@ -87,12 +87,12 @@ export function NotificationCenter({ children }: NotificationCenterProps) {
       await queryClient.invalidateQueries({ queryKey: ['workspace-invitations'] })
       await queryClient.invalidateQueries({ queryKey: ['workspaces'] })
       await queryClient.invalidateQueries({ queryKey: ['workspace'] })
-      
+
       toast({
         title: t('workspace.invitationAccepted'),
         description: t('workspace.invitationAcceptedDescription', { workspaceName: data.workspace?.name || '' }),
       })
-      
+
       if (data.workspace?.id) {
         router.push(`/workspace/${data.workspace.id}`)
         setOpen(false)
@@ -115,12 +115,12 @@ export function NotificationCenter({ children }: NotificationCenterProps) {
     mutationFn: (invitationId: string) => workspaceService.rejectInvitation(invitationId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['workspace-invitations'] })
-      
+
       toast({
         title: t('workspace.invitationRejected'),
         description: t('workspace.invitationRejectedDescription'),
       })
-      
+
       // Reset to first page
       setPage(1)
     },
@@ -232,7 +232,7 @@ export function NotificationCenter({ children }: NotificationCenterProps) {
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <Bell className="h-12 w-12 text-gray-300 mb-4" />
                   <p className="text-sm text-gray-500">
-                    {filter === 'pending' 
+                    {filter === 'pending'
                       ? t('notifications.noPending')
                       : filter === 'processed'
                       ? t('notifications.noProcessed')
@@ -289,7 +289,7 @@ export function NotificationCenter({ children }: NotificationCenterProps) {
                             </div>
                             {getStatusBadge(invitation)}
                           </div>
-                          
+
                           {invitation.status === 'pending' && !invitation.isExpired && (
                             <div className="flex items-center gap-2 mt-3">
                               <Button
@@ -322,7 +322,7 @@ export function NotificationCenter({ children }: NotificationCenterProps) {
                               </Button>
                             </div>
                           )}
-                          
+
                           <p className="text-xs text-gray-400 mt-2">
                             {new Date(invitation.createdAt).toLocaleString()}
                           </p>
@@ -331,7 +331,7 @@ export function NotificationCenter({ children }: NotificationCenterProps) {
                     </div>
                     ))}
                   </div>
-                  
+
                   {/* Pagination component - display as long as there's data, even if only one page */}
                   {invitationsData && invitationsData.total !== undefined && invitationsData.total > 0 && (
                     <div className="mt-6 pt-4 border-t border-gray-200">
@@ -361,4 +361,3 @@ export function NotificationCenter({ children }: NotificationCenterProps) {
     </Sheet>
   )
 }
-

@@ -54,7 +54,7 @@ Gobuster parameter optimization is essential for:
 def _optimize_gobuster_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Gobuster parameters"""
     params = {"url": profile.target, "mode": "dir"}
-    
+
     # Technology-specific extensions
     if TechnologyStack.PHP in profile.technologies:
         params["additional_args"] = "-x php,html,txt,xml"
@@ -64,13 +64,13 @@ def _optimize_gobuster_params(self, profile: TargetProfile, context: Dict[str, A
         params["additional_args"] = "-x jsp,html,txt,xml"
     else:
         params["additional_args"] = "-x html,php,txt,js"
-    
+
     # Thread adjustment
     if context.get("aggressive", False):
         params["additional_args"] += " -t 50"
     else:
         params["additional_args"] += " -t 20"
-    
+
     return params
 ```
 

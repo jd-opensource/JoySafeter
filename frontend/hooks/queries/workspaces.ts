@@ -125,7 +125,7 @@ export function useCreateWorkspace() {
     },
     onError: (error) => {
       logger.error('Failed to create workspace', { error })
-      
+
       // Show error message to user
       let errorMessage = 'Failed to create workspace'
       if (error instanceof Error) {
@@ -154,7 +154,7 @@ export function useUpdateWorkspace() {
     mutationFn: async (variables: UpdateWorkspaceVariables): Promise<Workspace> => {
       try {
         const response = await apiPut<{ workspace: any }>(
-          `${API_ENDPOINTS.workspaces}/${variables.id}`, 
+          `${API_ENDPOINTS.workspaces}/${variables.id}`,
           variables.updates
         )
         const workspaceData = response.workspace || response
@@ -186,7 +186,7 @@ export function useUpdateWorkspace() {
         queryClient.setQueryData(workspaceKeys.list(), context.previousWorkspaces)
       }
       logger.error('Failed to update workspace', { error })
-      
+
       // Show error message to user
       let errorMessage = 'Failed to update workspace'
       if (error instanceof Error) {
@@ -196,14 +196,14 @@ export function useUpdateWorkspace() {
     },
     onSuccess: (updatedWorkspace, variables) => {
       queryClient.setQueryData(workspaceKeys.detail(variables.id), updatedWorkspace)
-      
+
       queryClient.setQueryData<Workspace[]>(workspaceKeys.list(), (old) => {
         if (!old) return old
         return old.map((ws) =>
           ws.id === variables.id ? updatedWorkspace : ws
         )
       })
-      
+
       toastSuccess(i18n.t('workspace.renameSuccess') || 'Workspace renamed successfully')
     },
   })
@@ -236,7 +236,7 @@ export function useDeleteWorkspace() {
         queryClient.setQueryData(workspaceKeys.list(), context.previousWorkspaces)
       }
       logger.error('Failed to delete workspace', { error, id })
-      
+
       // Show error message to user
       let errorMessage = 'Failed to delete workspace'
       if (error instanceof Error) {
@@ -247,7 +247,7 @@ export function useDeleteWorkspace() {
           errorMessage = i18n.t('workspace.personalSpaceCannotBeDeleted')
         }
       }
-      
+
       toastError(errorMessage)
     },
     onSuccess: (deletedId) => {
@@ -266,7 +266,7 @@ export function useDuplicateWorkspace() {
   return useMutation({
     mutationFn: async (variables: { id: string; name?: string }): Promise<Workspace> => {
       const response = await apiPost<{ workspace: any }>(
-        `${API_ENDPOINTS.workspaces}/${variables.id}/duplicate`, 
+        `${API_ENDPOINTS.workspaces}/${variables.id}/duplicate`,
         { name: variables.name }
       )
       return mapWorkspace(response.workspace)
@@ -280,7 +280,7 @@ export function useDuplicateWorkspace() {
     },
     onError: (error) => {
       logger.error('Failed to duplicate workspace', { error })
-      
+
       // Show error message to user
       let errorMessage = 'Failed to duplicate workspace'
       if (error instanceof Error) {

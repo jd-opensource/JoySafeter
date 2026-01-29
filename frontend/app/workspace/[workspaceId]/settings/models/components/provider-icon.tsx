@@ -12,7 +12,7 @@ interface ProviderIconProps {
 
 export function ProviderIcon({ provider, className = '' }: ProviderIconProps) {
   const { t } = useTranslation()
-  
+
   if (provider.icon) {
     return (
       <img
@@ -34,4 +34,3 @@ export function ProviderIcon({ provider, className = '' }: ProviderIconProps) {
     </div>
   )
 }
-

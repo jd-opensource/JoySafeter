@@ -201,8 +201,8 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
 
   return (
     <Sheet open={true} onOpenChange={(open) => !open && onClose?.()}>
-      <SheetContent 
-        side="left" 
+      <SheetContent
+        side="left"
         className="w-[420px] sm:max-w-[420px] p-0 flex flex-col bg-[var(--surface-2)] border-r border-[var(--border)]"
       >
         {/* Header */}
@@ -440,8 +440,8 @@ const VariableItem: React.FC<VariableItemProps> = ({
             <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
               {variable.name}
             </span>
-            <Badge 
-              variant="outline" 
+            <Badge
+              variant="outline"
               className={cn(
                 "text-[10px] h-5 px-1.5 font-medium border rounded-md flex items-center gap-1",
                 getScopeColor(variable.scope)
@@ -645,4 +645,3 @@ function extractVariablesFromExpression(expression: string): string[] {
 
   return [...new Set(variables)]
 }
-

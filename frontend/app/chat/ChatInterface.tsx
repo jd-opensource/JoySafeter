@@ -139,11 +139,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
     const currentToolCallsCount = allToolCalls.length
     const hasNewToolCalls = currentToolCallsCount > prevToolCallsCountRef.current
-    
+
     if (hasNewToolCalls && currentToolCallsCount > 0 && !toolPanelOpen) {
       setToolPanelOpen(true)
     }
-    
+
     prevToolCallsCountRef.current = currentToolCallsCount
   }, [allToolCalls.length, toolPanelOpen])
 
@@ -160,7 +160,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         page: 1,
         pageSize: 100,
       })
-      
+
       const formattedMessages: Message[] = backendMessages.map((msg) => {
         let toolCalls: ToolCall[] | undefined
         const toolCallsData = msg.metadata?.tool_calls
@@ -308,7 +308,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }))
     }
     const result = await sendMessage(text, messageOpts)
-    
+
     // Update localChatId if a new thread_id was returned from the backend
     if (result?.threadId && result.threadId !== localChatId) {
       setLocalChatId(result.threadId)
@@ -479,8 +479,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 className={cn(
                   'absolute top-4 right-4 bottom-4 bg-white border border-gray-200 shadow-2xl z-20 rounded-2xl overflow-hidden w-[600px]',
                   'transition-all duration-200',
-                  toolPanelOpen 
-                    ? 'translate-x-0 translate-y-0 opacity-100 scale-100' 
+                  toolPanelOpen
+                    ? 'translate-x-0 translate-y-0 opacity-100 scale-100'
                     : 'translate-x-[-80%] translate-y-[30%] opacity-0 scale-[0.2] pointer-events-none'
                 )}
                 style={{

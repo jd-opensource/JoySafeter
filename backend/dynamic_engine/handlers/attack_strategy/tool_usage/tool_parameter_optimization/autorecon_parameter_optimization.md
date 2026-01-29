@@ -31,14 +31,14 @@
 def _optimize_autorecon_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize AutoRecon parameters"""
     params = {"target": profile.target}
-    
+
     if context.get("quick", False):
         params["port_scans"] = "top-100-ports"
         params["timeout"] = 180
     elif context.get("comprehensive", True):
         params["port_scans"] = "top-1000-ports"
         params["timeout"] = 600
-    
+
     params["output_dir"] = f"/tmp/autorecon_{profile.target.replace('.', '_')}"
     return params
 ```

@@ -57,4 +57,3 @@ ENV PYTHONPATH=/usr/local/lib/python3.12/site-packages
 # 运行初始化脚本（默认，可在 docker-compose 中覆盖）
 # 脚本路径相对于 backend 目录（context）
 CMD ["python", "scripts/db/init-db.py"]
-

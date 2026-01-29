@@ -49,12 +49,12 @@ check_config() {
 # 启动服务
 start_services() {
     log_info "启动最小化环境（仅中间件）..."
-    
+
     cd "$DEPLOY_DIR"
-    
+
     # 启动中间件
     "$DEPLOY_DIR/scripts/start-middleware.sh"
-    
+
     log_success "最小化环境启动完成"
 }
 
@@ -64,17 +64,17 @@ show_info() {
     echo "=========================================="
     echo "  最小化环境服务信息"
     echo "=========================================="
-    
+
     # 读取端口配置
     local postgres_port=5432
     local redis_port=6379
-    
+
     if [ -f "$DEPLOY_DIR/.env" ]; then
         source "$DEPLOY_DIR/.env" 2>/dev/null || true
         postgres_port=${POSTGRES_PORT_HOST:-5432}
         redis_port=${REDIS_PORT_HOST:-6379}
     fi
-    
+
     echo ""
     echo "服务信息:"
     echo "  PostgreSQL: localhost:$postgres_port"
@@ -108,16 +108,15 @@ main() {
     echo "  最小化环境启动"
     echo "=========================================="
     echo ""
-    
+
     check_config
-    
+
     start_services
-    
+
     show_info
-    
+
     log_success "最小化环境已就绪！"
 }
 
 # 运行主函数
 main "$@"
-

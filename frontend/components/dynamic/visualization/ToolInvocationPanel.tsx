@@ -15,17 +15,17 @@ interface ToolInvocationPanelProps {
 
 /**
  * ToolInvocationPanel component - displays tool invocations for selected agent
- * 
+ *
  * Props:
  * - agent: Selected agent to display tools for
- * 
+ *
  * Tool Types:
  * - Regular Tool (🔧): Executes specific operations (port scan, service detection, etc.)
  * - Agent Tool (🤖): Decomposes the current task into subtasks and spawns child agents
  *   - Each subtask becomes a child_agent at level+1
  *   - Each child_agent has its own task_description (subtask)
  *   - Each child_agent independently selects tools based on its subtask
- * 
+ *
  * Features:
  * - Lists all tool invocations for the agent
  * - Distinguishes agent_tool (🤖) from regular tools (🔧)
@@ -33,7 +33,7 @@ interface ToolInvocationPanelProps {
  * - Expandable tool details with input/output
  * - Error display for failed tools
  * - Shows count of child agents spawned by each agent_tool
- * 
+ *
  * Example Flow:
  * Level 1 Agent (task: "Scan network")
  * ├─ Tool 1: Get network info (regular)
@@ -42,7 +42,7 @@ interface ToolInvocationPanelProps {
  *    ├─ Subtask 1: "Scan host A" → Level 2 Agent A
  *    ├─ Subtask 2: "Scan host B" → Level 2 Agent B
  *    └─ Subtask 3: "Scan host C" → Level 2 Agent C
- * 
+ *
  * Performance: Memoized to prevent unnecessary re-renders
  */
 export const ToolInvocationPanel: React.FC<ToolInvocationPanelProps> = React.memo(({ agent }) => {
@@ -173,7 +173,7 @@ export const ToolInvocationPanel: React.FC<ToolInvocationPanelProps> = React.mem
             </div>
           );
         })}
-        
+
         {/* Footer */}
         <div className="tool-panel-footer">
           <div className="footer-text">End of tool list</div>

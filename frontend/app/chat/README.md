@@ -176,4 +176,3 @@ onStartChat() (调用父组件回调)
 - 特殊处理器（如 APK）的 metadata 中的 label/description 也是翻译 key
 - 所有模式必须先在 `modeConfig.ts` 中定义，然后才能注册处理器
 - 使用 `modeConfigs` 作为 UI 渲染的数据源，确保一致性
-

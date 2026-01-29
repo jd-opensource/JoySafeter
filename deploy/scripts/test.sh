@@ -48,7 +48,7 @@ FRONTEND_URL=http://localhost:3000
 EOF
         log_success "已创建最小化配置"
     fi
-    
+
     if [ ! -f "$DEPLOY_DIR/../backend/.env" ]; then
         log_warning "backend/.env 文件不存在，使用默认配置"
         if [ -f "$DEPLOY_DIR/../backend/env.example" ]; then
@@ -64,17 +64,17 @@ EOF
 # 启动服务
 start_services() {
     log_info "启动测试环境服务..."
-    
+
     cd "$DEPLOY_DIR"
-    
+
     # 启动中间件
     log_info "启动中间件..."
     "$DEPLOY_DIR/scripts/start-middleware.sh"
-    
+
     # 启动完整服务（使用开发配置，但快速启动）
     log_info "启动测试服务..."
     docker-compose up -d
-    
+
     log_success "测试环境服务启动完成"
 }
 
@@ -84,17 +84,17 @@ show_info() {
     echo "=========================================="
     echo "  测试环境服务信息"
     echo "=========================================="
-    
+
     # 读取端口配置
     local backend_port=8000
     local frontend_port=3000
-    
+
     if [ -f "$DEPLOY_DIR/.env" ]; then
         source "$DEPLOY_DIR/.env" 2>/dev/null || true
         backend_port=${BACKEND_PORT_HOST:-8000}
         frontend_port=${FRONTEND_PORT_HOST:-3000}
     fi
-    
+
     echo ""
     echo "访问地址:"
     echo "  前端: http://localhost:$frontend_port"
@@ -119,16 +119,15 @@ main() {
     echo "  测试环境启动"
     echo "=========================================="
     echo ""
-    
+
     check_config
-    
+
     start_services
-    
+
     show_info
-    
+
     log_success "测试环境已就绪！"
 }
 
 # 运行主函数
 main "$@"
-

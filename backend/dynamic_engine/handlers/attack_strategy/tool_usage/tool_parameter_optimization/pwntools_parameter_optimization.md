@@ -26,7 +26,7 @@
 def _optimize_pwntools_params(self, profile: TargetProfile, context: Dict[str, Any]) -> Dict[str, Any]:
     """Optimize Pwntools parameters"""
     params = {"target": profile.target}
-    
+
     if profile.target_type == TargetType.BINARY_FILE:
         params["exploit_type"] = "local"
         params["binary"] = profile.target
@@ -34,7 +34,7 @@ def _optimize_pwntools_params(self, profile: TargetProfile, context: Dict[str, A
         params["exploit_type"] = "remote"
         params["host"] = profile.target
         params["port"] = context.get("port", 9999)
-    
+
     return params
 ```
 

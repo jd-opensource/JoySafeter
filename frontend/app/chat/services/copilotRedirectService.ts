@@ -1,6 +1,6 @@
 /**
  * Copilot Redirect Service
- * 
+ *
  * Handles automatic redirect to Copilot logic
  * When autoRedirect is enabled, creates a new Graph and redirects to Copilot page
  */
@@ -16,9 +16,9 @@ import type { ModeContext } from './modeHandlers/types'
 class CopilotRedirectService {
   /**
    * Redirect to Copilot
-   * 
+   *
    * Creates a new Graph and redirects to Copilot page
-   * 
+   *
    * @param userInput User input
    * @param context Mode context
    * @returns Redirect path, or null if failed
@@ -77,7 +77,7 @@ class CopilotRedirectService {
 
   /**
    * Execute redirect
-   * 
+   *
    * @param userInput User input
    * @param context Mode context
    * @returns Whether the redirect was successful
@@ -97,4 +97,3 @@ class CopilotRedirectService {
 
 // Export singleton instance
 export const copilotRedirectService = new CopilotRedirectService()
-

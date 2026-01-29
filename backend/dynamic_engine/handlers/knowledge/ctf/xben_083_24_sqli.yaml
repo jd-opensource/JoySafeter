@@ -39,4 +39,3 @@ tricks:
     payload: |
       # Once secret posts are visible, flag should be in content
       # May need to read full post content
-

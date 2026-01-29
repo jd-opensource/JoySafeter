@@ -50,13 +50,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run pre-commit (all files)
-        run: cd backend && uv run pre-commit run --all-files
+        run: cd backend && uv run python -m pre_commit run --all-files
 
   # Backend Tests and Linting
   backend:
     name: Backend CI
     runs-on: ubuntu-latest
-    
+
     services:
       postgres:
         image: postgres:15-alpine
@@ -174,7 +174,7 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -186,4 +186,3 @@ jobs:
           scan-ref: '.'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'  # Don't fail on vulnerabilities for now
-

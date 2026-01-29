@@ -37,4 +37,3 @@ tricks:
     payload: |
       # Decode Flask session, modify role, re-encode
       # Or use session fixation
-

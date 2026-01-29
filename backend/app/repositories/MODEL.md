@@ -283,19 +283,19 @@ class ModelService:
         self.provider_repo = ModelProviderRepository(db)
         self.instance_repo = ModelInstanceRepository(db)
         self.credential_repo = ModelCredentialRepository(db)
-    
+
     async def get_model_info(self, provider_name: str):
         # 获取供应商
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
             return None
-        
+
         # 获取模型实例
         instances = await self.instance_repo.list_all()
-        
+
         # 获取凭据
         credential = await self.credential_repo.get_by_provider(provider.id)
-        
+
         return {
             "provider": provider,
             "instances": instances,
@@ -311,4 +311,3 @@ class ModelService:
 2. 使用 SQLAlchemy 的 `select` 构建查询
 3. 考虑添加适当的索引以优化性能
 4. 在 Service 层使用新方法
-

@@ -54,19 +54,19 @@
 def find_attack_chains(target_software, vulnerabilities, max_depth=3):
     """
     Discover multi-stage attack chains for target software
-    
+
     Args:
         target_software: Target platform/application
         vulnerabilities: List of available vulnerabilities
         max_depth: Maximum chain length
-    
+
     Returns:
         Dictionary with discovered chains and recommendations
     """
-    
+
     # Step 1: Classify vulnerabilities by stage
     classified_vulns = classify_vulnerabilities(vulnerabilities)
-    
+
     # Step 2: Define kill chain sequence
     kill_chain_sequence = [
         "initial_access",       # TA0001
@@ -76,10 +76,10 @@ def find_attack_chains(target_software, vulnerabilities, max_depth=3):
         "lateral_movement",     # TA0008
         "data_exfiltration"     # TA0010
     ]
-    
+
     # Step 3: Build chains starting from initial access
     chains = []
-    
+
     for initial_vuln in classified_vulns.get("initial_access", [])[:5]:  # Limit for performance
         chain = {
             "chain_id": f"chain_{len(chains) + 1}",
@@ -97,15 +97,15 @@ def find_attack_chains(target_software, vulnerabilities, max_depth=3):
             "overall_probability": calculate_stage_probability(initial_vuln),
             "complexity": "LOW"
         }
-        
+
         # Step 4: Extend chain with subsequent stages
         current_probability = chain["overall_probability"]
-        
+
         for stage_idx, stage_name in enumerate(kill_chain_sequence[1:max_depth], start=2):
             if stage_name in classified_vulns and classified_vulns[stage_name]:
                 next_vuln = select_best_vulnerability(classified_vulns[stage_name])
                 stage_prob = calculate_stage_probability(next_vuln)
-                
+
                 chain["stages"].append({
                     "stage": stage_idx,
                     "tactic": stage_name.replace("_", " ").title(),
@@ -114,20 +114,20 @@ def find_attack_chains(target_software, vulnerabilities, max_depth=3):
                     "success_probability": stage_prob,
                     "techniques": get_mitre_techniques(stage_name)
                 })
-                
+
                 current_probability *= stage_prob
                 chain["overall_probability"] = current_probability
-        
+
         # Step 5: Calculate complexity
         chain["complexity"] = calculate_complexity(chain)
-        
+
         # Only include chains with minimum viable length
         if len(chain["stages"]) >= 2:
             chains.append(chain)
-    
+
     # Step 6: Rank chains
     chains.sort(key=lambda x: x["overall_probability"], reverse=True)
-    
+
     return {
         "success": True,
         "target_software": target_software,
@@ -145,16 +145,16 @@ def calculate_stage_probability(vulnerability):
         "MEDIUM": 0.60,
         "LOW": 0.35
     }
-    
+
     base_prob = exploitability_map.get(vulnerability.get("exploitability", "MEDIUM"), 0.60)
-    
+
     # Adjust based on CVSS score
     cvss_score = vulnerability.get("cvss_score", 5.0)
     if cvss_score >= 9.0:
         base_prob *= 1.1  # Critical vulnerabilities slightly easier
     elif cvss_score < 4.0:
         base_prob *= 0.8  # Low severity harder to exploit
-    
+
     return min(base_prob, 0.95)  # Cap at 95%
 
 
@@ -162,7 +162,7 @@ def calculate_complexity(chain):
     """Determine attack chain complexity"""
     num_stages = len(chain["stages"])
     avg_probability = chain["overall_probability"] ** (1/num_stages)
-    
+
     if num_stages <= 2 and avg_probability > 0.7:
         return "LOW"
     elif num_stages <= 3 and avg_probability > 0.5:
@@ -313,17 +313,17 @@ result = find_attack_chains(target, vulnerabilities, max_depth=4)
 def prioritize_defenses(attack_chains):
     """
     Prioritize defensive controls based on attack chain analysis
-    
+
     Strategy: Break chains at stages with highest impact/cost ratio
     """
-    
+
     # Calculate impact of patching each vulnerability
     vuln_impact = {}
-    
+
     for chain in attack_chains:
         for stage in chain["stages"]:
             cve_id = stage["vulnerability"]["cve_id"]
-            
+
             if cve_id not in vuln_impact:
                 vuln_impact[cve_id] = {
                     "chains_broken": 0,
@@ -331,17 +331,17 @@ def prioritize_defenses(attack_chains):
                     "stage": stage["tactic"],
                     "cvss": stage["vulnerability"]["cvss_score"]
                 }
-            
+
             vuln_impact[cve_id]["chains_broken"] += 1
             vuln_impact[cve_id]["total_probability_reduced"] += chain["overall_probability"]
-    
+
     # Rank by impact
     ranked_vulns = sorted(
         vuln_impact.items(),
         key=lambda x: (x[1]["chains_broken"], x[1]["total_probability_reduced"]),
         reverse=True
     )
-    
+
     return {
         "priority_1_critical": [v[0] for v in ranked_vulns[:3]],
         "priority_2_high": [v[0] for v in ranked_vulns[3:6]],
@@ -391,7 +391,7 @@ chain_probability = 0.85 * 0.30 * 0.80 = 0.204  # 50% risk reduction
 
 **Splunk - Sequential Attack Stage Detection**
 ```spl
-index=security_events 
+index=security_events
 | eval stage=case(
     match(event_type, "exploit|rce|injection"), "initial_access",
     match(event_type, "privilege_escalation|sudo|kernel"), "privilege_escalation",
@@ -436,7 +436,7 @@ level: high
 def detect_attack_chain(events, time_window_hours=4):
     """Correlate events to detect multi-stage attacks"""
     from datetime import datetime, timedelta
-    
+
     # Group events by source IP
     events_by_ip = {}
     for event in events:
@@ -444,21 +444,21 @@ def detect_attack_chain(events, time_window_hours=4):
         if ip not in events_by_ip:
             events_by_ip[ip] = []
         events_by_ip[ip].append(event)
-    
+
     # Detect chains
     detected_chains = []
-    
+
     for ip, ip_events in events_by_ip.items():
         # Sort by timestamp
         ip_events.sort(key=lambda x: x['timestamp'])
-        
+
         # Look for stage progression
         stages_seen = []
         chain_start = None
-        
+
         for event in ip_events:
             stage = classify_event_stage(event)
-            
+
             if stage == "initial_access" and not chain_start:
                 chain_start = event['timestamp']
                 stages_seen = [stage]
@@ -467,7 +467,7 @@ def detect_attack_chain(events, time_window_hours=4):
                 if time_diff <= timedelta(hours=time_window_hours):
                     if stage not in stages_seen:
                         stages_seen.append(stage)
-        
+
         # Alert if multi-stage chain detected
         if len(stages_seen) >= 3:
             detected_chains.append({
@@ -476,7 +476,7 @@ def detect_attack_chain(events, time_window_hours=4):
                 "duration": time_diff,
                 "severity": "HIGH"
             })
-    
+
     return detected_chains
 ```
 
@@ -557,9 +557,9 @@ controls:
 # Patching strategy based on chain impact
 def calculate_patching_impact(chains, vulnerability_to_patch):
     """Calculate risk reduction from patching a vulnerability"""
-    
+
     total_risk_before = sum(chain["overall_probability"] for chain in chains)
-    
+
     # Remove chains that use this vulnerability
     remaining_chains = [
         chain for chain in chains
@@ -568,12 +568,12 @@ def calculate_patching_impact(chains, vulnerability_to_patch):
             for stage in chain["stages"]
         )
     ]
-    
+
     total_risk_after = sum(chain["overall_probability"] for chain in remaining_chains)
-    
+
     risk_reduction = total_risk_before - total_risk_after
     risk_reduction_percent = (risk_reduction / total_risk_before) * 100
-    
+
     return {
         "vulnerability": vulnerability_to_patch,
         "chains_broken": len(chains) - len(remaining_chains),
@@ -605,10 +605,10 @@ def find_attack_chains(self, target_software, max_depth=3):
     try:
         chains = []
         base_software = target_software.lower()
-        
+
         # Find initial access vulnerabilities
         initial_vulns = self._find_vulnerabilities_by_pattern(base_software, "remote_execution")
-        
+
         for initial_vuln in initial_vulns[:3]:
             chain = {
                 "chain_id": f"chain_{len(chains) + 1}",
@@ -624,7 +624,7 @@ def find_attack_chains(self, target_software, max_depth=3):
                 "overall_probability": 0.75,
                 "complexity": "MEDIUM"
             }
-            
+
             # Find privilege escalation
             priv_esc_vulns = self._find_vulnerabilities_by_pattern(base_software, "privilege_escalation")
             if priv_esc_vulns:
@@ -635,9 +635,9 @@ def find_attack_chains(self, target_software, max_depth=3):
                     "success_probability": 0.60
                 })
                 chain["overall_probability"] *= 0.60
-            
+
             chains.append(chain)
-        
+
         return {
             "success": True,
             "target_software": target_software,
@@ -670,7 +670,7 @@ def _generate_chain_recommendations(self, chains):
     """Generate recommendations for attack chains"""
     if not chains:
         return "No viable attack chains found for target"
-    
+
     recommendations = [
         f"Found {len(chains)} potential attack chains",
         f"Highest probability chain: {max(chains, key=lambda x: x['overall_probability'])['overall_probability']:.2%}",
@@ -679,7 +679,7 @@ def _generate_chain_recommendations(self, chains):
         "- Prepare fallback methods for each stage",
         "- Consider detection evasion at each stage"
     ]
-    
+
     return "\n".join(recommendations)
 ```
 

@@ -76,11 +76,11 @@ def _build_conditional_edges_for_loop(self, ...):
             edge_data = edge.data or {}
             route_key = edge_data.get("route_key", "default")
             edge_type = edge_data.get("edge_type", "normal")
-            
+
             # 验证：continue_loop 边应该是 loop_back 类型
             if route_key == "continue_loop" and edge_type not in ["loop_back", "conditional", "normal"]:
                 logger.warning(...)
-            
+
             # 映射 continue_loop 和 exit_loop
             if route_key in ["continue_loop", "exit_loop"]:
                 conditional_map[route_key] = target_name
@@ -93,15 +93,15 @@ def _build_conditional_edges_for_loop(self, ...):
 ```python
 def _identify_loop_bodies(self) -> Dict[str, str]:
     """识别循环体节点。
-    
+
     通过分析图结构，找到所有循环条件节点的 continue_loop 边指向的节点。
     """
     loop_bodies = {}
-    
+
     for loop_node in self.nodes:
         if self._get_node_type(loop_node) == "loop_condition_node":
             loop_node_name = self._get_node_name(loop_node)
-            
+
             # 找到 continue_loop 边指向的节点（循环体）
             for edge in self.edges:
                 if edge.source_node_id == loop_node.id:
@@ -111,7 +111,7 @@ def _identify_loop_bodies(self) -> Dict[str, str]:
                         if target_node:
                             target_node_name = self._get_node_name(target_node)
                             loop_bodies[target_node_name] = loop_node_name
-    
+
     return loop_bodies
 ```
 
@@ -273,4 +273,3 @@ LoopBack 边是循环工作流的重要组成部分，用于：
 3. **用户体验**：自动检测和手动设置相结合，提供灵活的工作流构建方式
 
 现在，LoopBack 边的数据可以正确保存到数据库，并在加载时正确恢复，确保循环工作流的完整性和一致性。
-

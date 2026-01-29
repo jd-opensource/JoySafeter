@@ -163,7 +163,7 @@ export const useExecutionStore = create<ExecutionState>()(
         updateExecution: (execution: ExecutionTree) => {
           // Update execution data without resetting UI state (for polling)
           const state = get();
-          
+
           set(() => ({
             execution,
             timeline: generateTimeline(execution),
@@ -189,7 +189,7 @@ export const useExecutionStore = create<ExecutionState>()(
         },
 
         selectAgent: (agentId: string | null) => {
-          set({ 
+          set({
             selectedAgentId: agentId,
             selectedToolId: null,
             selectedItemType: agentId ? 'agent' : null
@@ -197,7 +197,7 @@ export const useExecutionStore = create<ExecutionState>()(
         },
 
         selectTool: (toolId: string | null) => {
-          set({ 
+          set({
             selectedToolId: toolId,
             selectedAgentId: null,
             selectedItemType: toolId ? 'tool' : null
@@ -224,13 +224,13 @@ export const useExecutionStore = create<ExecutionState>()(
           set((state) => {
             const newExpanded = new Set(state.expandedToolIds);
             const wasExpanded = newExpanded.has(toolId);
-            
+
             if (wasExpanded) {
               newExpanded.delete(toolId);
             } else {
               newExpanded.add(toolId);
             }
-            
+
             return { expandedToolIds: newExpanded };
           });
         },

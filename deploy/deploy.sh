@@ -1,7 +1,7 @@
 #!/bin/bash
 # JoySafeter - 镜像构建和推送脚本
 # 支持：构建多架构镜像、推送镜像、拉取镜像
-# 
+#
 # 所有 Dockerfile 统一位于 deploy/docker/ 目录
 
 set -e
@@ -120,7 +120,7 @@ show_usage() {
 
   # 构建所有镜像（包括 init）
   $0 build --all
-  
+
   # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
   # 使用 pull 命令拉取 MCP 镜像
 
@@ -168,13 +168,13 @@ check_docker_running() {
 init_buildx() {
     if [ "$USE_BUILDX" = true ]; then
         log_info "检查 Docker Buildx..."
-        
+
         if ! docker buildx version &> /dev/null; then
             log_warning "Docker Buildx 不可用，回退到传统构建方式"
             USE_BUILDX=false
             return
         fi
-        
+
         if ! docker buildx ls | grep -q "multiarch"; then
             log_info "创建 multiarch builder..."
             docker buildx create --name multiarch --driver docker-container --use 2>/dev/null || \
@@ -183,7 +183,7 @@ init_buildx() {
             log_info "使用现有的 multiarch builder"
             docker buildx use multiarch 2>/dev/null || true
         fi
-        
+
         docker buildx inspect --bootstrap &> /dev/null || true
     fi
 }
@@ -213,19 +213,19 @@ build_image() {
     local dockerfile=$2
     local context=$3
     local image_name=$4
-    
+
     log_info "构建 $service 镜像: $image_name"
     log_info "目标平台: $PLATFORMS"
     log_info "Dockerfile: $dockerfile"
     log_info "Context: $context"
-    
+
     # 构建参数
     local build_args=()
     if [ -n "$BASE_IMAGE_REGISTRY" ]; then
         build_args+=("--build-arg" "BASE_IMAGE_REGISTRY=$BASE_IMAGE_REGISTRY")
         log_info "使用基础镜像源: $BASE_IMAGE_REGISTRY"
     fi
-    
+
     # 添加 pip/uv 镜像源参数
     if [ -n "$PIP_INDEX_URL" ]; then
         build_args+=("--build-arg" "PIP_INDEX_URL=$PIP_INDEX_URL")
@@ -233,7 +233,7 @@ build_image() {
     if [ -n "$UV_INDEX_URL" ]; then
         build_args+=("--build-arg" "UV_INDEX_URL=$UV_INDEX_URL")
     fi
-    
+
     # 前端镜像需要传递 NEXT_PUBLIC_API_URL
     if [ "$service" = "前端" ]; then
         if [ -n "$FRONTEND_API_URL" ]; then
@@ -241,7 +241,7 @@ build_image() {
             log_info "前端API地址: $FRONTEND_API_URL"
         fi
     fi
-    
+
     if [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ]; then
         if [ "$NO_CACHE" = true ]; then
             log_info "使用 Docker Buildx 构建多架构镜像并推送（无缓存）..."
@@ -304,7 +304,7 @@ build_image() {
             -t "$image_name" \
             "$context"
     fi
-    
+
     log_success "$service 镜像构建完成: $image_name"
 }
 
@@ -313,7 +313,7 @@ build_all_images() {
     local BUILD_BACKEND=${BUILD_BACKEND:-true}
     local BUILD_FRONTEND=${BUILD_FRONTEND:-true}
     local BUILD_INIT=${BUILD_INIT:-false}
-    
+
     # 检查是否只构建特定服务
     if [ "$BACKEND_ONLY" = true ]; then
         BUILD_FRONTEND=false
@@ -330,10 +330,10 @@ build_all_images() {
         BUILD_FRONTEND=true
         BUILD_INIT=true
     fi
-    
+
     # 规范化镜像仓库地址
     NORMALIZED_REGISTRY=$(normalize_registry "$REGISTRY")
-    
+
     # 构建镜像名称
     if [ -n "$NORMALIZED_REGISTRY" ]; then
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
@@ -346,19 +346,19 @@ build_all_images() {
         MCP_FULL_IMAGE="${MCP_IMAGE}:${TAG}"
         INIT_FULL_IMAGE="${INIT_IMAGE}:${TAG}"
     fi
-    
+
     # 初始化 Buildx（如果需要）
     if [ "$USE_BUILDX" = true ]; then
         init_buildx
         echo ""
     fi
-    
+
     # 如果使用 Buildx 且需要推送，必须指定仓库
     if [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ] && [ -z "$REGISTRY" ]; then
         log_error "使用 Buildx 构建多架构镜像并推送时，必须指定镜像仓库（--registry）"
         exit 1
     fi
-    
+
     # 构建后端镜像
     if [ "$BUILD_BACKEND" = true ]; then
         build_image "后端" \
@@ -367,7 +367,7 @@ build_all_images() {
             "$BACKEND_FULL_IMAGE"
         echo ""
     fi
-    
+
     # 构建前端镜像
     if [ "$BUILD_FRONTEND" = true ]; then
         build_image "前端" \
@@ -376,10 +376,10 @@ build_all_images() {
             "$FRONTEND_FULL_IMAGE"
         echo ""
     fi
-    
+
     # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
     # 如需拉取 MCP 镜像，请使用 pull 命令
-    
+
     # 构建初始化镜像
     if [ "$BUILD_INIT" = true ]; then
         build_image "初始化" \
@@ -388,7 +388,7 @@ build_all_images() {
             "$INIT_FULL_IMAGE"
         echo ""
     fi
-    
+
     log_success "所有镜像构建完成！"
     echo ""
     echo "📦 镜像信息:"
@@ -399,7 +399,7 @@ build_all_images() {
     echo ""
     echo "🏗️  构建平台: $PLATFORMS"
     echo ""
-    
+
     if [ "$PUSH" = true ]; then
         log_success "镜像已推送到仓库"
     else
@@ -413,7 +413,7 @@ build_all_images() {
 # 拉取镜像
 pull_images() {
     local NORMALIZED_REGISTRY=$(normalize_registry "$REGISTRY")
-    
+
     if [ -n "$NORMALIZED_REGISTRY" ]; then
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
@@ -423,7 +423,7 @@ pull_images() {
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
         MCP_FULL_IMAGE="${MCP_IMAGE}:${TAG}"
     fi
-    
+
     log_info "拉取后端镜像: $BACKEND_FULL_IMAGE"
     if docker pull "$BACKEND_FULL_IMAGE"; then
         log_success "后端镜像拉取成功"
@@ -431,7 +431,7 @@ pull_images() {
         log_error "后端镜像拉取失败"
         exit 1
     fi
-    
+
     log_info "拉取前端镜像: $FRONTEND_FULL_IMAGE"
     if docker pull "$FRONTEND_FULL_IMAGE"; then
         log_success "前端镜像拉取成功"
@@ -439,7 +439,7 @@ pull_images() {
         log_error "前端镜像拉取失败"
         exit 1
     fi
-    
+
     log_info "拉取 MCP 服务镜像: $MCP_FULL_IMAGE"
     if docker pull "$MCP_FULL_IMAGE"; then
         log_success "MCP 服务镜像拉取成功"
@@ -447,7 +447,7 @@ pull_images() {
         log_error "MCP 服务镜像拉取失败"
         exit 1
     fi
-    
+
     log_success "所有镜像拉取完成！"
     echo ""
     echo "📦 镜像信息:"
@@ -464,7 +464,7 @@ main() {
     local INIT_ONLY=false
     local BUILD_ALL=false
     local ARCH_LIST=()
-    
+
     # 解析参数
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -568,13 +568,13 @@ main() {
                 ;;
         esac
     done
-    
+
     # 如果没有指定命令，显示帮助
     if [ -z "$COMMAND" ]; then
         show_usage
         exit 0
     fi
-    
+
     echo "=========================================="
     echo "  JoySafeter - 镜像管理"
     echo "=========================================="
@@ -590,14 +590,14 @@ main() {
         log_info "pip 镜像源: $PIP_INDEX_URL"
     fi
     echo ""
-    
+
     # 检查前置条件
     log_info "检查前置条件..."
     check_command docker || exit 1
     check_docker_running
     log_success "前置条件检查通过"
     echo ""
-    
+
     # 处理简化架构参数
     if [ ${#ARCH_LIST[@]} -gt 0 ]; then
         local platforms_list=()
@@ -607,7 +607,7 @@ main() {
         PLATFORMS=$(IFS=','; echo "${platforms_list[*]}")
         log_info "架构选项转换为: $PLATFORMS"
     fi
-    
+
     # 执行命令
     case "$COMMAND" in
         build)

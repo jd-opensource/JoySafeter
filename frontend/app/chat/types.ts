@@ -66,4 +66,3 @@ export interface ChatMessage {
 }
 
 export type ViewMode = 'chat' | 'builder'
-

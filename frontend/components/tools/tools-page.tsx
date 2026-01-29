@@ -67,8 +67,8 @@ export const ToolsPage: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full bg-white">
-            <AddMcpDialog 
-                open={showAddMcp || !!editingServer} 
+            <AddMcpDialog
+                open={showAddMcp || !!editingServer}
                 onOpenChange={(open) => {
                     if (!open) {
                         setShowAddMcp(false);
@@ -79,13 +79,13 @@ export const ToolsPage: React.FC = () => {
                 }}
                 editingServer={editingServer}
             />
-            
+
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white">
                 <div>
                     <h2 className="text-lg font-bold text-gray-900">{t('settings.toolsAndMcpTitle')}</h2>
                     <p className="text-xs text-gray-500 mt-1">{t('settings.toolsAndMcpDescription')}</p>
                 </div>
-                <Button 
+                <Button
                     onClick={() => setShowAddMcp(true)}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-100 shadow-lg gap-2 text-xs h-9"
                 >
@@ -165,4 +165,3 @@ export const ToolsPage: React.FC = () => {
         </div>
     );
 };
-
