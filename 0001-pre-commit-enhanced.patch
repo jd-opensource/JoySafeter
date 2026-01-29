@@ -1,0 +1,540 @@
+From a2dd8d3b985975eeacd127b741b53dbf9c377470 Mon Sep 17 00:00:00 2001
+From: bjyuzhenjiang <yuzhenjiang1@jd.com>
+Date: Thu, 29 Jan 2026 15:37:10 +0800
+Subject: [PATCH] pre-commit enhanced
+
+---
+ .github/workflows/ci.yml    | 41 ++++++++++++++++++++++++++
+ .pre-commit-setup.md        | 54 +++++++++++++++++----------------
+ CONTRIBUTING.md             | 24 +++++----------
+ DEVELOPMENT.md              | 41 ++++++++++++++------------
+ backend/uv.lock             | 13 ++++++++
+ scripts/run-backend-ci.sh   | 39 ++++++++++++++++++++++++
+ scripts/setup-pre-commit.sh | 54 +++++++++++++++++++++++++++++++++
+ scripts/test-pre-commit.sh  | 59 -------------------------------------
+ 8 files changed, 205 insertions(+), 120 deletions(-)
+ create mode 100755 scripts/run-backend-ci.sh
+ create mode 100755 scripts/setup-pre-commit.sh
+ delete mode 100755 scripts/test-pre-commit.sh
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1df6f69..f86500c 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -11,6 +11,47 @@ env:
+   NODE_VERSION: "20"
+ 
+ jobs:
++  # Pre-commit: 强制校验（与本地 hook 一致，失败则 CI 失败）
++  pre-commit:
++    name: Pre-commit
++    runs-on: ubuntu-latest
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++
++      - name: Install uv
++        uses: astral-sh/setup-uv@v4
++        with:
++          version: "latest"
++
++      - name: Set up Python
++        uses: actions/setup-python@v5
++        with:
++          python-version: ${{ env.PYTHON_VERSION }}
++
++      - name: Install backend dependencies
++        working-directory: backend
++        run: |
++          uv venv
++          uv sync --dev
++
++      - name: Setup Node.js
++        uses: actions/setup-node@v4
++        with:
++          node-version: ${{ env.NODE_VERSION }}
++
++      - name: Install pnpm
++        uses: pnpm/action-setup@v4
++        with:
++          version: 9
++
++      - name: Install frontend dependencies
++        working-directory: frontend
++        run: pnpm install --frozen-lockfile
++
++      - name: Run pre-commit (all files)
++        run: cd backend && uv run pre-commit run --all-files
++
+   # Backend Tests and Linting
+   backend:
+     name: Backend CI
+diff --git a/.pre-commit-setup.md b/.pre-commit-setup.md
+index a944adc..9df7824 100644
+--- a/.pre-commit-setup.md
++++ b/.pre-commit-setup.md
+@@ -23,34 +23,33 @@
+ 
+ ## 安装步骤
+ 
+-### 1. 安装 pre-commit
++pre-commit 与后端 UV 环境绑定，**不推荐**全局安装 pre-commit。请使用项目提供的脚本一键安装。
+ 
+-```bash
+-# 使用 pip
+-pip install pre-commit
++### 1. 安装 uv（若尚未安装）
+ 
+-# 或使用 uv (推荐)
+-uv pip install pre-commit
++```bash
++curl -LsSf https://astral.sh/uv/install.sh | sh
+ ```
+ 
+-### 2. 安装 Git Hooks
++### 2. 在仓库根目录执行安装脚本
+ 
+ ```bash
+ # 在项目根目录执行
+-pre-commit install
++./scripts/setup-pre-commit.sh
++# 或: bash scripts/setup-pre-commit.sh
+ ```
+ 
+-这会安装 pre-commit hooks 到 `.git/hooks/pre-commit`。
++该脚本会：在 backend 中执行 `uv sync --dev`（安装 pre-commit 等 dev 依赖）、`uv run pre-commit install --install-hooks`（安装 Git hooks，hook 将使用 backend 的 venv）。
+ 
+ ### 3. 验证安装
+ 
+ ```bash
+-# 运行所有 hooks 检查所有文件
+-pre-commit run --all-files
++# 使用后端 UV 环境运行所有 hooks 检查所有文件
++cd backend && uv run pre-commit run --all-files
+ 
+ # 或只运行特定 hook
+-pre-commit run backend-ruff-check --all-files
+-pre-commit run frontend-lint --all-files
++cd backend && uv run pre-commit run backend-ruff-check --all-files
++cd backend && uv run pre-commit run frontend-lint --all-files
+ ```
+ 
+ ## 使用说明
+@@ -82,10 +81,10 @@ git commit --no-verify -m "emergency fix"
+ ### 手动运行检查
+ 
+ ```bash
+-# 检查所有文件
+-pre-commit run --all-files
++# 检查所有文件（使用后端 UV 环境）
++cd backend && uv run pre-commit run --all-files
+ 
+-# 检查暂存的文件
++# 检查暂存的文件（在仓库根目录，需已通过 setup-pre-commit.sh 安装 hook）
+ pre-commit run
+ 
+ # 检查特定 hook
+@@ -125,11 +124,11 @@ pre-commit run frontend-lint --all-files
+ ## 更新 Hooks
+ 
+ ```bash
+-# 更新 hooks 到最新版本
+-pre-commit autoupdate
++# 更新 hooks 到最新版本（使用后端 UV 环境）
++cd backend && uv run pre-commit autoupdate
+ 
+ # 然后重新安装
+-pre-commit install
++cd backend && uv run pre-commit install
+ ```
+ 
+ ## 配置说明
+@@ -143,7 +142,7 @@ pre-commit install
+ 
+ ## 最佳实践
+ 
+-1. **提交前运行检查**：在提交前运行 `pre-commit run --all-files` 确保所有检查通过
++1. **提交前运行检查**：在提交前运行 `cd backend && uv run pre-commit run --all-files` 确保所有检查通过
+ 2. **修复自动修复的问题**：Ruff 会自动修复一些问题，记得重新添加修复后的文件
+ 3. **不要跳过 hooks**：除非是真正的紧急情况
+ 4. **保持 hooks 更新**：定期运行 `pre-commit autoupdate` 更新 hooks
+@@ -151,18 +150,21 @@ pre-commit install
+ ## 相关命令
+ 
+ ```bash
+-# 安装 hooks
+-pre-commit install
++# 安装 hooks（推荐使用脚本）
++./scripts/setup-pre-commit.sh
++
++# 或仅安装 hooks（需已在 backend 中 uv sync --dev）
++cd backend && uv run pre-commit install
+ 
+ # 卸载 hooks
+-pre-commit uninstall
++cd backend && uv run pre-commit uninstall
+ 
+ # 运行所有检查
+-pre-commit run --all-files
++cd backend && uv run pre-commit run --all-files
+ 
+ # 更新 hooks
+-pre-commit autoupdate
++cd backend && uv run pre-commit autoupdate
+ 
+ # 清理缓存
+-pre-commit clean
++cd backend && uv run pre-commit clean
+ ```
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index 03126b7..2e26a35 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -136,32 +136,24 @@ Unsure where to begin? Look for issues labeled:
+    cd frontend && pnpm run lint
+    ```
+ 
+-6. **Set up Pre-commit Hooks (推荐)**:
++6. **Set up Pre-commit Hooks（必须）**:
+    
+-   项目配置了 pre-commit hooks，会在提交前自动运行代码检查。强烈建议安装：
++   项目配置了 pre-commit hooks，提交前会自动运行代码检查。**必须**在仓库根目录执行以下脚本（依赖后端 UV 环境）：
+    
+    ```bash
+-   # 安装 pre-commit
+-   pip install pre-commit
+-   # 或使用 uv
+-   uv pip install pre-commit
+-   
+-   # 安装 Git hooks
+-   pre-commit install
+-   
+-   # 验证配置
+-   pre-commit validate-config
+-   
+-   # 测试运行（检查所有文件）
+-   pre-commit run --all-files
++   # 在仓库根目录执行（需已安装 uv）
++   ./scripts/setup-pre-commit.sh
++   # 或: bash scripts/setup-pre-commit.sh
+    ```
+    
++   该脚本会使用 backend 的 UV 环境安装 pre-commit 依赖并安装 Git hooks，无需单独执行 `pip install pre-commit`。
++   
+    安装后，每次 `git commit` 时会自动：
+    - 运行后端 Ruff 检查（`uv run ruff check .`）
+    - 运行前端 ESLint 检查（`pnpm run lint`）
+    - 运行其他代码质量检查
+    
+-   如果检查失败，提交会被阻止，需要先修复错误。
++   如果检查失败，提交会被阻止，需要先修复错误。未安装 hooks 或跳过提交时，CI 也会运行相同校验，不通过则 PR 无法合并。
+    
+    更多信息请参考 [Development Guide - Pre-commit Hooks](DEVELOPMENT.md#using-pre-commit-hooks)。
+ 
+diff --git a/DEVELOPMENT.md b/DEVELOPMENT.md
+index 220a798..c68822f 100644
+--- a/DEVELOPMENT.md
++++ b/DEVELOPMENT.md
+@@ -12,6 +12,17 @@ This document provides detailed instructions for setting up and running the JoyS
+ 
+ ## Quick Start
+ 
++### 0. Install Pre-commit Hooks（必须）
++
++在提交代码前，**必须**在仓库根目录执行以下脚本，将 pre-commit 与后端 UV 环境绑定并安装 Git hooks：
++
++```bash
++# 在仓库根目录执行（需已安装 uv）
++./scripts/setup-pre-commit.sh
++```
++
++执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：`cd backend && uv run pre-commit run --all-files`。
++
+ ### 1. Start Database Services
+ 
+ Using Docker (recommended):
+@@ -123,26 +134,18 @@ npm run type-check  # TypeScript
+ 
+ ### Using Pre-commit Hooks
+ 
+-项目使用 pre-commit hooks 来确保代码质量。在提交代码之前，会自动运行代码检查。
++项目使用 pre-commit hooks 来确保代码质量。在提交代码之前，会自动运行代码检查。pre-commit 与后端 UV 环境绑定，请通过 Quick Start 中的 **安装 Pre-commit Hooks（必须）** 步骤完成安装。
+ 
+ #### 安装 Pre-commit Hooks
+ 
+-```bash
+-# 1. 安装 pre-commit
+-pip install pre-commit
+-# 或使用 uv
+-uv pip install pre-commit
+-
+-# 2. 安装 Git hooks
+-pre-commit install
+-
+-# 3. 验证配置
+-pre-commit validate-config
++在仓库根目录执行（需已安装 uv）：
+ 
+-# 4. 测试运行（可选）
+-pre-commit run --all-files
++```bash
++./scripts/setup-pre-commit.sh
+ ```
+ 
++该脚本会执行：`cd backend && uv sync --dev`、`uv run pre-commit install --install-hooks` 等，无需单独安装全局 pre-commit。
++
+ #### 检查内容
+ 
+ **后端检查：**
+@@ -181,10 +184,10 @@ git commit -m "your message"
+ **手动运行检查：**
+ 
+ ```bash
+-# 检查所有文件
+-pre-commit run --all-files
++# 检查所有文件（使用后端 UV 环境）
++cd backend && uv run pre-commit run --all-files
+ 
+-# 检查暂存的文件
++# 检查暂存的文件（在仓库根目录，需已通过上述脚本安装 hook）
+ pre-commit run
+ 
+ # 检查特定 hook
+@@ -228,10 +231,10 @@ git commit --no-verify -m "emergency fix"
+ 
+ ```bash
+ # 更新 hooks 到最新版本
+-pre-commit autoupdate
++cd backend && uv run pre-commit autoupdate
+ 
+ # 然后重新安装
+-pre-commit install
++cd backend && uv run pre-commit install
+ ```
+ 
+ 更多详细信息请参考 [Pre-commit Setup Guide](.pre-commit-setup.md)。
+diff --git a/backend/uv.lock b/backend/uv.lock
+index 9879f5d..5dfa17b 100644
+--- a/backend/uv.lock
++++ b/backend/uv.lock
+@@ -1624,6 +1624,7 @@ dev = [
+     { name = "pytest-asyncio" },
+     { name = "pytest-cov" },
+     { name = "ruff" },
++    { name = "types-pyyaml" },
+ ]
+ 
+ [package.dev-dependencies]
+@@ -1632,6 +1633,7 @@ dev = [
+     { name = "pytest" },
+     { name = "pytest-asyncio" },
+     { name = "ruff" },
++    { name = "types-pyyaml" },
+ ]
+ 
+ [package.metadata]
+@@ -1692,6 +1694,7 @@ requires-dist = [
+     { name = "sse-starlette", specifier = ">=2.0.0" },
+     { name = "tavily-python", specifier = ">=0.3.0" },
+     { name = "tenacity", specifier = ">=9.0.0" },
++    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
+ ]
+ provides-extras = ["dev"]
+@@ -1702,6 +1705,7 @@ dev = [
+     { name = "pytest", specifier = ">=8.0.0" },
+     { name = "pytest-asyncio", specifier = ">=0.24.0" },
+     { name = "ruff", specifier = ">=0.8.0" },
++    { name = "types-pyyaml", specifier = ">=6.0.0" },
+ ]
+ 
+ [[package]]
+@@ -4252,6 +4256,15 @@ wheels = [
+     { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/e1/e4/5ebc1899d31d2b1601b32d21cfb4bba022ae6fce323d365f0448031b1660/typer-0.21.0-py3-none-any.whl", hash = "sha256:c79c01ca6b30af9fd48284058a7056ba0d3bf5cf10d0ff3d0c5b11b68c258ac6", size = 47109, upload-time = "2025-12-25T09:54:51.918Z" },
+ ]
+ 
++[[package]]
++name = "types-pyyaml"
++version = "6.0.12.20250915"
++source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple" }
++sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/7e/69/3c51b36d04da19b92f9e815be12753125bd8bc247ba0470a982e6979e71c/types_pyyaml-6.0.12.20250915.tar.gz", hash = "sha256:0f8b54a528c303f0e6f7165687dd33fafa81c807fcac23f632b63aa624ced1d3", size = 17522, upload-time = "2025-09-15T03:01:00.728Z" }
++wheels = [
++    { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/bd/e0/1eed384f02555dde685fff1a1ac805c1c7dcb6dd019c916fe659b1c1f9ec/types_pyyaml-6.0.12.20250915-py3-none-any.whl", hash = "sha256:e7d4d9e064e89a3b3cae120b4990cd370874d2bf12fa5f46c97018dd5d3c9ab6", size = 20338, upload-time = "2025-09-15T03:00:59.218Z" },
++]
++
+ [[package]]
+ name = "typing-extensions"
+ version = "4.15.0"
+diff --git a/scripts/run-backend-ci.sh b/scripts/run-backend-ci.sh
+new file mode 100755
+index 0000000..aab54c7
+--- /dev/null
++++ b/scripts/run-backend-ci.sh
+@@ -0,0 +1,39 @@
++#!/usr/bin/env bash
++# 本地复现 GitHub Actions Backend CI 全流程
++# 用法: ./scripts/run-backend-ci.sh  或  bash scripts/run-backend-ci.sh
++
++set -e
++
++BACKEND_DIR="$(cd "$(dirname "$0")/../backend" && pwd)"
++cd "$BACKEND_DIR"
++
++echo "=============================================="
++echo "  Backend CI（与 .github/workflows/ci.yml 一致）"
++echo "  工作目录: $BACKEND_DIR"
++echo "=============================================="
++echo ""
++
++# 1. 安装依赖（CI 使用 uv venv + uv sync --dev）
++echo ">>> 1. Install dependencies (uv venv, uv sync --dev)"
++uv venv
++uv sync --dev
++echo ""
++
++# 2. Ruff 检查
++echo ">>> 2. Run Ruff linting (uv run ruff check --output-format=github .)"
++uv run ruff check --output-format=github .
++echo ""
++
++# 3. Ruff 格式检查
++echo ">>> 3. Run Ruff formatting check (uv run ruff format --check .)"
++uv run ruff format --check .
++echo ""
++
++# 4. 类型检查
++echo ">>> 4. Run type checking with mypy (uv run mypy app --ignore-missing-imports)"
++uv run mypy app --ignore-missing-imports
++echo ""
++
++echo "=============================================="
++echo "  ✅ Backend CI 全部通过"
++echo "=============================================="
+diff --git a/scripts/setup-pre-commit.sh b/scripts/setup-pre-commit.sh
+new file mode 100755
+index 0000000..5958f60
+--- /dev/null
++++ b/scripts/setup-pre-commit.sh
+@@ -0,0 +1,54 @@
++#!/bin/bash
++# 安装并配置 pre-commit hooks（与后端 UV 环境绑定）
++# 在仓库根目录执行：./scripts/setup-pre-commit.sh
++
++set -e
++
++REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++cd "$REPO_ROOT"
++
++echo "🔍 配置 Pre-commit Hooks（使用后端 UV 环境）..."
++echo ""
++
++# 前置条件：必须已安装 uv
++if ! command -v uv &> /dev/null; then
++    echo "❌ 未检测到 uv"
++    echo "请先安装 uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
++    exit 1
++fi
++
++echo "✅ uv 已安装"
++echo ""
++
++# 使用 backend 的 UV 环境安装依赖（含 pre-commit）
++echo "📦 安装后端开发依赖（含 pre-commit）..."
++if ! (cd backend && uv sync --dev); then
++    echo "❌ 后端依赖安装失败"
++    exit 1
++fi
++echo "✅ 后端依赖已安装"
++echo ""
++
++# 验证 pre-commit 配置
++echo "📋 验证 pre-commit 配置..."
++if ! (cd backend && uv run pre-commit validate-config 2>&1); then
++    echo "❌ 配置文件无效"
++    exit 1
++fi
++echo "✅ 配置文件有效"
++echo ""
++
++# 安装 Git hooks（hook 将使用 backend 的 venv 中的 pre-commit）
++echo "📝 安装 Pre-commit Hooks..."
++if ! (cd backend && uv run pre-commit install --install-hooks); then
++    echo "❌ 安装 Git hooks 失败"
++    exit 1
++fi
++echo "✅ Pre-commit hooks 已安装"
++echo ""
++
++echo "✨ 完成！"
++echo ""
++echo "pre-commit 已与后端 UV 环境绑定，每次 git commit 将自动运行代码校验。"
++echo "手动全量检查: cd backend && uv run pre-commit run --all-files"
++echo ""
+diff --git a/scripts/test-pre-commit.sh b/scripts/test-pre-commit.sh
+deleted file mode 100755
+index 79c13ce..0000000
+--- a/scripts/test-pre-commit.sh
++++ /dev/null
+@@ -1,59 +0,0 @@
+-#!/bin/bash
+-# 测试 pre-commit hooks 的脚本
+-
+-set -e
+-
+-echo "🔍 测试 Pre-commit Hooks 配置..."
+-echo ""
+-
+-# 检查 pre-commit 是否安装
+-if ! command -v pre-commit &> /dev/null; then
+-    echo "❌ pre-commit 未安装"
+-    echo "请运行: pip install pre-commit 或 uv pip install pre-commit"
+-    exit 1
+-fi
+-
+-echo "✅ pre-commit 已安装"
+-echo ""
+-
+-# 验证配置文件
+-echo "📋 验证配置文件..."
+-if pre-commit validate-config 2>&1; then
+-    echo "✅ 配置文件有效"
+-else
+-    echo "❌ 配置文件无效"
+-    exit 1
+-fi
+-
+-echo ""
+-echo "🧪 测试后端 Ruff Check..."
+-if cd backend && uv run ruff check . > /dev/null 2>&1; then
+-    echo "✅ 后端 Ruff Check 通过"
+-else
+-    echo "⚠️  后端 Ruff Check 有错误（这是正常的，如果有未修复的问题）"
+-fi
+-cd ..
+-
+-echo ""
+-echo "🧪 测试前端 ESLint..."
+-if cd frontend && pnpm run lint > /dev/null 2>&1; then
+-    echo "✅ 前端 ESLint 通过"
+-else
+-    echo "⚠️  前端 ESLint 有错误（这是正常的，如果有未修复的问题）"
+-fi
+-cd ..
+-
+-echo ""
+-echo "📝 安装 Pre-commit Hooks..."
+-if pre-commit install; then
+-    echo "✅ Pre-commit hooks 已安装"
+-else
+-    echo "❌ 安装失败"
+-    exit 1
+-fi
+-
+-echo ""
+-echo "✨ 完成！"
+-echo ""
+-echo "现在当你执行 git commit 时，会自动运行代码检查。"
+-echo "手动运行所有检查: pre-commit run --all-files"
+-- 
+2.39.2 (Apple Git-143)
+

@@ -12,6 +12,17 @@ This document provides detailed instructions for setting up and running the JoyS
 
 ## Quick Start
 
+### 0. Install Pre-commit Hooks（必须）
+
+在提交代码前，**必须**在仓库根目录执行以下脚本，将 pre-commit 与后端 UV 环境绑定并安装 Git hooks：
+
+```bash
+# 在仓库根目录执行（需已安装 uv）
+./scripts/setup-pre-commit.sh
+```
+
+执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：`cd backend && uv run pre-commit run --all-files`。
+
 ### 1. Start Database Services
 
 Using Docker (recommended):
@@ -123,25 +134,17 @@ npm run type-check  # TypeScript
 
 ### Using Pre-commit Hooks
 
-项目使用 pre-commit hooks 来确保代码质量。在提交代码之前，会自动运行代码检查。
+项目使用 pre-commit hooks 来确保代码质量。在提交代码之前，会自动运行代码检查。pre-commit 与后端 UV 环境绑定，请通过 Quick Start 中的 **安装 Pre-commit Hooks（必须）** 步骤完成安装。
 
 #### 安装 Pre-commit Hooks
 
+在仓库根目录执行（需已安装 uv）：
+
 ```bash
-# 1. 安装 pre-commit
-pip install pre-commit
-# 或使用 uv
-uv pip install pre-commit
-
-# 2. 安装 Git hooks
-pre-commit install
-
-# 3. 验证配置
-pre-commit validate-config
-
-# 4. 测试运行（可选）
-pre-commit run --all-files
+./scripts/setup-pre-commit.sh
 ```
+
+该脚本会执行：`cd backend && uv sync --dev`、`uv run pre-commit install --install-hooks` 等，无需单独安装全局 pre-commit。
 
 #### 检查内容
 
@@ -181,10 +184,10 @@ git commit -m "your message"
 **手动运行检查：**
 
 ```bash
-# 检查所有文件
-pre-commit run --all-files
+# 检查所有文件（使用后端 UV 环境）
+cd backend && uv run pre-commit run --all-files
 
-# 检查暂存的文件
+# 检查暂存的文件（在仓库根目录，需已通过上述脚本安装 hook）
 pre-commit run
 
 # 检查特定 hook
@@ -228,10 +231,10 @@ git commit --no-verify -m "emergency fix"
 
 ```bash
 # 更新 hooks 到最新版本
-pre-commit autoupdate
+cd backend && uv run pre-commit autoupdate
 
 # 然后重新安装
-pre-commit install
+cd backend && uv run pre-commit install
 ```
 
 更多详细信息请参考 [Pre-commit Setup Guide](.pre-commit-setup.md)。
