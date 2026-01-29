@@ -76,12 +76,12 @@ class ContextManager:
         """Get session context."""
 
         # Load from persistence
-        context = await self.backend.load_context(session_id)
+        context: Optional[SessionContext] = await self.backend.load_context(session_id)  # type: ignore[assignment]
         if context:
             async with self._lock:
                 self._active_contexts[session_id] = context
 
-        return context  # type: ignore[return-value]
+        return context
 
     async def update_session(self, context: SessionContext):
         """Update session context."""
@@ -105,7 +105,7 @@ class ContextManager:
 
         # Explicitly save to DB first to get ID
         logger.debug("Calling backend.add_message...")
-        message_id = await self.backend.add_message(session_id, role, content, metadata)
+        message_id: int = await self.backend.add_message(session_id, role, content, metadata)
         logger.debug(f"backend.add_message returned ID: {message_id}")
 
         message = {
@@ -124,7 +124,7 @@ class ContextManager:
         await self.update_session(context)
         logger.debug("Session updated successfully")
 
-        return message_id  # type: ignore[return-value]
+        return message_id
 
     # todo delete
     async def add_message_will_delete(
@@ -159,7 +159,7 @@ class ContextManager:
 
         # Explicitly save to DB first to get ID
         logger.debug("Calling backend.add_message...")
-        message_id = await self.backend.add_message(session_id, role, content, metadata)
+        message_id: int = await self.backend.add_message(session_id, role, content, metadata)
         logger.debug(f"backend.add_message returned ID: {message_id}")
 
         message = {
@@ -186,7 +186,7 @@ class ContextManager:
         await self.update_session(context)
         logger.debug("Session updated successfully")
 
-        return message_id  # type: ignore[return-value]
+        return message_id
 
     async def get_conversation_history(self, session_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get conversation history."""
@@ -206,8 +206,26 @@ class ContextManager:
         if not context:
             raise ValueError(f"Session {session_id} not found")
 
-        context.container_id = container_id
-        context.working_directory = working_directory
+        # Update container_info if it exists, otherwise create a new one
+        if context.container_info:
+            context.container_info.container_id = container_id
+            context.container_info.working_directory = working_directory
+        else:
+            # Create a minimal ContainerBindingInfo
+            from app.dynamic_agent.storage.container.binding import ContainerBindingInfo
+
+            context.container_info = ContainerBindingInfo(
+                container_id=container_id,
+                container_name="",
+                binding_id="",
+                docker_api=None,
+                mcp_api=None,
+                reused=False,
+                status="active",
+                image="",
+                command="",
+                working_directory=working_directory,
+            )
         await self.update_session(context)
 
     async def identify_scenario(self, session_id: str, user_message: str) -> str:
@@ -255,7 +273,7 @@ class ContextManager:
         if not context:
             return None
 
-        return context  # type: ignore[return-value].target_info.get(target)
+        return context.target_info.get(target)  # type: ignore[return-value]
 
     async def clear_session(self, session_id: str):
         """Clear session from memory (but keep in persistence)."""

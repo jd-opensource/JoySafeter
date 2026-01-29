@@ -138,7 +138,7 @@ class AnthropicProvider:
             raise Exception("Request aborted")
 
         response = await self.client.messages.create(**params)
-        return response
+        return response  # type: ignore[no-any-return]
 
     def _format_system_prompt(self, parts: List[str]) -> List[Dict[str, Any]]:
         """Format system prompt with caching."""
@@ -153,16 +153,15 @@ class AnthropicProvider:
 
     def _format_messages(self, messages: List[MessageParam]) -> List[Dict[str, Any]]:
         """Format messages for API."""
-        result = []
+        result: List[Dict[str, Any]] = []
         for msg in messages:
             content = msg.content
             if isinstance(content, str):
                 result.append({"role": msg.role.value, "content": content})
             else:
-                # List of content blocks
-                result.append(
-                    {"role": msg.role.value, "content": [self._format_content_block(block) for block in content]}
-                )
+                # List of content blocks - Anthropic API accepts list of content blocks
+                formatted_blocks = [self._format_content_block(block) for block in content]
+                result.append({"role": msg.role.value, "content": formatted_blocks})
         return result
 
     def _format_content_block(self, block: Any) -> Dict[str, Any]:
@@ -191,8 +190,10 @@ class AnthropicProvider:
 
     def _convert_response(self, response: Message, duration_ms: int, model: str) -> AssistantMessage:
         """Convert Anthropic response to our format."""
-        # Convert content blocks
-        content = []
+        from typing import Union
+
+        # Convert content blocks - AssistantMessage.content is List[Union[TextBlock, ToolUseBlock, ThinkingBlock]]
+        content: List[Union[TextBlock, ToolUseBlock, ThinkingBlock]] = []
         for block in response.content:
             if isinstance(block, AnthropicTextBlock):
                 content.append(TextBlock(text=block.text))

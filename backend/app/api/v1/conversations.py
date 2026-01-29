@@ -723,7 +723,9 @@ async def get_checkpoints(
     except Exception as e:
         logger.error(f"Get checkpoints error: {e}")
         raise_internal_error(str(e))
-        return BaseResponse(success=False, code=500, msg=str(e), data=CheckpointResponse(thread_id=thread_id, checkpoints=[]))  # type: ignore[unreachable]
+        return BaseResponse(
+            success=False, code=500, msg=str(e), data=CheckpointResponse(thread_id=thread_id, checkpoints=[])
+        )  # type: ignore[unreachable]
 
 
 async def get_graph_instance(

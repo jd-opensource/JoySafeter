@@ -8,11 +8,11 @@ including initial plan generation and dynamic plan updates.
 """
 
 from collections.abc import Callable
-from typing import Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 
 from loguru import logger
 
@@ -448,7 +448,7 @@ class PlanningEngine:
 
         if self.llm_call is None:
             raise ValueError("llm_call is not set")
-        
+
         result = self.llm_call(prompt)
 
         if asyncio.iscoroutine(result):

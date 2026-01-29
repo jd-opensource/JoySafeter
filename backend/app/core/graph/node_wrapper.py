@@ -9,7 +9,7 @@ Automatically handles:
 - Command object support (optional)
 """
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
 
@@ -210,7 +210,6 @@ class NodeExecutionWrapper:
 
             # 如果是并行节点，也要填充 task_results
             if self.metadata.get("is_parallel_node"):
-                from typing import Dict, List
                 task_results_list: List[Dict[str, str]] = [
                     {
                         "status": "error",

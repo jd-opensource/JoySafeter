@@ -13,7 +13,7 @@ import json
 import re
 import time
 from datetime import datetime
-from typing import Any, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -199,10 +199,12 @@ async def _try_run_with_tools(llm: BaseChatModel, task_text: str, tools: List[An
 
         llm = create_llm_instance()
         llm.bind(parallel_tool_calls=False)
-        app = create_agent(llm, [t for t in tools if t], system_prompt=system_prompt)
-        app = app.bind(llm={"parallel_tool_calls": False})
+        from typing import Any as AnyType
 
-        metadata = MetadataContext.get()
+        app: AnyType = create_agent(llm, [t for t in tools if t], system_prompt=system_prompt)
+        app = app.bind(llm={"parallel_tool_calls": False})  # type: ignore[assignment]
+
+        metadata = MetadataContext.get() or {}
         from app.dynamic_agent.observability.langfuse import callbacks
 
         # Get tracking handler from parent metadata (singleton handler)
@@ -212,7 +214,7 @@ async def _try_run_with_tools(llm: BaseChatModel, task_text: str, tools: List[An
 
         # Sub-Agent recursion limit: 64 steps max (about 32 tool calls)
         # Prompt encourages stopping earlier, this is a hard safety limit
-        final_state = await app.ainvoke(
+        final_state = await app.ainvoke(  # type: ignore[arg-type]
             initial_state,
             config={
                 "callbacks": callback_list,
@@ -222,12 +224,28 @@ async def _try_run_with_tools(llm: BaseChatModel, task_text: str, tools: List[An
         )
 
         # Extract final response
-        messages = final_state["messages"]
+        messages = final_state.get("messages", [])  # type: ignore[union-attr]
         if messages:
             last_message = messages[-1]
             if isinstance(last_message, AIMessage):
-                return last_message.content
-            return str(last_message.content if hasattr(last_message, "content") else last_message)
+                content = last_message.content
+                # Handle content that might be str or list
+                if isinstance(content, str):
+                    return content
+                elif isinstance(content, list):
+                    return str(content)
+                else:
+                    return str(content)
+            content_val = getattr(last_message, "content", None) if hasattr(last_message, "content") else None
+            # Handle content that might be str, list, or None
+            if content_val is None:
+                return str(last_message)
+            elif isinstance(content_val, str):
+                return content_val
+            elif isinstance(content_val, list):
+                return str(content_val)
+            else:
+                return str(content_val)
 
         return "No response generated"
     except Exception as e:
@@ -260,7 +278,14 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
         name_prompt = f"Provide a 3-5 word title for this task: {task_detail[:200]}"
         temp_llm.bind(parallel_tool_calls=False)
         name_response = temp_llm.invoke([HumanMessage(content=name_prompt)], config={"callbacks": []})
-        name = name_response.content.strip()[:50]
+        content = name_response.content
+        # Handle content that might be str or list
+        if isinstance(content, str):
+            name = content.strip()[:50]
+        elif isinstance(content, list):
+            name = str(content)[:50]
+        else:
+            name = str(content)[:50]
     except Exception as e:
         logger.warning(f"Failed to generate name using LLM: {e}, using truncated task_detail")
         name = task_detail[:50]
@@ -281,7 +306,7 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
     current_step_id = parent_metadata.get("current_step_id") if parent_metadata else None
 
     subtask_id = None
-    subtask_metadata = None
+    subtask_metadata: Optional[Dict[str, Any]] = None
 
     if parent_task_id:
         from app.dynamic_agent.agent_core.task_manager import TaskManager
@@ -290,9 +315,13 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
 
         try:
             # Get task manager and create subtask
-            task_manager = TaskManager(TaskDAO(get_storage_manager().backend.pool))
+            storage_manager = get_storage_manager()
+            pool = storage_manager.backend.pool if storage_manager.backend else None
+            if pool is None:
+                raise RuntimeError("Storage backend pool is not available")
+            task_manager = TaskManager(TaskDAO(pool))
 
-            session_id = parent_metadata.get("langfuse_session_id", "default_session")
+            session_id = (parent_metadata or {}).get("langfuse_session_id", "default_session")
             subtask_id, _ = await task_manager.create_task(
                 session_id=session_id,
                 user_input=task_detail,
@@ -304,7 +333,7 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
             logger.info(f"Created subtask {subtask_id} for agent '{name}' (parent: {parent_task_id})")
 
             # Create independent metadata copy for this subtask
-            subtask_metadata = dict(parent_metadata)  # Copy parent metadata
+            subtask_metadata = dict(parent_metadata or {})  # Copy parent metadata
             subtask_metadata["task_id"] = subtask_id  # Set current task ID
             # Note: Tracking handler is singleton (inherited from parent), uses task_id from MetadataContext
 
@@ -323,13 +352,14 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
 
     # is_ctf = parent_metadata.get('is_ctf', False) or detect_scene(task_detail) == SceneType.CTF
     is_ctf = mode == "ctf"
+    # Initialize tool_instances before if/else branches
+    tool_instances: List[Any] = []
     if is_ctf:
         # CTF Mode: Use CTF_PRESET_TOOLS directly (skip dynamic selection entirely)
         from app.dynamic_agent.core.constants import CTF_PRESET_TOOLS
         from app.dynamic_agent.tools.builtin.think_tool.think_tool import think_tool
         from app.dynamic_agent.tools.builtin.todo_tool import TODO_TOOLS
 
-        tool_instances = []
         # Debug: check what tools are available in registry
         all_tools = list(tool_registry._tools_obj.keys())
         logger.debug(f"🔍 Tool registry has {len(all_tools)} tools: {all_tools[:10]}...")
@@ -360,7 +390,8 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
         logger.debug(f"🚩 CTF sub-agent using preset tools: {[t.name for t in tool_instances]}")
     else:
         select_agent: DynamicToolSelectionAgent = create_select_agent(temp_llm, base_tools_for_selection, verbose=DEBUG)
-        result = await select_agent.arun([{"role": "user", "content": task_detail}], MetadataContext.get())
+        metadata_context = MetadataContext.get() or {}
+        result = await select_agent.arun([{"role": "user", "content": task_detail}], metadata_context)
 
         initial_tools = result.get("output", "")
 
@@ -374,12 +405,16 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
             raise Exception("Failed to create sub-agent, please retry later")
 
         # todo multi mcp server
-        tool_instances = [
-            tool_registry.get_tool(f"{conf.NAME}{MCP_TOOL_JOINER}{tool_name}") for tool_name in initial_tools
-        ]
+        selected_tool_instances: List[Any] = []
+        for tool_name in initial_tools:
+            tool = tool_registry.get_tool(f"{conf.NAME}{MCP_TOOL_JOINER}{tool_name}")
+            if tool is not None:
+                selected_tool_instances.append(tool)
         for item in base_tools:
-            if item not in tool_instances:
-                tool_instances.append(item)
+            if item not in selected_tool_instances:
+                selected_tool_instances.append(item)
+        # Assign to tool_instances (already initialized before if/else)
+        tool_instances[:] = selected_tool_instances
 
         from ... import check_iterations, final_response
 
@@ -415,12 +450,15 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
                 from app.dynamic_agent.storage import get_storage_manager
                 from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
 
-                tm = TaskManager(TaskDAO(get_storage_manager().backend.pool))
+                storage_manager = get_storage_manager()
+                pool = storage_manager.backend.pool if storage_manager.backend else None
+                if pool is not None:
+                    tm = TaskManager(TaskDAO(pool))
 
-                # Update subtask metadata with tools information
-                await tm.update_task_metadata(
-                    task_id=subtask_id, metadata_updates={"tools": tool_list, "tools_count": len(tool_list)}
-                )
+                    # Update subtask metadata with tools information
+                    await tm.update_task_metadata(
+                        task_id=subtask_id, metadata_updates={"tools": tool_list, "tools_count": len(tool_list)}
+                    )
                 logger.info(f"Updated subtask {subtask_id} metadata with {len(tool_list)} tools")
             except Exception as e:
                 logger.warning(f"Failed to update subtask metadata with tools list: {e}")
@@ -441,12 +479,13 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
                     from app.dynamic_agent.storage.models import TaskStatus
 
                     storage = get_storage_manager()
-                    await storage.backend.task_dao.update_task(
-                        task_id=subtask_id,
-                        status=TaskStatus.COMPLETED,
-                        completed_at=datetime.utcnow(),
-                        result_summary=output[:500] if output else None,  # Store first 500 chars
-                    )
+                    if storage.backend and storage.backend.task_dao:
+                        await storage.backend.task_dao.update_task(
+                            task_id=subtask_id,
+                            status=TaskStatus.COMPLETED,
+                            completed_at=datetime.utcnow(),
+                            result_summary=output[:500] if output else None,  # Store first 500 chars
+                        )
                     logger.debug(f"Subtask {subtask_id} marked as COMPLETED")
                 except Exception as e:
                     logger.error(f"Failed to update subtask status: {e}", exc_info=True)
@@ -472,12 +511,13 @@ async def _process_one(task_detail: str, level: int, llm: BaseChatModel) -> Agen
                 from app.dynamic_agent.storage.models import TaskStatus
 
                 storage = get_storage_manager()
-                await storage.backend.task_dao.update_task(
-                    task_id=subtask_id,
-                    status=TaskStatus.FAILED,
-                    completed_at=datetime.utcnow(),
-                    result_summary=str(e)[:500],
-                )
+                if storage.backend and storage.backend.task_dao:
+                    await storage.backend.task_dao.update_task(
+                        task_id=subtask_id,
+                        status=TaskStatus.FAILED,
+                        completed_at=datetime.utcnow(),
+                        result_summary=str(e)[:500],
+                    )
                 logger.debug(f"Subtask {subtask_id} marked as FAILED")
             except Exception as update_err:
                 logger.error(f"Failed to update subtask status: {update_err}", exc_info=True)

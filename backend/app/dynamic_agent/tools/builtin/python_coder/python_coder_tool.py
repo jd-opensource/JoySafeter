@@ -143,7 +143,9 @@ def _generate_code(task_description: str) -> str:
     """
     prompt = CODE_GENERATION_PROMPT.format(task_description=task_description)
     response = get_default_llm().invoke([HumanMessage(content=prompt)])
-    return _clean_code(response.content)
+    # Extract content as string - response.content may be str or list
+    content_str = response.content if isinstance(response.content, str) else str(response.content)
+    return _clean_code(content_str)
 
 
 def _execute_code(code: str) -> dict:
@@ -202,7 +204,9 @@ def _fix_code(code: str, error_info: dict) -> str:
         line_info=line_info,
     )
     response = get_default_llm().invoke([HumanMessage(content=prompt)])
-    return _clean_code(response.content)
+    # Extract content as string - response.content may be str or list
+    content_str = response.content if isinstance(response.content, str) else str(response.content)
+    return _clean_code(content_str)
 
 
 def _check_repeated_errors(error_history: List[str], max_same: int = MAX_SAME_ERRORS) -> bool:

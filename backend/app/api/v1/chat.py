@@ -331,7 +331,9 @@ async def stop_chat(
         cancelled = await task_manager.cancel_task(thread_id)
 
     status = "stopped" if stopped else "not_running"
-    return BaseResponse(success=True, code=200, msg="Task status retrieved", data={"status": status, "cancelled": cancelled})
+    return BaseResponse(
+        success=True, code=200, msg="Task status retrieved", data={"status": status, "cancelled": cancelled}
+    )
 
 
 @router.post("", response_model=BaseResponse[ChatResponse])
@@ -710,7 +712,9 @@ async def chat_stream(
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
                 async with AsyncSessionLocal() as session:
-                    result_query = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
+                    result_query = await session.execute(
+                        select(Conversation).where(Conversation.thread_id == thread_id)
+                    )
                     if conv := result_query.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]
@@ -742,7 +746,12 @@ async def chat_resume(
 
     # 获取 graph_id（从 conversation.meta_data 或从 checkpointer 状态推断）
     graph_id = None
-    if conversation and conversation.meta_data and isinstance(conversation.meta_data, dict) and "interrupted_graph_id" in conversation.meta_data:
+    if (
+        conversation
+        and conversation.meta_data
+        and isinstance(conversation.meta_data, dict)
+        and "interrupted_graph_id" in conversation.meta_data
+    ):
         import uuid as uuid_lib
 
         try:
@@ -766,10 +775,10 @@ async def chat_resume(
     # Checkpointer 会自动恢复之前的状态
     if graph_id is None:
         raise_not_found_error("Graph ID not found in conversation metadata or state")
-    
+
     # Type narrowing: graph_id is guaranteed to be UUID after check
     assert graph_id is not None
-    
+
     try:
         graph_service = GraphService(db)
         graph = await graph_service.create_graph_by_graph_id(
@@ -941,7 +950,9 @@ async def chat_resume(
             else:
                 # 执行完成，清理 conversation 中的中断标记
                 async with AsyncSessionLocal() as session:
-                    result_query = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
+                    result_query = await session.execute(
+                        select(Conversation).where(Conversation.thread_id == thread_id)
+                    )
                     if conv := result_query.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]
@@ -968,7 +979,9 @@ async def chat_resume(
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
                 async with AsyncSessionLocal() as session:
-                    result_query = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
+                    result_query = await session.execute(
+                        select(Conversation).where(Conversation.thread_id == thread_id)
+                    )
                     if conv := result_query.scalar_one_or_none():
                         if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                             del conv.meta_data["interrupted_graph_id"]

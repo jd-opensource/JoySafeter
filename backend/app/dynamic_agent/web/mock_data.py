@@ -168,12 +168,12 @@ def generate_tool_invocation(
     tool_name = tool.get("name", "")
     tool_description = tool.get("description", "")
     tool_params = tool.get("parameters", {})
-    
+
     # Convert to proper types
     tool_name_str = str(tool_name) if not isinstance(tool_name, str) else tool_name
     tool_description_str = str(tool_description) if not isinstance(tool_description, str) else tool_description
     tool_params_dict = tool_params if isinstance(tool_params, dict) else {}
-    
+
     return ToolInvocationResponse(
         id=f"invocation_{random.randint(1000, 9999)}",
         tool_name=tool_name_str,
@@ -247,15 +247,16 @@ def generate_agent(
         parent_agent_id=parent_agent_id,
         tool_invocations=tool_invocations,
         sub_agents=sub_agents,
+        child_agents=None,
         context={"target": "example.com", "objective": "Security Assessment"},
-        available_tools=[tool["name"] for tool in TOOLS_DATABASE[:4]],
+        available_tools=[str(tool["name"]) for tool in TOOLS_DATABASE[:4]],
         output={"result": "success", "findings": random.randint(5, 20)},
         error_message=None,
         success_rate=random.uniform(80, 100),
     )
 
 
-def generate_execution_tree(task_id: str = None) -> ExecutionTreeResponse:
+def generate_execution_tree(task_id: Optional[str] = None) -> ExecutionTreeResponse:
     """
     MOCK: Generate a mock execution tree
 
@@ -402,6 +403,7 @@ def generate_session(user_id: str, session_index: int = 0) -> SessionResponse:
         created_at=created_at_ms,
         updated_at=updated_at_ms,
         task_count=random.randint(2, 5),
+        mode=None,
     )
 
 

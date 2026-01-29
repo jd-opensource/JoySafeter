@@ -117,25 +117,25 @@ class TrackingEventProcessor:
         """Process a single tracking event."""
         try:
             if event.event_type == TrackingEventType.TOOL_START:
-                await self._handle_tool_start(event)
+                await self._handle_tool_start(event)  # type: ignore[arg-type]
 
             elif event.event_type == TrackingEventType.TOOL_END:
-                await self._handle_tool_end(event)
+                await self._handle_tool_end(event)  # type: ignore[arg-type]
 
             elif event.event_type == TrackingEventType.TOOL_ERROR:
-                await self._handle_tool_error(event)
+                await self._handle_tool_error(event)  # type: ignore[arg-type]
 
             elif event.event_type == TrackingEventType.LLM_START:
-                await self._handle_llm_start(event)
+                await self._handle_llm_start(event)  # type: ignore[arg-type]
 
             elif event.event_type == TrackingEventType.LLM_END:
-                await self._handle_llm_end(event)
+                await self._handle_llm_end(event)  # type: ignore[arg-type]
 
             elif event.event_type == TrackingEventType.CHAT_MODEL_START:
-                await self._handle_chat_model_start(event)
+                await self._handle_chat_model_start(event)  # type: ignore[arg-type]
 
             elif event.event_type == TrackingEventType.CHAT_MODEL_END:
-                await self._handle_chat_model_end(event)
+                await self._handle_chat_model_end(event)  # type: ignore[arg-type]
 
             else:
                 logger.warning(f"[TrackingProcessor] Unknown event type: {event.event_type}")

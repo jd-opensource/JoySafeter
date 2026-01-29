@@ -47,7 +47,11 @@ class ColimaHelper:
         try:
             result = subprocess.run(["colima", "status"], capture_output=True, text=True, timeout=5)
 
-            status: Dict[str, str | bool] = {"installed": True, "running": result.returncode == 0, "output": result.stdout.strip()}
+            status: Dict[str, str | bool] = {
+                "installed": True,
+                "running": result.returncode == 0,
+                "output": result.stdout.strip(),
+            }
 
             # Parse status output
             if "running" in result.stdout.lower():

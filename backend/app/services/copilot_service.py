@@ -340,7 +340,9 @@ class CopilotService:
 
                 elif event_kind == "on_chat_model_end":
                     # LLM finished generating
-                    event_data = current_event_dict.get("data", {}) if isinstance(current_event_dict.get("data"), dict) else {}
+                    event_data = (
+                        current_event_dict.get("data", {}) if isinstance(current_event_dict.get("data"), dict) else {}
+                    )
                     output = event_data.get("output") if isinstance(event_data, dict) else None
                     if output and hasattr(output, "content"):
                         final_message = output.content
@@ -562,7 +564,9 @@ class CopilotService:
         processed_edges = [copy.deepcopy(edge) for edge in initial_edges]
 
         # Create node index for O(1) lookups when updating/deleting nodes
-        node_index: Dict[str, int] = {str(node.get("id")): i for i, node in enumerate(processed_nodes) if node.get("id") is not None}
+        node_index: Dict[str, int] = {
+            str(node.get("id")): i for i, node in enumerate(processed_nodes) if node.get("id") is not None
+        }
 
         for action in actions:
             action_type = action.get("type")
@@ -605,7 +609,9 @@ class CopilotService:
                         e for e in processed_edges if e.get("source") != node_id and e.get("target") != node_id
                     ]
                     # Rebuild index after deletion
-                    node_index = {str(node.get("id")): i for i, node in enumerate(processed_nodes) if node.get("id") is not None}
+                    node_index = {
+                        str(node.get("id")): i for i, node in enumerate(processed_nodes) if node.get("id") is not None
+                    }
 
             elif action_type == "UPDATE_CONFIG":
                 node_id = payload.get("id")

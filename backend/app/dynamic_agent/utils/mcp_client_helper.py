@@ -109,7 +109,7 @@ class MultiMCP:
             max_retries: Maximum number of connection attempts
             timeout: Timeout in seconds for each attempt
         """
-        last_error = None
+        last_error: Optional[Exception] = None
         for attempt in range(max_retries):
             try:
                 logger.info(f"Connecting to {name} at {url} (attempt {attempt + 1}/{max_retries})...")
@@ -124,7 +124,7 @@ class MultiMCP:
                         sse_client(
                             url,
                             sse_read_timeout=float(os.environ.get("MCP_TOOL_READ_TIMEOUT_SECONDS", 3600)),
-                            httpx_client_factory=no_proxy_client_factory,
+                            httpx_client_factory=no_proxy_client_factory,  # type: ignore[arg-type]
                         )
                     ),
                     timeout=timeout,
@@ -319,7 +319,7 @@ class MultiMCP:
                 default = None
             fields[key] = (typ, default if default is not ... else ...)
 
-        model = create_model(name, **fields)  # type: ignore[arg-type]
+        model = create_model(name, **fields)  # type: ignore[call-overload]
         return model
 
     def to_langchain_tools(self, tool_call_timeout: float = 30.0) -> List[Any]:
@@ -405,12 +405,14 @@ class MultiMCP:
                 meta = f" [server={server_name} tool={t['name']}]"
                 description = (description + meta).strip()
 
+            # args_schema can be None or BaseModel type
+            tool_args_schema = args_model if args_model is not None else None
             tool = StructuredTool(
                 name=unique_name,
                 description=description,
                 func=_call,
                 coroutine=_acall,
-                args_schema=args_model,
+                args_schema=tool_args_schema,  # type: ignore[arg-type]
                 # metadata can be added in newer langchain via .metadata or description
             )
             tools.append(tool)

@@ -46,7 +46,7 @@ class McpServerRepository(BaseRepository[McpServer]):
         ]
 
         if enabled_only:
-            conditions.append(McpServer.enabled == True)  # type: ignore[arg-type]
+            conditions.append(McpServer.enabled.is_(True))  # type: ignore[arg-type]
 
         if not include_deleted:
             conditions.append(McpServer.deleted_at.is_(None))

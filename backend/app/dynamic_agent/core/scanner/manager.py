@@ -7,7 +7,7 @@ import tempfile
 import time
 import uuid
 import zipfile
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
@@ -132,6 +132,7 @@ class ScannerManager:
         self.agent_reviewer = AgentReviewer()
 
         # New SAST-based scanner
+        self.sast_scanner: Optional[SASTScanner] = None
         if use_sast:
             try:
                 self.sast_scanner = SASTScanner()
@@ -142,6 +143,7 @@ class ScannerManager:
                 self.use_sast = False
 
         # LLM-based reviewer
+        self.llm_reviewer: Optional[LLMAgentReviewer] = None
         if use_llm_review:
             try:
                 self.llm_reviewer = LLMAgentReviewer(max_findings_per_batch=20)

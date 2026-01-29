@@ -139,19 +139,29 @@ async def get_scan_status(job_id: UUID):
     job = SCAN_JOBS[job_id]
 
     # Build response
+    progress_val = job.get("progress", 0)
+    # Convert to int safely
+    if isinstance(progress_val, (int, float)):
+        progress_int = int(progress_val)
+    else:
+        progress_int = 0
+
     response = ScanJobStatus(
         job_id=job_id,
         status=ScanStatus(job["status"]),
-        progress=job["progress"],
+        progress=progress_int,
     )
 
     # Add error if failed
-    if job["status"] == ScanStatus.FAILED and job["error"]:
-        response.error = job["error"]
+    if job["status"] == ScanStatus.FAILED and job.get("error"):
+        error_val = job["error"]
+        response.error = str(error_val) if error_val is not None else None
 
     # Add result if completed
-    if job["status"] == ScanStatus.COMPLETED and job["result"]:
-        response.result = job["result"]
+    if job["status"] == ScanStatus.COMPLETED and job.get("result"):
+        result_val = job["result"]
+        # result is Optional[ScanReport], keep as is if it's already the right type
+        response.result = result_val  # type: ignore[assignment]
 
     return response
 

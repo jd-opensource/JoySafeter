@@ -17,7 +17,9 @@ class ConnectionManager:
         # Store connection metadata
         self.connection_metadata: Dict[WebSocket, Dict] = {}
 
-    async def connect(self, websocket: WebSocket, session_id: str, user_id: Optional[int] = None, already_accepted: bool = True):
+    async def connect(
+        self, websocket: WebSocket, session_id: str, user_id: Optional[int] = None, already_accepted: bool = True
+    ):
         """Accept a WebSocket connection and add it to the session group."""
         if not already_accepted:
             await websocket.accept()

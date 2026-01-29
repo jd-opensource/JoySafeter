@@ -307,7 +307,7 @@ class SessionDetailsResponse(BaseModel):
     tasks: List[TaskBasicResponse] = Field(default_factory=list, description="Tasks in session")
 
     class Config:
-        json_schema_extra = {"example": {"session": {}, "messages": [], "tasks": []}}
+        json_schema_extra: Dict[str, Any] = {"example": {"session": {}, "messages": [], "tasks": []}}
 
 
 # ==================== List Responses ====================

@@ -13,7 +13,6 @@ This module enhances the Copilot's ability to generate professional-grade workfl
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List
 from enum import Enum
 from typing import Any, Dict, List, Optional
 

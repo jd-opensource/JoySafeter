@@ -298,7 +298,7 @@ async def chat(request: ChatRequest):
 
         # Prepare metadata with response_queue
         metadata = request.metadata or {}
-        response_queue_obj = queue.Queue()
+        response_queue_obj: queue.Queue[Any] = queue.Queue()
         metadata.update(
             {
                 "langfuse_session_id": session_id,
@@ -461,9 +461,9 @@ async def chat_stream(request: ChatRequest):
                 logger.error(f"❌ Failed to update session metadata: {e}", exc_info=True)
                 # Don't fail the request if metadata update fails
 
-        response_queue_obj = queue.Queue()
+        response_queue_obj: queue.Queue[Any] = queue.Queue()
         task_id_event = asyncio.Event()
-        task_id_holder = {}
+        task_id_holder: Dict[str, Any] = {}
 
         # Update validated metadata with runtime objects
         metadata.update(
@@ -814,7 +814,11 @@ async def execute_tool(tool_name: str, params: Dict[str, Any]):
             raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 
         # Execute tool
-        result = await tool.ainvoke(params) if hasattr(tool, "ainvoke") else tool(**params)
+        if hasattr(tool, "ainvoke"):
+            result = await tool.ainvoke(params)
+        else:
+            # BaseTool is callable, but mypy needs help with type inference
+            result = tool(**params)  # type: ignore[operator]
 
         return {
             "tool": tool_name,
@@ -858,7 +862,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 continue
 
             # Prepare metadata with response_queue
-            response_queue_obj = queue.Queue()
+            response_queue_obj: queue.Queue[Any] = queue.Queue()
             metadata = {
                 "langfuse_session_id": session_id,
                 "langfuse_user_id": user_id,

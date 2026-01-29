@@ -140,7 +140,9 @@ Rules:
 - Preserve cookies, IDs, flags exactly"""
 
         response = await llm_instance.ainvoke([HumanMessage(content=prompt)])
-        llm_summary = SubagentSummary.from_llm_response(response.content, duration_ms)
+        # Extract content as string - response.content may be str or list
+        content_str = response.content if isinstance(response.content, str) else str(response.content)
+        llm_summary = SubagentSummary.from_llm_response(content_str, duration_ms)
 
         # Merge with simple extraction to ensure nothing is lost
         if llm_summary.extracted_values:

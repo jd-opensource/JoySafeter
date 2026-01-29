@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph import MessagesState
-from typing_extensions import Annotated, NotRequired, TypedDict
+from typing_extensions import Annotated, TypedDict
 
 
 def add_messages(left: List[BaseMessage], right: List[BaseMessage]) -> List[BaseMessage]:
@@ -147,6 +147,7 @@ class GraphState(MessagesState, BusinessState, ExecutionState):
     - Conditional routing
     - Loops with state isolation
     """
+
     # Note: All fields are inherited from parent TypedDict classes
     # Do not redefine fields here to avoid TypedDict overwriting errors
 

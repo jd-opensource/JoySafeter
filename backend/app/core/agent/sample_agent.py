@@ -284,6 +284,7 @@ async def get_agent(
 
     # Create agent (callbacks will be configured at invoke time)
     from langchain_core.runnables import RunnableConfig
+
     agent_config: RunnableConfig = {"recursion_limit": 1000}  # type: ignore[assignment]
     if agent_name:
         agent_config["tags"] = [f"Agent:{agent_name}"]  # type: ignore[assignment]

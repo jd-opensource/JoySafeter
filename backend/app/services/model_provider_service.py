@@ -60,15 +60,17 @@ class ModelProviderService(BaseService):
                         },
                     )
                     # Convert ModelProvider to dict
-                    synced_providers.append({
-                        "id": str(existing.id),
-                        "name": existing.name,
-                        "display_name": existing.display_name,
-                        "supported_model_types": existing.supported_model_types or [],
-                        "credential_schema": existing.credential_schema or {},
-                        "config_schema": existing.config_schema or {},
-                        "is_enabled": existing.is_enabled,
-                    })
+                    synced_providers.append(
+                        {
+                            "id": str(existing.id),
+                            "name": existing.name,
+                            "display_name": existing.display_name,
+                            "supported_model_types": existing.supported_model_types or [],
+                            "credential_schema": existing.credential_schema or {},
+                            "config_schema": existing.config_schema or {},
+                            "is_enabled": existing.is_enabled,
+                        }
+                    )
                     logger.debug(f"已更新供应商: {provider_name}")
                 else:
                     # 创建新供应商
@@ -83,15 +85,17 @@ class ModelProviderService(BaseService):
                         }
                     )
                     # Convert ModelProvider to dict
-                    synced_providers.append({
-                        "id": str(new_provider.id),
-                        "name": new_provider.name,
-                        "display_name": new_provider.display_name,
-                        "supported_model_types": new_provider.supported_model_types or [],
-                        "credential_schema": new_provider.credential_schema or {},
-                        "config_schema": new_provider.config_schema or {},
-                        "is_enabled": new_provider.is_enabled,
-                    })
+                    synced_providers.append(
+                        {
+                            "id": str(new_provider.id),
+                            "name": new_provider.name,
+                            "display_name": new_provider.display_name,
+                            "supported_model_types": new_provider.supported_model_types or [],
+                            "credential_schema": new_provider.credential_schema or {},
+                            "config_schema": new_provider.config_schema or {},
+                            "is_enabled": new_provider.is_enabled,
+                        }
+                    )
                     logger.debug(f"已创建供应商: {provider_name}")
             except Exception as e:
                 error_msg = f"同步供应商 {provider_name} 失败: {str(e)}"

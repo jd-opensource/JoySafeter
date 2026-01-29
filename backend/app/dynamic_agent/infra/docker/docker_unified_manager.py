@@ -25,14 +25,14 @@ from app.dynamic_agent.core.constants import (
     LOCALHOST,
 )
 
-from .resource_limiter import ResourceLimits
 from .docker_manager import DockerManager
 from .docker_remote_api import DockerRemoteAPIManager, RemoteDockerHost
-from .exceptions import ContainerCreationError
 from .exceptions import (
+    ContainerCreationError,
     ContainerExecutionError,
     ContainerStateError,
 )
+from .resource_limiter import ResourceLimits
 
 
 @dataclass
@@ -324,9 +324,13 @@ class UnifiedDockerManager:
                         # wait for container is availabel
                         sleep(10)
                         result["is_local"] = False
-                        result.update(
-                            {"docker_api": None, "mcp_api": f"http://{host_config.remote_host.host}:{native_port}/sse"}
-                        )
+                        if host_config.remote_host:
+                            result.update(
+                                {
+                                    "docker_api": None,
+                                    "mcp_api": f"http://{host_config.remote_host.host}:{native_port}/sse",
+                                }
+                            )
                         return result
                     # raise ContainerCreationError(f"Failed to create container on {host_name}")
 
@@ -342,9 +346,9 @@ class UnifiedDockerManager:
                     continue
                 else:
                     raise e
-        
+
         # If we exhausted all retries, raise an error
-        raise ContainerCreationError(f"Failed to create container after 200 attempts")
+        raise ContainerCreationError("Failed to create container after 200 attempts")
 
     def execute_command(
         self, container_id: str, command: str, host_name: Optional[str] = None, timeout: Optional[int] = None, **kwargs
@@ -446,7 +450,8 @@ class UnifiedDockerManager:
         try:
             if host_config.is_local:
                 logger.info(f"Starting local container: {container_id}")
-                self.local_manager.client.containers.get(container_id).start()
+                client = self.local_manager._ensure_client()
+                client.containers.get(container_id).start()
             else:
                 logger.info(f"Starting remote container: {container_id}")
                 # For remote containers, use the remote manager's client
@@ -516,7 +521,8 @@ class UnifiedDockerManager:
                 return [c.to_dict() for c in containers]
             else:
                 logger.debug(f"Listing remote containers on {host_name}")
-                return self.remote_manager.list_containers(host_name=host_name, all=all)
+                remote_containers = self.remote_manager.list_containers(host_name=host_name, all=all)
+                return remote_containers if remote_containers is not None else []
 
         except Exception as e:
             logger.error(f"Failed to list containers on {host_name}: {e}")
@@ -612,10 +618,11 @@ class UnifiedDockerManager:
             if host_config.is_local:
                 logger.debug("Getting info from local host")
                 # Get info from local Docker daemon
-                info = self.local_manager.client.info()
+                client = self.local_manager._ensure_client()
+                info = client.info()
                 return {
                     "host_name": LOCALHOST,
-                    "docker_version": self.local_manager.client.version()["Version"],
+                    "docker_version": client.version()["Version"],
                     "os": info.get("OperatingSystem"),
                     "cpu_count": info.get("NCPU"),
                     "memory_bytes": info.get("MemTotal"),
@@ -650,12 +657,14 @@ class UnifiedDockerManager:
         try:
             if host_config.is_local:
                 logger.debug("Pinging local Docker daemon")
-                self.local_manager.client.ping()
+                client = self.local_manager._ensure_client()
+                client.ping()
                 return True
             else:
                 logger.debug(f"Pinging remote host: {host_name}")
-                result = self.remote_manager.ping(host_name=host_name)
-                return bool(result) if result is not None else False
+                # DockerRemoteAPIManager doesn't have ping method, use get_host_info instead
+                info = self.remote_manager.get_host_info(host_name=host_name)
+                return info is not None
 
         except Exception as e:
             logger.error(f"Failed to ping {host_name}: {e}")

@@ -8,8 +8,9 @@ Replaces the previous SQLAlchemy-based TaskRepository and ExecutionStepRepositor
 import asyncio
 import json
 import random
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional, TypeVar
+from typing import Dict, List, Optional, TypeVar
 from uuid import UUID
 
 import asyncpg
@@ -45,12 +46,18 @@ class TaskDAO:
 
             # Try new API methods (asyncpg 0.31.0+)
             try:
-                stats["size"] = pool.get_size() if hasattr(pool, "get_size") else "N/A"
-                max_size_val = pool.get_max_size() if hasattr(pool, "get_max_size") else getattr(pool, "_maxsize", "N/A")
+                size_val = pool.get_size() if hasattr(pool, "get_size") else "N/A"
+                stats["size"] = str(size_val) if size_val != "N/A" else "N/A"
+                max_size_val: int | str = (
+                    pool.get_max_size() if hasattr(pool, "get_max_size") else getattr(pool, "_maxsize", "N/A")  # type: ignore[arg-type]
+                )
                 stats["max_size"] = str(max_size_val) if max_size_val != "N/A" else "N/A"
-                min_size_val = pool.get_min_size() if hasattr(pool, "get_min_size") else getattr(pool, "_minsize", "N/A")
+                min_size_val: int | str = (
+                    pool.get_min_size() if hasattr(pool, "get_min_size") else getattr(pool, "_minsize", "N/A")  # type: ignore[arg-type]
+                )
                 stats["min_size"] = str(min_size_val) if min_size_val != "N/A" else "N/A"
-                stats["idle"] = pool.get_idle_size() if hasattr(pool, "get_idle_size") else "N/A"
+                idle_val = pool.get_idle_size() if hasattr(pool, "get_idle_size") else "N/A"
+                stats["idle"] = str(idle_val) if idle_val != "N/A" else "N/A"
 
                 # Calculate in_use
                 if isinstance(stats["size"], int) and isinstance(stats["idle"], int):
@@ -72,11 +79,13 @@ class TaskDAO:
         except Exception as e:
             return {"error": f"Failed to get pool stats: {e}", "pool_type": str(type(self.pool))}
 
-    async def _execute_with_retry(self, operation: Callable[..., T], *args, max_retries: int = 3, **kwargs) -> T:
+    async def _execute_with_retry(
+        self, operation: Callable[..., Awaitable[T]], *args, max_retries: int = 3, **kwargs
+    ) -> T:
         """Execute database operation with retry logic for connection errors.
 
         Args:
-            operation: Database operation to execute
+            operation: Database operation to execute (must be async)
             max_retries: Maximum number of retry attempts
 
         Returns:
@@ -90,7 +99,7 @@ class TaskDAO:
         for attempt in range(max_retries):
             try:
                 result = await operation(*args, **kwargs)
-                return result  # type: ignore[return-value]
+                return result
 
             except asyncio.CancelledError:
                 # 🚨 Must re-raise immediately, never swallow

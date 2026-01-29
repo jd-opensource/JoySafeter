@@ -68,7 +68,7 @@ class AgentToolSelector:
         return self.registry.get_tools(filter_config)
 
     def select_by_toolset(
-        self, toolset_name: str, source_type: ToolSourceType = ToolSourceType.MCP_TOOLBOX
+        self, toolset_name: str, source_type: ToolSourceType = ToolSourceType.MCP
     ) -> List[EnhancedTool]:
         """根据工具集选择工具"""
         filter_config = ToolFilter(toolset_names={toolset_name}, source_types={source_type})

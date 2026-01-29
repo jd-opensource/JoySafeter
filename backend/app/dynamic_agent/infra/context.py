@@ -1,3 +1,5 @@
+from typing import Optional
+
 from loguru import logger
 
 from app.dynamic_agent.infra.docker import UnifiedDockerManager
@@ -9,7 +11,7 @@ tool_registry: ToolRegistry = ToolRegistry()
 # If Docker is not available (e.g., in container without socket mount),
 # the manager will be None and Docker-dependent features will be disabled
 try:
-    docker_manager = UnifiedDockerManager()
+    docker_manager: Optional[UnifiedDockerManager] = UnifiedDockerManager()
     logger.info("Docker manager initialized successfully")
 except Exception as e:
     logger.warning(f"Failed to initialize Docker manager: {e}")

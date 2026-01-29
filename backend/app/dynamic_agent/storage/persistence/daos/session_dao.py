@@ -8,8 +8,9 @@ Supports the optimized schema with split messages and metadata tables.
 import asyncio
 import json
 import random
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, TypeVar
+from typing import Any, Dict, List, Optional, TypeVar
 
 import asyncpg
 from loguru import logger
@@ -26,13 +27,15 @@ class SessionDAO:
         self.pool = pool
         # No global lock - asyncpg pool handles concurrency internally
 
-    async def _execute_with_retry(self, operation: Callable[..., T], *args, max_retries: int = 3, **kwargs) -> T:
+    async def _execute_with_retry(
+        self, operation: Callable[..., Awaitable[T]], *args, max_retries: int = 3, **kwargs
+    ) -> T:
         last_error: Exception | None = None
 
         for attempt in range(max_retries):
             try:
                 result = await operation(*args, **kwargs)
-                return result  # type: ignore[return-value]
+                return result
 
             except asyncio.CancelledError:
                 # 🚨 Must re-raise immediately, never swallow

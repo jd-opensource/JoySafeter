@@ -10,8 +10,8 @@ import subprocess
 import threading
 import time
 import traceback
-from typing import Any, Dict, Optional
 from subprocess import Popen
+from typing import Any, Dict, Optional
 
 from dynamic_engine.mcp.config import COMMAND_TIMEOUT
 from dynamic_engine.runtime.command.process_manager import ProcessManager

@@ -95,6 +95,8 @@ class DatabaseManager:
 
         async def acquire_and_test(idx: int):
             """Acquire a connection, test it, and hold it until all are ready."""
+            if self.pool is None:
+                raise RuntimeError("Database pool not initialized")
             conn = None
             try:
                 conn = await self.pool.acquire(timeout=10.0)

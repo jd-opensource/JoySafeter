@@ -118,6 +118,7 @@ class UserService(BaseService):
             raise NotFoundException("User not found")
 
         import uuid as uuid_lib
+
         user_uuid = uuid_lib.UUID(user_id) if isinstance(user_id, str) else user_id
         await self.user_repo.delete(user_uuid)
         await self.commit()

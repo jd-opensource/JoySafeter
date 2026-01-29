@@ -7,7 +7,7 @@ import socket
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import AliasChoices, Field, computed_field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine.url import make_url
 

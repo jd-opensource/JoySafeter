@@ -26,7 +26,7 @@ async def get_db_pool() -> asyncpg.Pool:
     try:
         # storage = get_storage_manager()
         storage = await init_storage()
-        return storage.backend.pool
+        return storage.backend.pool  # type: ignore[no-any-return]
     except RuntimeError:
         # Storage not initialized yet
         raise HTTPException(status_code=500, detail="Storage manager not initialized")

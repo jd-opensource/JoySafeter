@@ -453,7 +453,7 @@ async def upload_file(
         )
         if validation_error:
             raise validation_error
-        
+
         # Type narrowing: safe_filename is guaranteed to be str after validation
         assert safe_filename is not None, "safe_filename should not be None after validation"
 

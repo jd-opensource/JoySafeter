@@ -46,9 +46,8 @@ from app.dynamic_agent.prompts.system_prompts import (
     get_system_prompt_with_scene,
 )
 from app.dynamic_agent.storage import StorageManager, initialize_storage
-from app.dynamic_agent.storage.session.ctf import get_ctf_session_store
-from app.dynamic_agent.storage.context_manager import SessionContext
 from app.dynamic_agent.storage.memory.store import MemoryType
+from app.dynamic_agent.storage.session.ctf import get_ctf_session_store
 from app.dynamic_agent.tools import (
     TODO_TOOLS,
     agent_tool,
@@ -350,8 +349,8 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
         # Discover tools
         tools_per = await mcp.discover_tools()
         logger.info("Per-server tools:")
-        for server, tools in tools_per.items():
-            logger.info(f"- {server}: {[t['name'] for t in tools]}")
+        for server, server_tools in tools_per.items():
+            logger.info(f"- {server}: {[t['name'] for t in server_tools]}")
 
         # Namespaced tools
         # ns_tools = mcp.namespaced_tools()
@@ -396,29 +395,33 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
         # ------------------------------------------------------------------
         # Tools for Sub-Agent selection (used by agent_tool executor)
         # ------------------------------------------------------------------
-        tools = [think_tool, valid_json_array, valid_json_dict, workspace_tool, get_current_time]
+        from langchain_core.tools import BaseTool
+
+        sub_agent_tools: List[BaseTool] = [
+            think_tool,
+            valid_json_array,
+            valid_json_dict,
+            workspace_tool,
+            get_current_time,
+        ]
 
         base_tools.clear()
         base_tools.extend(
             [
-                *tools,
+                *sub_agent_tools,
                 python_coder_tool,
                 knowledge_search,
                 # ask_human,
                 # *TODO_TOOLS,
             ]
-        )  # type: ignore[arg-type]
+        )
 
         base_tools_for_selection.clear()
         tool1 = tool_registry.get_tool(f"{conf.NAME}{MCP_TOOL_JOINER}list_all_tool_categories")
         tool2 = tool_registry.get_tool(f"{conf.NAME}{MCP_TOOL_JOINER}list_tools_by_categories")
-        base_tools_for_selection.extend(
-            [
-                *tools,
-                tool1,
-                tool2,
-            ]
-        )  # type: ignore[arg-type]
+        # Filter out None tools
+        tools_for_selection: List[BaseTool] = [t for t in [*sub_agent_tools, tool1, tool2] if t is not None]
+        base_tools_for_selection.extend(tools_for_selection)
         # Remove None tools to avoid LangChain errors
         base_tools_for_selection[:] = [t for t in base_tools_for_selection if t is not None]
 
@@ -427,8 +430,9 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
             # ------------------------------------------------------------------
             # Main Agent toolset: keep small, delegate execution to Sub-Agent.
             # ------------------------------------------------------------------
+            tool_instances: List[Any]
             if is_ctf:
-                tool_instances: List[Any] = [
+                tool_instances = [
                     *base_tools,
                     agent_tool,
                     think_tool,
@@ -438,7 +442,7 @@ async def run(user_message: str, metadata: Dict[str, Any]) -> str:
                     *TODO_TOOLS,
                 ]
             else:
-                tool_instances: List[Any] = [
+                tool_instances = [
                     *base_tools,
                     agent_tool,
                     think_tool,

@@ -74,7 +74,7 @@ def create_modal_sandbox(
 
     with app.run():
         if sandbox_id:
-            sandbox = modal.Sandbox.from_id(sandbox_id=sandbox_id, app=app)
+            sandbox = modal.Sandbox.from_id(sandbox_id=sandbox_id)  # type: ignore[call-arg]
             should_cleanup = False
         else:
             sandbox = modal.Sandbox.create(app=app, workdir="/workspace")

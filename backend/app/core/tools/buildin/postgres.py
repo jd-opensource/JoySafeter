@@ -111,6 +111,8 @@ class PostgresTools(Toolkit):
         """
         if not self.is_connected:
             return self.connect()
+        if self._connection is None:
+            raise RuntimeError("Connection is None")
         return self._connection
 
     def __enter__(self):

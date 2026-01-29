@@ -142,11 +142,8 @@ class AgentRuntime:
         tool_results: List[UserMessage] = []
 
         # Decide concurrent vs serial execution
-        all_read_only = all(
-            self._find_tool(tools, block.name).is_read_only()
-            for block in tool_use_blocks
-            if self._find_tool(tools, block.name) is not None
-        )
+        found_tools = [self._find_tool(tools, block.name) for block in tool_use_blocks]
+        all_read_only = all(tool.is_read_only() for tool in found_tools if tool is not None)
 
         if all_read_only:
             # Concurrent execution for read-only tools
@@ -296,8 +293,9 @@ class AgentRuntime:
         # 2. Tool-specific validation
         validation = await tool.validate_input(validated_input, context)
         if not validation.result:
+            error_msg = validation.message or "Validation failed"
             self.logger.event(
-                "tool_use_error", {"error": validation.message, "tool_name": tool.name, "tool_use_id": tool_use_id}
+                "tool_use_error", {"error": error_msg, "tool_name": tool.name, "tool_use_id": tool_use_id}
             )
             yield create_user_message(tool_use_id, validation.message or "Validation failed", is_error=True)
             return
@@ -311,7 +309,9 @@ class AgentRuntime:
 
         # 4. Execute tool
         try:
-            async for result in tool.call(validated_input, context, None):
+            # tool.call returns AsyncGenerator[ToolResult, None]
+            tool_generator = tool.call(validated_input, context, None)
+            async for result in tool_generator:  # type: ignore[attr-defined]
                 if result.type == "result":
                     self.logger.event("tool_use_success", {"tool_name": tool.name, "tool_use_id": tool_use_id})
                     yield create_user_message(

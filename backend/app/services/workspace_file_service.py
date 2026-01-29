@@ -224,6 +224,7 @@ class WorkspaceFileService(BaseService):
             raise NotFoundException("File not found")
 
         import uuid as uuid_lib
+
         file_uuid = uuid_lib.UUID(file_id) if isinstance(file_id, str) else file_id
         user_uuid = uuid_lib.UUID(current_user.id) if isinstance(current_user.id, str) else current_user.id
         token = jwt.encode(

@@ -166,7 +166,7 @@ import queue  # noqa: E402
 def write_messages(messages: list[str]) -> None:
     """Write intermediate messages to response queue during execution"""
     from typing import Any
-    
+
     metas = MetadataContext.get()
     if metas:
         q_raw = metas.get("response_queue")

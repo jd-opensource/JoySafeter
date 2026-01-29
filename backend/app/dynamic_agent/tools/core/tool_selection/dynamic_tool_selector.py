@@ -175,12 +175,18 @@ class IntentAnalyzer:
 
     def _extract_categories(self, query: str) -> List[ToolCategory]:
         """Extract relevant tool categories from query."""
-        relevant_categories = []
+        # CATEGORY_KEYWORDS was commented out, use scenario patterns instead
+        # This is a simplified implementation
+        relevant_categories: List[ToolCategory] = []
+        query_lower = query.lower()
 
-        for category, keywords in self.CATEGORY_KEYWORDS.items():
-            # Check if any category keyword appears in query
-            if any(keyword in query for keyword in keywords):
-                relevant_categories.append(category)
+        # Map scenario patterns to categories (simplified)
+        # ToolCategory is str type, use string values directly
+        # This would need proper implementation based on business logic
+        if any(pattern in query_lower for pattern in ["recon", "osint", "enumeration"]):
+            relevant_categories.append("reconnaissance")
+        if any(pattern in query_lower for pattern in ["scan", "nmap", "port"]):
+            relevant_categories.append("scanning")
 
         return relevant_categories
 
@@ -317,9 +323,10 @@ class DynamicToolSelector:
             )
         else:
             # Broad search with keywords
+            # ToolPriorityScore.get returns int | None, use min_priority directly
             candidates = self.registry.search(
                 keywords=keywords if keywords else None,
-                min_priority_score=ToolPriorityScore.get(min_priority, 50) or ToolPriority.LOW,
+                min_priority_score=min_priority,
             )
 
         return candidates
@@ -342,7 +349,8 @@ class DynamicToolSelector:
             score = 0.0
 
             # Priority score (0-40)
-            priority_score = (ToolPriorityScore.get(tool.priority, 50) / 100) * 40
+            tool_priority = tool.priority if tool.priority else ToolPriority.MEDIUM
+            priority_score = (ToolPriorityScore.get(tool_priority, 50) / 100) * 40
             score += priority_score
 
             # Keyword match score (0-30)
@@ -397,7 +405,7 @@ class DynamicToolSelector:
                 continue
 
             # Skip general tools if not included
-            if not include_general and tool.category == ToolCategory.GENERAL:
+            if not include_general and tool.category == "general":
                 continue
 
             # Check cost budget
@@ -418,9 +426,9 @@ class DynamicToolSelector:
         for tool in selected:
             for dep_name in tool.dependencies:
                 if dep_name not in selected_names:
-                    dep_tool = self.registry.get_tool(dep_name)
-                    if dep_tool:
-                        final_tools.append(dep_tool)
+                    dep_tool_meta = self.registry.get_tool_meta(dep_name)
+                    if dep_tool_meta:
+                        final_tools.append(dep_tool_meta)
                         selected_names.add(dep_name)
 
         return final_tools
@@ -433,7 +441,8 @@ class DynamicToolSelector:
     def get_all_categories(self) -> List[str]:
         """Get all available categories."""
         categories = self.registry.get_all_categories()
-        return [cat.value for cat in categories]
+        # ToolCategory is str, not Enum
+        return [str(cat) for cat in categories]
 
     def explain_selection(self, context: SelectionContext, selected_tools: List[str]) -> str:
         """
@@ -455,7 +464,8 @@ class DynamicToolSelector:
             explanation += f"**Detected Scenario:** {scenario}\n"
 
         if categories:
-            cat_names = [cat.value for cat in categories]
+            # ToolCategory is str, not Enum
+            cat_names = [str(cat) for cat in categories]
             explanation += f"**Relevant Categories:** {', '.join(cat_names)}\n"
 
         if keywords:
@@ -464,11 +474,13 @@ class DynamicToolSelector:
         explanation += f"\n**Selected {len(selected_tools)} tools:**\n\n"
 
         for tool_name in selected_tools:
-            tool = self.registry.get_tool(tool_name)
-            if tool:
-                explanation += f"- **{tool.name}** ({tool.category.value}): {tool.description}\n"
-                explanation += f"  - Priority: {tool.priority.name}\n"
-                explanation += f"  - Cost: {tool.cost_estimate}/10\n\n"
+            tool_meta = self.registry.get_tool_meta(tool_name)
+            if tool_meta:
+                # ToolCategory is str, not Enum
+                explanation += f"- **{tool_meta.name}** ({tool_meta.category}): {tool_meta.description}\n"
+                priority_str = tool_meta.priority.value if tool_meta.priority else "medium"
+                explanation += f"  - Priority: {priority_str}\n"
+                explanation += f"  - Cost: {tool_meta.cost_estimate}/10\n\n"
 
         return explanation
 
@@ -500,7 +512,28 @@ class DynamicToolSelector:
 
         # Try to generate from reference hits first
         if reference_hits:
-            for ref in reference_hits:
+            from uuid import UUID
+
+            from app.dynamic_agent.storage.session.ctf import CtfReferenceSource, ReferenceHit
+
+            for ref_dict in reference_hits:
+                # Convert dict to ReferenceHit if needed
+                if isinstance(ref_dict, dict):
+                    # Create ReferenceHit from dict
+                    source_str = ref_dict.get("source", "heuristic")
+                    source = (
+                        CtfReferenceSource(source_str) if isinstance(source_str, str) else CtfReferenceSource.HEURISTIC
+                    )
+                    ref = ReferenceHit(
+                        ref_id=UUID(ref_dict["ref_id"]) if ref_dict.get("ref_id") else UUID(),
+                        session_id=UUID(ref_dict["session_id"]) if ref_dict.get("session_id") else None,
+                        source=source,
+                        location=ref_dict.get("location", ""),
+                        snippet=ref_dict.get("snippet"),
+                        confidence=ref_dict.get("confidence", 0.5),
+                    )
+                else:
+                    ref = ref_dict  # Already a ReferenceHit
                 action = generate_action_from_reference(ref)
                 if action:
                     return {
@@ -679,10 +712,10 @@ def create_mock_tool_implementations() -> Dict[str, BaseTool]:
     registry = tool_registry
 
     # Create a mock implementation for each registered tool
-    for tool_name, metadata in registry._tools.items():
+    for tool_name, metadata in registry._tools_meta.items():
         # Create a closure to capture metadata
         def make_tool_func(meta: ToolMetadata):
-            @tool(name=meta.name, description=meta.description)
+            @tool(name=meta.name, description=meta.description)  # type: ignore[call-overload]
             def mock_tool(query: str) -> str:
                 """Mock tool implementation."""
                 return f"[Mock] {meta.name} executed with query: {query}"

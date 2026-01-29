@@ -270,6 +270,7 @@ class TodoPanel:
 
         # Build content group
         from rich.console import RenderableType
+
         content_parts: List[RenderableType] = []
 
         # Add replan notice if present (truncated for readability)

@@ -278,8 +278,13 @@ class PerformanceMonitorMiddleware(AgentMiddleware):
             # 更新状态
             request_count = request.state.get("request_count", 0)
             total_response_time = request.state.get("total_response_time", 0.0)
-            request.state["request_count"] = (int(request_count) if request_count is not None else 0) + 1  # type: ignore[typeddict-unknown-key]
-            request.state["total_response_time"] = (float(total_response_time) if total_response_time is not None else 0.0) + response_time  # type: ignore[typeddict-unknown-key]
+            # Convert to int/float safely
+            request_count_int = int(request_count) if isinstance(request_count, (int, float)) else 0
+            total_response_time_float = (
+                float(total_response_time) if isinstance(total_response_time, (int, float)) else 0.0
+            )
+            request.state["request_count"] = request_count_int + 1  # type: ignore[typeddict-unknown-key, assignment]
+            request.state["total_response_time"] = total_response_time_float + response_time  # type: ignore[typeddict-unknown-key, assignment]
 
             return response
 

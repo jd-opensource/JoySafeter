@@ -52,7 +52,10 @@ class ExecutionTimeTracker:
         instance = cls()
         if instance._start_time is None:
             instance.initialize_global()
-        return time.time() - instance._start_time
+        start_time = instance._start_time
+        if start_time is None:
+            return 0.0
+        return time.time() - start_time
 
     @classmethod
     def get_session_elapsed(cls, session_id: str) -> float:
@@ -103,8 +106,7 @@ def get_current_time() -> Dict[str, Any]:
     }
 
 
-@tool
-def get_execution_elapsed_time(session_id: Optional[str] = None, format_type: str = "detailed") -> Dict[str, Any]:
+def _get_execution_elapsed_time_impl(session_id: Optional[str] = None, format_type: str = "detailed") -> Dict[str, Any]:
     """
     Get elapsed execution time information and depth recommendations.
 
@@ -279,8 +281,11 @@ def get_execution_elapsed_time(session_id: Optional[str] = None, format_type: st
     return result
 
 
-@tool
-def should_continue_analysis(session_id: Optional[str] = None, min_remaining_time: int = 300) -> Dict[str, Any]:
+# Create tool wrapper
+get_execution_elapsed_time = tool(_get_execution_elapsed_time_impl)
+
+
+def should_continue_analysis_impl(session_id: Optional[str] = None, min_remaining_time: int = 300) -> Dict[str, Any]:
     """
     Determine whether to continue conducting in-depth analysis.
 
@@ -296,7 +301,7 @@ def should_continue_analysis(session_id: Optional[str] = None, min_remaining_tim
     - Avoid unnecessary analysis when time is insufficient
     - Ensure comprehensive assessment when time is available
     """
-    analysis = get_execution_elapsed_time(session_id, format_type="analysis")
+    analysis = _get_execution_elapsed_time_impl(session_id, format_type="analysis")
 
     remaining = analysis["time_budget"]["remaining"]
     should_continue = remaining > min_remaining_time
@@ -320,8 +325,9 @@ def should_continue_analysis(session_id: Optional[str] = None, min_remaining_tim
     }
 
 
-@tool
-def get_time_aware_guidance(session_id: Optional[str] = None, task_type: str = "security_assessment") -> Dict[str, Any]:
+def get_time_aware_guidance_impl(
+    session_id: Optional[str] = None, task_type: str = "security_assessment"
+) -> Dict[str, Any]:
     """
     Get detailed guidance based on time and task type.
 
@@ -338,7 +344,7 @@ def get_time_aware_guidance(session_id: Optional[str] = None, task_type: str = "
     - Adjust task depth based on time budget
     - Prioritize completion of critical tasks
     """
-    analysis = get_execution_elapsed_time(session_id, format_type="analysis")
+    analysis = _get_execution_elapsed_time_impl(session_id, format_type="analysis")
     elapsed = analysis["elapsed_seconds"]
 
     # Define time allocation for different task types
@@ -461,6 +467,11 @@ def get_time_aware_guidance(session_id: Optional[str] = None, task_type: str = "
         "depth_level": analysis["depth_recommendation"]["current_depth"],
         "time_pressure": analysis["time_pressure"]["level"],
     }
+
+
+# Create tool wrappers
+should_continue_analysis = tool(should_continue_analysis_impl)
+get_time_aware_guidance = tool(get_time_aware_guidance_impl)
 
 
 # Export public API

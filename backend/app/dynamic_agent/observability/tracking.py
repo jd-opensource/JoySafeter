@@ -553,8 +553,6 @@ class TaskExecutionTrackingHandler(AsyncCallbackHandler):
                 logger.debug("No task_id in context, skipping llm_error tracking")
                 return
 
-            run_id_str = str(run_id) if run_id else ""
-
             if not run_id:
                 logger.warning("[Tracking] No run_id in on_llm_error")
                 return

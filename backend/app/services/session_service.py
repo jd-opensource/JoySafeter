@@ -163,7 +163,7 @@ class SessionService:
         result = await self.db.execute(
             select(Message).where(Message.thread_id == session_id).order_by(Message.created_at.desc()).limit(limit)
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def get_ai_adapter(self, session_id: str, user_id=None) -> Optional[AgentBridge]:
         """Get AI adapter for a session (lightweight, no CLI coupling)."""
@@ -187,6 +187,9 @@ class SessionService:
         )
 
         return SessionResponse(
+            success=True,
+            code=200,
+            msg="Success",
             session_id=conversation.thread_id,
             title=conversation.title,
             workspace_path=workspace_path,

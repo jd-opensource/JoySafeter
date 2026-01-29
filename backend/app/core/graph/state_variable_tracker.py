@@ -89,7 +89,8 @@ class StateVariableTracker:
             usages = self.variable_usages.get(var_name, [])
 
             # 确定作用域（优先使用定义的作用域）
-            scope = definitions[0].scope if definitions else usages[0].scope if usages else "global"
+            # VariableUsage doesn't have scope, only VariableDefinition does
+            scope = definitions[0].scope if definitions else "global"
 
             result[var_name] = VariableInfo(
                 name=var_name,
@@ -196,7 +197,7 @@ class StateVariableTracker:
         # Loop condition 节点定义 loop_count 变量
         self._add_variable_definition(
             f"loop_states.{node.id}.loop_count",
-            node.id,
+            str(node.id),
             node_label,
             "loop_condition_node",
             "loop",
@@ -496,8 +497,8 @@ class StateVariableTracker:
                                 "source": definition.source_node_label,
                                 "source_node_id": definition.source_node_id,
                                 "scope": definition.scope,
-                                "description": definition.description,
-                                "value_type": definition.value_type,
+                                "description": definition.description or "",
+                                "value_type": definition.value_type or "",
                             }
                         )
 
@@ -510,8 +511,8 @@ class StateVariableTracker:
                     {
                         "name": f"loop_count_{loop_node.id}",
                         "path": f"loop_states.{loop_node.id}.loop_count",
-                        "source": (loop_node.data or {}).get("label", loop_node.id),
-                        "source_node_id": loop_node.id,
+                        "source": (loop_node.data or {}).get("label", str(loop_node.id)),
+                        "source_node_id": str(loop_node.id),
                         "scope": "loop",
                         "description": f"Loop count for loop '{loop_node.id}'",
                         "value_type": "number",
@@ -531,9 +532,9 @@ class StateVariableTracker:
             visited.add(node_id)
 
             for edge in self.edges:
-                if edge.target_node_id == node_id:
-                    upstream.append(edge.source_node_id)
-                    traverse(edge.source_node_id)
+                if str(edge.target_node_id) == node_id:
+                    upstream.append(str(edge.source_node_id))
+                    traverse(str(edge.source_node_id))
 
         traverse(node_id)
         return upstream

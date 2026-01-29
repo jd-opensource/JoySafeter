@@ -8,6 +8,7 @@ System Prompts - Loads prompts from centralized registry.
 """
 
 from enum import Enum
+from typing import Dict
 
 from loguru import logger
 
@@ -141,7 +142,7 @@ def get_ctf_mode_suffix(user_input: str) -> str:
 
 
 # Scene prompt registry - lazy loaded
-_SCENE_PROMPTS = {}
+_SCENE_PROMPTS: Dict[str, str] = {}
 # Lazy load scene prompts from scenes/{scene}/ctf_{role}.md
 MAIN_AGENT_SYSTEM_PROMPT_MAP = {
     SceneType.CTF.value: "scenes/ctf/ctf_main_agent",

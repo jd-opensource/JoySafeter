@@ -252,6 +252,7 @@ class GraphService(BaseService):
                 graph_name = name or "未命名图"
 
                 import uuid as uuid_lib
+
                 user_uuid = uuid_lib.UUID(current_user.id) if isinstance(current_user.id, str) else current_user.id
                 graph = await self._create_graph_with_id(
                     graph_id=graph_id,

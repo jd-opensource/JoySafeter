@@ -192,7 +192,7 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
         except Exception as e:
             logger.debug(f"Failed to log LLM response: {e}")
 
-    def on_llm_error(self, error: Exception, **kwargs) -> None:
+    def on_llm_error(self, error: BaseException, *, run_id=None, parent_run_id=None, **kwargs) -> None:  # type: ignore[override]
         """Called when LLM encounters an error."""
         self.depth = max(0, self.depth - 1)
         import traceback
@@ -265,7 +265,7 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
             },
         )
 
-    def on_tool_error(self, error: Exception, **kwargs) -> None:
+    def on_tool_error(self, error: BaseException, *, run_id=None, parent_run_id=None, **kwargs) -> None:  # type: ignore[override]
         """Called when a tool encounters an error."""
         self.depth = max(0, self.depth - 1)
         name = kwargs.get("name", "<tool>")
@@ -294,7 +294,7 @@ class JsonFileLoggingCallback(BaseCallbackHandler):
         """Called when a chain completes."""
         pass  # No logging for chain end
 
-    def on_chain_error(self, error: Exception, **kwargs) -> None:
+    def on_chain_error(self, error: BaseException, *, run_id=None, parent_run_id=None, **kwargs) -> None:  # type: ignore[override]
         """Called when a chain encounters an error."""
         import traceback
 

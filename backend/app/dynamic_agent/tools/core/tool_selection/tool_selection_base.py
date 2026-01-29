@@ -155,7 +155,7 @@ class DynamicToolSelectionAgent:
     def __init__(
         self,
         llm: Optional[BaseChatModel],
-        tools: List[BaseTool] = None,
+        tools: Optional[List[BaseTool]] = None,
         max_iterations: int = 15,
         verbose: bool = True,
     ):
@@ -185,9 +185,15 @@ class DynamicToolSelectionAgent:
         system_prompt = self._get_system_prompt()
 
         # Create the ReAct agent with discovery tools
-        self.agent = create_agent(
+        # create_agent expects model to be non-None, but we allow Optional
+        if self.llm is None:
+            raise ValueError("LLM model is required for DynamicToolSelectionAgent")
+
+        from typing import Any as AnyType
+
+        self.agent: AnyType = create_agent(
             model=self.llm,
-            tools=self.discovery_tools,
+            tools=self.discovery_tools or [],
             system_prompt=system_prompt,
             debug=verbose,
         )
@@ -220,11 +226,11 @@ class DynamicToolSelectionAgent:
 
         # Run the agent
         try:
-            metadata = MetadataContext.get()
+            metadata = MetadataContext.get() or {}
             result = self.agent.ainvoke(
                 inputs,
                 config={
-                    "callbacks": metadata["callbacks"],
+                    "callbacks": metadata.get("callbacks", []),
                     "metadata": {k: v for k, v in metadata.items() if k != "callbacks"},
                     "recursion_limit": int(os.getenv("AGENT_MAX_INTERACTIVE_STEPS", 64)),
                 },
@@ -240,14 +246,22 @@ class DynamicToolSelectionAgent:
             final_message = messages[-1] if messages else None
 
             try:
-                if not final_message.content:
+                # Check if final_message has content attribute
+                if final_message is None or not hasattr(final_message, "content"):
+                    return {
+                        "output": [],
+                        "success": False,
+                        "error": "No output generated",
+                    }
+                content = getattr(final_message, "content", None)
+                if not content:
                     return {
                         "output": [],
                         "success": False,
                         "error": "No output generated",
                     }
                 else:
-                    output = json.loads(final_message.content)
+                    output = json.loads(content)
                     return {
                         "output": output,
                         "success": True,
@@ -308,8 +322,13 @@ class DynamicToolSelectionAgent:
             # Extract the final message
             messages = result.get("messages", [])
             final_message = messages[-1] if messages else None
+            # Check if final_message has content attribute
+            if final_message is not None and hasattr(final_message, "content"):
+                content = getattr(final_message, "content", "No output generated")
+            else:
+                content = "No output generated"
             return {
-                "output": final_message.content if final_message else "No output generated",
+                "output": content,
                 "messages": messages,
                 "success": True,
             }

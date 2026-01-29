@@ -1995,11 +1995,19 @@ class CodeAgentNodeExecutor:
             for msg in reversed(messages):
                 if hasattr(msg, "type") and msg.type == "human":
                     content = msg.content
-                    return str(content) if isinstance(content, (str, list)) else (content[0] if isinstance(content, list) and content else str(content))  # type: ignore[return-value]
+                    return (
+                        str(content)
+                        if isinstance(content, (str, list))
+                        else (content[0] if isinstance(content, list) and content else str(content))
+                    )  # type: ignore[return-value]
                 if hasattr(msg, "content") and not hasattr(msg, "type"):
                     # Fallback to last message content
                     content = msg.content
-                    return str(content) if isinstance(content, (str, list)) else (content[0] if isinstance(content, list) and content else str(content))  # type: ignore[return-value]
+                    return (
+                        str(content)
+                        if isinstance(content, (str, list))
+                        else (content[0] if isinstance(content, list) and content else str(content))
+                    )  # type: ignore[return-value]
 
         # Priority 4: Fallback
         return "Analyze the current context and provide a helpful response."

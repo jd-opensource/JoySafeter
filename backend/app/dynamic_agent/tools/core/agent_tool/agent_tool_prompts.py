@@ -7,6 +7,8 @@ All prompt content is stored in:
 - backend/agent/prompts/scenes/ctf/sub_agent.md (CTF scene)
 """
 
+from typing import Optional
+
 from app.dynamic_agent.prompts.registry import get_registry
 from app.dynamic_agent.prompts.system_prompts import SceneType
 
@@ -32,7 +34,7 @@ SUB_AGENT_SYSTEM_PROMPT_MAP = {
 }
 
 
-def get_sub_agent_prompt(scene: str = None) -> str:
+def get_sub_agent_prompt(scene: Optional[str] = None) -> str:
     """Get Sub-Agent prompt with optional scene-specific suffix.
 
     Args:

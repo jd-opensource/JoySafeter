@@ -410,6 +410,7 @@ class MemoryManager:
             result = self.db.clear_memories()
             if hasattr(result, "__await__"):
                 import asyncio
+
                 asyncio.create_task(result)  # type: ignore[unused-coroutine]
 
     def delete_user_memory(
@@ -700,6 +701,7 @@ class MemoryManager:
             result = self.db.upsert_user_memory(memory=memory)
             if hasattr(result, "__await__"):
                 import asyncio
+
                 asyncio.create_task(result)  # type: ignore[unused-coroutine]
             return "Memory added successfully"
         except Exception as e:
@@ -718,6 +720,7 @@ class MemoryManager:
             result = self.db.delete_user_memory(memory_id=memory_id, user_id=user_id)
             if hasattr(result, "__await__"):
                 import asyncio
+
                 asyncio.create_task(result)  # type: ignore[unused-coroutine]
             return "Memory deleted successfully"
         except Exception as e:
@@ -1794,14 +1797,14 @@ class MemoryManager:
         def _run_async(coro):
             """Helper to run async code in sync context"""
             import asyncio
+
             try:
-                loop = asyncio.get_running_loop()
                 # Event loop is running, need to use a different approach
-                import concurrent.futures
                 import threading
+
                 result = None
                 exception = None
-                
+
                 def run_in_thread():
                     nonlocal result, exception
                     try:
@@ -1811,17 +1814,18 @@ class MemoryManager:
                         new_loop.close()
                     except Exception as e:
                         exception = e
-                
+
                 thread = threading.Thread(target=run_in_thread)
                 thread.start()
                 thread.join()
-                
+
                 if exception:
                     raise exception
                 return result
             except RuntimeError:
                 # No event loop running, safe to use asyncio.run
                 return asyncio.run(coro)
+
         def add_memory(memory: str, topics: Optional[List[str]] = None) -> str:
             """Use this function to add a memory to the database.
             Args:
@@ -1830,44 +1834,47 @@ class MemoryManager:
             Returns:
                 str: A message indicating if the memory was added successfully or not.
             """
+            import asyncio
             from uuid import uuid4
 
             from app.schemas.memory import UserMemory
-
-            import asyncio
 
             try:
                 memory_id = str(uuid4())
                 # Run async method in sync context
                 try:
-                    loop = asyncio.get_running_loop()
                     # Event loop is running, schedule coroutine
                     import nest_asyncio
+
                     nest_asyncio.apply()
-                    asyncio.run(db.upsert_user_memory(
-                        UserMemory(
-                            memory_id=memory_id,
-                            user_id=user_id,
-                            agent_id=agent_id,
-                            team_id=team_id,
-                            memory=memory,
-                            topics=topics,
-                            input=input_string,
+                    asyncio.run(
+                        db.upsert_user_memory(
+                            UserMemory(
+                                memory_id=memory_id,
+                                user_id=user_id,
+                                agent_id=agent_id,
+                                team_id=team_id,
+                                memory=memory,
+                                topics=topics,
+                                input=input_string,
+                            )
                         )
-                    ))
+                    )
                 except RuntimeError:
                     # No event loop running, safe to use asyncio.run
-                    asyncio.run(db.upsert_user_memory(
-                        UserMemory(
-                            memory_id=memory_id,
-                            user_id=user_id,
-                            agent_id=agent_id,
-                            team_id=team_id,
-                            memory=memory,
-                            topics=topics,
-                            input=input_string,
+                    asyncio.run(
+                        db.upsert_user_memory(
+                            UserMemory(
+                                memory_id=memory_id,
+                                user_id=user_id,
+                                agent_id=agent_id,
+                                team_id=team_id,
+                                memory=memory,
+                                topics=topics,
+                                input=input_string,
+                            )
                         )
-                    ))
+                    )
                 logger.debug(f"Memory added: {memory_id}")
                 return "Memory added successfully"
             except Exception as e:
@@ -1889,15 +1896,17 @@ class MemoryManager:
                 return "Can't update memory with empty string. Use the delete memory function if available."
 
             try:
-                _run_async(db.upsert_user_memory(
-                    UserMemory(
-                        memory_id=memory_id,
-                        memory=memory,
-                        topics=topics,
-                        user_id=user_id,
-                        input=input_string,
+                _run_async(
+                    db.upsert_user_memory(
+                        UserMemory(
+                            memory_id=memory_id,
+                            memory=memory,
+                            topics=topics,
+                            user_id=user_id,
+                            input=input_string,
+                        )
                     )
-                ))
+                )
                 logger.debug("Memory updated")
                 return "Memory updated successfully"
             except Exception as e:

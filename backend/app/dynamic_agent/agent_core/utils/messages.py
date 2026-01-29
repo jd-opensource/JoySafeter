@@ -27,7 +27,10 @@ def normalize_messages_for_api(messages: List[Message]) -> List[MessageParam]:
         if isinstance(msg, UserMessage):
             result.append(msg.message)
         elif isinstance(msg, AssistantMessage):
-            result.append(MessageParam(role=MessageRole.ASSISTANT, content=msg.content))
+            # AssistantMessage.content is List[TextBlock | ToolUseBlock | ThinkingBlock]
+            # MessageParam.content accepts Content which includes ToolResultBlock
+            # This is safe as AssistantMessage doesn't contain ToolResultBlock
+            result.append(MessageParam(role=MessageRole.ASSISTANT, content=msg.content))  # type: ignore[arg-type]
         # Skip ProgressMessage - not sent to API
     return result
 

@@ -231,7 +231,13 @@ class SkillService(BaseService[Skill]):
                 file_path = file_data.get("path", "")
                 file_name = file_data.get("file_name", "")
                 file_content_raw = file_data.get("content")
-                file_content_val: Optional[str] = file_content_raw if isinstance(file_content_raw, (str, type(None))) else str(file_content_raw) if file_content_raw is not None else None
+                file_content_val: Optional[str] = (
+                    file_content_raw
+                    if isinstance(file_content_raw, (str, type(None)))
+                    else str(file_content_raw)
+                    if file_content_raw is not None
+                    else None
+                )
 
                 # Check if it's a system file
                 if is_system_file(file_path) or is_system_file(file_name):

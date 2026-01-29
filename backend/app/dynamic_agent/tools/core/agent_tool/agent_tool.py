@@ -17,12 +17,12 @@ from .retry_handler import _process_one_with_retry
 try:
     from app.dynamic_agent.infra.todo_display import get_todo_display
 except ImportError:
-    get_todo_display = None
+    get_todo_display = None  # type: ignore[assignment]
 
 try:
     from app.dynamic_agent.models.session_context import SessionContext as AgentSessionContext
 except ImportError:
-    AgentSessionContext = None
+    AgentSessionContext = None  # type: ignore[assignment, misc]
 
 # Configuration constants
 MAX_AGENT_LEVEL = int(os.environ.get("MAX_AGENT_LEVEL", 3))
@@ -130,8 +130,21 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
                         name=task_details[idx], level=level, duration_ms=0, ok=False, result="", error=str(result)
                     )
                 )
-            else:
+            elif isinstance(result, AgentResult):
                 processed_results.append(result)
+            else:
+                # Should not happen, but handle gracefully
+                logger.warning(f"Unexpected result type: {type(result)}")
+                processed_results.append(
+                    AgentResult(
+                        name=task_details[idx],
+                        level=level,
+                        duration_ms=0,
+                        ok=False,
+                        result="",
+                        error=f"Unexpected result type: {type(result)}",
+                    )
+                )
 
         return processed_results
 
@@ -144,7 +157,7 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
         return error
 
     success_count = 0
-    final_results = []
+    final_results: List[str] = []
     for idx, r in enumerate(results):
         # logger.info(f"Agent {task_details[idx]} result: {r}")
         if not r:
@@ -155,7 +168,7 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
         if asyncio.iscoroutine(r):
             temp = await r
             if isinstance(temp, AgentResult):
-                temp_result = temp.result if temp.result else temp.error
+                temp_result = temp.result if temp.result else (temp.error or "")
             else:
                 temp_result = str(temp)
             final_results.append(temp_result)
@@ -165,7 +178,7 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
             # logger.warning(temp_result)
             # final_results.append(temp_result)r
             if isinstance(r, AgentResult):
-                temp_result = r.result if r.result else r.error
+                temp_result = r.result if r.result else (r.error or "")
             else:
                 temp_result = str(r)
             final_results.append(temp_result)
@@ -174,22 +187,26 @@ async def agent_tool(context: str, task_details: List[str], level: int) -> str:
     logger.info(f"agent_tool completed: {success_count}/{len(results)} succeeded")
 
     if len(task_details) == 1:
-        ret = results[0].result if results[0].result else results[0].error
+        first_result = results[0]
+        if isinstance(first_result, AgentResult):
+            ret_str = first_result.result if first_result.result else (first_result.error or "")
+        else:
+            ret_str = str(first_result) if first_result else ""
         metadata = MetadataContext.get() or {}
         if metadata.get("flag_found"):
             flag_value = metadata.get("found_flag", "FLAG{...}")
             # Return FLAG banner + full Sub-Agent result for accurate attack path
-            return f"🏁 FLAG FOUND: {flag_value}\n\n{ret}"
+            return f"🏁 FLAG FOUND: {flag_value}\n\n{ret_str}"
 
-    rets = []
-    for idx, r in enumerate(final_results):
-        rets.append(f"Task: {task_details[idx]}\nResult:{r}\n")
+    rets: List[str] = []
+    for idx, result_str in enumerate(final_results):
+        rets.append(f"Task: {task_details[idx]}\nResult:{result_str}\n")
 
-    ret = ("-" * 10).join(rets)
+    ret_str = ("-" * 10).join(rets)
 
     from app.dynamic_agent.tools.builtin.check_iteration_tool.check_iteration_tool import build_iteration_info
 
-    return f"""{ret}.
+    return f"""{ret_str}.
 
     ------
     extra info about iteration limit:

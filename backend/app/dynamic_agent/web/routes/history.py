@@ -6,13 +6,14 @@ including detailed step information and filtering capabilities.
 Uses raw SQL DAO implementation via asyncpg.
 """
 
-from typing import Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 
+from app.dynamic_agent.storage.models import ExecutionStepResponse
 from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
 
 router = APIRouter(prefix="/history", tags=["history"])
@@ -24,7 +25,7 @@ async def get_db_pool() -> asyncpg.Pool:
     try:
         # storage = get_storage_manager()
         storage = await init_storage()
-        return storage.backend.pool
+        return storage.backend.pool  # type: ignore[no-any-return]
     except RuntimeError:
         # Storage not initialized yet
         raise HTTPException(status_code=500, detail="Storage manager not initialized")
@@ -153,7 +154,7 @@ async def get_task_statistics(
 
         # Calculate depth (need to reconstruct tree to calculate max depth)
         step_map = {s.id: s for s in steps}
-        children_map = {s.id: [] for s in steps}
+        children_map: Dict[UUID, List[ExecutionStepResponse]] = {s.id: [] for s in steps}
         roots = []
 
         for s in steps:

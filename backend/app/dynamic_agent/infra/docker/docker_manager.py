@@ -5,7 +5,7 @@ Supports dynamic creation, execution, resource limits and monitoring
 
 import os
 import shutil
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import docker
 from docker.errors import ImageNotFound
@@ -243,14 +243,15 @@ class DockerManager:
         """
         try:
             # Check if image exists, pull if not
+            client = self._ensure_client()
             try:
-                self.client.images.get(image)
+                client.images.get(image)
             except ImageNotFound:
                 logger.info(f"Image {image} not found, pulling...")
-                self.client.images.pull(image)
+                client.images.pull(image)
 
             # Build container parameters
-            container_kwargs = {
+            container_kwargs: Dict[str, Any] = {
                 "image": image,
                 "command": command,
                 "detach": detach,
@@ -286,7 +287,7 @@ class DockerManager:
             container_kwargs.update(kwargs)
 
             # Create container
-            client = self._ensure_client()
+            client = self._ensure_client()  # Already ensured above
             container = client.containers.create(**container_kwargs)
 
             try:

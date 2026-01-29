@@ -209,7 +209,10 @@ class EnhancedTool(BaseTool):
         if args_schema is not None and not isinstance(args_schema, type):
             args_schema = None  # type: ignore[assignment]
         instance = cls(
-            name=tool.name, description=tool.description, args_schema=args_schema, tool_metadata=metadata  # type: ignore[arg-type]
+            name=tool.name,
+            description=tool.description,
+            args_schema=args_schema,
+            tool_metadata=metadata,  # type: ignore[arg-type]
         )
         instance._wrapped_tool = tool
         return instance

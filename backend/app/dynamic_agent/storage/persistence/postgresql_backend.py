@@ -11,7 +11,7 @@ Requirements:
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import asyncpg
 from loguru import logger
@@ -21,6 +21,9 @@ from app.dynamic_agent.storage.persistence.daos.session_dao import SessionDAO
 from app.dynamic_agent.storage.persistence.daos.task_dao import TaskDAO
 from app.dynamic_agent.storage.persistence.db_manager import DatabaseManager
 from app.dynamic_agent.storage.persistence.schema_manager import SchemaManager
+
+if TYPE_CHECKING:
+    from app.dynamic_agent.storage.container.context import ContainerContext
 
 
 class PostgreSQLBackend:
@@ -140,7 +143,10 @@ class PostgreSQLBackend:
         if not self.task_dao:
             raise RuntimeError("Backend not initialized")
 
-        task = await self.task_dao.get_task_by_id(task_id)
+        from uuid import UUID
+
+        task_id_uuid = UUID(task_id) if isinstance(task_id, str) else task_id
+        task = await self.task_dao.get_task_by_id(task_id_uuid)
         if not task:
             return None
 
@@ -340,16 +346,16 @@ class PostgreSQLBackend:
                 container.last_accessed,
             )
 
-    async def load_container(self, container_id: str):
+    async def load_container(self, container_id: str) -> Optional["ContainerContext"]:
         """Load container context."""
+        from app.dynamic_agent.storage.container.context import ContainerContext
+
         pool = self._ensure_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM container_contexts WHERE container_id = $1", container_id)
 
             if not row:
                 return None
-
-            from app.dynamic_agent.storage.container_context import ContainerContext
 
             return ContainerContext(
                 container_id=row["container_id"],
@@ -367,16 +373,16 @@ class PostgreSQLBackend:
                 last_accessed=row["last_accessed"],
             )
 
-    async def get_container_by_session(self, session_id: str):
+    async def get_container_by_session(self, session_id: str) -> Optional["ContainerContext"]:
         """Get container for a session."""
+        from app.dynamic_agent.storage.container.context import ContainerContext
+
         pool = self._ensure_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM container_contexts WHERE session_id = $1", session_id)
 
             if not row:
                 return None
-
-            from app.dynamic_agent.storage.container_context import ContainerContext
 
             return ContainerContext(
                 container_id=row["container_id"],
@@ -693,7 +699,9 @@ class PostgreSQLBackend:
                 container_id,
             )
 
-    async def update_container_binding_service(self, container_id: str, docker_api: Optional[str] = None, mcp_api: Optional[str] = None):
+    async def update_container_binding_service(
+        self, container_id: str, docker_api: Optional[str] = None, mcp_api: Optional[str] = None
+    ):
         """Update container binding with API endpoints."""
         pool = self._ensure_pool()
         async with pool.acquire() as conn:

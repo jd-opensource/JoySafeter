@@ -134,11 +134,11 @@ class ContainerContextManager:
         if container_id in self._contexts:
             return self._contexts[container_id]
 
-        context = await self.backend.load_container(container_id)
+        context: Optional[ContainerContext] = await self.backend.load_container(container_id)  # type: ignore[assignment]
         if context:
             self._contexts[container_id] = context
 
-        return context  # type: ignore[return-value]  # type: ignore[return-value]
+        return context
 
     async def execute_in_container(
         self, container_id: str, command: str, working_dir: Optional[str] = None, timeout: int = 300

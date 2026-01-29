@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     pass
 
 from deepagents.backends.protocol import BackendProtocol
-from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from typing_extensions import NotRequired
 
 

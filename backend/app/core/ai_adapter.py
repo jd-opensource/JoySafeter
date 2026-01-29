@@ -86,7 +86,7 @@ class AgentBridge:
         self.engine = engine
 
     async def stream_response(
-        self, message: str, file_references: List[str] = None
+        self, message: str, file_references: Optional[List[str]] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream AI response for web interface.
 

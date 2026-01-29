@@ -270,7 +270,7 @@ class RichConsoleCallback(BaseCallbackHandler):
         except Exception as e:
             logger.debug(f"Failed to display LLM end event: {e}")
 
-    def on_llm_error(self, error: Exception, **kwargs) -> None:
+    def on_llm_error(self, error: BaseException, *, run_id=None, parent_run_id=None, **kwargs) -> None:  # type: ignore[override]
         """Called when LLM encounters an error."""
         self.depth = max(0, self.depth - 1)
         self.state.current_phase = "idle"
@@ -374,15 +374,15 @@ class RichConsoleCallback(BaseCallbackHandler):
         self._show_tool_end_panel(name, content, duration_str, success=True)
         self.state.current_phase = "idle"
 
-    def on_tool_error(self, error: Exception, **kwargs) -> None:
+    def on_tool_error(self, error: BaseException, *, run_id=None, parent_run_id=None, **kwargs) -> None:  # type: ignore[override]
         """Called when a tool encounters an error."""
         self.depth = max(0, self.depth - 1)
-        run_id = str(kwargs.get("run_id", ""))
+        run_id_str = str(run_id) if run_id else str(kwargs.get("run_id", ""))
         name = kwargs.get("name", "<tool>")
 
         # Update state
-        if run_id in self.state.active_tools:
-            tool_display = self.state.active_tools[run_id]
+        if run_id_str in self.state.active_tools:
+            tool_display = self.state.active_tools[run_id_str]
             tool_display.status = ToolStatus.FAILED
             tool_display.error_message = str(error)
             tool_display.end_time = datetime.now()
@@ -402,7 +402,7 @@ class RichConsoleCallback(BaseCallbackHandler):
         """Called when a chain completes."""
         pass  # Minimal logging for chains
 
-    def on_chain_error(self, error: Exception, **kwargs) -> None:
+    def on_chain_error(self, error: BaseException, *, run_id=None, parent_run_id=None, **kwargs) -> None:  # type: ignore[override]
         """Called when a chain encounters an error."""
         # Note: JSON logging is handled by JsonFileLoggingCallback
         self._show_error_panel("Chain Execution Error", str(error))

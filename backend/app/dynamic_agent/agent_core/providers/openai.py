@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -13,6 +13,7 @@ from app.dynamic_agent.agent_core.types import (
     LLMProviderOptions,
     MessageParam,
     TextBlock,
+    ThinkingBlock,
     ToolUseBlock,
     Usage,
 )
@@ -104,7 +105,7 @@ class OpenAIProvider:
 
     def _format_messages(self, messages: List[MessageParam], system_prompt: List[str]) -> List[Dict[str, Any]]:
         """Format messages for OpenAI API."""
-        result = []
+        result: List[Dict[str, Any]] = []
 
         # Add system prompt
         if system_prompt:
@@ -116,8 +117,9 @@ class OpenAIProvider:
             if isinstance(content, str):
                 result.append({"role": msg.role.value, "content": content})
             else:
-                # Convert content blocks
-                result.append({"role": msg.role.value, "content": self._format_content(content)})
+                # Convert content blocks - OpenAI accepts list of content blocks
+                formatted_content = self._format_content(content)
+                result.append({"role": msg.role.value, "content": formatted_content})
 
         return result
 
@@ -149,8 +151,8 @@ class OpenAIProvider:
         choice = response.choices[0]
         message = choice.message
 
-        # Convert content
-        content = []
+        # Convert content - AssistantMessage.content is List[Union[TextBlock, ToolUseBlock, ThinkingBlock]]
+        content: List[Union[TextBlock, ToolUseBlock, ThinkingBlock]] = []
         if message.content:
             content.append(TextBlock(text=message.content))
 

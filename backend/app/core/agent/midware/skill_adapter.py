@@ -125,14 +125,15 @@ class DatabaseSkillAdapter(AgentMiddleware):
                 exc_info=True,
             )
 
-    async def abefore_agent(self, state: AgentState, runtime, config) -> Optional[AgentState]:
+    async def abefore_agent(self, state: AgentState, runtime, config) -> Optional[AgentState]:  # type: ignore[override]
         """Load skills and delegate to SkillsMiddleware."""
         await self._ensure_skills_loaded(runtime)
         if self._skills_middleware is None:
             return None
-        return await self._skills_middleware.abefore_agent(state, runtime, config)
+        result = await self._skills_middleware.abefore_agent(state, runtime, config)
+        return result  # type: ignore[no-any-return]
 
-    def before_agent(self, state: AgentState, runtime, config) -> Optional[AgentState]:
+    def before_agent(self, state: AgentState, runtime, config) -> Optional[AgentState]:  # type: ignore[override]
         """Sync version - delegates to async."""
         import asyncio
 
@@ -153,8 +154,9 @@ class DatabaseSkillAdapter(AgentMiddleware):
         """Delegate to SkillsMiddleware if available."""
         if self._skills_middleware is None:
             result = handler(request)
-            return result  # type: ignore[return-value]
-        return self._skills_middleware.wrap_model_call(request, handler)
+            return result  # type: ignore[no-any-return]
+        result = self._skills_middleware.wrap_model_call(request, handler)
+        return result  # type: ignore[no-any-return]
 
     async def awrap_model_call(
         self,
@@ -164,5 +166,6 @@ class DatabaseSkillAdapter(AgentMiddleware):
         """Async version - delegate to SkillsMiddleware if available."""
         if self._skills_middleware is None:
             result = await handler(request)
-            return result  # type: ignore[return-value]
-        return await self._skills_middleware.awrap_model_call(request, handler)
+            return result  # type: ignore[no-any-return]
+        result = await self._skills_middleware.awrap_model_call(request, handler)
+        return result  # type: ignore[no-any-return]

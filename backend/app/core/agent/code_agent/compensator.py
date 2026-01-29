@@ -12,7 +12,7 @@ This module provides mechanisms to compensate for missing tools by:
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from loguru import logger
 

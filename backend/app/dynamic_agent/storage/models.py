@@ -78,6 +78,7 @@ class ExecutionStepResponse(ExecutionStepBase):
     start_time: datetime
     end_time: Optional[datetime] = None
     created_at: datetime
+    children: List["ExecutionStepResponse"] = Field(default_factory=list)  # Nested children for tree structure
 
     class Config:
         """Pydantic config."""
