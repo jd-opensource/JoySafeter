@@ -9,6 +9,7 @@ indicators:
   - "render_template_string with f-string interpolation"
 
 tricks:
+  # pragma: allowlist secret
   - name: "Step 1: Login with default credentials"
     when: "Found login form"
     how: "Use test:test to authenticate"
@@ -84,6 +85,7 @@ tricks:
       # This outputs the ASCII code of the Nth character
       # Loop through all characters to reconstruct the flag
 
+  # pragma: allowlist secret
   - name: "Complete exploit flow"
     when: "Need full exploitation"
     how: "Combine all bypasses"

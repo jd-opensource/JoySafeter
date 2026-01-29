@@ -18,6 +18,7 @@ tricks:
       # Line 44, 61: jwt.decode(..., options={"verify_signature": False})
       # No signature verification = can tamper token
 
+  # pragma: allowlist secret
   - name: "Step 2: Login and get token"
     when: "Need initial JWT token"
     how: "Login with default credentials"

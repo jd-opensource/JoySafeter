@@ -2,6 +2,7 @@ name: netexec_scan
 category: network_attacks
 tags: [network_host, credential_testing, exploitation_patterns]
 endpoint: api/tools/netexec
+# pragma: allowlist secret
 description: 'Execute NetExec (formerly CrackMapExec) for network enumeration with
   enhanced logging. target: The target IP or network protocol: Protocol to use (smb,
   ssh, winrm, etc.) username: Username for authentication password: Password for authentication

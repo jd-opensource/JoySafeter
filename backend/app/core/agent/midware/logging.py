@@ -19,19 +19,19 @@ from typing_extensions import NotRequired
 class LoggingState(AgentState):
     """日志记录中间件的状态"""
 
-    session_id: NotRequired[str]
+    session_id: NotRequired[str]  # type: ignore[valid-type]
     """会话ID"""
 
-    log_config: NotRequired[Dict[str, Any]]
+    log_config: NotRequired[Dict[str, Any]]  # type: ignore[valid-type]
     """日志配置"""
 
-    interaction_count: NotRequired[int]
+    interaction_count: NotRequired[int]  # type: ignore[valid-type]
     """交互计数"""
 
-    session_start_time: NotRequired[float]
+    session_start_time: NotRequired[float]  # type: ignore[valid-type]
     """会话开始时间"""
 
-    last_activity: NotRequired[float]
+    last_activity: NotRequired[float]  # type: ignore[valid-type]
     """最后活动时间"""
 
 

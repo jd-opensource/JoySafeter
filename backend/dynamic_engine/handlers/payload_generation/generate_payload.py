@@ -30,7 +30,7 @@ class GeneratePayloadHandler(AbstractHandler):
             if payload_type == "buffer":
                 content = pattern * (size // len(pattern))
             elif payload_type == "cyclic":
-                alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # pragma: allowlist secret
                 content = ""
                 for i in range(size):
                     content += alphabet[i % len(alphabet)]

@@ -2,6 +2,7 @@ name: enum4linux_ng_advanced
 category: network_scanning
 tags: [vulnerability_assessment, penetration_testing, enum4linux-ng, enum4linux]
 endpoint: api/tools/enum4linux-ng
+# pragma: allowlist secret
 description: 'Execute Enum4linux-ng for advanced SMB enumeration with enhanced logging.
   target: The target IP address username: Username for authentication password: Password
   for authentication domain: Domain for authentication shares: Enumerate shares users:

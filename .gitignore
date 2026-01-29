@@ -211,6 +211,11 @@ secrets.json
 secrets.yaml
 api_keys.json
 
+# detect-secrets baseline (disabled)
+.secrets.baseline
+.secrets.baseline.scan.json
+.secrets.baseline.tmp
+
 # Additional tool
 additional_tools/
 make_scripts/backups

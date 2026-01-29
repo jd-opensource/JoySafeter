@@ -15,6 +15,7 @@ tricks:
       curl -s http://TARGET/ | grep -i '<!--'
       # Found: <!-- TODO: Delete the testing account (test:test). -->
 
+  # pragma: allowlist secret
   - name: "Step 2: Login with default credentials"
     when: "Found credentials in comments"
     how: "Submit username first, then password on redirect page"

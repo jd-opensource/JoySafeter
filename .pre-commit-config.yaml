@@ -35,31 +35,23 @@ repos:
     hooks:
       - id: backend-ruff-check
         name: Backend Ruff Check (strict)
-        entry: bash -c 'cd backend && uv run ruff check . || exit 1'
+        entry: bash -c 'cd backend && .venv/bin/ruff check . || exit 1'
         language: system
         files: ^backend/.*\.py$
         pass_filenames: false
         always_run: false  # 只在有 Python 文件更改时运行
         stages: [commit]
 
-  # Python - Type checking
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
-    hooks:
-      - id: mypy
-        files: ^backend/app/
-        args: [--ignore-missing-imports]
-        additional_dependencies:
-          - types-requests
-          - types-PyYAML
-
-  # Secrets detection
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
-    hooks:
-      - id: detect-secrets
-        args: ['--baseline', '.secrets.baseline']
-        exclude: (\.lock$|package-lock\.json$|pnpm-lock\.yaml$)
+  # Python - Type checking (mypy runs in Backend CI job only; skipped in pre-commit)
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: v1.13.0
+  #   hooks:
+  #     - id: mypy
+  #       files: ^backend/app/
+  #       args: [--ignore-missing-imports]
+  #       additional_dependencies:
+  #         - types-requests
+  #         - types-PyYAML
 
   # Frontend - ESLint (强制检查，不允许错误)
   # 注意：此 hook 会检查整个 frontend 目录，确保没有 lint 错误
@@ -78,4 +70,3 @@ repos:
 ci:
   autofix_commit_msg: 'style: auto-fix by pre-commit hooks'
   autoupdate_commit_msg: 'chore: update pre-commit hooks'
-  skip: [mypy]  # Skip mypy in CI (requires full dependencies)

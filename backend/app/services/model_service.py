@@ -325,6 +325,8 @@ class ModelService(BaseService):
         # 确定模型类型（这里简化处理，假设是Chat模型）
         model_type = ModelType.CHAT
 
+        assert provider_name is not None and model_name is not None
+
         # 获取凭据
         credentials = await self.credential_service.get_current_credentials(
             provider_name=provider_name,

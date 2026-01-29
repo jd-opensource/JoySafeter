@@ -19,16 +19,16 @@ from typing_extensions import NotRequired
 class ContextEnhancementState(AgentState):
     """上下文增强中间件的状态"""
 
-    enhanced_context: NotRequired[Dict[str, Any]]
+    enhanced_context: NotRequired[Dict[str, Any]]  # type: ignore[valid-type]
     """增强的上下文信息"""
 
-    project_info: NotRequired[Dict[str, Any]]
+    project_info: NotRequired[Dict[str, Any]]  # type: ignore[valid-type]
     """项目信息"""
 
-    user_preferences: NotRequired[Dict[str, Any]]
+    user_preferences: NotRequired[Dict[str, Any]]  # type: ignore[valid-type]
     """用户偏好"""
 
-    conversation_context: NotRequired[Dict[str, Any]]
+    conversation_context: NotRequired[Dict[str, Any]]  # type: ignore[valid-type]
     """对话上下文"""
 
 

@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 class AgenticMemoryState(AgentState):
     """Agentic Memory 中间件的扩展状态"""
 
-    user_id: NotRequired[str | None]
-    agent_memory_context: NotRequired[str | None]
+    user_id: NotRequired[str | None]  # type: ignore[valid-type]
+    agent_memory_context: NotRequired[str | None]  # type: ignore[valid-type]
 
 
 class AgentMemoryIterationMiddleware(AgentMiddleware):

@@ -25,6 +25,7 @@ tricks:
       {{ settings.SECRET_KEY }}
       # Django settings are accessible in templates
 
+  # pragma: allowlist secret
   - name: "Step 3: Multi-step registration exploit"
     when: "Vulnerable input in registration flow"
     how: "Submit payload through registration steps"

@@ -17,6 +17,7 @@ tricks:
       # Note the redirect URL: /company/1/jobs
       # Try accessing /company/2/jobs directly
 
+  # pragma: allowlist secret
   - name: "Step 2: Login with default credentials"
     when: "Found login form"
     how: "Use demo:demo to authenticate"

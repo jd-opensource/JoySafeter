@@ -65,9 +65,9 @@ class LLMCredentialResolver:
                     model_type = ModelType.CHAT  # Simplified: assume Chat model
 
                     credentials = await credential_service.get_current_credentials(
-                        provider_name=provider_name,
+                        provider_name=provider_name or "",
                         model_type=model_type,
-                        model_name=model_name,
+                        model_name=model_name or "",
                     )
                     if credentials:
                         api_key = credentials.get("api_key")
@@ -89,9 +89,9 @@ class LLMCredentialResolver:
                                     model_name = provider_instances[0].model_name
                                     model_type = ModelType.CHAT
                                     credentials = await credential_service.get_current_credentials(
-                                        provider_name=provider_name,
+                                        provider_name=provider_name or provider_name_from_cred,
                                         model_type=model_type,
-                                        model_name=model_name,
+                                        model_name=model_name or "",
                                     )
                                     if credentials:
                                         api_key = credentials.get("api_key")

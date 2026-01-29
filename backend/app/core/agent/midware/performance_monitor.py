@@ -40,13 +40,13 @@ class PerformanceRecord:
 class PerformanceState(AgentState):
     """性能监控中间件的状态"""
 
-    session_id: NotRequired[str]
+    session_id: NotRequired[str]  # type: ignore[valid-type]
     """会话ID"""
-    request_count: NotRequired[int]
+    request_count: NotRequired[int]  # type: ignore[valid-type]
     """请求计数"""
-    total_response_time: NotRequired[float]
+    total_response_time: NotRequired[float]  # type: ignore[valid-type]
     """总响应时间"""
-    last_metrics: NotRequired[PerformanceRecord]
+    last_metrics: NotRequired[PerformanceRecord]  # type: ignore[valid-type]
     """最后一次性能记录"""
 
 

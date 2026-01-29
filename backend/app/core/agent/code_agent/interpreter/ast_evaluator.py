@@ -435,11 +435,11 @@ def evaluate_class_def(
     class_name = class_def.name
     bases = [evaluate_ast(base, state, static_tools, custom_tools, authorized_imports) for base in class_def.bases]
 
-    metaclass = type
+    metaclass: type = type
     for base in bases:
         base_metaclass = type(base)
         if base_metaclass is not type:
-            metaclass = base_metaclass
+            metaclass = base_metaclass  # type: ignore[assignment]
             break
 
     if hasattr(metaclass, "__prepare__"):

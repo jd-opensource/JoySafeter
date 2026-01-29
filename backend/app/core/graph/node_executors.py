@@ -8,7 +8,7 @@ and implements the execution logic for that node type.
 import ast
 import asyncio
 import time
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union, cast
 
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import Runnable
@@ -1439,7 +1439,7 @@ class JSONParserNodeExecutor:
 
             if input_data is None:
                 # Try to get from last message
-                messages = state.get("messages", [])
+                messages = cast(list, state.get("messages", []))
                 if messages:
                     last_message = messages[-1]
                     if hasattr(last_message, "content"):
@@ -1979,7 +1979,7 @@ class CodeAgentNodeExecutor:
 
     def _extract_task_from_state(self, state: GraphState) -> str:
         """Extract the task/query from the graph state."""
-        messages = state.get("messages", [])
+        messages = cast(list, state.get("messages", []))
         context = state.get("context", {})
 
         # Priority 1: Check for explicit code_task in context

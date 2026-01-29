@@ -6,7 +6,7 @@ and state history for debugging complex graphs.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from loguru import logger
 
@@ -104,9 +104,9 @@ class GraphExecutionTrace:
             "current_node": state.get("current_node"),
             "route_decision": state.get("route_decision"),
             "loop_count": state.get("loop_count"),
-            "messages_count": len(state.get("messages", [])),
-            "context_keys": list(state.get("context", {}).keys()),
-            "task_results_count": len(state.get("task_results", [])),
+            "messages_count": len(cast(list, state.get("messages", []))),
+            "context_keys": list(cast(dict, state.get("context", {})).keys()),
+            "task_results_count": len(cast(list, state.get("task_results", []))),
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -133,8 +133,8 @@ def create_node_trace(
         "current_node": state.get("current_node"),
         "route_decision": state.get("route_decision"),
         "loop_count": state.get("loop_count"),
-        "messages_count": len(state.get("messages", [])),
-        "context_keys": list(state.get("context", {}).keys()),
+        "messages_count": len(cast(list, state.get("messages", []))),
+        "context_keys": list(cast(dict, state.get("context", {})).keys()),
     }
 
     return NodeExecutionTrace(

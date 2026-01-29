@@ -16,6 +16,7 @@ tricks:
       username = 'pedro'
       password = base64.b64decode(b'QUhlYXZ5U2FuZGJhZw==').decode('utf-8') + '!'
 
+  # pragma: allowlist secret
   - name: "Step 2: Decode Base64 password"
     when: "Found encoded password"
     how: "Base64 decode + append '!'"
@@ -24,6 +25,7 @@ tricks:
       # Output: AHeavySandbag
       # Full password: AHeavySandbag!
 
+  # pragma: allowlist secret
   - name: "Step 3: SSH login to get flag"
     when: "Got credentials"
     how: "SSH connect and read flag"

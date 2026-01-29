@@ -66,7 +66,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     hashed_password = hashed_password.lower().strip()
 
     # 验证格式（必须是 SHA-256）
-    if len(plain_password) != 64 or not all(c in "0123456789abcdef" for c in plain_password):
+    if len(plain_password) != 64 or not all(
+        c in "0123456789abcdef" for c in plain_password
+    ):  # pragma: allowlist secret
         return False
 
     if len(hashed_password) != 64 or not all(c in "0123456789abcdef" for c in hashed_password):

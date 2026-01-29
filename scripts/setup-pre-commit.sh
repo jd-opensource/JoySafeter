@@ -31,7 +31,7 @@ echo ""
 
 # 验证 pre-commit 配置
 echo "📋 验证 pre-commit 配置..."
-if ! (cd backend && uv run python -m pre_commit validate-config 2>&1); then
+if ! backend/.venv/bin/python -m pre_commit validate-config 2>&1; then
     echo "❌ 配置文件无效"
     exit 1
 fi
@@ -40,7 +40,7 @@ echo ""
 
 # 安装 Git hooks（hook 将使用 backend 的 venv 中的 pre-commit）
 echo "📝 安装 Pre-commit Hooks..."
-if ! (cd backend && uv run python -m pre_commit install --install-hooks); then
+if ! backend/.venv/bin/python -m pre_commit install --install-hooks; then
     echo "❌ 安装 Git hooks 失败"
     exit 1
 fi
@@ -50,5 +50,6 @@ echo ""
 echo "✨ 完成！"
 echo ""
 echo "pre-commit 已与后端 UV 环境绑定，每次 git commit 将自动运行代码校验。"
-echo "手动全量检查: cd backend && uv run python -m pre_commit run --all-files"
+echo "手动全量检查: ./scripts/run-pre-commit.sh"
+echo "或: backend/.venv/bin/python -m pre_commit run --all-files"
 echo ""

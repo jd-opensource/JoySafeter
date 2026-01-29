@@ -335,7 +335,7 @@ class UnifiedDockerManager:
                     # raise ContainerCreationError(f"Failed to create container on {host_name}")
 
             # 409
-            # 'Conflict. The container name "/pentest-user_123-2e5d995f" is already in use by container "5094943bc91be274726c70de7f54ad1ee0eb14573d7d80ef4f32675da27a5700". You have to remove (or rename) that container to be able to reuse that name.'
+            # 'Conflict. The container name "/pentest-user_123-2e5d995f" is already in use by container "5094943bc91be274726c70de7f54ad1ee0eb14573d7d80ef4f32675da27a5700". You have to remove (or rename) that container to be able to reuse that name.'  # pragma: allowlist secret
             except Exception as e:
                 logger.warning(f"Failed to create container: {e}")
                 # 500 Server Error for http+docker://localhost/v1.51/containers/5094943bc91be274726c70de7f54ad1ee0eb14573d7d80ef4f32675da27a5700/start: Internal Server Error ("failed to set up container networking: driver failed programming external connectivity on endpoint pentest-user_123-2e5d995f (1c16361d8655ebd2750a00187f49078276ac982a8910147f7449d2893b62aa68): Bind for 0.0.0.0:8000 failed: port is already allocated")

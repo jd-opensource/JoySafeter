@@ -5,4 +5,4 @@ from the sandbox at /workspace/skills/{skill_name}/ after skills are preloaded
 by SkillSandboxLoader.
 """
 
-__all__ = []
+__all__: list[str] = []

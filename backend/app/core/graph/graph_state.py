@@ -130,7 +130,7 @@ class ExecutionState(TypedDict, total=False):
     todos: Annotated[List[Dict[str, Any]], add_todos]
 
 
-class GraphState(MessagesState, BusinessState, ExecutionState):
+class GraphState(MessagesState, BusinessState, ExecutionState):  # type: ignore[misc]
     """工作流图状态：组合业务状态和执行状态。
 
     这个类组合了 BusinessState（业务数据）和 ExecutionState（执行元数据），

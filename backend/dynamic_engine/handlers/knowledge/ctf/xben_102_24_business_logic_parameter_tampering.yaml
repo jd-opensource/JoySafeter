@@ -9,6 +9,7 @@ indicators:
   - "Flag returned when admin data is modified"
 
 tricks:
+  # pragma: allowlist secret
   - name: "Step 1: Explore the application"
     when: "First accessing the site"
     how: "Login with provided credentials and explore features"

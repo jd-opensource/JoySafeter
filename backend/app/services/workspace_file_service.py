@@ -225,8 +225,8 @@ class WorkspaceFileService(BaseService):
 
         import uuid as uuid_lib
 
-        file_uuid = uuid_lib.UUID(file_id) if isinstance(file_id, str) else file_id
-        user_uuid = uuid_lib.UUID(current_user.id) if isinstance(current_user.id, str) else current_user.id
+        file_uuid = file_id if isinstance(file_id, uuid.UUID) else uuid_lib.UUID(str(file_id))
+        user_uuid = current_user.id if isinstance(current_user.id, uuid.UUID) else uuid_lib.UUID(str(current_user.id))
         token = jwt.encode(
             self._token_payload(workspace_id, file_uuid, user_uuid),
             settings.secret_key,

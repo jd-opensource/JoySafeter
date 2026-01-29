@@ -21,7 +21,7 @@ This document provides detailed instructions for setting up and running the JoyS
 ./scripts/setup-pre-commit.sh
 ```
 
-执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：`cd backend && uv run pre-commit run --all-files`。
+执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：`./scripts/run-pre-commit.sh` 或 `backend/.venv/bin/python -m pre_commit run --all-files`。
 
 ### 1. Start Database Services
 
@@ -185,7 +185,7 @@ git commit -m "your message"
 
 ```bash
 # 检查所有文件（使用后端 UV 环境）
-cd backend && uv run pre-commit run --all-files
+backend/.venv/bin/python -m pre_commit run --all-files
 
 # 检查暂存的文件（在仓库根目录，需已通过上述脚本安装 hook）
 pre-commit run
@@ -231,10 +231,10 @@ git commit --no-verify -m "emergency fix"
 
 ```bash
 # 更新 hooks 到最新版本
-cd backend && uv run pre-commit autoupdate
+backend/.venv/bin/python -m pre_commit autoupdate
 
 # 然后重新安装
-cd backend && uv run pre-commit install
+backend/.venv/bin/python -m pre_commit install --install-hooks
 ```
 
 更多详细信息请参考 [Pre-commit Setup Guide](.pre-commit-setup.md)。
