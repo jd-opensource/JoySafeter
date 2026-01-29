@@ -1007,6 +1007,16 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 if __name__ == "__main__":
     import uvicorn
 
+    # Create a FastAPI app instance when running directly
+    # (app is an APIRouter, which needs to be wrapped in a FastAPI instance)
+    fastapi_app = FastAPI(
+        title="Open Pentest Agent API",
+        description="REST API for security testing agent with tool execution",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
+    fastapi_app.include_router(app, prefix=DYNAMIC_AGENT_PREFIX)
+
     # Get configuration from environment
     host = os.getenv("AGENT_HOST", "0.0.0.0")
     port = int(os.getenv("AGENT_PORT", 8888))
@@ -1029,7 +1039,7 @@ if __name__ == "__main__":
             config.bind = [f"{host}:{port}"]
             config.loglevel = os.getenv("LOG_LEVEL", "info").lower()
 
-            asyncio.run(hypercorn.asyncio.serve(app, config))
+            asyncio.run(hypercorn.asyncio.serve(fastapi_app, config))
         except ImportError:
             # Fallback to uvicorn with minimal configuration
             logger.info("🐛 Hypercorn not available, using uvicorn with minimal config")
@@ -1037,7 +1047,7 @@ if __name__ == "__main__":
             import uvicorn
 
             uvicorn.run(
-                app,
+                fastapi_app,
                 host=host,
                 port=port,
                 log_level=os.getenv("LOG_LEVEL", "info").lower(),
@@ -1053,7 +1063,7 @@ if __name__ == "__main__":
         logger.info(f"Starting server on {host}:{port} with {workers} worker(s), reload={reload}")
 
         uvicorn.run(
-            "server:app",
+            fastapi_app,
             host=host,
             port=port,
             workers=workers,

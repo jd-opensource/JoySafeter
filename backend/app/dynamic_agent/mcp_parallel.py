@@ -1,9 +1,9 @@
 import asyncio
 
-from fastmcp import McpClient
+from fastmcp import Client
 
 
-class ConcurrentMcpClient(McpClient):
+class ConcurrentMcpClient(Client):
     async def call_tool_concurrent(self, name: str, arguments: dict):
         # Internally async, wrapped with Task here
         return await self.call_tool(name, arguments)

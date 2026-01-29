@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional, cast
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
@@ -20,6 +20,17 @@ from app.services.auth_service import AuthService
 from app.services.auth_session_service import AuthSessionService
 
 router = APIRouter(prefix="/v1/auth", tags=["Auth"])
+
+# Type alias for SameSite cookie attribute
+SameSiteType = Literal["lax", "strict", "none"]
+
+
+def _get_samesite_value(value: str) -> Optional[SameSiteType]:
+    """Convert string to SameSite literal type for cookie operations."""
+    normalized = value.lower().strip()
+    if normalized in ("lax", "strict", "none"):
+        return cast(SameSiteType, normalized)
+    return None
 
 
 # Schemas
@@ -120,7 +131,7 @@ async def sign_in_with_email(
             max_age=expires_in,
             httponly=True,
             secure=settings.cookie_secure_effective,
-            samesite=settings.cookie_samesite,
+            samesite=_get_samesite_value(settings.cookie_samesite),
             domain=settings.cookie_domain,
             path="/",
         )
@@ -133,7 +144,7 @@ async def sign_in_with_email(
             max_age=refresh_expires,
             httponly=True,
             secure=settings.cookie_secure_effective,
-            samesite=settings.cookie_samesite,
+            samesite=_get_samesite_value(settings.cookie_samesite),
             domain=settings.cookie_domain,
             path="/",
         )
@@ -191,19 +202,19 @@ async def logout(
             key=settings.cookie_name,
             domain=settings.cookie_domain,
             path="/",
-            samesite=settings.cookie_samesite,
+            samesite=_get_samesite_value(settings.cookie_samesite),
         )
         response.delete_cookie(
             key="refresh_token",
             domain=settings.cookie_domain,
             path="/",
-            samesite=settings.cookie_samesite,
+            samesite=_get_samesite_value(settings.cookie_samesite),
         )
         response.delete_cookie(
             key="csrf_token",
             domain=settings.cookie_domain,
             path="/",
-            samesite=settings.cookie_samesite,
+            samesite=_get_samesite_value(settings.cookie_samesite),
         )
 
         return success_response(message="Logout successful")

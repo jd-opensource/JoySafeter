@@ -34,7 +34,7 @@ class ModalBackend(BaseSandbox):
     @property
     def id(self) -> str:
         """Unique identifier for the sandbox backend."""
-        return self._sandbox.object_id
+        return str(self._sandbox.object_id)
 
     def execute(
         self,

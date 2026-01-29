@@ -58,14 +58,12 @@ class AuthService(BaseService):
 
         # 存储到 Redis（仅在 Redis 可用时）
         if RedisClient.is_available():
-            redis_client = RedisClient.get_client()
-            if redis_client:
-                try:
-                    refresh_expire_seconds = int(refresh_expires.timestamp() - datetime.now(timezone.utc).timestamp())
-                    await redis_client.set(refresh_token_key, user_id, expire=refresh_expire_seconds)
-                    await redis_client.set(refresh_token_user_key, refresh_token, expire=refresh_expire_seconds)
-                except Exception:
-                    pass
+            try:
+                refresh_expire_seconds = int(refresh_expires.timestamp() - datetime.now(timezone.utc).timestamp())
+                await RedisClient.set(refresh_token_key, user_id, expire=refresh_expire_seconds)
+                await RedisClient.set(refresh_token_user_key, refresh_token, expire=refresh_expire_seconds)
+            except Exception:
+                pass
 
         # 生成 CSRF token (JWT)
         csrf_token = create_csrf_token(user_id)

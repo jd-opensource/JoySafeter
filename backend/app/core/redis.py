@@ -4,7 +4,7 @@ Redis 配置 - 缓存和分布式锁
 
 import json
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Dict, Optional, cast
 
 import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool
@@ -68,7 +68,9 @@ class RedisClient:
         if not cls._client:
             return False
         try:
-            await cls._client.ping()
+            # Type assertion: ping() in async context always returns Awaitable[bool]
+            ping_result: Awaitable[bool] = cast(Awaitable[bool], cls._client.ping())
+            await ping_result
             cls._is_available = True
             return True
         except Exception:
