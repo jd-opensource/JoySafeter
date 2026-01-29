@@ -19,7 +19,6 @@ from typing import TypeVar
 
 from loguru import logger
 
-
 __all__ = [
     "RateLimiter",
     "Retrying",
