@@ -1,12 +1,13 @@
 'use client'
 
-import React from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { Circle, Loader2 } from 'lucide-react'
+import React from 'react'
+
 import { Button } from '@/components/ui/button'
 import { useUpdateModelInstanceDefault } from '@/hooks/queries/models'
-import { useToast } from '@/hooks/use-toast'
 import type { ModelProvider, AvailableModel } from '@/hooks/queries/models'
+import { useToast } from '@/hooks/use-toast'
+import { useTranslation } from '@/lib/i18n'
 
 interface ModelListItemProps {
   model: AvailableModel

@@ -1,15 +1,10 @@
 'use client'
 
+import { PauseCircle, CheckCircle, XCircle, Edit, Play, SkipForward, ArrowRight } from 'lucide-react'
 import React, { useState, useMemo } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { PauseCircle, CheckCircle, XCircle, Edit, Play, SkipForward, ArrowRight } from 'lucide-react'
-import { useExecutionStore, type InterruptInfo } from '../stores/executionStore'
-import { useBuilderStore } from '../stores/builderStore'
-import { resumeWithCommand } from '../services/commandService'
-import { getNodeNameFromFlowNode } from '../utils/nodeNameUtils'
-import { useToast } from '@/components/ui/use-toast'
-import { useTranslation } from '@/lib/i18n'
 import {
   Select,
   SelectContent,
@@ -17,6 +12,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useToast } from '@/components/ui/use-toast'
+import { useTranslation } from '@/lib/i18n'
+
+import { resumeWithCommand } from '../services/commandService'
+import { useBuilderStore } from '../stores/builderStore'
+import { useExecutionStore, type InterruptInfo } from '../stores/executionStore'
+import { getNodeNameFromFlowNode } from '../utils/nodeNameUtils'
+
 
 interface InterruptPanelProps {
   interrupt: InterruptInfo

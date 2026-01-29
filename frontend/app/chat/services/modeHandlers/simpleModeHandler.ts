@@ -4,6 +4,8 @@
  * Handles simple modes that only need to set the mode type, no special processing required
  */
 
+import { Server } from 'lucide-react'
+
 import type {
   ModeHandler,
   ModeContext,
@@ -12,7 +14,6 @@ import type {
   ValidationResult,
   ModeMetadata,
 } from './types'
-import { Server } from 'lucide-react'
 
 /**
  * Create a simple mode handler

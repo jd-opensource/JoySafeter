@@ -4,11 +4,14 @@
  * Handles all user interactions: send, stop, reset, AI decision, etc.
  */
 
-import { useCallback } from 'react'
 import { useParams } from 'next/navigation'
+import { useCallback } from 'react'
+
 import { useTranslation } from '@/lib/i18n'
-import { useBuilderStore } from '../stores/builderStore'
 import { copilotService } from '@/services/copilotService'
+
+import { useBuilderStore } from '../stores/builderStore'
+
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
 interface UseCopilotActionsOptions {

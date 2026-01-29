@@ -1,15 +1,16 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+
+import { useVerification } from '@/app/(auth)/verify/use-verification'
 import { Button } from '@/components/ui/button'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toastError } from '@/lib/utils/toast'
 import { cn } from '@/lib/core/utils/cn'
+import { toastError } from '@/lib/utils/toast'
 import { inter } from '@/styles/fonts/inter/inter'
 import { soehne } from '@/styles/fonts/soehne/soehne'
-import { useVerification } from '@/app/(auth)/verify/use-verification'
 
 interface VerifyContentProps {
   hasEmailService: boolean
@@ -55,7 +56,7 @@ function VerificationForm({
       return () => clearTimeout(timer)
     }
     if (countdown === 0 && isResendDisabled) {
-      setIsResendDisabled(false)
+      queueMicrotask(() => setIsResendDisabled(false))
     }
   }, [countdown, isResendDisabled])
 

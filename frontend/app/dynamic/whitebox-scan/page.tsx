@@ -5,8 +5,9 @@
  * Migrated from frontend_dynamic/web to Next.js App Router
  */
 
-import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import React, { useState } from 'react';
+
 import { UploadBox, ScanReport } from '@/components/dynamic/whitebox';
 import { scanApi, ScanJobStatus, ScanReport as ScanReportType } from '@/lib/api/dynamic/scanApi';
 import '@/styles/dynamic/whitebox/WhiteboxScan.css';

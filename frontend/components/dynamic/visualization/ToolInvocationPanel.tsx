@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Agent } from '@/types/dynamic/execution';
+
 import { formatDuration, formatJSON, formatTimestamp } from '@/lib/utils/dynamic/formatting';
+import { Agent } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/ToolInvocationPanel.css';
 
 interface ToolInvocationPanelProps {

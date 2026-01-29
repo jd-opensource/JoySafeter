@@ -5,12 +5,14 @@
  * - Use camelCase for types
  * - API response: { success: true, data: {...} }
  */
-import { useEffect } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+
+import { apiGet, apiPatch } from '@/lib/api-client'
 import { syncThemeToNextThemes } from '@/lib/core/utils/theme'
 import { createLogger } from '@/lib/logs/console/logger'
 import { useGeneralStore } from '@/stores/settings/general/store'
-import { apiGet, apiPatch } from '@/lib/api-client'
+
 import { STALE_TIME } from './constants'
 
 const logger = createLogger('GeneralSettingsQuery')

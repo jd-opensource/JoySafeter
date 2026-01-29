@@ -1,9 +1,12 @@
 'use client'
 
-import React from 'react'
 import { AlertCircle, Wifi, WifiOff, Loader2 } from 'lucide-react'
-import { useBuilderStore } from '../stores/builderStore'
+import React from 'react'
+
 import { useTranslation } from '@/lib/i18n'
+
+import { useBuilderStore } from '../stores/builderStore'
+
 
 export const GraphStatusBar: React.FC = () => {
   const { t } = useTranslation()

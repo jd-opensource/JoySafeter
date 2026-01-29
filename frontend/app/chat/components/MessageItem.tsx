@@ -1,13 +1,15 @@
 'use client'
 
-import React from 'react'
-import { Message, ToolCall } from '../types'
+import DOMPurify from 'dompurify'
 import { User, Bot, Search, Check, Loader2, ListTodo, Terminal } from 'lucide-react'
+import React from 'react'
+import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import ReactMarkdown from 'react-markdown'
-import DOMPurify from 'dompurify'
+
 import { cn } from '@/lib/core/utils/cn'
+
+import { Message, ToolCall } from '../types'
 
 interface MessageItemProps {
   message: Message

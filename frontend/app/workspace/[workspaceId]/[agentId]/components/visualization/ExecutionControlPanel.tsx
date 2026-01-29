@@ -1,12 +1,14 @@
 'use client'
 
 import React from 'react'
+
 import { useExecutionStore } from '../../stores/executionStore'
-import { StateViewer } from './StateViewer'
-import { RouteDecisionDisplay } from './RouteDecisionDisplay'
+
+import { ExecutionTrace } from './ExecutionTrace'
 import { LoopExecutionView } from './LoopExecutionView'
 import { ParallelExecutionView } from './ParallelExecutionView'
-import { ExecutionTrace } from './ExecutionTrace'
+import { RouteDecisionDisplay } from './RouteDecisionDisplay'
+import { StateViewer } from './StateViewer'
 
 /**
  * Execution Control Panel

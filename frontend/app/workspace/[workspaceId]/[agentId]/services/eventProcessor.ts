@@ -7,10 +7,12 @@
 
 import type { ChatStreamEvent } from '@/services/chatBackend'
 import type { ExecutionStep } from '@/types'
+
 import type { GraphState, TraceStep } from '../components/visualization'
 import type { InterruptState } from '../stores/execution/types'
-import { mapChatEventToExecutionStep, type AdapterResult } from './eventAdapter'
 import { generateId } from '../stores/execution/utils'
+
+import { mapChatEventToExecutionStep, type AdapterResult } from './eventAdapter'
 
 // Re-export generateId for backwards compatibility
 export { generateId }

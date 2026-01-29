@@ -6,8 +6,9 @@
  */
 
 import { Node, Edge } from 'reactflow'
-import type { GraphAction } from '@/types/copilot'
+
 import { nodeRegistry } from '@/app/workspace/[workspaceId]/[agentId]/services/nodeRegistry'
+import type { GraphAction } from '@/types/copilot'
 
 export interface ProcessedGraph {
   nodes: Node[]

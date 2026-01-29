@@ -5,8 +5,9 @@
  * when the mode cannot be determined from context.
  */
 
-import React from 'react';
 import { useRouter } from 'next/navigation';
+import React from 'react';
+
 import { Mode, MODE_CONFIG, MODES } from '@/types/dynamic/mode';
 
 export interface ModeSelectDialogProps {

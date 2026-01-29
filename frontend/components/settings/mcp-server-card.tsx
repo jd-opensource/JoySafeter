@@ -4,25 +4,26 @@
  */
 'use client'
 
-import React from 'react'
 import { Server, MoreHorizontal, Wrench, Edit2, Trash2, Ban, Check } from 'lucide-react'
+import React from 'react'
 import { useTranslation } from 'react-i18next'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { cn } from '@/lib/utils'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import type { McpServer } from '@/hooks/queries/mcp'
 import {
   getConnectionStatusIcon,
   getConnectionStatusText,
   formatToolCount,
 } from '@/lib/mcp/utils'
-import type { McpServer } from '@/hooks/queries/mcp'
+import { cn } from '@/lib/utils'
 
 interface McpServerCardProps {
   server: McpServer

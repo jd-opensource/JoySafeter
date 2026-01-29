@@ -1,7 +1,5 @@
 'use client'
 
-import React from 'react'
-import { cn } from '@/lib/core/utils/cn'
 import {
   Zap,
   Box,
@@ -18,10 +16,14 @@ import {
   ListTodo,
   AlertTriangle,
 } from 'lucide-react'
+import React from 'react'
+
+import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
 import type { ExecutionStep } from '@/types'
-import { ToolCallCard } from './ToolCallCard'
+
 import { ThoughtContent } from './ThoughtContent'
+import { ToolCallCard } from './ToolCallCard'
 
 interface ExecutionStepCardProps {
   step: ExecutionStep

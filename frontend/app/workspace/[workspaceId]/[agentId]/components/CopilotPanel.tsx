@@ -12,20 +12,23 @@
  * This component is now focused solely on UI rendering and composition.
  */
 
-import React, { useCallback } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import { useTranslation } from '@/lib/i18n'
-import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
-import { CopilotChat } from './copilot/CopilotChat'
-import { CopilotStreaming } from './copilot/CopilotStreaming'
-import { CopilotInput } from './copilot/CopilotInput'
+import React, { useCallback } from 'react'
+
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
-import { useCopilotState } from '../hooks/useCopilotState'
-import { useCopilotWebSocketHandler } from '../hooks/useCopilotWebSocketHandler'
+import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
+import { useTranslation } from '@/lib/i18n'
+
 import { useCopilotActions } from '../hooks/useCopilotActions'
 import { useCopilotEffects } from '../hooks/useCopilotEffects'
+import { useCopilotState } from '../hooks/useCopilotState'
+import { useCopilotWebSocketHandler } from '../hooks/useCopilotWebSocketHandler'
 import { formatActionContent, getStageConfig } from '../utils/copilotUtils'
+
+import { CopilotChat } from './copilot/CopilotChat'
+import { CopilotInput } from './copilot/CopilotInput'
+import { CopilotStreaming } from './copilot/CopilotStreaming'
 
 // Export types
 export type { GraphAction } from '@/types/copilot'

@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
+
+import type { WorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useSession } from '@/lib/auth/auth-client'
 import type { PermissionType } from '@/lib/workspaces/permissions/types'
-import type { WorkspacePermissions } from '@/hooks/use-workspace-permissions'
 
 export interface WorkspaceUserPermissions {
   // Core permission checks

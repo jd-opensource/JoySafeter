@@ -1,14 +1,15 @@
 /**
  * Hook for MCP tools discovery and execution
  */
+import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+
 import { McpIcon } from '@/components/icons'
+import { mcpKeys, useMcpToolsQuery, type McpTool } from '@/hooks/queries/mcp'
+import { apiPost, API_BASE } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 import { createMcpToolId, parseMcpToolId } from '@/lib/mcp/utils'
-import { apiPost, API_BASE } from '@/lib/api-client'
-import { mcpKeys, useMcpToolsQuery, type McpTool } from '@/hooks/queries/mcp'
 
 const logger = createLogger('useMcpTools')
 

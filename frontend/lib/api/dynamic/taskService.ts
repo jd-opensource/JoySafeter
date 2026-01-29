@@ -4,6 +4,7 @@
  */
 
 import axios from 'axios';
+
 import { getApiBaseUrl } from './apiConfig';
 
 const API_BASE_URL = getApiBaseUrl();

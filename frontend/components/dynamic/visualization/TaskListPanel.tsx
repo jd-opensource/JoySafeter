@@ -4,8 +4,9 @@
  */
 
 import React from 'react';
-import { Session } from '@/types/dynamic/execution';
+
 import { formatDuration } from '@/lib/utils/dynamic/formatting';
+import { Session } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/TaskListPanel.css';
 
 interface TaskListPanelProps {

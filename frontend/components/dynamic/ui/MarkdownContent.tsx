@@ -5,10 +5,10 @@
  * Security: Uses DOMPurify with strict configuration to prevent XSS attacks
  */
 
+import DOMPurify from 'dompurify';
+import MarkdownIt from 'markdown-it';
 import React, { useMemo, useEffect, useRef } from 'react';
 // @ts-ignore - markdown-it types not available
-import MarkdownIt from 'markdown-it';
-import DOMPurify from 'dompurify';
 
 interface MarkdownContentProps {
   content: string;

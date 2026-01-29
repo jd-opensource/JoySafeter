@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Blocks,
@@ -10,14 +9,18 @@ import {
   Wrench,
   Brain,
 } from 'lucide-react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useTranslation } from 'react-i18next'
+
+import { NotificationCenter } from '@/components/notification-center/notification-center'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/core/utils/cn'
+import { workspaceService } from '@/services/workspaceService'
+
 import { AppLogo } from './app-logo'
 import { UserInfo } from './user-info'
-import { NotificationCenter } from '@/components/notification-center/notification-center'
-import { useQuery } from '@tanstack/react-query'
-import { workspaceService } from '@/services/workspaceService'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+
 
 const menuItems = [
   {

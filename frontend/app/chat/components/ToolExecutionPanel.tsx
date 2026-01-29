@@ -1,17 +1,20 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
-import { ToolCall } from '../types'
-import { X, CheckCircle2, AlertCircle, Loader2, Wrench, Copy, Check } from 'lucide-react'
-import { cn } from '@/lib/core/utils/cn'
 import { format } from 'date-fns'
-import ReactMarkdown from 'react-markdown'
 import DOMPurify from 'dompurify'
-import { useToolPanelStore } from '@/lib/stores/tool-panel-store'
-import ToolNavigation from './ToolNavigation'
+import { X, CheckCircle2, AlertCircle, Loader2, Wrench, Copy, Check } from 'lucide-react'
+import React, { useState, useMemo } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+
+import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
+import { useToolPanelStore } from '@/lib/stores/tool-panel-store'
+
+import { ToolCall } from '../types'
+
+import ToolNavigation from './ToolNavigation'
 
 interface ToolExecutionPanelProps {
   isOpen: boolean

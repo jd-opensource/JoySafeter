@@ -1,11 +1,12 @@
 'use client'
 
-import React, { useMemo } from 'react'
-import { useTranslation } from '@/lib/i18n'
-import { useModelProviders, useModelCredentials } from '@/hooks/queries/models'
-import { ModelProviderCard } from '@/app/workspace/[workspaceId]/settings/models/components/provider-card'
-import { ModelProviderAddedCard } from '@/app/workspace/[workspaceId]/settings/models/components/provider-added-card'
 import { AlertTriangle, Loader2, Brain, Plus } from 'lucide-react'
+import React, { useMemo } from 'react'
+
+import { ModelProviderAddedCard } from '@/app/workspace/[workspaceId]/settings/models/components/provider-added-card'
+import { ModelProviderCard } from '@/app/workspace/[workspaceId]/settings/models/components/provider-card'
+import { useModelProviders, useModelCredentials } from '@/hooks/queries/models'
+import { useTranslation } from '@/lib/i18n'
 
 interface ModelsPageProps {
   workspaceId?: string

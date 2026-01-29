@@ -1,9 +1,11 @@
 'use client'
 
 import { Node, Edge } from 'reactflow'
+
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
-import { modelService } from './modelService'
+
 import { migrateGraphData, needsMigration } from './dataMigration'
+import { modelService } from './modelService'
 
 // --- Types ---
 

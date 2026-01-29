@@ -8,6 +8,7 @@
  */
 
 import { Node, Edge } from 'reactflow'
+
 import { EdgeData, RouteRule } from '../types/graph'
 
 /**

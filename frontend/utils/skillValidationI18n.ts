@@ -4,6 +4,7 @@
  */
 
 import type { TFunction } from 'i18next'
+
 import { ApiError } from '@/lib/api-client'
 
 const GOT_RE = /\(got:\s*['"]([^'"]*)['"]\)/

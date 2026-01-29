@@ -1,8 +1,9 @@
 'use client'
 
 import React from 'react'
-import { useTranslation } from '@/lib/i18n'
+
 import type { ModelProvider } from '@/hooks/queries/models'
+import { useTranslation } from '@/lib/i18n'
 
 interface ProviderIconProps {
   provider: ModelProvider

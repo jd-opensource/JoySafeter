@@ -5,8 +5,9 @@
  */
 
 import { Flag, ShieldCheck, Code, Server } from 'lucide-react'
-import type { ModeMetadata } from '../services/modeHandlers/types'
+
 import { AndroidIcon } from '../components/icons/AndroidIcon'
+import type { ModeMetadata } from '../services/modeHandlers/types'
 
 /**
  * Mode configuration type

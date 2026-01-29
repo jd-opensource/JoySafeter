@@ -1,7 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useCallback, useRef } from 'react'
-import { useTranslation } from '@/lib/i18n'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   History,
   RotateCcw,
@@ -18,20 +17,8 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react'
-import { useDeploymentStore } from '@/stores/deploymentStore'
-import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/queries/graphs'
-import { useQueryClient } from '@tanstack/react-query'
-import { graphDeploymentService, type GraphDeploymentVersion, type GraphVersionState } from '@/services/graphDeploymentService'
-import { agentService } from '../services/agentService'
-import { useBuilderStore } from '../stores/builderStore'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,8 +29,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/use-toast'
+import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/queries/graphs'
 import { cn } from '@/lib/core/utils/cn'
+import { useTranslation } from '@/lib/i18n'
+import { graphDeploymentService, type GraphDeploymentVersion, type GraphVersionState } from '@/services/graphDeploymentService'
+import { useDeploymentStore } from '@/stores/deploymentStore'
+
+
+
+import { agentService } from '../services/agentService'
+import { useBuilderStore } from '../stores/builderStore'
+
+
 import { GraphPreview } from './GraphPreview'
 
 interface DeploymentHistoryPanelProps {

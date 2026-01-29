@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,7 +36,7 @@ export function RequestResetForm({
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
+    queueMicrotask(() => setMounted(true))
     // Display status message toast
     if (statusType && statusMessage) {
       if (statusType === 'error') {
@@ -157,7 +158,7 @@ export function SetNewPasswordForm({
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
+    queueMicrotask(() => setMounted(true))
     if (statusType && statusMessage) {
       if (statusType === 'error') {
         toastError(statusMessage)

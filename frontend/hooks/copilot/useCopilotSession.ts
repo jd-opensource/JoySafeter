@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+
 import { copilotService } from '@/services/copilotService'
 
 export function useCopilotSession(graphId?: string) {

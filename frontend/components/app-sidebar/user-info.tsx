@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Settings, LogOut, ChevronDown, Languages, Check } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+import { SettingsDialog } from '@/components/settings'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -16,7 +18,6 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useSession, client } from '@/lib/auth/auth-client'
-import { SettingsDialog } from '@/components/settings'
 import { cn } from '@/lib/core/utils/cn'
 
 interface UserInfoProps {

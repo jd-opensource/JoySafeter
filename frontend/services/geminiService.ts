@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+
 import { ChatMessage } from "../types";
 
 // Initialize the client

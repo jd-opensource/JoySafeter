@@ -9,6 +9,7 @@
  */
 
 import { Node, Edge } from 'reactflow'
+
 import { ValidationError } from '../types/graph'
 
 /**

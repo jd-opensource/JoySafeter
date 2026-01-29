@@ -39,15 +39,16 @@
  * ```
  */
 
+import { useParams } from 'next/navigation'
 import type React from 'react'
 import { createContext, useContext, useMemo, useState } from 'react'
-import { useParams } from 'next/navigation'
-import { createLogger } from '@/lib/logs/console/logger'
+
 import { useUserPermissions, type WorkspaceUserPermissions } from '@/hooks/use-user-permissions'
 import {
   useWorkspacePermissions,
   type WorkspacePermissions,
 } from '@/hooks/use-workspace-permissions'
+import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('WorkspacePermissionsProvider')
 

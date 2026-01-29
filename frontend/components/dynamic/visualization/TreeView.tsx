@@ -4,11 +4,14 @@
  */
 
 import React, { useCallback } from 'react';
-import { Agent, ExecutionTree } from '@/types/dynamic/execution';
+
+import { useTranslation } from '@/lib/i18n';
 import { useExecutionStore } from '@/stores/dynamic/executionStore';
+import { Agent, ExecutionTree } from '@/types/dynamic/execution';
+
 import { AgentNode } from './AgentNode';
 import { ToolNode } from './ToolNode';
-import { useTranslation } from '@/lib/i18n';
+
 import '@/styles/dynamic/visualization/TreeView.css';
 
 interface TreeViewProps {

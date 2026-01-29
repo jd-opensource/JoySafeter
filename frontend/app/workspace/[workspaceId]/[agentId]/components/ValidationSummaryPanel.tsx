@@ -1,16 +1,19 @@
 'use client'
 
-import React, { useMemo } from 'react'
 import { X, AlertCircle, CheckCircle2, ArrowRight, FileX, GitBranch, Network } from 'lucide-react'
+import React, { useMemo } from 'react'
+import { Node, Edge } from 'reactflow'
+
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
-import { Node, Edge } from 'reactflow'
-import { ValidationError } from '../types/graph'
+
+
+import { validateDeepAgentsStructure } from '../services/deepAgentsValidator'
 import { validateGraphConsistency, hasCriticalErrors } from '../services/edgeValidator'
 import { validateNodeConfig } from '../services/nodeConfigValidator'
-import { validateDeepAgentsStructure } from '../services/deepAgentsValidator'
+import { ValidationError } from '../types/graph'
 
 interface ValidationSummaryPanelProps {
   nodes: Node[]

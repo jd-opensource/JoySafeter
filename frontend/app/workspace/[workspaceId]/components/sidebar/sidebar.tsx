@@ -1,13 +1,34 @@
 'use client'
 
-import { useCallback, useRef, useState, useEffect } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { FolderPlus, Plus } from 'lucide-react'
-import { SearchInput } from '@/components/ui/search-input'
 import { useParams, useRouter } from 'next/navigation'
-import { createLogger } from '@/lib/logs/console/logger'
-import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
-import { cn } from '@/lib/core/utils/cn'
-import { useFolderStore, MAX_FOLDER_DEPTH, type WorkflowFolder } from '@/stores/folders/store'
+import { useCallback, useRef, useState, useEffect } from 'react'
+
+import { agentService, type AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
+import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
+import {
+  AgentList,
+  WorkspaceHeader,
+} from '@/app/workspace/[workspaceId]/components/sidebar/components'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { SearchInput } from '@/components/ui/search-input'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { useToast } from '@/components/ui/use-toast'
 import {
   useFolders,
   useCreateFolder,
@@ -23,34 +44,14 @@ import {
   useDuplicateWorkspace,
   type Workspace,
 } from '@/hooks/queries/workspaces'
-import {
-  AgentList,
-  WorkspaceHeader,
-} from '@/app/workspace/[workspaceId]/components/sidebar/components'
+import { cn } from '@/lib/core/utils/cn'
+import { createLogger } from '@/lib/logs/console/logger'
+import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
+import { useFolderStore, MAX_FOLDER_DEPTH, type WorkflowFolder } from '@/stores/folders/store'
 import { useTranslation } from '@/lib/i18n'
-import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { agentService, type AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useGraphs, graphKeys } from '@/hooks/queries/graphs'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useToast } from '@/components/ui/use-toast'
 
 const logger = createLogger('Sidebar')
 

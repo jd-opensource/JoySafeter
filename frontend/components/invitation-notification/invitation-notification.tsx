@@ -2,12 +2,14 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Check, XCircle, Mail } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
 import { useRouter } from 'next/navigation'
-import { workspaceService, type Invitation } from '@/services/workspaceService'
+import { useState } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
-import { useState } from 'react'
+import { useTranslation } from '@/lib/i18n'
+import { workspaceService, type Invitation } from '@/services/workspaceService'
+
 
 // Invitation type is imported from workspaceService (using PendingInvitation as alias)
 type PendingInvitation = Invitation

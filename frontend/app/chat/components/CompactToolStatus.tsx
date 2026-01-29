@@ -1,8 +1,10 @@
 'use client'
 
-import React from 'react'
 import { CheckCircle2, Loader2, AlertCircle, Maximize2 } from 'lucide-react'
+import React from 'react'
+
 import { cn } from '@/lib/core/utils/cn'
+
 import { ToolCall } from '../types'
 
 interface CompactToolStatusProps {

@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+
 import { LoadingIndicator } from '@/components/dynamic/ui/LoadingIndicator';
 
 interface StreamingMessageProps {

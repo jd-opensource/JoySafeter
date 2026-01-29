@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { useState } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
 

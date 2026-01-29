@@ -34,8 +34,9 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { useSession } from '@/lib/auth/auth-client'
+
 import { useGeneralSettings } from '@/hooks/queries/general-settings'
+import { useSession } from '@/lib/auth/auth-client'
 
 export function SettingsLoader() {
   const { data: session, isPending: isSessionPending } = useSession()

@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
+import { useEffect } from 'react'
+
 import { AppSidebar } from '@/components/app-sidebar'
-import { isPublicRoute } from '@/lib/core/constants/routes'
 import { InvitationNotification } from '@/components/invitation-notification/invitation-notification'
-import { useSidebarStore } from '@/stores/sidebar/store'
+import { isPublicRoute } from '@/lib/core/constants/routes'
 import { cn } from '@/lib/core/utils/cn'
+import { useSidebarStore } from '@/stores/sidebar/store'
 
 /**
  * AppShell Component - Global application layout

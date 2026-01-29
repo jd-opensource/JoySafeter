@@ -1,7 +1,9 @@
 'use client'
 
 import React from 'react'
+
 import { cn } from '@/lib/core/utils/cn'
+
 import { ExampleScene } from '../../services/exampleData'
 
 interface SceneTabsProps {

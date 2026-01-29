@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+
 import { Mode, getModeConfig } from '@/types/dynamic/mode';
 
 export interface ModeSwitcherProps {

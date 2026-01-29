@@ -1,13 +1,16 @@
 'use client'
 
-import React, { useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import React, { useState } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
+
 import { ExampleScene, ExampleItem } from '../../services/exampleData'
-import SceneTabs from './SceneTabs'
+
 import ExampleCard from './ExampleCard'
+import SceneTabs from './SceneTabs'
 
 interface ExampleCarouselProps {
   scenes: ExampleScene[]

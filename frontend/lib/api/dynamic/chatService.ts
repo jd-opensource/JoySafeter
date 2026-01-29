@@ -4,10 +4,11 @@
  */
 
 import axios from 'axios';
+
 import type { Message } from '@/types/dynamic/chat';
-import type { StreamingEvent } from '@/types/dynamic/tool';
 import type { Mode } from '@/types/dynamic/mode';
 import { modeToMetadata } from '@/types/dynamic/mode';
+import type { StreamingEvent } from '@/types/dynamic/tool';
 
 import { getApiBaseUrl } from './apiConfig';
 

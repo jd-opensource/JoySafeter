@@ -1,23 +1,6 @@
 'use client'
 
-import React, { useState, useMemo, useEffect } from 'react'
-import { Skill, SkillFile } from '@/types'
-import { skillService } from '@/services/skillService'
-import { SkillCard } from './components/SkillCard'
-import { cn } from '@/lib/core/utils/cn'
-import { useTranslation } from '@/lib/i18n'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-    DialogFooter
-} from "@/components/ui/dialog"
+import { useQueryClient } from '@tanstack/react-query'
 import { 
     Search, 
     Store, 
@@ -31,10 +14,30 @@ import {
     FileText,
     ChevronRight
 } from 'lucide-react'
-import { useToast } from '@/hooks/use-toast'
+import React, { useState, useMemo, useEffect } from 'react'
+
 import CodeViewer from '@/app/chat/components/CodeViewer'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter
+} from "@/components/ui/dialog"
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/core/utils/cn'
+import { skillService } from '@/services/skillService'
+import { Skill, SkillFile } from '@/types'
+import { SkillCard } from './components/SkillCard'
+
+import { useTranslation } from '@/lib/i18n'
+import { useToast } from '@/hooks/use-toast'
 import { usePublicSkills, skillKeys } from '@/hooks/queries/skills'
-import { useQueryClient } from '@tanstack/react-query'
+
 
 interface SkillsStoreProps {
     currentUserId?: string

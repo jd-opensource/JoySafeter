@@ -1,10 +1,12 @@
 'use client'
 
-import React from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { Plus, Sparkles } from 'lucide-react'
+import React from 'react'
+
 import { Button } from '@/components/ui/button'
 import type { ModelProvider } from '@/hooks/queries/models'
+import { useTranslation } from '@/lib/i18n'
+
 import { ModelCredentialDialog } from './credential-dialog'
 import { ProviderIcon } from './provider-icon'
 

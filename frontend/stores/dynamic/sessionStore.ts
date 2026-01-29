@@ -5,8 +5,9 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Session, SessionStore } from '@/types/dynamic/session';
+
 import type { Mode } from '@/types/dynamic/mode';
+import type { Session, SessionStore } from '@/types/dynamic/session';
 
 /**
  * Create session store with persistence

@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState } from 'react'
 import { ChevronDown, ChevronRight, Brain, MessageSquare, ArrowRight } from 'lucide-react'
-import { cn } from '@/lib/core/utils/cn'
+import React, { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+
+import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
 import type { ExecutionStep } from '@/types'
 

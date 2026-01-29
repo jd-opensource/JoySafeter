@@ -1,6 +1,5 @@
 'use client'
 
-import React, { useState } from 'react'
 import {
   File,
   Folder,
@@ -12,6 +11,8 @@ import {
   FileText,
   Image,
 } from 'lucide-react'
+import React, { useState } from 'react'
+
 import { cn } from '@/lib/core/utils/cn'
 
 export interface FileNode {

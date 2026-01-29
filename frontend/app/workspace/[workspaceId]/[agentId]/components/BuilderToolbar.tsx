@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useState, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Upload,
   Download,
@@ -14,18 +14,9 @@ import {
   Settings2,
   ShieldCheck,
 } from 'lucide-react'
+import React, { useRef, useState, useEffect } from 'react'
+
 import { Button } from '@/components/ui/button'
-import { useToast } from '@/components/ui/use-toast'
-import { useQueryClient } from '@tanstack/react-query'
-import { useExecutionStore } from '../stores/executionStore'
-import { useBuilderStore } from '../stores/builderStore'
-import { useDeploymentStore } from '@/stores/deploymentStore'
-import { useDeploymentStatus, graphKeys } from '@/hooks/queries/graphs'
-import { validateGraphConsistency, hasCriticalErrors } from '../services/edgeValidator'
-import { validateNodeConfig } from '../services/nodeConfigValidator'
-import { validateDeepAgentsStructure } from '../services/deepAgentsValidator'
-import { ValidationError } from '../types/graph'
-import { DeploymentHistoryPanel } from './DeploymentHistoryPanel'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,8 +30,23 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useToast } from '@/components/ui/use-toast'
+import { useDeploymentStatus, graphKeys } from '@/hooks/queries/graphs'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
+import { useDeploymentStore } from '@/stores/deploymentStore'
+
+import { validateDeepAgentsStructure } from '../services/deepAgentsValidator'
+import { validateGraphConsistency, hasCriticalErrors } from '../services/edgeValidator'
+import { useBuilderStore } from '../stores/builderStore'
+import { useExecutionStore } from '../stores/executionStore'
+
+
+import { validateNodeConfig } from '../services/nodeConfigValidator'
+import { ValidationError } from '../types/graph'
+
+import { DeploymentHistoryPanel } from './DeploymentHistoryPanel'
+
 
 interface BuilderToolbarProps {
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void

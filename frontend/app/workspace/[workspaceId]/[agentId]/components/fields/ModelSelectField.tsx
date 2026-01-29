@@ -1,9 +1,10 @@
 'use client'
 
-import React, { useMemo } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import { ModelOption } from '../../services/agentService'
+import React, { useMemo } from 'react'
+
+
 import {
   Select,
   SelectContent,
@@ -14,9 +15,11 @@ import {
   SelectLabel,
   SelectSeparator,
 } from '@/components/ui/select'
-import { useTranslation } from '@/lib/i18n'
 import { useAvailableModels } from '@/hooks/queries/models'
+import { useTranslation } from '@/lib/i18n'
 import type { AvailableModel } from '@/types/models'
+
+import { ModelOption } from '../../services/agentService'
 
 interface ModelSelectFieldProps {
   value: string

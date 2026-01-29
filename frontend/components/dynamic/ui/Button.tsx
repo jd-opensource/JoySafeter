@@ -14,8 +14,8 @@
  * @module components/ui/Button
  */
 
-import React, { ButtonHTMLAttributes, ReactNode } from 'react';
 import clsx from 'clsx';
+import React, { ButtonHTMLAttributes, ReactNode } from 'react';
 
 /**
  * Button variant types

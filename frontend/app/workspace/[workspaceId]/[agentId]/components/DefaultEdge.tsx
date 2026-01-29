@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react'
 import { BaseEdge, EdgeProps, getBezierPath, EdgeLabelRenderer } from 'reactflow'
+
 import { EdgeData } from '../types/graph'
 
 /**

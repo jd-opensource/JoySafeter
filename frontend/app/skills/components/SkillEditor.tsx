@@ -1,15 +1,19 @@
 'use client'
 
-import React from 'react'
 import { FileText } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
+import React from 'react'
+import { UseFormReturn } from 'react-hook-form'
+
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { useTranslation } from '@/lib/i18n'
 import { SkillFile } from '@/types'
+
+import { SkillFormData } from '../schemas/skillFormSchema'
+
 import { getFileIcon } from './SkillFileTree'
 import { SkillForm } from './SkillForm'
-import { UseFormReturn } from 'react-hook-form'
-import { SkillFormData } from '../schemas/skillFormSchema'
+
 
 interface SkillEditorProps {
   activeFilePath: string | null

@@ -5,10 +5,12 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ExecutionTree, Agent, ToolInvocation } from '@/types/dynamic/execution';
-import { TreeView } from './TreeView';
-import { ExecutionItemDetailPanel } from './ExecutionItemDetailPanel';
+
 import { useExecutionStore } from '@/stores/dynamic/executionStore';
+import { ExecutionTree, Agent, ToolInvocation } from '@/types/dynamic/execution';
+
+import { ExecutionItemDetailPanel } from './ExecutionItemDetailPanel';
+import { TreeView } from './TreeView';
 import '@/styles/dynamic/visualization/VisualizationContainer.css';
 
 interface VisualizationContainerProps {

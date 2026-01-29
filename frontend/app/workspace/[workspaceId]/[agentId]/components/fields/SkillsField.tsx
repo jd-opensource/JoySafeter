@@ -1,12 +1,13 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
 import { Loader2, Check, Search, X, Sparkles, Tag } from 'lucide-react'
-import { Input } from '@/components/ui/input'
+import React, { useState, useMemo } from 'react'
+
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { useSkills } from '@/hooks/queries/skills'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
-import { useSkills } from '@/hooks/queries/skills'
 
 interface SkillsFieldProps {
   value: unknown

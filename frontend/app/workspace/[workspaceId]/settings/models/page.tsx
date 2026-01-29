@@ -1,12 +1,14 @@
 'use client'
 
-import React, { useMemo } from 'react'
-import { useParams } from 'next/navigation'
-import { useTranslation } from '@/lib/i18n'
-import { useModelProviders, useModelCredentials } from '@/hooks/queries/models'
-import { ModelProviderCard } from './components/provider-card'
-import { ModelProviderAddedCard } from './components/provider-added-card'
 import { AlertTriangle, Loader2 } from 'lucide-react'
+import { useParams } from 'next/navigation'
+import React, { useMemo } from 'react'
+
+import { useModelProviders, useModelCredentials } from '@/hooks/queries/models'
+import { useTranslation } from '@/lib/i18n'
+
+import { ModelProviderAddedCard } from './components/provider-added-card'
+import { ModelProviderCard } from './components/provider-card'
 
 export default function ModelsPage() {
   const { t } = useTranslation()

@@ -1,8 +1,9 @@
 'use client'
 
-import React from 'react'
-import { cn } from '@/lib/core/utils/cn'
 import { BrainCircuit } from 'lucide-react'
+import React from 'react'
+
+import { cn } from '@/lib/core/utils/cn'
 import type { ExecutionStep } from '@/types'
 
 interface ThoughtContentProps {

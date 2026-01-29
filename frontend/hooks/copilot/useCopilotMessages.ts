@@ -3,8 +3,9 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import type { GraphAction } from '@/types/copilot'
+
 import { useCopilotHistory } from '@/hooks/queries/graphs'
+import type { GraphAction } from '@/types/copilot'
 
 export interface CopilotMessage {
   role: 'user' | 'model'

@@ -4,8 +4,9 @@
  */
 
 import { useCallback } from 'react';
-import { useChatStore } from '@/stores/dynamic/chatStore';
+
 import { chatService } from '@/lib/api/dynamic/chatService';
+import { useChatStore } from '@/stores/dynamic/chatStore';
 import type { Message } from '@/types/dynamic/chat';
 
 /**

@@ -3,7 +3,9 @@
  */
 
 import React from 'react';
+
 import { ScanReport as ScanReportType, Finding } from '@/lib/api/dynamic/scanApi';
+
 import { FindingList } from './FindingList';
 import '@/styles/dynamic/whitebox/ScanReport.css';
 

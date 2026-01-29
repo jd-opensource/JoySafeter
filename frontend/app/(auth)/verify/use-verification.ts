@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useState } from 'react'
+
 import { client, useSession } from '@/lib/auth/auth-client'
 import { createLogger } from '@/lib/logs/console/logger'
 

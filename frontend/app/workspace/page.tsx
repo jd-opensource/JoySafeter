@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+
+import { useWorkspaces } from '@/hooks/queries/workspaces'
 import { useSession } from '@/lib/auth/auth-client'
 import { createLogger } from '@/lib/logs/console/logger'
-import { useWorkspaces } from '@/hooks/queries/workspaces'
 
 const logger = createLogger('WorkspacePage')
 

@@ -1,18 +1,19 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
-import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { getEnv, isFalsy } from '@/lib/core/config/env'
 import { cn } from '@/lib/core/utils/cn'
 import { createLogger } from '@/lib/logs/console/logger'
+import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { quickValidateEmail } from '@/services/email/validation'
 import { inter } from '@/styles/fonts/inter/inter'
 import { soehne } from '@/styles/fonts/soehne/soehne'
@@ -115,7 +116,7 @@ function SignupFormContent() {
   const [showNameValidationError, setShowNameValidationError] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
+    queueMicrotask(() => setMounted(true))
     const emailParam = searchParams.get('email')
     if (emailParam) {
       setEmail(emailParam)

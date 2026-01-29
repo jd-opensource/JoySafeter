@@ -4,8 +4,9 @@
  */
 
 import axios from 'axios';
-import type { Session } from '@/types/dynamic/session';
+
 import { toMode } from '@/types/dynamic/mode';
+import type { Session } from '@/types/dynamic/session';
 
 import { getApiBaseUrl } from './apiConfig';
 

@@ -4,8 +4,8 @@
  * Shared utility functions for Copilot components
  */
 
-import type { GraphAction } from '@/types/copilot'
 import type { StageType } from '@/hooks/copilot/useCopilotStreaming'
+import type { GraphAction } from '@/types/copilot'
 
 /**
  * Format action content for display

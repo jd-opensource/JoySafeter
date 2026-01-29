@@ -1,6 +1,7 @@
 'use client'
 
 import { Node, Edge } from 'reactflow'
+
 import { agentService, type AgentGraph } from './agentService'
 
 export interface GraphTemplate {

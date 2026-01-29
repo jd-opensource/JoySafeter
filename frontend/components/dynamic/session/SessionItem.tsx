@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+
 import type { Session } from '@/types/dynamic/session';
 
 interface SessionItemProps {

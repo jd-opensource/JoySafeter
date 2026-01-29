@@ -1,11 +1,14 @@
 'use client'
 
+import { GripHorizontal, GripVertical } from 'lucide-react'
 import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react'
 import { BaseEdge, EdgeProps, EdgeLabelRenderer } from 'reactflow'
-import { GripHorizontal, GripVertical } from 'lucide-react'
-import { EdgeData } from '../types/graph'
-import { useBuilderStore } from '../stores/builderStore'
+
 import { cn } from '@/lib/core/utils/cn'
+
+import { useBuilderStore } from '../stores/builderStore'
+import { EdgeData } from '../types/graph'
+
 
 /**
  * LoopBackEdge - Custom edge component for loop back connections with Manhattan Routing

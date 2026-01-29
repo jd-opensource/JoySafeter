@@ -1,6 +1,5 @@
 'use client'
 
-import React, { useState } from 'react'
 import {
     Folder,
     FolderOpen,
@@ -13,9 +12,11 @@ import {
     FileCode,
     Terminal,
 } from 'lucide-react'
+import React, { useState } from 'react'
+
 import { cn } from '@/lib/core/utils/cn'
-import { SkillFile, FileTreeNode } from '@/types'
 import { getFilenameFromPath } from '@/services/skillService'
+import { SkillFile, FileTreeNode } from '@/types'
 
 interface SkillFileTreeProps {
     fileTree: { skillMdFile: SkillFile | null; tree: FileTreeNode[] }

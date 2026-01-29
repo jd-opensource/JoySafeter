@@ -1,34 +1,36 @@
 'use client'
 
-import React, { useRef, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { MessageSquare, ArrowRight, X, ChevronDown, Square, Loader2, Sparkles, Zap, Paperclip, Bot } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import React, { useRef, useEffect } from 'react'
+
+import { type AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useQueryClient } from '@tanstack/react-query'
-import { API_BASE, apiUpload } from '@/lib/api-client'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
-import { useTranslation } from '@/lib/i18n'
-import { useRouter } from 'next/navigation'
-import { type AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
+import { API_BASE, apiUpload } from '@/lib/api-client'
 import { isAllowedFile, ALLOWED_EXTENSIONS_STRING, UPLOAD_LIMITS } from '@/lib/constants/upload-limits'
+import { cn } from '@/lib/core/utils/cn'
+import { useTranslation } from '@/lib/i18n'
+import { toastSuccess, toastError } from '@/lib/utils/toast'
+
+import { modeConfigs } from '../config/modeConfig'
 import { useChatSession } from '../hooks/useChatSession'
 import { chatModeService } from '../services/chatModeService'
-import { graphResolutionService } from '../services/graphResolutionService'
 import { copilotRedirectService } from '../services/copilotRedirectService'
-import { modeConfigs } from '../config/modeConfig'
+import { graphResolutionService } from '../services/graphResolutionService'
 import { registerAllHandlers } from '../services/modeHandlers/registerHandlers'
 import type { UploadedFile, ModeSelectionResult } from '../services/modeHandlers/types'
 
@@ -235,7 +237,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
       const validation = handler.validate(state.input, state.files)
       if (!validation.valid) {
         // Translate error message if it's a translation key
-        let errorMessage = validation.error || t('chat.validationFailed', { defaultValue: 'Validation failed' })
+        const errorMessage = validation.error || t('chat.validationFailed', { defaultValue: 'Validation failed' })
         toastError(errorMessage, t('chat.submitFailed', { defaultValue: 'Submit failed' }))
         return
       }

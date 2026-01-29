@@ -1,5 +1,6 @@
-import { createLogger } from '@/lib/logs/console/logger'
 import { apiGet, apiPost, apiPut } from '@/lib/api-client'
+import { createLogger } from '@/lib/logs/console/logger'
+
 import type { EmailType } from './mailer'
 
 const logger = createLogger('Unsubscribe')

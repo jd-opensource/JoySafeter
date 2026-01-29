@@ -1,8 +1,9 @@
 'use client'
 
+import { Loader2 } from 'lucide-react'
 import React, { useState, useMemo } from 'react'
-import { useTranslation } from '@/lib/i18n'
-import { useToast } from '@/hooks/use-toast'
+
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -11,12 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2 } from 'lucide-react'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
 import { useCreateCredential, useValidateCredential } from '@/hooks/queries/models'
+import { useToast } from '@/hooks/use-toast'
+import { useTranslation } from '@/lib/i18n'
 
 interface ModelCredentialDialogProps {
   provider: ModelProvider

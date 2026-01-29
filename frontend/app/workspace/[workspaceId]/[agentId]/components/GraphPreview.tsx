@@ -10,12 +10,15 @@ import ReactFlow, {
   type Edge,
   type NodeTypes,
 } from 'reactflow'
+
 import 'reactflow/dist/style.css'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/core/utils/cn'
 import type { GraphVersionState } from '@/services/graphDeploymentService'
+
 import { nodeRegistry } from '../services/nodeRegistry'
+
 import { Bot, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 
 interface GraphPreviewProps {
   state: GraphVersionState | null

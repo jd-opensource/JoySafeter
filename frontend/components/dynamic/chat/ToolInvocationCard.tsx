@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+
 import type { ToolInvocation } from '@/types/dynamic/tool';
 
 interface ToolInvocationCardProps {

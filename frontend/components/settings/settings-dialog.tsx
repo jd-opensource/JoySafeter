@@ -1,14 +1,16 @@
 'use client'
 
-import React, { useState } from 'react';
 import { 
     Settings, 
     User, 
     Brain
 } from 'lucide-react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+
 import { ModelsPage } from './models-page';
 import { ProfilePage } from './profile-page';
 

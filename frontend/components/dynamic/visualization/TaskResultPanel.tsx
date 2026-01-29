@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+
 import { Task } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/TaskResultPanel.css';
 
@@ -531,7 +532,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
       }
 
       // Bold and italic
-      let processedLine = line
+      const processedLine = line
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
         .replace(/`(.*?)`/g, '<code>$1</code>');

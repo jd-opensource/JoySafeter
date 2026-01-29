@@ -1,4 +1,5 @@
 import { z } from 'zod'
+
 import { validateSkillName, validateSkillDescription, validateCompatibility } from '@/utils/skillValidators'
 
 /**

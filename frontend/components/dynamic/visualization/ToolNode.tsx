@@ -4,9 +4,10 @@
  */
 
 import React, { useMemo } from 'react';
-import { ToolInvocation } from '@/types/dynamic/execution';
+
 import { formatDuration, formatTimestamp } from '@/lib/utils/dynamic/formatting';
 import { useExecutionStore } from '@/stores/dynamic/executionStore';
+import { ToolInvocation } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/ToolNode.css';
 
 interface ToolNodeProps {

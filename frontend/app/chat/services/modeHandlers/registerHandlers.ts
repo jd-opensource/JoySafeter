@@ -5,9 +5,10 @@
  * Creates and registers handlers from configuration uniformly to ensure consistency
  */
 
-import { modeHandlerRegistry } from './registry'
-import { createHandlerFromConfig } from './handlerFactory'
 import { modeConfigs } from '../../config/modeConfig'
+
+import { createHandlerFromConfig } from './handlerFactory'
+import { modeHandlerRegistry } from './registry'
 
 /**
  * Register all mode handlers

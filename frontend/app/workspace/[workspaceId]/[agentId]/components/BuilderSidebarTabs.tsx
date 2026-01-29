@@ -1,11 +1,13 @@
 'use client'
 
-import React from 'react'
 import { Sparkles, Wrench } from 'lucide-react'
+import React from 'react'
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { CopilotPanel } from './CopilotPanel'
-import { BuilderSidebar } from './BuilderSidebar'
 import { useTranslation } from '@/lib/i18n'
+
+import { BuilderSidebar } from './BuilderSidebar'
+import { CopilotPanel } from './CopilotPanel'
 
 export const BuilderSidebarTabs: React.FC = () => {
   const { t } = useTranslation()

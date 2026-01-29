@@ -3,10 +3,13 @@
  * Displays a single message in the chat
  */
 
-import React from 'react';
 import clsx from 'clsx';
-import { MarkdownContent } from './MarkdownContent';
+import React from 'react';
+
 import { useUserStore } from '@/stores/dynamic/userStore';
+
+import { MarkdownContent } from './MarkdownContent';
+
 
 interface MessageBubbleProps {
   content: string;

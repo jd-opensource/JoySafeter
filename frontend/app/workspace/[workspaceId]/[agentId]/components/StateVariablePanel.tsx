@@ -1,11 +1,15 @@
 'use client'
 
-import React, { useMemo, useState, useEffect } from 'react'
 import { Database, Copy, Check, AlertCircle, Info, Eye, X, Loader2, GitBranch, Layers } from 'lucide-react'
+import { useParams } from 'next/navigation'
+import React, { useMemo, useState, useEffect } from 'react'
+import { Node, Edge } from 'reactflow'
+
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { SearchInput } from '@/components/ui/search-input'
 import {
   Sheet,
   SheetContent,
@@ -13,13 +17,12 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { SearchInput } from '@/components/ui/search-input'
-import { cn } from '@/lib/core/utils/cn'
-import { Node, Edge } from 'reactflow'
-import { useTranslation } from '@/lib/i18n'
 import { useToast } from '@/components/ui/use-toast'
+import { cn } from '@/lib/core/utils/cn'
+import { useTranslation } from '@/lib/i18n'
+
 import { getNodeAvailableVariables, getGraphVariables } from '../services/variableService'
-import { useParams } from 'next/navigation'
+
 
 interface VariableInfo {
   name: string

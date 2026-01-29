@@ -1,7 +1,8 @@
 'use client'
 
-import React from 'react'
 import { Repeat, CheckCircle2, XCircle } from 'lucide-react'
+import React from 'react'
+
 import { useTranslation } from '@/lib/i18n'
 
 interface LoopExecutionViewProps {

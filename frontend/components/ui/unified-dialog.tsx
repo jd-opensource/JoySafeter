@@ -1,8 +1,8 @@
 'use client'
 
-import * as React from 'react'
 import { X } from 'lucide-react'
-import { cn } from '@/lib/core/utils/cn'
+import * as React from 'react'
+
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { cn } from '@/lib/core/utils/cn'
 
 interface UnifiedDialogProps {
   open: boolean

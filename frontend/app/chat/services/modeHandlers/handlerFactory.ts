@@ -5,11 +5,12 @@
  */
 
 import type { ModeConfig } from '../../config/modeConfig'
-import type { ModeHandler, ModeMetadata } from './types'
-import { createDynamicModeHandler } from './dynamicModeHandler'
-import { createSimpleModeHandler } from './simpleModeHandler'
+
 import { agentModeHandler } from './agentModeHandler'
 import { apkVulnerabilityHandler } from './apkVulnerabilityHandler'
+import { createDynamicModeHandler } from './dynamicModeHandler'
+import { createSimpleModeHandler } from './simpleModeHandler'
+import type { ModeHandler, ModeMetadata } from './types'
 
 /**
  * Create a mode handler from configuration

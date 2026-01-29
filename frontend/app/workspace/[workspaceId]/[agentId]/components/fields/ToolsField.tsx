@@ -1,15 +1,17 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
 import { Loader2, Check, Search, X, Hammer, Server } from 'lucide-react'
-import { ToolOption } from '../../services/agentService'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/core/utils/cn'
+import React, { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useMcpTools } from '@/hooks/use-mcp-tools'
-import { parseMcpToolId } from '@/lib/mcp/utils'
+
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { useBuiltinTools } from '@/hooks/queries/tools'
+import { useMcpTools } from '@/hooks/use-mcp-tools'
+import { cn } from '@/lib/core/utils/cn'
+import { parseMcpToolId } from '@/lib/mcp/utils'
+
+import { ToolOption } from '../../services/agentService'
 
 interface ToolsValue {
   builtin?: string[]

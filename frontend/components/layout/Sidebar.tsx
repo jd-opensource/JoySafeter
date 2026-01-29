@@ -1,5 +1,4 @@
 
-import React, { useEffect, useState } from 'react';
 import { 
   Plus, 
   LayoutGrid, 
@@ -13,6 +12,8 @@ import {
   Settings,
   ShieldCheck
 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+
 import { ViewMode } from '../../types';
 
 // Local type definition (chatService was removed as empty stub)
@@ -29,12 +30,6 @@ const chatService = {
   deleteSession: async (_id: string): Promise<void> => {},
 };
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -45,6 +40,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "../ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 
 interface SidebarProps {
   onNewChat: () => void;

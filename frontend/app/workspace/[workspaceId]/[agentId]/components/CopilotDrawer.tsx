@@ -1,11 +1,14 @@
 'use client'
 
-import React, { useState } from 'react'
 import { Sparkles, X, Minimize2 } from 'lucide-react'
+import React, { useState } from 'react'
+
 import { Button } from '@/components/ui/button'
-import { CopilotPanel } from './CopilotPanel'
-import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/core/utils/cn'
+import { useTranslation } from '@/lib/i18n'
+
+import { CopilotPanel } from './CopilotPanel'
+
 
 interface CopilotDrawerProps {
   className?: string

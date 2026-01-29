@@ -4,8 +4,8 @@
  * Unified Graph ID resolution logic, resolves which Graph to use based on different strategies
  */
 
-import type { ModeContext } from './modeHandlers/types'
 import { chatModeService } from './chatModeService'
+import type { ModeContext } from './modeHandlers/types'
 
 /**
  * Graph resolution result

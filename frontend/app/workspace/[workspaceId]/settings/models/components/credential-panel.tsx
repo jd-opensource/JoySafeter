@@ -1,10 +1,11 @@
 'use client'
 
-import React from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { Settings, CheckCircle2 } from 'lucide-react'
+import React from 'react'
+
 import { Button } from '@/components/ui/button'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
+import { useTranslation } from '@/lib/i18n'
 
 interface CredentialPanelProps {
   provider: ModelProvider

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
 import AuthBackground from '@/app/(auth)/components/auth-background'
 import { soehne } from '@/styles/fonts/soehne/soehne'
 
@@ -20,7 +21,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
+    queueMicrotask(() => setMounted(true))
     // Check if brand background is dark and add class accordingly
     const rootStyle = getComputedStyle(document.documentElement)
     const brandBackground = rootStyle.getPropertyValue('--brand-background-hex').trim()

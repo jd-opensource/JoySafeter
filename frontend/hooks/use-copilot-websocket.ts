@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
 import { env as runtimeEnv } from 'next-runtime-env'
+import { useEffect, useRef, useCallback, useState } from 'react'
+
 import type { StreamGraphActionsCallbacks } from '@/services/copilotService'
 
 export interface CopilotWebSocketEvent {

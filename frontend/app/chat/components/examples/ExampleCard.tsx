@@ -1,7 +1,9 @@
 'use client'
 
 import React from 'react'
+
 import { cn } from '@/lib/core/utils/cn'
+
 import { ExampleItem } from '../../services/exampleData'
 
 interface ExampleCardProps {

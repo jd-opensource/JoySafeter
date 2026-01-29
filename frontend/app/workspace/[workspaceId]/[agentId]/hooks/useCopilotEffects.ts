@@ -4,11 +4,13 @@
  * Handles all useEffect logic: session recovery, auto-scroll, URL parameters, etc.
  */
 
-import { useEffect } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+
 import { graphKeys } from '@/hooks/queries/graphs'
 import { copilotService } from '@/services/copilotService'
+
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
 interface UseCopilotEffectsOptions {

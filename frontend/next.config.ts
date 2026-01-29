@@ -3,6 +3,8 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   devIndicators: false,
   output: 'standalone',
+  // Next config is loaded by Node; path.join is standard
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   outputFileTracingRoot: require('path').join(__dirname),
   images: {
     remotePatterns: [

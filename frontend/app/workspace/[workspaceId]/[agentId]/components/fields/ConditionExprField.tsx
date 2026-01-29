@@ -1,12 +1,14 @@
 'use client'
 
+import { highlight, languages } from 'prismjs'
 import React, { useState, useEffect } from 'react'
 import Editor from 'react-simple-code-editor'
-import { highlight, languages } from 'prismjs'
 import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-javascript'
-import { cn } from '@/lib/core/utils/cn'
 import { Node, Edge } from 'reactflow'
+
+import { cn } from '@/lib/core/utils/cn'
+
 import { VariableInputField } from './VariableInputField'
 
 interface ConditionExprFieldProps {

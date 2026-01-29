@@ -4,8 +4,9 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ExecutionTree } from '@/types/dynamic/execution';
+
 import { formatTimestamp } from '@/lib/utils/dynamic/formatting';
+import { ExecutionTree } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/ExecutionStatusIndicator.css';
 
 interface ExecutionStatusIndicatorProps {

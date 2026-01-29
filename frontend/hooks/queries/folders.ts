@@ -5,13 +5,15 @@
  * - Use camelCase for types
  * - API response: { success: true, data: {...} }
  */
-import { useEffect } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createLogger } from '@/lib/logs/console/logger'
+import { useEffect } from 'react'
+
 import { API_ENDPOINTS, apiDelete, apiGet, apiPost, apiPut } from '@/lib/api-client'
-import { useFolderStore, type WorkflowFolder } from '@/stores/folders/store'
-import { toastError, toastSuccess } from '@/lib/utils/toast'
 import i18n from '@/lib/i18n/config'
+import { createLogger } from '@/lib/logs/console/logger'
+import { toastError, toastSuccess } from '@/lib/utils/toast'
+import { useFolderStore, type WorkflowFolder } from '@/stores/folders/store'
+
 import { STALE_TIME } from './constants'
 
 const logger = createLogger('FolderQueries')

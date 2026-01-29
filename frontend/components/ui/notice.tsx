@@ -1,5 +1,6 @@
-import type React from 'react'
 import { AlertCircle, AlertTriangle, Check, Info } from 'lucide-react'
+import type React from 'react'
+
 import { cn } from '@/lib/core/utils/cn'
 
 export type NoticeVariant = 'info' | 'warning' | 'success' | 'error' | 'default'

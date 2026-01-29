@@ -1,7 +1,8 @@
 'use client'
 
-import React from 'react'
 import { GripVertical, LucideIcon } from 'lucide-react'
+import React from 'react'
+
 import { useTranslation } from '@/lib/i18n'
 
 interface NodeDefinition {

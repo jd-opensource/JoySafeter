@@ -1,7 +1,5 @@
 'use client'
 
-import React, { useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
 import {
   Brain,
   Plus,
@@ -14,23 +12,8 @@ import {
   MoreHorizontal,
   Zap,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
-import { SearchInput } from '@/components/ui/search-input'
-import { Pagination } from '@/components/ui/pagination'
-import { useToast } from '@/hooks/use-toast'
-import { cn } from '@/lib/core/utils/cn'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
+import React, { useState } from 'react'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +24,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +42,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Pagination } from '@/components/ui/pagination'
+import { SearchInput } from '@/components/ui/search-input'
 import {
   Select,
   SelectContent,
@@ -55,7 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   useMemories,
   useMemoryTopics,
@@ -65,6 +63,9 @@ import {
   useOptimizeMemories,
   UserMemory,
 } from '@/hooks/queries/useMemories'
+import { useToast } from '@/hooks/use-toast'
+import { cn } from '@/lib/core/utils/cn'
+import { useTranslation } from '@/lib/i18n'
 
 export default function KnowledgePage() {
   const { t } = useTranslation()

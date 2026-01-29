@@ -1,6 +1,7 @@
 'use client'
 
 import { useSearchParams } from 'next/navigation'
+
 import ChatInterface from './ChatInterface'
 
 /**

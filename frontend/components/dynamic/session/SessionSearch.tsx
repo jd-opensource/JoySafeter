@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+
 import { useSessionStore } from '@/stores/dynamic/sessionStore';
 
 export const SessionSearch: React.FC = () => {

@@ -1,13 +1,14 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { createLogger } from '@/lib/logs/console/logger'
+import { Suspense, useEffect, useState } from 'react'
+
+import { SetNewPasswordForm } from '@/app/(auth)/reset-password/reset-password-form'
 import { authApi } from '@/lib/auth/api-client'
+import { createLogger } from '@/lib/logs/console/logger'
 import { inter } from '@/styles/fonts/inter/inter'
 import { soehne } from '@/styles/fonts/soehne/soehne'
-import { SetNewPasswordForm } from '@/app/(auth)/reset-password/reset-password-form'
 
 const logger = createLogger('ResetPasswordPage')
 

@@ -2,8 +2,8 @@
  * CollapsibleList - Reusable collapsible list component
  */
 
-import React from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import React from 'react'
 
 export interface CollapsibleListProps<T> {
   items: T[]

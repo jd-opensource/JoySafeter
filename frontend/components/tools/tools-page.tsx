@@ -1,14 +1,15 @@
 'use client'
 
-import React, { useState } from 'react';
 import { Plus, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
+
 import { AddMcpDialog } from '@/components/settings/add-mcp-dialog';
 import { McpServerCard, BuiltinToolCard } from '@/components/settings/mcp-server-card';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/use-toast';
 import { useMcpServers, useDeleteMcpServer, useUpdateMcpServer, type McpServer } from '@/hooks/queries/mcp';
 import { useBuiltinTools } from '@/hooks/queries/tools';
-import { useToast } from '@/components/ui/use-toast';
 
 export const ToolsPage: React.FC = () => {
     const { t } = useTranslation();

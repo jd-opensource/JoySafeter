@@ -4,11 +4,12 @@
  */
 
 import React from 'react';
-import { Agent, ToolInvocation } from '@/types/dynamic/execution';
-import { formatDuration, formatTimestamp } from '@/lib/utils/dynamic/formatting';
+import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import ReactMarkdown from 'react-markdown';
+
+import { formatDuration, formatTimestamp } from '@/lib/utils/dynamic/formatting';
+import { Agent, ToolInvocation } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/ExecutionItemDetailPanel.css';
 
 interface ExecutionItemDetailPanelProps {
@@ -1119,7 +1120,7 @@ export const ExecutionItemDetailPanel: React.FC<ExecutionItemDetailPanelProps> =
                 const rawOutput = tool.result.raw_output;
 
                 // Parse the output to extract tasks and current task
-                let plannedTasks: string[] = [];
+                const plannedTasks: string[] = [];
                 let currentTask: string | null = null;
                 let taskCount = 0;
 

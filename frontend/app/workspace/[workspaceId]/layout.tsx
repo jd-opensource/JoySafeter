@@ -1,8 +1,9 @@
 'use client'
 
+import { useSidebarStore } from '@/stores/sidebar/store'
+
 import { Sidebar } from './components/sidebar/sidebar'
 import { GlobalCommandsProvider } from './providers/global-commands-provider'
-import { useSidebarStore } from '@/stores/sidebar/store'
 
 /**
  * Workspace Detail Layout

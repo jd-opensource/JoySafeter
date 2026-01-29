@@ -25,6 +25,7 @@
  */
 
 import { env as runtimeEnv } from 'next-runtime-env'
+
 import { getCsrfToken } from '@/lib/auth/csrf'
 
 // ==================== Configuration ====================

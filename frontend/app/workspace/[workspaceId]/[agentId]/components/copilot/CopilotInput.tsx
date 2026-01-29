@@ -2,8 +2,9 @@
  * CopilotInput - Input area and toolbar component
  */
 
-import React from 'react'
 import { Send, Sparkles, Square, RotateCcw } from 'lucide-react'
+import React from 'react'
+
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,

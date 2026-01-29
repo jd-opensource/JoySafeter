@@ -1,9 +1,10 @@
 'use client'
 
-import * as React from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { cn } from '@/lib/core/utils/cn'
+import * as React from 'react'
+
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
 
 export interface PaginationProps {

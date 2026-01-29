@@ -5,11 +5,12 @@
  * - Automatic caching and request deduplication
  * - Avoids multiple components requesting the same data simultaneously
  */
-import { useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createLogger } from '@/lib/logs/console/logger'
+import { useMemo } from 'react'
+
 import { API_ENDPOINTS, apiGet } from '@/lib/api-client'
 import { useSession } from '@/lib/auth/auth-client'
+import { createLogger } from '@/lib/logs/console/logger'
 import type { PermissionType } from '@/lib/workspaces/permissions/types'
 import { mapRoleToPermissionType } from '@/lib/workspaces/permissions/types'
 

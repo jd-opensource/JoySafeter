@@ -1,3 +1,5 @@
+import { API_BASE, apiGet, apiPost, apiPut, apiDelete, ApiResponse } from '@/lib/api-client';
+
 import { 
   Skill, 
   SkillFile, 
@@ -7,7 +9,6 @@ import {
   COMMON_EXTENSIONS,
   WARNED_EXTENSIONS,
 } from '../types';
-import { API_BASE, apiGet, apiPost, apiPut, apiDelete, ApiResponse } from '@/lib/api-client';
 
 const SKILLS_ENDPOINT = `${API_BASE}/skills`;
 

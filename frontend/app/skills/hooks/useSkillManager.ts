@@ -1,8 +1,9 @@
 import { useState, useCallback, useMemo } from 'react'
-import { Skill } from '@/types'
+
+import { useMySkills, useDeleteSkill } from '@/hooks/queries/skills'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
-import { useMySkills, useDeleteSkill } from '@/hooks/queries/skills'
+import { Skill } from '@/types'
 
 /**
  * Hook for managing skill list, selection, and CRUD operations

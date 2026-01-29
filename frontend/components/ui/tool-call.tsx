@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import * as CollapsiblePrimitive from '@radix-ui/react-collapsible'
 import { CheckCircle, ChevronDown, ChevronRight, Loader2, Settings, XCircle } from 'lucide-react'
+import { useState } from 'react'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import * as CollapsiblePrimitive from '@radix-ui/react-collapsible'
+
 
 const Collapsible = CollapsiblePrimitive.Root
 const CollapsibleTrigger = CollapsiblePrimitive.CollapsibleTrigger

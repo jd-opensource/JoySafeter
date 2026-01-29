@@ -5,6 +5,8 @@
  * These modes directly redirect to /dynamic/chat page
  */
 
+import { Flag, ShieldCheck, Code } from 'lucide-react'
+
 import type {
   ModeHandler,
   ModeContext,
@@ -12,7 +14,6 @@ import type {
   SubmitResult,
   ModeMetadata,
 } from './types'
-import { Flag, ShieldCheck, Code } from 'lucide-react'
 
 /**
  * Create a Dynamic Mode Handler

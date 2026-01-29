@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState, useEffect } from 'react'
-import { Message, ToolCall } from '../types'
+
 import {
   streamChat,
   type ChatStreamEvent,
@@ -14,6 +14,8 @@ import {
   type CommandEventData,
   type RouteDecisionEventData,
 } from '@/services/chatBackend'
+
+import { Message, ToolCall } from '../types'
 
 const generateId = () => Math.random().toString(36).substr(2, 9)
 

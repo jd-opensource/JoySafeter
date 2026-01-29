@@ -5,6 +5,8 @@
  * Used when user selects a deployed agent
  */
 
+import { Bot } from 'lucide-react'
+
 import type {
   ModeHandler,
   ModeContext,
@@ -13,7 +15,6 @@ import type {
   ValidationResult,
   ModeMetadata,
 } from './types'
-import { Bot } from 'lucide-react'
 
 /**
  * Agent Mode Handler

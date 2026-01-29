@@ -3,6 +3,7 @@
  */
 
 import React, { useState } from 'react';
+
 import { Finding } from '@/lib/api/dynamic/scanApi';
 import '@/styles/dynamic/whitebox/FindingList.css';
 

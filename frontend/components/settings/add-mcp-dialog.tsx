@@ -1,21 +1,23 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
 import { X, Info, Plus, FileJson, SquarePen, Trash2, Save, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { cn } from '@/lib/utils';
-import { useCreateMcpServer, useUpdateMcpServer, useTestMcpServer } from '@/hooks/queries/mcp';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { useCreateMcpServer, useUpdateMcpServer, useTestMcpServer } from '@/hooks/queries/mcp';
+import type { McpServer } from '@/hooks/queries/mcp'
+import { cn } from '@/lib/utils';
 
 import { serverToEditData, DEFAULT_MCP_FORM_CONFIG, type McpServerEditData } from './mcp-dialog-utils'
-import type { McpServer } from '@/hooks/queries/mcp'
+
 
 interface AddMcpDialogProps {
     open: boolean;

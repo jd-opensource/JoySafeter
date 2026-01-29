@@ -1,16 +1,34 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     Search, Plus, ShieldCheck, Trash2, Save, FileText, 
     Loader2, FolderOpen, Folder, Pencil,
     FileCode, Upload, AlertCircle, CheckCircle,
     Globe, Lock, ChevronRight
 } from 'lucide-react';
-import { 
-    Skill, 
-    SkillFile,
-} from '@/types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter
+} from "@/components/ui/dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    DropdownMenuSeparator
+} from "@/components/ui/dropdown-menu";
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { UnifiedDialog, ValidationBox, FileListBox } from "@/components/ui/unified-dialog";
+import { useToast } from '@/hooks/use-toast';
 import { 
     skillService, 
     generateSkillMd,
@@ -20,35 +38,19 @@ import {
     validateFilePath,
     parseSkillMd,
 } from '@/services/skillService';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+import { 
+    Skill, 
+    SkillFile,
+} from '@/types';
 import { cn } from '@/lib/core/utils/cn';
 import { useTranslation } from '@/lib/i18n';
 import { getSkillValidationMessage } from '@/utils/skillValidationI18n';
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-    DialogFooter
-} from "@/components/ui/dialog";
-import { UnifiedDialog, ValidationBox, FileListBox } from "@/components/ui/unified-dialog";
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-    DropdownMenuSeparator
-} from "@/components/ui/dropdown-menu";
 import {
     Select,
     SelectContent,
@@ -57,15 +59,15 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 
 // Import extracted components and hooks
-import { SkillFileTree } from './components/SkillFileTree';
 import { SkillEditor } from './components/SkillEditor';
-import { useSkillManager } from './hooks/useSkillManager';
-import { useSkillForm } from './hooks/useSkillForm';
+import { SkillFileTree } from './components/SkillFileTree';
 import { useSkillFiles } from './hooks/useSkillFiles';
+import { useSkillForm } from './hooks/useSkillForm';
 import { useSkillImport } from './hooks/useSkillImport';
+import { useSkillManager } from './hooks/useSkillManager';
+
 import { useCreateSkill, useUpdateSkill } from '@/hooks/queries/skills';
 
 export default function SkillsManager() {

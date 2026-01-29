@@ -1,13 +1,13 @@
 'use client'
 
+import CryptoJS from 'crypto-js'
+import { Pencil, LogOut, KeyRound, Eye, EyeOff } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useRouter } from 'next/navigation'
-import { Pencil, LogOut, KeyRound, Eye, EyeOff } from 'lucide-react'
-import { useSession, client } from '@/lib/auth/auth-client'
+
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -15,11 +15,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
-import { apiPost } from '@/lib/api-client'
-import CryptoJS from 'crypto-js'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { apiPost } from '@/lib/api-client'
+import { useSession, client } from '@/lib/auth/auth-client'
 import { cn } from '@/lib/utils'
+import { toastSuccess, toastError } from '@/lib/utils/toast'
 
 /**
  * Password validation rules (same as signup form)

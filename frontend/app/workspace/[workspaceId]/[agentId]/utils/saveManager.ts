@@ -8,8 +8,10 @@
  */
 
 import type { Node, Edge } from 'reactflow'
-import { agentService } from '../services/agentService'
+
 import { computeGraphStateHash } from '@/utils/graphStateHash'
+
+import { agentService } from '../services/agentService'
 
 export type SaveSource = 'manual' | 'auto' | 'debounce'
 

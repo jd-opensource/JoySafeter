@@ -1,10 +1,13 @@
 'use client'
 
 import React from 'react'
-import { Message, ToolCall } from '../types'
-import MessageItem from './MessageItem'
+
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
+
+import { Message, ToolCall } from '../types'
+
+import MessageItem from './MessageItem'
 
 interface ThreadContentProps {
   messages: Message[]

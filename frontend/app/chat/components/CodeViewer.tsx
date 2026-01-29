@@ -1,11 +1,13 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
 import { Copy, Check, FileCode, ChevronDown, ChevronRight } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
+import React, { useState, useEffect } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/core/utils/cn'
+
 
 interface CodeViewerProps {
   code: string

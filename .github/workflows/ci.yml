@@ -113,7 +113,7 @@ jobs:
 
       - name: Run ESLint
         working-directory: frontend
-        run: pnpm exec -- next lint
+        run: pnpm run lint
 
       - name: Run TypeScript type check
         working-directory: frontend

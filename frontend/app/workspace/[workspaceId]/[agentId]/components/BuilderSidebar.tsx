@@ -1,10 +1,15 @@
 'use client'
 
-import React from 'react'
 import { Wrench } from 'lucide-react'
-import { DraggableItem } from './DraggableItem'
-import { nodeRegistry } from '../services/nodeRegistry'
+import React from 'react'
+
 import { useTranslation } from '@/lib/i18n'
+
+import { nodeRegistry } from '../services/nodeRegistry'
+
+import { DraggableItem } from './DraggableItem'
+
+
 
 interface BuilderSidebarProps {
   showHeader?: boolean

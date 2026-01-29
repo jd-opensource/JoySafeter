@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import { useEffect } from 'react'
+
 import { useSession } from '@/lib/auth/auth-client'
 import { isPublicRoute, DEFAULT_AUTHENTICATED_ROUTE, DEFAULT_SIGNIN_ROUTE } from '@/lib/core/constants/routes'
 

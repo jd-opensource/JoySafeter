@@ -2,12 +2,15 @@
  * CopilotChat - Chat messages display component
  */
 
-import React, { useState } from 'react'
 import { Sparkles, Zap, Check, Copy } from 'lucide-react'
+import React, { useState } from 'react'
+
+import type { CopilotMessage } from '@/hooks/copilot/useCopilotMessages'
 import { useTranslation } from '@/lib/i18n'
 import type { GraphAction } from '@/types/copilot'
+
 import { CollapsibleList } from './CollapsibleList'
-import type { CopilotMessage } from '@/hooks/copilot/useCopilotMessages'
+
 
 interface CopilotChatProps {
   messages: CopilotMessage[]

@@ -1,7 +1,8 @@
 'use client'
 
-import React from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import React from 'react'
+
 import { useTranslation } from '@/lib/i18n'
 
 /**

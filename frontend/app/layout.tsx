@@ -1,15 +1,16 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { PublicEnvScript } from 'next-runtime-env'
+
+import { AppShell } from '@/components/app-shell'
+import { AuthGuard } from '@/components/auth/auth-guard'
+import { Toaster } from '@/components/ui/toaster'
+import { I18nProvider } from '@/providers/i18n-provider'
+import { NotificationProvider } from '@/providers/notification-provider'
+import { QueryProvider } from '@/providers/query-provider'
 import { ThemeProvider } from '@/providers/theme-provider'
 import '@/styles/globals.css'
-import { QueryProvider } from '@/providers/query-provider'
 import { ZoomPrevention } from '@/providers/zoom-prevention'
-import { I18nProvider } from '@/providers/i18n-provider'
-import { Toaster } from '@/components/ui/toaster'
-import { AuthGuard } from '@/components/auth/auth-guard'
-import { AppShell } from '@/components/app-shell'
-import { NotificationProvider } from '@/providers/notification-provider'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',

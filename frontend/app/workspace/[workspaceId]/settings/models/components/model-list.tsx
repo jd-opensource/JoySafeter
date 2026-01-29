@@ -1,10 +1,12 @@
 'use client'
 
-import React from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { ChevronUp, Sparkles } from 'lucide-react'
+import React from 'react'
+
 import { Button } from '@/components/ui/button'
 import type { ModelProvider, AvailableModel } from '@/hooks/queries/models'
+import { useTranslation } from '@/lib/i18n'
+
 import { ModelListItem } from './model-list-item'
 
 interface ModelListProps {

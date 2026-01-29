@@ -2,6 +2,7 @@
 
 import React, { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
+
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('ErrorBoundary')

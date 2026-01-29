@@ -4,9 +4,10 @@
  */
 
 import React, { useMemo } from 'react';
-import { ExecutionTimeline } from '@/types/dynamic/execution';
-import { useExecutionStore } from '@/stores/dynamic/executionStore';
+
 import { formatDuration, formatTimestamp } from '@/lib/utils/dynamic/formatting';
+import { useExecutionStore } from '@/stores/dynamic/executionStore';
+import { ExecutionTimeline } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/TimelineView.css';
 
 interface TimelineViewProps {

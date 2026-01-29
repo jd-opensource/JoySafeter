@@ -5,10 +5,12 @@
  */
 
 import React, { useState } from 'react';
+
 import { ExecutionTree, Task, Session } from '@/types/dynamic/execution';
+
 import { TaskListPanel } from './TaskListPanel';
-import { VisualizationContainer } from './VisualizationContainer';
 import { TaskResultPanel } from './TaskResultPanel';
+import { VisualizationContainer } from './VisualizationContainer';
 import '@/styles/dynamic/visualization/VisualizationLayout2.css';
 
 type DetailTabType = 'execution' | 'results';

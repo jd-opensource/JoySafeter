@@ -4,10 +4,12 @@
  */
 
 import React, { useState } from 'react';
+
 import { ExecutionTree, Task } from '@/types/dynamic/execution';
+
+import { TaskResultPanel } from './TaskResultPanel';
 import { TaskView } from './TaskView';
 import { VisualizationContainer } from './VisualizationContainer';
-import { TaskResultPanel } from './TaskResultPanel';
 import '@/styles/dynamic/visualization/VisualizationLayout.css';
 
 type TabType = 'tasks' | 'execution' | 'results';

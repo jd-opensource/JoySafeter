@@ -4,8 +4,9 @@
  */
 
 import React from 'react';
-import { useSessionStore } from '@/stores/dynamic/sessionStore';
+
 import { useModeStore } from '@/stores/dynamic/modeStore';
+import { useSessionStore } from '@/stores/dynamic/sessionStore';
 
 interface NewSessionButtonProps {
   userId: string;

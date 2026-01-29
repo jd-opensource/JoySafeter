@@ -1,14 +1,15 @@
 'use client'
 
-import { useCallback, useState, useRef, useEffect, useMemo } from 'react'
 import { Bot, Check, ChevronRight, ChevronDown, Copy, Folder, FolderOpen, FolderPlus, GripVertical, MoreHorizontal, Pencil, Trash2, X } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, usePathname } from 'next/navigation'
-import { cn } from '@/lib/core/utils/cn'
+import { useCallback, useState, useRef, useEffect, useMemo } from 'react'
+
+import type { Folder as FolderType, AgentMetadata } from '@/app/workspace/[workspaceId]/components/sidebar/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
-import type { Folder as FolderType, AgentMetadata } from '@/app/workspace/[workspaceId]/components/sidebar/sidebar'
 
 /**
  * Agent item component with drag support and context menu

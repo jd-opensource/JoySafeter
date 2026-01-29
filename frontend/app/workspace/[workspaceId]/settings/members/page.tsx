@@ -10,32 +10,12 @@
  * - Remove member
  */
 
-import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { formatDate } from 'date-fns'
 import { Users, UserPlus, Mail, Shield, Crown, Eye, Edit, Trash2, Loader2, Check } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { workspaceService, type WorkspaceMember, type PaginatedMembersResponse } from '@/services/workspaceService'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
+import { useParams } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,7 +27,30 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Pagination } from '@/components/ui/pagination'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
+import { workspaceService, type WorkspaceMember, type PaginatedMembersResponse } from '@/services/workspaceService'
 import { useToast } from '@/hooks/use-toast'
 import {
   Table,
@@ -63,8 +66,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { Pagination } from '@/components/ui/pagination'
-import { formatDate } from 'date-fns'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
 // WorkspaceMember and PaginatedMembersResponse types imported from workspaceService

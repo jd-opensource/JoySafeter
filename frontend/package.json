@@ -11,7 +11,7 @@
     "dev": "next dev --port ${PORT:-3000}",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint .",
+    "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -101,6 +101,10 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@tailwindcss/typography": "^0.5.15",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
+    "jsdom": "^25.0.1",
     "@types/crypto-js": "^4.2.2",
     "@types/node": "24.2.1",
     "@types/react": "^19",

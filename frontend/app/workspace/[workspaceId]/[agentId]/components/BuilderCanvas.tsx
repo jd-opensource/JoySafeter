@@ -1,28 +1,34 @@
 'use client'
 
+import { Plus, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Database } from 'lucide-react'
+import { useParams } from 'next/navigation'
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import ReactFlow, { Background, BackgroundVariant, useReactFlow } from 'reactflow'
-import { Plus, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Database } from 'lucide-react'
+
+import { useToast } from '@/components/ui/use-toast'
+import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+import { useTranslation } from '@/lib/i18n'
+import { useSidebarStore } from '@/stores/sidebar/store'
+
+import { agentService } from '../services/agentService'
+import { nodeRegistry } from '../services/nodeRegistry'
+import { useBuilderStore } from '../stores/builderStore'
 import BuilderNode from './BuilderNode'
-import PropertiesPanel from './PropertiesPanel'
 import { EdgePropertiesPanel } from './EdgePropertiesPanel'
+import PropertiesPanel from './PropertiesPanel'
 import { StateVariablePanel } from './StateVariablePanel'
 import { GraphStatusBar } from './GraphStatusBar'
 import { GraphSettingsPanel } from './GraphSettingsPanel'
 import { ValidationSummaryPanel } from './ValidationSummaryPanel'
-import { useBuilderStore } from '../stores/builderStore'
-import { useTranslation } from '@/lib/i18n'
-import { useSidebarStore } from '@/stores/sidebar/store'
-import { useParams } from 'next/navigation'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useToast } from '@/components/ui/use-toast'
-import { agentService } from '../services/agentService'
-import { nodeRegistry } from '../services/nodeRegistry'
+
+
+
 
 import 'reactflow/dist/style.css'
 import { LoopBackEdge } from './LoopBackEdge'
 import { DefaultEdge } from './DefaultEdge'
+
 import { EdgeData } from '../types/graph'
 
 const nodeTypes = {

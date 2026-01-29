@@ -6,14 +6,15 @@
  * Migrated from frontend_dynamic/web to Next.js App Router
  */
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ExecutionTree, Session, Task, ExecutionStatus, Agent } from '@/types/dynamic/execution';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+
 import { VisualizationLayout2 } from '@/components/dynamic/visualization/VisualizationLayout2';
-import { taskService } from '@/lib/api/dynamic/taskService';
 import { getExecution, loadSubtasksForAgent } from '@/lib/api/dynamic/executionService';
-import { useUserStore } from '@/stores/dynamic/userStore';
+import { taskService } from '@/lib/api/dynamic/taskService';
 import { useExecutionStore } from '@/stores/dynamic/executionStore';
+import { useUserStore } from '@/stores/dynamic/userStore';
+import { ExecutionTree, Session, Task, ExecutionStatus, Agent } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/ExecutionVisualizationPage.css';
 
 export default function ExecutionVisualizationPage() {

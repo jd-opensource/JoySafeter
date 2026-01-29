@@ -1,7 +1,8 @@
 'use client'
 
-import React from 'react'
 import { Activity, Sparkles, Zap, X } from 'lucide-react'
+import React from 'react'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useTranslation } from '@/lib/i18n'

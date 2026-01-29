@@ -12,8 +12,11 @@
  */
 
 import { create } from 'zustand'
-import type { ExecutionStep } from '@/types'
+
 import { streamChat, type ChatStreamEvent } from '@/services/chatBackend'
+import type { ExecutionStep } from '@/types'
+
+import type { GraphState, TraceStep } from '../../components/visualization'
 import { agentService } from '../../services/agentService'
 import { 
   processEvent, 
@@ -21,24 +24,24 @@ import {
   generateId as genId,
   type EventProcessorStore,
 } from '../../services/eventProcessor'
-import type { GraphState, TraceStep } from '../../components/visualization'
+
+import {
+  createEmptyGraphState,
+  createExecutionContext,
+  getExecutionManager,
+} from './ExecutionManager'
 import type { 
   ExecutionStore, 
   ExecutionContext, 
   GraphExecutionState, 
   InterruptInfo 
 } from './types'
-import {
-  createEmptyGraphState,
-  createExecutionContext,
-  getExecutionManager,
-} from './ExecutionManager'
 import { generateId } from './utils'
 
 // ============ Batch Update Buffer ============
 // Used to merge high-frequency appendContent calls, reducing state update frequency
 
-let pendingContentUpdates = new Map<string, string>()
+const pendingContentUpdates = new Map<string, string>()
 let contentUpdateScheduled = false
 
 // ============ Helper Functions ============

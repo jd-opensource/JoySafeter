@@ -2,10 +2,11 @@
  * CopilotStreaming - Streaming content display component
  */
 
-import React from 'react'
 import { Sparkles, Loader2, Check, Copy, ChevronDown, ChevronUp } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
+import React from 'react'
+
 import type { StageType } from '@/hooks/copilot/useCopilotStreaming'
+import { useTranslation } from '@/lib/i18n'
 
 interface CopilotStreamingProps {
   loading: boolean

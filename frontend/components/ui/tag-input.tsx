@@ -1,7 +1,8 @@
 'use client'
 
-import { type KeyboardEvent, useRef, useState } from 'react'
 import { X } from 'lucide-react'
+import { type KeyboardEvent, useRef, useState } from 'react'
+
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/core/utils/cn'
 

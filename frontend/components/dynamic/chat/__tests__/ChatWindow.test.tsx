@@ -1,67 +1,38 @@
 /**
  * ChatWindow component tests
+ * ChatWindow renders MessageList and MessageInput only (no header/ExportMenu in current impl)
  */
 
-import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { ChatWindow } from '../ChatWindow';
-import { useChatStore, useSessionStore } from '@/stores';
+import { render, screen } from '@testing-library/react'
+import React from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-jest.mock('@/stores');
-jest.mock('../MessageList', () => ({
+import { ChatWindow } from '../ChatWindow'
+
+import { useChatStore } from '../../../../stores/dynamic'
+
+vi.mock('../../../../stores/dynamic')
+vi.mock('../MessageList', () => ({
   MessageList: () => <div>MessageList</div>,
-}));
-jest.mock('../MessageInput', () => ({
+}))
+vi.mock('../MessageInput', () => ({
   MessageInput: () => <div>MessageInput</div>,
-}));
-jest.mock('@/components/export', () => ({
-  ExportMenu: () => <div>ExportMenu</div>,
-}));
+}))
 
 describe('ChatWindow', () => {
   beforeEach(() => {
-    (useChatStore as jest.Mock).mockReturnValue({
+    vi.mocked(useChatStore).mockReturnValue({
       messages: [],
       isLoading: false,
       error: null,
-    });
-
-    (useSessionStore as jest.Mock).mockReturnValue({
-      currentSession: {
-        id: 'session-1',
-        title: 'Test Session',
-        userId: 'user-1',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        messageCount: 0,
-      },
-    });
-  });
+    })
+  })
 
   it('renders chat window', () => {
-    render(<ChatWindow sessionId="session-1" />);
-    expect(screen.getByText('MessageList')).toBeInTheDocument();
-    expect(screen.getByText('MessageInput')).toBeInTheDocument();
-  });
-
-  it('displays session title in header', () => {
-    render(<ChatWindow sessionId="session-1" />);
-    expect(screen.getByText('Test Session')).toBeInTheDocument();
-  });
-
-  it('displays export menu', () => {
-    render(<ChatWindow sessionId="session-1" />);
-    expect(screen.getByText('ExportMenu')).toBeInTheDocument();
-  });
-
-  it('displays default title when no session', () => {
-    (useSessionStore as jest.Mock).mockReturnValue({
-      currentSession: null,
-    });
-
-    render(<ChatWindow sessionId="session-1" />);
-    expect(screen.getByText('New Conversation')).toBeInTheDocument();
-  });
+    render(<ChatWindow sessionId="session-1" />)
+    expect(screen.getByText('MessageList')).toBeInTheDocument()
+    expect(screen.getByText('MessageInput')).toBeInTheDocument()
+  })
 
   it('renders with messages', () => {
     const mockMessages = [
@@ -72,15 +43,15 @@ describe('ChatWindow', () => {
         timestamp: Date.now(),
         sessionId: 'session-1',
       },
-    ];
+    ]
 
-    (useChatStore as jest.Mock).mockReturnValue({
+    vi.mocked(useChatStore).mockReturnValue({
       messages: mockMessages,
       isLoading: false,
       error: null,
-    });
+    })
 
-    render(<ChatWindow sessionId="session-1" />);
-    expect(screen.getByText('MessageList')).toBeInTheDocument();
-  });
-});
+    render(<ChatWindow sessionId="session-1" />)
+    expect(screen.getByText('MessageList')).toBeInTheDocument()
+  })
+})

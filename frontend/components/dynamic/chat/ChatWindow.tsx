@@ -4,9 +4,11 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { MessageList } from './MessageList';
-import { MessageInput } from './MessageInput';
+
 import { useChatStore } from '@/stores/dynamic/chatStore';
+
+import { MessageInput } from './MessageInput';
+import { MessageList } from './MessageList';
 
 interface ChatWindowProps {
   sessionId: string;

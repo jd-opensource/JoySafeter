@@ -1,22 +1,7 @@
 'use client'
 
-import React from 'react'
-import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { X, AlertCircle, Settings, BrainCircuit, Hammer, Sparkles } from 'lucide-react'
-import { ToolsField } from './fields/ToolsField'
-import { SkillsField } from './fields/SkillsField'
-import { ModelSelectField } from './fields/ModelSelectField'
+
 import { KVListField } from './fields/KVListField'
 import { VariableInputField } from './fields/VariableInputField'
 import { RouteListField } from './fields/RouteListField'
@@ -29,11 +14,28 @@ import { cn } from '@/lib/core/utils/cn'
 import { Node, Edge } from 'reactflow'
 import { useTranslation } from '@/lib/i18n'
 import { useParams } from 'next/navigation'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
+import React from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/use-toast'
+import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+
+import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'
+import { ModelSelectField } from './fields/ModelSelectField'
+import { SkillsField } from './fields/SkillsField'
+import { ToolsField } from './fields/ToolsField'
 
 interface PropertiesPanelProps {
   node: Node

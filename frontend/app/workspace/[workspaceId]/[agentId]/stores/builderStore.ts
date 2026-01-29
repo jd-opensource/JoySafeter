@@ -17,7 +17,6 @@
  *   but are actually managed by SaveManager internally
  */
 
-import { create } from 'zustand'
 import {
   Connection,
   Edge,
@@ -32,16 +31,19 @@ import {
   applyEdgeChanges,
   ReactFlowInstance,
 } from 'reactflow'
-import { agentService } from '../services/agentService'
-import { nodeRegistry } from '../services/nodeRegistry'
+import { create } from 'zustand'
+
 import { i18n } from '@/lib/i18n'
 import { useSidebarStore } from '@/stores/sidebar/store'
-import { EdgeData, RouteRule } from '../types/graph'
-import type { ContextVariable } from '../components/GraphSettingsPanel'
-import { migrateGraphData, needsMigration } from '../services/dataMigration'
 import type { GraphAction } from '@/types/copilot'
 import { ActionProcessor } from '@/utils/copilot/actionProcessor'
 import { computeGraphStateHash } from '@/utils/graphStateHash'
+
+import type { ContextVariable } from '../components/GraphSettingsPanel'
+import { agentService } from '../services/agentService'
+import { migrateGraphData, needsMigration } from '../services/dataMigration'
+import { nodeRegistry } from '../services/nodeRegistry'
+import { EdgeData, RouteRule } from '../types/graph'
 import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/saveManager'
 
 // Track import graph timers to allow cleanup
@@ -534,7 +536,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     const offsetX = 200
     const offsetY = 50
     let newX = nodeToDuplicate.position.x + offsetX
-    let newY = nodeToDuplicate.position.y + offsetY
+    const newY = nodeToDuplicate.position.y + offsetY
     const sidebarLeftBoundary = isSidebarCollapsed ? 190 : 0
     const sidebarRightBoundary = isSidebarCollapsed ? 422 : sidebarWidth
     

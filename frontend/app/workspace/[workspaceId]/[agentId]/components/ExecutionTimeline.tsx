@@ -1,9 +1,11 @@
 'use client'
 
-import React, { useEffect, useRef, useCallback, useMemo } from 'react'
 import { PlayCircle } from 'lucide-react'
+import React, { useEffect, useRef, useCallback, useMemo } from 'react'
+
 import { useTranslation } from '@/lib/i18n'
 import type { ExecutionStep } from '@/types'
+
 import { ExecutionStepCard } from './ExecutionStepCard'
 
 interface ExecutionTimelineProps {

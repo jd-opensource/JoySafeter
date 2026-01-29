@@ -7,8 +7,6 @@
  * Uses the standardized SSE envelope structure from backend.
  */
 
-import type { ExecutionStep } from '@/types'
-import type { InterruptState } from '../stores/execution/types'
 import type {
   ChatStreamEvent,
   ContentEventData,
@@ -32,6 +30,9 @@ import type {
   CodeAgentPlanningEventData,
   CodeAgentErrorEventData,
 } from '@/services/chatBackend'
+import type { ExecutionStep } from '@/types'
+
+import type { InterruptState } from '../stores/execution/types'
 
 
 export interface EventAdapterContext {

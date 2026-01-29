@@ -1,6 +1,6 @@
+import { VerifyContent } from '@/app/(auth)/verify/verify-content'
 import { isEmailVerificationEnabled, isProd } from '@/lib/core/config/environment'
 import { hasEmailService } from '@/services/email/mailer'
-import { VerifyContent } from '@/app/(auth)/verify/verify-content'
 
 export const dynamic = 'force-dynamic'
 

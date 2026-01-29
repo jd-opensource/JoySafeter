@@ -1,13 +1,15 @@
 'use client'
 
-import React, { useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { ChevronDown, Loader2 } from 'lucide-react'
+import React, { useState } from 'react'
+
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
+import { useAvailableModels } from '@/hooks/queries/models'
+import { useTranslation } from '@/lib/i18n'
+
+import { ModelCredentialDialog } from './credential-dialog'
 import { CredentialPanel } from './credential-panel'
 import { ModelList } from './model-list'
-import { ModelCredentialDialog } from './credential-dialog'
-import { useAvailableModels } from '@/hooks/queries/models'
 import { ProviderIcon } from './provider-icon'
 
 interface ModelProviderAddedCardProps {

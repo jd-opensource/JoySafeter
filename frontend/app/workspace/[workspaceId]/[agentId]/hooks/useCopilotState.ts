@@ -6,10 +6,11 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useCopilotMessages } from '@/hooks/copilot/useCopilotMessages'
-import { useCopilotStreaming, type StageType } from '@/hooks/copilot/useCopilotStreaming'
+
 import { useActionExecutor } from '@/hooks/copilot/useActionExecutor'
+import { useCopilotMessages } from '@/hooks/copilot/useCopilotMessages'
 import { useCopilotSession } from '@/hooks/copilot/useCopilotSession'
+import { useCopilotStreaming, type StageType } from '@/hooks/copilot/useCopilotStreaming'
 
 export interface CopilotState {
   // Message state

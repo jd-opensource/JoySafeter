@@ -1,13 +1,14 @@
 import { useState, useRef, useCallback } from 'react'
+
+
+// File is the browser's native File type (from FileList), not a custom type
+import { useToast } from '@/hooks/use-toast'
+import { useTranslation } from '@/lib/i18n'
 import {
   processLocalDirectoryFiles,
   convertFilesToSkillFiles,
   ValidationResult,
 } from '@/services/skillService'
-
-// File is the browser's native File type (from FileList), not a custom type
-import { useToast } from '@/hooks/use-toast'
-import { useTranslation } from '@/lib/i18n'
 import { getSkillValidationMessage } from '@/utils/skillValidationI18n'
 
 /**

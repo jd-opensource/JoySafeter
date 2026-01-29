@@ -2,13 +2,15 @@
  * MessageList component tests
  */
 
-import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { MessageList } from '../MessageList';
+import { render, screen } from '@testing-library/react'
+import React from 'react'
+import { describe, expect, it, vi } from 'vitest'
 
-jest.mock('../MessageBubble', () => ({
-  MessageBubble: ({ message }: any) => <div>{message.content}</div>,
-}));
+import { MessageList } from '../MessageList'
+
+vi.mock('../MessageBubble', () => ({
+  MessageBubble: ({ message }: { message: { content: string } }) => <div>{message.content}</div>,
+}))
 
 describe('MessageList', () => {
   it('renders empty list', () => {

@@ -1,7 +1,8 @@
 'use client'
 
-import { useTranslation } from '@/lib/i18n'
 import { Compass } from 'lucide-react'
+
+import { useTranslation } from '@/lib/i18n'
 
 export default function DiscoverPage() {
   const { t } = useTranslation()

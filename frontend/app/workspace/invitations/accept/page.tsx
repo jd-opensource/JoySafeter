@@ -9,15 +9,16 @@
  * - Accept invitation and join workspace
  */
 
-import { useState, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, CheckCircle, XCircle, Loader2, Mail, Shield, Crown, Eye, Edit } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
-import { useSession } from '@/lib/auth/auth-client'
-import { workspaceService, type Invitation } from '@/services/workspaceService'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { useState, Suspense } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
+import { useSession } from '@/lib/auth/auth-client'
+import { useTranslation } from '@/lib/i18n'
+import { workspaceService, type Invitation } from '@/services/workspaceService'
 
 // Invitation type imported from workspaceService (using InvitationInfo as alias)
 type InvitationInfo = Invitation

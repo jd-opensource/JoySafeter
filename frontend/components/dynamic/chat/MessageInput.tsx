@@ -4,11 +4,12 @@
  */
 
 import React, { useState } from 'react';
+
+import { chatService } from '@/lib/api/dynamic/chatService';
 import { useSession } from '@/lib/auth/auth-client';
 import { useChatStore } from '@/stores/dynamic/chatStore';
-import { useUserStore } from '@/stores/dynamic/userStore';
 import { useModeStore } from '@/stores/dynamic/modeStore';
-import { chatService } from '@/lib/api/dynamic/chatService';
+import { useUserStore } from '@/stores/dynamic/userStore';
 import type { Mode } from '@/types/dynamic/mode';
 
 interface MessageInputProps {

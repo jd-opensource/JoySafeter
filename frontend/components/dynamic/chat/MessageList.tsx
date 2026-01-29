@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+
 import { MessageBubble } from '@/components/dynamic/ui/MessageBubble';
 import type { Message } from '@/types/dynamic/chat';
 

@@ -1,12 +1,15 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
 import { X, Loader2, CheckCircle2, Sparkles, Zap, ChevronRight, Activity } from 'lucide-react'
-import { useBuilderStore } from '../stores/builderStore'
+import React, { useState, useRef, useEffect } from 'react'
+
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
+
+import { useBuilderStore } from '../stores/builderStore'
 
 interface ExecutionModalProps {
   onClose: () => void

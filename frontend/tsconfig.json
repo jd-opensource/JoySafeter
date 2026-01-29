@@ -67,6 +67,11 @@
   ],
   "exclude": [
     "node_modules",
-    "lib/auth/auth.ts"
+    "lib/auth/auth.ts",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx"
   ]
 }

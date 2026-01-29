@@ -1,9 +1,12 @@
-import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
-import { skillFormSchema, type SkillFormData } from '../schemas/skillFormSchema'
-import { Skill } from '@/types'
+import { useForm } from 'react-hook-form'
+
+
 import { parseSkillMd } from '@/services/skillService'
+import { Skill } from '@/types'
+
+import { skillFormSchema, type SkillFormData } from '../schemas/skillFormSchema'
 
 interface UseSkillFormOptions {
   initialSkill?: Skill | null
@@ -16,8 +19,8 @@ interface UseSkillFormOptions {
  */
 export function useSkillForm({ initialSkill, onSave, form: existingForm }: UseSkillFormOptions = {}) {
   const [showAdvancedFields, setShowAdvancedFields] = useState(false)
-  
-  const form = existingForm || useForm<SkillFormData>({
+
+  const internalForm = useForm<SkillFormData>({
     resolver: zodResolver(skillFormSchema),
     defaultValues: {
       name: '',
@@ -31,8 +34,10 @@ export function useSkillForm({ initialSkill, onSave, form: existingForm }: UseSk
       files: [],
       source: 'local',
     },
-    mode: 'onChange', // Real-time validation
+    mode: 'onChange',
   })
+
+  const form = existingForm ?? internalForm
 
   // Initialize form when skill is selected
   useEffect(() => {

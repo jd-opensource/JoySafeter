@@ -1,9 +1,10 @@
 'use client'
 
-import React from 'react'
 import { ChevronDown } from 'lucide-react'
 import { FileText } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
+import React from 'react'
+import { UseFormReturn } from 'react-hook-form'
+
 import {
   Form,
   FormControl,
@@ -14,11 +15,13 @@ import {
   FormDescription,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { UseFormReturn } from 'react-hook-form'
-import { SkillFormData } from '../schemas/skillFormSchema'
+import { Textarea } from '@/components/ui/textarea'
+import { useTranslation } from '@/lib/i18n'
 import { MAX_SKILL_NAME_LENGTH, MAX_SKILL_DESCRIPTION_LENGTH, MAX_COMPATIBILITY_LENGTH } from '@/utils/skillValidators'
+
+import { SkillFormData } from '../schemas/skillFormSchema'
+
 
 interface SkillFormProps {
   form: UseFormReturn<SkillFormData>

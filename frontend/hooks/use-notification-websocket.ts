@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { env as runtimeEnv } from 'next-runtime-env'
+import { useEffect, useRef, useCallback, useState } from 'react'
 
 export enum NotificationType {
   INVITATION_RECEIVED = 'invitation_received',

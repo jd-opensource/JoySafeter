@@ -5,8 +5,9 @@
  */
 
 import React, { useState } from 'react';
-import { Task } from '@/types/dynamic/execution';
+
 import { formatDuration } from '@/lib/utils/dynamic/formatting';
+import { Task } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/TaskView.css';
 
 interface TaskViewProps {

@@ -2,10 +2,12 @@
  * SessionItem component tests
  */
 
-import React from 'react';
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { SessionItem } from '../SessionItem';
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import React from 'react'
+import { describe, expect, it, vi } from 'vitest'
+
+import { SessionItem } from '../SessionItem'
 
 describe('SessionItem', () => {
   const mockSession = {
@@ -15,25 +17,26 @@ describe('SessionItem', () => {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     messageCount: 5,
-  };
+  }
 
   it('renders session title', () => {
     render(
       <SessionItem
         session={mockSession}
         isActive={false}
-        onSelect={jest.fn()}
+        onSelect={vi.fn()}
       />
-    );
-    expect(screen.getByText('Test Session')).toBeInTheDocument();
-  });
+    )
+    // Title appears in both .session-item-title and .session-item-tooltip
+    expect(screen.getAllByText('Test Session').length).toBeGreaterThan(0)
+  })
 
   it('shows active state', () => {
     const { container } = render(
       <SessionItem
         session={mockSession}
         isActive={true}
-        onSelect={jest.fn()}
+        onSelect={vi.fn()}
       />
     );
     const item = container.querySelector('[class*="active"]');
@@ -41,27 +44,27 @@ describe('SessionItem', () => {
   });
 
   it('calls onSelect when clicked', async () => {
-    const user = userEvent.setup();
-    const mockOnSelect = jest.fn();
+    const user = userEvent.setup()
+    const mockOnSelect = vi.fn()
     render(
       <SessionItem
         session={mockSession}
         isActive={false}
         onSelect={mockOnSelect}
       />
-    );
-
-    const button = screen.getByRole('button');
-    await user.click(button);
-    expect(mockOnSelect).toHaveBeenCalled();
-  });
+    )
+    // SessionItem uses a div with onClick, not a button
+    const item = screen.getByTitle('Test Session')
+    await user.click(item)
+    expect(mockOnSelect).toHaveBeenCalled()
+  })
 
   it('displays message count', () => {
     render(
       <SessionItem
         session={mockSession}
         isActive={false}
-        onSelect={jest.fn()}
+        onSelect={vi.fn()}
       />
     );
     expect(screen.getByText(/5/)).toBeInTheDocument();

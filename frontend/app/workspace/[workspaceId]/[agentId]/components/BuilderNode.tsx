@@ -1,25 +1,10 @@
 'use client'
 
+import { Bot, Loader2, Zap, Layers, Copy, Trash2, PauseCircle, ArrowRight } from 'lucide-react'
+import { useParams } from 'next/navigation'
 import React, { memo, useState, useMemo } from 'react'
 import { Handle, Position } from 'reactflow'
-import { Bot, Loader2, Zap, Layers, Copy, Trash2, PauseCircle, ArrowRight } from 'lucide-react'
-import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'
-import { useBuilderStore } from '../stores/builderStore'
-import { useExecutionStore } from '../stores/executionStore'
-import { cn } from '@/lib/core/utils/cn'
-import { useTranslation } from '@/lib/i18n'
-import { useParams } from 'next/navigation'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useToast } from '@/components/ui/use-toast'
-import { useBuiltinTools } from '@/hooks/queries/tools'
-import { useModels } from '@/hooks/queries/models'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +15,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { useToast } from '@/components/ui/use-toast'
+import { useModels } from '@/hooks/queries/models'
+import { useBuiltinTools } from '@/hooks/queries/tools'
+import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+import { cn } from '@/lib/core/utils/cn'
+import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'
+import { useBuilderStore } from '../stores/builderStore'
+import { useExecutionStore } from '../stores/executionStore'
+
+import { useTranslation } from '@/lib/i18n'
 
 interface BuilderNodeProps {
   id: string

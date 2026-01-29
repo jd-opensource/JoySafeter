@@ -1,8 +1,10 @@
 'use client'
 
-import React from 'react'
 import { CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react'
+import React from 'react'
+
 import { useTranslation } from '@/lib/i18n'
+
 import type { TaskState } from './StateViewer'
 
 interface ParallelExecutionViewProps {

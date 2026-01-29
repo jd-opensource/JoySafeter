@@ -9,8 +9,10 @@
  * For workspace list queries, see workspaces.ts
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createLogger } from '@/lib/logs/console/logger'
+
 import { apiGet, apiPatch, API_ENDPOINTS } from '@/lib/api-client'
+import { createLogger } from '@/lib/logs/console/logger'
+
 import { STALE_TIME } from './constants'
 
 const logger = createLogger('WorkspaceDetailQueries')

@@ -1,18 +1,10 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
 import { X, ArrowRight, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
+import { useParams } from 'next/navigation'
+import React, { useMemo, useState } from 'react'
+import { Node, Edge } from 'reactflow'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,15 +15,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Node, Edge } from 'reactflow'
-import { useTranslation } from '@/lib/i18n'
-import { useParams } from 'next/navigation'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
+import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { cn } from '@/lib/core/utils/cn'
-import { EdgeData } from '../types/graph'
+import { useTranslation } from '@/lib/i18n'
+
 import { validateEdgeData } from '../services/edgeValidator'
+import { EdgeData } from '../types/graph'
 
 interface EdgePropertiesPanelProps {
   edge: Edge

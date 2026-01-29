@@ -5,12 +5,14 @@
  * and error handling.
  */
 
-import { useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useTranslation } from '@/lib/i18n'
-import { graphKeys } from '@/hooks/queries/graphs'
-import type { GraphAction } from '@/types/copilot'
+import { useMemo, useCallback } from 'react'
+
 import type { StageType } from '@/hooks/copilot/useCopilotStreaming'
+import { graphKeys } from '@/hooks/queries/graphs'
+import { useTranslation } from '@/lib/i18n'
+import type { GraphAction } from '@/types/copilot'
+
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
 interface UseCopilotWebSocketHandlerOptions {

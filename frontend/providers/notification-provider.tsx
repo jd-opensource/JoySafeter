@@ -1,10 +1,11 @@
 'use client'
 
 import { createContext, useContext, ReactNode } from 'react'
-import { useAuthStore } from '@/stores/auth/store'
+
 import { useNotificationWebSocket, NotificationMessage, NotificationType } from '@/hooks/use-notification-websocket'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
+import { useAuthStore } from '@/stores/auth/store'
 
 interface NotificationContextValue {
   isConnected: boolean

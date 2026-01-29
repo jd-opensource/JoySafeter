@@ -6,13 +6,15 @@
 
 import { apiStream } from '@/lib/api-client'
 import type { ChatStreamEvent } from '@/services/chatBackend'
+
+import { generateId } from '../stores/execution/utils'
 import { useExecutionStore } from '../stores/executionStore'
+
 import {
   processEvent,
   createEventProcessorContext,
   type EventProcessorStore,
 } from './eventProcessor'
-import { generateId } from '../stores/execution/utils'
 
 export interface Command {
   update?: Record<string, unknown>

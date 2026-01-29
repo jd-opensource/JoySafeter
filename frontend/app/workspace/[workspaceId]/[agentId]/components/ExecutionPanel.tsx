@@ -1,7 +1,5 @@
 'use client'
 
-import React, { useState, useEffect, useDeferredValue } from 'react'
-import { useExecutionStore } from '../stores/executionStore'
 import {
   Trash2,
   ChevronDown,
@@ -9,14 +7,20 @@ import {
   Braces,
   AlignLeft,
 } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
-import { ExecutionTimeline } from './ExecutionTimeline'
-import { ThoughtContent } from './ThoughtContent'
-import { ToolCallCard } from './ToolCallCard'
-import { ModelIOCard } from './ModelIOCard'
-import { InterruptPanel } from './InterruptPanel'
+import React, { useState, useEffect, useDeferredValue } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+
+import { useTranslation } from '@/lib/i18n'
+
+import { useExecutionStore } from '../stores/executionStore'
+
+import { ExecutionTimeline } from './ExecutionTimeline'
+import { InterruptPanel } from './InterruptPanel'
+import { ModelIOCard } from './ModelIOCard'
+import { ThoughtContent } from './ThoughtContent'
+import { ToolCallCard } from './ToolCallCard'
+
 
 /**
  * Format JSON to better display string values containing newlines

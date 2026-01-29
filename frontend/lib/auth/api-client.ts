@@ -4,8 +4,10 @@
  * Handles authentication-related API requests using the unified API client
  */
 import CryptoJS from 'crypto-js'
-import { createLogger } from '@/lib/logs/console/logger'
+
 import { apiGet, apiPost, ApiError, refreshAccessTokenOrRelogin } from '@/lib/api-client'
+import { createLogger } from '@/lib/logs/console/logger'
+
 import { setCsrfToken, getCsrfToken, clearCsrfToken } from './csrf'
 
 const logger = createLogger('AuthAPI')

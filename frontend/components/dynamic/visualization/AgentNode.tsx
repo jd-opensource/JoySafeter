@@ -4,9 +4,10 @@
  */
 
 import React, { useMemo } from 'react';
-import { Agent, ExecutionStatus } from '@/types/dynamic/execution';
+
 import { formatDuration, formatTimestamp } from '@/lib/utils/dynamic/formatting';
 import { getLevelColor, getLevelIndentation, getLevelBadgeText } from '@/lib/utils/dynamic/levelUtils';
+import { Agent, ExecutionStatus } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/AgentNode.css';
 
 interface AgentNodeProps {

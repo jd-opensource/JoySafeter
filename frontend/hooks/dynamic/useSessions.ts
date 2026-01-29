@@ -4,8 +4,9 @@
  */
 
 import { useCallback } from 'react';
-import { useSessionStore } from '@/stores/dynamic/sessionStore';
+
 import { sessionService } from '@/lib/api/dynamic/sessionService';
+import { useSessionStore } from '@/stores/dynamic/sessionStore';
 
 /**
  * Hook for managing conversation sessions

@@ -4,9 +4,10 @@
  */
 
 import React, { useMemo } from 'react';
-import { ExecutionTree } from '@/types/dynamic/execution';
-import { calculateLevelStatistics } from '@/lib/utils/dynamic/levelUtils';
+
 import { formatDuration } from '@/lib/utils/dynamic/formatting';
+import { calculateLevelStatistics } from '@/lib/utils/dynamic/levelUtils';
+import { ExecutionTree } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/LevelStatisticsPanel.css';
 
 interface LevelStatisticsPanelProps {

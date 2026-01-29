@@ -1,8 +1,16 @@
 'use client'
 
-import React, { useState, useMemo, useCallback } from 'react'
 import { X, Plus, Trash2, Settings2, Variable, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { useParams } from 'next/navigation'
+import React, { useState, useMemo, useCallback } from 'react'
+
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -13,18 +21,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { useToast } from '@/components/ui/use-toast'
+import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
-import { useParams } from 'next/navigation'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useToast } from '@/components/ui/use-toast'
+
+
 
 /**
  * Context variable definition

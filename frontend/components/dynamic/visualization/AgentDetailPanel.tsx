@@ -4,8 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { Agent } from '@/types/dynamic/execution';
+
 import { formatDuration, formatTimestamp } from '@/lib/utils/dynamic/formatting';
+import { Agent } from '@/types/dynamic/execution';
 import '@/styles/dynamic/visualization/AgentDetailPanel.css';
 
 interface AgentDetailPanelProps {

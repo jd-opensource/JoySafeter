@@ -4,6 +4,9 @@
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
+
+import { ApiError } from '@/lib/api-client'
+
 import {
   authApi,
   signIn,
@@ -14,7 +17,6 @@ import {
   type AuthUser,
   type AuthSession,
 } from './api-client'
-import { ApiError } from '@/lib/api-client'
 
 // ==================== Type Exports ====================
 export type { AuthUser, AuthSession }

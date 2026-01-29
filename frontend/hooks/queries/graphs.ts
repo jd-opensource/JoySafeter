@@ -7,19 +7,21 @@
  * - Provide consistent queryKey management
  */
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import type { Node, Edge } from 'reactflow'
+
+import type { AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
-import type { Node, Edge } from 'reactflow'
+import type { 
+  GraphDeploymentVersion as DeploymentVersion,
+  GraphDeploymentStatus as DeploymentStatus 
+} from '@/services/graphDeploymentService'
+
 import { STALE_TIME, CACHE_TIME } from './constants'
 
 // ============================================================================
 // Types - Import unified type definitions from service layer
 // ============================================================================
-import type { AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import type { 
-  GraphDeploymentVersion as DeploymentVersion,
-  GraphDeploymentStatus as DeploymentStatus 
-} from '@/services/graphDeploymentService'
 
 // Re-export types for other modules to use
 export type { AgentGraph, DeploymentVersion, DeploymentStatus }

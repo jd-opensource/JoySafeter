@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import {
   createContext,
   type ReactNode,
@@ -9,7 +10,7 @@ import {
   useMemo,
   useRef,
 } from 'react'
-import { useRouter } from 'next/navigation'
+
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('GlobalCommands')

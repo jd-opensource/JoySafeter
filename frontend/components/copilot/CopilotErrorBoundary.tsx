@@ -1,7 +1,8 @@
 'use client'
 
-import React, { Component, ErrorInfo, ReactNode } from 'react'
 import { AlertCircle } from 'lucide-react'
+import React, { Component, ErrorInfo, ReactNode } from 'react'
+
 import { Button } from '@/components/ui/button'
 
 interface Props {

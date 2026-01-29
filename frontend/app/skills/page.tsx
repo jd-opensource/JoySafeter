@@ -1,11 +1,13 @@
 'use client'
 
+import { Store, FolderOpen } from 'lucide-react'
 import { useState } from 'react'
-import SkillsManager from './SkillsManager'
-import SkillsStore from './SkillsStore'
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useTranslation } from '@/lib/i18n'
-import { Store, FolderOpen } from 'lucide-react'
+
+import SkillsManager from './SkillsManager'
+import SkillsStore from './SkillsStore'
 
 export default function SkillsPage() {
   const { t } = useTranslation()

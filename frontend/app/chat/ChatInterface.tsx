@@ -1,32 +1,34 @@
 'use client'
 
+import { List, Plus } from 'lucide-react'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Message, ToolCall } from './types'
-import ChatHome from './components/ChatHome'
-import ChatInput from './components/ChatInput'
-import ChatSidebar from './components/ChatSidebar'
-import ThreadContent from './components/ThreadContent'
-import ToolExecutionPanel from './components/ToolExecutionPanel'
-import CompactToolStatus from './components/CompactToolStatus'
-import { useBackendChatStream } from './hooks/useBackendChatStream'
-import { conversationService } from '@/services/conversationService'
-import { graphResolutionService } from './services/graphResolutionService'
-import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
-import { cn } from '@/lib/core/utils/cn'
+
+import { Button } from '@/components/ui/button'
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable'
-import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { List, Plus } from 'lucide-react'
+import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
+import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
+import { conversationService } from '@/services/conversationService'
+
+import ChatHome from './components/ChatHome'
+import ChatInput from './components/ChatInput'
+import ChatSidebar from './components/ChatSidebar'
+import CompactToolStatus from './components/CompactToolStatus'
+import ThreadContent from './components/ThreadContent'
+import ToolExecutionPanel from './components/ToolExecutionPanel'
+import { useBackendChatStream } from './hooks/useBackendChatStream'
+import { graphResolutionService } from './services/graphResolutionService'
+import { Message, ToolCall } from './types'
 
 interface ChatInterfaceProps {
   chatId?: string | null

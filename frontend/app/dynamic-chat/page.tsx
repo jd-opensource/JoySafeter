@@ -6,18 +6,19 @@
  * Migrated from frontend_dynamic/web to Next.js App Router
  */
 
-import React, { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { SessionList } from '@/components/dynamic/session';
+import React, { useEffect, useState } from 'react';
+
 import { ChatWindow, NewConversationView } from '@/components/dynamic/chat';
 import { ModeSelectDialog, ModeSwitcher } from '@/components/dynamic/mode';
-import { useUserStore } from '@/stores/dynamic/userStore';
-import { useSessionStore } from '@/stores/dynamic/sessionStore';
-import { useChatStore } from '@/stores/dynamic/chatStore';
-import { useModeStore } from '@/stores/dynamic/modeStore';
+import { SessionList } from '@/components/dynamic/session';
 import { useSessions } from '@/hooks/dynamic/useSessions';
 import { chatService } from '@/lib/api/dynamic/chatService';
 import { resolveMode } from '@/lib/utils/dynamic/modeResolve';
+import { useChatStore } from '@/stores/dynamic/chatStore';
+import { useModeStore } from '@/stores/dynamic/modeStore';
+import { useSessionStore } from '@/stores/dynamic/sessionStore';
+import { useUserStore } from '@/stores/dynamic/userStore';
 import { Mode, toMode } from '@/types/dynamic/mode';
 import '@/styles/dynamic/chat.css';
 

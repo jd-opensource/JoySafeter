@@ -1,5 +1,5 @@
-import { env, isTruthy } from '@/lib/core/config/env'
 import SignupForm from '@/app/(auth)/signup/signup-form'
+import { env, isTruthy } from '@/lib/core/config/env'
 
 export const dynamic = 'force-dynamic'
 
