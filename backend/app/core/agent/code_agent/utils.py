@@ -17,12 +17,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import TypeVar
 
-try:
-    from loguru import logger
-except ImportError:
-    import logging
-
-    logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 __all__ = [

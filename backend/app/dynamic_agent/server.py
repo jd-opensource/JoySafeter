@@ -1039,7 +1039,7 @@ if __name__ == "__main__":
             config.bind = [f"{host}:{port}"]
             config.loglevel = os.getenv("LOG_LEVEL", "info").lower()
 
-            asyncio.run(hypercorn.asyncio.serve(fastapi_app, config))
+            asyncio.run(hypercorn.asyncio.serve(fastapi_app, config))  # type: ignore[arg-type]
         except ImportError:
             # Fallback to uvicorn with minimal configuration
             logger.info("🐛 Hypercorn not available, using uvicorn with minimal config")
