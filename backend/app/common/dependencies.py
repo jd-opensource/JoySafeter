@@ -25,11 +25,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
-def get_optional_request(request: Request) -> Request:
-    """Dependency to provide Request object."""
-    return request
-
-
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """获取数据库会话"""
     async for session in get_db():
@@ -38,8 +33,8 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 async def get_current_user(
     token: Annotated[Optional[str], Depends(oauth2_scheme_optional)],
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    request: Annotated[Request, Depends(get_optional_request)] = None,  # type: ignore[assignment]
 ) -> User:
     """
     获取当前用户（必须登录）
@@ -95,8 +90,8 @@ async def get_current_user(
 
 async def get_current_user_optional(
     token: Annotated[Optional[str], Depends(oauth2_scheme_optional)],
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    request: Annotated[Request, Depends(get_optional_request)] = None,  # type: ignore[assignment]
 ) -> Optional[User]:
     """获取当前用户（可选，未登录返回 None），同时支持 Cookie 里的 token。"""
     cookie_token = None
