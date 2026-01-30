@@ -129,6 +129,7 @@ export const CopilotPanel: React.FC = () => {
             expandedItems={state.expandedItems}
             onToggleExpand={actions.toggleExpand}
             formatActionContent={formatActionContent}
+            onExampleTaskClick={(text) => actions.setInput(text)}
           />
 
           {/* Streaming content */}

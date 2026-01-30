@@ -277,7 +277,7 @@ export default {
       newGraphCreatedDescription: 'Canvas has been cleared. Start building your new agent flow.',
       // Sidebar
       copilot: 'Copilot',
-      toolbox: 'Toolbox',
+      components: 'Components',
       // Canvas
       dropToAddNode: 'Drop to add node',
       // Load Modal
@@ -475,9 +475,15 @@ export default {
         docker_image: 'Docker Image',
       },
       // Copilot Panel
-      copilotConnected: 'I am connected to the core system. I can modify the graph structure directly. Try "Add a weather agent".',
+      copilotSubtitle: "Describe a task, I'll update the graph",
+      copilotConnected: "Give me a concrete task (not chitchat)—I'll update the canvas directly. I'm connected to the graph and can modify it. Examples: \"Add a weather agent\", \"Connect node A to B\", \"Arrange the layout\".",
       loadingHistory: 'Loading conversation history...',
-      describeFlowChanges: 'Describe flow changes...',
+      describeFlowChanges: 'Describe a task, e.g. Add a weather agent, connect A to B',
+      copilotInputHint: 'Each message is run as a task and will update the graph.',
+      copilotExampleTask1: 'Add a weather agent',
+      copilotExampleTask2: 'Connect node A to B',
+      copilotExampleTask3: 'Arrange the canvas layout',
+      copilotExampleTask4: 'Delete a node',
       actionsExecuted: 'Actions Executed',
       systemError: 'System Error',
       couldNotProcessRequest: 'Could not process request.',

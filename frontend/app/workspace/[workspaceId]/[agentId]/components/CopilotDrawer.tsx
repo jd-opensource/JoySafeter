@@ -61,7 +61,7 @@ export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({ className }) => {
                 {t('workspace.copilot', { defaultValue: 'Copilot' })}
               </h3>
               <p className="text-[10px] text-gray-500 leading-tight">
-                {t('workspace.aiPoweredAssistant')}
+                {t('workspace.copilotSubtitle')}
               </p>
             </div>
           </div>

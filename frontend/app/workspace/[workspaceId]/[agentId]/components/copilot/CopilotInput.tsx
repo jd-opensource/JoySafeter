@@ -109,6 +109,9 @@ export function CopilotInput({
           </Button>
         )}
       </div>
+      <p className="mt-1 text-[10px] text-gray-500 px-0.5">
+        {t('workspace.copilotInputHint')}
+      </p>
     </div>
   )
 }

@@ -352,6 +352,16 @@ Note: Parameter name in create_node tool is "use_deep_agents" (maps to useDeepAg
         else {"x": next_position_x + 250, "y": next_position_y + 300}
     )
 
+    # Task-first and conversational redirect
+    prompt += """
+<task-first>
+Treat user input as a graph-building or graph-modification TASK by default.
+- Prefer interpreting the message as: add node(s), connect nodes, delete node, update config, or arrange layout.
+- When the intent is ambiguous, infer a reasonable graph action (e.g. add/connect/delete/update/layout) and execute with tools.
+- Do not treat the Copilot as general chat; it is for producing and updating the workflow graph.
+</task-first>
+"""
+
     # Execution workflow - Optimized with clear algorithms
     prompt += f"""
 <execution-workflow>
@@ -404,7 +414,11 @@ All other tasks → Use DeepAgents (see <system-reminder>).
 </simple-mode>
 
 <conversational>
-If user is asking questions or chatting, respond helpfully without tools.
+Only when the user message is clearly JUST a greeting or off-topic chitchat (e.g. "hi", "hello", "how are you", unrelated question):
+- Reply in ONE short sentence that redirects them to give a concrete graph-building task.
+- Example redirect: "Please describe what you want to do on the canvas, e.g. add an agent, connect two nodes, or arrange the layout."
+- Do NOT call any graph-modification tools for such messages.
+In all other cases, treat the input as a task and use tools to modify the graph.
 </conversational>
 """
 

@@ -18,7 +18,16 @@ interface CopilotChatProps {
   expandedItems: Set<string | number>
   onToggleExpand: (key: string | number) => void
   formatActionContent: (action: GraphAction) => string
+  /** When user clicks an example task chip, fill input with this text (optional) */
+  onExampleTaskClick?: (text: string) => void
 }
+
+const EXAMPLE_TASK_KEYS = [
+  'workspace.copilotExampleTask1',
+  'workspace.copilotExampleTask2',
+  'workspace.copilotExampleTask3',
+  'workspace.copilotExampleTask4',
+] as const
 
 export function CopilotChat({
   messages,
@@ -26,6 +35,7 @@ export function CopilotChat({
   expandedItems,
   onToggleExpand,
   formatActionContent,
+  onExampleTaskClick,
 }: CopilotChatProps) {
   const { t } = useTranslation()
   const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null)
@@ -41,19 +51,35 @@ export function CopilotChat({
   // Show welcome message only when there are no messages
   if (messages.length === 0) {
     return (
-      <div className="flex gap-2">
-        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 border border-purple-100">
-          <Sparkles size={16} />
-        </div>
-        <div className="flex flex-col gap-2 max-w-[85%]">
-          <div className="relative group rounded-2xl text-xs leading-relaxed shadow-sm bg-white border border-gray-100 text-gray-800 rounded-bl-none">
-            <div className="p-3">
-              <div className="whitespace-pre-wrap break-words">
-                {t('workspace.copilotConnected')}
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-2">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 border border-purple-100">
+            <Sparkles size={16} />
+          </div>
+          <div className="flex flex-col gap-2 max-w-[85%]">
+            <div className="relative group rounded-2xl text-xs leading-relaxed shadow-sm bg-white border border-gray-100 text-gray-800 rounded-bl-none">
+              <div className="p-3">
+                <div className="whitespace-pre-wrap break-words">
+                  {t('workspace.copilotConnected')}
+                </div>
               </div>
             </div>
           </div>
         </div>
+        {onExampleTaskClick && (
+          <div className="flex flex-wrap gap-1.5 pl-10">
+            {EXAMPLE_TASK_KEYS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onExampleTaskClick(t(key))}
+                className="text-[10px] px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50/50 text-purple-700 hover:bg-purple-100 hover:border-purple-300 transition-colors"
+              >
+                {t(key)}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )
   }

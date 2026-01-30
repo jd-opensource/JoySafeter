@@ -278,7 +278,7 @@ export default {
       newGraphCreatedDescription: '画布已清空，开始构建您的新智能体流程。',
       // Sidebar
       copilot: 'Copilot',
-      toolbox: '工具箱',
+      components: '组件库',
       // Canvas
       dropToAddNode: '拖放以添加节点',
       // Load Modal
@@ -475,9 +475,15 @@ export default {
         docker_image: 'Docker 镜像',
       },
       // Copilot Panel
-      copilotConnected: '我已连接到核心系统。我可以直接修改图表结构。试试"添加一个天气智能体"。',
+      copilotSubtitle: '输入任务，直接改图',
+      copilotConnected: '请给出具体任务（不是闲聊），我会直接修改画布。我已连接到核心系统，可修改图表结构。例如：「添加一个天气智能体」「把节点 A 和 B 连起来」「整理画布布局」。',
       loadingHistory: '加载对话历史...',
-      describeFlowChanges: '描述流程更改...',
+      describeFlowChanges: '输入具体任务，例如：添加一个天气智能体、连接 A 到 B',
+      copilotInputHint: '每次输入将作为任务执行，直接修改画布。',
+      copilotExampleTask1: '添加一个天气智能体',
+      copilotExampleTask2: '把节点 A 和 B 连起来',
+      copilotExampleTask3: '整理画布布局',
+      copilotExampleTask4: '删除指定节点',
       actionsExecuted: '已执行的操作',
       systemError: '系统错误',
       couldNotProcessRequest: '无法处理请求。',
