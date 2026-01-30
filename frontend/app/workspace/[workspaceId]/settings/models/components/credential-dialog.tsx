@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
-import { useCreateCredential, useValidateCredential } from '@/hooks/queries/models'
+import { truncateValidationError, useCreateCredential, useValidateCredential } from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 
@@ -108,19 +108,27 @@ export function ModelCredentialDialog({
     })
 
     try {
-      await createCredential.mutateAsync({
+      const data = await createCredential.mutateAsync({
         provider_name: provider.provider_name,
         credentials: filteredData,
         workspaceId,
         validate: true,
       })
 
-      // Use concise message on success
+      if (data?.is_valid === false) {
+        toast({
+          variant: 'destructive',
+          title: t('settings.credentialSavedValidationFailed'),
+          description: truncateValidationError(data?.validation_error) || t('settings.validationFailedHint'),
+        })
+        // Keep dialog open so user can fix and resubmit
+        return
+      }
+
+      const baseMessage = credential ? t('settings.credentialUpdated') : t('settings.credentialSaved')
       toast({
         variant: 'success',
-        description: credential
-          ? t('settings.credentialUpdated')
-          : t('settings.credentialCreated'),
+        description: baseMessage,
       })
 
       onOpenChange(false)
@@ -149,12 +157,19 @@ export function ModelCredentialDialog({
     setValidating(true)
     try {
       if (credential?.id) {
-        await validateCredential.mutateAsync(credential.id)
-        // Use concise message on success
-        toast({
-          variant: 'success',
-          description: t('settings.credentialValidated'),
-        })
+        const data = await validateCredential.mutateAsync(credential.id)
+        if (data?.is_valid === true) {
+          toast({
+            variant: 'success',
+            description: t('settings.credentialValidated'),
+          })
+        } else {
+          toast({
+            title: t('settings.failedToValidateCredential'),
+            description: truncateValidationError(data?.error) || t('settings.failedToValidateCredential'),
+            variant: 'destructive',
+          })
+        }
       }
     } catch (error) {
       toast({
@@ -205,30 +220,36 @@ export function ModelCredentialDialog({
                 />
               </div>
             ) : (
-              formFields.map(field => (
-                <div key={field.key}>
-                  <Label htmlFor={field.key}>
-                    {field.label}
-                    {field.required && <span className="text-destructive ml-1">*</span>}
-                  </Label>
-                  <Input
-                    id={field.key}
-                    type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
-                    value={formData[field.key] || ''}
-                    onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
-                    placeholder={field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
-                    required={field.required}
-                    className="mt-1"
-                  />
-                  {field.description && (
-                    <p className="text-xs text-muted-foreground mt-1">{field.description}</p>
-                  )}
-                </div>
-              ))
+              formFields.map(field => {
+                const fieldDescription =
+                  provider.provider_name === 'openaiapicompatible' && field.key === 'base_url'
+                    ? t('settings.baseUrlDescription')
+                    : field.description
+                return (
+                  <div key={field.key}>
+                    <Label htmlFor={field.key}>
+                      {field.label}
+                      {field.required && <span className="text-destructive ml-1">*</span>}
+                    </Label>
+                    <Input
+                      id={field.key}
+                      type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
+                      value={formData[field.key] || ''}
+                      onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                      placeholder={fieldDescription || field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
+                      required={field.required}
+                      className="mt-1"
+                    />
+                    {fieldDescription && (
+                      <p className="text-xs text-muted-foreground mt-1">{fieldDescription}</p>
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
           <DialogFooter className={footerClassName}>
-            {credential?.id && (
+            {credential?.id && provider.provider_name !== 'openaiapicompatible' && (
               <Button
                 type="button"
                 variant="outline"

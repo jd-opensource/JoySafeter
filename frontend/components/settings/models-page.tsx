@@ -1,11 +1,11 @@
 'use client'
 
 import { AlertTriangle, Loader2, Brain, Plus } from 'lucide-react'
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { ModelProviderAddedCard } from '@/app/workspace/[workspaceId]/settings/models/components/provider-added-card'
 import { ModelProviderCard } from '@/app/workspace/[workspaceId]/settings/models/components/provider-card'
-import { useModelProviders, useModelCredentials } from '@/hooks/queries/models'
+import { useModelProviders, useModelCredentials, useModelProvidersByConfig } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
 
 interface ModelsPageProps {
@@ -17,34 +17,12 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
 
   const { data: providers = [], isLoading: providersLoading } = useModelProviders()
   const { data: credentials = [], isLoading: credentialsLoading } = useModelCredentials(workspaceId)
-
-  // Group credentials by provider
-  const credentialsByProvider = useMemo(() => {
-    const map = new Map<string, typeof credentials[0]>()
-    credentials.forEach(cred => {
-      map.set(cred.provider_name, cred)
-    })
-    return map
-  }, [credentials])
-
-  // Separate configured and unconfigured providers
-  const [configuredProviders, notConfiguredProviders] = useMemo(() => {
-    const configured: typeof providers = []
-    const notConfigured: typeof providers = []
-
-    providers.forEach(provider => {
-      const credential = credentialsByProvider.get(provider.provider_name)
-      if (credential && credential.is_valid) {
-        configured.push(provider)
-      } else {
-        notConfigured.push(provider)
-      }
-    })
-
-    return [configured, notConfigured]
-  }, [providers, credentialsByProvider])
-
-  const defaultModelNotConfigured = configuredProviders.length === 0
+  const {
+    credentialsByProvider,
+    configuredProviders,
+    notConfiguredProviders,
+    noValidCredential,
+  } = useModelProvidersByConfig(providers, credentials)
 
   if (providersLoading || credentialsLoading) {
     return (
@@ -63,11 +41,11 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
         </h2>
       </div>
 
-      {defaultModelNotConfigured && (
+      {noValidCredential && (
         <div className="flex items-center px-4 py-3 mb-4 bg-amber-50 rounded-xl border border-amber-200">
           <AlertTriangle className="mr-2 w-4 h-4 text-amber-500 shrink-0" />
           <span className="text-xs font-medium text-amber-700">
-            {t('settings.credentialNotConfigured')}
+            {t('settings.noValidCredential')}
           </span>
         </div>
       )}

@@ -2,6 +2,8 @@
 OpenAI供应商实现
 """
 
+import ast
+import json
 from typing import Any, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
@@ -9,6 +11,33 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from .base import BaseProvider, ModelType
+
+
+def _format_validation_error(exc: Exception) -> str:
+    """从上游异常中解析 message/cause，返回更友好的中文提示。"""
+    raw = str(exc)
+    # 形如 "Error code: 400 - {'error': {'message': '...', 'cause': '...'}, ...}}"
+    if " - " in raw:
+        payload = raw.split(" - ", 1)[1].strip()
+        try:
+            # 上游可能返回单引号形式的 dict，先尝试 JSON
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError:
+                # 单引号 dict 用 ast 解析
+                data = ast.literal_eval(payload) if payload.startswith("{") else {}
+            err = data.get("error") if isinstance(data, dict) else None
+            if isinstance(err, dict):
+                msg = err.get("message") or err.get("cause")
+                cause = err.get("cause") if err.get("message") else None
+                parts = [msg]
+                if cause and cause != msg:
+                    parts.append(f"（{cause}）")
+                if parts:
+                    return "凭据验证失败：" + " ".join(parts)
+        except Exception:
+            pass
+    return f"凭据验证失败：{raw}"
 
 
 class OpenAIAPICompatibleProvider(BaseProvider):
@@ -59,7 +88,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                 "base_url": {
                     "type": "string",
                     "title": "Base URL",
-                    "description": "API基础URL（用于自定义端点）",
+                    "description": "API基础URL（用于自定义端点），路径请以 /v1 结尾",
                     "required": True,
                 },
             },
@@ -154,7 +183,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
             else:
                 return False, "API调用失败：未收到有效响应"
         except Exception as e:
-            return False, f"凭据验证失败：{str(e)}"
+            return False, _format_validation_error(e)
 
     def get_model_list(
         self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None

@@ -2,9 +2,13 @@
 
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useMemo } from 'react'
+import React from 'react'
 
-import { useModelProviders, useModelCredentials } from '@/hooks/queries/models'
+import {
+  useModelProviders,
+  useModelCredentials,
+  useModelProvidersByConfig,
+} from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
 
 import { ModelProviderAddedCard } from './components/provider-added-card'
@@ -17,34 +21,12 @@ export default function ModelsPage() {
 
   const { data: providers = [], isLoading: providersLoading } = useModelProviders()
   const { data: credentials = [], isLoading: credentialsLoading } = useModelCredentials(workspaceId)
-
-  // Group credentials by provider
-  const credentialsByProvider = useMemo(() => {
-    const map = new Map<string, typeof credentials[0]>()
-    credentials.forEach(cred => {
-      map.set(cred.provider_name, cred)
-    })
-    return map
-  }, [credentials])
-
-  // Separate configured and unconfigured providers
-  const [configuredProviders, notConfiguredProviders] = useMemo(() => {
-    const configured: typeof providers = []
-    const notConfigured: typeof providers = []
-
-    providers.forEach(provider => {
-      const credential = credentialsByProvider.get(provider.provider_name)
-      if (credential && credential.is_valid) {
-        configured.push(provider)
-      } else {
-        notConfigured.push(provider)
-      }
-    })
-
-    return [configured, notConfigured]
-  }, [providers, credentialsByProvider])
-
-  const defaultModelNotConfigured = configuredProviders.length === 0
+  const {
+    credentialsByProvider,
+    configuredProviders,
+    notConfiguredProviders,
+    noValidCredential,
+  } = useModelProvidersByConfig(providers, credentials)
 
   if (providersLoading || credentialsLoading) {
     return (
@@ -64,11 +46,11 @@ export default function ModelsPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className={`flex items-center justify-between mb-4 h-8 ${defaultModelNotConfigured && 'px-3 bg-[#FFFAEB] rounded-lg border border-[#FEF0C7]'}`}>
-          {defaultModelNotConfigured ? (
+        <div className={`flex items-center justify-between mb-4 h-8 ${noValidCredential && 'px-3 bg-[#FFFAEB] rounded-lg border border-[#FEF0C7]'}`}>
+          {noValidCredential ? (
             <div className="flex items-center text-xs font-medium text-gray-700">
               <AlertTriangle className="mr-1 w-3 h-3 text-[#F79009]" />
-              {t('settings.credentialNotConfigured')}
+              {t('settings.noValidCredential')}
             </div>
           ) : (
             <div className="text-sm font-medium text-gray-800">{t('settings.models')}</div>

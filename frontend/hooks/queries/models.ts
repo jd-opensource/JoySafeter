@@ -5,6 +5,7 @@
  * - Use camelCase for types
  * - API response: { success: true, data: {...} }
  */
+import { useMemo } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiGet, apiPost, apiDelete, apiPatch } from '@/lib/api-client'
@@ -92,6 +93,74 @@ export function useModelCredentials(workspaceId?: string) {
     staleTime: STALE_TIME.STANDARD,
     placeholderData: keepPreviousData,
   })
+}
+
+/** Max length for validation_error tooltip to avoid huge title attributes */
+const VALIDATION_ERROR_TOOLTIP_MAX_LEN = 200
+
+/**
+ * Build credentials map by provider_name; when multiple credentials exist for the same
+ * provider, prefer the one with is_valid === true for display.
+ */
+function buildCredentialsByProvider(credentials: ModelCredential[]): Map<string, ModelCredential> {
+  const map = new Map<string, ModelCredential>()
+  for (const cred of credentials) {
+    const existing = map.get(cred.provider_name)
+    if (!existing || (cred.is_valid && !existing.is_valid)) {
+      map.set(cred.provider_name, cred)
+    }
+  }
+  return map
+}
+
+export interface ModelProvidersByConfigResult {
+  credentialsByProvider: Map<string, ModelCredential>
+  configuredProviders: ModelProvider[]
+  notConfiguredProviders: ModelProvider[]
+  noValidCredential: boolean
+}
+
+/**
+ * Derive configured/unconfigured provider lists and credential map from providers and credentials.
+ * "Configured" = has at least one credential record; "no valid credential" = none or all invalid.
+ */
+export function useModelProvidersByConfig(
+  providers: ModelProvider[],
+  credentials: ModelCredential[]
+): ModelProvidersByConfigResult {
+  const credentialsByProvider = useMemo(
+    () => buildCredentialsByProvider(credentials),
+    [credentials]
+  )
+
+  const [configuredProviders, notConfiguredProviders] = useMemo(() => {
+    const configured: ModelProvider[] = []
+    const notConfigured: ModelProvider[] = []
+    for (const provider of providers) {
+      if (credentialsByProvider.has(provider.provider_name)) {
+        configured.push(provider)
+      } else {
+        notConfigured.push(provider)
+      }
+    }
+    return [configured, notConfigured]
+  }, [providers, credentialsByProvider])
+
+  const noValidCredential =
+    configuredProviders.length === 0 ||
+    configuredProviders.every(p => !credentialsByProvider.get(p.provider_name)?.is_valid)
+
+  return {
+    credentialsByProvider,
+    configuredProviders,
+    notConfiguredProviders,
+    noValidCredential,
+  }
+}
+
+export function truncateValidationError(error: string | undefined, maxLen = VALIDATION_ERROR_TOOLTIP_MAX_LEN): string {
+  if (!error) return ''
+  return error.length <= maxLen ? error : `${error.slice(0, maxLen)}…`
 }
 
 export function useModelCredential(credentialId: string) {
@@ -201,7 +270,7 @@ export function useCreateCredential() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      queryClient.invalidateQueries({ queryKey: modelKeys.available() })
+      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
@@ -220,7 +289,7 @@ export function useValidateCredential() {
     onSuccess: (_, credentialId) => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credential(credentialId) })
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      queryClient.invalidateQueries({ queryKey: modelKeys.available() })
+      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
@@ -235,7 +304,7 @@ export function useDeleteCredential() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      queryClient.invalidateQueries({ queryKey: modelKeys.available() })
+      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
@@ -258,7 +327,7 @@ export function useCreateModelInstance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
-      queryClient.invalidateQueries({ queryKey: modelKeys.available() })
+      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
