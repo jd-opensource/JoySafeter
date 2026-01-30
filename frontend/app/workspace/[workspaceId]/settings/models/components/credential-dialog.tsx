@@ -1,6 +1,6 @@
 'use client'
 
-import { Loader2 } from 'lucide-react'
+import { KeyRound, Loader2 } from 'lucide-react'
 import React, { useState, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -167,19 +167,31 @@ export function ModelCredentialDialog({
     }
   }
 
-  // If no credential_schema, show simple API Key input
-  if (formFields.length === 0) {
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{provider.display_name} {t('settings.configureCredential')}</DialogTitle>
-            <DialogDescription>
+  const dialogContentClassName =
+    'sm:max-w-lg p-0 gap-0 overflow-hidden bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]'
+  const headerClassName = 'px-6 py-4 border-b border-gray-100 shrink-0 flex flex-row items-center gap-3'
+  const bodyClassName = 'p-6 space-y-4 max-h-[60vh] overflow-y-auto'
+  const footerClassName = 'border-t border-gray-100 px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2'
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={dialogContentClassName}>
+        <DialogHeader className={headerClassName}>
+          <div className="p-1.5 rounded-lg border border-gray-50 shadow-sm shrink-0 bg-violet-50 text-violet-600">
+            <KeyRound size={14} />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <DialogTitle className="font-bold text-sm leading-tight">
+              {provider.display_name} {t('settings.configureCredential')}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground text-xs mt-0.5">
               {t('settings.modelProviderDescription')}
             </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit}>
-            <div className="space-y-4 py-4">
+          </div>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className={bodyClassName}>
+            {formFields.length === 0 ? (
               <div>
                 <Label htmlFor="api_key">{t('settings.apiKeyLabel', { defaultValue: 'API Key' })}</Label>
                 <Input
@@ -189,68 +201,33 @@ export function ModelCredentialDialog({
                   onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
                   placeholder={t('settings.enterApiKey', { defaultValue: 'Enter API key' })}
                   required
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              {credential?.id && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleValidate}
-                  disabled={validating}
-                >
-                  {validating && <Loader2 className="mr-2 w-4 h-4 animate-spin" />}
-                  {t('settings.validateCredential')}
-                </Button>
-              )}
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                {t('settings.cancel')}
-              </Button>
-              <Button type="submit" disabled={createCredential.isPending}>
-                {createCredential.isPending && <Loader2 className="mr-2 w-4 h-4 animate-spin" />}
-                {t('settings.save')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{provider.display_name} {t('settings.configureCredential')}</DialogTitle>
-          <DialogDescription>
-            {t('settings.modelProviderDescription')}
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
-            {formFields.map(field => (
-              <div key={field.key}>
-                <Label htmlFor={field.key}>
-                  {field.label}
-                  {field.required && <span className="text-red-500 ml-1">*</span>}
-                </Label>
-                <Input
-                  id={field.key}
-                  type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
-                  value={formData[field.key] || ''}
-                  onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
-                  placeholder={field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
-                  required={field.required}
                   className="mt-1"
                 />
-                {field.description && (
-                  <p className="text-xs text-gray-500 mt-1">{field.description}</p>
-                )}
               </div>
-            ))}
+            ) : (
+              formFields.map(field => (
+                <div key={field.key}>
+                  <Label htmlFor={field.key}>
+                    {field.label}
+                    {field.required && <span className="text-destructive ml-1">*</span>}
+                  </Label>
+                  <Input
+                    id={field.key}
+                    type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
+                    value={formData[field.key] || ''}
+                    onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                    placeholder={field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
+                    required={field.required}
+                    className="mt-1"
+                  />
+                  {field.description && (
+                    <p className="text-xs text-muted-foreground mt-1">{field.description}</p>
+                  )}
+                </div>
+              ))
+            )}
           </div>
-          <DialogFooter>
+          <DialogFooter className={footerClassName}>
             {credential?.id && (
               <Button
                 type="button"

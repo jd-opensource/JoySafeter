@@ -475,10 +475,10 @@ export default {
         docker_image: 'Docker Image',
       },
       // Copilot Panel
-      copilotSubtitle: 'Define your architecture specification.',
-      copilotEmptyHeading: 'Define your architecture specification.',
+      copilotSubtitle: 'AI-powered Production-grade MultiAgent',
+      copilotEmptyHeading: 'AI-powered Production-grade Multiagent',
       copilotConnected: "Give me a concrete task (not chitchat)—I'll update the canvas directly. I'm connected to the graph and can modify it.",
-      copilotStartWithBlueprint: 'Start with a Blueprint',
+      copilotStartWithBlueprint: 'Classic Build Cases',
       copilotBlueprintRagTitle: 'RAG Knowledge Base',
       copilotBlueprintRagDesc: 'Ingest PDFs, vector search, answer synthesis.',
       copilotBlueprintRagPrompt: 'Build a RAG system that ingests PDF documents into a Vector Database and uses an Agent to answer user queries based on the retrieved context.',

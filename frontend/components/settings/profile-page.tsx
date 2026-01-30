@@ -288,35 +288,34 @@ export function ProfilePage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <span className="text-lg font-medium text-gray-900">{displayName || user?.name || t('user.user')}</span>
+                  <span className="text-lg font-medium text-foreground">{displayName || user?.name || t('user.user')}</span>
                   <button
                     onClick={() => setIsEditingName(true)}
-                    className="p-1 hover:bg-gray-100 rounded transition-colors"
+                    className="p-1 hover:bg-muted rounded transition-colors"
                     aria-label="Edit name"
                   >
-                    <Pencil size={14} className="text-gray-500" />
+                    <Pencil size={14} className="text-muted-foreground" />
                   </button>
                 </div>
               )}
-              <p className="text-sm text-gray-500">{user?.email}</p>
+              <p className="text-sm text-muted-foreground">{user?.email}</p>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-3 pt-6 border-t border-gray-200">
+        <div className="flex flex-wrap items-center gap-2 pt-6 border-t border-border">
           <Button
             variant="outline"
             onClick={handleLogout}
-            className="flex items-center gap-2"
+            className="gap-2"
           >
             <LogOut size={16} />
             {t('user.logout')}
           </Button>
           <Button
-            variant="outline"
             onClick={handleResetPasswordClick}
-            className="flex items-center gap-2"
+            className="gap-2"
           >
             <KeyRound size={16} />
             {t('auth.resetPassword')}
@@ -326,77 +325,86 @@ export function ProfilePage() {
 
       {/* Reset Password Dialog */}
       <Dialog open={isResetDialogOpen} onOpenChange={handleCloseDialog}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>{t('auth.resetPassword')}</DialogTitle>
-            <DialogDescription>
-              {t('auth.enterNewPassword')}
-            </DialogDescription>
+        <DialogContent className="sm:max-w-[425px] p-0 gap-0 overflow-hidden bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
+          <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 flex flex-row items-center gap-3">
+            <div className="p-1.5 rounded-lg border border-gray-50 shadow-sm shrink-0 bg-violet-50 text-violet-600">
+              <KeyRound size={14} />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <DialogTitle className="font-bold text-sm leading-tight">
+                {t('auth.resetPassword')}
+              </DialogTitle>
+              <DialogDescription className="text-muted-foreground text-xs mt-0.5">
+                {t('auth.enterNewPassword')}
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <form onSubmit={handleSubmitNewPassword} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-password" className="text-sm font-medium">
-                {t('auth.newPassword')}
-              </Label>
-              <div className="relative">
-                <Input
-                  id="new-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={newPassword}
-                  onChange={handlePasswordChange}
-                  placeholder={t('auth.enterNewPassword')}
-                  disabled={isSubmitting}
-                  className={cn(
-                    "pr-10",
-                    showValidationError &&
-                      passwordErrors.length > 0 &&
-                      'border-red-500 focus:border-red-500 focus:ring-red-100'
-                  )}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                  disabled={isSubmitting}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              {showValidationError && passwordErrors.length > 0 && (
-                <div className="space-y-1 text-xs text-red-600">
-                  {passwordErrors.map((error, index) => (
-                    <p key={index}>{error}</p>
-                  ))}
+          <form onSubmit={handleSubmitNewPassword} className="flex flex-col flex-1 min-h-0">
+            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+              <div className="space-y-2">
+                <Label htmlFor="new-password" className="text-sm font-medium">
+                  {t('auth.newPassword')}
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="new-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={handlePasswordChange}
+                    placeholder={t('auth.enterNewPassword')}
+                    disabled={isSubmitting}
+                    className={cn(
+                      'pr-10',
+                      showValidationError &&
+                        passwordErrors.length > 0 &&
+                        'border-destructive focus:border-destructive focus:ring-destructive/20'
+                    )}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    disabled={isSubmitting}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
-              )}
-            </div>
+                {showValidationError && passwordErrors.length > 0 && (
+                  <div className="space-y-1 text-xs text-destructive">
+                    {passwordErrors.map((error, index) => (
+                      <p key={index}>{error}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password" className="text-sm font-medium">
-                {t('auth.confirmPassword')}
-              </Label>
-              <div className="relative">
-                <Input
-                  id="confirm-password"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={handleConfirmPasswordChange}
-                  placeholder={t('auth.confirmNewPassword')}
-                  disabled={isSubmitting}
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                  disabled={isSubmitting}
-                >
-                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password" className="text-sm font-medium">
+                  {t('auth.confirmPassword')}
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="confirm-password"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={handleConfirmPasswordChange}
+                    placeholder={t('auth.confirmNewPassword')}
+                    disabled={isSubmitting}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    disabled={isSubmitting}
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4">
+            <div className="border-t border-gray-100 px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"

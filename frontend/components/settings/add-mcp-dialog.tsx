@@ -382,19 +382,20 @@ export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({ open, onOpenChange, 
                 </div>
 
                 {/* Footer */}
-                <div className="p-6 bg-white border-t border-gray-100 flex items-center justify-end gap-3">
+                <div className="p-6 bg-white border-t border-gray-100 flex items-center justify-end gap-2">
                     <Button
-                        variant="ghost"
+                        type="button"
+                        variant="outline"
                         onClick={() => onOpenChange(false)}
-                        className="text-gray-500 hover:text-gray-900"
                         disabled={isSaving}
                     >
                         {t('settings.cancel')}
                     </Button>
                     <Button
+                        type="button"
                         onClick={handleSave}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 shadow-lg px-6 gap-2"
                         disabled={isSaving || (!name && mode === 'form')}
+                        className="gap-2"
                     >
                         {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                         {isSaving ? t('settings.saving') : isEditMode ? t('settings.updateServer') : t('settings.createServer')}
