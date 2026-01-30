@@ -2,7 +2,7 @@
  * CopilotInput - Input area and toolbar component
  */
 
-import { Send, Sparkles, Square, RotateCcw } from 'lucide-react'
+import { Send, Sparkles, Square, RotateCcw, PlusCircle, LayoutGrid } from 'lucide-react'
 import React from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
 
+const SUGGESTION_CHIP_KEYS = ['workspace.copilotChipAddAgent'] as const
+
 interface CopilotInputProps {
   input: string
   loading: boolean
@@ -24,6 +26,10 @@ interface CopilotInputProps {
   onStop: () => void
   onReset: () => void
   onAIDecision: () => void
+  /** Send a message directly (e.g. when clicking a suggestion chip) */
+  onSendWithText?: (text: string) => void
+  /** Default model label from settings for status bar */
+  modelLabel?: string
 }
 
 export function CopilotInput({
@@ -36,45 +42,62 @@ export function CopilotInput({
   onStop,
   onReset,
   onAIDecision,
+  onSendWithText,
+  modelLabel,
 }: CopilotInputProps) {
   const { t } = useTranslation()
+  const canSendChip = !loading && !executingActions && !!onSendWithText
+
+  const chipBase =
+    'flex-shrink-0 text-[11px] px-2.5 py-1 rounded-full transition flex items-center gap-1 whitespace-nowrap'
 
   return (
     <div className="flex-shrink-0 px-1 py-0 bg-white/90 backdrop-blur border-t border-gray-100">
-      {/* Toolbar - Above Input */}
-      <div className="flex items-center justify-between mb-1">
-        {/* Left: AI Decision Capsule */}
-        <Button
-          variant="outline"
-          size="sm"
+      {/* Suggestion chips + AI 自动完善 in one row */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1.5 mb-0.5 no-scrollbar items-center min-h-0">
+        {/* AI 自动完善 - same chip container, purple accent */}
+        <button
+          type="button"
           onClick={onAIDecision}
           disabled={loading || executingActions || messagesCount <= 1}
-          className="h-5 px-1.5 text-[9px] rounded-full border-purple-200 bg-purple-50/50 text-purple-700 hover:bg-purple-100 hover:border-purple-300 hover:text-purple-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`${chipBase} border border-purple-200 bg-purple-50/50 text-purple-700 hover:bg-purple-100 hover:border-purple-300 disabled:opacity-50 disabled:cursor-not-allowed`}
         >
-          <Sparkles size={9} className="mr-0.5" />
+          <Sparkles size={10} className="text-purple-500 shrink-0" />
           {t('workspace.aiDecision')}
-        </Button>
-
-        {/* Right: Reset Button (only show when there's conversation history) */}
+        </button>
+        {canSendChip &&
+          SUGGESTION_CHIP_KEYS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onSendWithText?.(t(key))}
+              className={`${chipBase} bg-gray-100 hover:bg-gray-200 border border-gray-200 text-gray-700`}
+            >
+              <PlusCircle size={10} className="text-purple-500 shrink-0" />
+              {t(key)}
+            </button>
+          ))}
+        {/* Reset at end of row when there is history */}
         {messagesCount > 1 && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onReset}
-                  disabled={loading}
-                  className="h-7 w-7 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-                >
-                  <RotateCcw size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                {t('workspace.resetConversation')}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <span className="ml-auto flex-shrink-0">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onReset}
+                    disabled={loading}
+                    className="w-6 h-6 rounded-full flex items-center justify-center bg-gray-100 hover:bg-gray-200 border border-gray-200 text-gray-500 hover:text-gray-700 disabled:opacity-50 transition"
+                  >
+                    <RotateCcw size={12} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {t('workspace.resetConversation')}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </span>
         )}
       </div>
 
@@ -109,9 +132,14 @@ export function CopilotInput({
           </Button>
         )}
       </div>
-      <p className="mt-1 text-[10px] text-gray-500 px-0.5">
-        {t('workspace.copilotInputHint')}
-      </p>
+      {/* Status bar: Mode + default model */}
+      <div className="mt-2 flex justify-between items-center px-1 text-[10px] text-gray-500">
+        <span className="flex items-center gap-1">
+          <LayoutGrid size={10} className="shrink-0" />
+          {t('workspace.copilotStatusMode')}
+        </span>
+        <span>{modelLabel ?? t('workspace.copilotStatusModelPlaceholder')}</span>
+      </div>
     </div>
   )
 }

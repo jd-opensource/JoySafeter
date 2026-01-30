@@ -14,10 +14,11 @@
 
 import { Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useCallback } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
 import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
+import { useModels } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
 
 import { useCopilotActions } from '../hooks/useCopilotActions'
@@ -37,6 +38,15 @@ export const CopilotPanel: React.FC = () => {
   const { t } = useTranslation()
   const params = useParams()
   const graphId = params.agentId as string | undefined
+
+  // Default model label from settings (for status bar)
+  const { data: models = [] } = useModels()
+  const defaultModelLabel = useMemo(() => {
+    const defaultModel = models.find((m) => m.isDefault === true && m.isAvailable !== false)
+    if (defaultModel) return defaultModel.label
+    const first = models.find((m) => m.isAvailable !== false)
+    return first?.label ?? ''
+  }, [models])
 
   // Unified state management
   const { state, actions, refs } = useCopilotState(graphId)
@@ -129,7 +139,7 @@ export const CopilotPanel: React.FC = () => {
             expandedItems={state.expandedItems}
             onToggleExpand={actions.toggleExpand}
             formatActionContent={formatActionContent}
-            onExampleTaskClick={(text) => actions.setInput(text)}
+            onBlueprintSelect={handleSendWithInput}
           />
 
           {/* Streaming content */}
@@ -159,6 +169,8 @@ export const CopilotPanel: React.FC = () => {
           onStop={handleStop}
           onReset={handleReset}
           onAIDecision={handleAIDecision}
+          onSendWithText={handleSendWithInput}
+          modelLabel={defaultModelLabel || undefined}
         />
       </div>
     </CopilotErrorBoundary>

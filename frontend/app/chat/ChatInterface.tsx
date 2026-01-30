@@ -1,8 +1,19 @@
 'use client'
 
 import { List, Plus } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   ResizablePanelGroup,
@@ -16,6 +27,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
+import { useAvailableModels } from '@/hooks/queries/models'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
 import { conversationService } from '@/services/conversationService'
@@ -38,12 +50,15 @@ interface ChatInterfaceProps {
 
 const generateId = () => Math.random().toString(36).substring(2, 11)
 
+const MODEL_SETUP_DISMISSED_KEY = 'modelSetupPromptDismissed'
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   chatId: propChatId,
   onChatCreated,
   initialMessages = [],
 }) => {
   const { t } = useTranslation()
+  const router = useRouter()
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   // We treat localChatId as the backend thread_id when using /chat/stream.
   const [localChatId, setLocalChatId] = useState<string | null>(propChatId || null)
@@ -55,6 +70,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Data fetching for graph resolution
   const { data: deployedAgents = [] } = useDeployedGraphs()
   const { data: workspacesData } = useWorkspaces()
+  const personalWorkspaceId = workspacesData?.find((w) => w.type === 'personal')?.id ?? null
+
+  // Available models (for "no default model" notice); backend returns same list regardless of workspaceId
+  const { data: availableModels = [], isSuccess: modelsLoaded, isError: modelsError } = useAvailableModels(
+    'chat',
+    personalWorkspaceId ?? undefined,
+    { enabled: true }
+  )
+  // No "usable" default: no model that is both default and available (has credentials)
+  const hasNoDefaultModel =
+    modelsLoaded &&
+    !modelsError &&
+    (availableModels.length === 0 ||
+      !availableModels.some((m) => m.is_default === true && m.is_available === true))
+
+  const [showNoDefaultModelNotice, setShowNoDefaultModelNotice] = useState(false)
+  useEffect(() => {
+    if (
+      !personalWorkspaceId ||
+      !hasNoDefaultModel ||
+      typeof window === 'undefined' ||
+      sessionStorage.getItem(MODEL_SETUP_DISMISSED_KEY) === '1'
+    ) {
+      return
+    }
+    setShowNoDefaultModelNotice(true)
+  }, [personalWorkspaceId, hasNoDefaultModel])
+
+  // Close modal if user configured a default model elsewhere (e.g. another tab)
+  useEffect(() => {
+    if (!hasNoDefaultModel && showNoDefaultModelNotice) {
+      setShowNoDefaultModelNotice(false)
+    }
+  }, [hasNoDefaultModel, showNoDefaultModelNotice])
 
   // Sidebar visibility state
   const [sidebarVisible, setSidebarVisible] = useState(false)
@@ -500,6 +549,39 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           )}
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {/* Important notice when no default model is configured */}
+      <AlertDialog open={showNoDefaultModelNotice} onOpenChange={setShowNoDefaultModelNotice}>
+        <AlertDialogContent hideCloseButton>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('chat.importantNotice')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('chat.noDefaultModelNotice')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  sessionStorage.setItem(MODEL_SETUP_DISMISSED_KEY, '1')
+                }
+                setShowNoDefaultModelNotice(false)
+              }}
+            >
+              {t('chat.later')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (personalWorkspaceId) {
+                  router.push(`/workspace/${personalWorkspaceId}/settings/models`)
+                }
+                setShowNoDefaultModelNotice(false)
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {t('chat.goToModelSettings')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

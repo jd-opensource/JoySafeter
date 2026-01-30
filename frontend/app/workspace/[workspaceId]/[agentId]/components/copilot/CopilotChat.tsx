@@ -2,7 +2,7 @@
  * CopilotChat - Chat messages display component
  */
 
-import { Sparkles, Zap, Check, Copy } from 'lucide-react'
+import { Sparkles, Zap, Check, Copy, Workflow, Database, GitBranch } from 'lucide-react'
 import React, { useState } from 'react'
 
 import type { CopilotMessage } from '@/hooks/copilot/useCopilotMessages'
@@ -18,15 +18,29 @@ interface CopilotChatProps {
   expandedItems: Set<string | number>
   onToggleExpand: (key: string | number) => void
   formatActionContent: (action: GraphAction) => string
-  /** When user clicks an example task chip, fill input with this text (optional) */
-  onExampleTaskClick?: (text: string) => void
+  /** When user clicks a blueprint card, send this prompt immediately */
+  onBlueprintSelect?: (prompt: string) => void
 }
 
-const EXAMPLE_TASK_KEYS = [
-  'workspace.copilotExampleTask1',
-  'workspace.copilotExampleTask2',
-  'workspace.copilotExampleTask3',
-  'workspace.copilotExampleTask4',
+const BLUEPRINT_KEYS = [
+  {
+    titleKey: 'workspace.copilotBlueprintRagTitle',
+    descKey: 'workspace.copilotBlueprintRagDesc',
+    promptKey: 'workspace.copilotBlueprintRagPrompt',
+    icon: Workflow,
+  },
+  {
+    titleKey: 'workspace.copilotBlueprintDebateTitle',
+    descKey: 'workspace.copilotBlueprintDebateDesc',
+    promptKey: 'workspace.copilotBlueprintDebatePrompt',
+    icon: GitBranch,
+  },
+  {
+    titleKey: 'workspace.copilotBlueprintPipelineTitle',
+    descKey: 'workspace.copilotBlueprintPipelineDesc',
+    promptKey: 'workspace.copilotBlueprintPipelinePrompt',
+    icon: Database,
+  },
 ] as const
 
 export function CopilotChat({
@@ -35,7 +49,7 @@ export function CopilotChat({
   expandedItems,
   onToggleExpand,
   formatActionContent,
-  onExampleTaskClick,
+  onBlueprintSelect,
 }: CopilotChatProps) {
   const { t } = useTranslation()
   const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null)
@@ -48,38 +62,40 @@ export function CopilotChat({
     )
   }
 
-  // Show welcome message only when there are no messages
+  // Show welcome / blueprint empty state when there are no messages
   if (messages.length === 0) {
     return (
-      <div className="flex flex-col gap-3">
-        <div className="flex gap-2">
-          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 border border-purple-100">
-            <Sparkles size={16} />
-          </div>
-          <div className="flex flex-col gap-2 max-w-[85%]">
-            <div className="relative group rounded-2xl text-xs leading-relaxed shadow-sm bg-white border border-gray-100 text-gray-800 rounded-bl-none">
-              <div className="p-3">
-                <div className="whitespace-pre-wrap break-words">
-                  {t('workspace.copilotConnected')}
-                </div>
-              </div>
-            </div>
-          </div>
+      <div className="flex flex-col items-center text-center pt-4 pb-2">
+        <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 mb-3 bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 border border-purple-100">
+          <Sparkles size={24} />
         </div>
-        {onExampleTaskClick && (
-          <div className="flex flex-wrap gap-1.5 pl-10">
-            {EXAMPLE_TASK_KEYS.map((key) => (
+        <p className="text-sm font-medium text-gray-700 mb-6 px-2">
+          {t('workspace.copilotEmptyHeading')}
+        </p>
+
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 w-full text-left px-1">
+          {t('workspace.copilotStartWithBlueprint')}
+        </p>
+        <div className="space-y-3 w-full">
+          {BLUEPRINT_KEYS.map((bp, i) => {
+            const Icon = bp.icon
+            const prompt = t(bp.promptKey)
+            return (
               <button
-                key={key}
+                key={i}
                 type="button"
-                onClick={() => onExampleTaskClick(t(key))}
-                className="text-[10px] px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50/50 text-purple-700 hover:bg-purple-100 hover:border-purple-300 transition-colors"
+                onClick={() => onBlueprintSelect?.(prompt)}
+                className="w-full text-left p-3 rounded-xl border border-gray-200 bg-gray-50/80 hover:bg-gray-100 hover:border-purple-200 transition-all group"
               >
-                {t(key)}
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon size={16} className="text-purple-500 group-hover:text-purple-600 shrink-0" />
+                  <span className="text-sm font-semibold text-gray-800">{t(bp.titleKey)}</span>
+                </div>
+                <p className="text-xs text-gray-500 line-clamp-2">{t(bp.descKey)}</p>
               </button>
-            ))}
-          </div>
-        )}
+            )
+          })}
+        </div>
       </div>
     )
   }
