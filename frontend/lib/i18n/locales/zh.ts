@@ -865,7 +865,7 @@ export default {
       enterpriseScanDescription: '企业级安全扫描和评估（!!!请谨慎使用，对相应服务进行评估时请确保已经得到了充分的授权!!!）',
       whiteboxScanner: 'CodeSafeter',
       whiteboxScannerDescription: '代码静态分析和漏洞检测',
-      mcpScan: 'McpSanner',
+      mcpScan: 'McpScanner',
       mcpScanDescription: 'MCP协议安全检测',
       apkVulnerability: 'APK Detecter',
       apkVulnerabilityDescription: 'Android应用安全分析',

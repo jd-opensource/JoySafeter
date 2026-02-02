@@ -249,6 +249,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
           className="hidden"
           disabled={isProcessing || isUploading}
         />
+        <div className="flex-1 flex flex-col gap-1 relative">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={t('chat.describeHelpNeeded')}
+            className="flex-1 bg-transparent border-none shadow-none focus-visible:ring-0 focus:outline-none px-0.5 pb-6 pt-4 min-h-[100px] max-h-[200px] overflow-y-auto resize-none text-base placeholder:text-gray-400"
+            rows={1}
+            disabled={isProcessing || isUploading}
+          />
+        </div>
         <Button
           type="button"
           variant="outline"
@@ -267,18 +279,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
             <Paperclip size={18} />
           )}
         </Button>
-        <div className="flex-1 flex flex-col gap-1 relative">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={t('chat.describeHelpNeeded')}
-            className="flex-1 bg-transparent border-none shadow-none focus-visible:ring-0 focus:outline-none px-0.5 pb-6 pt-4 min-h-[100px] max-h-[200px] overflow-y-auto resize-none text-base placeholder:text-gray-400"
-            rows={1}
-            disabled={isProcessing || isUploading}
-          />
-        </div>
         {isProcessing && onStop ? (
           <Button
             onClick={onStop}

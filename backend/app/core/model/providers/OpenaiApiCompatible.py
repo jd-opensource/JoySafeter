@@ -30,7 +30,9 @@ def _format_validation_error(exc: Exception) -> str:
             if isinstance(err, dict):
                 msg = err.get("message") or err.get("cause")
                 cause = err.get("cause") if err.get("message") else None
-                parts = [msg]
+                parts: List[str] = []
+                if msg is not None:
+                    parts.append(str(msg))
                 if cause and cause != msg:
                     parts.append(f"（{cause}）")
                 if parts:

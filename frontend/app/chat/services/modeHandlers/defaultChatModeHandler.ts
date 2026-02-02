@@ -87,6 +87,9 @@ export const defaultChatModeHandler: ModeHandler = {
       }
     }
 
+    const templateName = modeConfig.templateName
+    const templateGraphName = modeConfig.templateGraphName
+
     creatingGraphPromise = (async (): Promise<ModeSelectionResult> => {
       try {
         if (context.queryClient.refetchQueries) {
@@ -112,8 +115,8 @@ export const defaultChatModeHandler: ModeHandler = {
         }
 
         const createdGraph = await graphTemplateService.createGraphFromTemplate(
-          modeConfig.templateName,
-          modeConfig.templateGraphName,
+          templateName,
+          templateGraphName,
           context.personalWorkspaceId!
         )
 

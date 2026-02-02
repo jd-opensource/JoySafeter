@@ -865,7 +865,7 @@ export default {
       enterpriseScanDescription: 'Simulate attacker for security penetration testing',
       whiteboxScanner: 'CodeSafeter',
       whiteboxScannerDescription: 'Code static analysis and vulnerability detection',
-      mcpScan: 'McpSanner',
+      mcpScan: 'McpScanner',
       mcpScanDescription: 'MCP protocol security detection',
       apkVulnerability: 'APK Detecter',
       apkVulnerabilityDescription: 'Android application security analysis',
