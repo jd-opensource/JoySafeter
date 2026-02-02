@@ -2,7 +2,7 @@
 
 import { List, Plus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 
 import {
   AlertDialog,
@@ -114,18 +114,39 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Selected tool for detailed view
   const [selectedTool, setSelectedTool] = useState<ToolCall | null>(null)
 
-  // Agent status for streaming indicator
-  const [agentStatus, setAgentStatus] = useState<'idle' | 'running' | 'connecting' | 'error'>('idle')
-  const [streamingText, setStreamingText] = useState('')
+  // Optimistic "thinking" state: true from submit until hook sets isProcessing (avoids flash)
+  const [submitting, setSubmitting] = useState(false)
+
+  // Hook to handle real backend streaming via /chat/stream (SSE) - must be before derived state
+  const { sendMessage, stopMessage, isProcessing } = useBackendChatStream(setMessages)
+
+  // Clear submitting once hook has taken over (isProcessing true)
+  useEffect(() => {
+    if (isProcessing) setSubmitting(false)
+  }, [isProcessing])
+
+  // Agent status: running when processing or optimistically when just submitted
+  const agentStatus = useMemo<'idle' | 'running' | 'connecting' | 'error'>(
+    () => (isProcessing || submitting ? 'running' : 'idle'),
+    [isProcessing, submitting]
+  )
+  // Only treat last message as "current reply" when it is assistant (avoid showing previous round as streaming)
+  const lastMsg = useMemo(() => messages[messages.length - 1], [messages])
+  const streamingText = useMemo(() => {
+    if (!lastMsg || lastMsg.role !== 'assistant') return ''
+    if (!isProcessing && !lastMsg.isStreaming) return ''
+    return lastMsg.content ?? ''
+  }, [lastMsg, isProcessing])
+  const currentNodeLabel = useMemo(
+    () => (lastMsg?.role === 'assistant' ? lastMsg.metadata?.currentNode ?? undefined : undefined),
+    [lastMsg]
+  )
 
   // Current mode state
   const [currentMode, setCurrentMode] = useState<string | undefined>(undefined)
   const [hasShownApkPrompt, setHasShownApkPrompt] = useState(false)
   // Current graphId state
   const [currentGraphId, setCurrentGraphId] = useState<string | null>(null)
-
-  // Hook to handle real backend streaming via /chat/stream (SSE)
-  const { sendMessage, stopMessage, isProcessing } = useBackendChatStream(setMessages)
 
   // Sync with props - only update when propChatId actually changes
   useEffect(() => {
@@ -147,11 +168,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propChatId])
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom after layout is complete (double rAF to avoid flash)
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        }
+      })
+    })
+    return () => cancelAnimationFrame(id)
   }, [messages, isProcessing])
 
   // Keyboard shortcuts
@@ -200,8 +226,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const handleSelectConversation = useCallback(async (threadId: string) => {
     setLocalChatId(threadId)
     setMessages([])
-    setStreamingText('')
-    setAgentStatus('idle')
     setSelectedTool(null)
 
     try {
@@ -247,8 +271,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setMessages([])
     setLocalChatId(null)
     setSelectedTool(null)
-    setStreamingText('')
-    setAgentStatus('idle')
   }, [])
 
   // Handle tool click
@@ -334,6 +356,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     setMessages((prev) => [...prev, userMsg])
     setInput('') // Clear input immediately
+    setSubmitting(true) // Show thinking card immediately to avoid flash
 
     // Trigger AI stream - pass mode and files in metadata if needed
     // If localChatId doesn't exist in backend (i.e., it's a frontend-generated ID),
@@ -493,6 +516,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 messages={messages}
                 streamingText={streamingText}
                 agentStatus={agentStatus}
+                currentNodeLabel={currentNodeLabel}
                 onToolClick={handleToolClick}
                 scrollContainerRef={scrollRef}
               />

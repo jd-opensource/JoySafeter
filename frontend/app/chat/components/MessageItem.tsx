@@ -72,7 +72,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-6 animate-in slide-in-from-bottom-2 fade-in duration-300">
+      <div className="flex justify-end mb-6 animate-in fade-in duration-200">
         <div className="max-w-[80%] bg-gray-100 text-gray-900 px-5 py-3.5 rounded-2xl rounded-tr-sm shadow-sm">
           <p className="whitespace-pre-wrap text-[15px] leading-relaxed font-normal">
             {message.content}
