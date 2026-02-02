@@ -4,7 +4,7 @@
  * Mode configuration, defines all available chat modes and their metadata
  */
 
-import { Flag, ShieldCheck, Code, Server } from 'lucide-react'
+import { Flag, ShieldCheck, Code, Server, MessageSquare } from 'lucide-react'
 
 import { AndroidIcon } from '../components/icons/AndroidIcon'
 import type { ModeMetadata } from '../services/modeHandlers/types'
@@ -31,6 +31,15 @@ export interface ModeConfig {
  * 2. Associating with mode handlers
  */
 export const modeConfigs: ModeConfig[] = [
+  {
+    id: 'default-chat',
+    labelKey: 'chat.defaultChat',
+    descriptionKey: 'chat.defaultChatDescription',
+    icon: MessageSquare,
+    type: 'template',
+    templateName: 'default-chat',
+    templateGraphName: 'Default Chat',
+  },
   {
     id: 'ctf',
     labelKey: 'chat.ctf',

@@ -8,6 +8,7 @@ import type { ModeConfig } from '../../config/modeConfig'
 
 import { agentModeHandler } from './agentModeHandler'
 import { apkVulnerabilityHandler } from './apkVulnerabilityHandler'
+import { defaultChatModeHandler } from './defaultChatModeHandler'
 import { createDynamicModeHandler } from './dynamicModeHandler'
 import { createSimpleModeHandler } from './simpleModeHandler'
 import type { ModeHandler, ModeMetadata } from './types'
@@ -20,6 +21,10 @@ import type { ModeHandler, ModeMetadata } from './types'
  */
 export function createHandlerFromConfig(config: ModeConfig): ModeHandler | null {
   // Special handlers (have complex logic, cannot be created directly from config)
+  if (config.id === 'default-chat') {
+    return defaultChatModeHandler
+  }
+
   if (config.id === 'apk-vulnerability') {
     return apkVulnerabilityHandler
   }

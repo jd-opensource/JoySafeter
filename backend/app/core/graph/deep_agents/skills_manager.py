@@ -26,8 +26,18 @@ class DeepAgentsSkillsManager:
         self.user_id = user_id
 
     @staticmethod
+    def _is_use_all_skills(skill_ids_raw: Any) -> bool:
+        """Check if config means 'use all skills available to the current user'."""
+        if not skill_ids_raw or not isinstance(skill_ids_raw, list):
+            return False
+        return len(skill_ids_raw) == 1 and skill_ids_raw[0] == "*"
+
+    @staticmethod
     def has_valid_skills_config(skill_ids_raw: Any) -> bool:
         """Check if skills configuration is valid and non-empty.
+
+        Accepts either a list of skill UUIDs or the sentinel ["*"] for
+        'use all skills available to the current user'.
 
         Args:
             skill_ids_raw: Raw skills configuration from node config
@@ -35,7 +45,11 @@ class DeepAgentsSkillsManager:
         Returns:
             True if skills are configured and valid
         """
-        return bool(skill_ids_raw and isinstance(skill_ids_raw, list) and len(skill_ids_raw) > 0)
+        if not skill_ids_raw or not isinstance(skill_ids_raw, list):
+            return False
+        if DeepAgentsSkillsManager._is_use_all_skills(skill_ids_raw):
+            return True
+        return len(skill_ids_raw) > 0
 
     async def preload_skills_to_backend(
         self,
@@ -71,30 +85,6 @@ class DeepAgentsSkillsManager:
                 )
             return
 
-        skill_ids: list[uuid.UUID] = []
-        invalid_ids: list[str] = []
-        for sid in skill_ids_raw:
-            try:
-                if isinstance(sid, str):
-                    skill_ids.append(uuid.UUID(sid))
-                elif isinstance(sid, uuid.UUID):
-                    skill_ids.append(sid)
-                else:
-                    invalid_ids.append(str(sid))
-            except ValueError as e:
-                invalid_ids.append(str(sid))
-                logger.warning(f"{LOG_PREFIX} Invalid skill UUID '{sid}': {e}")
-
-        if invalid_ids:
-            logger.warning(
-                f"{LOG_PREFIX} Skipping {len(invalid_ids)} invalid skill ID(s) for node "
-                f"'{node_label}': {', '.join(invalid_ids[:5])}"
-            )
-
-        if not skill_ids:
-            logger.warning(f"{LOG_PREFIX} No valid skill IDs found for node '{node_label}'")
-            return
-
         from app.core.database import async_session_factory
         from app.core.skill.sandbox_loader import SkillSandboxLoader
         from app.services.skill_service import SkillService
@@ -102,6 +92,44 @@ class DeepAgentsSkillsManager:
         try:
             async with async_session_factory() as db:
                 skill_service = SkillService(db)
+
+                # Resolve skill_ids: ["*"] -> all skills available to current user
+                if self._is_use_all_skills(skill_ids_raw):
+                    skills_list = await skill_service.list_skills(
+                        current_user_id=self.user_id,
+                        include_public=True,
+                    )
+                    skill_ids = [s.id for s in skills_list]
+                    if not skill_ids:
+                        logger.debug(
+                            f"{LOG_PREFIX} No skills available for user (node '{node_label}'), skipping preload"
+                        )
+                        return
+                    logger.info(
+                        f"{LOG_PREFIX} Resolved skills: ['*'] -> {len(skill_ids)} skill(s) for node '{node_label}'"
+                    )
+                else:
+                    skill_ids = []
+                    invalid_ids = []
+                    for sid in skill_ids_raw:
+                        try:
+                            if isinstance(sid, str):
+                                skill_ids.append(uuid.UUID(sid))
+                            elif isinstance(sid, uuid.UUID):
+                                skill_ids.append(sid)
+                            else:
+                                invalid_ids.append(str(sid))
+                        except ValueError as e:
+                            invalid_ids.append(str(sid))
+                            logger.warning(f"{LOG_PREFIX} Invalid skill UUID '{sid}': {e}")
+                    if invalid_ids:
+                        logger.warning(
+                            f"{LOG_PREFIX} Skipping {len(invalid_ids)} invalid skill ID(s) for node "
+                            f"'{node_label}': {', '.join(invalid_ids[:5])}"
+                        )
+                    if not skill_ids:
+                        logger.warning(f"{LOG_PREFIX} No valid skill IDs found for node '{node_label}'")
+                        return
 
                 # Try to get skills_path from node config
                 skills_path = config.get("skills_path")

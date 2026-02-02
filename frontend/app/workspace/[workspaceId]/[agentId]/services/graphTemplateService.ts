@@ -58,12 +58,14 @@ class GraphTemplateService {
    * @param templateName Template name (without .json extension)
    * @param graphName Name for the new graph
    * @param workspaceId Workspace ID where the graph will be created
+   * @param description Optional description (defaults to template-specific fallback)
    * @returns Created graph object
    */
   async createGraphFromTemplate(
     templateName: string,
     graphName: string,
-    workspaceId: string
+    workspaceId: string,
+    description?: string
   ): Promise<AgentGraph> {
     // 1. Load template
     const template = await this.loadTemplate(templateName)
@@ -91,9 +93,11 @@ class GraphTemplateService {
     }))
 
     // 4. Create graph metadata
+    const graphDescription =
+      description ?? (templateName === 'default-chat' ? 'Default chat with all available skills, Docker backend' : 'APK Intent Bridge Security Analyzer')
     const graph = await agentService.createGraph({
       name: graphName,
-      description: 'APK Intent Bridge Security Analyzer',
+      description: graphDescription,
       workspaceId: workspaceId,
     })
 

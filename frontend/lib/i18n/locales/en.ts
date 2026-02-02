@@ -857,6 +857,8 @@ export default {
       describeHelpNeeded: 'Describe what help you need...',
       // Mode options
       chat: 'Chat',
+      defaultChat: 'Default Chat',
+      defaultChatDescription: 'All available skills, Docker backend',
       ctf: 'CTF Winner',
       ctfDescription: 'CTF competitions and security challenges',
       enterpriseScan: 'PenTester',

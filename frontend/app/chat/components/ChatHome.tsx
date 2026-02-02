@@ -69,6 +69,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const hasInitializedDefaultMode = useRef(false)
 
   // Data fetching
   const { data: deployedAgents = [], isLoading: isLoadingAgents } = useDeployedGraphs()
@@ -224,6 +225,22 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
       setIsRedirecting(false)
     }
   }
+
+  // Default chat: auto-select default-chat mode on first load (create_deep_agent + skills + Docker)
+  useEffect(() => {
+    if (
+      hasInitializedDefaultMode.current ||
+      state.mode.type != null ||
+      !modeContext.personalWorkspaceId ||
+      isProcessing
+    ) {
+      return
+    }
+    hasInitializedDefaultMode.current = true
+    handleModeSelect('default-chat').catch(() => {
+      hasInitializedDefaultMode.current = false
+    })
+  }, [state.mode.type, modeContext.personalWorkspaceId, isProcessing])
 
   // Handle submission
   const handleSubmit = async () => {
