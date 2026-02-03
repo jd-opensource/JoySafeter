@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /downloads
 
-# Download Kiterunner (amd64 only, skip on other architectures or if download fails)
+# Download Kiterunner (amd64 only, skip if download fails)
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
     (wget -q --timeout=30 https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kiterunner_1.0.2_linux_amd64.tar.gz && \
