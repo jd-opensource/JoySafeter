@@ -483,6 +483,8 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       })
       return
     }
+    const combinedModelId = `${providerName}:${modelName}`
+
     // Update both model_name and provider_name simultaneously
     onUpdate(node.id, {
       label: nodeData.label || '',
@@ -490,8 +492,9 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         ...config,
         model_name: modelName,
         provider_name: providerName,
-        // Maintain backward compatibility: if field name is 'model', also update it
-        model: modelName,
+        // Unified storage: keep combined id in `model`
+        model: combinedModelId,
+        // Backward compatibility: keep provider in `provider`
         provider: providerName,
       },
     })
@@ -761,7 +764,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                         field.key === 'memoryModel'
                           ? (modelName, providerName) => {
                               // Update both memoryModel and memoryProvider simultaneously
-                              updateConfig('memoryModel', modelName)
+                              updateConfig('memoryModel', `${providerName}:${modelName}`)
                               updateConfig('memoryProvider', providerName)
                             }
                           : undefined

@@ -1,0 +1,6 @@
+# httpx Configuration
+threads: 50
+timeout: 15
+retries: 2
+follow-redirects: true
+max-redirects: 10

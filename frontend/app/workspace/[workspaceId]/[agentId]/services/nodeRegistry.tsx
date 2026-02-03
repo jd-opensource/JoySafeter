@@ -670,6 +670,50 @@ const REGISTRY: NodeDefinition[] = [
       },
     ],
   },
+  // ==================== A2A Agent ====================
+  {
+    type: 'a2a_agent',
+    label: 'A2A Agent',
+    subLabel: 'Remote A2A Protocol',
+    icon: Globe2,
+    style: { color: 'text-amber-600', bg: 'bg-amber-50' },
+    defaultConfig: {
+      a2a_url: '',
+      agent_card_url: '',
+      a2a_auth_headers: {},
+      description: '',
+    },
+    schema: [
+      {
+        key: 'a2a_url',
+        label: 'A2A Server URL',
+        type: 'text',
+        placeholder: 'https://agent.example.com/a2a/v1',
+        description: 'Base URL of the A2A-compliant agent (e.g. from Agent Card url field)',
+      },
+      {
+        key: 'agent_card_url',
+        label: 'Agent Card URL',
+        type: 'text',
+        placeholder: 'https://agent.example.com/.well-known/agent.json',
+        description: 'Optional: Agent Card URL; if set, A2A Server URL is resolved from the card',
+      },
+      {
+        key: 'a2a_auth_headers',
+        label: 'Authentication Headers',
+        type: 'kvList',
+        placeholder: 'Authorization: Bearer xxx',
+        description: 'Optional HTTP headers for authentication (e.g. Authorization, X-API-Key)',
+      },
+      {
+        key: 'description',
+        label: 'SubAgent Description',
+        type: 'textarea',
+        placeholder: 'Describe what this remote A2A agent does...',
+        description: 'Description when used as a SubAgent in DeepAgents mode',
+      },
+    ],
+  },
 ]
 
 // === Registry API ===
@@ -686,7 +730,7 @@ export const nodeRegistry = {
    */
   getGrouped: () => {
     return {
-      Agents: REGISTRY.filter((n) => ['agent', 'code_agent'].includes(n.type)),
+      Agents: REGISTRY.filter((n) => ['agent', 'code_agent', 'a2a_agent'].includes(n.type)),
       'Flow Control': REGISTRY.filter((n) =>
         ['condition', 'condition_agent', 'router_node', 'loop_condition_node'].includes(n.type)
       ),

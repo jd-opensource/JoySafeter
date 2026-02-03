@@ -1,0 +1,5 @@
+# naabu Configuration
+rate: 1000
+retries: 3
+timeout: 10
+warm-up-time: 2

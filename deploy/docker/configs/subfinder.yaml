@@ -1,0 +1,17 @@
+# subfinder Configuration
+# Add your API keys here for better results
+# See: https://github.com/projectdiscovery/subfinder#post-installation-instructions
+
+resolver-list: ""
+all: false
+timeout: 30
+max-time: 10
+
+# API Keys (uncomment and add your keys)
+# sources:
+#   - shodan: [API_KEY]
+#   - virustotal: [API_KEY]
+#   - securitytrails: [API_KEY]
+#   - censys: [API_ID:API_SECRET]
+#   - chaos: [API_KEY]
+#   - github: [TOKEN1,TOKEN2]

@@ -1,0 +1,21 @@
+# amass Configuration
+# See: https://github.com/owasp-amass/amass/blob/master/examples/config.yaml
+
+options:
+  resolvers:
+    - 8.8.8.8
+    - 8.8.4.4
+    - 1.1.1.1
+    - 1.0.0.1
+
+scope:
+  max_dns_queries: 20000
+
+# Data sources (add your API keys for enhanced coverage)
+# data_sources:
+#   - name: Shodan
+#     apikey: YOUR_API_KEY
+#   - name: VirusTotal
+#     apikey: YOUR_API_KEY
+#   - name: SecurityTrails
+#     apikey: YOUR_API_KEY

@@ -388,6 +388,15 @@ export const BuilderCanvas: React.FC = () => {
             configOverride = { ...agentDef?.defaultConfig }
             configOverride.model = defaultModelId
             configOverride.memoryModel = defaultModelId
+
+            // Also populate split fields for backend resolution consistency
+            if (typeof defaultModelId === 'string' && defaultModelId.includes(':')) {
+              const [providerName, modelName] = defaultModelId.split(':', 2)
+              configOverride.provider_name = providerName
+              configOverride.model_name = modelName
+              configOverride.provider = providerName
+              configOverride.memoryProvider = providerName
+            }
           }
         } catch (error) {
           console.error('Failed to get default model:', error)
