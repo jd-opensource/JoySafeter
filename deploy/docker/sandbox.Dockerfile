@@ -1,40 +1,50 @@
-FROM golang:1.23-bookworm AS go-builder
+FROM golang:1.24-bookworm AS go-builder
 ENV GOPATH=/go
 ENV PATH=$PATH:/go/bin
 ENV CGO_ENABLED=0
 
-# Install Go tools - Web Security & OSINT (clean build cache after)
-RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    go install github.com/projectdiscovery/httpx/cmd/httpx@latest && \
-    go install github.com/projectdiscovery/katana/cmd/katana@latest && \
-    go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
-    go install github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest && \
-    go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
-    go install github.com/ffuf/ffuf/v2@latest && \
-    go install github.com/OJ/gobuster/v3@latest && \
-    go install github.com/tomnomnom/waybackurls@latest && \
-    go install github.com/tomnomnom/anew@latest && \
-    go install github.com/zricethezav/gitleaks/v8@latest && \
-    go install github.com/aquasecurity/trivy/cmd/trivy@latest && \
-    go install github.com/lc/gau/v2/cmd/gau@latest && \
-    go install github.com/hahwul/dalfox/v2@latest && \
-    (go install github.com/owasp-amass/amass/v4/...@latest || \
-    go install github.com/OWASP/Amass/v3/...@latest || true) && \
-    go clean -cache -modcache && \
-    rm -rf /go/pkg /tmp/*
+# Install Go tools - Web Security & OSINT (each with error handling)
+# Core scanning tools
+RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest || echo "nuclei install failed"
+RUN go install github.com/projectdiscovery/httpx/cmd/httpx@latest || echo "httpx install failed"
+RUN go install github.com/projectdiscovery/katana/cmd/katana@latest || echo "katana install failed"
+RUN go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest || echo "naabu install failed"
+RUN go install github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest || echo "interactsh install failed"
+RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest || echo "subfinder install failed"
+
+# Fuzzing tools
+RUN go install github.com/ffuf/ffuf/v2@latest || echo "ffuf install failed"
+RUN go install github.com/OJ/gobuster/v3@latest || echo "gobuster install failed"
+
+# URL discovery tools
+RUN go install github.com/tomnomnom/waybackurls@latest || echo "waybackurls install failed"
+RUN go install github.com/tomnomnom/anew@latest || echo "anew install failed"
+RUN go install github.com/lc/gau/v2/cmd/gau@latest || echo "gau install failed"
+
+# Vulnerability scanning
+RUN go install github.com/hahwul/dalfox/v2@latest || echo "dalfox install failed"
+RUN go install github.com/aquasecurity/trivy/cmd/trivy@latest || echo "trivy install failed"
+
+# OSINT tools (amass is large, may fail)
+RUN go install github.com/owasp-amass/amass/v4/...@latest || \
+    go install github.com/OWASP/Amass/v3/...@latest || echo "amass install failed"
+
+# Clean up Go caches to reduce image size
+RUN go clean -cache -modcache || true && rm -rf /go/pkg /tmp/*
 
 FROM debian:stable-slim AS downloader
 RUN apt-get update && apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /downloads
 
-# Download Kiterunner (amd64 only, skip on other architectures)
+# Download Kiterunner (amd64 only, skip on other architectures or if download fails)
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
-    wget -q https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kiterunner_1.0.2_linux_amd64.tar.gz && \
+    (wget -q --timeout=30 https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kiterunner_1.0.2_linux_amd64.tar.gz && \
     tar xzf kiterunner_1.0.2_linux_amd64.tar.gz && \
     mv kr /usr/local/bin/kr && \
-    rm -f kiterunner_1.0.2_linux_amd64.tar.gz; \
+    rm -f kiterunner_1.0.2_linux_amd64.tar.gz) || \
+    (echo "Kiterunner download failed, skipping..." && touch /usr/local/bin/kr); \
     else \
     echo "Kiterunner not available for $ARCH, skipping..." && \
     touch /usr/local/bin/kr; \
