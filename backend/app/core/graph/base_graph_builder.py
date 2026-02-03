@@ -24,7 +24,6 @@ except ImportError:
     logger.warning("[GraphBuilder] deepagents not available, DeepAgents mode will be disabled")
 
 from app.core.agent.sample_agent import get_default_model
-from app.core.model.utils.model_ref import parse_model_ref
 from app.core.graph.node_executors import (
     AgentNodeExecutor,
     AggregatorNodeExecutor,
@@ -39,6 +38,7 @@ from app.core.graph.node_executors import (
     ToolNodeExecutor,
 )
 from app.core.graph.node_type_registry import NodeTypeRegistry
+from app.core.model.utils.model_ref import parse_model_ref
 from app.core.tools.tool import EnhancedTool
 from app.core.tools.tool_registry import get_global_registry
 from app.models.graph import AgentGraph, GraphEdge, GraphNode
