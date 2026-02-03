@@ -37,7 +37,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /downloads
 
-<<<<<<< HEAD
 # Download Kiterunner (amd64 only, skip if download fails)
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
@@ -50,15 +49,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
     echo "Kiterunner not available for $ARCH, skipping..." && \
     touch /usr/local/bin/kr; \
     fi
-=======
-# Download Kiterunner
-RUN wget -q https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kiterunner_1.0.2_linux_amd64.tar.gz && \
-    tar xzf kiterunner_1.0.2_linux_amd64.tar.gz && \
-    mv kr /usr/local/bin/kr
-
-# Download Burp Suite Community JAR (updated to 2024.x)
-RUN wget -q "https://portswigger.net/burp/releases/download?product=community&version=2024.12&type=Jar" -O /downloads/burpsuite_community.jar
->>>>>>> 29661b5 (Fix Kiterunner download in sandbox Dockerfile)
 
 FROM kalilinux/kali-rolling
 
