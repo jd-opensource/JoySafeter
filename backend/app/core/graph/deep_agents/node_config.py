@@ -24,6 +24,11 @@ class AgentConfig:
     middleware: list[Any]
     skills: Optional[list[str]]
     backend: Optional[Any]
+    # A2A agent: base URL or Agent Card URL (optional, used when node_type == "a2a_agent")
+    a2a_url: Optional[str] = None
+    agent_card_url: Optional[str] = None
+    # A2A authentication (optional): header name -> value, e.g. {"Authorization": "Bearer xxx"}
+    a2a_auth_headers: Optional[dict[str, str]] = None
 
     @classmethod
     async def from_node(
@@ -86,6 +91,24 @@ class AgentConfig:
         if not description:
             description = f"Agent: {label or name}"
 
+        # A2A agent URL (when node_type == "a2a_agent")
+        a2a_url = config.get("a2a_url") or None
+        agent_card_url = config.get("agent_card_url") or None
+        # A2A auth headers: supports both dict and array formats
+        # - dict: { "Authorization": "Bearer xxx" } (direct format)
+        # - array: [{ "key": "Authorization", "value": "Bearer xxx" }] (frontend kvList format)
+        a2a_auth_headers_raw = config.get("a2a_auth_headers")
+        a2a_auth_headers: Optional[dict[str, str]] = None
+        if isinstance(a2a_auth_headers_raw, dict):
+            a2a_auth_headers = {str(k): str(v) for k, v in a2a_auth_headers_raw.items() if k and v}
+        elif isinstance(a2a_auth_headers_raw, list):
+            # Frontend kvList format: [{ key: "k", value: "v" }]
+            a2a_auth_headers = {
+                str(item.get("key", "")): str(item.get("value", ""))
+                for item in a2a_auth_headers_raw
+                if isinstance(item, dict) and item.get("key") and item.get("value")
+            }
+
         logger.debug(
             f"{LOG_PREFIX} Config for '{name}': "
             f"tools={len(tools) if tools else 0}, "
@@ -104,6 +127,9 @@ class AgentConfig:
             middleware=middleware,
             skills=skills,
             backend=backend,
+            a2a_url=a2a_url,
+            agent_card_url=agent_card_url,
+            a2a_auth_headers=a2a_auth_headers,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -178,6 +204,9 @@ class CodeAgentConfig(AgentConfig):
             middleware=base_config.middleware,
             skills=base_config.skills,
             backend=base_config.backend,
+            a2a_url=base_config.a2a_url,
+            agent_card_url=base_config.agent_card_url,
+            a2a_auth_headers=base_config.a2a_auth_headers,
             agent_mode=agent_mode,
             executor_type=executor_type,
             enable_data_analysis=enable_data_analysis,
