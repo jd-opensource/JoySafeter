@@ -127,7 +127,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         if (typeof value === 'string') {
           // Support both new format (provider:name) and old format (name only)
           let model = models.find(m => m.id === value)
-          
+
           // Backward compatibility: if not found with new format, try old format (name only)
           if (!model && !value.includes(':')) {
             // Try to find by name only (old format)
@@ -136,7 +136,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
               return modelName === value
             })
           }
-          
+
           if (model) return model.label
           // Fallback: format model ID to readable name
           // Extract model name if in new format (provider:name)

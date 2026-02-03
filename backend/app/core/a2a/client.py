@@ -127,7 +127,8 @@ async def resolve_a2a_url(
     url = card.get("url")
     if not url or not isinstance(url, str):
         raise ValueError(f"Agent Card missing or invalid 'url': {agent_card_url}")
-    return url.rstrip("/")
+    result: str = url.rstrip("/")
+    return result
 
 
 def _extract_text_from_task(result: dict[str, Any]) -> str:
@@ -397,7 +398,8 @@ async def send_message(
     task_id_out = result.get("id") if isinstance(result, dict) else None
     context_id_out = result.get("contextId") if isinstance(result, dict) else None
     status = result.get("status") or {} if isinstance(result, dict) else {}
-    state = status.get("state") if isinstance(status, dict) else "unknown"
+    state_raw = status.get("state") if isinstance(status, dict) else "unknown"
+    state: str = str(state_raw) if state_raw else "unknown"
     text_out = _extract_text_from_task(result)
 
     # Poll for completion if task is not terminal

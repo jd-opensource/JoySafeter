@@ -141,7 +141,7 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
   const handleValueChange = (selectedModelId: string) => {
     // Find the selected model - support both new format (provider:name) and old format (name only)
     let selectedModel = models.find((m) => m.id === selectedModelId)
-    
+
     // Backward compatibility: if not found with new format, try old format (name only)
     if (!selectedModel && selectedModelId.includes(':')) {
       // Already in new format but not found, skip fallback
@@ -152,7 +152,7 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
         return modelName === selectedModelId
       })
     }
-    
+
     if (selectedModel) {
       // Always write combined id (provider:model) to config via onChange
       const combinedId = selectedModel.id

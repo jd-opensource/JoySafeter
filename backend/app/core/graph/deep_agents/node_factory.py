@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from deepagents import CompiledSubAgent
 from langchain_core.messages import AIMessage
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import Runnable, RunnableLambda
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -283,9 +283,7 @@ class DeepAgentsNodeBuilder:
                 logger.error(f"{LOG_PREFIX} A2A agent '{config.name}': failed to resolve Agent Card: {e}")
                 raise ValueError(f"Invalid agent_card_url for A2A agent: {e}") from e
         if not a2a_url:
-            raise ValueError(
-                f"A2A agent '{config.name}' requires config.a2a_url or config.agent_card_url"
-            )
+            raise ValueError(f"A2A agent '{config.name}' requires config.a2a_url or config.agent_card_url")
 
         logger.info(
             f"{LOG_PREFIX} Building A2A SubAgent: '{config.name}' -> {a2a_url}",
@@ -347,7 +345,10 @@ class DeepAgentsNodeBuilder:
                 "result": content,
             }
 
-        runnable = RunnableLambda(a2a_invoke)
+        runnable: Runnable[dict[str, Any], dict[str, Any]] = RunnableLambda(
+            func=lambda x: x,  # dummy sync func, not used
+            afunc=a2a_invoke,  # async func is the actual implementation
+        )
         return CompiledSubAgent(
             name=config.name,
             description=config.description or "Remote A2A agent",
