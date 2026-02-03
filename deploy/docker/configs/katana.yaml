@@ -1,0 +1,9 @@
+# katana Configuration
+depth: 3
+js-crawl: true
+headless: false
+timeout: 10
+concurrency: 10
+parallelism: 10
+delay: 0
+rate-limit: 150

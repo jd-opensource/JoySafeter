@@ -1,0 +1,17 @@
+# Nuclei Configuration
+severity:
+  - critical
+  - high
+  - medium
+  - low
+  - info
+templates:
+  - /home/pentest/nuclei-templates
+rate-limit: 150
+bulk-size: 25
+concurrency: 25
+retries: 1
+timeout: 10
+headless: false
+stats: true
+stats-interval: 5
