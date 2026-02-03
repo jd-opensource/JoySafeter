@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /downloads
 
-# Download Kiterunner (amd64 only, skip on other architectures or if download fails)
+# Download Kiterunner (amd64 only, skip if download fails)
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
     (wget -q --timeout=30 https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kiterunner_1.0.2_linux_amd64.tar.gz && \
@@ -50,35 +50,30 @@ RUN ARCH=$(dpkg --print-architecture) && \
     touch /usr/local/bin/kr; \
     fi
 
-# Download Burp Suite Community JAR
-RUN wget -q "https://portswigger.net/burp/releases/download?product=community&version=2024.12&type=Jar" -O /downloads/burpsuite_community.jar || \
-    echo "Burp download failed, creating placeholder" && touch /downloads/burpsuite_community.jar
-
 FROM kalilinux/kali-rolling
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Combined apt install to reduce layers & cleanup in same layer
+# Combined apt install - core tools for skills
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Base System & Runtimes
-    build-essential curl wget git vim-tiny zsh unzip jq iputils-ping \
+    # Base System
+    curl wget git unzip jq \
     python3-full python3-pip python3-venv pipx \
-    default-jre-headless libpcap-dev \
+    libpcap-dev \
     # Core Kali Tools (Web & Network)
     nmap masscan sqlmap nikto hydra wafw00f whatweb \
-    seclists zaproxy amass feroxbuster theharvester \
-    # Report Generation & Node.js
+    seclists amass feroxbuster theharvester zaproxy \
+    # Report Generation & Node.js (for npm-audit)
     pandoc nodejs npm \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/*
 
-# Copy Go Binaries (strip debug info is already done via CGO_ENABLED=0)
+# Copy Go Binaries
 COPY --from=go-builder /go/bin/* /usr/local/bin/
 
 # Copy Downloaded Tools
 COPY --from=downloader /usr/local/bin/kr /usr/local/bin/
-COPY --from=downloader /downloads/burpsuite_community.jar /opt/burpsuite_community.jar
 
 # Python Tools (via pipx) & npm tools - clean cache after
 ENV PATH=$PATH:/root/.local/bin
@@ -86,44 +81,30 @@ RUN pipx install arjun && \
     pipx install dirsearch && \
     pipx install uro && \
     pipx install pip-audit && \
-    (pipx install xsser || true) && \
     npm install -g npm-audit-html && \
     npm cache clean --force && \
     rm -rf /root/.cache/pip /tmp/*
 
-# Create non-root user & directories
-RUN useradd -m -s /bin/zsh pentest && \
-    mkdir -p /app /data && \
-    chown -R pentest:pentest /app /data
+# Create directories
+RUN mkdir -p /app /data
 
 # Nuclei Templates - shallow clone & remove .git to save space
-RUN mkdir -p /home/pentest/nuclei-templates && \
-    git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git /home/pentest/nuclei-templates && \
-    rm -rf /home/pentest/nuclei-templates/.git && \
-    chown -R pentest:pentest /home/pentest/nuclei-templates
+RUN git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git /root/nuclei-templates && \
+    rm -rf /root/nuclei-templates/.git
 
 # Tool Configurations
-RUN mkdir -p /home/pentest/.config/{nuclei,httpx,naabu,katana,subfinder,amass}
+RUN mkdir -p /root/.config/{nuclei,httpx,naabu,katana,subfinder,amass}
 
-COPY configs/nuclei.yaml /home/pentest/.config/nuclei/config.yaml
-COPY configs/httpx.yaml /home/pentest/.config/httpx/config.yaml
-COPY configs/naabu.yaml /home/pentest/.config/naabu/config.yaml
-COPY configs/katana.yaml /home/pentest/.config/katana/config.yaml
-COPY configs/subfinder.yaml /home/pentest/.config/subfinder/config.yaml
-COPY configs/amass.yaml /home/pentest/.config/amass/config.yaml
+COPY configs/nuclei.yaml /root/.config/nuclei/config.yaml
+COPY configs/httpx.yaml /root/.config/httpx/config.yaml
+COPY configs/naabu.yaml /root/.config/naabu/config.yaml
+COPY configs/katana.yaml /root/.config/katana/config.yaml
+COPY configs/subfinder.yaml /root/.config/subfinder/config.yaml
+COPY configs/amass.yaml /root/.config/amass/config.yaml
 
-# Entrypoint & final setup
 WORKDIR /app
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh && \
-    chown -R pentest:pentest /home/pentest
-
-# Setup Zsh for pentest user (minimal oh-my-zsh)
-USER pentest
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended || true && \
-    rm -rf ~/.oh-my-zsh/.git
-
-USER root
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 VOLUME ["/data"]
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
