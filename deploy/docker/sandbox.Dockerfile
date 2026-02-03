@@ -24,6 +24,7 @@ RUN go install github.com/lc/gau/v2/cmd/gau@latest || echo "gau install failed"
 # Vulnerability scanning
 RUN go install github.com/hahwul/dalfox/v2@latest || echo "dalfox install failed"
 RUN go install github.com/aquasecurity/trivy/cmd/trivy@latest || echo "trivy install failed"
+RUN go install github.com/zricethezav/gitleaks/v8@latest || echo "gitleaks install failed"
 
 # OSINT tools (amass is large, may fail)
 RUN go install github.com/owasp-amass/amass/v4/...@latest || \
