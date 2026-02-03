@@ -51,6 +51,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
     touch /usr/local/bin/kr; \
     fi
 
+# Download Burp Suite Community JAR (updated to 2024.x)
+RUN wget -q --timeout=30 "https://portswigger.net/burp/releases/download?product=community&version=2024.12&type=Jar" -O /downloads/burpsuite_community.jar || \
+    echo "Burp Suite download failed, skipping..." && touch /downloads/burpsuite_community.jar
+
 FROM kalilinux/kali-rolling
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -75,6 +79,7 @@ COPY --from=go-builder /go/bin/* /usr/local/bin/
 
 # Copy Downloaded Tools
 COPY --from=downloader /usr/local/bin/kr /usr/local/bin/
+COPY --from=downloader /downloads/burpsuite_community.jar /opt/burpsuite_community.jar
 
 # Python Tools (via pipx) & npm tools - clean cache after
 ENV PATH=$PATH:/root/.local/bin
