@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
 WORKDIR /downloads
 
 # Download Kiterunner
-RUN wget -q https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kr_linux_amd64.tar.gz && \
-    tar xzf kr_linux_amd64.tar.gz && \
+RUN wget -q https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kiterunner_1.0.2_linux_amd64.tar.gz && \
+    tar xzf kiterunner_1.0.2_linux_amd64.tar.gz && \
     mv kr /usr/local/bin/kr
 
 # Download Burp Suite Community JAR (updated to 2024.x)
