@@ -24,6 +24,7 @@ from .memory import Memory
 from .model_credential import ModelCredential
 from .model_instance import ModelInstance
 from .model_provider import ModelProvider
+from .oauth_account import OAuthAccount
 from .organization import Member, Organization
 from .security_audit_log import SecurityAuditLog
 from .settings import Environment, Settings, WorkspaceEnvironment
@@ -40,6 +41,7 @@ __all__ = [
     "User",
     "AuthUser",
     "AuthSession",
+    "OAuthAccount",
     "Workspace",
     "WorkspaceMember",
     "WorkspaceStatus",

@@ -1,0 +1,46 @@
+# OAuth/OIDC 提供商配置
+#
+# 详细说明请参考 oauth_providers.example.yaml
+
+providers:
+  # GitHub OAuth
+  github:
+    enabled: false
+    display_name: "GitHub"
+    icon: "github"
+    template: "github"
+    client_id: ${OAUTH_GITHUB_CLIENT_ID}
+    client_secret: ${OAUTH_GITHUB_CLIENT_SECRET}
+
+  # Google OAuth
+  google:
+    enabled: false
+    display_name: "Google"
+    icon: "google"
+    template: "google"
+    client_id: ${OAUTH_GOOGLE_CLIENT_ID}
+    client_secret: ${OAUTH_GOOGLE_CLIENT_SECRET}
+
+  # ---------- 本地验证：自定义 OAuth（配合 mock 服务使用） ----------
+  # 使用方式：1) 运行 backend/scripts/mock_oauth_server.py  2) 本项 enabled 改为 true
+  #          3) 设置环境变量 OAUTH_LOCAL_CLIENT_ID=local-client OAUTH_LOCAL_CLIENT_SECRET=local-secret
+  local:
+    enabled: false
+    display_name: "本地测试"
+    icon: "key"
+    client_id: ${OAUTH_LOCAL_CLIENT_ID}
+    client_secret: ${OAUTH_LOCAL_CLIENT_SECRET}
+    authorize_url: "http://localhost:9090/authorize"
+    token_url: "http://localhost:9090/token"
+    userinfo_url: "http://localhost:9090/userinfo"
+    scope: "openid email profile"
+    user_mapping:
+      id: "sub"
+      email: "email"
+      name: "name"
+      avatar: "picture"
+
+settings:
+  default_redirect_url: "/chat"
+  allow_registration: true
+  auto_link_by_email: true

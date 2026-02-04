@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { OAuthButtons } from '@/components/auth/oauth-buttons'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -132,6 +133,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [emailErrors, setEmailErrors] = useState<string[]>([])
   const [showEmailValidationError, setShowEmailValidationError] = useState(false)
+  const [oauthError, setOauthError] = useState<string | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -148,6 +150,28 @@ export default function LoginPage() {
 
       const inviteFlow = searchParams.get('invite_flow') === 'true'
       setIsInviteFlow(inviteFlow)
+
+      // 处理 OAuth 错误
+      const error = searchParams.get('error')
+      const errorDescription = searchParams.get('error_description')
+      if (error) {
+        let errorMessage = t('auth.oauthError')
+        if (error === 'oauth_denied') {
+          errorMessage = t('auth.oauthDenied')
+        } else if (error === 'invalid_state') {
+          errorMessage = t('auth.oauthInvalidState')
+        } else if (error === 'oauth_failed') {
+          errorMessage = errorDescription || t('auth.oauthFailed')
+        } else if (errorDescription) {
+          errorMessage = errorDescription
+        }
+        setOauthError(errorMessage)
+        // 清除 URL 中的错误参数
+        const url = new URL(window.location.href)
+        url.searchParams.delete('error')
+        url.searchParams.delete('error_description')
+        window.history.replaceState({}, '', url.toString())
+      }
     }
 
     const checkCustomBrand = () => {
@@ -455,6 +479,13 @@ export default function LoginPage() {
         </p>
       </div>
 
+      {/* OAuth 错误提示 */}
+      {oauthError && (
+        <div className='mt-4 rounded-md bg-red-50 p-3 text-sm text-red-600'>
+          {oauthError}
+        </div>
+      )}
+
       {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
         <form onSubmit={onSubmit} className={`${inter.className} mt-8 space-y-8`}>
           <div className='space-y-6'>
@@ -554,6 +585,9 @@ export default function LoginPage() {
           </Button>
         </form>
       )}
+
+      {/* OAuth/SSO 登录按钮 */}
+      <OAuthButtons callbackUrl={callbackUrl} showDivider={!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED'))} />
 
       {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
         <div className={`${inter.className} pt-6 text-center font-light text-[14px]`} suppressHydrationWarning>

@@ -251,6 +251,13 @@ export default {
       featureSecure: 'Production-Grade Security Agent',
       featureMultiAgent: 'Modular Security Capabilities',
       featureEfficient: 'Self-Iterating Agent Framework',
+      // OAuth/SSO
+      orContinueWith: 'Or continue with',
+      signInWith: 'Sign in with {{provider}}',
+      oauthError: 'Authentication failed. Please try again.',
+      oauthDenied: 'Authentication was cancelled.',
+      oauthInvalidState: 'Invalid authentication state. Please try again.',
+      oauthFailed: 'Authentication failed. Please try again.',
     },
     workspace: {
       loadingAgents: 'Loading agents...',

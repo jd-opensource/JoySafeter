@@ -335,6 +335,13 @@ class Settings(BaseSettings):
         """Alias for workspace_root for backward compatibility"""
         return self.workspace_root
 
+    # OAuth Configuration
+    oauth_config_path: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("OAUTH_CONFIG_PATH", "OAUTH_PROVIDERS_CONFIG"),
+        description="OAuth providers configuration file path (default: config/oauth_providers.yaml)",
+    )
+
     # Default Model Cache (runtime cache, not from env)
     _default_model_config: Optional[Dict[str, Any]] = None
 

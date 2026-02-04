@@ -252,6 +252,13 @@ export default {
       featureSecure: '实战级安全Agent',
       featureMultiAgent: '安全能力积木化',
       featureEfficient: '自迭代Agent框架',
+      // OAuth/SSO
+      orContinueWith: '或使用以下方式登录',
+      signInWith: '使用 {{provider}} 登录',
+      oauthError: '认证失败，请重试。',
+      oauthDenied: '认证已取消。',
+      oauthInvalidState: '认证状态无效，请重试。',
+      oauthFailed: '认证失败，请重试。',
     },
     workspace: {
       loadingAgents: '加载智能体中...',

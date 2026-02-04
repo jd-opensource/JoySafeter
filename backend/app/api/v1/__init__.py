@@ -18,6 +18,7 @@ from .mcp import router as mcp_router
 from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
 from .models import router as models_router
+from .oauth import router as oauth_router
 from .organizations import router as organizations_router
 from .skills import router as skills_router
 from .tools import router as tools_router
@@ -28,6 +29,7 @@ from .workspaces import router as workspaces_router
 
 ROUTERS = [
     auth_router,
+    oauth_router,
     organizations_router,
     workspaces_router,
     workspace_folders_router,

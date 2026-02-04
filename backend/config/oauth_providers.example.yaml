@@ -1,0 +1,122 @@
+# OAuth/OIDC 提供商配置
+#
+# 本文件定义了系统支持的 OAuth/OIDC 登录提供商。
+# 将此文件复制为 oauth_providers.yaml 并根据需要修改配置。
+#
+# 支持两种配置方式：
+# 1. 使用内置模板（推荐）：只需配置 client_id 和 client_secret
+# 2. 完全自定义：适用于自托管的 OIDC 服务（如 Keycloak、Authentik）
+#
+# 敏感信息（如 client_secret）应通过环境变量注入：${VAR_NAME}
+
+providers:
+  # ==================== 内置模板：GitHub ====================
+  # GitHub OAuth 配置
+  # 创建应用：https://github.com/settings/developers
+  github:
+    enabled: false  # 设置为 true 启用
+    display_name: "GitHub"
+    icon: "github"  # 前端图标标识
+    # 使用内置模板，自动填充 authorize_url、token_url、userinfo_url 等
+    template: "github"
+    # OAuth 凭据（从环境变量读取）
+    client_id: ${OAUTH_GITHUB_CLIENT_ID}
+    client_secret: ${OAUTH_GITHUB_CLIENT_SECRET}
+    # 可选：覆盖默认 scope（默认：read:user user:email）
+    # scope: "read:user user:email"
+
+  # ==================== 内置模板：Google ====================
+  # Google OAuth 配置
+  # 创建应用：https://console.cloud.google.com/apis/credentials
+  google:
+    enabled: false  # 设置为 true 启用
+    display_name: "Google"
+    icon: "google"
+    template: "google"
+    client_id: ${OAUTH_GOOGLE_CLIENT_ID}
+    client_secret: ${OAUTH_GOOGLE_CLIENT_SECRET}
+    # 可选：覆盖默认 scope（默认：openid email profile）
+    # scope: "openid email profile"
+
+  # ==================== 自定义 OIDC 提供商示例：Keycloak ====================
+  # 适用于自托管的 OIDC 兼容服务
+  keycloak:
+    enabled: false
+    display_name: "企业 SSO"
+    icon: "key"  # 可用值：key, shield, building, lock, 或自定义图标 URL
+    # OAuth 凭据
+    client_id: ${OAUTH_KEYCLOAK_CLIENT_ID}
+    client_secret: ${OAUTH_KEYCLOAK_CLIENT_SECRET}
+    # 方式一（推荐）：使用 OIDC Discovery
+    # 系统会自动从 .well-known/openid-configuration 获取 endpoints
+    issuer: "https://keycloak.example.com/realms/myrealm"
+    # 方式二：手动指定 endpoints（如果 Discovery 不可用）
+    # authorize_url: "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/auth"
+    # token_url: "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/token"
+    # userinfo_url: "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/userinfo"
+    scope: "openid email profile"
+    # 用户信息字段映射（不同提供商的字段名可能不同）
+    user_mapping:
+      id: "sub"           # 用户唯一标识（必需）
+      email: "email"      # 邮箱
+      name: "name"        # 显示名称
+      avatar: "picture"   # 头像 URL
+
+  # ==================== 自定义 OIDC 提供商示例：GitLab ====================
+  gitlab:
+    enabled: false
+    display_name: "GitLab"
+    icon: "gitlab"
+    client_id: ${OAUTH_GITLAB_CLIENT_ID}
+    client_secret: ${OAUTH_GITLAB_CLIENT_SECRET}
+    # GitLab 不支持标准 OIDC Discovery，需要手动指定
+    authorize_url: "https://gitlab.com/oauth/authorize"
+    token_url: "https://gitlab.com/oauth/token"
+    userinfo_url: "https://gitlab.com/api/v4/user"
+    scope: "read_user"
+    user_mapping:
+      id: "id"
+      email: "email"
+      name: "name"
+      avatar: "avatar_url"
+
+  # ==================== 自定义 OIDC 提供商示例：Microsoft Entra ID (Azure AD) ====================
+  microsoft:
+    enabled: false
+    display_name: "Microsoft"
+    icon: "microsoft"
+    template: "microsoft"  # 使用内置模板
+    client_id: ${OAUTH_MICROSOFT_CLIENT_ID}
+    client_secret: ${OAUTH_MICROSOFT_CLIENT_SECRET}
+    # 如果是多租户应用，可以覆盖 tenant（默认：common）
+    # tenant: "your-tenant-id"
+
+  # ==================== 自定义 OIDC 提供商示例：Authentik ====================
+  authentik:
+    enabled: false
+    display_name: "Authentik SSO"
+    icon: "shield"
+    client_id: ${OAUTH_AUTHENTIK_CLIENT_ID}
+    client_secret: ${OAUTH_AUTHENTIK_CLIENT_SECRET}
+    issuer: "https://authentik.example.com/application/o/your-app/"
+    scope: "openid email profile"
+    user_mapping:
+      id: "sub"
+      email: "email"
+      name: "name"
+      avatar: "picture"
+
+# ==================== 全局设置 ====================
+settings:
+  # 登录成功后默认重定向地址
+  default_redirect_url: "/chat"
+
+  # 是否允许新用户通过 SSO 注册
+  # true: 首次 SSO 登录自动创建账户
+  # false: 仅允许已有账户绑定 SSO
+  allow_registration: true
+
+  # 邮箱自动绑定已有账户
+  # true: 如果 SSO 返回的邮箱与现有账户匹配，自动绑定
+  # false: 总是创建新账户
+  auto_link_by_email: true
