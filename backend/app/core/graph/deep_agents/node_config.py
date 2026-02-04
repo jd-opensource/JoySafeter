@@ -66,8 +66,8 @@ class AgentConfig:
         skill_ids_raw = config.get("skills")
         has_skills = builder.has_valid_skills_config(skill_ids_raw)
 
-        # Backend resolution
-        backend = await builder.get_backend_for_node(node, has_skills)
+        # Backend resolution - all nodes use shared backend
+        backend = builder.get_backend()
 
         # Preload skills if needed
         if backend and has_skills:

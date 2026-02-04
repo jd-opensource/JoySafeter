@@ -89,22 +89,10 @@ class DockerPythonExecutor(PythonExecutor):
         """Lazily initialize Docker backend."""
         if self._backend is None:
             try:
-                from app.core.agent.backends.pydantic_adapter import (
-                    PYDANTIC_BACKEND_AVAILABLE,
-                    PydanticSandboxAdapter,
-                )
-
-                if not PYDANTIC_BACKEND_AVAILABLE:
-                    raise ImportError(
-                        "pydantic-ai-backend[docker] is required for DockerPythonExecutor. "
-                        "Install with: pip install pydantic-ai-backend[docker]"
-                    )
+                from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
 
                 self._backend = PydanticSandboxAdapter(
                     image=self.image,
-                    memory_limit=self.memory_limit,
-                    cpu_quota=self.cpu_quota,
-                    network_mode=self.network_mode,
                     working_dir=self.working_dir,
                     command_timeout=self.command_timeout,
                     max_output_size=self.max_output_size,

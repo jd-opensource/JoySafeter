@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Any, Optional
 from loguru import logger
 
 if TYPE_CHECKING:
-    pass
+    from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+
 # DeepAgents library imports - required
 from deepagents import create_deep_agent
 from langgraph.graph import StateGraph
@@ -14,8 +15,6 @@ from langgraph.graph.state import CompiledStateGraph
 from app.core.graph.base_graph_builder import (
     BaseGraphBuilder,
 )
-from app.core.graph.deep_agents.backend_factory import BackendFactory
-from app.core.graph.deep_agents.backend_manager import DeepAgentsBackendManager
 from app.core.graph.deep_agents.node_config import AgentConfig
 from app.core.graph.deep_agents.node_factory import DeepAgentsNodeBuilder
 from app.core.graph.deep_agents.skills_manager import DeepAgentsSkillsManager
@@ -26,12 +25,15 @@ LOG_PREFIX = "[DeepAgentsBuilder]"
 
 
 class DeepAgentsGraphBuilder(BaseGraphBuilder):
-    """Two-level star structure: Root (DeepAgent) → Children (CompiledSubAgent)."""
+    """Two-level star structure: Root (DeepAgent) → Children (CompiledSubAgent).
+
+    Manages a single shared Docker backend for all nodes in the graph.
+    """
 
     def __init__(self, *args, **kwargs):
         """Initialize DeepAgentsGraphBuilder with component managers."""
         super().__init__(*args, **kwargs)
-        self._backend_manager = DeepAgentsBackendManager(self.nodes)
+        self._shared_backend: Optional["PydanticSandboxAdapter"] = None
         self._skills_manager = DeepAgentsSkillsManager(self.user_id)
         self._node_builder = DeepAgentsNodeBuilder(builder=self)
 
@@ -41,28 +43,83 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
             raise ValueError("No nodes provided for DeepAgents graph")
 
         try:
-            await self._setup_shared_backend()
+            # Create shared Docker backend if needed (only once)
+            if self._needs_docker_backend():
+                self._shared_backend = self._create_docker_backend()
+                logger.info(
+                    f"{LOG_PREFIX} Created shared Docker backend: id={getattr(self._shared_backend, 'id', 'unknown')}"
+                )
+
             root_node = self._select_and_validate_root()
             result = await self._build_graph(root_node)
             return result  # type: ignore
         except Exception as e:
             logger.exception(f"{LOG_PREFIX} Build failed: {e}")
-            await self._backend_manager.cleanup_shared_backend()
+            await self._cleanup_backend()
             raise
 
-    async def _setup_shared_backend(self) -> None:
-        """Setup shared Docker backend if needed."""
-        needs_docker = self._backend_manager.should_create_shared_backend(self._skills_manager.has_valid_skills_config)
+    def _needs_docker_backend(self) -> bool:
+        """Check if any node needs Docker backend."""
+        for node in self.nodes:
+            data = node.data or {}
+            config = data.get("config", {})
 
-        if needs_docker:
+            # Skip nodes explicitly configured with filesystem backend
+            if config.get("backend_type") == "filesystem":
+                continue
+
+            # Check for skills
+            if self._skills_manager.has_valid_skills_config(config.get("skills")):
+                return True
+
+            # Check for code_agent with docker executor
+            if data.get("type") == "code_agent":
+                executor_type = config.get("executor_type", "local")
+                if executor_type in ("docker", "auto"):
+                    return True
+
+        return False
+
+    def _create_docker_backend(self) -> "PydanticSandboxAdapter":
+        """Create shared Docker backend for all nodes."""
+        try:
+            from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+        except ImportError as e:
+            raise ImportError(
+                "pydantic-ai-backend[docker] is required for shared Docker backend. "
+                "Install with: pip install pydantic-ai-backend[docker]"
+            ) from e
+
+        # Determine Docker image from nodes
+        docker_image = "python:3.12-slim"
+        for node in self.nodes:
+            data = node.data or {}
+            if data.get("type") == "code_agent":
+                config = data.get("config", {})
+                docker_image = config.get("docker_image", docker_image)
+                break
+
+        try:
+            backend = PydanticSandboxAdapter(
+                image=docker_image,
+                working_dir="/workspace",
+            )
+            logger.info(f"{LOG_PREFIX} Created shared Docker backend: id={backend.id}, image={docker_image}")
+            return backend
+        except Exception as e:
+            raise RuntimeError(f"{LOG_PREFIX} Failed to create shared Docker backend: {e}") from e
+
+    async def _cleanup_backend(self) -> None:
+        """Clean up shared Docker backend."""
+        if self._shared_backend:
             try:
-                await self._backend_manager.create_shared_backend()
-                logger.info(
-                    f"{LOG_PREFIX} Created shared Docker backend: "
-                    f"id={getattr(self._backend_manager.shared_backend, 'id', 'unknown')}"
-                )
+                if hasattr(self._shared_backend, "cleanup"):
+                    self._shared_backend.cleanup()
+                logger.info(f"{LOG_PREFIX} Cleaned up shared Docker backend")
             except Exception as e:
-                logger.error(f"{LOG_PREFIX} Failed to create shared Docker backend: {e}")
+                logger.warning(f"{LOG_PREFIX} Failed to cleanup shared backend: {e}")
+            finally:
+                self._shared_backend = None
 
     def _select_and_validate_root(self) -> GraphNode:
         """Select and validate root node."""
@@ -151,11 +208,10 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
             raise ValueError("Received dict instead of Runnable - DeepAgents build failed")
 
         # Attach cleanup if shared backend exists
-        if agent and self._backend_manager.shared_backend:
-            backend_manager = self._backend_manager
+        if agent and self._shared_backend:
 
             async def cleanup():
-                await backend_manager.cleanup_shared_backend()
+                await self._cleanup_backend()
 
             agent._cleanup_backend = cleanup
 
@@ -174,9 +230,9 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         result = self._skills_manager.has_valid_skills_config(skill_ids_raw)
         return bool(result) if result is not None else False
 
-    async def get_backend_for_node(self, node: GraphNode, has_skills: bool) -> Optional[Any]:
-        """Get backend for node - for AgentConfig use."""
-        return await self._backend_manager.get_backend_for_node(node, has_skills, self._create_backend_for_node)
+    def get_backend(self) -> Optional[Any]:
+        """Get shared backend instance - all nodes use this single backend."""
+        return self._shared_backend
 
     async def preload_skills_to_backend(self, node: GraphNode, backend: Any) -> None:
         """Preload skills to backend - for AgentConfig use."""
@@ -190,15 +246,6 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         if isinstance(result, list):
             return [str(item) for item in result]
         return None
-
-    def get_shared_backend(self) -> Optional[Any]:
-        """Get shared backend instance - for NodeBuilder use."""
-        return self._backend_manager.shared_backend
-
-    def is_shared_backend_creation_failed(self) -> bool:
-        """Check if shared backend creation failed - for NodeBuilder use."""
-        result = self._backend_manager.shared_backend_creation_failed
-        return bool(result) if result is not None else False
 
     async def resolve_middleware_for_node(
         self,
@@ -228,24 +275,6 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
             return await self.resolve_middleware_for_node(node, user_id)
         finally:
             self._current_node_backend = None
-
-    async def _create_backend_for_node(self, node: GraphNode) -> Any:
-        """Create backend with fallback - used by backend_manager.get_backend_for_node().
-
-        从节点配置中读取 workspace_dir 或 workspaceSubdir，如果没有配置则使用 graph.name。
-        """
-        # 从节点配置读取自定义子目录名称
-        data = node.data or {}
-        config = data.get("config", {})
-        workspace_subdir = config.get("workspace_dir") or config.get("workspaceSubdir")
-
-        # 如果没有配置，使用 graph.name 作为默认值
-        if not workspace_subdir:
-            workspace_subdir = self.graph.name if hasattr(self.graph, "name") and self.graph.name else None
-
-        return BackendFactory.create_backend_with_fallback(
-            node, user_id=self.user_id, workspace_subdir=workspace_subdir
-        )
 
     # ==================== DeepAgent Creation ====================
 

@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn } from '@/lib/core/utils/cn'
 
 interface DockerConfigFieldProps {
   label: string
@@ -41,9 +40,6 @@ export const DockerConfigField: React.FC<DockerConfigFieldProps> = ({
 
   const config = value as {
     image?: string
-    memory_limit?: string
-    cpu_quota?: number
-    network_mode?: string
     working_dir?: string
     auto_remove?: boolean
     max_output_size?: number
@@ -88,56 +84,6 @@ export const DockerConfigField: React.FC<DockerConfigFieldProps> = ({
               className="h-7 text-xs"
             />
             <p className="text-[9px] text-gray-400">Docker image to use for the sandbox</p>
-          </div>
-
-          {/* Memory Limit */}
-          <div className="space-y-1">
-            <Label className="text-[10px] font-medium text-gray-600">Memory Limit</Label>
-            <Input
-              value={config.memory_limit || '512m'}
-              onChange={(e) => updateField('memory_limit', e.target.value)}
-              placeholder="512m"
-              disabled={disabled}
-              className="h-7 text-xs"
-            />
-            <p className="text-[9px] text-gray-400">Memory limit (e.g., 512m, 1g)</p>
-          </div>
-
-          {/* CPU Quota */}
-          <div className="space-y-1">
-            <Label className="text-[10px] font-medium text-gray-600">CPU Quota</Label>
-            <Input
-              type="number"
-              value={config.cpu_quota || 50000}
-              onChange={(e) => updateField('cpu_quota', Number(e.target.value))}
-              placeholder="50000"
-              disabled={disabled}
-              className="h-7 text-xs"
-            />
-            <p className="text-[9px] text-gray-400">
-              CPU quota in microseconds (50000 = 50% of one core)
-            </p>
-          </div>
-
-          {/* Network Mode */}
-          <div className="space-y-1">
-            <Label className="text-[10px] font-medium text-gray-600">Network Mode</Label>
-            <Select
-              value={config.network_mode || 'none'}
-              onValueChange={(val) => updateField('network_mode', val)}
-              disabled={disabled}
-            >
-              <SelectTrigger className="h-7 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">none (Isolated)</SelectItem>
-                <SelectItem value="bridge">bridge (Network Access)</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[9px] text-gray-400">
-              Network isolation mode (none recommended for production)
-            </p>
           </div>
 
           {/* Working Directory */}

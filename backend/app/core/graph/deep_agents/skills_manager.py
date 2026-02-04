@@ -131,6 +131,26 @@ class DeepAgentsSkillsManager:
                         logger.warning(f"{LOG_PREFIX} No valid skill IDs found for node '{node_label}'")
                         return
 
+                # ===== Deduplication: skip skills already loaded to this backend =====
+                # Use a per-backend cache to avoid reloading the same skills multiple times
+                loaded_ids: set[uuid.UUID] = getattr(backend, "_loaded_skill_ids", set())
+                to_load = [sid for sid in skill_ids if sid not in loaded_ids]
+
+                if not to_load:
+                    # All skills already loaded to this backend, skip
+                    logger.debug(
+                        f"{LOG_PREFIX} All {len(skill_ids)} skill(s) already loaded to backend "
+                        f"for node '{node_label}', skipping preload"
+                    )
+                    return
+
+                if len(to_load) < len(skill_ids):
+                    skipped = len(skill_ids) - len(to_load)
+                    logger.debug(
+                        f"{LOG_PREFIX} Skipping {skipped} already-loaded skill(s) for node '{node_label}', "
+                        f"loading {len(to_load)} new skill(s)"
+                    )
+
                 # Try to get skills_path from node config
                 skills_path = config.get("skills_path")
 
@@ -141,14 +161,20 @@ class DeepAgentsSkillsManager:
                 )
 
                 results = await loader.load_skills_to_sandbox(
-                    skill_ids=skill_ids,
+                    skill_ids=to_load,  # Only load skills not yet in backend
                     backend=backend,
                     user_id=self.user_id,
                     skills_base_dir=skills_path,  # Also pass to method for override
                 )
 
                 successful = sum(1 for v in results.values() if v)
-                failed = len(skill_ids) - successful
+                failed = len(to_load) - successful
+
+                # Update loaded_ids cache with successfully loaded skills
+                newly_loaded = {sid for sid, ok in results.items() if ok}
+                if newly_loaded:
+                    loaded_ids = loaded_ids | newly_loaded
+                    setattr(backend, "_loaded_skill_ids", loaded_ids)
 
                 try:
                     from app.core.skill.sandbox_loader import SkillSandboxLoader
@@ -185,13 +211,12 @@ class DeepAgentsSkillsManager:
 
                 if successful > 0:
                     logger.info(
-                        f"{LOG_PREFIX} Pre-loaded {successful}/{len(skill_ids)} skills "
-                        f"to backend for node '{node_label}'"
+                        f"{LOG_PREFIX} Pre-loaded {successful}/{len(to_load)} skills to backend for node '{node_label}'"
                     )
 
                 if failed > 0:
                     logger.warning(
-                        f"{LOG_PREFIX} Failed to pre-load {failed}/{len(skill_ids)} skills "
+                        f"{LOG_PREFIX} Failed to pre-load {failed}/{len(to_load)} skills "
                         f"for node '{node_label}' "
                         f"(likely due to permission issues or missing skills)"
                     )

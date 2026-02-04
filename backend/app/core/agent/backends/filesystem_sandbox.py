@@ -1,17 +1,17 @@
 """FilesystemSandboxBackend: FilesystemBackend with command execution support."""
 
-import subprocess
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.protocol import ExecuteResponse, SandboxBackendProtocol
 
-from app.utils.backend_utils import create_execute_response
-
-if TYPE_CHECKING:
-    pass
+from app.core.agent.backends.constants import (
+    DEFAULT_COMMAND_TIMEOUT,
+    DEFAULT_MAX_FILE_SIZE_MB,
+    DEFAULT_MAX_OUTPUT_SIZE,
+)
+from app.core.agent.backends.utils.command_executor import execute_local_command
 
 
 class FilesystemSandboxBackend(FilesystemBackend, SandboxBackendProtocol):
@@ -22,10 +22,10 @@ class FilesystemSandboxBackend(FilesystemBackend, SandboxBackendProtocol):
     environment, with the working directory set to the backend's root_dir.
 
     Features:
-    - ✅ Real filesystem access (read/write actual files)
-    - ✅ Command execution in specified directory
-    - ✅ Configurable timeout and output limits
-    - ✅ Support for virtual_mode (path sandboxing)
+    - Real filesystem access (read/write actual files)
+    - Command execution in specified directory
+    - Configurable timeout and output limits
+    - Support for virtual_mode (path sandboxing)
 
     Warning:
         This backend executes commands directly on the host system without
@@ -34,7 +34,7 @@ class FilesystemSandboxBackend(FilesystemBackend, SandboxBackendProtocol):
 
     Example:
         ```python
-        from app.backends.filesystem_sandbox import FilesystemSandboxBackend
+        from app.core.agent.backends import FilesystemSandboxBackend
 
         # Create backend with specific root directory
         backend = FilesystemSandboxBackend(
@@ -51,9 +51,9 @@ class FilesystemSandboxBackend(FilesystemBackend, SandboxBackendProtocol):
         self,
         root_dir: str | Path | None = None,
         virtual_mode: bool = False,
-        max_file_size_mb: int = 10,
-        max_output_size: int = 100000,
-        command_timeout: int = 30,
+        max_file_size_mb: int = DEFAULT_MAX_FILE_SIZE_MB,
+        max_output_size: int = DEFAULT_MAX_OUTPUT_SIZE,
+        command_timeout: int = DEFAULT_COMMAND_TIMEOUT,
     ):
         """Initialize FilesystemSandboxBackend.
 
@@ -90,42 +90,9 @@ class FilesystemSandboxBackend(FilesystemBackend, SandboxBackendProtocol):
         Note:
             Commands are executed with cwd set to self.cwd (root_dir).
         """
-        try:
-            # Execute command with timeout and cwd
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=self.command_timeout,
-                cwd=str(self.cwd),  # Execute in root directory
-            )
-
-            # Combine stdout and stderr
-            output = ""
-            if result.stdout:
-                output += result.stdout
-            if result.stderr:
-                if output:
-                    output += "\n"
-                output += result.stderr
-
-            # Create response with automatic truncation
-            return create_execute_response(
-                output=output,
-                exit_code=result.returncode,
-                max_output_size=self.max_output_size,
-            )
-
-        except subprocess.TimeoutExpired:
-            return ExecuteResponse(
-                output=f"Error: Command execution timed out ({self.command_timeout} seconds limit)",
-                exit_code=-1,
-                truncated=False,
-            )
-        except Exception as e:
-            return ExecuteResponse(
-                output=f"Error executing command: {str(e)}",
-                exit_code=-1,
-                truncated=False,
-            )
+        return execute_local_command(
+            command=command,
+            cwd=str(self.cwd),
+            timeout=self.command_timeout,
+            max_output_size=self.max_output_size,
+        )

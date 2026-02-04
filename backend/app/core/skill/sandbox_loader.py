@@ -429,33 +429,11 @@ class SkillSandboxLoader:
         skill_dir_path = PurePosixPath(effective_base_dir) / self._sanitize_skill_name(skill.name)
         skill_dir = str(skill_dir_path)
 
-        # Clean up existing skill directory if it exists
-        # This allows re-loading skills without file conflicts
-        # Note: We rely on backend.write() to create parent directories as needed
-        try:
-            # Use execute() method if available (standard interface for backends with command execution)
-            if hasattr(backend, "execute"):
-                result = backend.execute(f"rm -rf {skill_dir}")
-                if result.exit_code == 0:
-                    logger.debug(f"Cleaned up existing skill directory via execute(): {skill_dir}")
-                else:
-                    # Directory might not exist, which is fine
-                    logger.debug(f"Skill directory cleanup returned exit_code {result.exit_code}: {result.output}")
-            else:
-                # For backends without execute() (e.g., pure FilesystemBackend),
-                # skip cleanup - write() method will handle file conflicts by returning an error
-                # The caller can handle this appropriately
-                logger.debug(
-                    f"Backend {type(backend).__name__} does not support execute(), "
-                    f"skipping cleanup for {skill_dir}. write() will handle conflicts."
-                )
-        except Exception as e:
-            # If cleanup fails, log warning but continue
-            # The write() method will handle the error if file still exists
-            logger.warning(
-                f"Failed to clean up skill directory {skill_dir} for skill '{skill.name}': {e}. "
-                "Will attempt to write files anyway."
-            )
+        # Check if backend supports write_overwrite (for Docker sandbox with potential container reuse)
+        # If available, use it to avoid file existence conflicts
+        use_overwrite = hasattr(backend, "write_overwrite")
+        if use_overwrite:
+            logger.debug(f"Backend supports write_overwrite, will use overwrite mode for skill '{skill.name}'")
 
         # Write each file
         # BackendProtocol.write() automatically creates parent directories
@@ -470,9 +448,13 @@ class SkillSandboxLoader:
             # Construct full path in sandbox using PurePosixPath
             file_path = str(skill_dir_path / skill_file.path)
 
-            # Write file (write() automatically creates parent directories)
+            # Write file (use overwrite mode if available to handle existing files)
             try:
-                write_result = backend.write(file_path, skill_file.content)
+                if use_overwrite:
+                    write_result = backend.write_overwrite(file_path, skill_file.content)
+                else:
+                    write_result = backend.write(file_path, skill_file.content)
+
                 if write_result and hasattr(write_result, "error") and write_result.error:
                     error_msg = write_result.error
                     write_errors.append(f"{file_path}: {error_msg}")

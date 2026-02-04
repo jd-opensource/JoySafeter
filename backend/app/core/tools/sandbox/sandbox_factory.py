@@ -7,9 +7,13 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable, ContextManager
 
 from deepagents.backends.protocol import SandboxBackendProtocol
 from loguru import logger
+
+if TYPE_CHECKING:
+    from app.core.agent.backends.pydantic_adapter import RuntimeConfig
 
 
 def _run_sandbox_setup(backend: SandboxBackendProtocol, setup_script_path: str) -> None:
@@ -65,7 +69,8 @@ def create_modal_sandbox(
         RuntimeError: Setup script failed
     """
     import modal
-    from modal import ModalBackend
+
+    from app.core.tools.sandbox.modal import ModalBackend
 
     logger.info("[yellow]Starting Modal sandbox...[/yellow]")
 
@@ -138,8 +143,9 @@ def create_runloop_sandbox(
         FileNotFoundError: Setup script not found
         RuntimeError: Setup script failed
     """
-    from runloop import RunloopBackend
     from runloop_api_client import Runloop
+
+    from app.core.tools.sandbox.runloop import RunloopBackend
 
     bearer_token = os.environ.get("RUNLOOP_API_KEY")
     if not bearer_token:
@@ -189,93 +195,137 @@ def create_runloop_sandbox(
                 logger.info(f"[yellow]⚠ Cleanup failed: {e}[/yellow]")
 
 
-'''
 @contextmanager
-def create_daytona_sandbox(
-    *, sandbox_id: str | None = None, setup_script_path: str | None = None
+def create_docker_sandbox(
+    *,
+    runtime: "RuntimeConfig | str | None" = None,
+    image: str = "python:3.12-slim",
+    session_id: str | None = None,
+    idle_timeout: int = 3600,
+    volumes: dict[str, str] | None = None,
+    working_dir: str = "/workspace",
+    setup_script_path: str | None = None,
 ) -> Generator[SandboxBackendProtocol, None, None]:
-    """Create Daytona sandbox.
+    """Create a Docker sandbox using pydantic-ai-backend.
+
+    This factory function creates an isolated Docker sandbox environment
+    for safe code execution. Supports pre-configured runtimes, session
+    management, and volume mounting.
 
     Args:
-        sandbox_id: Optional existing sandbox ID to reuse
+        runtime: Pre-configured runtime environment. Can be:
+                 - str: Name of builtin runtime ("python-datascience", "python-web", etc.)
+                 - RuntimeConfig: Custom runtime configuration
+                 - None: Use image parameter directly
+        image: Docker image to use (default: python:3.12-slim).
+               Ignored if runtime is specified.
+        session_id: Session identifier for multi-user scenarios.
+        idle_timeout: Time in seconds before idle container is cleaned up (default: 3600)
+        volumes: Docker volume mappings {host_path: container_path}
+        working_dir: Working directory in container
         setup_script_path: Optional path to setup script to run after sandbox starts
 
     Yields:
-        (DaytonaBackend, sandbox_id)
+        PydanticSandboxAdapter instance
 
-    Note:
-        Connecting to existing Daytona sandbox by ID may not be supported yet.
-        If sandbox_id is provided, this will raise NotImplementedError.
-    """
-    from daytona import Daytona, DaytonaConfig
+    Raises:
+        ImportError: pydantic-ai-backend[docker] not installed
+        RuntimeError: Sandbox creation or startup failed
+        FileNotFoundError: Setup script not found
+        RuntimeError: Setup script failed
 
-    from deepagents_cli.integrations.daytona import DaytonaBackend
+    Example:
+        ```python
+        from app.core.tools.sandbox.sandbox_factory import create_docker_sandbox
 
-    api_key = os.environ.get("DAYTONA_API_KEY")
-    if not api_key:
-        msg = "DAYTONA_API_KEY environment variable not set"
-        raise ValueError(msg)
+        # Using pre-configured runtime
+        with create_docker_sandbox(runtime="python-datascience") as sandbox:
+            result = sandbox.execute("python -c 'import pandas; print(pandas.__version__)'")
 
-    if sandbox_id:
-        msg = (
-            "Connecting to existing Daytona sandbox by ID not yet supported. "
-            "Create a new sandbox by omitting --sandbox-id."
-        )
-        raise NotImplementedError(msg)
+        # Using custom configuration
+        with create_docker_sandbox(
+            image="python:3.11",
+            volumes={"/data": "/workspace/data"},
+        ) as sandbox:
+            result = sandbox.execute("ls -la /workspace/data")
 
-    logger.info("[yellow]Starting Daytona sandbox...[/yellow]")
-
-    daytona = Daytona(DaytonaConfig(api_key=api_key))
-    sandbox = daytona.create()
-    sandbox_id = sandbox.id
-
-    # Poll until running (Daytona requires this)
-    for _ in range(90):  # 180s timeout (90 * 2s)
-        # Check if sandbox is ready by attempting a simple command
-        try:
-            result = sandbox.process.exec("echo ready", timeout=5)
-            if result.exit_code == 0:
-                break
-        except Exception:
+        # With session management
+        with create_docker_sandbox(
+            runtime="python-web",
+            session_id="user-123",
+            idle_timeout=1800,
+        ) as sandbox:
+            # Use sandbox...
             pass
-        time.sleep(2)
-    else:
-        try:
-            # Clean up if possible
-            sandbox.delete()
-        finally:
-            msg = "Daytona sandbox failed to start within 180 seconds"
-            raise RuntimeError(msg)
-
-    backend = DaytonaBackend(sandbox)
-    logger.info(f"[green]✓ Daytona sandbox ready: {backend.id}[/green]")
-
-    # Run setup script if provided
-    if setup_script_path:
-        _run_sandbox_setup(backend, setup_script_path)
+        ```
+    """
+    # Import here to avoid circular imports and allow graceful failure
     try:
-        yield backend
-    finally:
-        logger.info(f"[dim]Deleting Daytona sandbox {sandbox_id}...[/dim]")
+        from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+    except ImportError as e:
+        msg = "pydantic-ai-backend[docker] is required. Install with: pip install pydantic-ai-backend[docker]"
+        raise ImportError(msg) from e
+
+    # Resolve runtime if it's a string
+    resolved_runtime = None
+    if runtime is not None:
+        if isinstance(runtime, str):
+            from app.core.agent.backends.pydantic_adapter import BUILTIN_RUNTIMES
+
+            if runtime in BUILTIN_RUNTIMES:
+                resolved_runtime = BUILTIN_RUNTIMES[runtime]
+            else:
+                # Treat as image name, not a runtime
+                image = runtime
+                resolved_runtime = None
+        else:
+            resolved_runtime = runtime
+
+    runtime_info = f"runtime={resolved_runtime.name if resolved_runtime else None}, "
+    logger.info(f"[yellow]Starting Docker sandbox: {runtime_info}image={image}, session_id={session_id}[/yellow]")
+
+    try:
+        backend = PydanticSandboxAdapter(
+            image=image,
+            working_dir=working_dir,
+            runtime=resolved_runtime,
+            session_id=session_id,
+            idle_timeout=idle_timeout,
+            volumes=volumes,
+        )
+        logger.info(f"[green]✓ Docker sandbox ready: {backend.id}[/green]")
+
+        # Run setup script if provided
+        if setup_script_path:
+            _run_sandbox_setup(backend, setup_script_path)
+
         try:
-            sandbox.delete()
-            logger.info(f"[dim]✓ Daytona sandbox {sandbox_id} terminated[/dim]")
-        except Exception as e:
-            logger.info(f"[yellow]⚠ Cleanup failed: {e}[/yellow]")
-'''
+            yield backend
+        finally:
+            try:
+                logger.info(f"[dim]Stopping Docker sandbox {backend.id}...[/dim]")
+                backend.cleanup()
+                logger.info(f"[dim]✓ Docker sandbox {backend.id} terminated[/dim]")
+            except Exception as e:
+                logger.warning(f"[yellow]⚠ Docker sandbox cleanup failed: {e}[/yellow]")
+
+    except Exception as e:
+        logger.error(f"[red]Failed to create Docker sandbox: {e}[/red]")
+        raise
+
 
 _PROVIDER_TO_WORKING_DIR = {
     "modal": "/workspace",
     "runloop": "/home/user",
-    # "daytona": "/home/daytona",
+    "docker": "/workspace",
 }
 
 
 # Mapping of sandbox types to their context manager factories
-_SANDBOX_PROVIDERS = {
+_SANDBOX_PROVIDERS: dict[str, Callable[..., ContextManager[SandboxBackendProtocol]]] = {
     "modal": create_modal_sandbox,
     "runloop": create_runloop_sandbox,
-    #    "daytona": create_daytona_sandbox,
+    "docker": create_docker_sandbox,
 }
 
 
@@ -292,12 +342,12 @@ def create_sandbox(
     the appropriate provider-specific context manager.
 
     Args:
-        provider: Sandbox provider ("modal", "runloop", "daytona")
+        provider: Sandbox provider ("modal", "runloop", "docker")
         sandbox_id: Optional existing sandbox ID to reuse
         setup_script_path: Optional path to setup script to run after sandbox starts
 
     Yields:
-        (SandboxBackend, sandbox_id)
+        SandboxBackend instance
     """
     if provider not in _SANDBOX_PROVIDERS:
         msg = f"Unknown sandbox provider: {provider}. Available providers: {', '.join(get_available_sandbox_types())}"
@@ -313,7 +363,7 @@ def get_available_sandbox_types() -> list[str]:
     """Get list of available sandbox provider types.
 
     Returns:
-        List of sandbox type names (e.g., ["modal", "runloop", "daytona"])
+        List of sandbox type names (e.g., ["modal", "runloop", "docker"])
     """
     return list(_SANDBOX_PROVIDERS.keys())
 
@@ -322,7 +372,7 @@ def get_default_working_dir(provider: str) -> str:
     """Get the default working directory for a given sandbox provider.
 
     Args:
-        provider: Sandbox provider name ("modal", "runloop", "daytona")
+        provider: Sandbox provider name ("modal", "runloop", "docker")
 
     Returns:
         Default working directory path as string
@@ -338,6 +388,7 @@ def get_default_working_dir(provider: str) -> str:
 
 __all__ = [
     "create_sandbox",
+    "create_docker_sandbox",
     "get_available_sandbox_types",
     "get_default_working_dir",
 ]

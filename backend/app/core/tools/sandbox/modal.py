@@ -1,4 +1,25 @@
-"""Modal sandbox backend implementation."""
+"""Modal sandbox backend implementation.
+
+This module provides a Modal.com cloud sandbox backend that implements
+the SandboxBackendProtocol interface through BaseSandbox inheritance.
+
+Modal sandboxes provide fully isolated cloud execution environments with:
+- Automatic scaling and resource management
+- Persistent storage support
+- Network isolation
+- Pre-built container images
+
+For local Docker sandboxes, see `app.core.agent.backends.PydanticSandboxAdapter`.
+
+Example:
+    ```python
+    from app.core.tools.sandbox import create_sandbox
+
+    with create_sandbox("modal") as sandbox:
+        result = sandbox.execute("python --version")
+        print(result.output)
+    ```
+"""
 
 from __future__ import annotations
 

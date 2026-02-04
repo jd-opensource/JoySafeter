@@ -1,4 +1,25 @@
-"""BackendProtocol implementation for Runloop."""
+"""Runloop devbox sandbox backend implementation.
+
+This module provides a Runloop.ai cloud devbox backend that implements
+the SandboxBackendProtocol interface through BaseSandbox inheritance.
+
+Runloop devboxes provide cloud development environments with:
+- Persistent workspace storage
+- Pre-configured development tools
+- Network access for package installation
+- Long-running session support
+
+For local Docker sandboxes, see `app.core.agent.backends.PydanticSandboxAdapter`.
+
+Example:
+    ```python
+    from app.core.tools.sandbox import create_sandbox
+
+    with create_sandbox("runloop") as sandbox:
+        result = sandbox.execute("python --version")
+        print(result.output)
+    ```
+"""
 
 import os
 

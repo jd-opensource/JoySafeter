@@ -167,6 +167,11 @@ async def save_run_result(thread_id: str, state: StreamState, log) -> None:
             # 复用已有的保存逻辑 (代码在下方定义)
             await save_assistant_message(thread_id, state.all_messages, session, update_conversation=True)
             log.info(f"Persisted messages for thread {thread_id}")
+    except asyncio.CancelledError:
+        # 任务/请求在关闭阶段被取消时，这里可能会被打断。
+        # 这是预期行为（例如客户端断开或 stop 请求），不需要作为错误处理。
+        log.warning(f"Save run result cancelled for thread {thread_id}")
+        # 不重新抛出，避免在连接终止过程中产生误导性错误日志。
     except Exception as e:
         log.error(f"Failed to persist messages for thread {thread_id}: {e}")
 
@@ -701,25 +706,48 @@ async def chat_stream(
             yield handler.format_sse("error", {"message": str(e), "_meta": {"node_name": "system"}}, thread_id)
         finally:
             # 7. 清理与持久化 (关键：使用 finally 确保即使报错/断连也执行)
-            await task_manager.unregister_task(thread_id)
-            await save_run_result(thread_id, state, log)
+            try:
+                await task_manager.unregister_task(thread_id)
+            except asyncio.CancelledError:
+                log.debug(f"Task unregister cancelled for thread {thread_id}")
+            except Exception as e:
+                log.warning(f"Failed to unregister task for thread {thread_id}: {e}")
+
+            try:
+                await save_run_result(thread_id, state, log)
+            except asyncio.CancelledError:
+                # 在请求取消/连接终止时被打断是预期行为
+                log.debug(f"save_run_result cancelled in finally for thread {thread_id}")
+            except Exception as e:
+                log.warning(f"Failed to save run result in finally for thread {thread_id}: {e}")
+
             # Cleanup shared backend if exists
             if "graph" in locals() and hasattr(graph, "_cleanup_backend"):
                 try:
                     await graph._cleanup_backend()
+                except asyncio.CancelledError:
+                    log.debug(f"Backend cleanup cancelled for thread {thread_id}")
                 except Exception as e:
                     log.warning(f"[Chat API Stream] Failed to cleanup backend: {e}")
+
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
-                async with AsyncSessionLocal() as session:
-                    result_query = await session.execute(
-                        select(Conversation).where(Conversation.thread_id == thread_id)
+                try:
+                    async with AsyncSessionLocal() as session:
+                        result_query = await session.execute(
+                            select(Conversation).where(Conversation.thread_id == thread_id)
+                        )
+                        if conv := result_query.scalar_one_or_none():
+                            if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
+                                del conv.meta_data["interrupted_graph_id"]
+                                await session.commit()
+                                log.debug(f"Cleared interrupt marker from conversation | thread_id={thread_id}")
+                except asyncio.CancelledError:
+                    log.debug(f"Clear interrupt marker cancelled for thread {thread_id} (connection closing)")
+                except Exception as e:
+                    log.warning(
+                        f"Failed to clear interrupt marker for conversation | thread_id={thread_id} | error={e}"
                     )
-                    if conv := result_query.scalar_one_or_none():
-                        if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
-                            del conv.meta_data["interrupted_graph_id"]
-                            await session.commit()
-                            log.debug(f"Cleared interrupt marker from conversation | thread_id={thread_id}")
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

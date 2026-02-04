@@ -1,13 +1,16 @@
 """StateSandboxBackend: StateBackend with command execution support."""
 
-import subprocess
 import uuid
 from typing import TYPE_CHECKING
 
 from deepagents.backends.protocol import ExecuteResponse, SandboxBackendProtocol
 from deepagents.backends.state import StateBackend
 
-from app.utils.backend_utils import create_execute_response
+from app.core.agent.backends.constants import (
+    DEFAULT_COMMAND_TIMEOUT,
+    DEFAULT_MAX_OUTPUT_SIZE,
+)
+from app.core.agent.backends.utils.command_executor import execute_local_command
 
 if TYPE_CHECKING:
     from langchain.tools import ToolRuntime
@@ -27,7 +30,7 @@ class StateSandboxBackend(StateBackend, SandboxBackendProtocol):
 
     Example:
         ```python
-        from app.backends.state_sandbox import StateSandboxBackend
+        from app.core.agent.backends import StateSandboxBackend
 
         # Use as a factory function
         agent = create_agent(
@@ -36,17 +39,24 @@ class StateSandboxBackend(StateBackend, SandboxBackendProtocol):
         ```
     """
 
-    def __init__(self, runtime: "ToolRuntime", max_output_size: int = 100000):
+    def __init__(
+        self,
+        runtime: "ToolRuntime",
+        max_output_size: int = DEFAULT_MAX_OUTPUT_SIZE,
+        command_timeout: int = DEFAULT_COMMAND_TIMEOUT,
+    ):
         """Initialize StateSandboxBackend.
 
         Args:
             runtime: The tool runtime context.
             max_output_size: Maximum size of command output in characters.
                 Output exceeding this limit will be truncated.
+            command_timeout: Command execution timeout in seconds (default: 30).
         """
         super().__init__(runtime)
         self._id = str(uuid.uuid4())
         self.max_output_size = max_output_size
+        self.command_timeout = command_timeout
 
     @property
     def id(self) -> str:
@@ -62,41 +72,9 @@ class StateSandboxBackend(StateBackend, SandboxBackendProtocol):
         Returns:
             ExecuteResponse with combined stdout/stderr output and exit code.
         """
-        try:
-            # Execute command with timeout
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=30,  # 30 seconds timeout
-            )
-
-            # Combine stdout and stderr
-            output = ""
-            if result.stdout:
-                output += result.stdout
-            if result.stderr:
-                if output:
-                    output += "\n"
-                output += result.stderr
-
-            # Create response with automatic truncation
-            return create_execute_response(
-                output=output,
-                exit_code=result.returncode,
-                max_output_size=self.max_output_size,
-            )
-
-        except subprocess.TimeoutExpired:
-            return ExecuteResponse(
-                output="Error: Command execution timed out (30 seconds limit)",
-                exit_code=-1,
-                truncated=False,
-            )
-        except Exception as e:
-            return ExecuteResponse(
-                output=f"Error executing command: {str(e)}",
-                exit_code=-1,
-                truncated=False,
-            )
+        return execute_local_command(
+            command=command,
+            cwd=None,  # StateBackend doesn't have a specific working directory
+            timeout=self.command_timeout,
+            max_output_size=self.max_output_size,
+        )

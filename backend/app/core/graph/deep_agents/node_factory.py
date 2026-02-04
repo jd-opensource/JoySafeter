@@ -106,48 +106,37 @@ class DeepAgentsNodeBuilder:
             additional_authorized_imports=config.additional_imports,
         )
 
-    def _should_use_shared_backend(self, config: CodeAgentConfig) -> bool:
-        """Check if shared backend should be used."""
-        shared_backend = self.builder.get_shared_backend()
-        return (
-            shared_backend
-            and not self.builder.is_shared_backend_creation_failed()
-            and config.executor_type in ("docker", "auto")
-        )
-
     def _build_code_agent_executor(self, config: CodeAgentConfig) -> Any:
-        """Build executor for CodeAgent based on config."""
-        from app.core.agent.code_agent import DockerPythonExecutor, ExecutorRouter
+        """Build executor for CodeAgent - uses shared backend if available."""
+        from app.core.agent.code_agent import ExecutorRouter
         from app.core.agent.code_agent.executor.backend_executor import BackendPythonExecutor
 
-        if self._should_use_shared_backend(config):
+        backend = self.builder.get_backend()
+
+        # Use shared backend if available and executor type supports Docker
+        if backend and config.executor_type in ("docker", "auto"):
             from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
 
-            shared_backend = self.builder.get_shared_backend()
-
-            if isinstance(shared_backend, PydanticSandboxAdapter):
-                shared_executor = BackendPythonExecutor(backend=shared_backend)
+            if isinstance(backend, PydanticSandboxAdapter):
+                docker_executor = BackendPythonExecutor(backend=backend)
                 logger.info(f"{LOG_PREFIX} CodeAgent '{config.name}' using shared Docker backend")
 
                 if config.executor_type == "docker":
-                    return shared_executor
-                else:
+                    return docker_executor
+                else:  # auto
                     return ExecutorRouter(
                         local=self._create_local_executor(config),
-                        docker=shared_executor,
+                        docker=docker_executor,
                         allow_dangerous=True,
                     )
 
-        if config.executor_type == "docker":
-            return DockerPythonExecutor(image=config.docker_image)
-        elif config.executor_type == "auto":
-            return ExecutorRouter(
-                local=self._create_local_executor(config),
-                docker=DockerPythonExecutor(image=config.docker_image),
-                allow_dangerous=True,
+        # Fall back to local executor
+        if config.executor_type in ("docker", "auto") and not backend:
+            logger.debug(
+                f"{LOG_PREFIX} CodeAgent '{config.name}' requested {config.executor_type} "
+                "but no shared Docker backend, using local executor"
             )
-        else:
-            return self._create_local_executor(config)
+        return self._create_local_executor(config)
 
     def _build_code_agent_tools_dict(self, tools: list[Any]) -> dict[str, Any]:
         """Convert tools list to dict for CodeAgent."""

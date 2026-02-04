@@ -92,9 +92,6 @@ const REGISTRY: NodeDefinition[] = [
       workspace_dir: '', // Custom workspace subdirectory (defaults to graph name)
       docker_config: {
         image: 'python:3.12-slim',
-        memory_limit: '512m',
-        cpu_quota: 50000,
-        network_mode: 'none',
         working_dir: '/workspace',
         auto_remove: true,
         max_output_size: 100000,
