@@ -131,8 +131,9 @@ celerybeat.pid
 *.env
 .env
 .venv
-env.*
-!frontend/lib/core/config/env.ts  # 允许前端配置文件
+# env.* 会误伤 backend/alembic/env.py，故只忽略根目录下的 env.*
+/env.*
+!frontend/lib/core/config/env.ts    # 允许前端配置文件
 src/ENV/
 venv/
 ENV/

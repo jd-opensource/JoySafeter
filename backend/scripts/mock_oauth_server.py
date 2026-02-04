@@ -19,7 +19,7 @@
 import base64
 import json
 import secrets
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 # 内存存储：授权码 -> { redirect_uri, state }；access_token -> True

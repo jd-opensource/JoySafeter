@@ -18,6 +18,10 @@ class AuthUserRepository(BaseRepository[AuthUser]):
     def __init__(self, db: AsyncSession):
         super().__init__(AuthUser, db)
 
+    async def get_by_id(self, user_id: str) -> Optional[AuthUser]:
+        """根据用户 ID 获取用户（AuthUser 主键为 str）"""
+        return await self.get_by(id=user_id)
+
     async def get_by_email(self, email: str) -> Optional[AuthUser]:
         """根据邮箱获取用户"""
         return await self.get_by(email=email)

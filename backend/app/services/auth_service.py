@@ -266,28 +266,9 @@ class AuthService(BaseService):
             raise UnauthorizedException("Email not verified. Please verify your email before logging in.", code=403)
 
         if login_success:
-            user.last_login_at = datetime.now(timezone.utc)
-            user.last_login_ip = ip_address
-            await self.commit()
+            from app.services.login_init import run_post_login_init
 
-            try:
-                await self.audit_service.log_event(
-                    event_type="login_success",
-                    event_status="success",
-                    ip_address=ip_address or "unknown",
-                    user_id=user.id,
-                    user_email=user.email,
-                )
-            except Exception:
-                pass
-
-        try:
-            from app.services.workspace_service import WorkspaceService
-
-            workspace_service = WorkspaceService(self.db)
-            await workspace_service.ensure_personal_workspace(user)
-        except Exception:
-            pass
+            await run_post_login_init(self.db, user, ip_address or "unknown")
 
         access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(user.id)
         return self._build_jwt_login_response(

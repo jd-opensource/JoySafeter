@@ -132,6 +132,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           if (!model && !value.includes(':')) {
             // Try to find by name only (old format)
             model = models.find(m => {
+              if (!m.id) return false
               const modelName = m.id.includes(':') ? m.id.split(':')[1] : m.id
               return modelName === value
             })
