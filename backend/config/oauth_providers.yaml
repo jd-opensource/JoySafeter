@@ -25,7 +25,7 @@ providers:
   # 使用方式：1) 运行 backend/scripts/mock_oauth_server.py  2) 本项 enabled 改为 true
   #          3) 设置环境变量 OAUTH_LOCAL_CLIENT_ID=local-client OAUTH_LOCAL_CLIENT_SECRET=local-secret
   local:
-    enabled: false
+    enabled: true
     display_name: "本地测试"
     icon: "key"
     client_id: ${OAUTH_LOCAL_CLIENT_ID}
