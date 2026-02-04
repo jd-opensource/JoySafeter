@@ -12,7 +12,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import httpx
 import yaml
@@ -297,7 +297,7 @@ class OAuthConfigLoader:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(discovery_url)
                 response.raise_for_status()
-                config = response.json()
+                config: Dict[str, Any] = response.json()
                 self._oidc_discovery_cache[issuer] = config
                 logger.info(f"{LOG_PREFIX} OIDC Discovery successful: {issuer}")
                 return config

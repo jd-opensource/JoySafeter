@@ -12,7 +12,7 @@ OAuth/OIDC 服务 - 处理 OAuth 登录流程的业务逻辑
 
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 from urllib.parse import urlencode
 
 import httpx
@@ -89,11 +89,11 @@ class OAuthService(BaseService):
                 logger.warning(f"{LOG_PREFIX} Failed to store state in Redis: {e}")
 
         # 获取 authorize URL（可能需要 OIDC Discovery）
-        authorize_url = provider.authorize_url
+        authorize_url: Optional[str] = provider.authorize_url or None
         if not authorize_url and provider.issuer:
             try:
                 oidc_config = await self.oauth_config.discover_oidc_config(provider.issuer)
-                authorize_url = oidc_config.get("authorization_endpoint")
+                authorize_url = cast(Optional[str], oidc_config.get("authorization_endpoint"))
             except Exception as e:
                 logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
                 raise BadRequestException(f"Failed to discover OAuth endpoints for {provider_name}")
@@ -140,7 +140,7 @@ class OAuthService(BaseService):
                 if state_data_str:
                     # 删除已使用的 state（防止重放攻击）
                     await RedisClient.delete(state_key)
-                    return json.loads(state_data_str)
+                    return cast(Dict[str, Any], json.loads(state_data_str))
             except Exception as e:
                 logger.warning(f"{LOG_PREFIX} Failed to validate state from Redis: {e}")
 
@@ -170,11 +170,11 @@ class OAuthService(BaseService):
             raise BadRequestException(f"OAuth provider '{provider_name}' not found")
 
         # 获取 token URL
-        token_url = provider.token_url
+        token_url: Optional[str] = provider.token_url or None
         if not token_url and provider.issuer:
             try:
                 oidc_config = await self.oauth_config.discover_oidc_config(provider.issuer)
-                token_url = oidc_config.get("token_endpoint")
+                token_url = cast(Optional[str], oidc_config.get("token_endpoint"))
             except Exception as e:
                 logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
                 raise BadRequestException(f"Failed to discover token endpoint for {provider_name}")
@@ -215,7 +215,7 @@ class OAuthService(BaseService):
                 # GitHub 可能返回 application/x-www-form-urlencoded
                 content_type = response.headers.get("content-type", "")
                 if "application/json" in content_type:
-                    tokens = response.json()
+                    tokens: Dict[str, Any] = response.json()
                 else:
                     # 解析 URL 编码的响应
                     from urllib.parse import parse_qs
@@ -275,7 +275,7 @@ class OAuthService(BaseService):
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(userinfo_url, headers=headers)
                 response.raise_for_status()
-                userinfo = response.json()
+                userinfo: Dict[str, Any] = response.json()
 
                 # GitHub 特殊处理：需要单独获取邮箱
                 if provider_name == "github" and not userinfo.get("email"):
@@ -310,12 +310,12 @@ class OAuthService(BaseService):
                 # 优先返回 primary 且 verified 的邮箱
                 for email in emails:
                     if email.get("primary") and email.get("verified"):
-                        return email.get("email")
+                        return cast(Optional[str], email.get("email"))
 
                 # 其次返回任意 verified 的邮箱
                 for email in emails:
                     if email.get("verified"):
-                        return email.get("email")
+                        return cast(Optional[str], email.get("email"))
 
                 return None
         except Exception as e:

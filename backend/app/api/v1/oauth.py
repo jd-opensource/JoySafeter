@@ -368,7 +368,7 @@ async def get_my_oauth_accounts(
     from app.common.dependencies import get_current_user
 
     # 手动调用依赖获取当前用户
-    current_user = await get_current_user(request, db)
+    current_user = await get_current_user(None, request, db)
 
     oauth_service = OAuthService(db)
     accounts = await oauth_service.get_user_oauth_accounts(current_user.id)
@@ -401,7 +401,7 @@ async def unlink_oauth_account(
     """
     from app.common.dependencies import get_current_user
 
-    current_user = await get_current_user(request, db)
+    current_user = await get_current_user(None, request, db)
 
     oauth_service = OAuthService(db)
     success = await oauth_service.unlink_oauth_account(current_user.id, provider)
