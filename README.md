@@ -366,49 +366,64 @@ JoySafeter follows a layered architecture pattern with clear separation of conce
 
 ```mermaid
 flowchart TB
-    subgraph Frontend["Frontend Layer (Next.js 16 + React 19)"]
-        UI[Visual Builder<br/>ReactFlow]
-        Trace[Execution Trace<br/>SSE Stream]
-        Workspace[Workspace Manager<br/>RBAC]
-        Copilot[Copilot AI<br/>Graph Assistant]
+    subgraph Row1[" "]
+        direction LR
+
+        subgraph Frontend["Frontend Layer (Next.js 16 + React 19)"]
+            direction TB
+            UI["Visual Builder<br/>ReactFlow"]
+            Trace["Execution Trace<br/>SSE Stream"]
+            Workspace["Workspace Manager<br/>RBAC"]
+            Copilot["Copilot AI<br/>Graph Assistant"]
+        end
+
+        subgraph API["API Layer (FastAPI)"]
+            direction TB
+            REST["REST APIs<br/>Auth/Graphs/Chat/Skills"]
+            SSE["SSE Stream<br/>Real-time Events"]
+        end
+
+        subgraph Services["Service Layer"]
+            direction TB
+            GraphSvc["GraphService"]
+            SkillSvc["SkillService"]
+            MemorySvc["MemoryService"]
+            McpSvc["McpClient<br/>Service"]
+            ToolSvc["ToolService"]
+        end
+
+        subgraph Engine["Core Engine"]
+            direction TB
+            Builder["GraphBuilder<br/>Factory Pattern"]
+            LangBuilder["LanggraphModel<br/>Builder<br/>Standard Workflows"]
+            DeepBuilder["DeepAgents<br/>Builder<br/>Multi-Agent"]
+            Executors["Node Executors<br/>11 Types"]
+            Middleware["Middleware System<br/>Extensible"]
+            SkillSys["Skill System<br/>Progressive Disclosure"]
+            MemorySys["Memory System<br/>Long/Short-term"]
+        end
     end
 
-    subgraph API["API Layer (FastAPI)"]
-        REST[REST APIs<br/>Auth/Graphs/Chat/Skills]
-        SSE[SSE Stream<br/>Real-time Events]
-    end
+    subgraph Row2[" "]
+        direction LR
 
-    subgraph Services["Service Layer"]
-        GraphSvc[GraphService]
-        SkillSvc[SkillService]
-        MemorySvc[MemoryService]
-        McpSvc[McpClientService]
-        ToolSvc[ToolService]
-    end
+        subgraph Runtime["Runtime Layer"]
+            direction TB
+            LangGraph["LangGraph Runtime<br/>StateGraph"]
+            Checkpoint["Checkpointer<br/>State Persistence"]
+        end
 
-    subgraph Engine["Core Engine"]
-        Builder[GraphBuilder<br/>Factory Pattern]
-        LangBuilder[LanggraphModelBuilder<br/>Standard Workflows]
-        DeepBuilder[DeepAgentsBuilder<br/>Multi-Agent]
-        Executors[Node Executors<br/>11 Types]
-        Middleware[Middleware System<br/>Extensible]
-        SkillSys[Skill System<br/>Progressive Disclosure]
-        MemorySys[Memory System<br/>Long/Short-term]
-    end
+        subgraph Data["Data Layer"]
+            direction TB
+            PG["(PostgreSQL<br/>Graphs/Skills/Memories)"]
+            Redis["(Redis<br/>Cache/Rate Limit)"]
+        end
 
-    subgraph Runtime["Runtime Layer"]
-        LangGraph[LangGraph Runtime<br/>StateGraph]
-        Checkpoint[Checkpointer<br/>State Persistence]
-    end
-
-    subgraph Data["Data Layer"]
-        PG[(PostgreSQL<br/>Graphs/Skills/Memories)]
-        Redis[(Redis<br/>Cache/Rate Limit)]
-    end
-
-    subgraph MCP["MCP Tool Ecosystem"]
-        MCPServers[MCP Servers<br/>200+ Security Tools]
-        Tools[Tool Registry<br/>Unified Management]
+        subgraph MCP["MCP Tool Ecosystem"]
+            direction TB
+            MCPServers["MCP Servers<br/>200+ Security Tools"]
+            Tools["Tool Registry<br/>Unified Management"]
+        end
     end
 
     UI --> REST
@@ -421,11 +436,13 @@ flowchart TB
 
     Services --> Engine
     Engine --> Runtime
-    Runtime --> MCP
     Runtime --> Data
+    Runtime --> MCP
 
-    MCP --> MCPServers
     MCPServers --> Tools
+
+    style Row1 fill:transparent,stroke:transparent
+    style Row2 fill:transparent,stroke:transparent
 
     style Frontend fill:#e1f5ff
     style API fill:#f3e5f5
@@ -434,6 +451,7 @@ flowchart TB
     style Runtime fill:#fff8e1
     style Data fill:#fce4ec
     style MCP fill:#e0f2f1
+
 ```
 
 ### Core Modules

@@ -372,49 +372,64 @@ JoySafeter 采用分层架构模式，各层职责清晰：
 
 ```mermaid
 flowchart TB
-    subgraph Frontend["前端层 (Next.js 16 + React 19)"]
-        UI[可视化构建器<br/>ReactFlow]
-        Trace[执行追踪<br/>SSE 流式输出]
-        Workspace[工作区管理<br/>RBAC]
-        Copilot[Copilot AI<br/>图构建助手]
+    subgraph Row1[" "]
+        direction LR
+
+        subgraph Frontend["Frontend Layer (Next.js 16 + React 19)"]
+            direction TB
+            UI["Visual Builder<br/>ReactFlow"]
+            Trace["Execution Trace<br/>SSE Stream"]
+            Workspace["Workspace Manager<br/>RBAC"]
+            Copilot["Copilot AI<br/>Graph Assistant"]
+        end
+
+        subgraph API["API Layer (FastAPI)"]
+            direction TB
+            REST["REST APIs<br/>Auth/Graphs/Chat/Skills"]
+            SSE["SSE Stream<br/>Real-time Events"]
+        end
+
+        subgraph Services["Service Layer"]
+            direction TB
+            GraphSvc["GraphService"]
+            SkillSvc["SkillService"]
+            MemorySvc["MemoryService"]
+            McpSvc["McpClient<br/>Service"]
+            ToolSvc["ToolService"]
+        end
+
+        subgraph Engine["Core Engine"]
+            direction TB
+            Builder["GraphBuilder<br/>Factory Pattern"]
+            LangBuilder["LanggraphModel<br/>Builder<br/>Standard Workflows"]
+            DeepBuilder["DeepAgents<br/>Builder<br/>Multi-Agent"]
+            Executors["Node Executors<br/>11 Types"]
+            Middleware["Middleware System<br/>Extensible"]
+            SkillSys["Skill System<br/>Progressive Disclosure"]
+            MemorySys["Memory System<br/>Long/Short-term"]
+        end
     end
 
-    subgraph API["API 层 (FastAPI)"]
-        REST[REST API<br/>认证/图/对话/技能]
-        SSE[SSE 流式输出<br/>实时事件]
-    end
+    subgraph Row2[" "]
+        direction LR
 
-    subgraph Services["服务层"]
-        GraphSvc[GraphService]
-        SkillSvc[SkillService]
-        MemorySvc[MemoryService]
-        McpSvc[McpClientService]
-        ToolSvc[ToolService]
-    end
+        subgraph Runtime["Runtime Layer"]
+            direction TB
+            LangGraph["LangGraph Runtime<br/>StateGraph"]
+            Checkpoint["Checkpointer<br/>State Persistence"]
+        end
 
-    subgraph Engine["核心引擎"]
-        Builder[GraphBuilder<br/>工厂模式]
-        LangBuilder[LanggraphModelBuilder<br/>标准工作流]
-        DeepBuilder[DeepAgentsBuilder<br/>多智能体]
-        Executors[节点执行器<br/>11 种类型]
-        Middleware[中间件系统<br/>可扩展]
-        SkillSys[技能系统<br/>渐进式披露]
-        MemorySys[记忆系统<br/>长短期记忆]
-    end
+        subgraph Data["Data Layer"]
+            direction TB
+            PG["(PostgreSQL<br/>Graphs/Skills/Memories)"]
+            Redis["(Redis<br/>Cache/Rate Limit)"]
+        end
 
-    subgraph Runtime["运行时层"]
-        LangGraph[LangGraph Runtime<br/>StateGraph]
-        Checkpoint[Checkpointer<br/>状态持久化]
-    end
-
-    subgraph Data["数据层"]
-        PG[(PostgreSQL<br/>图/技能/记忆)]
-        Redis[(Redis<br/>缓存/限流)]
-    end
-
-    subgraph MCP["MCP 工具生态"]
-        MCPServers[MCP 服务器<br/>200+ 安全工具]
-        Tools[工具注册表<br/>统一管理]
+        subgraph MCP["MCP Tool Ecosystem"]
+            direction TB
+            MCPServers["MCP Servers<br/>200+ Security Tools"]
+            Tools["Tool Registry<br/>Unified Management"]
+        end
     end
 
     UI --> REST
@@ -427,11 +442,13 @@ flowchart TB
 
     Services --> Engine
     Engine --> Runtime
-    Runtime --> MCP
     Runtime --> Data
+    Runtime --> MCP
 
-    MCP --> MCPServers
     MCPServers --> Tools
+
+    style Row1 fill:transparent,stroke:transparent
+    style Row2 fill:transparent,stroke:transparent
 
     style Frontend fill:#e1f5ff
     style API fill:#f3e5f5
@@ -440,6 +457,7 @@ flowchart TB
     style Runtime fill:#fff8e1
     style Data fill:#fce4ec
     style MCP fill:#e0f2f1
+
 ```
 
 ### 核心模块
