@@ -38,6 +38,7 @@ from app.core.graph.node_executors import (
     ToolNodeExecutor,
 )
 from app.core.graph.node_type_registry import NodeTypeRegistry
+from app.core.model.utils.model_ref import parse_model_ref
 from app.core.tools.tool import EnhancedTool
 from app.core.tools.tool_registry import get_global_registry
 from app.models.graph import AgentGraph, GraphEdge, GraphNode
@@ -396,15 +397,22 @@ class BaseGraphBuilder(ABC):
         2. 如果只有 model_name，使用 ModelService.get_runtime_model_by_name
         3. 出现异常或未配置时，回退到 get_default_model（环境 / settings 默认）
 
+        支持的模型引用格式：
+        - 组合格式：config.model = "provider:model_name"
+        - 拆分字段：config.provider_name + config.model_name
+        - 兼容字段：config.provider + config.model
+
         这个方法可以在子类中被重写以提供不同的解析逻辑。
         """
         data = node.data or {}
         config = data.get("config", {}) or {}
 
-        # 节点配置优先，其次是全局 llm_model
-        # 同时支持 provider 和 model 两个字段
-        provider_name = config.get("provider_name") or config.get("provider")
-        model_name = config.get("model_name") or config.get("model") or config.get("name") or self.llm_model
+        # 使用统一的 parse_model_ref 解析模型引用
+        # 优先级: provider_name > provider, model_name > model > name > self.llm_model
+        raw_provider = config.get("provider_name") or config.get("provider")
+        raw_model = config.get("model_name") or config.get("model") or config.get("name") or self.llm_model
+
+        provider_name, model_name = parse_model_ref(raw_model, raw_provider)
 
         logger.debug(
             f"[BaseGraphBuilder._resolve_node_llm] Resolving model for node_id={node.id} | "
@@ -783,12 +791,24 @@ class BaseGraphBuilder(ABC):
         if not enable_memory:
             return None
 
-        # Get memory model name
-        memory_model_name = config.get("memoryModel")
-        if not memory_model_name:
+        # Get memory model using unified parse_model_ref
+        # Supports: "provider:model", memoryProvider + memoryModel, or plain model name
+        raw_memory_provider = config.get("memoryProvider") or config.get("memory_provider")
+        raw_memory_model = config.get("memoryModel")
+
+        if not raw_memory_model:
             logger.warning(
                 f"[BaseGraphBuilder] enableMemory=True but memoryModel not specified "
                 f"for node '{data.get('label', 'unknown')}'. Skipping memory middleware."
+            )
+            return None
+
+        memory_provider_name, memory_model_name = parse_model_ref(raw_memory_model, raw_memory_provider)
+
+        if not memory_model_name:
+            logger.warning(
+                f"[BaseGraphBuilder] enableMemory=True but memoryModel could not be parsed "
+                f"for node '{data.get('label', 'unknown')}'. raw_value={raw_memory_model}. Skipping memory middleware."
             )
             return None
 
@@ -801,25 +821,39 @@ class BaseGraphBuilder(ABC):
             if self.model_service and memory_model_name:
                 try:
                     workspace_id = getattr(self.graph, "workspace_id", None)
-                    memory_model = await self.model_service.get_runtime_model_by_name(
-                        model_name=memory_model_name,
-                        workspace_id=workspace_id,
-                    )
-                    logger.info(
-                        f"[BaseGraphBuilder._resolve_memory_middleware] Successfully resolved memory model "
-                        f"via ModelService | model_name={memory_model_name}"
-                    )
+                    # If provider is known, prefer exact match
+                    if memory_provider_name:
+                        memory_model = await self.model_service.get_model_instance(
+                            user_id=str(self.user_id) if self.user_id else "system",
+                            provider_name=memory_provider_name,
+                            model_name=str(memory_model_name),
+                            workspace_id=workspace_id,
+                            use_default=False,
+                        )
+                        logger.info(
+                            f"[BaseGraphBuilder._resolve_memory_middleware] Successfully resolved memory model "
+                            f"via ModelService.get_model_instance | provider_name={memory_provider_name} | model_name={memory_model_name}"
+                        )
+                    else:
+                        memory_model = await self.model_service.get_runtime_model_by_name(
+                            model_name=str(memory_model_name),
+                            workspace_id=workspace_id,
+                        )
+                        logger.info(
+                            f"[BaseGraphBuilder._resolve_memory_middleware] Successfully resolved memory model "
+                            f"via ModelService.get_runtime_model_by_name | model_name={memory_model_name}"
+                        )
                 except Exception as e:
                     logger.warning(
                         f"[BaseGraphBuilder._resolve_memory_middleware] Failed to resolve model via ModelService | "
-                        f"model_name={memory_model_name} | error={type(e).__name__}: {e} | "
+                        f"provider_name={memory_provider_name} | model_name={memory_model_name} | error={type(e).__name__}: {e} | "
                         f"Falling back to get_default_model."
                     )
 
             # Fallback to get_default_model if model_service failed or not available
             if memory_model is None:
                 memory_model = get_default_model(
-                    llm_model=memory_model_name,
+                    llm_model=str(memory_model_name),
                     api_key=self.api_key,
                     base_url=self.base_url,
                     max_tokens=self.max_tokens,

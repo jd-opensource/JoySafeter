@@ -125,10 +125,23 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
       case 'modelSelect':
         // Try to get model label from the models list
         if (typeof value === 'string') {
-          const model = models.find(m => m.id === value)
+          // Support both new format (provider:name) and old format (name only)
+          let model = models.find(m => m.id === value)
+
+          // Backward compatibility: if not found with new format, try old format (name only)
+          if (!model && !value.includes(':')) {
+            // Try to find by name only (old format)
+            model = models.find(m => {
+              const modelName = m.id.includes(':') ? m.id.split(':')[1] : m.id
+              return modelName === value
+            })
+          }
+
           if (model) return model.label
           // Fallback: format model ID to readable name
-          const parts = value.split('-').filter(p => !['preview'].includes(p))
+          // Extract model name if in new format (provider:name)
+          const modelName = value.includes(':') ? value.split(':')[1] : value
+          const parts = modelName.split('-').filter(p => !['preview'].includes(p))
           return parts
             .map(part => part.charAt(0).toUpperCase() + part.slice(1))
             .join(' ')

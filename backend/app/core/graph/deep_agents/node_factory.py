@@ -1,17 +1,19 @@
 """Node builder for DeepAgents graph builder.
 
-Builds different types of nodes (root, manager, worker, code_agent).
+Builds different types of nodes (root, manager, worker, code_agent, a2a_agent).
 """
 
 from typing import TYPE_CHECKING, Any, Optional
 
 from deepagents import CompiledSubAgent
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import Runnable, RunnableLambda
 from loguru import logger
 
 if TYPE_CHECKING:
     from app.models.graph import GraphNode
 
+from app.core.a2a.client import resolve_a2a_url, send_message
 from app.core.graph.deep_agents.node_config import AgentConfig, CodeAgentConfig
 
 LOG_PREFIX = "[NodeBuilder]"
@@ -74,6 +76,9 @@ class DeepAgentsNodeBuilder:
 
         if config.node_type == "code_agent":
             return await self.build_code_agent_node(node)
+
+        if config.node_type == "a2a_agent":
+            return await self.build_a2a_agent_node(node)
 
         logger.info(f"{LOG_PREFIX} Building worker: '{config.name}'")
 
@@ -254,3 +259,98 @@ class DeepAgentsNodeBuilder:
         except Exception as e:
             logger.error(f"{LOG_PREFIX} CodeAgent SubAgent creation failed: {e}")
             raise
+
+    async def build_a2a_agent_node(self, node: "GraphNode") -> Any:
+        """Build A2A agent as SubAgent: runnable calls remote A2A Server via message/send.
+
+        Production features:
+        - Automatic retry with exponential backoff
+        - Long-running task polling (tasks/get)
+        - Connection pooling
+        - Auth headers support
+        """
+        config = await AgentConfig.from_node(
+            node, self.builder, self._node_id_to_name, default_description="Remote A2A agent"
+        )
+
+        a2a_url: Optional[str] = config.a2a_url
+        auth_headers: Optional[dict[str, str]] = config.a2a_auth_headers
+
+        if not a2a_url and config.agent_card_url:
+            try:
+                a2a_url = await resolve_a2a_url(config.agent_card_url, auth_headers=auth_headers)
+            except Exception as e:
+                logger.error(f"{LOG_PREFIX} A2A agent '{config.name}': failed to resolve Agent Card: {e}")
+                raise ValueError(f"Invalid agent_card_url for A2A agent: {e}") from e
+        if not a2a_url:
+            raise ValueError(f"A2A agent '{config.name}' requires config.a2a_url or config.agent_card_url")
+
+        logger.info(
+            f"{LOG_PREFIX} Building A2A SubAgent: '{config.name}' -> {a2a_url}",
+            extra={"has_auth": bool(auth_headers)},
+        )
+
+        # Capture variables for closure
+        captured_url = a2a_url
+        captured_auth = auth_headers
+
+        async def a2a_invoke(inputs: dict) -> dict:
+            task = inputs.get("task")
+            if not task:
+                messages = inputs.get("messages", [])
+                if messages:
+                    last_msg = messages[-1]
+                    if hasattr(last_msg, "content"):
+                        task = last_msg.content
+                    elif isinstance(last_msg, dict):
+                        task = last_msg.get("content", "")
+                    else:
+                        task = str(last_msg) if last_msg else ""
+                else:
+                    task = ""
+            task_text = str(task).strip() if task else ""
+
+            result = await send_message(
+                captured_url,
+                task_text,
+                auth_headers=captured_auth,
+                wait_for_completion=True,  # Poll for long-running tasks
+            )
+
+            if not result.ok:
+                content = f"[A2A error] {result.error or 'Unknown error'}"
+                logger.warning(
+                    f"{LOG_PREFIX} A2A invoke failed",
+                    extra={
+                        "a2a_url": captured_url,
+                        "error": result.error,
+                        "duration_ms": result.duration_ms,
+                    },
+                )
+            else:
+                content = result.text or ""
+                logger.info(
+                    f"{LOG_PREFIX} A2A invoke completed",
+                    extra={
+                        "a2a_url": captured_url,
+                        "task_id": result.task_id,
+                        "state": result.state,
+                        "duration_ms": result.duration_ms,
+                        "text_length": len(content),
+                    },
+                )
+
+            return {
+                "messages": [AIMessage(content=content)],
+                "result": content,
+            }
+
+        runnable: Runnable[dict[str, Any], dict[str, Any]] = RunnableLambda(
+            func=lambda x: x,  # dummy sync func, not used
+            afunc=a2a_invoke,  # async func is the actual implementation
+        )
+        return CompiledSubAgent(
+            name=config.name,
+            description=config.description or "Remote A2A agent",
+            runnable=runnable,
+        )

@@ -208,7 +208,16 @@ class StateVariableTracker:
 
     def _analyze_tool_node(self, node: GraphNode, config: Dict[str, Any], node_label: str) -> None:
         """分析 Tool 节点的变量使用。"""
-        input_mapping = config.get("input_mapping", {})
+        input_mapping_raw = config.get("input_mapping", {})
+        # Support both dict and array formats (frontend kvList)
+        if isinstance(input_mapping_raw, list):
+            input_mapping = {
+                str(item.get("key", "")): str(item.get("value", ""))
+                for item in input_mapping_raw
+                if isinstance(item, dict) and item.get("key")
+            }
+        else:
+            input_mapping = input_mapping_raw if isinstance(input_mapping_raw, dict) else {}
         for param_name, expression in input_mapping.items():
             if isinstance(expression, str):
                 variables = self._extract_variables_from_expression(expression)

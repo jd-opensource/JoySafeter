@@ -335,7 +335,7 @@ export const agentService = {
     try {
       const models = await modelService.getAvailableModels('chat', workspaceId)
       return models.map((model) => ({
-        id: model.name,
+        id: `${model.provider_name}:${model.name}`,
         label: model.display_name || model.name,
         provider: model.provider_display_name || model.provider_name, // for display
         provider_name: model.provider_name,

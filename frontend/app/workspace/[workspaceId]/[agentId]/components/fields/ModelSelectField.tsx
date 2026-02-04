@@ -35,16 +35,38 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
   // Use React Query hook for models (with caching and request deduplication)
   const { data: availableModelsData = [], isLoading: loading, error: queryError } = useAvailableModels('chat', workspaceId)
 
-  // Convert AvailableModel[] to ModelOption[]
+  // Convert AvailableModel[] to ModelOption[] and deduplicate by id (provider_name:name)
   const models: ModelOption[] = useMemo(() => {
-    return (availableModelsData || []).map((model: AvailableModel) => ({
-      id: model.name,
-      label: model.display_name || model.name,
-      provider: model.provider_display_name || model.provider_name,
-      provider_name: model.provider_name,
-      isAvailable: model.is_available,
-      isDefault: model.is_default,
-    }))
+    const modelMap: Record<string, ModelOption> = {};
+
+    for (const model of (availableModelsData || [])) {
+      const id = `${model.provider_name}:${model.name}`
+      if (!modelMap[id]) {
+        // 首次遇到，直接添加
+        modelMap[id] = {
+          id,
+          label: model.display_name || model.name,
+          provider: model.provider_display_name || model.provider_name,
+          provider_name: model.provider_name,
+          isAvailable: model.is_available,
+          isDefault: model.is_default || false,
+        }
+      } else {
+        // 遇到重复，合并属性
+        const existing = modelMap[id]
+        modelMap[id] = {
+          ...existing,
+          // 合并 is_available：任何一个为 true 就是 true
+          isAvailable: existing.isAvailable || model.is_available,
+          // 合并 is_default：任何一个为 true 就是 true
+          isDefault: existing.isDefault || (model.is_default || false),
+          // 优先使用非空的 display_name
+          label: model.display_name || existing.label,
+        }
+      }
+    }
+
+    return Object.values(modelMap)
   }, [availableModelsData])
 
   const error = useMemo(() => {
@@ -56,6 +78,19 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
     }
     return null
   }, [queryError, models.length, loading, t])
+
+  // Convert value to new format if it's in old format (backward compatibility)
+  const normalizedValue = useMemo(() => {
+    if (!value) return value
+    // If value is already in new format (contains ':'), use it as is
+    if (value.includes(':')) return value
+    // If value is in old format (name only), try to find matching model and convert to new format
+    const matchedModel = models.find((m) => {
+      const modelName = m.id.includes(':') ? m.id.split(':')[1] : m.id
+      return modelName === value
+    })
+    return matchedModel ? matchedModel.id : value
+  }, [value, models])
 
   if (loading) {
     return (
@@ -104,23 +139,41 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
   const unavailableProviders = Array.from(unavailableGroups.keys()).sort()
 
   const handleValueChange = (selectedModelId: string) => {
-    // Find the selected model
-    const selectedModel = models.find((m) => m.id === selectedModelId)
+    // Find the selected model - support both new format (provider:name) and old format (name only)
+    let selectedModel = models.find((m) => m.id === selectedModelId)
+
+    // Backward compatibility: if not found with new format, try old format (name only)
+    if (!selectedModel && selectedModelId.includes(':')) {
+      // Already in new format but not found, skip fallback
+    } else if (!selectedModel) {
+      // Try to find by name only (old format)
+      selectedModel = models.find((m) => {
+        const modelName = m.id.split(':')[1] || m.id
+        return modelName === selectedModelId
+      })
+    }
+
     if (selectedModel) {
-      // Call original onChange (maintain backward compatibility)
-      onChange(selectedModelId)
+      // Always write combined id (provider:model) to config via onChange
+      const combinedId = selectedModel.id
+
+      // Extract model name from combined id (format: provider:model)
+      const modelName = combinedId.includes(':') ? combinedId.split(':')[1] : combinedId
+
+      onChange(combinedId)
+
       // If onModelChange provided, pass both model_name and provider_name
       if (onModelChange) {
-        onModelChange(selectedModel.id, selectedModel.provider_name)
+        onModelChange(modelName, selectedModel.provider_name)
       }
     } else {
-      // If model not found, only call original onChange
+      // If model not found, keep raw value (best-effort)
       onChange(selectedModelId)
     }
   }
 
   return (
-    <Select value={value || undefined} onValueChange={handleValueChange}>
+    <Select value={normalizedValue || undefined} onValueChange={handleValueChange}>
       <SelectTrigger className="w-full h-8 text-xs">
         <SelectValue placeholder={t('workspace.selectModel')} />
       </SelectTrigger>

@@ -863,14 +863,28 @@ class ToolNodeExecutor:
     def _get_input_mapping(self) -> Dict[str, str]:
         """Extract input parameter mapping from node configuration.
 
+        Supports both dict and array formats:
+        - dict: { "query": "state.context.get('user_query')" } (direct format)
+        - array: [{ "key": "query", "value": "state.context.get('user_query')" }] (frontend kvList format)
+
         Returns:
             Dict mapping tool parameter names to state access expressions.
             Example: {"query": "state.context.get('user_query')"}
         """
         data = self.node.data or {}
         config = data.get("config", {})
-        result = config.get("input_mapping", {})
-        return result if isinstance(result, dict) else {}  # type: ignore[return-value]
+        mapping_raw = config.get("input_mapping", {})
+
+        if isinstance(mapping_raw, dict):
+            return {str(k): str(v) for k, v in mapping_raw.items() if k}
+        elif isinstance(mapping_raw, list):
+            # Frontend kvList format: [{ key: "k", value: "v" }]
+            return {
+                str(item.get("key", "")): str(item.get("value", ""))
+                for item in mapping_raw
+                if isinstance(item, dict) and item.get("key")
+            }
+        return {}
 
     async def _resolve_tool(self) -> Any:
         """Resolve the tool instance from the registry."""
@@ -1537,11 +1551,26 @@ class HttpRequestNodeExecutor:
         return config.get("url", "")
 
     def _get_headers(self) -> Dict[str, str]:
-        """Extract headers from node configuration."""
+        """Extract headers from node configuration.
+
+        Supports both dict and array formats:
+        - dict: { "Authorization": "Bearer xxx" } (direct format)
+        - array: [{ "key": "Authorization", "value": "Bearer xxx" }] (frontend kvList format)
+        """
         data = self.node.data or {}
         config = data.get("config", {})
-        headers = config.get("headers", {})
-        return headers if isinstance(headers, dict) else {}
+        headers_raw = config.get("headers", {})
+
+        if isinstance(headers_raw, dict):
+            return {str(k): str(v) for k, v in headers_raw.items() if k and v}
+        elif isinstance(headers_raw, list):
+            # Frontend kvList format: [{ key: "k", value: "v" }]
+            return {
+                str(item.get("key", "")): str(item.get("value", ""))
+                for item in headers_raw
+                if isinstance(item, dict) and item.get("key") and item.get("value")
+            }
+        return {}
 
     def _get_auth_config(self) -> Dict[str, Any]:
         """Extract authentication configuration."""
