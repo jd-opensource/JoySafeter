@@ -24,7 +24,6 @@ from app.core.settings import settings
 from app.services.oauth_service import OAuthService
 
 LOG_PREFIX = "[OAuthAPI]"
-
 router = APIRouter(prefix="/v1/auth/oauth", tags=["OAuth"])
 
 
@@ -236,7 +235,6 @@ async def oauth_callback(
 
         # 7. 提交数据库事务
         await db.commit()
-
         # 与普通登录一致：更新最后登录、审计、确保个人空间（共享模块）
         ip_address = request.client.host if request.client else "unknown"
         forwarded_for = request.headers.get("X-Forwarded-For")
@@ -245,7 +243,6 @@ async def oauth_callback(
         from app.services.login_init import run_post_login_init
 
         await run_post_login_init(db, user, ip_address)
-
         # 8. 生成 JWT tokens
         jwt_access_token = create_access_token(
             subject=user.id,
