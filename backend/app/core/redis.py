@@ -151,7 +151,6 @@ class RedisClient:
 
         # Use redis-py lock
         lock = cls._client.lock(name, timeout=timeout, blocking_timeout=blocking_timeout)
-
         acquired = False
         try:
             # Try to acquire lock
@@ -159,12 +158,10 @@ class RedisClient:
             acquired = await lock.acquire(blocking=True)
             if not acquired:
                 raise TimeoutError(f"Could not acquire lock {name} within {blocking_timeout} seconds")
-
             yield True
 
         except TimeoutError:
             raise
-
         finally:
             if acquired:
                 try:
