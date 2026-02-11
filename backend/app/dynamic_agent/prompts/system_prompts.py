@@ -23,7 +23,6 @@ class SceneType(Enum):
     """Supported scene types for agent operation modes."""
 
     CTF = "ctf"  # CTF competition mode
-    PENTEST = "pentest"  # Corporate penetration testing mode
     AUDIT = "audit"  # Security audit mode
     WHITEBOX = "whitebox"  # General mode (default)
     GENERAL = "general"  # General mode (default)
@@ -87,7 +86,7 @@ def _classify_scene_with_llm(user_input: str) -> str:
         result = content_str.strip().lower()
 
         # Validate result is a known scene type
-        valid_scenes = {SceneType.CTF.value, SceneType.PENTEST.value, SceneType.GENERAL.value}
+        valid_scenes = {SceneType.CTF.value, SceneType.GENERAL.value}
         if result in valid_scenes:
             logger.info(f"🎭 Scene classified: '{user_input[:40]}...' -> {result}")
             return result
@@ -146,7 +145,6 @@ _SCENE_PROMPTS: Dict[str, str] = {}
 # Lazy load scene prompts from scenes/{scene}/ctf_{role}.md
 MAIN_AGENT_SYSTEM_PROMPT_MAP = {
     SceneType.CTF.value: "scenes/ctf/ctf_main_agent",
-    SceneType.PENTEST.value: "scenes/pentest/pentest_main_agent",
     SceneType.AUDIT.value: "scenes/whitebox/whitebox_main_agent",
     SceneType.WHITEBOX.value: "scenes/whitebox/whitebox_main_agent",
 }

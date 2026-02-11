@@ -49,14 +49,6 @@ export const modeConfigs: ModeConfig[] = [
     scene: 'ctf',
   },
   {
-    id: 'enterprise-scan',
-    labelKey: 'chat.enterpriseScan',
-    descriptionKey: 'chat.enterpriseScanDescription',
-    icon: ShieldCheck,
-    type: 'dynamic',
-    scene: 'pentest',
-  },
-  {
     id: 'whitebox-scanner',
     labelKey: 'chat.whiteboxScanner',
     descriptionKey: 'chat.whiteboxScannerDescription',

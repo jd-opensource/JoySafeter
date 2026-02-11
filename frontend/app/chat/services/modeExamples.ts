@@ -40,24 +40,6 @@ export const modeExamples: Record<string, ModeExample[]> = {
       promptKey: 'chat.examples.ctf4',
     },
   ],
-  'enterprise-scan': [
-    {
-      id: 'enterprise-scan-1',
-      promptKey: 'chat.examples.enterpriseScan1',
-    },
-    {
-      id: 'enterprise-scan-2',
-      promptKey: 'chat.examples.enterpriseScan2',
-    },
-    {
-      id: 'enterprise-scan-3',
-      promptKey: 'chat.examples.enterpriseScan3',
-    },
-    {
-      id: 'enterprise-scan-4',
-      promptKey: 'chat.examples.enterpriseScan4',
-    },
-  ],
   'whitebox-scanner': [
     {
       id: 'whitebox-scanner-1',

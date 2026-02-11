@@ -28,14 +28,6 @@ CTF (Capture The Flag) cybersecurity competition:
 - Seeks hidden flag or vulnerability exploitation for learning
 </scene>
 
-<scene name="pentest">
-Professional penetration testing / security assessment:
-- Authorized security testing for company/client
-- Mentions penetration testing, security assessment, vulnerability scanning
-- Has formal scope, target list, or engagement rules
-- Professional security audit work
-</scene>
-
 <scene name="general">
 General tasks (default):
 - General programming or coding tasks
@@ -45,6 +37,6 @@ General tasks (default):
 </scenes>
 
 <output_format>
-IMPORTANT: Output ONLY one of: "ctf", "pentest", "general"
+IMPORTANT: Output ONLY one of: "ctf", "general"
 No explanation, just the scene name.
 </output_format>

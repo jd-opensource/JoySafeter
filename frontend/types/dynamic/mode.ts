@@ -3,14 +3,12 @@
  *
  * Mode represents the user-facing scenario that drives UX and backend hints:
  * - ctf: CTF/Challenge mode
- * - pentest: Enterprise scan mode
  */
 
-export type Mode = 'ctf' | 'pentest';
+export type Mode = 'ctf';
 
 export const MODES = {
   CTF: 'ctf' as Mode,
-  PENTEST: 'pentest' as Mode,
 } as const;
 
 /**
@@ -22,18 +20,13 @@ export const MODE_CONFIG = {
     description: 'Capture The Flag challenges and competitions',
     icon: '🚩',
   },
-  pentest: {
-    label: 'Enterprise Scan',
-    description: 'Professional penetration testing and security scanning',
-    icon: '🔒',
-  },
 } as const;
 
 /**
  * Validates if a string is a valid mode
  */
 export function isValidMode(value: unknown): value is Mode {
-  return value === 'ctf' || value === 'pentest';
+  return value === 'ctf';
 }
 
 /**
@@ -60,6 +53,6 @@ export function modeToMetadata(mode: Mode) {
   return {
     mode,
     is_ctf: mode === 'ctf',
-    non_ctf_guard: mode === 'pentest',
+    non_ctf_guard: false,
   };
 }
