@@ -435,111 +435,40 @@ interface StreamEventEnvelope {
 
 ### 一键部署（Docker）- 推荐
 
-最简单的启动方式：
+### 方案一：一键运行
 
 ```bash
-git clone https://github.com/jd-opensource/JoySafeter.git
-cd JoySafeter/deploy
-
-# 一键启动（自动处理配置和启动）
-./quick-start.sh
+# 一键初始化环境 & 本地构建镜像 & 自动启动
+sh deploy/quick-start.sh
 ```
 
-访问 **http://localhost:3000** 即可使用
-
-### 使用预构建的 Docker 镜像
-
-我们提供了预构建的 Docker 镜像，您可以直接使用：
-
-```bash
-# 从 GitHub Container Registry 拉取镜像
-docker pull docker.io/jdopensource/joysafeter-backend:latest
-docker pull docker.io/jdopensource/joysafeter-frontend:latest
-docker pull docker.io/jdopensource/joysafeter-mcp:latest
-
-# 或使用 docker-compose 直接使用预构建镜像
-cd deploy
-export DOCKER_REGISTRY=docker.io/jdopensource
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-**可用镜像：**
-- `docker.io/jdopensource/joysafeter-backend:latest` - 后端 API 服务
-- `docker.io/jdopensource/joysafeter-frontend:latest` - 前端 Web 应用
-- `docker.io/jdopensource/joysafeter-mcp:latest` - MCP 服务器（包含安全工具）
-- `docker.io/jdopensource/joysafeter-init:latest` - 数据库初始化服务
-
-所有镜像支持多架构（amd64, arm64）。
-
-### 其他部署方式
-
-#### 方式一：交互式安装
-
-使用安装向导配置环境：
+### 方案二：手动部署
 
 ```bash
 cd deploy
 
-# 交互式安装
-./install.sh
+# 1. 编译镜像
+sh deploy.sh build --all
 
-# 或快速安装开发环境
-./install.sh --mode dev --non-interactive
+# 2. 初始化环境变量
+cp ../frontend/env.example ../frontend/.env
+cp ../backend/env.example ../backend/.env
+
+# 重要！！配置 TAVILY_API_KEY 搜索所用 key（自行注册 https://www.tavily.com/）
+# 请将 tvly-* 替换为您实际的 API Key
+echo 'TAVILY_API_KEY=tvly-*' >> ../backend/.env
+
+# 3. 初始化数据库
+docker compose --profile init up
+
+# 4. 启动服务
+docker compose -f docker-compose.yml up
+
+# 关闭服务
+docker compose -f docker-compose.yml down
+
+docker compose logs 
 ```
-
-安装完成后，使用场景化脚本启动：
-
-```bash
-# 开发场景
-./scripts/dev.sh
-
-# 生产场景
-./scripts/prod.sh
-
-# 测试场景
-./scripts/test.sh
-
-# 最小化场景（仅中间件）
-./scripts/minimal.sh
-
-# 本地开发（后端和前端在本地运行）
-./scripts/dev-local.sh
-```
-
-#### 方式二：手动 Docker Compose
-
-适合需要完全控制的高级用户：
-
-```bash
-cd deploy
-
-# 1. 创建配置文件
-cp .env.example .env
-cd ../backend && cp env.example .env
-
-# 2. 启动中间件（PostgreSQL + Redis）
-cd ../deploy
-./scripts/start-middleware.sh
-
-# 3. 启动完整服务
-docker-compose up -d
-```
-
-#### 方式三：环境检查
-
-启动前可以检查环境：
-
-```bash
-cd deploy
-./scripts/check-env.sh
-```
-
-这将检查：
-- Docker 安装和运行状态
-- Docker Compose 版本
-- 端口可用性
-- 配置文件
-- 磁盘空间
 
 ### 手动安装
 

@@ -148,6 +148,24 @@ services:
       # 使用profile控制，默认不启动（需要时添加 --profile mcpserver）
       - mcpserver
 
+  # 数据库初始化服务（一次性运行）
+  db-init:
+    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
+    container_name: joysafeter-db-init
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ../backend/.env
+    # 注意：数据库连接信息完全从 env_file (../backend/.env) 读取
+    # 支持使用外部 PostgreSQL，只需在 backend/.env 中配置正确的 POSTGRES_HOST、POSTGRES_PORT 等
+    # 如果使用外部数据库，需要注释掉上面的 depends_on: db 部分
+    networks:
+      - joysafeter-network
+    profiles:
+      - init  # 使用 profile 控制，默认不启动
+    command: ["python", "/app/scripts/db/init-db.py"]
+
 volumes:
   joysafeter-db-data:
     driver: local
