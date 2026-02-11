@@ -28,7 +28,6 @@ def _load_prompt(prompt_id: str, **kwargs) -> str:
 
 SUB_AGENT_SYSTEM_PROMPT_MAP = {
     SceneType.CTF.value: "scenes/ctf/ctf_sub_agent",
-    SceneType.PENTEST.value: "scenes/pentest/pentest_sub_agent",
     SceneType.AUDIT.value: "scenes/whitebox/whitebox_sub_agent",
     SceneType.WHITEBOX.value: "scenes/whitebox/whitebox_sub_agent",
 }
@@ -38,7 +37,7 @@ def get_sub_agent_prompt(scene: Optional[str] = None) -> str:
     """Get Sub-Agent prompt with optional scene-specific suffix.
 
     Args:
-        scene: The detected scene type (CTF, PENTEST, etc.)
+        scene: The detected scene type (CTF, AUDIT, WHITEBOX, etc.)
 
     Returns:
         Combined prompt: sub_agent.md + sub_agent_{scene}_mode.md

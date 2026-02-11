@@ -109,43 +109,6 @@ export const ModeSelectDialog: React.FC<ModeSelectDialogProps> = ({
             </div>
           </button>
 
-          {/* Enterprise Scan Mode Card */}
-          <button
-            onClick={() => handleModeClick(MODES.PENTEST)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px',
-              padding: '16px',
-              border: '2px solid #d1d5db',
-              borderRadius: '8px',
-              textAlign: 'left',
-              width: '100%',
-              minHeight: '72px',
-              cursor: 'pointer',
-              backgroundColor: 'transparent',
-              transition: 'border-color 0.2s, background-color 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = '#22c55e';
-              e.currentTarget.style.backgroundColor = '#f0fdf4';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#d1d5db';
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
-          >
-            <div style={{ fontSize: '28px', flexShrink: 0, width: '40px', textAlign: 'center' }}>{MODE_CONFIG.pentest.icon}</div>
-            <div style={{ flex: 1 }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#111827', margin: 0 }}>
-                {MODE_CONFIG.pentest.label}
-              </h3>
-              <p style={{ fontSize: '14px', color: '#6b7280', margin: '4px 0 0 0' }}>
-                {MODE_CONFIG.pentest.description}
-              </p>
-            </div>
-          </button>
-
           {/* Whitebox Scanner Card */}
           <button
             onClick={handleWhiteboxClick}

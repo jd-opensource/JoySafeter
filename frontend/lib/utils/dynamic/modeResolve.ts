@@ -98,7 +98,7 @@ export function detectModeFromMessage(message: string): Mode | null {
     return 'ctf';
   }
 
-  // Default to pentest for non-CTF messages
+  // Default to ctf for non-CTF messages
   // or return null to force user selection
   return null;
 }

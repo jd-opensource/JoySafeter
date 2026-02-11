@@ -258,12 +258,9 @@ async def detect_mode(request: DetectModeRequest):
         if detected_scene == SceneType.CTF.value:
             mode = "ctf"
             confidence = "high"  # LLM + keyword detection is high confidence
-        elif detected_scene == SceneType.PENTEST.value:
-            mode = "pentest"
-            confidence = "high"
         else:
-            # General or ambiguous - default to pentest for enterprise use
-            mode = "pentest"
+            # General or ambiguous - default to ctf
+            mode = "ctf"
             confidence = "low"
 
         logger.info(f"🎭 Mode detected: '{request.message[:40]}...' -> {mode} (confidence: {confidence})")
@@ -273,8 +270,8 @@ async def detect_mode(request: DetectModeRequest):
     except Exception as e:
         logger.error(f"❌ Mode detection failed: {e}")
         logger.exception("Mode detection failed")
-        # Fallback to pentest on error
-        return DetectModeResponse(mode="pentest", confidence="low")
+        # Fallback to ctf on error
+        return DetectModeResponse(mode="ctf", confidence="low")
 
 
 # ==================== Chat Endpoints ====================

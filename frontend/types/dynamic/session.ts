@@ -25,7 +25,7 @@ export interface Session {
   lastMessage?: string;
   /** Whether this session is currently active */
   isActive?: boolean;
-  /** Mode for this session (ctf or pentest) */
+  /** Mode for this session (ctf) */
   mode?: Mode;
 }
 

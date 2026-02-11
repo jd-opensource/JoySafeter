@@ -1,7 +1,7 @@
 /**
  * Dynamic Mode Handler
  *
- * Handles dynamic type modes (e.g., ctf, pentest, whitebox)
+ * Handles dynamic type modes (e.g., ctf, whitebox)
  * These modes directly redirect to /dynamic/chat page
  */
 

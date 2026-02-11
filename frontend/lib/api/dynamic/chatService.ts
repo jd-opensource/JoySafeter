@@ -20,7 +20,7 @@ const API_BASE_URL = getApiBaseUrl();
  * Detect mode from user message using keyword + LLM detection
  */
 export interface DetectModeResponse {
-  mode: 'ctf' | 'pentest';
+  mode: 'ctf';
   confidence: 'high' | 'low';
 }
 
@@ -45,8 +45,8 @@ export const chatService = {
       return response.data;
     } catch (error) {
       console.error('Failed to detect mode:', error);
-      // Fallback to pentest on error
-      return { mode: 'pentest', confidence: 'low' };
+      // Fallback to ctf on error
+      return { mode: 'ctf', confidence: 'low' };
     }
   },
 
