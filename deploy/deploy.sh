@@ -383,7 +383,7 @@ build_all_images() {
     # 构建初始化镜像
     if [ "$BUILD_INIT" = true ]; then
         build_image "初始化" \
-            "$SCRIPT_DIR/docker/init.Dockerfile" \
+            "$SCRIPT_DIR/docker/backend.Dockerfile" \
             "$PROJECT_ROOT/backend" \
             "$INIT_FULL_IMAGE"
         echo ""

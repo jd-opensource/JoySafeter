@@ -60,15 +60,11 @@ services:
   # 数据库初始化服务（一次性运行）
   # 使用: docker-compose -f docker-compose-middleware.yml --profile init run --rm db-init
   db-init:
-    build:
-      context: ../backend
-      dockerfile: ../deploy/docker/init.Dockerfile
-      args:
-        # 基础镜像源配置（可选，用于国内加速）
-        # BASE_IMAGE_REGISTRY: "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
-        # pip 镜像源配置（默认使用清华大学镜像源，可切换到国内镜像）
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
-        UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+    image: ${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
+    # 移除 build 配置，改用与 backend 相同的镜像
+    # build:
+    #   context: ../backend
+    #   dockerfile: ../deploy/docker/init.Dockerfile
     container_name: joysafeter-db-init
     depends_on:
       db:
