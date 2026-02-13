@@ -45,6 +45,8 @@ COPY app/models/ app/models/
 
 # 复制工具模块（message.py 需要 media.py 中的类型，__init__.py 需要 datetime.py）
 COPY app/utils/__init__.py app/utils/
+COPY app/utils/backend_utils.py app/utils/
+COPY app/utils/path_utils.py app/utils/
 COPY app/utils/media.py app/utils/
 COPY app/utils/datetime.py app/utils/
 
