@@ -3,7 +3,15 @@ name: planning-with-files
 version: "2.3.0"
 description: Implements Manus-style file-based planning for complex tasks. Creates task_plan.md, findings.md, and progress.md. Use when starting complex multi-step tasks, research projects, or any task requiring >5 tool calls. Now with automatic session recovery after /clear.
 user-invocable: true
-allowed-tools: "Read Write Edit Bash Glob Grep WebFetch WebSearch"
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - WebFetch
+  - WebSearch
 hooks:
   PreToolUse:
     - matcher: "Write|Edit|Bash|Read|Glob|Grep"

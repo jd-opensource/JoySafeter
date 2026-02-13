@@ -38,9 +38,7 @@ jobs:
           - name: joysafeter-frontend
             context: ./frontend
             dockerfile: ./deploy/docker/frontend.Dockerfile
-          - name: joysafeter-init
-            context: ./backend
-            dockerfile: ./deploy/docker/init.Dockerfile
+
 
     steps:
       - name: Checkout code

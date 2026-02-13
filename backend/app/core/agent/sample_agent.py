@@ -4,7 +4,7 @@ Example Agent implementation.
 Implements a sample chatbot node using LangChain v1 create_agent API.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from deepagents.middleware import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
@@ -226,7 +226,7 @@ async def get_agent(
 
     # Only add TodoListMiddleware if enabled (disabled for DeepAgents subagents)
     if enable_todo_list:
-        middleware.insert(0, TodoListMiddleware())
+        middleware.insert(0, cast(Any, TodoListMiddleware()))
 
     # Add SkillsMiddleware if enabled
     if enable_skills:

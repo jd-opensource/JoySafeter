@@ -28,7 +28,7 @@ dependencies = [
     "langgraph-checkpoint>=2.0.0",
     "langgraph-checkpoint-postgres>=3.0.2",
     "langchain-mcp-adapters>=0.1.13",
-    "deepagents>=0.3.11",
+    "deepagents>=0.4.0",
     "pydantic-ai-backend[docker]>=0.1.5",
     # MCP
     "mcp>=1.20.0",

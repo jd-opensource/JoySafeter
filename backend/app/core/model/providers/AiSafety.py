@@ -44,7 +44,7 @@ class AiSafetyProvider(BaseProvider):
                 "base_url": {
                     "type": "string",
                     "title": "Base URL",
-                    "description": "API基础URL（用于自定义端点）",
+                    "description": "API基础URL（用于自定义端点） 路径请以 /v1 结尾",
                     "required": True,
                 },
             },

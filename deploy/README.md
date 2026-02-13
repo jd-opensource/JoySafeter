@@ -8,8 +8,7 @@
 deploy/
 ├── docker/                          # Dockerfile 统一存放
 │   ├── backend.Dockerfile
-│   ├── frontend.Dockerfile
-│   └── init.Dockerfile
+│   └── frontend.Dockerfile
 ├── scripts/
 │   ├── check-env.sh                 # 环境检查工具
 │   ├── dev.sh                       # 开发场景启动

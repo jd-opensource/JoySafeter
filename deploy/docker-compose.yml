@@ -12,7 +12,7 @@
 services:
   # PostgreSQL 数据库
   db:
-    image: postgres:15-alpine
+    image: ${DOCKER_REGISTRY:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io}/postgres:15-alpine
     restart: always
     container_name: joysafeter-db
     volumes:
@@ -35,7 +35,7 @@ services:
 
   # Redis 缓存
   redis:
-    image: redis:7-alpine
+    image: ${DOCKER_REGISTRY:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io}/redis:7-alpine
     restart: always
     container_name: joysafeter-redis
     ports:
@@ -101,16 +101,10 @@ services:
 
   # 数据库初始化服务（一次性运行）
   db-init:
-    build:
-      context: ../backend
-      dockerfile: ../deploy/docker/init.Dockerfile
-      args:
-        # 基础镜像源配置（可选，用于国内加速）
-        # BASE_IMAGE_REGISTRY: "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
-        # pip 镜像源配置（默认使用清华大学镜像源，可切换到国内镜像）
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
-        UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
     container_name: joysafeter-db-init
+    volumes:
+      - ../skills:/app/skills  # 自动加载 Skills
     depends_on:
       db:
         condition: service_healthy
@@ -157,7 +151,7 @@ services:
 
   # MCP Server 服务（使用预构建镜像）
   mcpserver:
-    image: docker.io/jdopensource/joysafeter-mcp:latest
+    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/joysafeter-mcp:latest
     container_name: joysafeter-mcpserver
     restart: unless-stopped
     env_file:
