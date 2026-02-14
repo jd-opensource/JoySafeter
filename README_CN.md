@@ -467,7 +467,7 @@ docker compose -f docker-compose.yml up
 # 关闭服务
 docker compose -f docker-compose.yml down
 
-docker compose logs 
+docker compose logs
 ```
 
 ### 手动安装
