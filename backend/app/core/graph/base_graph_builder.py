@@ -352,9 +352,7 @@ class BaseGraphBuilder(ABC):
         # 策略 3: 最终回退
         return self._resolve_fallback_model(model_name)
 
-    async def _resolve_by_model_service(
-        self, provider_name: Optional[str], model_name: str
-    ) -> Any:
+    async def _resolve_by_model_service(self, provider_name: Optional[str], model_name: str) -> Any:
         """Try to resolve model via ModelService (exact or name-based lookup)."""
         workspace_id = getattr(self.graph, "workspace_id", None)
         try:
@@ -394,23 +392,18 @@ class BaseGraphBuilder(ABC):
                 use_default=True,
             )
             logger.info(
-                f"[BaseGraphBuilder] Resolved default model from database | "
-                f"type={type(default_model).__name__}"
+                f"[BaseGraphBuilder] Resolved default model from database | " f"type={type(default_model).__name__}"
             )
             return default_model
         except Exception as e:
             logger.error(
-                f"[BaseGraphBuilder] Failed to get default model from database | "
-                f"error={e} | Using final fallback."
+                f"[BaseGraphBuilder] Failed to get default model from database | " f"error={e} | Using final fallback."
             )
             return None
 
     def _resolve_fallback_model(self, model_name: Optional[str]) -> Any:
         """Final fallback: create model from env/settings defaults."""
-        logger.warning(
-            f"[BaseGraphBuilder] Using final fallback get_default_model | "
-            f"model={model_name}"
-        )
+        logger.warning(f"[BaseGraphBuilder] Using final fallback get_default_model | " f"model={model_name}")
         return get_default_model(
             llm_model=model_name,
             api_key=self.api_key,

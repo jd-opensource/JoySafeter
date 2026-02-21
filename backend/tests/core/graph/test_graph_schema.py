@@ -225,7 +225,9 @@ class TestGraphSchema:
             ],
             nodes=[
                 NodeSchema(
-                    id="a", type="agent", label="A",
+                    id="a",
+                    type="agent",
+                    label="A",
                     reads=["intent", "nonexistent"],
                     writes=["intent"],
                 ),

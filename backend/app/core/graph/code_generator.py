@@ -90,12 +90,8 @@ def generate_code(
         lines.append("# --- Reducer helpers ---")
         lines.append("")
 
-    needs_merge = any(
-        sf.reducer == ReducerType.MERGE for sf in schema.state_fields
-    )
-    needs_add_messages = any(
-        sf.reducer == ReducerType.ADD_MESSAGES for sf in schema.state_fields
-    )
+    needs_merge = any(sf.reducer == ReducerType.MERGE for sf in schema.state_fields)
+    needs_add_messages = any(sf.reducer == ReducerType.ADD_MESSAGES for sf in schema.state_fields)
 
     if needs_merge:
         lines.append("def merge_dicts(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:")
@@ -181,26 +177,26 @@ def generate_code(
         lines.append(f"async def {func_name}(state: {state_class_name}) -> Dict[str, Any]:")
         if include_comments:
             lines.append('    """')
-            lines.append(f'    Node: {node.label} (type: {node.type})')
-            lines.append(f'    Reads: [{reads_str}]')
-            lines.append(f'    Writes: [{writes_str}]')
+            lines.append(f"    Node: {node.label} (type: {node.type})")
+            lines.append(f"    Reads: [{reads_str}]")
+            lines.append(f"    Writes: [{writes_str}]")
             lines.append('    """')
 
         # Generate stub implementation based on node type
         if node.type == "agent":
-            lines.append('    # TODO: Implement agent logic')
+            lines.append("    # TODO: Implement agent logic")
             lines.append(f'    return {{"current_node": "{node.label}", "messages": state.get("messages", [])}}')
         elif node.type == "condition":
-            lines.append('    # TODO: Implement condition logic')
+            lines.append("    # TODO: Implement condition logic")
             lines.append('    return {"route_decision": "true"}')
         elif node.type == "direct_reply":
             reply = node.config.get("reply_template", "Hello!")
             lines.append(f'    return {{"messages": [AIMessage(content="{reply}")], "current_node": "{node.label}"}}')
         elif node.type == "router_node":
-            lines.append('    # TODO: Implement routing logic')
+            lines.append("    # TODO: Implement routing logic")
             lines.append('    return {"route_decision": "default"}')
         else:
-            lines.append(f'    # TODO: Implement {node.type} logic')
+            lines.append(f"    # TODO: Implement {node.type} logic")
             lines.append(f'    return {{"current_node": "{node.label}"}}')
 
         lines.append("")

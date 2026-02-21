@@ -1,7 +1,7 @@
 """
 Action Executors - Executors for simple actions (Reply, Input, HTTP).
 """
-import time
+
 from typing import Any, Dict
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -72,28 +72,23 @@ class HumanInputNodeExecutor:
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Simple interrupt gate — let interrupt_before pause execution."""
-        logger.info(
-            f"[HumanInputNode] Executing node '{self.node_id}'"
-        )
+        logger.info(f"[HumanInputNode] Executing node '{self.node_id}'")
 
         messages = state.get("messages", [])
         if messages and isinstance(messages[-1], HumanMessage):
-            logger.info(
-                f"[HumanInputNode] Processed human input: "
-                f"{messages[-1].content[:100]}"
-            )
+            logger.info(f"[HumanInputNode] Processed human input: " f"{messages[-1].content[:100]}")
 
         return {"current_node": self.node_id}
 
 
 class HttpRequestNodeExecutor:
     """Executor for HTTP Request node.
-    
+
     Performs REST API calls.
     """
 
     STATE_READS: tuple = ("context", "*")
-    STATE_WRITES: tuple = ("*") # Via output mapping
+    STATE_WRITES: tuple = "*"  # Via output mapping
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
@@ -109,7 +104,6 @@ class HttpRequestNodeExecutor:
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         import httpx
 
-        start_time = time.time()
         logger.info(f"[HttpRequestNode] >>> {self.method} {self.url} | node_id={self.node_id}")
 
         try:
@@ -122,14 +116,14 @@ class HttpRequestNodeExecutor:
                     url=self.url,
                     headers=self.headers,
                     content=self.body if self.body else None,
-                    timeout=30.0
+                    timeout=30.0,
                 )
 
                 result_data = {
                     "status_code": response.status_code,
                     "text": response.text,
                     "headers": dict(response.headers),
-                    "json": None
+                    "json": None,
                 }
 
                 try:
@@ -139,9 +133,7 @@ class HttpRequestNodeExecutor:
 
                 logger.info(f"[HttpRequestNode] <<< Status: {response.status_code}")
 
-                return_dict = {
-                    "current_node": self.node_id
-                }
+                return_dict = {"current_node": self.node_id}
 
                 apply_node_output_mapping(self.config, result_data, return_dict, self.node_id)
 

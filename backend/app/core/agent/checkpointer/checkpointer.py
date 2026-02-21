@@ -225,32 +225,33 @@ async def delete_thread_checkpoints(thread_id: str) -> None:
 async def get_thread_history(thread_id: str) -> list[dict]:
     """
     Get execution history (checkpoints) for a thread.
-    
+
     Returns a list of checkpoints ordered by timestamp (descending usually, depends on alist implementation).
     """
     checkpointer = get_checkpointer()
     if not checkpointer:
         return []
-        
+
     config = {"configurable": {"thread_id": thread_id}}
     history = []
-    
+
     try:
         async for checkpoint_tuple in checkpointer.alist(config):
             # checkpoint_tuple: (config, checkpoint, metadata, parent_config)
             # transform to simple dict
-            history.append({
-                "timestamp": checkpoint_tuple.metadata.get("timestamp") if checkpoint_tuple.metadata else None,
-                "node_id": checkpoint_tuple.metadata.get("source") if checkpoint_tuple.metadata else None,
-                "state": checkpoint_tuple.checkpoint,
-                "config": checkpoint_tuple.config,
-                "metadata": checkpoint_tuple.metadata,
-            })
+            history.append(
+                {
+                    "timestamp": checkpoint_tuple.metadata.get("timestamp") if checkpoint_tuple.metadata else None,
+                    "node_id": checkpoint_tuple.metadata.get("source") if checkpoint_tuple.metadata else None,
+                    "state": checkpoint_tuple.checkpoint,
+                    "config": checkpoint_tuple.config,
+                    "metadata": checkpoint_tuple.metadata,
+                }
+            )
     except Exception as e:
         logger.error(f"Failed to fetch history for thread {thread_id}: {e}")
-        # Return empty list or re-raise? 
+        # Return empty list or re-raise?
         # For debugger, empty list handling in frontend is better than 500
         return []
-        
-    return history
 
+    return history

@@ -250,8 +250,6 @@ class NodeTypeRegistry:
         metadata = cls.get_metadata(node_type)
         return metadata.default_writes if metadata else ["*"]
 
-
-
     @classmethod
     def is_loop_body_supported(cls, node_type: str) -> bool:
         """Check if node type supports being a loop body."""
@@ -305,4 +303,3 @@ class NodeTypeRegistry:
     def validate_node_type(cls, node_type: str) -> bool:
         """Validate that a node type is registered."""
         return node_type in cls._registry
-

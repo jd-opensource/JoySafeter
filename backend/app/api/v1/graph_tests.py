@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_db
-from app.models.graph_test import GraphTestCase
 from app.services.test_service import TestService
 
 router = APIRouter()
@@ -69,7 +68,7 @@ async def update_test_case(
     test_case = await service.update_test_case(test_id, data)
     if not test_case:
         raise HTTPException(status_code=404, detail="Test case not found")
-        
+
     return {
         "id": str(test_case.id),
         "name": test_case.name,
@@ -105,5 +104,6 @@ async def run_test_suite(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

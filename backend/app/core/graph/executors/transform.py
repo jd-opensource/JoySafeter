@@ -1,6 +1,7 @@
 """
 Transform Executors - Executors for data transformation (JSON, Aggregator).
 """
+
 import json
 import time
 from typing import Any, Dict
@@ -15,12 +16,12 @@ from app.models.graph import GraphNode
 
 class JSONParserNodeExecutor:
     """Executor for JSON Parser node.
-    
+
     Parses a string (e.g. from LLM) into a JSON object and maps fields to state.
     """
 
     STATE_READS: tuple = ("messages", "*")
-    STATE_WRITES: tuple = ("*")
+    STATE_WRITES: tuple = "*"
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
@@ -43,8 +44,8 @@ class JSONParserNodeExecutor:
             if msgs:
                 content = msgs[-1].content if hasattr(msgs[-1], "content") else str(msgs[-1])
         else:
-             # TODO: Use StateWrapper/expression evaluator to fetch arbitrary path
-             content = "{}"
+            # TODO: Use StateWrapper/expression evaluator to fetch arbitrary path
+            content = "{}"
 
         cleaned_content = content.replace("```json", "").replace("```", "").strip()
 

@@ -1,6 +1,7 @@
 """
 Tool Executors - Executors for tool invocation and custom function nodes.
 """
+
 import time
 from typing import Any, Dict
 
@@ -9,6 +10,7 @@ from loguru import logger
 
 try:
     from langgraph.types import Command
+
     COMMAND_AVAILABLE = True
 except ImportError:
     COMMAND_AVAILABLE = False
@@ -45,11 +47,10 @@ class ToolNodeExecutor:
         # This is a simplified resolution. In a real system, we'd use a tool registry
         # similar to how the agent resolves tools.
         # For now, we'll assume standard tools are available via a helper.
-        from app.core.tools.registry import normalize_tool_name
-
         # We need a way to get the actual callable.
         # Re-using the tool resolution logic from agent/node_tools.py might be best
         from app.core.agent.node_tools import resolve_tools_for_node
+        from app.core.tools.registry import normalize_tool_name
 
         # Tools resolved for node are a list of LangChain tools or structured tools
         tools = await resolve_tools_for_node(self.node, user_id=self.user_id)
@@ -58,9 +59,9 @@ class ToolNodeExecutor:
         normalized_name = normalize_tool_name(self.tool_name)
 
         if not tools:
-             # Fallback: try to find it in the global registry if not explicitly linked?
-             # But usually tools must be linked to the node.
-             pass
+            # Fallback: try to find it in the global registry if not explicitly linked?
+            # But usually tools must be linked to the node.
+            pass
 
         if isinstance(tools, list):
             for tool in tools:
@@ -76,8 +77,8 @@ class ToolNodeExecutor:
         logger.info(f"[ToolNodeExecutor] >>> Executing tool '{self.tool_name}' for node '{self.node_id}'")
 
         if not self.tool_name:
-             logger.error(f"[ToolNodeExecutor] No tool name configured for node {self.node_id}")
-             return {"messages": [AIMessage(content="Error: No tool selected.")]}
+            logger.error(f"[ToolNodeExecutor] No tool name configured for node {self.node_id}")
+            return {"messages": [AIMessage(content="Error: No tool selected.")]}
 
         try:
             tool = await self._get_tool_function()
@@ -91,7 +92,7 @@ class ToolNodeExecutor:
             # Resolve arguments
             for mapping in self.input_mapping:
                 param_name = mapping.get("key")
-                source_type = mapping.get("type", "static") # static or variable
+                source_type = mapping.get("type", "static")  # static or variable
                 source_value = mapping.get("value")
 
                 if not param_name:
@@ -163,12 +164,12 @@ class ToolNodeExecutor:
 
 class FunctionNodeExecutor:
     """Executor for a Function node in the graph.
-    
+
     Executes a predefined function (math, string, etc.) or custom Python code segment.
     """
 
     STATE_READS: tuple = ("*",)
-    STATE_WRITES: tuple = ("*") # Can write to any via output mapping
+    STATE_WRITES: tuple = "*"  # Can write to any via output mapping
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
@@ -224,7 +225,7 @@ class FunctionNodeExecutor:
                     "state": wrapped_state,
                     "context": state.get("context", {}),
                     "messages": state.get("messages", []),
-                    "result": None # Output variable
+                    "result": None,  # Output variable
                 }
 
                 # We need to trust the user here or sandbox strictly.
@@ -256,9 +257,7 @@ class FunctionNodeExecutor:
 
                 result = func(arg1, arg2)
 
-            return_dict = {
-                "current_node": self.node_id
-            }
+            return_dict = {"current_node": self.node_id}
 
             # Map result to state
             apply_node_output_mapping(self.config, result, return_dict, self.node_id)

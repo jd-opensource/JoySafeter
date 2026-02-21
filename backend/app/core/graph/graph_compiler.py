@@ -49,6 +49,7 @@ from app.core.graph.node_wrapper import NodeExecutionWrapper
 # Helper types
 # ---------------------------------------------------------------------------
 
+
 class CompilationResult:
     """Result of a graph compilation."""
 
@@ -76,14 +77,13 @@ class CompilationError(Exception):
         super().__init__(f"Compilation failed with {len(errors)} error(s)")
 
     def __str__(self) -> str:
-        return "Compilation errors:\n" + "\n".join(
-            f"  - {e}" for e in self.errors
-        )
+        return "Compilation errors:\n" + "\n".join(f"  - {e}" for e in self.errors)
 
 
 # ---------------------------------------------------------------------------
 # Compiler Session
 # ---------------------------------------------------------------------------
+
 
 class _CompilerSession:
     """Encapsulates the state and step-by-step logic for graph compilation."""
@@ -146,8 +146,11 @@ class _CompilerSession:
             f"elapsed={elapsed:.2f}ms | nodes={len(self.schema.nodes)} | edges={len(self.schema.edges)}"
         )
         return CompilationResult(
-            compiled, self.schema, self.state_class,
-            build_time_ms=elapsed, warnings=self.warnings,
+            compiled,
+            self.schema,
+            self.state_class,
+            build_time_ms=elapsed,
+            warnings=self.warnings,
         )
 
     def _generate_state_class(self):
@@ -158,8 +161,7 @@ class _CompilerSession:
                 class_name=f"{self.schema.name.replace(' ', '')}State",
             )
             logger.info(
-                f"[GraphCompiler] Built dynamic state class with "
-                f"{len(self.schema.state_fields)} custom fields"
+                f"[GraphCompiler] Built dynamic state class with " f"{len(self.schema.state_fields)} custom fields"
             )
 
     def _validate_state_dependencies(self):
@@ -183,14 +185,18 @@ class _CompilerSession:
 
         if self.checkpointer is None and self.builder is not None:
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
             self.checkpointer = get_checkpointer()
 
         compiled = workflow.compile(checkpointer=self.checkpointer)
         elapsed = (time.time() - self.start_time) * 1000
         logger.info(f"[GraphCompiler] Empty graph compiled | elapsed={elapsed:.2f}ms")
         return CompilationResult(
-            compiled, self.schema, self.state_class,
-            build_time_ms=elapsed, warnings=self.warnings,
+            compiled,
+            self.schema,
+            self.state_class,
+            build_time_ms=elapsed,
+            warnings=self.warnings,
         )
 
     def _precompute_maps(self):
@@ -233,7 +239,9 @@ class _CompilerSession:
 
         if self.builder is not None:
             self.executors = await _create_executors_via_builder(
-                self.schema, self.builder, self.node_name_map,
+                self.schema,
+                self.builder,
+                self.node_name_map,
             )
 
             for node in self.schema.nodes:
@@ -368,15 +376,12 @@ class _CompilerSession:
                     self.workflow.add_edge(en_name, END)
 
     def _compile_workflow(self) -> Any:
-        interrupt_before = [
-            self.node_name_map[n.id] for n in self.schema.nodes if n.interrupt_before
-        ]
-        interrupt_after = [
-            self.node_name_map[n.id] for n in self.schema.nodes if n.interrupt_after
-        ]
+        interrupt_before = [self.node_name_map[n.id] for n in self.schema.nodes if n.interrupt_before]
+        interrupt_after = [self.node_name_map[n.id] for n in self.schema.nodes if n.interrupt_after]
 
         if self.checkpointer is None and self.builder is not None:
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
+
             self.checkpointer = get_checkpointer()
 
         compile_kwargs: Dict[str, Any] = {}
@@ -395,6 +400,7 @@ class _CompilerSession:
 # ---------------------------------------------------------------------------
 # Core compilation
 # ---------------------------------------------------------------------------
+
 
 async def compile_from_schema(
     schema: GraphSchema,
@@ -424,18 +430,14 @@ async def compile_from_schema(
     CompilationResult
         Contains the compiled graph, schema, state class, and diagnostics.
     """
-    session = _CompilerSession(
-        schema=schema,
-        builder=builder,
-        checkpointer=checkpointer,
-        validate=validate
-    )
+    session = _CompilerSession(schema=schema, builder=builder, checkpointer=checkpointer, validate=validate)
     return await session.compile()
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _unique_name(base: str, used: Set[str]) -> str:
     """Generate a unique node name from a base label."""
@@ -471,9 +473,7 @@ async def _create_executors_via_builder(
     for node in schema.nodes:
         db_node = db_node_by_id.get(node.id)
         if db_node is None:
-            logger.warning(
-                f"[GraphCompiler] No DB node found for schema node {node.id}, skipping"
-            )
+            logger.warning(f"[GraphCompiler] No DB node found for schema node {node.id}, skipping")
             continue
         name = node_name_map[node.id]
         tasks.append(builder._get_or_create_executor(db_node, name))

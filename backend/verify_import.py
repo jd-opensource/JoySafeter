@@ -1,12 +1,12 @@
-
-import sys
 import os
+import sys
 
 # Add backend to path
 sys.path.append(os.getcwd())
 
 try:
-    from app.services.test_service import TestService
+    from app.services.test_service import TestService  # noqa: F401
+
     print("✅ Successfully imported TestService")
 except ImportError as e:
     print(f"❌ Failed to import TestService: {e}")

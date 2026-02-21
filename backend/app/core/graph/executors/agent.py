@@ -1,6 +1,7 @@
 """
 Agent Executors - Executors for AI agent nodes.
 """
+
 import asyncio
 import time
 from typing import Any, Dict, List, Optional, Sequence, Union, cast
@@ -11,6 +12,7 @@ from loguru import logger
 
 try:
     from langgraph.types import Command
+
     COMMAND_AVAILABLE = True
 except ImportError:
     COMMAND_AVAILABLE = False
@@ -60,7 +62,7 @@ def apply_node_output_mapping(
     config: Dict[str, Any], result: Any, return_dict: Dict[str, Any], node_id: str = "unknown"
 ) -> None:
     """Apply output mapping configuration to update state.
-    
+
     Extracts values from result based on config.output_mapping and adds them to return_dict.
     """
     output_mapping = config.get("output_mapping", {})
@@ -73,8 +75,8 @@ def apply_node_output_mapping(
         return_dict["node_outputs"] = {}
 
     # Convert result to dict if it isn't already, for easier nested mapping
-    raw_payload = result.dict() if hasattr(result, "dict") else (
-        result if isinstance(result, dict) else {"value": result}
+    raw_payload = (
+        result.dict() if hasattr(result, "dict") else (result if isinstance(result, dict) else {"value": result})
     )
     return_dict["node_outputs"] = {node_id: raw_payload}
 
@@ -160,10 +162,16 @@ class AgentNodeExecutor(BaseLLMNodeExecutor):
         builder: Optional[Any] = None,
     ):
         super().__init__(
-            node, node_id,
-            llm_model=llm_model, api_key=api_key, base_url=base_url,
-            max_tokens=max_tokens, user_id=user_id, checkpointer=checkpointer,
-            resolved_model=resolved_model, builder=builder,
+            node,
+            node_id,
+            llm_model=llm_model,
+            api_key=api_key,
+            base_url=base_url,
+            max_tokens=max_tokens,
+            user_id=user_id,
+            checkpointer=checkpointer,
+            resolved_model=resolved_model,
+            builder=builder,
         )
         self.system_prompt = self._get_system_prompt()
         self.messages_window = messages_window
@@ -282,8 +290,9 @@ class AgentNodeExecutor(BaseLLMNodeExecutor):
         last = output_messages[-1] if output_messages else AIMessage(content="(no output)")
         return [last] if isinstance(last, BaseMessage) else [AIMessage(content=str(last))]
 
-
-    async def __call__(self, state: GraphState, config: Optional[RunnableConfig] = None) -> Union[Dict[str, Any], Command]:
+    async def __call__(
+        self, state: GraphState, config: Optional[RunnableConfig] = None
+    ) -> Union[Dict[str, Any], Command]:
         """Execute the agent node.
 
         Returns:
@@ -372,6 +381,8 @@ class AgentNodeExecutor(BaseLLMNodeExecutor):
                 "messages": [error_message],
                 "current_node": self.node_id,
             }
+
+
 class CodeAgentNodeExecutor(BaseLLMNodeExecutor):
     """
     Executor for CodeAgent nodes in the graph.
@@ -404,10 +415,16 @@ class CodeAgentNodeExecutor(BaseLLMNodeExecutor):
         builder: Optional[Any] = None,
     ):
         super().__init__(
-            node, node_id,
-            llm_model=llm_model, api_key=api_key, base_url=base_url,
-            max_tokens=max_tokens, user_id=user_id, checkpointer=checkpointer,
-            resolved_model=resolved_model, builder=builder,
+            node,
+            node_id,
+            llm_model=llm_model,
+            api_key=api_key,
+            base_url=base_url,
+            max_tokens=max_tokens,
+            user_id=user_id,
+            checkpointer=checkpointer,
+            resolved_model=resolved_model,
+            builder=builder,
         )
 
         # Parse configuration

@@ -332,12 +332,7 @@ def _resolve_string_expression(
 
     # --- Inline interpolation (embedded expressions within text) ---
     # Only do this if there are potential expression markers in the string
-    has_expressions = (
-        "state.get(" in expr
-        or "state." in expr
-        or "result." in expr
-        or ("{" in expr and "}" in expr)
-    )
+    has_expressions = "state.get(" in expr or "state." in expr or "result." in expr or ("{" in expr and "}" in expr)
     if not has_expressions:
         return expr
 

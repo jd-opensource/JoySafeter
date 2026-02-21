@@ -178,7 +178,7 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
             margin: 0 2px;
             pointer-events: none; /* Let clicks pass through to editor */
           }
-          .editor-container .token.magic-pill .keyword, 
+          .editor-container .token.magic-pill .keyword,
           .editor-container .token.magic-pill .property,
           .editor-container .token.magic-pill .string,
           .editor-container .token.magic-pill .punctuation {

@@ -231,18 +231,12 @@ class GraphSchema(BaseModel):
         node_ids: Set[str] = {n.id for n in self.nodes}
         for edge in self.edges:
             if edge.source not in node_ids:
-                raise ValueError(
-                    f"Edge references unknown source node: {edge.source!r}"
-                )
+                raise ValueError(f"Edge references unknown source node: {edge.source!r}")
             if edge.target not in node_ids:
-                raise ValueError(
-                    f"Edge references unknown target node: {edge.target!r}"
-                )
+                raise ValueError(f"Edge references unknown target node: {edge.target!r}")
 
         if self.fallback_node_id and self.fallback_node_id not in node_ids:
-            raise ValueError(
-                f"Fallback node ID {self.fallback_node_id!r} not found in nodes"
-            )
+            raise ValueError(f"Fallback node ID {self.fallback_node_id!r} not found in nodes")
 
         return self
 
@@ -387,9 +381,7 @@ class GraphSchema(BaseModel):
 
     def get_start_nodes(self) -> List[NodeSchema]:
         """Nodes with no incoming edges (except loop-back edges)."""
-        targets = {
-            e.target for e in self.edges if e.edge_type != EdgeType.LOOP_BACK
-        }
+        targets = {e.target for e in self.edges if e.edge_type != EdgeType.LOOP_BACK}
         return [n for n in self.nodes if n.id not in targets]
 
     def get_end_nodes(self) -> List[NodeSchema]:
@@ -399,11 +391,7 @@ class GraphSchema(BaseModel):
 
     def get_conditional_node_ids(self) -> Set[str]:
         """Node IDs that have conditional or loop-back outgoing edges."""
-        return {
-            e.source
-            for e in self.edges
-            if e.edge_type in (EdgeType.CONDITIONAL, EdgeType.LOOP_BACK)
-        }
+        return {e.source for e in self.edges if e.edge_type in (EdgeType.CONDITIONAL, EdgeType.LOOP_BACK)}
 
     def get_state_field_names(self) -> Set[str]:
         """Return all custom state field names."""
@@ -426,8 +414,5 @@ class GraphSchema(BaseModel):
                     continue
                 for f in fields:
                     if f not in declared:
-                        warnings.append(
-                            f"Node '{node.label}' ({node.id}) {direction} "
-                            f"undeclared state field '{f}'"
-                        )
+                        warnings.append(f"Node '{node.label}' ({node.id}) {direction} " f"undeclared state field '{f}'")
         return warnings

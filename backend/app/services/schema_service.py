@@ -95,10 +95,7 @@ class SchemaService(BaseService):
         """
         schema = await self.export_schema(graph_id)
         code = generate_code(schema, include_main=include_main)
-        logger.info(
-            f"[SchemaService] Generated code | graph_id={graph_id} | "
-            f"lines={code.count(chr(10)) + 1}"
-        )
+        logger.info(f"[SchemaService] Generated code | graph_id={graph_id} | " f"lines={code.count(chr(10)) + 1}")
         return code
 
     # ------------------------------------------------------------------
@@ -249,7 +246,9 @@ class SchemaService(BaseService):
             # Check if this is intended to be a DeepAgents graph
             is_deep_agents = any(n.config.get("useDeepAgents") for n in start_nodes)
             if not is_deep_agents:
-                 warnings.append("Multiple start nodes detected (valid for some patterns, but ensure this is intentional)")
+                warnings.append(
+                    "Multiple start nodes detected (valid for some patterns, but ensure this is intentional)"
+                )
 
         end_nodes = schema.get_end_nodes()
         if not end_nodes:
@@ -290,9 +289,9 @@ class SchemaService(BaseService):
             else:
                 for idx, route in enumerate(routes):
                     if not route.get("condition"):
-                         errors.append(f"Router node '{node.label}' ({node.id}) route #{idx+1} missing condition")
+                        errors.append(f"Router node '{node.label}' ({node.id}) route #{idx+1} missing condition")
                     if not route.get("targetEdgeKey"):
-                         errors.append(f"Router node '{node.label}' ({node.id}) route #{idx+1} missing targetEdgeKey")
+                        errors.append(f"Router node '{node.label}' ({node.id}) route #{idx+1} missing targetEdgeKey")
 
         # Tool Node
         elif node.type == "tool_node":
@@ -308,21 +307,21 @@ class SchemaService(BaseService):
         # 1. Root Check
         start_nodes = schema.get_start_nodes()
         if not start_nodes:
-             # Already caught by general topology check, but be specific for DA
-             pass
+            # Already caught by general topology check, but be specific for DA
+            pass
 
         # 2. Manager -> SubAgent structure
         # (Simplified check: ensure DeepAgents-enabled roots don't have parents - guaranteed by get_start_nodes)
-        
+
         # 3. SubAgent descriptions
         for node in schema.nodes:
-             # Check if it's a subagent (child of a manager) - hard to know strictly without traversing
-             # But we can check if it has a description if it LOOKS like an agent
-             if node.type == "agent" or node.type == "code_agent":
-                  # If it is a child in a DA graph, it needs a description.
-                  # For now, we'll skip strict description length checks to avoid false positives on standard graphs
-                  pass
-                  
+            # Check if it's a subagent (child of a manager) - hard to know strictly without traversing
+            # But we can check if it has a description if it LOOKS like an agent
+            if node.type == "agent" or node.type == "code_agent":
+                # If it is a child in a DA graph, it needs a description.
+                # For now, we'll skip strict description length checks to avoid false positives on standard graphs
+                pass
+
         return errors
 
     # ------------------------------------------------------------------
@@ -378,10 +377,7 @@ class SchemaService(BaseService):
                 },
             }
             if node_schema.metadata:
-                data.update({
-                    k: v for k, v in node_schema.metadata.items()
-                    if v is not None
-                })
+                data.update({k: v for k, v in node_schema.metadata.items() if v is not None})
 
             position = node_schema.position or {"x": 0, "y": 0}
             await self.node_repo.create(

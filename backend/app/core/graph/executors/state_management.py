@@ -19,7 +19,7 @@ class GetStateNodeExecutor:
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Execute the Get State node.
-        
+
         Extracts requested keys from global state and returns them as a new dict (payload).
         Returns:
             A dictionary containing the requested variables. This becomes the payload
@@ -69,7 +69,7 @@ class SetStateNodeExecutor:
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Execute the Set State node.
-        
+
         Reads from the localized payload mappings and writes to the global state.
         """
         updates: Dict[str, Any] = {}

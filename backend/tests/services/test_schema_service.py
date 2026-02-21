@@ -295,7 +295,7 @@ class TestExportCode:
         svc = _build_mock_service(graph=graph, nodes=[node])
 
         code = await svc.export_code(graph.id, include_main=True)
-        assert '__name__' in code
+        assert "__name__" in code
 
     @pytest.mark.asyncio
     async def test_export_code_without_main(self):
@@ -305,7 +305,7 @@ class TestExportCode:
         svc = _build_mock_service(graph=graph, nodes=[node])
 
         code = await svc.export_code(graph.id, include_main=False)
-        assert '__main__' not in code
+        assert "__main__" not in code
 
 
 # ---------------------------------------------------------------------------

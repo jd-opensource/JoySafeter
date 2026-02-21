@@ -98,7 +98,7 @@ class TestCodeGenerator:
     def test_code_gen_without_main(self):
         schema = GraphSchema(name="NoMain")
         code = generate_code(schema, include_main=False)
-        assert 'if __name__' not in code
+        assert "if __name__" not in code
 
     def test_code_gen_with_state_fields(self):
         schema = GraphSchema(

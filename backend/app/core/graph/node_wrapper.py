@@ -75,8 +75,7 @@ class NodeExecutionWrapper:
                 if resolved_context != context:
                     state = {**state, "context": resolved_context}
                     logger.debug(
-                        f"[NodeExecutionWrapper] Resolved Data Pill expressions in context | "
-                        f"node_id={self.node_id}"
+                        f"[NodeExecutionWrapper] Resolved Data Pill expressions in context | " f"node_id={self.node_id}"
                     )
         except Exception as e:
             logger.warning(
@@ -183,7 +182,9 @@ class NodeExecutionWrapper:
         # 返回更新后的字典
         return update_dict  # type: ignore[return-value]
 
-    async def __call__(self, state: GraphState, config: Optional[RunnableConfig] = None) -> Union[Dict[str, Any], Command]:
+    async def __call__(
+        self, state: GraphState, config: Optional[RunnableConfig] = None
+    ) -> Union[Dict[str, Any], Command]:
         """执行节点，包含前后钩子。
 
         Returns:
@@ -199,6 +200,7 @@ class NodeExecutionWrapper:
 
             # 执行节点
             import inspect
+
             sig = inspect.signature(self.executor)
             if "config" in sig.parameters:
                 result = await self.executor(state, config=config)
@@ -249,10 +251,7 @@ class NodeExecutionWrapper:
                 # Actually, jumping to fallback usually aborts the current parallel branch or supercedes it.
                 # But to be safe, we return the Command.
 
-                return Command(
-                    update=error_update,
-                    goto=self.fallback_node_name
-                )
+                return Command(update=error_update, goto=self.fallback_node_name)
 
             return {
                 "error": str(e),

@@ -1,6 +1,7 @@
 """
 Logic Executors - Executors for control flow nodes (Condition, Router, Loop).
 """
+
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -8,6 +9,7 @@ from loguru import logger
 
 try:
     from langgraph.types import Command
+
     COMMAND_AVAILABLE = True
 except ImportError:
     COMMAND_AVAILABLE = False
@@ -302,7 +304,12 @@ class LoopConditionNodeExecutor:
     """
 
     STATE_READS: tuple = ("loop_count", "loop_condition_met", "context", "loop_states")
-    STATE_WRITES: tuple = ("loop_count", "loop_condition_met", "loop_states", "context") # context allows item injection
+    STATE_WRITES: tuple = (
+        "loop_count",
+        "loop_condition_met",
+        "loop_states",
+        "context",
+    )  # context allows item injection
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
@@ -368,7 +375,7 @@ class LoopConditionNodeExecutor:
             elif self.condition_type in ("while", "doWhile"):
                 # Evaluate python condition
                 if not self.condition:
-                    should_continue = False # No condition = stop
+                    should_continue = False  # No condition = stop
                 else:
                     # Eval context
                     # Use StateWrapper
@@ -376,7 +383,7 @@ class LoopConditionNodeExecutor:
                     eval_context = {
                         "state": wrapped_state,
                         "context": state.get("context", {}),
-                        "loop_count": iteration_count, # Use local count
+                        "loop_count": iteration_count,  # Use local count
                         "loop_item": state.get("context", {}).get("loop_item"),
                     }
                     result = eval(self.condition, {"__builtins__": {}}, eval_context)
@@ -396,18 +403,15 @@ class LoopConditionNodeExecutor:
 
             # Update loop_states
             new_loop_states = all_loop_states.copy()
-            new_loop_states[self.node_id] = {
-                "iteration_count": new_iteration_count,
-                "active": True
-            }
+            new_loop_states[self.node_id] = {"iteration_count": new_iteration_count, "active": True}
 
             updates = {
                 "loop_states": new_loop_states,
-                "loop_count": new_iteration_count, # Update global loop count if needed, but local is better
+                "loop_count": new_iteration_count,  # Update global loop count if needed, but local is better
                 "loop_condition_met": True,
                 "current_node": self.node_id,
                 "route_decision": "continue_loop",
-                "route_history": ["continue_loop"]
+                "route_history": ["continue_loop"],
             }
 
             # If forEach, inject item
@@ -417,7 +421,9 @@ class LoopConditionNodeExecutor:
                 updates["context"] = current_context
 
             elapsed_ms = (time.time() - start_time) * 1000
-            logger.info(f"[LoopNodeExecutor] <<< Continuing loop | iteration={new_iteration_count} | elapsed={elapsed_ms:.2f}ms")
+            logger.info(
+                f"[LoopNodeExecutor] <<< Continuing loop | iteration={new_iteration_count} | elapsed={elapsed_ms:.2f}ms"
+            )
             return updates
         else:
             return self._exit_loop(state, loop_state, "condition_false")
@@ -429,11 +435,11 @@ class LoopConditionNodeExecutor:
 
         # Reset or mark inactive? Usually reset for next run, but maybe keep history
         new_loop_states[self.node_id] = {
-            "iteration_count": 0, # Reset for next time this node is entered?
-                                  # Or keep it? If we re-enter deeply, we might want 0.
-                                  # For now, let's mark inactive and maybe reset.
+            "iteration_count": 0,  # Reset for next time this node is entered?
+            # Or keep it? If we re-enter deeply, we might want 0.
+            # For now, let's mark inactive and maybe reset.
             "active": False,
-            "last_exit_reason": reason
+            "last_exit_reason": reason,
         }
 
         logger.info(f"[LoopNodeExecutor] <<< Exiting loop | reason={reason}")
@@ -443,7 +449,7 @@ class LoopConditionNodeExecutor:
             "loop_condition_met": False,
             "current_node": self.node_id,
             "route_decision": "exit_loop",
-            "route_history": ["exit_loop"]
+            "route_history": ["exit_loop"],
         }
 
     def _get_value_by_path(self, obj: Any, path: str) -> Any:
@@ -460,6 +466,7 @@ class LoopConditionNodeExecutor:
             if current is None:
                 return None
         return current
+
 
 class ConditionAgentNodeExecutor:
     """Executor for a Condition Agent node in the graph.
@@ -494,7 +501,9 @@ class ConditionAgentNodeExecutor:
         self.options = config.get("options", [])
 
         if not self.options:
-            logger.warning(f"[ConditionAgentNodeExecutor] No options provided for node '{node_id}', routing might fail.")
+            logger.warning(
+                f"[ConditionAgentNodeExecutor] No options provided for node '{node_id}', routing might fail."
+            )
 
         self.handle_to_route_map: Dict[str, str] = {}
 
@@ -507,7 +516,9 @@ class ConditionAgentNodeExecutor:
         start_time = time.time()
 
         if not self.resolved_model:
-            logger.error(f"[ConditionAgentNodeExecutor] No resolved model available for node '{self.node_id}'. Cannot route.")
+            logger.error(
+                f"[ConditionAgentNodeExecutor] No resolved model available for node '{self.node_id}'. Cannot route."
+            )
             return {
                 "current_node": self.node_id,
             }
@@ -533,12 +544,15 @@ class ConditionAgentNodeExecutor:
         user_content = f"Latest message context:\n{last_message}\n\nPlease output the selected route option."
 
         from langchain_core.messages import HumanMessage, SystemMessage
+
         llm_messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_content),
         ]
 
-        logger.info(f"[ConditionAgentNodeExecutor] >>> Evaluating condition agent '{self.node_id}' with options: {valid_options}")
+        logger.info(
+            f"[ConditionAgentNodeExecutor] >>> Evaluating condition agent '{self.node_id}' with options: {valid_options}"
+        )
 
         try:
             response = await self.resolved_model.ainvoke(llm_messages)
@@ -569,11 +583,12 @@ class ConditionAgentNodeExecutor:
             }
         except Exception as e:
             logger.error(
-                f"[ConditionAgentNodeExecutor] Error invoking LLM for routing | "
-                f"node_id={self.node_id} | error={e}"
+                f"[ConditionAgentNodeExecutor] Error invoking LLM for routing | " f"node_id={self.node_id} | error={e}"
             )
             # Fallback to first available option
-            fallback_route = self.handle_to_route_map.get(valid_options[0], valid_options[0]) if valid_options else "default"
+            fallback_route = (
+                self.handle_to_route_map.get(valid_options[0], valid_options[0]) if valid_options else "default"
+            )
             return {
                 "current_node": self.node_id,
                 "route_decision": fallback_route,
