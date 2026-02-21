@@ -50,13 +50,16 @@ class ToolNodeExecutor:
         # We need a way to get the actual callable.
         # Re-using the tool resolution logic from agent/node_tools.py might be best
         from app.core.agent.node_tools import resolve_tools_for_node
-        from app.core.tools.registry import normalize_tool_name
 
         # Tools resolved for node are a list of LangChain tools or structured tools
         tools = await resolve_tools_for_node(self.node, user_id=self.user_id)
 
         target_tool = None
-        normalized_name = normalize_tool_name(self.tool_name)
+
+        def _normalize_name(name: Any) -> str:
+            return str(name).strip().lower() if name else ""
+
+        normalized_name = _normalize_name(self.tool_name)
 
         if not tools:
             # Fallback: try to find it in the global registry if not explicitly linked?
@@ -65,7 +68,7 @@ class ToolNodeExecutor:
 
         if isinstance(tools, list):
             for tool in tools:
-                if normalize_tool_name(tool.name) == normalized_name:
+                if _normalize_name(tool.name) == normalized_name:
                     target_tool = tool
                     break
 
