@@ -119,7 +119,7 @@ class LanggraphModelBuilder(BaseGraphBuilder):
             workflow.add_node("pass_through", pass_through)
             workflow.add_edge(START, "pass_through")
             workflow.add_edge("pass_through", END)
-            
+
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
             return workflow.compile(checkpointer=get_checkpointer())
 

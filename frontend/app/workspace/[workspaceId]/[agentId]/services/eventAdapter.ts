@@ -34,7 +34,6 @@ import type { ExecutionStep } from '@/types'
 
 import type { InterruptState } from '../stores/execution/types'
 
-
 export interface EventAdapterContext {
   currentThoughtId: string | null
   toolStepMap: Map<string, string> // key: "tool_name:run_id" or "tool_name" (for backward compatibility)
@@ -58,12 +57,12 @@ export type AdapterResult =
   | { type: 'parallel_task'; task: ParallelTaskEventData }
   | { type: 'state_update'; update: StateUpdateEventData }
 
-// Main Adapter Function
+type TraceFields = Pick<ExecutionStep, 'traceId' | 'observationId' | 'parentObservationId'>
 
 /**
  * Helper: extract trace/observation fields from event envelope
  */
-function extractTraceFields(evt: ChatStreamEvent): Pick<ExecutionStep, 'traceId' | 'observationId' | 'parentObservationId'> {
+function extractTraceFields(evt: ChatStreamEvent): TraceFields {
   return {
     traceId: evt.trace_id || undefined,
     observationId: evt.observation_id || undefined,
@@ -71,84 +70,77 @@ function extractTraceFields(evt: ChatStreamEvent): Pick<ExecutionStep, 'traceId'
   }
 }
 
-export function mapChatEventToExecutionStep(
-  evt: ChatStreamEvent,
-  ctx: EventAdapterContext
-): AdapterResult {
-  const { currentThoughtId, toolStepMap, nodeStepMap, modelStepMap, genId, getSteps } = ctx
-  const { type, node_name, run_id, timestamp, data } = evt
-  const traceFields = extractTraceFields(evt)
+// ============================================================================
+// Event Handlers
+// ============================================================================
 
-  // ========== Error Event ==========
-  if (type === 'error') {
-    const errorData = data as ErrorEventData
-    const errorMsg = errorData?.message || 'Unknown error'
-    const errorCode = errorData?.code
+function handleErrorEvent(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+  const { node_name, timestamp, data } = evt
+  const errorData = data as ErrorEventData
+  const errorMsg = errorData?.message || 'Unknown error'
+  const errorCode = errorData?.code
 
-    // Check if this is a stop event (determined by code or message)
-    if (errorCode === 'stopped' || errorMsg === 'Stream stopped' || errorMsg.includes('stopped')) {
-      return { type: 'stopped' }
-    }
+  if (errorCode === 'stopped' || errorMsg === 'Stream stopped' || errorMsg.includes('stopped')) {
+    return { type: 'stopped' }
+  }
 
+  return {
+    type: 'add_step',
+    step: {
+      id: ctx.genId('error'),
+      nodeId: node_name || 'system',
+      nodeLabel: 'Error',
+      stepType: 'system_log',
+      title: 'Error',
+      status: 'error',
+      startTime: timestamp || Date.now(),
+      content: errorMsg,
+      ...traceFields,
+    },
+  }
+}
+
+function handleContentEvent(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+  const { node_name, timestamp, data } = evt
+  const contentData = data as ContentEventData
+  const delta = contentData?.delta || ''
+  if (!delta) return { type: 'noop' }
+
+  if (!ctx.currentThoughtId) {
     return {
       type: 'add_step',
       step: {
-        id: genId('error'),
-        nodeId: node_name || 'system',
-        nodeLabel: 'Error',
-        stepType: 'system_log',
-        title: 'Error',
-        status: 'error',
+        id: ctx.genId('thought'),
+        nodeId: node_name || 'agent',
+        nodeLabel: node_name || 'Agent',
+        stepType: 'agent_thought',
+        title: `Reasoning (${node_name || 'Agent'})`,
+        status: 'running',
         startTime: timestamp || Date.now(),
-        content: errorMsg,
+        content: delta,
         ...traceFields,
       },
     }
   }
 
-  // ========== Content Event (Agent Thought) ==========
-  if (type === 'content') {
-    const contentData = data as ContentEventData
-    const delta = contentData?.delta || ''
-    if (!delta) return { type: 'noop' }
-
-    // If no current thought step, create one
-    if (!currentThoughtId) {
-      const thoughtId = genId('thought')
-      return {
-        type: 'add_step',
-        step: {
-          id: thoughtId,
-          nodeId: node_name || 'agent',
-          nodeLabel: node_name || 'Agent',
-          stepType: 'agent_thought',
-          title: `Reasoning (${node_name || 'Agent'})`,
-          status: 'running',
-          startTime: timestamp || Date.now(),
-          content: delta,
-          ...traceFields,
-        },
-      }
-    }
-
-    // Append content to existing thought
-    return {
-      type: 'append_content',
-      stepId: currentThoughtId,
-      content: delta,
-    }
+  return {
+    type: 'append_content',
+    stepId: ctx.currentThoughtId,
+    content: delta,
   }
+}
 
-  // ========== Tool Start Event ==========
+function handleToolEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+  const { type, node_name, run_id, timestamp, data } = evt
+
   if (type === 'tool_start') {
     const toolData = data as ToolStartEventData
     const toolName = toolData?.tool_name || 'tool'
     const toolInput = toolData?.tool_input
 
-    const toolId = genId('tool')
-    // Use tool_name:run_id as key to support concurrent execution
+    const toolId = ctx.genId('tool')
     const toolKey = run_id ? `${toolName}:${run_id}` : toolName
-    toolStepMap.set(toolKey, toolId)
+    ctx.toolStepMap.set(toolKey, toolId)
 
     return {
       type: 'add_step',
@@ -166,31 +158,26 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== Tool End Event ==========
   if (type === 'tool_end') {
     const toolData = data as ToolEndEventData
     const toolName = toolData?.tool_name || 'tool'
     const toolOutput = toolData?.tool_output
 
-    // Try to match using run_id, fallback to tool_name if not available
     const toolKey = run_id ? `${toolName}:${run_id}` : toolName
-    let toolId = toolStepMap.get(toolKey)
+    let toolId = ctx.toolStepMap.get(toolKey)
 
-    // If not found, try using only tool_name (backward compatible)
     if (!toolId) {
-      toolId = toolStepMap.get(toolName)
+      toolId = ctx.toolStepMap.get(toolName)
       if (toolId) {
-        // Update mapping to use new key
-        toolStepMap.delete(toolName)
-        toolStepMap.set(toolKey, toolId)
+        ctx.toolStepMap.delete(toolName)
+        ctx.toolStepMap.set(toolKey, toolId)
       }
     }
 
     if (!toolId) return { type: 'noop' }
 
-    // Get existing step to preserve request data
-    const existingStep = getSteps().find((s) => s.id === toolId)
-    toolStepMap.delete(toolKey)
+    const existingStep = ctx.getSteps().find((s) => s.id === toolId)
+    ctx.toolStepMap.delete(toolKey)
 
     return {
       type: 'update_step',
@@ -207,15 +194,19 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== Node Start Event ==========
+  return { type: 'noop' }
+}
+
+function handleNodeEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+  const { type, node_name, run_id, timestamp, data } = evt
+
   if (type === 'node_start') {
     const nodeData = data as NodeStartEventData
     const nodeId = node_name || nodeData?.node_name || 'unknown'
-    const stepId = genId('node')
+    const stepId = ctx.genId('node')
 
-    // Use node_name:run_id as key to support concurrent execution
     const nodeKey = run_id ? `${nodeId}:${run_id}` : nodeId
-    nodeStepMap.set(nodeKey, stepId)
+    ctx.nodeStepMap.set(nodeKey, stepId)
 
     return {
       type: 'add_step',
@@ -232,28 +223,23 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== Node End Event ==========
   if (type === 'node_end') {
     const nodeData = data as NodeEndEventData
     const nodeId = node_name || nodeData?.node_name || 'unknown'
 
-    // Try to match using run_id
     const nodeKey = run_id ? `${nodeId}:${run_id}` : nodeId
-    let stepId = nodeStepMap.get(nodeKey)
+    let stepId = ctx.nodeStepMap.get(nodeKey)
 
-    // If not found, try using only node_name (backward compatible)
     if (!stepId) {
-      stepId = nodeStepMap.get(nodeId)
+      stepId = ctx.nodeStepMap.get(nodeId)
       if (stepId) {
-        // Update mapping to use new key
-        nodeStepMap.delete(nodeId)
-        nodeStepMap.set(nodeKey, stepId)
+        ctx.nodeStepMap.delete(nodeId)
+        ctx.nodeStepMap.set(nodeKey, stepId)
       }
     }
 
-    // If found through mapping, update directly
     if (stepId) {
-      nodeStepMap.delete(nodeKey)
+      ctx.nodeStepMap.delete(nodeKey)
       return {
         type: 'update_step',
         stepId: stepId,
@@ -262,15 +248,14 @@ export function mapChatEventToExecutionStep(
           endTime: timestamp || Date.now(),
           duration: nodeData?.duration,
           data: {
-            // @ts-ignore Option B localized payload
+            // @ts-ignore
             payload: nodeData?.payload
           }
         },
       }
     }
 
-    // If not found in mapping, try searching through step list (backward compatible)
-    const nodeStep = getSteps().find(
+    const nodeStep = ctx.getSteps().find(
       (s) => s.stepType === 'node_lifecycle' &&
         (s.nodeId === nodeId || s.nodeId === nodeData?.node_name) &&
         s.status === 'running'
@@ -286,18 +271,17 @@ export function mapChatEventToExecutionStep(
           duration: nodeData?.duration,
           data: {
             ...nodeStep.data,
-            // @ts-ignore Option B localized payload
+            // @ts-ignore
             payload: nodeData?.payload
           }
         },
       }
     }
 
-    // If corresponding start step not found, create a new step
     return {
       type: 'add_step',
       step: {
-        id: genId('node'),
+        id: ctx.genId('node'),
         nodeId: node_name || nodeData?.node_name || 'unknown',
         nodeLabel: nodeData?.node_label || node_name || 'Unknown Node',
         stepType: 'node_lifecycle',
@@ -307,7 +291,7 @@ export function mapChatEventToExecutionStep(
         endTime: timestamp || Date.now(),
         duration: nodeData?.duration,
         data: {
-          // @ts-ignore Option B localized payload
+          // @ts-ignore
           payload: nodeData?.payload
         },
         ...traceFields,
@@ -315,29 +299,22 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== Done Event ==========
-  if (type === 'done') {
-    return { type: 'done' }
-  }
+  return { type: 'noop' }
+}
 
-  // ========== Status Event ==========
-  if (type === 'status') {
-    // Can handle status information here, return noop for now
-    return { type: 'noop' }
-  }
+function handleModelEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+  const { type, node_name, run_id, timestamp, data } = evt
 
-  // ========== Model Input Event ==========
   if (type === 'model_input') {
     const modelData = data as ModelInputEventData
     const modelName = modelData?.model_name || 'unknown'
     const modelProvider = modelData?.model_provider || 'unknown'
     const messages = modelData?.messages || []
 
-    const stepId = genId('model_io')
+    const stepId = ctx.genId('model_io')
 
-    // Use run_id to record this step's ID for subsequent model_output merging
     if (run_id) {
-      modelStepMap.set(run_id, stepId)
+      ctx.modelStepMap.set(run_id, stepId)
     }
 
     return {
@@ -348,7 +325,7 @@ export function mapChatEventToExecutionStep(
         nodeLabel: `${modelProvider}/${modelName}`,
         stepType: 'model_io',
         title: `Model I/O (${modelProvider}/${modelName})`,
-        status: 'running', // Waiting for output
+        status: 'running',
         startTime: timestamp || Date.now(),
         data: {
           messages: messages,
@@ -361,21 +338,16 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== Model Output Event ==========
   if (type === 'model_output') {
     const modelData = data as ModelOutputEventData
     const modelName = modelData?.model_name || 'unknown'
     const modelProvider = modelData?.model_provider || 'unknown'
     const output = modelData?.output
     const usageMetadata = modelData?.usage_metadata
-    const promptTokens = modelData?.prompt_tokens
-    const completionTokens = modelData?.completion_tokens
-    const totalTokens = modelData?.total_tokens
 
-    // Try to find corresponding model_input step and update
-    if (run_id && modelStepMap.has(run_id)) {
-      const existingStepId = modelStepMap.get(run_id)!
-      modelStepMap.delete(run_id) // Clean up to prevent duplicate updates
+    if (run_id && ctx.modelStepMap.has(run_id)) {
+      const existingStepId = ctx.modelStepMap.get(run_id)!
+      ctx.modelStepMap.delete(run_id)
 
       return {
         type: 'update_step',
@@ -387,20 +359,18 @@ export function mapChatEventToExecutionStep(
             output: output,
             usage_metadata: usageMetadata,
           },
-          promptTokens,
-          completionTokens,
-          totalTokens,
+          promptTokens: modelData?.prompt_tokens,
+          completionTokens: modelData?.completion_tokens,
+          totalTokens: modelData?.total_tokens,
           ...traceFields,
         },
       }
     }
 
-    // If corresponding input not found (rare case), create independent output step
-    const stepId = genId('model_output')
     return {
       type: 'add_step',
       step: {
-        id: stepId,
+        id: ctx.genId('model_output'),
         nodeId: node_name || 'model',
         nodeLabel: `${modelProvider}/${modelName}`,
         stepType: 'model_io',
@@ -414,85 +384,26 @@ export function mapChatEventToExecutionStep(
           usage_metadata: usageMetadata,
           run_id: run_id,
         },
-        promptTokens,
-        completionTokens,
-        totalTokens,
+        promptTokens: modelData?.prompt_tokens,
+        completionTokens: modelData?.completion_tokens,
+        totalTokens: modelData?.total_tokens,
         ...traceFields,
       },
     }
   }
 
-  // ========== Interrupt Event ==========
-  if (type === 'interrupt') {
-    const interruptData = data as InterruptEventData
-    return {
-      type: 'interrupt',
-      nodeId: interruptData.node_name || node_name || 'unknown',
-      nodeLabel: interruptData.node_label || interruptData.node_name || 'Unknown Node',
-      state: interruptData.state || {},
-      threadId: interruptData.thread_id || evt.thread_id,
-    }
-  }
+  return { type: 'noop' }
+}
 
-  // ========== Thread ID Event ==========
-  if (type === 'thread_id') {
-    // Initial handshake event, no processing needed
-    return { type: 'noop' }
-  }
+function handleCodeAgentEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+  const { type, node_name, timestamp, data } = evt
 
-  // ========== Command Event ==========
-  if (type === 'command') {
-    const commandData = data as CommandEventData
-    return {
-      type: 'command',
-      command: commandData,
-      nodeId: node_name || 'unknown',
-    }
-  }
-
-  // ========== Route Decision Event ==========
-  if (type === 'route_decision') {
-    const decisionData = data as RouteDecisionEventData
-    return {
-      type: 'route_decision',
-      decision: decisionData,
-    }
-  }
-
-  // ========== Loop Iteration Event ==========
-  if (type === 'loop_iteration') {
-    const iterationData = data as LoopIterationEventData
-    return {
-      type: 'loop_iteration',
-      iteration: iterationData,
-    }
-  }
-
-  // ========== Parallel Task Event ==========
-  if (type === 'parallel_task') {
-    const taskData = data as ParallelTaskEventData
-    return {
-      type: 'parallel_task',
-      task: taskData,
-    }
-  }
-
-  // ========== State Update Event ==========
-  if (type === 'state_update') {
-    const updateData = data as StateUpdateEventData
-    return {
-      type: 'state_update',
-      update: updateData,
-    }
-  }
-
-  // ========== CodeAgent Thought Event ==========
   if (type === 'code_agent_thought') {
     const thoughtData = data as CodeAgentThoughtEventData
     return {
       type: 'add_step',
       step: {
-        id: genId('ca_thought'),
+        id: ctx.genId('ca_thought'),
         nodeId: thoughtData.node_name || node_name || 'code_agent',
         nodeLabel: 'CodeAgent',
         stepType: 'code_agent_thought',
@@ -506,13 +417,12 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== CodeAgent Code Event ==========
   if (type === 'code_agent_code') {
     const codeData = data as CodeAgentCodeEventData
     return {
       type: 'add_step',
       step: {
-        id: genId('ca_code'),
+        id: ctx.genId('ca_code'),
         nodeId: codeData.node_name || node_name || 'code_agent',
         nodeLabel: 'CodeAgent',
         stepType: 'code_agent_code',
@@ -526,13 +436,12 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== CodeAgent Observation Event ==========
   if (type === 'code_agent_observation') {
     const obsData = data as CodeAgentObservationEventData
     return {
       type: 'add_step',
       step: {
-        id: genId('ca_obs'),
+        id: ctx.genId('ca_obs'),
         nodeId: obsData.node_name || node_name || 'code_agent',
         nodeLabel: 'CodeAgent',
         stepType: 'code_agent_observation',
@@ -546,7 +455,6 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== CodeAgent Final Answer Event ==========
   if (type === 'code_agent_final_answer') {
     const answerData = data as CodeAgentFinalAnswerEventData
     const answerStr = typeof answerData.answer === 'string'
@@ -555,7 +463,7 @@ export function mapChatEventToExecutionStep(
     return {
       type: 'add_step',
       step: {
-        id: genId('ca_answer'),
+        id: ctx.genId('ca_answer'),
         nodeId: answerData.node_name || node_name || 'code_agent',
         nodeLabel: 'CodeAgent',
         stepType: 'code_agent_final_answer',
@@ -569,13 +477,12 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== CodeAgent Planning Event ==========
   if (type === 'code_agent_planning') {
     const planData = data as CodeAgentPlanningEventData
     return {
       type: 'add_step',
       step: {
-        id: genId('ca_plan'),
+        id: ctx.genId('ca_plan'),
         nodeId: planData.node_name || node_name || 'code_agent',
         nodeLabel: 'CodeAgent',
         stepType: 'code_agent_planning',
@@ -589,13 +496,12 @@ export function mapChatEventToExecutionStep(
     }
   }
 
-  // ========== CodeAgent Error Event ==========
   if (type === 'code_agent_error') {
     const errorData = data as CodeAgentErrorEventData
     return {
       type: 'add_step',
       step: {
-        id: genId('ca_error'),
+        id: ctx.genId('ca_error'),
         nodeId: errorData.node_name || node_name || 'code_agent',
         nodeLabel: 'CodeAgent',
         stepType: 'code_agent_error',
@@ -612,6 +518,102 @@ export function mapChatEventToExecutionStep(
   return { type: 'noop' }
 }
 
+function handleMiscEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+  const { type, node_name, data } = evt
+
+  if (type === 'done') return { type: 'done' }
+  if (type === 'status') return { type: 'noop' }
+  if (type === 'thread_id') return { type: 'noop' }
+
+  if (type === 'interrupt') {
+    const interruptData = data as InterruptEventData
+    return {
+      type: 'interrupt',
+      nodeId: interruptData.node_name || node_name || 'unknown',
+      nodeLabel: interruptData.node_label || interruptData.node_name || 'Unknown Node',
+      state: interruptData.state || {},
+      threadId: interruptData.thread_id || evt.thread_id,
+    }
+  }
+
+  if (type === 'command') {
+    return {
+      type: 'command',
+      command: data as CommandEventData,
+      nodeId: node_name || 'unknown',
+    }
+  }
+
+  if (type === 'route_decision') {
+    return {
+      type: 'route_decision',
+      decision: data as RouteDecisionEventData,
+    }
+  }
+
+  if (type === 'loop_iteration') {
+    return {
+      type: 'loop_iteration',
+      iteration: data as LoopIterationEventData,
+    }
+  }
+
+  if (type === 'parallel_task') {
+    return {
+      type: 'parallel_task',
+      task: data as ParallelTaskEventData,
+    }
+  }
+
+  if (type === 'state_update') {
+    return {
+      type: 'state_update',
+      update: data as StateUpdateEventData,
+    }
+  }
+
+  return { type: 'noop' }
+}
+
+// ============================================================================
+// Main Adapter Function
+// ============================================================================
+
+export function mapChatEventToExecutionStep(
+  evt: ChatStreamEvent,
+  ctx: EventAdapterContext
+): AdapterResult {
+  const traceFields = extractTraceFields(evt)
+
+  switch (evt.type) {
+    case 'error':
+      return handleErrorEvent(evt, ctx, traceFields)
+    case 'content':
+      return handleContentEvent(evt, ctx, traceFields)
+    case 'tool_start':
+    case 'tool_end':
+      return handleToolEvents(evt, ctx, traceFields)
+    case 'node_start':
+    case 'node_end':
+      return handleNodeEvents(evt, ctx, traceFields)
+    case 'model_input':
+    case 'model_output':
+      return handleModelEvents(evt, ctx, traceFields)
+    case 'code_agent_thought':
+    case 'code_agent_code':
+    case 'code_agent_observation':
+    case 'code_agent_final_answer':
+    case 'code_agent_planning':
+    case 'code_agent_error':
+      return handleCodeAgentEvents(evt, ctx, traceFields)
+    default:
+      return handleMiscEvents(evt, ctx, traceFields)
+  }
+}
+
+// ============================================================================
+// Helper Builders
+// ============================================================================
 
 /**
  * Creates a workflow lifecycle step

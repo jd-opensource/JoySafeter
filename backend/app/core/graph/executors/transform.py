@@ -8,9 +8,9 @@ from typing import Any, Dict
 from langchain_core.messages import AIMessage
 from loguru import logger
 
+from app.core.graph.executors.agent import apply_node_output_mapping
 from app.core.graph.graph_state import GraphState
 from app.models.graph import GraphNode
-from app.core.graph.executors.agent import apply_node_output_mapping
 
 
 class JSONParserNodeExecutor:
@@ -18,24 +18,24 @@ class JSONParserNodeExecutor:
     
     Parses a string (e.g. from LLM) into a JSON object and maps fields to state.
     """
-    
+
     STATE_READS: tuple = ("messages", "*")
-    STATE_WRITES: tuple = ("*") 
+    STATE_WRITES: tuple = ("*")
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
-        
+
         data = self.node.data or {}
         self.config = data.get("config", {})
         self.source_field = self.config.get("sourceField", "messages[-1].content")
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Parse JSON."""
-        # Resolve source value... 
+        # Resolve source value...
         # Needs logic similar to StateWrapper access.
         # For now assuming it grabs last message content if not specified or simple path.
-        
+
         content = ""
         # Simplified retrieval:
         if self.source_field == "messages[-1].content":
@@ -44,16 +44,16 @@ class JSONParserNodeExecutor:
                 content = msgs[-1].content if hasattr(msgs[-1], "content") else str(msgs[-1])
         else:
              # TODO: Use StateWrapper/expression evaluator to fetch arbitrary path
-             content = "{}" 
+             content = "{}"
 
         cleaned_content = content.replace("```json", "").replace("```", "").strip()
-        
+
         try:
             parsed = json.loads(cleaned_content)
-            
+
             return_dict = {"current_node": self.node_id}
             apply_node_output_mapping(self.config, parsed, return_dict, self.node_id)
-            
+
             return return_dict
         except Exception as e:
             logger.error(f"[JsonParser] Failed to parse JSON: {e}")
@@ -72,7 +72,7 @@ class AggregatorNodeExecutor:
         self.node = node
         self.node_id = node_id
         self.error_strategy = self._get_error_strategy()
-        
+
         data = self.node.data or {}
         self.config = data.get("config", {})
         self.method = self.config.get("method")
@@ -132,9 +132,9 @@ class AggregatorNodeExecutor:
                     values.extend(val)
                 else:
                     values.append(val)
-        
+
         result_val = None
-        
+
         if self.method == "append":
             result_val = values
         elif self.method == "sum":
@@ -149,13 +149,13 @@ class AggregatorNodeExecutor:
         else:
             logger.warning(f"[AggregatorNodeExecutor] Unknown aggregation method: {self.method}")
             return {}
-            
+
         return {self.target_variable: result_val}
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Aggregate results from all upstream nodes."""
         start_time = time.time()
-        
+
         # If generic aggregation method is specified, use it
         if self.method:
             logger.info(

@@ -64,14 +64,14 @@ def apply_node_output_mapping(
     Extracts values from result based on config.output_mapping and adds them to return_dict.
     """
     output_mapping = config.get("output_mapping", {})
-    
+
     # NEW DATA-FLOW ARCHITECTURE (Option B):
     # Always save the full raw result payload to 'node_outputs' keyed by node_id.
     # This allows downstream nodes to explicitly wire/map from this payload.
     # It ensures data is localized and not blindly merged into global state.
     if "node_outputs" not in return_dict:
         return_dict["node_outputs"] = {}
-    
+
     # Convert result to dict if it isn't already, for easier nested mapping
     raw_payload = result.dict() if hasattr(result, "dict") else (
         result if isinstance(result, dict) else {"value": result}
@@ -87,14 +87,14 @@ def apply_node_output_mapping(
     def get_value(obj: Any, path: str) -> Any:
         if path == "result":
             return obj
-        
+
         parts = path.split(".")
         current = obj
-        
+
         # If path starts with "result.", skip the first part
         if parts[0] == "result":
             parts = parts[1:]
-            
+
         for part in parts:
             # Support list index via numeric keys
             if isinstance(current, list) and part.isdigit():
@@ -114,7 +114,7 @@ def apply_node_output_mapping(
                 current = getattr(current, part)
             else:
                 return None
-            
+
             if current is None:
                 return None
         return current
@@ -123,7 +123,7 @@ def apply_node_output_mapping(
         try:
             # Extract value
             value = get_value(result, result_path)
-            
+
             if value is not None:
                 return_dict[state_key] = value
                 logger.debug(f"[NodeExecutor] Mapped {result_path} -> {state_key} = {str(value)[:50]}...")

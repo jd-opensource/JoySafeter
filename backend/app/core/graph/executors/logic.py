@@ -2,7 +2,7 @@
 Logic Executors - Executors for control flow nodes (Condition, Router, Loop).
 """
 import time
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
 
@@ -17,7 +17,6 @@ from app.core.graph.expression_evaluator import StateWrapper, validate_condition
 from app.core.graph.graph_state import GraphState
 from app.core.graph.route_types import RouteKey
 from app.models.graph import GraphNode
-
 
 
 def increment_loop_count(state: GraphState) -> Dict[str, Any]:
@@ -319,13 +318,13 @@ class LoopConditionNodeExecutor:
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Evaluate loop condition and update loop state."""
         start_time = time.time()
-        
+
         # Get current loop state for this specific node
         all_loop_states = state.get("loop_states", {}) or {}
         loop_state = all_loop_states.get(self.node_id, {})
-        
+
         iteration_count = loop_state.get("iteration_count", 0)
-        
+
         logger.info(
             f"[LoopNodeExecutor] >>> Evaluating loop '{self.node_id}' | "
             f"type={self.condition_type} | iteration={iteration_count}/{self.max_iterations}"
@@ -345,18 +344,18 @@ class LoopConditionNodeExecutor:
             if self.condition_type == "forEach":
                 if not self.list_variable:
                     raise ValueError("List variable not configured for forEach loop")
-                
+
                 # Get list from state
                 # Use StateWrapper to handle dot notation if list_variable is like "data.items"
                 state_wrapper = StateWrapper(dict(state))
-                
+
                 # Simple recursive get helper for dot notation
                 items = self._get_value_by_path(state_wrapper, self.list_variable)
-                
+
                 if not isinstance(items, (list, tuple)):
                     logger.warning(f"[LoopNodeExecutor] Variable '{self.list_variable}' is not a list: {type(items)}")
                     items = []
-                
+
                 if iteration_count < len(items):
                     should_continue = True
                     loop_item = items[iteration_count]
@@ -365,7 +364,7 @@ class LoopConditionNodeExecutor:
                     # For now, we'll put it in context under 'loop_item'
                 else:
                     should_continue = False
-                    
+
             elif self.condition_type in ("while", "doWhile"):
                 # Evaluate python condition
                 if not self.condition:
@@ -382,7 +381,7 @@ class LoopConditionNodeExecutor:
                     }
                     result = eval(self.condition, {"__builtins__": {}}, eval_context)
                     should_continue = bool(result)
-            
+
             else:
                 logger.warning(f"[LoopNodeExecutor] Unknown loop type: {self.condition_type}")
                 should_continue = False
@@ -394,14 +393,14 @@ class LoopConditionNodeExecutor:
         # Update state based on decision
         if should_continue:
             new_iteration_count = iteration_count + 1
-            
+
             # Update loop_states
             new_loop_states = all_loop_states.copy()
             new_loop_states[self.node_id] = {
                 "iteration_count": new_iteration_count,
                 "active": True
             }
-            
+
             updates = {
                 "loop_states": new_loop_states,
                 "loop_count": new_iteration_count, # Update global loop count if needed, but local is better
@@ -410,13 +409,13 @@ class LoopConditionNodeExecutor:
                 "route_decision": "continue_loop",
                 "route_history": ["continue_loop"]
             }
-            
+
             # If forEach, inject item
             if loop_item is not None:
                 current_context = state.get("context", {}).copy()
                 current_context["loop_item"] = loop_item
                 updates["context"] = current_context
-                
+
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(f"[LoopNodeExecutor] <<< Continuing loop | iteration={new_iteration_count} | elapsed={elapsed_ms:.2f}ms")
             return updates
@@ -427,18 +426,18 @@ class LoopConditionNodeExecutor:
         """Helper to construct exit state."""
         all_loop_states = state.get("loop_states", {}) or {}
         new_loop_states = all_loop_states.copy()
-        
+
         # Reset or mark inactive? Usually reset for next run, but maybe keep history
         new_loop_states[self.node_id] = {
-            "iteration_count": 0, # Reset for next time this node is entered? 
+            "iteration_count": 0, # Reset for next time this node is entered?
                                   # Or keep it? If we re-enter deeply, we might want 0.
                                   # For now, let's mark inactive and maybe reset.
             "active": False,
             "last_exit_reason": reason
         }
-        
+
         logger.info(f"[LoopNodeExecutor] <<< Exiting loop | reason={reason}")
-        
+
         return {
             "loop_states": new_loop_states,
             "loop_condition_met": False,
@@ -461,3 +460,122 @@ class LoopConditionNodeExecutor:
             if current is None:
                 return None
         return current
+
+class ConditionAgentNodeExecutor:
+    """Executor for a Condition Agent node in the graph.
+
+    Uses an LLM to evaluate the state against an instruction and multiple routing options,
+    returning a route decision.
+    """
+
+    STATE_READS: tuple = ("*",)
+    STATE_WRITES: tuple = ("route_decision", "route_history")
+
+    def __init__(
+        self,
+        node: GraphNode,
+        node_id: str,
+        llm_model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        max_tokens: int = 4096,
+        user_id: Optional[Any] = None,
+        checkpointer: Optional[Any] = None,
+        resolved_model: Optional[Any] = None,
+        builder: Optional[Any] = None,
+    ):
+        self.node = node
+        self.node_id = node_id
+        self.resolved_model = resolved_model
+
+        data = self.node.data or {}
+        config = data.get("config", {})
+        self.instruction = config.get("instruction", "Analyze the available context and select the best option.")
+        self.options = config.get("options", [])
+
+        if not self.options:
+            logger.warning(f"[ConditionAgentNodeExecutor] No options provided for node '{node_id}', routing might fail.")
+
+        self.handle_to_route_map: Dict[str, str] = {}
+
+    def set_handle_to_route_map(self, handle_map: Dict[str, str]) -> None:
+        """Set the mapping from React Flow handle IDs to route keys."""
+        self.handle_to_route_map = handle_map
+
+    async def __call__(self, state: GraphState) -> Dict[str, Any]:
+        """Evaluate the LLM condition and return route decision."""
+        start_time = time.time()
+
+        if not self.resolved_model:
+            logger.error(f"[ConditionAgentNodeExecutor] No resolved model available for node '{self.node_id}'. Cannot route.")
+            return {
+                "current_node": self.node_id,
+            }
+
+        valid_options = [opt for opt in self.options if opt]
+        options_text = ", ".join([f"'{opt}'" for opt in valid_options])
+
+        system_prompt = (
+            f"You are a routing agent. Your task is to analyze the provided state/context "
+            f"and choose exactly one of the following route options: [{options_text}].\n\n"
+            f"Instruction: {self.instruction}\n\n"
+            f"You must output ONLY the exact text of the chosen option, nothing else. "
+            f"Do not include any explanations."
+        )
+
+        # Context serialization
+        messages = state.get("messages", [])
+        last_message = ""
+        if messages:
+            last_msg = messages[-1]
+            last_message = getattr(last_msg, "content", str(last_msg))
+
+        user_content = f"Latest message context:\n{last_message}\n\nPlease output the selected route option."
+
+        from langchain_core.messages import HumanMessage, SystemMessage
+        llm_messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_content),
+        ]
+
+        logger.info(f"[ConditionAgentNodeExecutor] >>> Evaluating condition agent '{self.node_id}' with options: {valid_options}")
+
+        try:
+            response = await self.resolved_model.ainvoke(llm_messages)
+            decision = getattr(response, "content", str(response)).strip()
+
+            # Remove possible quotes if model wraps it
+            if decision.startswith("'") and decision.endswith("'"):
+                decision = decision[1:-1]
+            if decision.startswith('"') and decision.endswith('"'):
+                decision = decision[1:-1]
+
+            # Map selected option to route key (TargetEdgeKey is often identical to option label, handle mapping should exist)
+            # Find the corresponding route_key from handle_map
+            # The handle map uses Option name as key or target if we matched it up.
+            route_key = self.handle_to_route_map.get(decision, decision)
+
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.info(
+                f"[ConditionAgentNodeExecutor] <<< AI Condition evaluated | "
+                f"node_id={self.node_id} | decision='{decision}' | "
+                f"route_key='{route_key}' | elapsed={elapsed_ms:.2f}ms"
+            )
+
+            return {
+                "current_node": self.node_id,
+                "route_decision": route_key,
+                "route_history": [route_key],
+            }
+        except Exception as e:
+            logger.error(
+                f"[ConditionAgentNodeExecutor] Error invoking LLM for routing | "
+                f"node_id={self.node_id} | error={e}"
+            )
+            # Fallback to first available option
+            fallback_route = self.handle_to_route_map.get(valid_options[0], valid_options[0]) if valid_options else "default"
+            return {
+                "current_node": self.node_id,
+                "route_decision": fallback_route,
+                "route_history": [fallback_route],
+            }

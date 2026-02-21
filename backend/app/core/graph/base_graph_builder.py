@@ -17,6 +17,7 @@ from app.core.graph.node_executors import (
     AgentNodeExecutor,
     AggregatorNodeExecutor,
     CodeAgentNodeExecutor,
+    ConditionAgentNodeExecutor,
     ConditionNodeExecutor,
     DirectReplyNodeExecutor,
     FunctionNodeExecutor,
@@ -304,7 +305,7 @@ class BaseGraphBuilder(ABC):
     ) -> Any:
         """从注册表创建执行器实例。"""
         # LLM-based executors need model resolution
-        if executor_class in (AgentNodeExecutor, CodeAgentNodeExecutor):
+        if executor_class in (AgentNodeExecutor, CodeAgentNodeExecutor, ConditionAgentNodeExecutor):
             return await self._create_llm_executor(executor_class, node, node_name)
         elif executor_class == ToolNodeExecutor:
             return ToolNodeExecutor(node, node_name, user_id=self.user_id)

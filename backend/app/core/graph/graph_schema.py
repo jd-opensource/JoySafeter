@@ -238,12 +238,12 @@ class GraphSchema(BaseModel):
                 raise ValueError(
                     f"Edge references unknown target node: {edge.target!r}"
                 )
-        
+
         if self.fallback_node_id and self.fallback_node_id not in node_ids:
             raise ValueError(
                 f"Fallback node ID {self.fallback_node_id!r} not found in nodes"
             )
-            
+
         return self
 
     @model_validator(mode="after")

@@ -145,7 +145,7 @@ def create_node_trace(
         start_time=time.time(),
         input_snapshot=input_snapshot,
     )
-    
+
     if config:
         # Extract LangSmith/LangChain trace info
         if "configurable" in config:
@@ -154,11 +154,11 @@ def create_node_trace(
         if "callbacks" in config:
             # Callbacks might contain trace info
             pass
-        # run_id is usually available in get_run_tree_context if implicit, 
+        # run_id is usually available in get_run_tree_context if implicit,
         # or we might want to capture metadata from config['metadata']
         if "metadata" in config:
             trace.input_snapshot["_meta_trace"] = config["metadata"]
-            
+
     return trace
 
 

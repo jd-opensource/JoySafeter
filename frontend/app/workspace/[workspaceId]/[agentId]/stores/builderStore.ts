@@ -47,6 +47,8 @@ import { schemaService } from '../services/schemaService'
 import { EdgeData, RouteRule, ValidationError } from '../types/graph'
 import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/saveManager'
 import { getEdgeStyleByType, processEdgesForReactFlow } from '../utils/edgeStyles'
+import { determineEdgeTypeAndRouteKey, autoWireConnection } from '../utils/connectionUtils'
+import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExport'
 
 /**
  * Migrate legacy context variables to state fields.
@@ -468,76 +470,21 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       const exists = edges.some(
         (e) => e.source === connection.source && e.target === connection.target
       )
-      if (exists) {
-        return
-      }
+      if (exists) return
 
-      // Determine edge type based on source node
-      const sourceNode = nodes.find((n) => n.id === connection.source)
-      const sourceType = (sourceNode?.data as { type?: string })?.type || ''
-      const isConditionalSource = ['router_node', 'condition', 'loop_condition_node'].includes(
-        sourceType
+      // Determine edge type and route_key using extracted utility
+      const { edgeType, routeKey } = determineEdgeTypeAndRouteKey(
+        connection.source!,
+        connection.target!,
+        nodes,
+        edges,
       )
-
-      // Initialize edge type
-      let edgeType: EdgeData['edge_type'] = isConditionalSource ? 'conditional' : 'normal'
-
-      // Set default edge data with smart route_key suggestion
-      let defaultRouteKey: string | undefined = undefined
-
-      if (isConditionalSource) {
-        // Try to suggest a route_key based on source node type and existing routes
-        if (sourceType === 'router_node') {
-          const config = (sourceNode?.data as { config?: { routes?: RouteRule[] } })?.config
-          const routes = config?.routes || []
-          // Find first route that doesn't have a matching edge yet
-          const existingRouteKeys = new Set(
-            edges
-              .filter((e) => e.source === connection.source)
-              .map((e) => ((e.data || {}) as EdgeData).route_key)
-              .filter(Boolean)
-          )
-          const availableRoute = routes.find((r) => !existingRouteKeys.has(r.targetEdgeKey))
-          if (availableRoute) {
-            defaultRouteKey = availableRoute.targetEdgeKey
-          }
-        } else if (sourceType === 'condition') {
-          // For condition nodes, default to 'true' if no 'true' edge exists, else 'false'
-          const hasTrueEdge = edges.some(
-            (e) =>
-              e.source === connection.source &&
-              ((e.data || {}) as EdgeData).route_key === 'true'
-          )
-          defaultRouteKey = hasTrueEdge ? 'false' : 'true'
-        } else if (sourceType === 'loop_condition_node') {
-          // For loop nodes, default to 'continue_loop' if no continue edge exists
-          const hasContinueEdge = edges.some(
-            (e) =>
-              e.source === connection.source &&
-              ((e.data || {}) as EdgeData).route_key === 'continue_loop'
-          )
-          defaultRouteKey = hasContinueEdge ? 'exit_loop' : 'continue_loop'
-
-          // If this is a continue_loop edge and source == target, it's a loop back
-          if (defaultRouteKey === 'continue_loop' && connection.source === connection.target) {
-            edgeType = 'loop_back'
-          } else if (defaultRouteKey === 'continue_loop') {
-            // Check if target is before source in the graph (loop back scenario)
-            const sourceNode = nodes.find((n) => n.id === connection.source)
-            const targetNode = nodes.find((n) => n.id === connection.target)
-            if (sourceNode && targetNode && targetNode.position.x < sourceNode.position.x) {
-              edgeType = 'loop_back'
-            }
-          }
-        }
-      }
 
       const edgeData: EdgeData = {
         edge_type: edgeType,
-        route_key: defaultRouteKey,
+        route_key: routeKey,
       }
 
-      // Determine edge style based on type
       const { style: edgeStyle } = getEdgeStyleByType(edgeType)
 
       get().takeSnapshot()
@@ -554,44 +501,14 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         ),
       })
 
-      // === Auto-Wiring (UX Enhancement) ===
-      // Automatically map source node's 'output' to target node's input stateMapper if present
+      // Auto-wire source output to target input mappings
       if (connection.target && connection.source) {
-        const targetNode = get().nodes.find((n) => n.id === connection.target)
-        if (sourceNode && targetNode) {
-          const targetType = (targetNode?.data as { type?: string })?.type
-          const nodeDef = nodeRegistry.get(targetType || '')
-
-          if (nodeDef && nodeDef.defaultConfig) {
-            // Look for properties that are likely arrays holding state mappings 
-            // (Usually named like 'input_mappings', 'state_dependencies', or defined dynamically in our UI)
-            const configRecord = nodeDef.defaultConfig as Record<string, unknown>;
-            const targetConfigKeys = Object.keys(configRecord)
-
-            // Heuristic: If there is a key ending with 'mappings' or 'state' that is an array, it's our target.
-            // Otherwise, we fallback to a known key like 'text' if it's an LLM node (just an example).
-            // Best effort is finding keys in defaultConfig that are arrays (since mappings are string[])
-            const mapperPropKey = targetConfigKeys.find(
-              key => Array.isArray(configRecord[key])
-                || key.includes('mapping')
-                || key.includes('dependencies')
-            )
-
-            if (mapperPropKey) {
-              // Update the target node's config to point to the new source node
-              const currentConfig = (targetNode.data as any).config || {}
-              const mapperValue = currentConfig[mapperPropKey] || []
-
-              // Check if this source is already mapped
-              const sourceRefStr = `{${connection.source}.output}`
-              if (!mapperValue.includes(sourceRefStr)) {
-                get().updateNodeConfig(connection.target, {
-                  [mapperPropKey]: [...mapperValue, sourceRefStr]
-                })
-              }
-            }
-          }
-        }
+        autoWireConnection(
+          connection.source,
+          connection.target,
+          get().nodes,
+          get().updateNodeConfig,
+        )
       }
 
       get().triggerAutoSave()
@@ -1001,135 +918,57 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
     exportGraph: () => {
       const { nodes, edges, rfInstance } = get()
-      const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
-
-      const nodesWithSizes = nodes.map((node) => {
-        const nodeCopy = { ...node }
-        if (!nodeCopy.width || nodeCopy.width === 0) {
-          nodeCopy.width = 140
-        }
-        if (!nodeCopy.height || nodeCopy.height === 0) {
-          nodeCopy.height = 100
-        }
-        if (!nodeCopy.positionAbsolute) {
-          nodeCopy.positionAbsolute = { ...nodeCopy.position }
-        }
-        return nodeCopy
-      })
-
-      const data = {
-        version: '1.0',
-        nodes: nodesWithSizes,
-        edges,
-        viewport,
-        exportedAt: new Date().toISOString(),
-      }
-      const jsonString = JSON.stringify(data, null, 2)
-      const blob = new Blob([jsonString], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `agent-flow-${new Date().getTime()}.json`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
+      exportGraphToJson(nodes, edges, rfInstance)
     },
 
     importGraph: async (file: File) => {
-      return new Promise<void>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = (e) => {
-          try {
-            const text = e.target?.result
-            if (typeof text !== 'string') {
-              throw new Error('Failed to read file')
-            }
+      try {
+        const { nodes, edges, viewport } = await parseImportedGraph(file)
 
-            const data = JSON.parse(text)
+        get().takeSnapshot()
 
-            if (!data.nodes || !Array.isArray(data.nodes)) {
-              throw new Error('Invalid graph format: missing nodes array')
-            }
-            if (!data.edges || !Array.isArray(data.edges)) {
-              throw new Error('Invalid graph format: missing edges array')
-            }
+        // Import doesn't set graphId/graphName, so don't trigger auto-save
+        // User needs to explicitly save the imported graph first
+        set({
+          nodes,
+          edges,
+          past: [],
+          future: [],
+          selectedNodeId: null,
+          hasPendingChanges: false,
+          lastSavedStateHash: null,
+          saveRetryCount: 0,
+          lastSaveError: null,
+        })
 
-            const nodesWithSizes = data.nodes.map((node: Node) => {
-              const nodeCopy = { ...node }
-              if (!nodeCopy.width || nodeCopy.width === 0) {
-                nodeCopy.width = 140
-              }
-              if (!nodeCopy.height || nodeCopy.height === 0) {
-                nodeCopy.height = 100
-              }
-              if (!nodeCopy.positionAbsolute) {
-                nodeCopy.positionAbsolute = { ...nodeCopy.position }
-              }
-              if (!nodeCopy.position) {
-                nodeCopy.position = { x: 0, y: 0 }
-                nodeCopy.positionAbsolute = { x: 0, y: 0 }
-              }
-              return nodeCopy
-            })
+        // Clear any existing import timers
+        if (importGraphTimeout1) {
+          clearTimeout(importGraphTimeout1)
+          importGraphTimeout1 = null
+        }
+        if (importGraphTimeout2) {
+          clearTimeout(importGraphTimeout2)
+          importGraphTimeout2 = null
+        }
 
-            get().takeSnapshot()
-
-            const viewport = data.viewport || null
-
-            // Import doesn't set graphId/graphName, so don't trigger auto-save
-            // User needs to explicitly save the imported graph first
-            set({
-              nodes: nodesWithSizes,
-              edges: data.edges,
-              past: [],
-              future: [],
-              selectedNodeId: null,
-              hasPendingChanges: false,
-              lastSavedStateHash: null,
-              saveRetryCount: 0,
-              lastSaveError: null,
-            })
-
-            // Clear any existing import timers
-            if (importGraphTimeout1) {
-              clearTimeout(importGraphTimeout1)
-              importGraphTimeout1 = null
-            }
-            if (importGraphTimeout2) {
-              clearTimeout(importGraphTimeout2)
+        importGraphTimeout1 = setTimeout(() => {
+          const { rfInstance } = get()
+          if (viewport && rfInstance) {
+            rfInstance.setViewport(viewport)
+            importGraphTimeout1 = null
+          } else if (rfInstance) {
+            importGraphTimeout2 = setTimeout(() => {
+              rfInstance?.fitView({ padding: 0.2 })
               importGraphTimeout2 = null
-            }
-
-            importGraphTimeout1 = setTimeout(() => {
-              const { rfInstance } = get()
-              if (viewport && rfInstance) {
-                rfInstance.setViewport(viewport)
-                importGraphTimeout1 = null
-              } else if (rfInstance) {
-                importGraphTimeout2 = setTimeout(() => {
-                  rfInstance?.fitView({ padding: 0.2 })
-                  importGraphTimeout2 = null
-                }, 100)
-                importGraphTimeout1 = null
-              } else {
-                importGraphTimeout1 = null
-              }
             }, 100)
-
-            resolve()
-          } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : 'Failed to parse graph file'
-            reject(new Error(message))
+            importGraphTimeout1 = null
+          } else {
+            importGraphTimeout1 = null
           }
-        }
-
-        reader.onerror = () => {
-          reject(new Error('Failed to read file'))
-        }
-
-        reader.readAsText(file)
-      })
+        }, 100)
+      } catch (error) {
+        throw error
+      }
     },
 
     applyAIChanges: ({ nodes, edges }) => {

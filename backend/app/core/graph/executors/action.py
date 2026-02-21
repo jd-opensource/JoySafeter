@@ -2,14 +2,14 @@
 Action Executors - Executors for simple actions (Reply, Input, HTTP).
 """
 import time
-from typing import Any, Dict, Union
+from typing import Any, Dict
 
 from langchain_core.messages import AIMessage, HumanMessage
 from loguru import logger
 
+from app.core.graph.executors.agent import apply_node_output_mapping
 from app.core.graph.graph_state import GraphState
 from app.models.graph import GraphNode
-from app.core.graph.executors.agent import apply_node_output_mapping
 
 
 class DirectReplyNodeExecutor:
@@ -41,17 +41,17 @@ class DirectReplyNodeExecutor:
             "messages": [AIMessage(content=content)],
             "current_node": self.node_id,
         }
-        
+
         # Apply output mapping
         # For DirectReply, the 'result' is the content string
         data = self.node.data or {}
         config = data.get("config", {})
-        
+
         # We wrap content in a dict so users can map 'result.content' or just 'result'
         result_wrapper = {"content": content, "text": content}
-        
+
         apply_node_output_mapping(config, result_wrapper, return_dict, self.node_id)
-        
+
         return return_dict
 
 
@@ -91,14 +91,14 @@ class HttpRequestNodeExecutor:
     
     Performs REST API calls.
     """
-    
+
     STATE_READS: tuple = ("context", "*")
     STATE_WRITES: tuple = ("*") # Via output mapping
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
         self.node_id = node_id
-        
+
         data = self.node.data or {}
         self.config = data.get("config", {})
         self.url = self.config.get("url")
@@ -108,14 +108,14 @@ class HttpRequestNodeExecutor:
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         import httpx
-        
+
         start_time = time.time()
         logger.info(f"[HttpRequestNode] >>> {self.method} {self.url} | node_id={self.node_id}")
-        
+
         try:
             # Resolve template variables in URL/Body/Headers
             # For simplicity, skipping deep template resolution here, but should be done.
-            
+
             async with httpx.AsyncClient() as client:
                 response = await client.request(
                     method=self.method,
@@ -124,27 +124,27 @@ class HttpRequestNodeExecutor:
                     content=self.body if self.body else None,
                     timeout=30.0
                 )
-                
+
                 result_data = {
                     "status_code": response.status_code,
                     "text": response.text,
                     "headers": dict(response.headers),
                     "json": None
                 }
-                
+
                 try:
                     result_data["json"] = response.json()
                 except Exception:
                     pass
-                
+
                 logger.info(f"[HttpRequestNode] <<< Status: {response.status_code}")
-                
+
                 return_dict = {
                     "current_node": self.node_id
                 }
-                
+
                 apply_node_output_mapping(self.config, result_data, return_dict, self.node_id)
-                
+
                 return return_dict
 
         except Exception as e:

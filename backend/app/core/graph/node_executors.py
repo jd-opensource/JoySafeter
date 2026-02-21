@@ -11,6 +11,7 @@ from app.core.graph.executors.action import (
 )
 from app.core.graph.executors.agent import AgentNodeExecutor, CodeAgentNodeExecutor, apply_node_output_mapping
 from app.core.graph.executors.logic import (
+    ConditionAgentNodeExecutor,
     ConditionNodeExecutor,
     LoopConditionNodeExecutor,
     RouterNodeExecutor,
@@ -39,6 +40,7 @@ __all__ = [
     "AgentNodeExecutor",
     "CodeAgentNodeExecutor",
     "ConditionNodeExecutor",
+    "ConditionAgentNodeExecutor",
     "LoopConditionNodeExecutor",
     "RouterNodeExecutor",
     "increment_loop_count",

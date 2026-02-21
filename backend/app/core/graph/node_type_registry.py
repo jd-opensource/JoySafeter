@@ -14,13 +14,17 @@ from app.core.graph.node_executors import (
     AgentNodeExecutor,
     AggregatorNodeExecutor,
     CodeAgentNodeExecutor,
+    ConditionAgentNodeExecutor,
     ConditionNodeExecutor,
     DirectReplyNodeExecutor,
     FunctionNodeExecutor,
+    GetStateNodeExecutor,
     HttpRequestNodeExecutor,
+    HumanInputNodeExecutor,
     JSONParserNodeExecutor,
     LoopConditionNodeExecutor,
     RouterNodeExecutor,
+    SetStateNodeExecutor,
     ToolNodeExecutor,
 )
 
@@ -85,6 +89,16 @@ class NodeTypeRegistry:
             default_reads=["*"],
             default_writes=["route_decision", "route_history"],
         ),
+        "condition_agent": NodeTypeMetadata(
+            executor_class=ConditionAgentNodeExecutor,
+            frontend_type="condition_agent",
+            supports_loop_body=False,
+            supports_parallel=False,
+            requires_handle_mapping=True,
+            description="AI Decision Split routing node",
+            default_reads=["*"],
+            default_writes=["route_decision", "route_history"],
+        ),
         "router_node": NodeTypeMetadata(
             executor_class=RouterNodeExecutor,
             frontend_type="router",
@@ -116,7 +130,7 @@ class NodeTypeRegistry:
             default_writes=["messages", "current_node"],
         ),
         "human_input": NodeTypeMetadata(
-            executor_class=DirectReplyNodeExecutor,  # Placeholder — uses HumanInputNodeExecutor
+            executor_class=HumanInputNodeExecutor,
             frontend_type="human_input",
             supports_loop_body=False,
             supports_parallel=False,
@@ -174,6 +188,36 @@ class NodeTypeRegistry:
             description="Enhanced HTTP request node with retry and auth",
             default_reads=["messages", "context"],
             default_writes=["messages", "context", "current_node"],
+        ),
+        "get_state_node": NodeTypeMetadata(
+            executor_class=GetStateNodeExecutor,
+            frontend_type="get_state_node",
+            supports_loop_body=True,
+            supports_parallel=True,
+            requires_handle_mapping=False,
+            description="Read global configuration or state into local tracking",
+            default_reads=["*"],
+            default_writes=["current_node"],
+        ),
+        "set_state_node": NodeTypeMetadata(
+            executor_class=SetStateNodeExecutor,
+            frontend_type="set_state_node",
+            supports_loop_body=True,
+            supports_parallel=True,
+            requires_handle_mapping=False,
+            description="Write local configuration into overarching state",
+            default_reads=["current_node"],
+            default_writes=["*"],
+        ),
+        "a2a_agent": NodeTypeMetadata(
+            executor_class=AgentNodeExecutor,  # Fallback for standard builder; properly handled natively in deep_agents
+            frontend_type="a2a_agent",
+            supports_loop_body=True,
+            supports_parallel=True,
+            requires_handle_mapping=False,
+            description="Remote Agent-to-Agent node",
+            default_reads=["messages", "context"],
+            default_writes=["messages", "current_node"],
         ),
     }
 
