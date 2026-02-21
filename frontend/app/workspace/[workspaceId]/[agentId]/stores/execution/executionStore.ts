@@ -18,7 +18,7 @@ import type { ExecutionStep, ExecutionTreeNode } from '@/types'
 
 import { buildExecutionTree } from '../../lib/tree-building'
 
-import type { GraphState, TraceStep } from '../../components/visualization'
+import type { GraphState, TraceStep } from '../../services/eventProcessor'
 import { agentService } from '../../services/agentService'
 import {
   processEvent,

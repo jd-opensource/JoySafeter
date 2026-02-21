@@ -23,6 +23,7 @@ from .base import BaseModel
 if TYPE_CHECKING:
     from .auth import AuthUser
     from .graph_deployment_version import GraphDeploymentVersion
+    from .graph_test import GraphTestCase
     from .workspace import Workspace, WorkspaceFolder
 
 
@@ -95,6 +96,11 @@ class AgentGraph(BaseModel):
         back_populates="graph",
         cascade="all, delete-orphan",
         order_by="GraphDeploymentVersion.version.desc()",
+    )
+    test_cases: Mapped[List["GraphTestCase"]] = relationship(
+        "GraphTestCase",
+        back_populates="graph",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (

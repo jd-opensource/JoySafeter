@@ -153,3 +153,105 @@ class GraphState(MessagesState, BusinessState, ExecutionState):  # type: ignore[
 
     # Note: loop_states, task_states, node_contexts, and todos are inherited from ExecutionState
     # Do not redefine them here to avoid TypedDict overwriting errors
+
+
+# ---------------------------------------------------------------------------
+# Dynamic state class builder
+# ---------------------------------------------------------------------------
+
+# Mapping from schema field type names to Python type annotations
+_TYPE_MAP: Dict[str, type] = {
+    "string": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "list": List[Any],
+    "dict": Dict[str, Any],
+    "messages": List[BaseMessage],
+    "any": Any,
+}
+
+# Mapping from reducer type names to reducer callables
+_REDUCER_MAP: Dict[str, Any] = {
+    "replace": None,  # No reducer = replace semantics
+    "add": operator.add,
+    "append": operator.add,
+    "merge": merge_dicts,
+    "add_messages": add_messages,
+}
+
+
+def build_state_class(
+    state_fields: List[Any],
+    *,
+    class_name: str = "DynamicGraphState",
+    extend_default: bool = True,
+) -> type:
+    """Build a TypedDict subclass from a list of state field definitions.
+
+    Parameters
+    ----------
+    state_fields : list
+        Each item should have at minimum ``name`` and ``field_type`` attributes
+        (or dict keys).  Typically these are ``StateFieldSchema`` instances
+        from ``graph_schema.py``.
+    class_name : str
+        Name of the generated TypedDict class.
+    extend_default : bool
+        If ``True`` (default), the generated class inherits from ``GraphState``
+        so that all built-in fields (messages, context, route_decision, …)
+        are available.  If ``False``, only the custom fields are present.
+
+    Returns
+    -------
+    type
+        A new TypedDict subclass with the requested fields and reducers.
+
+    Example
+    -------
+    >>> from app.core.graph.graph_schema import StateFieldSchema, StateFieldType
+    >>> fields = [
+    ...     StateFieldSchema(name="intent", field_type=StateFieldType.STRING),
+    ...     StateFieldSchema(name="confidence", field_type=StateFieldType.FLOAT),
+    ... ]
+    >>> StateClass = build_state_class(fields)
+    """
+    annotations: Dict[str, Any] = {}
+
+    for field in state_fields:
+        # Support both Pydantic model instances and plain dicts
+        if isinstance(field, dict):
+            name = field["name"]
+            ft = field.get("field_type", "any")
+            reducer_name = field.get("reducer", "replace")
+        else:
+            name = field.name
+            ft = field.field_type if isinstance(field.field_type, str) else field.field_type.value
+            reducer_name = field.reducer if isinstance(field.reducer, str) else field.reducer.value
+
+        python_type = _TYPE_MAP.get(ft, Any)
+        reducer = _REDUCER_MAP.get(reducer_name)
+
+        if reducer is not None:
+            annotations[name] = Annotated[Optional[python_type], reducer]  # type: ignore[valid-type]
+        else:
+            annotations[name] = Optional[python_type]  # type: ignore[valid-type]
+
+    if extend_default:
+        # Merge GraphState annotations into the dynamic class instead of
+        # inheriting — this avoids LangGraph channel conflicts when
+        # StateGraph traverses MRO and finds duplicate typed channels.
+        base_annotations: Dict[str, Any] = {}
+        for base in GraphState.__mro__:
+            if hasattr(base, "__annotations__"):
+                for k, v in base.__annotations__.items():
+                    if k not in base_annotations:
+                        base_annotations[k] = v
+        # Custom fields override base fields
+        merged = {**base_annotations, **annotations}
+        new_class = TypedDict(class_name, merged)  # type: ignore[operator]
+    else:
+        # Create a standalone TypedDict without GraphState
+        new_class = TypedDict(class_name, annotations)  # type: ignore[operator]
+
+    return new_class

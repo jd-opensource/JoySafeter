@@ -6,7 +6,7 @@
 
 import type { ExecutionStep, ExecutionTreeNode } from '@/types'
 
-import type { GraphState, TraceStep } from '../../components/visualization'
+import type { GraphState, TraceStep } from '../../services/eventProcessor'
 
 // ============ Basic Types ============
 

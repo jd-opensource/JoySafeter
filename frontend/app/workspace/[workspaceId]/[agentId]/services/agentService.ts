@@ -165,7 +165,11 @@ export const agentService = {
     nodes: Node[]
     edges: Edge[]
     viewport?: { x: number; y: number; zoom: number }
-    variables?: { context?: Record<string, unknown> }
+    variables?: {
+      context?: Record<string, unknown>
+      state_fields?: any[]
+      [key: string]: unknown
+    }
   }): Promise<void> {
     const seenEdges = new Set<string>()
     const deduplicatedEdges = params.edges.filter(edge => {

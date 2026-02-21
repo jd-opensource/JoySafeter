@@ -14,6 +14,8 @@ from .copilot_deepagents import router as copilot_deepagents_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
 from .graph_deployments import router as graph_deployments_router
+from .graph_schemas import router as graph_schemas_router
+from .graph_tests import router as graph_tests_router
 from .graphs import router as graphs_router
 from .mcp import router as mcp_router
 from .model_credentials import router as model_credentials_router
@@ -45,6 +47,8 @@ ROUTERS = [
     model_credentials_router,
     models_router,
     graph_deployments_router,
+    graph_schemas_router,
+    graph_tests_router,
     skills_router,
     chat_router,
     graphs_router,

@@ -5,12 +5,12 @@ Provides common functionality for node/edge management, configuration extraction
 and graph structure analysis.
 """
 
+import logging
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set, Type
 
 from langgraph.graph.state import CompiledStateGraph
-from loguru import logger
 
 from app.core.agent.sample_agent import get_default_model
 from app.core.graph.node_executors import (
@@ -20,10 +20,12 @@ from app.core.graph.node_executors import (
     ConditionNodeExecutor,
     DirectReplyNodeExecutor,
     FunctionNodeExecutor,
+    GetStateNodeExecutor,
     HttpRequestNodeExecutor,
     JSONParserNodeExecutor,
     LoopConditionNodeExecutor,
     RouterNodeExecutor,
+    SetStateNodeExecutor,
     ToolNodeExecutor,
 )
 from app.core.graph.node_type_registry import NodeTypeRegistry
@@ -31,6 +33,8 @@ from app.core.model.utils.model_ref import parse_model_ref
 from app.core.tools.tool import EnhancedTool
 from app.core.tools.tool_registry import get_global_registry
 from app.models.graph import AgentGraph, GraphEdge, GraphNode
+
+logger = logging.getLogger(__name__)
 
 # ==================== Optional deepagents imports ====================
 # DEEPAGENTS_AVAILABLE is defined in base_graph_builder but also needed in other modules
@@ -116,7 +120,7 @@ class BaseGraphBuilder(ABC):
         node_type = self._get_node_type(node)
 
         if label:
-            name = label.lower().replace(" ", "_").replace("-", "_")
+            name = str(label).lower().replace(" ", "_").replace("-", "_")
             name = f"{name}_{str(node.id)[:8]}"
         else:
             name = f"{node_type}_{str(node.id)[:8]}"
@@ -151,7 +155,7 @@ class BaseGraphBuilder(ABC):
         if node.prompt:
             return node.prompt
         data = node.data or {}
-        config = data.get("config", {})
+        config: Dict[str, Any] = data.get("config", {})
         return config.get("systemPrompt", "") or config.get("prompt", "") or None
 
     def _get_direct_children(self, node: GraphNode) -> List[GraphNode]:
@@ -198,49 +202,7 @@ class BaseGraphBuilder(ABC):
 
         # Fallback to manual mapping (for backward compatibility)
         if node_type == "agent":
-            # 从节点配置解析模型，确保每个节点使用自己配置的模型
-            resolved_model = await self._resolve_node_llm(node)
-
-            # 从解析的模型中提取 api_key 和 base_url（如果可用）
-            # 从解析的模型中提取凭据信息
-            api_key = self.api_key
-            base_url = self.base_url
-            llm_model = self.llm_model
-
-            # 尝试从模型对象中提取凭据信息
-            try:
-                if hasattr(resolved_model, "openai_api_key"):
-                    api_key = resolved_model.openai_api_key
-                if hasattr(resolved_model, "openai_api_base"):
-                    base_url = resolved_model.openai_api_base
-                # 尝试获取模型名称
-                if hasattr(resolved_model, "model_name"):
-                    llm_model = resolved_model.model_name
-                elif hasattr(resolved_model, "model"):
-                    llm_model = resolved_model.model
-            except Exception:
-                pass
-
-            logger.info(
-                f"[BaseGraphBuilder._create_node_executor] Creating AgentNodeExecutor for node '{node_name}' | "
-                f"resolved_model_type={type(resolved_model).__name__} | "
-                f"llm_model={llm_model} | api_key={'***' if api_key else None} | base_url={base_url}"
-            )
-
-            from app.core.agent.checkpointer.checkpointer import get_checkpointer
-
-            return AgentNodeExecutor(
-                node,
-                node_name,
-                llm_model=llm_model,
-                api_key=api_key,
-                base_url=base_url,
-                max_tokens=self.max_tokens,
-                user_id=self.user_id,
-                checkpointer=get_checkpointer(),
-                resolved_model=resolved_model,
-                builder=self,
-            )
+            return await self._create_llm_executor(AgentNodeExecutor, node, node_name)
         elif node_type == "condition":
             return ConditionNodeExecutor(node, node_name)
         elif node_type == "direct_reply":
@@ -254,8 +216,11 @@ class BaseGraphBuilder(ABC):
         elif node_type == "loop_condition_node":
             return LoopConditionNodeExecutor(node, node_name)
         elif node_type == "iteration":
-            # Backward compatibility: Map legacy iteration node type to LoopConditionNodeExecutor
-            # This allows existing graphs with iteration nodes to continue working
+            # Deprecated: legacy node type, use loop_condition_node instead
+            logger.warning(
+                f"[BaseGraphBuilder] Deprecated node type 'iteration' used, "
+                f"mapping to LoopConditionNodeExecutor | node_id={node.id}"
+            )
             return LoopConditionNodeExecutor(node, node_name)
         elif node_type == "aggregator_node":
             return AggregatorNodeExecutor(node, node_name)
@@ -263,51 +228,72 @@ class BaseGraphBuilder(ABC):
             return JSONParserNodeExecutor(node, node_name)
         elif node_type == "http_request_node":
             return HttpRequestNodeExecutor(node, node_name)
+        elif node_type == "get_state_node":
+            data = node.data or {}
+            config = data.get("config", {})
+            return GetStateNodeExecutor(config)
+        elif node_type == "set_state_node":
+            data = node.data or {}
+            config = data.get("config", {})
+            return SetStateNodeExecutor(config)
         else:
             # Unknown node type, log warning and fallback to agent
             logger.warning(
                 f"[BaseGraphBuilder] Unknown node type '{node_type}', falling back to agent | node_id={node.id}"
             )
-            # Default to agent
-            # 从节点配置解析模型
-            resolved_model = await self._resolve_node_llm(node)
+            return await self._create_llm_executor(AgentNodeExecutor, node, node_name)
 
-            api_key = self.api_key
-            base_url = self.base_url
-            llm_model = self.llm_model
+    async def _create_llm_executor(
+        self,
+        executor_class: Type,
+        node: GraphNode,
+        node_name: str,
+    ) -> Any:
+        """Create an LLM-based executor (AgentNodeExecutor or CodeAgentNodeExecutor).
 
-            try:
-                if hasattr(resolved_model, "openai_api_key"):
-                    api_key = resolved_model.openai_api_key
-                if hasattr(resolved_model, "openai_api_base"):
-                    base_url = resolved_model.openai_api_base
-                if hasattr(resolved_model, "model_name"):
-                    llm_model = resolved_model.model_name
-                elif hasattr(resolved_model, "model"):
-                    llm_model = resolved_model.model
-            except Exception:
-                pass
+        Handles model resolution, credential extraction, and executor instantiation.
+        This is the single place where LLM executor creation logic lives, avoiding
+        duplication across _create_node_executor and _create_executor_from_registry.
+        """
+        resolved_model = await self._resolve_node_llm(node)
 
-            logger.info(
-                f"[BaseGraphBuilder._create_node_executor] Creating AgentNodeExecutor (default) for node '{node_name}' | "
-                f"resolved_model_type={type(resolved_model).__name__} | "
-                f"llm_model={llm_model} | api_key={'***' if api_key else None} | base_url={base_url}"
-            )
+        # Extract credentials from the resolved model object
+        api_key = self.api_key
+        base_url = self.base_url
+        llm_model = self.llm_model
 
-            from app.core.agent.checkpointer.checkpointer import get_checkpointer
+        try:
+            if hasattr(resolved_model, "openai_api_key"):
+                api_key = resolved_model.openai_api_key
+            if hasattr(resolved_model, "openai_api_base"):
+                base_url = resolved_model.openai_api_base
+            if hasattr(resolved_model, "model_name"):
+                llm_model = resolved_model.model_name
+            elif hasattr(resolved_model, "model"):
+                llm_model = resolved_model.model
+        except Exception:
+            pass
 
-            return AgentNodeExecutor(
-                node,
-                node_name,
-                llm_model=llm_model,
-                api_key=api_key,
-                base_url=base_url,
-                max_tokens=self.max_tokens,
-                user_id=self.user_id,
-                checkpointer=get_checkpointer(),
-                resolved_model=resolved_model,
-                builder=self,
-            )
+        logger.info(
+            f"[BaseGraphBuilder._create_llm_executor] Creating {executor_class.__name__} for node '{node_name}' | "
+            f"resolved_model_type={type(resolved_model).__name__} | "
+            f"llm_model={llm_model} | api_key={'***' if api_key else None} | base_url={base_url}"
+        )
+
+        from app.core.agent.checkpointer.memory_checkpointer import get_checkpointer
+
+        return executor_class(
+            node,
+            node_name,
+            llm_model=llm_model,
+            api_key=api_key,
+            base_url=base_url,
+            max_tokens=self.max_tokens,
+            user_id=self.user_id,
+            checkpointer=get_checkpointer(),
+            resolved_model=resolved_model,
+            builder=self,
+        )
 
     async def _create_executor_from_registry(
         self,
@@ -317,81 +303,13 @@ class BaseGraphBuilder(ABC):
         node_type: str,
     ) -> Any:
         """从注册表创建执行器实例。"""
-        # 根据执行器类型创建实例
-        if executor_class == AgentNodeExecutor:
-            resolved_model = await self._resolve_node_llm(node)
-            api_key = self.api_key
-            base_url = self.base_url
-            llm_model = self.llm_model
-
-            try:
-                if hasattr(resolved_model, "openai_api_key"):
-                    api_key = resolved_model.openai_api_key
-                if hasattr(resolved_model, "openai_api_base"):
-                    base_url = resolved_model.openai_api_base
-                if hasattr(resolved_model, "model_name"):
-                    llm_model = resolved_model.model_name
-                elif hasattr(resolved_model, "model"):
-                    llm_model = resolved_model.model
-            except Exception:
-                pass
-
-            from app.core.agent.checkpointer.checkpointer import get_checkpointer
-
-            return AgentNodeExecutor(
-                node,
-                node_name,
-                llm_model=llm_model,
-                api_key=api_key,
-                base_url=base_url,
-                max_tokens=self.max_tokens,
-                user_id=self.user_id,
-                checkpointer=get_checkpointer(),
-                resolved_model=resolved_model,
-                builder=self,
-            )
-        elif executor_class == CodeAgentNodeExecutor:
-            # CodeAgentNodeExecutor needs LLM resolution like AgentNodeExecutor
-            resolved_model = await self._resolve_node_llm(node)
-            api_key = self.api_key
-            base_url = self.base_url
-            llm_model = self.llm_model
-
-            try:
-                if hasattr(resolved_model, "openai_api_key"):
-                    api_key = resolved_model.openai_api_key
-                if hasattr(resolved_model, "openai_api_base"):
-                    base_url = resolved_model.openai_api_base
-                if hasattr(resolved_model, "model_name"):
-                    llm_model = resolved_model.model_name
-                elif hasattr(resolved_model, "model"):
-                    llm_model = resolved_model.model
-            except Exception:
-                pass
-
-            logger.info(
-                f"[BaseGraphBuilder._create_executor_from_registry] Creating CodeAgentNodeExecutor for node '{node_name}' | "
-                f"resolved_model_type={type(resolved_model).__name__}"
-            )
-
-            from app.core.agent.checkpointer.checkpointer import get_checkpointer
-
-            return CodeAgentNodeExecutor(
-                node,
-                node_name,
-                llm_model=llm_model,
-                api_key=api_key,
-                base_url=base_url,
-                max_tokens=self.max_tokens,
-                user_id=self.user_id,
-                checkpointer=get_checkpointer(),
-                resolved_model=resolved_model,
-                builder=self,
-            )
+        # LLM-based executors need model resolution
+        if executor_class in (AgentNodeExecutor, CodeAgentNodeExecutor):
+            return await self._create_llm_executor(executor_class, node, node_name)
         elif executor_class == ToolNodeExecutor:
             return ToolNodeExecutor(node, node_name, user_id=self.user_id)
         else:
-            # 其他执行器只需要 node 和 node_name
+            # Other executors only need node and node_name
             return executor_class(node, node_name)
 
     async def _resolve_node_llm(self, node: GraphNode) -> Any:
@@ -399,103 +317,98 @@ class BaseGraphBuilder(ABC):
         统一解析节点的语言模型配置。
 
         优先策略：
-        1. 如果节点配置中同时有 provider_name 和 model_name，使用 ModelService.get_model_instance
-        2. 如果只有 model_name，使用 ModelService.get_runtime_model_by_name
-        3. 出现异常或未配置时，回退到 get_default_model（环境 / settings 默认）
-
-        支持的模型引用格式：
-        - 组合格式：config.model = "provider:model_name"
-        - 拆分字段：config.provider_name + config.model_name
-        - 兼容字段：config.provider + config.model
+        1. ModelService 精确匹配（provider_name + model_name）或名称查找
+        2. ModelService 获取数据库默认模型
+        3. get_default_model 最终回退
 
         这个方法可以在子类中被重写以提供不同的解析逻辑。
         """
         data = node.data or {}
-        config = data.get("config", {}) or {}
+        config: Dict[str, Any] = data.get("config", {}) or {}
 
-        # 使用统一的 parse_model_ref 解析模型引用
-        # 优先级: provider_name > provider, model_name > model > name > self.llm_model
+        # 解析模型引用
         raw_provider = config.get("provider_name") or config.get("provider")
         raw_model = config.get("model_name") or config.get("model") or config.get("name") or self.llm_model
-
         provider_name, model_name = parse_model_ref(raw_model, raw_provider)
 
         logger.debug(
             f"[BaseGraphBuilder._resolve_node_llm] Resolving model for node_id={node.id} | "
-            f"config.provider_name={config.get('provider_name')} | config.provider={config.get('provider')} | "
-            f"config.model_name={config.get('model_name')} | config.model={config.get('model')} | "
-            f"config.name={config.get('name')} | self.llm_model={self.llm_model} | "
-            f"resolved_provider_name={provider_name} | resolved_model_name={model_name}"
+            f"resolved_provider={provider_name} | resolved_model={model_name}"
         )
 
-        # 优先使用 ModelService
+        # 策略 1: ModelService 精确/名称匹配
         if self.model_service and model_name:
-            try:
-                # workspace 维度从 graph 上下文获取（如有）
-                workspace_id = getattr(self.graph, "workspace_id", None)
+            result = await self._resolve_by_model_service(provider_name, model_name)
+            if result is not None:
+                return result
 
-                # 如果同时有 provider_name 和 model_name，使用精确匹配
-                if provider_name and model_name:
-                    model = await self.model_service.get_model_instance(
-                        user_id=str(self.user_id) if self.user_id else "system",
-                        provider_name=provider_name,
-                        model_name=model_name,
-                        workspace_id=workspace_id,
-                        use_default=False,  # 明确指定了 provider 和 model，不使用默认
-                    )
-                    logger.info(
-                        f"[BaseGraphBuilder._resolve_node_llm] Successfully resolved model via ModelService | "
-                        f"provider_name={provider_name} | model_name={model_name}"
-                    )
-                    return model
-                else:
-                    # 只有 model_name，使用名称查找（向后兼容）
-                    model = await self.model_service.get_runtime_model_by_name(
-                        model_name=model_name,
-                        workspace_id=workspace_id,
-                    )
-                    logger.info(
-                        f"[BaseGraphBuilder._resolve_node_llm] Successfully resolved model via ModelService | "
-                        f"model_name={model_name}"
-                    )
-                    return model
-            except Exception as e:
-                logger.warning(
-                    f"[BaseGraphBuilder._resolve_node_llm] Failed to resolve model via ModelService | "
-                    f"provider_name={provider_name} | model_name={model_name} | error={type(e).__name__}: {e} | "
-                    f"Falling back to get_default_model."
-                )
-
-        # 回退：从数据库获取默认模型（不再使用环境变量）
+        # 策略 2: ModelService 默认模型
         if self.model_service:
-            try:
-                logger.info(
-                    f"[BaseGraphBuilder._resolve_node_llm] Falling back to default model from database | "
-                    f"model_name={model_name}"
-                )
-                # 使用默认模型（从数据库获取）
-                workspace_id = getattr(self.graph, "workspace_id", None)
-                default_model = await self.model_service.get_model_instance(
-                    user_id=str(self.user_id) if self.user_id else "system",
-                    workspace_id=workspace_id,
-                    use_default=True,  # 使用默认模型
-                )
-                logger.info(
-                    f"[BaseGraphBuilder._resolve_node_llm] Successfully resolved default model from database | "
-                    f"model_type={type(default_model).__name__}"
-                )
-                return default_model
-            except Exception as e:
-                logger.error(
-                    f"[BaseGraphBuilder._resolve_node_llm] Failed to get default model from database | "
-                    f"error={type(e).__name__}: {e} | Falling back to get_default_model"
-                )
+            result = await self._resolve_default_from_service(model_name)
+            if result is not None:
+                return result
 
-        # 最后的回退：使用 get_default_model（但应该尽量避免这种情况）
+        # 策略 3: 最终回退
+        return self._resolve_fallback_model(model_name)
+
+    async def _resolve_by_model_service(
+        self, provider_name: Optional[str], model_name: str
+    ) -> Any:
+        """Try to resolve model via ModelService (exact or name-based lookup)."""
+        workspace_id = getattr(self.graph, "workspace_id", None)
+        try:
+            if provider_name and model_name:
+                model = await self.model_service.get_model_instance(
+                    user_id=str(self.user_id) if self.user_id else "system",
+                    provider_name=provider_name,
+                    model_name=model_name,
+                    workspace_id=workspace_id,
+                    use_default=False,
+                )
+            else:
+                model = await self.model_service.get_runtime_model_by_name(
+                    model_name=model_name,
+                    workspace_id=workspace_id,
+                )
+            logger.info(
+                f"[BaseGraphBuilder] Resolved model via ModelService | "
+                f"provider={provider_name} | model={model_name}"
+            )
+            return model
+        except Exception as e:
+            logger.warning(
+                f"[BaseGraphBuilder] ModelService resolution failed | "
+                f"provider={provider_name} | model={model_name} | error={e} | "
+                f"Trying next fallback."
+            )
+            return None
+
+    async def _resolve_default_from_service(self, model_name: Optional[str]) -> Any:
+        """Try to resolve the default model from database via ModelService."""
+        try:
+            workspace_id = getattr(self.graph, "workspace_id", None)
+            default_model = await self.model_service.get_model_instance(
+                user_id=str(self.user_id) if self.user_id else "system",
+                workspace_id=workspace_id,
+                use_default=True,
+            )
+            logger.info(
+                f"[BaseGraphBuilder] Resolved default model from database | "
+                f"type={type(default_model).__name__}"
+            )
+            return default_model
+        except Exception as e:
+            logger.error(
+                f"[BaseGraphBuilder] Failed to get default model from database | "
+                f"error={e} | Using final fallback."
+            )
+            return None
+
+    def _resolve_fallback_model(self, model_name: Optional[str]) -> Any:
+        """Final fallback: create model from env/settings defaults."""
         logger.warning(
-            f"[BaseGraphBuilder._resolve_node_llm] Using final fallback get_default_model | "
-            f"model_name={model_name} | api_key={'***' if self.api_key else None} | "
-            f"base_url={self.base_url}"
+            f"[BaseGraphBuilder] Using final fallback get_default_model | "
+            f"model={model_name}"
         )
         return get_default_model(
             llm_model=model_name,

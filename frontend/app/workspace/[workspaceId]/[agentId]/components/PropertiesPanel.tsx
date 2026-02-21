@@ -1,6 +1,6 @@
 'use client'
 
-import { X, AlertCircle, Settings, BrainCircuit, Hammer, Sparkles } from 'lucide-react'
+import { X, AlertCircle, Settings, BrainCircuit, Hammer, Sparkles, Database } from 'lucide-react'
 
 import { KVListField } from './fields/KVListField'
 import { VariableInputField } from './fields/VariableInputField'
@@ -8,13 +8,14 @@ import { RouteListField } from './fields/RouteListField'
 import { ConditionExprField } from './fields/ConditionExprField'
 import { StringArrayField } from './fields/StringArrayField'
 import { DockerConfigField } from './fields/DockerConfigField'
+import { StateMapperField } from './fields/StateMapperField'
 import { nodeConfigTemplates, getTemplatesForNodeType, applyTemplate } from '../services/nodeConfigTemplates'
-import { validateNodeConfig } from '../services/nodeConfigValidator'
+// import { validateNodeConfig } from '../services/nodeConfigValidator'
 import { cn } from '@/lib/core/utils/cn'
 import { Node, Edge } from 'reactflow'
 import { useTranslation } from '@/lib/i18n'
 import { useParams } from 'next/navigation'
-import React from 'react'
+import React, { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,6 +26,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/use-toast'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
@@ -97,6 +104,7 @@ const SchemaFieldRenderer = ({
   edges,
   currentNodeId,
   onCreateEdge, // New: Callback for creating edges
+  graphStateFields,
 }: {
   schema: FieldSchema
   value: unknown
@@ -109,6 +117,7 @@ const SchemaFieldRenderer = ({
   edges?: Edge[]
   currentNodeId?: string
   onCreateEdge?: (targetNodeId: string, routeKey: string) => void // New
+  graphStateFields?: import('../types/graph').StateField[]
 }) => {
   let input = null
 
@@ -222,6 +231,35 @@ const SchemaFieldRenderer = ({
         </Select>
       )
       break
+    case 'stateSelect':
+      input = (
+        <Select value={(value as string) || ''} onValueChange={onChange}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder={schema.placeholder || 'Select state variable'} />
+          </SelectTrigger>
+          <SelectContent>
+            {graphStateFields?.map((field) => (
+              <SelectItem key={field.name} value={field.name} className="text-xs">
+                {field.name} ({field.type})
+              </SelectItem>
+            ))}
+            {(!graphStateFields || graphStateFields.length === 0) && (
+              <div className="p-2 text-[10px] text-gray-400 text-center">No state variables defined</div>
+            )}
+          </SelectContent>
+        </Select>
+      )
+      break
+    case 'stateMapper':
+      input = (
+        <StateMapperField
+          value={(value as any) || []}
+          onChange={onChange}
+          graphStateFields={graphStateFields}
+          currentNodeId={currentNodeId}
+        />
+      )
+      break
     case 'dockerConfig':
       input = (
         <DockerConfigField
@@ -258,6 +296,7 @@ const SchemaFieldRenderer = ({
           nodes={nodes}
           edges={edges}
           currentNodeId={currentNodeId}
+          graphStateFields={graphStateFields}
         />
       )
       break
@@ -340,10 +379,24 @@ const SchemaFieldRenderer = ({
   )
 }
 
-const SectionHeader = ({ icon: Icon, title }: { icon: React.ElementType; title: string }) => (
+const SectionHeader = ({ icon: Icon, title, tooltip }: { icon: React.ElementType; title: string; tooltip?: string }) => (
   <div className="flex items-center gap-2 mb-3 mt-2">
     <Icon size={14} className="text-gray-400" />
-    <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.1em]">{title}</h4>
+    <div className="flex items-center gap-1.5">
+      <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.1em]">{title}</h4>
+      {tooltip && (
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertCircle size={11} className="text-gray-400 cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-[11px] max-w-[200px] leading-relaxed font-normal normal-case tracking-normal text-slate-700">
+              {tooltip}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+    </div>
     <div className="h-[1px] flex-1 bg-gray-100 ml-1" />
   </div>
 )
@@ -361,7 +414,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const { toast } = useToast()
   const { permissions, loading: permissionsLoading } = useWorkspacePermissions(workspaceId)
   const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
-  const { onConnect, updateEdge } = useBuilderStore()
+  const { onConnect, updateEdge, graphStateFields } = useBuilderStore()
   const nodeData = node.data as {
     type: string
     label?: string
@@ -377,8 +430,32 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   // Get available templates for this node type
   const templates = getTemplatesForNodeType(nodeType)
 
-  // Validate configuration
-  const validationErrors = validateNodeConfig(nodeType, config)
+  // Validate configuration using schema
+  const validationErrors = useMemo(() => {
+    const errors: { field: string; message: string; severity?: string }[] = []
+    if (!def) return errors
+
+    def.schema.forEach((field) => {
+      if (field.required && !config[field.key] && config[field.key] !== 0 && config[field.key] !== false) {
+        // Check showWhen condition
+        if (field.showWhen) {
+          const dependentValue = config[field.showWhen.field]
+          if (!field.showWhen.values.includes(String(dependentValue))) {
+            return // Skip if field is hidden
+          }
+        }
+
+        errors.push({
+          field: field.label || field.key,
+          message: t('workspace.fieldRequired', { defaultValue: 'Field is required' }),
+          severity: 'error'
+        })
+      }
+    })
+    return errors
+  }, [def, config, t])
+
+  const { showAdvancedSettings } = useBuilderStore()
 
   const updateConfig = (key: string, value: unknown) => {
     if (!userPermissions.canEdit) {
@@ -656,6 +733,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   edges={edges}
                   currentNodeId={node.id}
                   onCreateEdge={handleCreateEdge}
+                  graphStateFields={graphStateFields}
                 />
               ))}
 
@@ -672,6 +750,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   edges={edges}
                   currentNodeId={node.id}
                   onCreateEdge={handleCreateEdge}
+                  graphStateFields={graphStateFields}
                 />
               </div>
             )}
@@ -694,6 +773,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 edges={edges}
                 currentNodeId={node.id}
                 onCreateEdge={handleCreateEdge}
+                graphStateFields={graphStateFields}
               />
             ))}
           </div>
@@ -715,6 +795,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 edges={edges}
                 currentNodeId={node.id}
                 onCreateEdge={handleCreateEdge}
+                graphStateFields={graphStateFields}
               />
             ))}
           </div>
@@ -740,6 +821,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   edges={edges}
                   currentNodeId={node.id}
                   onCreateEdge={handleCreateEdge}
+                  graphStateFields={graphStateFields}
                 />
               ))}
 
@@ -760,13 +842,14 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       edges={edges}
                       currentNodeId={node.id}
                       onCreateEdge={handleCreateEdge}
+                      graphStateFields={graphStateFields}
                       onModelChange={
                         field.key === 'memoryModel'
                           ? (modelName, providerName) => {
-                              // Update both memoryModel and memoryProvider simultaneously
-                              updateConfig('memoryModel', `${providerName}:${modelName}`)
-                              updateConfig('memoryProvider', providerName)
-                            }
+                            // Update both memoryModel and memoryProvider simultaneously
+                            updateConfig('memoryModel', `${providerName}:${modelName}`)
+                            updateConfig('memoryProvider', providerName)
+                          }
                           : undefined
                       }
                     />
@@ -778,6 +861,107 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <p className="text-[10px] text-gray-400 italic bg-gray-50 p-2 rounded-lg border border-dashed border-gray-200">
                 {t('workspace.memoryDisabled')}
               </p>
+            )}
+          </div>
+        )}
+        {/* Section: Output Mapping fields rendered conditionally as normal fields */}
+
+        {/* Section: State Output Mapping */}
+        {showAdvancedSettings && graphStateFields.length > 0 && (
+          <div className="space-y-4">
+            <SectionHeader
+              icon={Database}
+              title={t('workspace.stateUpdates', { defaultValue: 'State Updates' })}
+              tooltip="Advanced: Map node outputs directly to global state variables. Useful for long-term memory across loops."
+            />
+            <div className="space-y-3">
+              <p className="text-[10px] text-gray-400">
+                Map node outputs to global state variables. Use <code>result</code> to reference the node's output.
+              </p>
+              {graphStateFields.map((field) => {
+                // Access nested key for generic config update
+                const currentMapping = (config.output_mapping as Record<string, string>)?.[field.name] || ''
+
+                return (
+                  <div key={field.name} className="space-y-1.5 p-2.5 bg-gray-50/50 rounded-lg border border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-[11px] font-medium text-gray-700 font-mono">
+                        {field.name}
+                      </Label>
+                      <span className="text-[9px] text-gray-400 uppercase bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">
+                        {field.type}
+                      </span>
+                    </div>
+                    {field.description && (
+                      <p className="text-[9px] text-gray-400 truncate">{field.description}</p>
+                    )}
+                    <VariableInputField
+                      label=""
+                      value={currentMapping}
+                      onChange={(val) => {
+                        const newMapping = {
+                          ...(config.output_mapping as Record<string, string> || {}),
+                          [field.name]: val
+                        }
+                        // If value is empty, remove the key to keep config clean
+                        if (!val) {
+                          delete newMapping[field.name]
+                        }
+                        updateConfig('output_mapping', newMapping)
+                      }}
+                      placeholder="e.g. result.answer"
+                      nodes={nodes}
+                      edges={edges}
+                      currentNodeId={node.id}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Section: State Dependencies */}
+        {showAdvancedSettings && (def?.stateReads?.length || def?.stateWrites?.length) && (
+          <div className="space-y-3">
+            <SectionHeader
+              icon={Database}
+              title="State Dependencies"
+              tooltip="Advanced: Shows what global state variables this node reads from or writes to. Usually managed automatically."
+            />
+            {def?.stateReads && def.stateReads.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Reads
+                </Label>
+                <div className="flex flex-wrap gap-1">
+                  {def.stateReads.map((field) => (
+                    <span
+                      key={field}
+                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-mono font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    >
+                      {field === '*' ? 'all state' : field}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {def?.stateWrites && def.stateWrites.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Writes
+                </Label>
+                <div className="flex flex-wrap gap-1">
+                  {def.stateWrites.map((field) => (
+                    <span
+                      key={field}
+                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-mono font-medium bg-blue-50 text-blue-700 border border-blue-200"
+                    >
+                      {field}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}

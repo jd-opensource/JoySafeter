@@ -9,8 +9,9 @@ Automatically handles:
 - Command object support (optional)
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 
+from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
 try:
@@ -21,6 +22,7 @@ except ImportError:
     COMMAND_AVAILABLE = False
     Command = None  # type: ignore[assignment,misc]
 
+from app.core.graph.expression_evaluator import resolve_variable_expressions
 from app.core.graph.graph_state import GraphState
 from app.core.graph.node_executors import increment_loop_count
 from app.core.graph.trace_utils import create_node_trace, log_node_execution
@@ -42,14 +44,16 @@ class NodeExecutionWrapper:
         node_id: str,
         node_type: str,
         metadata: Optional[Dict[str, Any]] = None,
+        fallback_node_name: Optional[str] = None,
     ):
         self.executor = executor
         self.node_id = node_id
         self.node_type = node_type
         self.metadata = metadata or {}
+        self.fallback_node_name = fallback_node_name
 
     async def _before_execute(self, state: GraphState) -> GraphState:
-        """执行前钩子：初始化状态。"""
+        """执行前钩子：初始化状态 & 解析 Data Pill 变量表达式。"""
         # 初始化循环状态（如果是循环体）
         if self.metadata.get("is_loop_body"):
             loop_node_id = self.metadata.get("loop_node_id")
@@ -59,6 +63,26 @@ class NodeExecutionWrapper:
                     loop_states = loop_states.copy()
                     loop_states[loop_node_id] = {"loop_count": 0}
                     state = {**state, "loop_states": loop_states}
+
+        # Resolve Data Pill variable expressions in the current node's config.
+        # This is the backend counterpart to the frontend "Magic Data Variables" UI.
+        # It replaces expressions like state.get('foo') or {NodeA.output} with
+        # actual runtime values from the graph state before the node executes.
+        try:
+            context = state.get("context", {})
+            if isinstance(context, dict):
+                resolved_context = resolve_variable_expressions(context, state)
+                if resolved_context != context:
+                    state = {**state, "context": resolved_context}
+                    logger.debug(
+                        f"[NodeExecutionWrapper] Resolved Data Pill expressions in context | "
+                        f"node_id={self.node_id}"
+                    )
+        except Exception as e:
+            logger.warning(
+                f"[NodeExecutionWrapper] Failed to resolve variable expressions | "
+                f"node_id={self.node_id} | error={type(e).__name__}: {e}"
+            )
 
         return state
 
@@ -159,21 +183,27 @@ class NodeExecutionWrapper:
         # 返回更新后的字典
         return update_dict  # type: ignore[return-value]
 
-    async def __call__(self, state: GraphState) -> Union[Dict[str, Any], Command]:
+    async def __call__(self, state: GraphState, config: Optional[RunnableConfig] = None) -> Union[Dict[str, Any], Command]:
         """执行节点，包含前后钩子。
 
         Returns:
             Union[Dict[str, Any], Command]: 节点执行结果，可能是字典或 Command 对象
         """
         # 创建 trace
-        trace = create_node_trace(self.node_id, self.node_type, state)
+        # 创建 trace
+        trace = create_node_trace(self.node_id, self.node_type, state, config)
 
         try:
             # 执行前钩子
             state = await self._before_execute(state)
 
             # 执行节点
-            result = await self.executor(state)
+            import inspect
+            sig = inspect.signature(self.executor)
+            if "config" in sig.parameters:
+                result = await self.executor(state, config=config)
+            else:
+                result = await self.executor(state)
 
             # 执行后钩子（自动更新状态）
             result = await self._after_execute(state, result)
@@ -201,22 +231,31 @@ class NodeExecutionWrapper:
                 f"error={type(e).__name__}: {e}"
             )
 
-            # 返回错误结果
-            error_result = {
-                "current_node": self.node_id,
+            # Fallback handling (Global Error Policy)
+            if self.fallback_node_name and COMMAND_AVAILABLE:
+                logger.warning(
+                    f"[NodeExecutionWrapper] Triggering global fallback -> {self.fallback_node_name} | "
+                    f"source_node={self.node_id}"
+                )
+
+                # Update state with error info before jumping
+                error_update = {
+                    "error": str(e),
+                    "error_source_node": self.node_id,
+                    "error_timestamp": time.time(),
+                }
+
+                # If parallel node, also populate task_results to avoid hanging aggregators?
+                # Actually, jumping to fallback usually aborts the current parallel branch or supercedes it.
+                # But to be safe, we return the Command.
+
+                return Command(
+                    update=error_update,
+                    goto=self.fallback_node_name
+                )
+
+            return {
                 "error": str(e),
-                "error_msg": str(e),
+                "error_source_node": self.node_id,
+                "messages": [],
             }
-
-            # 如果是并行节点，也要填充 task_results
-            if self.metadata.get("is_parallel_node"):
-                task_results_list: List[Dict[str, str]] = [
-                    {
-                        "status": "error",
-                        "error_msg": str(e),
-                        "task_id": self.node_id,
-                    }
-                ]
-                error_result["task_results"] = task_results_list  # type: ignore[assignment]
-
-            return error_result

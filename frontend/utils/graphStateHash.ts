@@ -14,7 +14,11 @@ import type { Node, Edge } from 'reactflow'
  * @param edges - Array of graph edges
  * @returns A string hash representing the current state
  */
-export function computeGraphStateHash(nodes: Node[], edges: Edge[]): string {
+export function computeGraphStateHash(
+  nodes: Node[],
+  edges: Edge[],
+  stateFields?: any[]
+): string {
   const stateForHash = {
     nodes: nodes.map(n => ({
       id: n.id,
@@ -25,6 +29,7 @@ export function computeGraphStateHash(nodes: Node[], edges: Edge[]): string {
       source: e.source,
       target: e.target,
     })),
+    stateFields
   }
   return JSON.stringify(stateForHash)
 }

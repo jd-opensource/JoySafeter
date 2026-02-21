@@ -19,7 +19,7 @@ import { EdgePropertiesPanel } from './EdgePropertiesPanel'
 import PropertiesPanel from './PropertiesPanel'
 import { StateVariablePanel } from './StateVariablePanel'
 import { GraphStatusBar } from './GraphStatusBar'
-import { GraphSettingsPanel } from './GraphSettingsPanel'
+import { SchemaExportPanel } from './SchemaExportPanel'
 import { ValidationSummaryPanel } from './ValidationSummaryPanel'
 
 
@@ -30,6 +30,7 @@ import { LoopBackEdge } from './LoopBackEdge'
 import { DefaultEdge } from './DefaultEdge'
 
 import { EdgeData } from '../types/graph'
+import { EDGE_COLORS } from '../utils/edgeStyles'
 
 const nodeTypes = {
   custom: BuilderNode,
@@ -166,10 +167,9 @@ export const BuilderCanvas: React.FC = () => {
     takeSnapshot,
     undo,
     redo,
-    graphVariables,
-    showGraphSettings,
-    updateGraphVariables,
-    toggleGraphSettings,
+    graphId,
+    showSchemaExport,
+    toggleSchemaExport,
     showValidationSummary,
     toggleValidationSummary,
   } = useBuilderStore()
@@ -470,7 +470,7 @@ export const BuilderCanvas: React.FC = () => {
         edgeTypes={edgeTypes}
         className="bg-gray-50 w-full h-full"
         defaultEdgeOptions={{
-          style: { stroke: '#cbd5e1', strokeWidth: 1.5 },
+          style: { stroke: EDGE_COLORS.normal, strokeWidth: 1.5 },
           animated: true,
         }}
         proOptions={{ hideAttribution: true }}
@@ -555,12 +555,11 @@ export const BuilderCanvas: React.FC = () => {
         />
       )}
 
-      {showGraphSettings && (
-        <GraphSettingsPanel
-          variables={graphVariables}
-          onUpdateVariables={updateGraphVariables}
-          onClose={() => toggleGraphSettings(false)}
-          open={showGraphSettings}
+      {showSchemaExport && graphId && (
+        <SchemaExportPanel
+          graphId={graphId}
+          open={showSchemaExport}
+          onClose={() => toggleSchemaExport(false)}
         />
       )}
 

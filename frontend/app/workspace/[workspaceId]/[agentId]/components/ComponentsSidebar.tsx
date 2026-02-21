@@ -6,6 +6,7 @@ import React from 'react'
 import { useTranslation } from '@/lib/i18n'
 
 import { nodeRegistry } from '../services/nodeRegistry'
+import { useBuilderStore } from '../stores/builderStore'
 
 import { DraggableItem } from './DraggableItem'
 
@@ -17,6 +18,7 @@ interface ComponentsSidebarProps {
 
 export const ComponentsSidebar: React.FC<ComponentsSidebarProps> = ({ showHeader = true }) => {
   const { t } = useTranslation()
+  const { showAdvancedSettings } = useBuilderStore()
   const groupedTools = nodeRegistry.getGrouped()
 
   return (
@@ -45,9 +47,17 @@ export const ComponentsSidebar: React.FC<ComponentsSidebarProps> = ({ showHeader
               <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pl-1">
                 {t(categoryKey)}
               </div>
-              {items.map((def) => (
-                <DraggableItem key={def.type} def={def} />
-              ))}
+              {items
+                .filter(def => {
+                  // Only show advanced Data Flow nodes if Advanced Settings is enabled
+                  if (!showAdvancedSettings && (def.type === 'get_state_node' || def.type === 'set_state_node')) {
+                    return false;
+                  }
+                  return true;
+                })
+                .map((def) => (
+                  <DraggableItem key={def.type} def={def} />
+                ))}
             </div>
           )
         })}

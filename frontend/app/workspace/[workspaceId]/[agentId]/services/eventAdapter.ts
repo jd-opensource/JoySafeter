@@ -261,6 +261,10 @@ export function mapChatEventToExecutionStep(
           status: (nodeData?.status === 'error' ? 'error' : 'success') as 'success' | 'error',
           endTime: timestamp || Date.now(),
           duration: nodeData?.duration,
+          data: {
+            // @ts-ignore Option B localized payload
+            payload: nodeData?.payload
+          }
         },
       }
     }
@@ -268,8 +272,8 @@ export function mapChatEventToExecutionStep(
     // If not found in mapping, try searching through step list (backward compatible)
     const nodeStep = getSteps().find(
       (s) => s.stepType === 'node_lifecycle' &&
-             (s.nodeId === nodeId || s.nodeId === nodeData?.node_name) &&
-             s.status === 'running'
+        (s.nodeId === nodeId || s.nodeId === nodeData?.node_name) &&
+        s.status === 'running'
     )
 
     if (nodeStep) {
@@ -280,6 +284,11 @@ export function mapChatEventToExecutionStep(
           status: (nodeData?.status === 'error' ? 'error' : 'success') as 'success' | 'error',
           endTime: timestamp || Date.now(),
           duration: nodeData?.duration,
+          data: {
+            ...nodeStep.data,
+            // @ts-ignore Option B localized payload
+            payload: nodeData?.payload
+          }
         },
       }
     }
@@ -297,6 +306,10 @@ export function mapChatEventToExecutionStep(
         startTime: timestamp || Date.now(),
         endTime: timestamp || Date.now(),
         duration: nodeData?.duration,
+        data: {
+          // @ts-ignore Option B localized payload
+          payload: nodeData?.payload
+        },
         ...traceFields,
       },
     }

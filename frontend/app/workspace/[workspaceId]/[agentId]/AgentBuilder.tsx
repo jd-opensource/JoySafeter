@@ -24,7 +24,8 @@ import { computeGraphStateHash } from '@/utils/graphStateHash'
 import { BuilderCanvas } from './components/BuilderCanvas'
 import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'
 import { BuilderToolbar } from './components/BuilderToolbar'
-import { ExecutionPanel } from './components/ExecutionPanel'
+import { ExecutionPanelNew as ExecutionPanel } from './components/execution/ExecutionPanelNew'
+import { GraphStatePanel } from './components/GraphStatePanel'
 import { LoadModal } from './components/LoadModal'
 import { RunInputModal } from './components/RunInputModal'
 import { agentService, AgentGraph } from './services/agentService'
@@ -559,8 +560,8 @@ const AgentBuilderContent = () => {
               {pendingGraph && 'type' in pendingGraph && pendingGraph.type === 'import'
                 ? t('workspace.importOverwriteWarning')
                 : t('workspace.loadOverwriteWarning', {
-                    name: pendingGraph && 'name' in pendingGraph ? pendingGraph.name : '',
-                  })}
+                  name: pendingGraph && 'name' in pendingGraph ? pendingGraph.name : '',
+                })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -642,6 +643,9 @@ const AgentBuilderContent = () => {
 
       {/* Execution Panel - Bottom Dock */}
       {showExecutionPanel && <ExecutionPanel />}
+
+      {/* Graph State Panel - Dialog */}
+      <GraphStatePanel />
     </div>
   )
 }

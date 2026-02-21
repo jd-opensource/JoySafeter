@@ -8,6 +8,7 @@ and state history for debugging complex graphs.
 from datetime import datetime
 from typing import Any, Dict, List, Optional, cast
 
+from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
 from app.core.graph.graph_state import GraphState
@@ -124,6 +125,7 @@ def create_node_trace(
     node_id: str,
     node_type: str,
     state: GraphState,
+    config: Optional[RunnableConfig] = None,
 ) -> NodeExecutionTrace:
     """Create a trace for node execution with input snapshot."""
     import time
@@ -137,12 +139,27 @@ def create_node_trace(
         "context_keys": list(cast(dict, state.get("context", {})).keys()),
     }
 
-    return NodeExecutionTrace(
+    trace = NodeExecutionTrace(
         node_id=node_id,
         node_type=node_type,
         start_time=time.time(),
         input_snapshot=input_snapshot,
     )
+    
+    if config:
+        # Extract LangSmith/LangChain trace info
+        if "configurable" in config:
+            # Maybe store configurable?
+            pass
+        if "callbacks" in config:
+            # Callbacks might contain trace info
+            pass
+        # run_id is usually available in get_run_tree_context if implicit, 
+        # or we might want to capture metadata from config['metadata']
+        if "metadata" in config:
+            trace.input_snapshot["_meta_trace"] = config["metadata"]
+            
+    return trace
 
 
 def log_node_execution(

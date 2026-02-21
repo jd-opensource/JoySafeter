@@ -1,6 +1,6 @@
 'use client'
 
-import { X, ArrowRight, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react'
+import { X, ArrowRight, AlertCircle, CheckCircle2, Trash2, Split, Route, Repeat2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import React, { useMemo, useState } from 'react'
 import { Node, Edge } from 'reactflow'
@@ -31,9 +31,12 @@ import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
+import { useBuilderStore } from '../stores/builderStore'
 
-import { validateEdgeData } from '../services/edgeValidator'
+// import { validateEdgeData } from '../services/edgeValidator'
 import { EdgeData } from '../types/graph'
+import { nodeRegistry } from '../services/nodeRegistry'
+import { ConditionExprField } from './fields/ConditionExprField'
 
 interface EdgePropertiesPanelProps {
   edge: Edge
@@ -60,15 +63,70 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
   const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
+  // Store actions for smart updates
+  const updateNodeConfig = useBuilderStore(state => state.updateNodeConfig)
+  const graphStateFields = useBuilderStore(state => state.graphStateFields)
+
   const sourceNode = nodes.find((n) => n.id === edge.source)
   const targetNode = nodes.find((n) => n.id === edge.target)
   const sourceNodeType = (sourceNode?.data as { type?: string })?.type || ''
   const edgeData = (edge.data || {}) as EdgeData
 
   // Check if source node needs Handle ID mapping
-  const isConditionalSource = ['router_node', 'condition', 'loop_condition_node'].includes(
-    sourceNodeType
-  )
+  const isRouterNode = sourceNodeType === 'router_node'
+  const isConditionNode = sourceNodeType === 'condition'
+  const isLoopNode = sourceNodeType === 'loop_condition_node'
+  const isConditionalSource = isRouterNode || isConditionNode || isLoopNode
+
+  // --- Smart Condition Logic ---
+
+  // Get the current condition from the source node configuration
+  const currentCondition = useMemo(() => {
+    if (!sourceNode?.data?.config) return ''
+    const config = sourceNode.data.config as any
+
+    if (isRouterNode) {
+      // Find the route that matches this edge's route_key
+      const route = config.routes?.find((r: any) => r.targetEdgeKey === edgeData.route_key)
+      return route?.condition || ''
+    }
+
+    if (isConditionNode) {
+      // Both True and False branches share the same expression
+      return config.expression || ''
+    }
+
+    if (isLoopNode) {
+      return config.condition || ''
+    }
+
+    return ''
+  }, [sourceNode, isRouterNode, isConditionNode, isLoopNode, edgeData.route_key])
+
+  // Handler to update source node condition
+  const handleConditionChange = (newCondition: string) => {
+    if (!sourceNode || !userPermissions.canEdit) return
+    const config = { ...(sourceNode.data.config as any) }
+
+    if (isRouterNode) {
+      if (!config.routes) return
+      // Update specific route
+      config.routes = config.routes.map((r: any) => {
+        if (r.targetEdgeKey === edgeData.route_key) {
+          return { ...r, condition: newCondition }
+        }
+        return r
+      })
+    } else if (isConditionNode) {
+      config.expression = newCondition
+    } else if (isLoopNode) {
+      config.condition = newCondition
+    }
+
+    updateNodeConfig(sourceNode.id, config)
+  }
+
+  // --- End Smart Logic ---
 
   // Auto-generate Handle ID suggestions based on node type
   const getHandleIdSuggestions = () => {
@@ -101,11 +159,44 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
 
   // Validate edge data
   const validationErrors = useMemo(() => {
-    return validateEdgeData(edge, sourceNode, targetNode)
-  }, [edge, sourceNode, targetNode])
+    const errors: { field: string; message: string; severity?: string }[] = []
+
+    // Check conditional edges
+    if (edgeData.edge_type === 'conditional') {
+      if (!edgeData.route_key) {
+        errors.push({
+          field: 'Route Key',
+          message: t('workspace.routeKeyRequired', { defaultValue: 'Route key is required' }),
+          severity: 'error'
+        })
+      } else {
+        // Validate route key exists in source node config
+        if (sourceNodeType === 'router_node') {
+          const config = (sourceNode?.data as { config?: { routes?: Array<{ targetEdgeKey?: string }> } })?.config
+          const routes = config?.routes || []
+          const ruleExists = routes.some(r => r.targetEdgeKey === edgeData.route_key)
+
+          if (!ruleExists) {
+            errors.push({
+              field: 'Route Key',
+              message: t('workspace.routeKeyMismatch', { defaultValue: 'Route key must match a rule in the source node' }),
+              severity: 'warning'
+            })
+          }
+        }
+      }
+    }
+
+    return errors
+  }, [edgeData, sourceNode, sourceNodeType, t])
 
   const hasErrors = validationErrors.length > 0
-  const criticalErrors = validationErrors.filter((e) => e.severity === 'error')
+
+  // Decide if we should show the smart condition editor
+  // Show if: Source is Conditional Type AND Edge is Conditional AND (RouteKey is set OR not router)
+  // For Router: need route_key to know WHICH condition to edit
+  const showSmartEditor = isConditionalSource && edgeData.edge_type === 'conditional' &&
+    (!isRouterNode || edgeData.route_key)
 
   const updateEdgeData = (updates: Partial<EdgeData>) => {
     if (!userPermissions.canEdit) {
@@ -133,6 +224,13 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
       setShowDeleteConfirm(false)
       onClose()
     }
+  }
+
+  const getSourceIcon = () => {
+    if (isRouterNode) return <Route size={14} className="text-orange-500" />
+    if (isConditionNode) return <Split size={14} className="text-amber-500" />
+    if (isLoopNode) return <Repeat2 size={14} className="text-cyan-500" />
+    return null
   }
 
   return (
@@ -210,114 +308,94 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
           </div>
         )}
 
-        {/* Edge Type */}
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-            Edge Type
-          </Label>
-          <Select
-            value={edgeData.edge_type || 'normal'}
-            onValueChange={(v) => updateEdgeData({ edge_type: v as EdgeData['edge_type'] })}
-            disabled={!userPermissions.canEdit}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="normal">Normal</SelectItem>
-              <SelectItem value="conditional">Conditional</SelectItem>
-              <SelectItem value="loop_back">Loop Back</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-[9px] text-gray-400">
-            Normal: standard connection | Conditional: route based on condition | Loop Back: loop iteration (purple dashed line, supports manual path adjustment)
-          </p>
-        </div>
+        {/* Smart Condition Editor */}
+        {showSmartEditor && (
+          <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <div className="flex items-center gap-2 mb-1">
+              {getSourceIcon()}
+              <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                Logic Condition ({sourceNodeType.replace('_node', '')})
+              </Label>
+            </div>
+            <p className="text-[10px] text-slate-400 mb-2">
+              {isRouterNode
+                ? `Edits condition for route "${edgeData.route_key}"`
+                : isConditionNode
+                  ? "Edits the splitting condition"
+                  : "Edits the loop continue condition"
+              }
+            </p>
+            <ConditionExprField
+              value={currentCondition}
+              onChange={handleConditionChange}
+              disabled={!userPermissions.canEdit}
+              graphStateFields={graphStateFields}
+              placeholder={
+                isRouterNode ? "state.get('value') > 10" :
+                  isConditionNode ? "state.get('is_valid')" :
+                    "loop_count < 5"
+              }
+            />
+            <div className="flex items-center gap-1.5 mt-1 text-[9px] text-blue-600/70">
+              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+              Updates Source Node Configuration
+            </div>
+          </div>
+        )}
 
-        {/* Route Key (only for conditional edges from router/condition nodes) */}
-        {isConditionalSource && edgeData.edge_type === 'conditional' && (
+        {/* Route Key (Smart Select) */}
+        {isConditionalSource && (
           <div className="space-y-1.5">
             <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
               Route Key
             </Label>
-            <Input
-              value={edgeData.route_key || ''}
-              onChange={(e) => updateEdgeData({ route_key: e.target.value })}
-              placeholder="e.g., high_score, default"
-              disabled={!userPermissions.canEdit}
-              className="h-8 text-xs"
-            />
-            <p className="text-[9px] text-gray-400">
-              Must match a route key defined in the source node
-            </p>
 
-            {/* Suggestions */}
-            {suggestions.length > 0 && (
-              <div className="space-y-1">
-                <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Quick Select
-                </Label>
-                <div className="space-y-1">
-                  {suggestions.map((suggestion, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => {
-                        updateEdgeData({
-                          route_key: suggestion.routeKey,
-                          source_handle_id: suggestion.handleId,
-                        })
-                      }}
-                      disabled={!userPermissions.canEdit}
-                      className={cn(
-                        'w-full text-left px-2 py-1.5 text-xs rounded border transition-colors',
-                        'hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed',
-                        edgeData.route_key === suggestion.routeKey
-                          ? 'border-blue-300 bg-blue-50'
-                          : 'border-gray-200'
-                      )}
-                    >
-                      <div className="font-medium">{suggestion.routeKey}</div>
-                    </button>
+            {suggestions.length > 0 ? (
+              <Select
+                value={edgeData.route_key || ''}
+                onValueChange={(val) => {
+                  const suggestion = suggestions.find(s => s.routeKey === val)
+                  updateEdgeData({
+                    route_key: val,
+                    source_handle_id: suggestion?.handleId || val, // Auto-map handle ID
+                    edge_type: 'conditional' // Force conditional type
+                  })
+                }}
+                disabled={!userPermissions.canEdit}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select a route..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {suggestions.map((s, idx) => (
+                    <SelectItem key={idx} value={s.routeKey}>
+                      {s.routeKey}
+                    </SelectItem>
                   ))}
-                </div>
-              </div>
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={edgeData.route_key || ''}
+                onChange={(e) => updateEdgeData({
+                  route_key: e.target.value,
+                  edge_type: 'conditional'
+                })}
+                placeholder="e.g., high_score, default"
+                disabled={!userPermissions.canEdit}
+                className="h-8 text-xs"
+              />
             )}
-          </div>
-        )}
 
-        {/* Source Handle ID (for conditional edges) */}
-        {isConditionalSource && edgeData.edge_type === 'conditional' && (
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-              Source Handle ID
-            </Label>
-            <Input
-              value={edgeData.source_handle_id || ''}
-              onChange={(e) => updateEdgeData({ source_handle_id: e.target.value })}
-              placeholder="e.g. yes_handle, no_handle"
-              disabled={!userPermissions.canEdit}
-              className="h-8 text-xs"
-            />
             <p className="text-[9px] text-gray-400">
-              React Flow handle ID (optional, for advanced use cases)
+              {isRouterNode
+                ? "Select a route defined in the source node"
+                : "Logic branch for this connection"}
             </p>
           </div>
         )}
 
-        {/* Edge Label */}
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-            Label (optional)
-          </Label>
-          <Input
-            value={edgeData.label || ''}
-            onChange={(e) => updateEdgeData({ label: e.target.value })}
-            placeholder="Display label on edge"
-            disabled={!userPermissions.canEdit}
-            className="h-8 text-xs"
-          />
-          <p className="text-[9px] text-gray-400">Optional display label for the edge</p>
-        </div>
+
       </div>
 
       {/* Footer Actions */}

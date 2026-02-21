@@ -786,6 +786,15 @@ class StreamEventHandler:
                 if code_agent_events:
                     events.extend(self._process_code_agent_events(code_agent_events, node_name, meta, state))
 
+            # 获取当前节点的局部输出 (如果是 Option B 数据流)
+            local_payload = None
+            if output and isinstance(output, dict):
+                node_outputs = output.get("node_outputs", {})
+                if node_id := node_info.get("node_id"):
+                    local_payload = node_outputs.get(node_id)
+                elif node_name in node_outputs: # Fallback backwards compat
+                    local_payload = node_outputs.get(node_name)
+
             # 1. node_end 事件
             events.append(
                 self.format_sse(
@@ -796,6 +805,7 @@ class StreamEventHandler:
                         "node_id": node_info.get("node_id"),
                         "duration": duration,
                         "status": "error" if has_error else "success",
+                        "payload": local_payload, # Option B localized output
                         "_meta": meta,
                     },
                     state.thread_id,

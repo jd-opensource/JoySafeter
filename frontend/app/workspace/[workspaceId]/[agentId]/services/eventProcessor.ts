@@ -8,7 +8,36 @@
 import type { ChatStreamEvent } from '@/services/chatBackend'
 import type { ExecutionStep } from '@/types'
 
-import type { GraphState, TraceStep } from '../components/visualization'
+// --- Inline types (formerly in components/visualization/types.ts) ---
+
+/** Execution graph state snapshot for Command Mode tracing */
+export interface GraphState {
+  context?: Record<string, any>
+  messages?: any[]
+  current_node?: string
+  route_decision?: string
+  route_reason?: string
+  route_history?: string[]
+  loop_count?: number
+  loop_condition_met?: boolean
+  max_loop_iterations?: number
+  parallel_mode?: boolean
+  task_states?: Record<string, { status: 'pending' | 'running' | 'completed' | 'error'; result?: any; error_msg?: string }>
+  loop_states?: Record<string, any>
+  task_results?: Array<{ status: 'success' | 'error'; error_msg?: string; result?: any; task_id: string }>
+  parallel_results?: any[]
+  loop_body_trace?: string[]
+}
+
+/** Trace step recording a node execution snapshot */
+export interface TraceStep {
+  nodeId: string
+  nodeType: string
+  timestamp: number
+  command: { update: Record<string, any>; goto?: string; reason?: string }
+  stateSnapshot: GraphState
+  routeDecision?: { result: boolean | string; reason: string; goto: string }
+}
 import type { InterruptState } from '../stores/execution/types'
 import { generateId } from '../stores/execution/utils'
 

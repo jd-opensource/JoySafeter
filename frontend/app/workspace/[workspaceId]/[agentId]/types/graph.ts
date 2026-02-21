@@ -24,8 +24,6 @@ export interface EdgeData {
   /** Display label for the edge */
   label?: string
 
-  /** Optional condition expression for edge-level conditions */
-  condition?: string
 
   /** Path waypoints for loop_back edges (stored as array of {x, y} in flow coordinates) */
   waypoints?: Array<{ x: number; y: number }>
@@ -133,4 +131,40 @@ export interface ValidationError {
 
   /** Optional severity level */
   severity?: 'error' | 'warning' | 'info'
+
+  /** Optional node ID associated with the error */
+  nodeId?: string
+
+  /** Optional edge ID associated with the error */
+  edgeId?: string
+
+  /** Error category (e.g. "Node Configuration", "Graph Structure") */
+  category?: string
+
+  /** Whether the error can be automatically fixed */
+  canAutoFix?: boolean
+}
+
+/**
+ * State Field Data Types matching backend StateFieldType
+ */
+export type StateFieldType = 'string' | 'int' | 'float' | 'bool' | 'list' | 'dict' | 'messages' | 'any'
+
+/**
+ * State Field Reducer Types matching backend ReducerType
+ */
+export type ReducerType = 'replace' | 'add' | 'append' | 'merge' | 'add_messages' | 'custom'
+
+/**
+ * State Field Definition
+ * Matches backend StateFieldSchema
+ */
+export interface StateField {
+  name: string
+  type: StateFieldType
+  description?: string
+  defaultValue?: any // Renamed from default to avoid keyword conflict if needed, or map to default in serialization
+  reducer?: ReducerType
+  required?: boolean
+  isSystem?: boolean // Frontend-only flag to prevent editing system fields if we pre-populate them
 }
