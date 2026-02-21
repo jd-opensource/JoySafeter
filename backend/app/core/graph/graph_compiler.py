@@ -160,9 +160,7 @@ class _CompilerSession:
                 extend_default=self.schema.use_default_state,
                 class_name=f"{self.schema.name.replace(' ', '')}State",
             )
-            logger.info(
-                f"[GraphCompiler] Built dynamic state class with " f"{len(self.schema.state_fields)} custom fields"
-            )
+            logger.info(f"[GraphCompiler] Built dynamic state class with {len(self.schema.state_fields)} custom fields")
 
     def _validate_state_dependencies(self):
         if self.validate and self.schema.state_fields:
@@ -212,8 +210,7 @@ class _CompilerSession:
         parallel_nodes = _identify_parallel_nodes(self.schema)
 
         logger.info(
-            f"[GraphCompiler] Identified {len(loop_body_map)} loop body nodes | "
-            f"{len(parallel_nodes)} parallel nodes"
+            f"[GraphCompiler] Identified {len(loop_body_map)} loop body nodes | {len(parallel_nodes)} parallel nodes"
         )
 
         for edge in self.schema.edges:

@@ -583,7 +583,7 @@ class ConditionAgentNodeExecutor:
             }
         except Exception as e:
             logger.error(
-                f"[ConditionAgentNodeExecutor] Error invoking LLM for routing | " f"node_id={self.node_id} | error={e}"
+                f"[ConditionAgentNodeExecutor] Error invoking LLM for routing | node_id={self.node_id} | error={e}"
             )
             # Fallback to first available option
             fallback_route = (

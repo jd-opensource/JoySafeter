@@ -76,7 +76,7 @@ class HumanInputNodeExecutor:
 
         messages = state.get("messages", [])
         if messages and isinstance(messages[-1], HumanMessage):
-            logger.info(f"[HumanInputNode] Processed human input: " f"{messages[-1].content[:100]}")
+            logger.info(f"[HumanInputNode] Processed human input: {messages[-1].content[:100]}")
 
         return {"current_node": self.node_id}
 

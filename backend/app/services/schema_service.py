@@ -95,7 +95,7 @@ class SchemaService(BaseService):
         """
         schema = await self.export_schema(graph_id)
         code = generate_code(schema, include_main=include_main)
-        logger.info(f"[SchemaService] Generated code | graph_id={graph_id} | " f"lines={code.count(chr(10)) + 1}")
+        logger.info(f"[SchemaService] Generated code | graph_id={graph_id} | lines={code.count(chr(10)) + 1}")
         return code
 
     # ------------------------------------------------------------------
@@ -289,9 +289,9 @@ class SchemaService(BaseService):
             else:
                 for idx, route in enumerate(routes):
                     if not route.get("condition"):
-                        errors.append(f"Router node '{node.label}' ({node.id}) route #{idx+1} missing condition")
+                        errors.append(f"Router node '{node.label}' ({node.id}) route #{idx + 1} missing condition")
                     if not route.get("targetEdgeKey"):
-                        errors.append(f"Router node '{node.label}' ({node.id}) route #{idx+1} missing targetEdgeKey")
+                        errors.append(f"Router node '{node.label}' ({node.id}) route #{idx + 1} missing targetEdgeKey")
 
         # Tool Node
         elif node.type == "tool_node":

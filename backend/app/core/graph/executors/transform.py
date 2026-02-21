@@ -179,8 +179,7 @@ class AggregatorNodeExecutor:
 
         # Fallback to Fan-In logic
         logger.info(
-            f"[AggregatorNodeExecutor] >>> Aggregating Fan-In | "
-            f"node_id={self.node_id} | strategy={self.error_strategy}"
+            f"[AggregatorNodeExecutor] >>> Aggregating Fan-In | node_id={self.node_id} | strategy={self.error_strategy}"
         )
 
         try:

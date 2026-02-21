@@ -75,7 +75,7 @@ class NodeExecutionWrapper:
                 if resolved_context != context:
                     state = {**state, "context": resolved_context}
                     logger.debug(
-                        f"[NodeExecutionWrapper] Resolved Data Pill expressions in context | " f"node_id={self.node_id}"
+                        f"[NodeExecutionWrapper] Resolved Data Pill expressions in context | node_id={self.node_id}"
                     )
         except Exception as e:
             logger.warning(

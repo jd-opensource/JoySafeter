@@ -415,20 +415,18 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const { permissions, loading: permissionsLoading } = useWorkspacePermissions(workspaceId)
   const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
   const { onConnect, updateEdge, graphStateFields } = useBuilderStore()
-  const nodeData = node.data as {
+  const nodeData = node?.data as {
     type: string
     label?: string
     config?: Record<string, unknown>
-  }
-  const def = nodeRegistry.get(nodeData.type)
+  } | undefined
+  const def = nodeData ? nodeRegistry.get(nodeData.type) : undefined
 
-  if (!node) return null
-
-  const config = nodeData.config || {}
-  const nodeType = nodeData.type
+  const config = nodeData?.config || {}
+  const nodeType = nodeData?.type || ''
 
   // Get available templates for this node type
-  const templates = getTemplatesForNodeType(nodeType)
+  const templates = nodeType ? getTemplatesForNodeType(nodeType) : []
 
   // Validate configuration using schema
   const validationErrors = useMemo(() => {
@@ -456,6 +454,8 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   }, [def, config, t])
 
   const { showAdvancedSettings } = useBuilderStore()
+
+  if (!node || !nodeData) return null
 
   const updateConfig = (key: string, value: unknown) => {
     if (!userPermissions.canEdit) {

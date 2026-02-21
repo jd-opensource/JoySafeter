@@ -414,5 +414,5 @@ class GraphSchema(BaseModel):
                     continue
                 for f in fields:
                     if f not in declared:
-                        warnings.append(f"Node '{node.label}' ({node.id}) {direction} " f"undeclared state field '{f}'")
+                        warnings.append(f"Node '{node.label}' ({node.id}) {direction} undeclared state field '{f}'")
         return warnings
