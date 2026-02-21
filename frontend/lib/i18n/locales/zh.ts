@@ -488,6 +488,8 @@ export default {
       nodeCategories: {
         agents: '智能体',
         flowControl: '流程控制',
+        stateManagement: '状态管理',
+        aggregation: '聚合运算',
         actions: '操作',
       },
       // Node Fields

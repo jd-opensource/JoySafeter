@@ -36,28 +36,30 @@ export const ComponentsSidebar: React.FC<ComponentsSidebarProps> = ({ showHeader
       {/* Component List */}
       <div className="flex-1 overflow-y-auto custom-scrollbar px-2 py-3 space-y-4">
         {Object.entries(groupedTools).map(([category, items]) => {
-          const categoryKey =
-            category === 'Agents'
-              ? 'workspace.nodeCategories.agents'
-              : category === 'Flow Control'
-                ? 'workspace.nodeCategories.flowControl'
-                : 'workspace.nodeCategories.actions'
+          const filteredItems = items.filter((def) => {
+            // Only show advanced Data Flow nodes if Advanced Settings is enabled
+            if (!showAdvancedSettings && (def.type === 'get_state_node' || def.type === 'set_state_node')) {
+              return false
+            }
+            return true
+          })
+
+          if (filteredItems.length === 0) return null
+
+          let categoryKey = 'workspace.nodeCategories.actions'
+          if (category === 'Agents') categoryKey = 'workspace.nodeCategories.agents'
+          else if (category === 'Flow Control') categoryKey = 'workspace.nodeCategories.flowControl'
+          else if (category === 'State Management') categoryKey = 'workspace.nodeCategories.stateManagement'
+          else if (category === 'Aggregation') categoryKey = 'workspace.nodeCategories.aggregation'
+
           return (
             <div key={category} className="space-y-2">
               <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pl-1">
                 {t(categoryKey)}
               </div>
-              {items
-                .filter(def => {
-                  // Only show advanced Data Flow nodes if Advanced Settings is enabled
-                  if (!showAdvancedSettings && (def.type === 'get_state_node' || def.type === 'set_state_node')) {
-                    return false;
-                  }
-                  return true;
-                })
-                .map((def) => (
-                  <DraggableItem key={def.type} def={def} />
-                ))}
+              {filteredItems.map((def) => (
+                <DraggableItem key={def.type} def={def} />
+              ))}
             </div>
           )
         })}
