@@ -105,6 +105,7 @@ class ExecutionState(TypedDict, total=False):
         loop_states: 循环状态隔离
         task_states: 任务状态隔离
         node_contexts: 节点上下文隔离
+        node_outputs: 统一存储各节点的原始输出结果 (用于 Universal State Mapping)
         todos: 待办事项列表（用于 TodoListMiddleware）
     """
 
@@ -125,6 +126,7 @@ class ExecutionState(TypedDict, total=False):
     loop_states: Annotated[Dict[str, Dict[str, Any]], merge_loop_states]
     task_states: Annotated[Dict[str, Dict[str, Any]], merge_task_states]
     node_contexts: Annotated[Dict[str, Dict[str, Any]], merge_node_contexts]
+    node_outputs: Annotated[Dict[str, Any], merge_dicts]
 
     # Todos for TodoListMiddleware
     todos: Annotated[List[Dict[str, Any]], add_todos]

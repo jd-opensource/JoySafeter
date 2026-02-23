@@ -250,6 +250,7 @@ class _CompilerSession:
                         node_id=str(node.id),
                         node_type=node.type,
                         metadata=node.metadata,
+                        node_config=node.config,
                         fallback_node_name=fallback_node_name if node.id != self.schema.fallback_node_id else None,
                     )
                     self.workflow.add_node(name, wrapped)

@@ -9,7 +9,7 @@ from app.core.graph.executors.action import (
     HttpRequestNodeExecutor,
     HumanInputNodeExecutor,
 )
-from app.core.graph.executors.agent import AgentNodeExecutor, CodeAgentNodeExecutor, apply_node_output_mapping
+from app.core.graph.executors.agent import AgentNodeExecutor, CodeAgentNodeExecutor
 from app.core.graph.executors.logic import (
     ConditionAgentNodeExecutor,
     ConditionNodeExecutor,
@@ -36,7 +36,6 @@ __all__ = [
     "validate_condition_expression",
     "resolve_variable_expressions",
     "StateWrapper",
-    "apply_node_output_mapping",
     "AgentNodeExecutor",
     "CodeAgentNodeExecutor",
     "ConditionNodeExecutor",

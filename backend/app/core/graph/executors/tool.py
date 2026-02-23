@@ -16,7 +16,6 @@ except ImportError:
     COMMAND_AVAILABLE = False
     Command = None  # type: ignore[assignment,misc]
 
-from app.core.graph.executors.agent import apply_node_output_mapping
 from app.core.graph.expression_evaluator import StateWrapper
 from app.core.graph.graph_state import GraphState
 from app.models.graph import GraphNode
@@ -132,11 +131,9 @@ class ToolNodeExecutor:
             return_dict = {
                 "messages": [AIMessage(content=f"Tool '{self.tool_name}' output: {output_content}")],
                 "current_node": self.node_id,
+                # Explicitly pass the original result or output content to Universal Mapper
+                "result": result
             }
-
-            # Apply output mapping (save tool result to state)
-            # We wrap result to allow 'result' or 'result.foo' access
-            apply_node_output_mapping(self.config, result, return_dict, self.node_id)
 
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info(f"[ToolNodeExecutor] <<< Tool complete | elapsed={elapsed_ms:.2f}ms")
@@ -231,9 +228,41 @@ class FunctionNodeExecutor:
                     "result": None,  # Output variable
                 }
 
+                # Setup mapped variables
+                input_mapping = self.config.get("input_mapping", [])
+                missing_vars = []
+                for mapping in input_mapping:
+                    param_name = mapping.get("key")
+                    source_type = mapping.get("type", "static")  # static or variable
+                    source_value = mapping.get("value")
+
+                    if not param_name:
+                        continue
+
+                    if source_type == "variable":
+                        # Fetch from state
+                        try:
+                            val = self._get_value_by_path(wrapped_state, source_value)
+                            local_scope[param_name] = val
+                        except Exception as e:
+                            logger.warning(f"[FunctionNodeExecutor] Failed to resolve variable path '{source_value}': {e}")
+                            missing_vars.append(source_value)
+                            local_scope[param_name] = None
+                    else:
+                        # Static value
+                        local_scope[param_name] = source_value
+
+                if missing_vars:
+                    logger.warning(f"[FunctionNodeExecutor] Some mapped variables could not be resolved: {missing_vars}")
+
                 # We need to trust the user here or sandbox strictly.
                 # For now, we execute with limited builtins.
-                exec(self.function_code, {"__builtins__": {}}, local_scope)
+                try:
+                    exec(self.function_code, {"__builtins__": {}}, local_scope)
+                except Exception as e:
+                    error_msg = f"Runtime Error in Custom Code: {str(e)}"
+                    logger.error(f"[FunctionNodeExecutor] {error_msg}")
+                    return {"messages": [AIMessage(content=error_msg)]}
 
                 result = local_scope.get("result")
 
@@ -263,13 +292,25 @@ class FunctionNodeExecutor:
                 typed_func = cast(Callable, func)
                 result = typed_func(arg1, arg2)
 
-            return_dict = {"current_node": self.node_id}
-
-            # Map result to state
-            apply_node_output_mapping(self.config, result, return_dict, self.node_id)
+            return_dict = {"current_node": self.node_id, "result": result}
 
             return return_dict
 
         except Exception as e:
             logger.error(f"[FunctionNodeExecutor] Error: {e}")
             return {"messages": [AIMessage(content=f"Function error: {e}")]}
+
+    def _get_value_by_path(self, obj: Any, path: str) -> Any:
+        """Helper to get value from state."""
+        parts = path.split(".")
+        current = obj
+        for part in parts:
+            if isinstance(current, StateWrapper):
+                current = getattr(current, part, None)
+            elif isinstance(current, dict):
+                current = current.get(part)
+            else:
+                return None
+            if current is None:
+                return None
+        return current

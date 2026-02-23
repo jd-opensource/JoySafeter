@@ -45,12 +45,14 @@ class NodeExecutionWrapper:
         node_type: str,
         metadata: Optional[Dict[str, Any]] = None,
         fallback_node_name: Optional[str] = None,
+        node_config: Optional[Dict[str, Any]] = None,
     ):
         self.executor = executor
         self.node_id = node_id
         self.node_type = node_type
         self.metadata = metadata or {}
         self.fallback_node_name = fallback_node_name
+        self.node_config = node_config or {}
 
     async def _before_execute(self, state: GraphState) -> GraphState:
         """执行前钩子：初始化状态 & 解析 Data Pill 变量表达式。"""
@@ -82,6 +84,29 @@ class NodeExecutionWrapper:
                 f"[NodeExecutionWrapper] Failed to resolve variable expressions | "
                 f"node_id={self.node_id} | error={type(e).__name__}: {e}"
             )
+
+        # Apply Universal Input Mapping
+        if self.node_config:
+            try:
+                from app.core.graph.mapping_utils import apply_node_input_mapping
+                mapped_inputs = apply_node_input_mapping(self.node_config, state, self.node_id)
+                if mapped_inputs:
+                    context = state.get("context", {})
+                    # Need to make a fresh copy if it's the exact same object to trigger StateGraph updates?
+                    # LangGraph updates dicts by merging, but "context" is a dict inside the state,
+                    # so we should provide an updated dictionary.
+                    new_context = {**context} if isinstance(context, dict) else {}
+                    
+                    # Store mapped inputs in a dedicated namespace so executors can easily find them
+                    new_context["mapped_inputs"] = mapped_inputs
+                    state = {**state, "context": new_context}
+                    
+                    logger.debug(f"[NodeExecutionWrapper] Injected mapped inputs into state | node_id={self.node_id}")
+            except Exception as e:
+                logger.warning(
+                    f"[NodeExecutionWrapper] Failed to apply input mapping | "
+                    f"node_id={self.node_id} | error={type(e).__name__}: {e}"
+                )
 
         return state
 
@@ -172,6 +197,18 @@ class NodeExecutionWrapper:
                 f"[NodeExecutionWrapper] Auto-filled task_results | "
                 f"node_id={self.node_id} | status={task_result['status']}"
             )
+
+        # Apply Universal Output Mapping
+        if self.node_config:
+            try:
+                from app.core.graph.mapping_utils import apply_node_output_mapping
+                # apply_node_output_mapping updates update_dict directly in place
+                apply_node_output_mapping(self.node_config, result, update_dict, self.node_id)
+            except Exception as e:
+                logger.warning(
+                    f"[NodeExecutionWrapper] Failed to apply output mapping | "
+                    f"node_id={self.node_id} | error={type(e).__name__}: {e}"
+                )
 
         # 如果是 Command 对象，更新其 update 字段
         if is_command:

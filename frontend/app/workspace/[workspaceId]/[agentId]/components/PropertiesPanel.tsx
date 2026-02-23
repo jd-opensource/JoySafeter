@@ -215,6 +215,17 @@ const SchemaFieldRenderer = ({
         )
       }
       break
+    case 'code':
+      input = (
+        <Textarea
+          value={(value as string) || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={schema.placeholder}
+          spellCheck={false}
+          className="resize-y min-h-[120px] font-mono text-[11px] bg-slate-50 text-slate-800 py-3 px-3 focus-visible:ring-1 focus-visible:ring-blue-500 border-slate-200 shadow-inner"
+        />
+      )
+      break
     case 'select':
       input = (
         <Select value={(value as string) || ''} onValueChange={onChange}>
@@ -865,6 +876,23 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           </div>
         )}
         {/* Section: Output Mapping fields rendered conditionally as normal fields */}
+
+        {/* Section: Input Mapping (Universal) */}
+        {showAdvancedSettings && (
+          <div className="space-y-4">
+            <SectionHeader
+              icon={Database}
+              title={t('workspace.inputMapping', { defaultValue: 'Input Mapping' })}
+              tooltip="Advanced: Map global state variables into this node's context. These will be available as 'context.mapped_inputs' in expressions."
+            />
+            <StateMapperField
+              value={(config.input_mapping as any) || []}
+              onChange={(val) => updateConfig('input_mapping', val)}
+              graphStateFields={graphStateFields}
+              currentNodeId={node.id}
+            />
+          </div>
+        )}
 
         {/* Section: State Output Mapping */}
         {showAdvancedSettings && graphStateFields.length > 0 && (

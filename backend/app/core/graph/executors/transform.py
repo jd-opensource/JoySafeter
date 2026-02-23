@@ -9,7 +9,6 @@ from typing import Any, Dict
 from langchain_core.messages import AIMessage
 from loguru import logger
 
-from app.core.graph.executors.agent import apply_node_output_mapping
 from app.core.graph.graph_state import GraphState
 from app.models.graph import GraphNode
 
@@ -52,8 +51,7 @@ class JSONParserNodeExecutor:
         try:
             parsed = json.loads(cleaned_content)
 
-            return_dict = {"current_node": self.node_id}
-            apply_node_output_mapping(self.config, parsed, return_dict, self.node_id)
+            return_dict = {"current_node": self.node_id, "result": parsed}
 
             return return_dict
         except Exception as e:

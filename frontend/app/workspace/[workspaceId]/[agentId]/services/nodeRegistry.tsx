@@ -36,6 +36,7 @@ export type FieldType =
   | 'dockerConfig'     // Docker configuration editor
   | 'stateSelect'      // State variable selector
   | 'stateMapper'      // Visual input mapper
+  | 'code'             // Code editor
 
 export interface FieldSchema {
   key: string
@@ -63,6 +64,7 @@ export interface NodeDefinition {
   label: string
   subLabel?: string
   icon: LucideIcon
+  hidden?: boolean
   style: {
     color: string // text-color class
     bg: string // bg-color class
@@ -252,6 +254,7 @@ const REGISTRY: NodeDefinition[] = [
     label: 'Custom Tool',
     subLabel: 'Function Definition',
     icon: Wrench,
+    hidden: true,
     style: { color: 'text-purple-600', bg: 'bg-purple-50' },
     stateReads: ['messages', 'context'],
     stateWrites: ['messages', 'context', 'current_node'],
@@ -466,12 +469,28 @@ const REGISTRY: NodeDefinition[] = [
         showWhen: { field: 'execution_mode', values: ['predefined'] },
       },
       {
+        key: 'input_mapping',
+        label: 'Variables',
+        type: 'stateMapper',
+        placeholder: 'Map state variables to local variables',
+        description: 'Define input variables. Mapped variables will be directly available in your custom code as local variables.',
+        showWhen: { field: 'execution_mode', values: ['custom'] },
+      },
+      {
         key: 'function_code',
         label: 'Custom Code',
-        type: 'textarea',
-        placeholder: 'result = {"output": state.get("value", 0) * 2}',
+        type: 'code',
+        placeholder: 'result = {"output": input_var * 2}',
         description: 'Python code to execute (sandboxed). Use "result" variable for output.',
         showWhen: { field: 'execution_mode', values: ['custom'] },
+      },
+      {
+        key: 'output_mapping',
+        label: 'Output Mapping',
+        type: 'stateMapper',
+        placeholder: 'Map function result to state variables',
+        description: 'Define how the function result maps to state variables. E.g., if result={"a": 1}, map "a" to a state variable.',
+        showWhen: { field: 'execution_mode', values: ['custom', 'predefined'] },
       },
     ],
   },
@@ -812,7 +831,7 @@ const REGISTRY: NodeDefinition[] = [
 // === Registry API ===
 
 export const nodeRegistry = {
-  getAll: () => REGISTRY,
+  getAll: () => REGISTRY.filter((n) => !n.hidden),
 
   get: (type: string): NodeDefinition | undefined => {
     return REGISTRY.find((n) => n.type === type)
@@ -822,18 +841,19 @@ export const nodeRegistry = {
    * Group definitions for the sidebar UI
    */
   getGrouped: () => {
+    const visibleRegistry = REGISTRY.filter((n) => !n.hidden);
     return {
-      Agents: REGISTRY.filter((n) => ['agent', 'code_agent', 'a2a_agent'].includes(n.type)),
-      'Flow Control': REGISTRY.filter((n) =>
+      Agents: visibleRegistry.filter((n) => ['agent', 'code_agent', 'a2a_agent'].includes(n.type)),
+      'Flow Control': visibleRegistry.filter((n) =>
         ['condition', 'condition_agent', 'router_node', 'loop_condition_node'].includes(n.type)
       ),
-      'State Management': REGISTRY.filter((n) =>
+      'State Management': visibleRegistry.filter((n) =>
         ['get_state_node', 'set_state_node'].includes(n.type)
       ),
-      Actions: REGISTRY.filter((n) =>
+      Actions: visibleRegistry.filter((n) =>
         ['custom_function', 'http_request_node', 'human_input', 'direct_reply', 'tool_node', 'function_node', 'json_parser_node'].includes(n.type)
       ),
-      Aggregation: REGISTRY.filter((n) =>
+      Aggregation: visibleRegistry.filter((n) =>
         ['aggregator_node'].includes(n.type)
       ),
     }

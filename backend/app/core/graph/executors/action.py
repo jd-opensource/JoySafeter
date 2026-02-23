@@ -7,7 +7,6 @@ from typing import Any, Dict
 from langchain_core.messages import AIMessage, HumanMessage
 from loguru import logger
 
-from app.core.graph.executors.agent import apply_node_output_mapping
 from app.core.graph.graph_state import GraphState
 from app.models.graph import GraphNode
 
@@ -40,17 +39,8 @@ class DirectReplyNodeExecutor:
         return_dict = {
             "messages": [AIMessage(content=content)],
             "current_node": self.node_id,
+            "result": {"content": content, "text": content}
         }
-
-        # Apply output mapping
-        # For DirectReply, the 'result' is the content string
-        data = self.node.data or {}
-        config = data.get("config", {})
-
-        # We wrap content in a dict so users can map 'result.content' or just 'result'
-        result_wrapper = {"content": content, "text": content}
-
-        apply_node_output_mapping(config, result_wrapper, return_dict, self.node_id)
 
         return return_dict
 
@@ -133,9 +123,7 @@ class HttpRequestNodeExecutor:
 
                 logger.info(f"[HttpRequestNode] <<< Status: {response.status_code}")
 
-                return_dict = {"current_node": self.node_id}
-
-                apply_node_output_mapping(self.config, result_data, return_dict, self.node_id)
+                return_dict = {"current_node": self.node_id, "result": result_data}
 
                 return return_dict
 
