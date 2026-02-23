@@ -115,7 +115,7 @@ class _CompilerSession:
         self.edges_by_source: Dict[str, List] = {}
 
         self.executors: Dict[str, Any] = {}
-        self.workflow: StateGraph = None
+        self.workflow: Any = None
 
     async def compile(self) -> CompilationResult:
         logger.info(
@@ -298,10 +298,12 @@ class _CompilerSession:
             if handle_to_route_map:
                 executor.set_handle_to_route_map(handle_to_route_map)
 
+            from typing import cast
+
             self.workflow.add_conditional_edges(
                 node_name,
-                executor.route,
-                conditional_map,
+                cast(Any, executor).route,
+                cast(Any, conditional_map),
             )
             logger.info(f"[GraphCompiler] Router edges: {node_name} -> {conditional_map}")
 
@@ -316,10 +318,12 @@ class _CompilerSession:
                 conditional_map[route_key] = target_name
 
         if conditional_map:
+            from typing import cast
+
             self.workflow.add_conditional_edges(
                 node_name,
-                executor.route,
-                conditional_map,
+                cast(Any, executor).route,
+                cast(Any, conditional_map),
             )
             logger.info(f"[GraphCompiler] Condition edges: {node_name} -> {conditional_map}")
 
@@ -339,10 +343,12 @@ class _CompilerSession:
                     conditional_map[route_key] = target_name
 
         if conditional_map:
+            from typing import cast
+
             self.workflow.add_conditional_edges(
                 node_name,
-                executor.route,
-                conditional_map,
+                cast(Any, executor).route,
+                cast(Any, conditional_map),
             )
             logger.info(f"[GraphCompiler] Loop edges: {node_name} -> {conditional_map}")
 

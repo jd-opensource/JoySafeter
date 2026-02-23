@@ -21,7 +21,7 @@ class JSONParserNodeExecutor:
     """
 
     STATE_READS: tuple = ("messages", "*")
-    STATE_WRITES: tuple = "*"
+    STATE_WRITES: tuple = ("*",)
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
@@ -42,7 +42,7 @@ class JSONParserNodeExecutor:
         if self.source_field == "messages[-1].content":
             msgs = state.get("messages", [])
             if msgs:
-                content = msgs[-1].content if hasattr(msgs[-1], "content") else str(msgs[-1])
+                content = str(msgs[-1].content) if hasattr(msgs[-1], "content") else str(msgs[-1])
         else:
             # TODO: Use StateWrapper/expression evaluator to fetch arbitrary path
             content = "{}"
@@ -134,7 +134,7 @@ class AggregatorNodeExecutor:
                 else:
                     values.append(val)
 
-        result_val = None
+        result_val: Any = None
 
         if self.method == "append":
             result_val = values

@@ -88,7 +88,7 @@ class HttpRequestNodeExecutor:
     """
 
     STATE_READS: tuple = ("context", "*")
-    STATE_WRITES: tuple = "*"  # Via output mapping
+    STATE_WRITES: tuple = ("*",)  # Via output mapping
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node

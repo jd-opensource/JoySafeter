@@ -334,7 +334,7 @@ class AgentNodeExecutor(BaseLLMNodeExecutor):
             # Return Command object if Command mode is enabled
             if use_command_mode:
                 # In Command mode, determine next node from config or use default routing
-                goto_node = config.get("commandGoto")
+                goto_node = config.get("commandGoto") if config else None
                 if goto_node:
                     logger.debug(
                         f"[AgentNodeExecutor] Returning Command with goto={goto_node} | node_id={self.node_id}"
@@ -354,7 +354,7 @@ class AgentNodeExecutor(BaseLLMNodeExecutor):
             }
 
             # Apply output mapping if configured
-            apply_node_output_mapping(config, result, return_dict, self.node_id)
+            apply_node_output_mapping(node_config, result, return_dict, self.node_id)
 
             return return_dict
         except Exception as e:
@@ -367,7 +367,7 @@ class AgentNodeExecutor(BaseLLMNodeExecutor):
 
             # In Command mode, can route to error handler node
             if use_command_mode:
-                error_goto = config.get("commandErrorGoto")
+                error_goto = config.get("commandErrorGoto") if config else None
                 if error_goto:
                     return Command(
                         update={

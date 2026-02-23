@@ -377,7 +377,7 @@ def _resolve_string_expression(
         key = m.group(1)
         # Avoid replacing 'state.get' as it was already handled
         if key == "get":
-            return m.group(0)
+            return str(m.group(0))
         val = state.get(key, "")
         return str(val) if val is not None else ""
 

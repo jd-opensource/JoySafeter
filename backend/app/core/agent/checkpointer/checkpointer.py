@@ -236,7 +236,9 @@ async def get_thread_history(thread_id: str) -> list[dict]:
     history = []
 
     try:
-        async for checkpoint_tuple in checkpointer.alist(config):
+        from typing import Any, cast
+
+        async for checkpoint_tuple in checkpointer.alist(cast(Any, config)):
             # checkpoint_tuple: (config, checkpoint, metadata, parent_config)
             # transform to simple dict
             history.append(

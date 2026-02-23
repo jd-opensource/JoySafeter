@@ -211,7 +211,7 @@ class BaseGraphBuilder(ABC):
         elif node_type == "router_node":
             return RouterNodeExecutor(node, node_name)
         elif node_type == "tool_node":
-            return ToolNodeExecutor(node, node_name, user_id=self.user_id)
+            return ToolNodeExecutor(node, node_name, user_id=str(self.user_id) if self.user_id else None)
         elif node_type == "function_node":
             return FunctionNodeExecutor(node, node_name)
         elif node_type == "loop_condition_node":
@@ -308,7 +308,7 @@ class BaseGraphBuilder(ABC):
         if executor_class in (AgentNodeExecutor, CodeAgentNodeExecutor, ConditionAgentNodeExecutor):
             return await self._create_llm_executor(executor_class, node, node_name)
         elif executor_class == ToolNodeExecutor:
-            return ToolNodeExecutor(node, node_name, user_id=self.user_id)
+            return ToolNodeExecutor(node, node_name, user_id=str(self.user_id) if self.user_id else None)
         else:
             # Other executors only need node and node_name
             return executor_class(node, node_name)
@@ -356,8 +356,11 @@ class BaseGraphBuilder(ABC):
         """Try to resolve model via ModelService (exact or name-based lookup)."""
         workspace_id = getattr(self.graph, "workspace_id", None)
         try:
+            from typing import cast
+
+            model_service = cast(Any, self.model_service)
             if provider_name and model_name:
-                model = await self.model_service.get_model_instance(
+                model = await model_service.get_model_instance(
                     user_id=str(self.user_id) if self.user_id else "system",
                     provider_name=provider_name,
                     model_name=model_name,
@@ -365,7 +368,7 @@ class BaseGraphBuilder(ABC):
                     use_default=False,
                 )
             else:
-                model = await self.model_service.get_runtime_model_by_name(
+                model = await model_service.get_runtime_model_by_name(
                     model_name=model_name,
                     workspace_id=workspace_id,
                 )
@@ -384,8 +387,11 @@ class BaseGraphBuilder(ABC):
     async def _resolve_default_from_service(self, model_name: Optional[str]) -> Any:
         """Try to resolve the default model from database via ModelService."""
         try:
+            from typing import cast
+
+            model_service = cast(Any, self.model_service)
             workspace_id = getattr(self.graph, "workspace_id", None)
-            default_model = await self.model_service.get_model_instance(
+            default_model = await model_service.get_model_instance(
                 user_id=str(self.user_id) if self.user_id else "system",
                 workspace_id=workspace_id,
                 use_default=True,

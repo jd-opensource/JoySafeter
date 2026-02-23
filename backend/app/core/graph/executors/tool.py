@@ -3,7 +3,7 @@ Tool Executors - Executors for tool invocation and custom function nodes.
 """
 
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional, cast
 
 from langchain_core.messages import AIMessage
 from loguru import logger
@@ -32,7 +32,7 @@ class ToolNodeExecutor:
     STATE_READS: tuple = ("messages", "context", "*")
     STATE_WRITES: tuple = ("messages", "current_node")
 
-    def __init__(self, node: GraphNode, node_id: str, user_id: str = None):
+    def __init__(self, node: GraphNode, node_id: str, user_id: Optional[str] = None):
         self.node = node
         self.node_id = node_id
         self.user_id = user_id
@@ -172,7 +172,7 @@ class FunctionNodeExecutor:
     """
 
     STATE_READS: tuple = ("*",)
-    STATE_WRITES: tuple = "*"  # Can write to any via output mapping
+    STATE_WRITES: tuple = ("*",)  # Can write to any via output mapping
 
     def __init__(self, node: GraphNode, node_id: str):
         self.node = node
@@ -258,7 +258,10 @@ class FunctionNodeExecutor:
                 arg1 = self.config.get("arg1")
                 arg2 = self.config.get("arg2")
 
-                result = func(arg1, arg2)
+                from typing import Callable
+
+                typed_func = cast(Callable, func)
+                result = typed_func(arg1, arg2)
 
             return_dict = {"current_node": self.node_id}
 

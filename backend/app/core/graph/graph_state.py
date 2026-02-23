@@ -249,9 +249,9 @@ def build_state_class(
                         base_annotations[k] = v
         # Custom fields override base fields
         merged = {**base_annotations, **annotations}
-        new_class = TypedDict(class_name, merged)  # type: ignore[operator]
+        new_class = TypedDict(class_name, merged)  # type: ignore[operator,misc]
     else:
         # Create a standalone TypedDict without GraphState
-        new_class = TypedDict(class_name, annotations)  # type: ignore[operator]
+        new_class = TypedDict(class_name, annotations)  # type: ignore[operator,misc,no-redef]
 
     return new_class

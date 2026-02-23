@@ -34,7 +34,9 @@ class GetStateNodeExecutor:
 
         for key in self.keys_to_fetch:
             if key in state:
-                payload[key] = state[key]
+                from typing import cast
+
+                payload[key] = cast(dict, state)[key]
             elif key in context:
                 payload[key] = context[key]
             else:

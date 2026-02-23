@@ -9,7 +9,7 @@ Automatically handles:
 - Command object support (optional)
 """
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, cast
 
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
@@ -71,7 +71,7 @@ class NodeExecutionWrapper:
         try:
             context = state.get("context", {})
             if isinstance(context, dict):
-                resolved_context = resolve_variable_expressions(context, state)
+                resolved_context = resolve_variable_expressions(context, cast(Dict[str, Any], dict(state)))
                 if resolved_context != context:
                     state = {**state, "context": resolved_context}
                     logger.debug(

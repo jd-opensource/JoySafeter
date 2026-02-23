@@ -21,10 +21,24 @@ from app.core.graph.route_types import RouteKey
 from app.models.graph import GraphNode
 
 
-def increment_loop_count(state: GraphState) -> Dict[str, Any]:
-    """Manually increment global loop count (legacy helper)."""
+def increment_loop_count(state: GraphState, loop_node_id: Optional[str] = None) -> Dict[str, Any]:
+    """Manually increment global loop count and optionally local iteration count."""
+    updates: Dict[str, Any] = {}
     current = state.get("loop_count", 0)
-    return {"loop_count": current + 1}
+    updates["loop_count"] = current + 1
+
+    if loop_node_id:
+        all_loop_states = state.get("loop_states", {}) or {}
+        loop_state = all_loop_states.get(loop_node_id, {})
+        new_loop_states = all_loop_states.copy()
+        new_loop_states[loop_node_id] = {
+            **loop_state,
+            "iteration_count": loop_state.get("iteration_count", 0) + 1,
+            "active": True,
+        }
+        updates["loop_states"] = new_loop_states
+
+    return updates
 
 
 class ConditionNodeExecutor:
@@ -65,6 +79,10 @@ class ConditionNodeExecutor:
     def set_handle_to_route_map(self, handle_map: Dict[str, str]) -> None:
         """Set the mapping from React Flow handle IDs to route keys."""
         self.handle_to_route_map = handle_map
+
+    def route(self, state: GraphState) -> str:
+        """Return the routing decision from state."""
+        return str(state.get("route_decision", "default"))
 
     def _evaluate_expression(self, state: GraphState) -> bool:
         """Safely evaluate the condition expression."""
@@ -232,6 +250,10 @@ class RouterNodeExecutor:
         """Set the mapping from React Flow handle IDs to route keys."""
         self.handle_to_route_map = handle_map
 
+    def route(self, state: GraphState) -> str:
+        """Return the routing decision from state."""
+        return str(state.get("route_decision", "default"))
+
     async def __call__(self, state: GraphState) -> Union[Dict[str, Any], RouteKey]:
         """Evaluate rules and return route decision."""
         start_time = time.time()
@@ -321,6 +343,10 @@ class LoopConditionNodeExecutor:
         self.max_iterations = int(self.config.get("maxIterations", 100))
         self.list_variable = self.config.get("listVariable")
         self.condition = self.config.get("condition", "")
+
+    def route(self, state: GraphState) -> str:
+        """Return the routing decision from state."""
+        return str(state.get("route_decision", "default"))
 
     async def __call__(self, state: GraphState) -> Dict[str, Any]:
         """Evaluate loop condition and update loop state."""
