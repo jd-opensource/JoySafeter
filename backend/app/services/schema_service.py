@@ -157,10 +157,11 @@ class SchemaService(BaseService):
                 f"[SchemaService] Schema compilation complete | graph_id={graph_id} | "
                 f"build_time={result.build_time_ms:.2f}ms | warnings={len(result.warnings)}"
             )
-            return result
+            from typing import cast
+            return cast(CompilationResult, result)
         else:
             # Fallback for DeepAgents builder or other builders
-            compiled = await inner_builder.build()
+            compiled = inner_builder.build()
             schema = GraphSchema.from_db(graph, nodes, edges)
             from app.core.graph.graph_state import GraphState
 
@@ -302,7 +303,7 @@ class SchemaService(BaseService):
 
     def _validate_deep_agents_structure(self, schema: GraphSchema) -> List[str]:
         """Validate DeepAgents structural constraints."""
-        errors = []
+        errors: List[str] = []
         # Re-implement key logic from deepAgentsValidator.ts
         # 1. Root Check
         start_nodes = schema.get_start_nodes()
@@ -332,7 +333,7 @@ class SchemaService(BaseService):
         self,
         schema_data: Dict[str, Any],
         *,
-        user_id: uuid.UUID,
+        user_id: str,
         workspace_id: Optional[uuid.UUID] = None,
     ) -> uuid.UUID:
         """Import a ``GraphSchema`` from JSON data into the database.
@@ -343,7 +344,7 @@ class SchemaService(BaseService):
         ----------
         schema_data : dict
             Serialized ``GraphSchema`` (e.g., from ``schema.model_dump()``).
-        user_id : uuid.UUID
+        user_id : str
             Owner of the new graph.
         workspace_id : uuid.UUID, optional
             Workspace to create the graph in.
@@ -357,10 +358,12 @@ class SchemaService(BaseService):
 
         # Create the graph
         graph = await self.graph_repo.create(
-            name=schema.name,
-            user_id=user_id,
-            workspace_id=workspace_id,
-            description=schema.description,
+            {
+                "name": schema.name,
+                "user_id": user_id,
+                "workspace_id": workspace_id,
+                "description": schema.description,
+            }
         )
         graph_id = graph.id
         logger.info(f"[SchemaService] Created graph {graph_id} from schema '{schema.name}'")
@@ -381,11 +384,13 @@ class SchemaService(BaseService):
 
             position = node_schema.position or {"x": 0, "y": 0}
             await self.node_repo.create(
-                graph_id=graph_id,
-                type=node_schema.type,
-                position_x=position.get("x", 0),
-                position_y=position.get("y", 0),
-                data=data,
+                {
+                    "graph_id": graph_id,
+                    "type": node_schema.type,
+                    "position_x": position.get("x", 0),
+                    "position_y": position.get("y", 0),
+                    "data": data,
+                }
             )
 
         # Create edges
@@ -395,14 +400,16 @@ class SchemaService(BaseService):
                 **({"route_key": edge_schema.route_key} if edge_schema.route_key else {}),
                 **({"source_handle_id": edge_schema.source_handle_id} if edge_schema.source_handle_id else {}),
                 **({"label": edge_schema.label} if edge_schema.label else {}),
-                **({"condition": edge_schema.condition} if edge_schema.condition else {}),
+                **({"condition": edge_schema.data.get("condition")} if edge_schema.data.get("condition") else {}),
                 **(edge_schema.data or {}),
             }
             await self.edge_repo.create(
-                graph_id=graph_id,
-                source_node_id=uuid.UUID(edge_schema.source),
-                target_node_id=uuid.UUID(edge_schema.target),
-                data=edge_data,
+                {
+                    "graph_id": graph_id,
+                    "source_node_id": uuid.UUID(edge_schema.source),
+                    "target_node_id": uuid.UUID(edge_schema.target),
+                    "data": edge_data,
+                }
             )
 
         logger.info(

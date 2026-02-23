@@ -168,6 +168,7 @@ class EdgeSchema(BaseModel):
         description="React Flow source handle ID",
     )
     label: Optional[str] = Field(default=None, description="Display label")
+    condition: Optional[Any] = Field(default=None, description="Routing condition payload")
     data: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional edge metadata (waypoints, offsets, etc.)",
@@ -316,6 +317,7 @@ class GraphSchema(BaseModel):
                     route_key=e_data.get("route_key"),
                     source_handle_id=e_data.get("source_handle_id"),
                     label=e_data.get("label"),
+                    condition=e_data.get("condition"),
                     data={
                         k: v
                         for k, v in e_data.items()

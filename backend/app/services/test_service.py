@@ -116,7 +116,7 @@ class TestService:
         # For now, let's assume inputs keys match the graph state schema keys.
 
         for test in test_cases:
-            result = {
+            test_result: Dict[str, Any] = {
                 "test_case_id": str(test.id),
                 "name": test.name,
                 "status": "pending",
@@ -138,8 +138,9 @@ class TestService:
                 # Actually, without thread_id in config, LangGraph with checkpointer might error or behave differently.
                 # Let's generate a temporary thread_id for isolation.
                 import uuid
+                from langchain_core.runnables import RunnableConfig
 
-                config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+                config = RunnableConfig(configurable={"thread_id": str(uuid.uuid4())})
 
                 output_state = await compiled_graph.ainvoke(inputs, config=config)
 
@@ -162,18 +163,18 @@ class TestService:
                     pass
 
                 if match:
-                    result["status"] = "passed"
+                    test_result["status"] = "passed"
                     passed_count += 1
                 else:
-                    result["status"] = "failed"
-                    result["details"]["mismatches"] = mismatches
+                    test_result["status"] = "failed"
+                    test_result["details"]["mismatches"] = mismatches
 
             except Exception as e:
-                result["status"] = "error"
-                result["error"] = str(e)
+                test_result["status"] = "error"
+                test_result["error"] = str(e)
                 logger.exception(f"Error running test case {test.name}")
 
-            results.append(result)
+            results.append(test_result)
 
         return {
             "graph_id": str(graph_id),
