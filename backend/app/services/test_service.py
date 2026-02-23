@@ -138,6 +138,7 @@ class TestService:
                 # Actually, without thread_id in config, LangGraph with checkpointer might error or behave differently.
                 # Let's generate a temporary thread_id for isolation.
                 import uuid
+
                 from langchain_core.runnables import RunnableConfig
 
                 config = RunnableConfig(configurable={"thread_id": str(uuid.uuid4())})

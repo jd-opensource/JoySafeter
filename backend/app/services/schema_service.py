@@ -158,6 +158,7 @@ class SchemaService(BaseService):
                 f"build_time={result.build_time_ms:.2f}ms | warnings={len(result.warnings)}"
             )
             from typing import cast
+
             return cast(CompilationResult, result)
         else:
             # Fallback for DeepAgents builder or other builders
