@@ -73,6 +73,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # To initialize database, run: alembic upgrade head
     # init_db() is deprecated and no longer called
 
+    # Warning for misconfigured FRONTEND_URL in production
+    if settings.environment == "production" and "localhost" in settings.frontend_url:
+        logger.warning(
+            "⚠️  WARNING: You are running in 'production' environment, but FRONTEND_URL "
+            "contains 'localhost'. This will break email links, OAuth callbacks, "
+            "and other frontend integrations! Please update FRONTEND_URL in your .env file."
+        )
+
     # Initialize Redis
     if settings.redis_url:
         try:
