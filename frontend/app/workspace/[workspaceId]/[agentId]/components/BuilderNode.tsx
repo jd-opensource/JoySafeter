@@ -54,6 +54,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   const deleteNode = useBuilderStore((state) => state.deleteNode)
   const duplicateNode = useBuilderStore((state) => state.duplicateNode)
   const highlightedStateVariable = useBuilderStore((state) => state.highlightedStateVariable)
+  const setHighlightedStateVariable = useBuilderStore((state) => state.setHighlightedStateVariable)
   const isExecuting = activeExecutionNodeId === id
 
   const executionSteps = useExecutionStore((state) => state.steps)
@@ -365,27 +366,12 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           </Tooltip>
         </TooltipProvider>
 
-        {/* State Read/Write Badges */}
-        <div className="flex gap-1 flex-wrap mb-2">
-          {stateUsage.reads.filter(r => r !== '*').map(read => (
-            <div key={`read-${read}`} className="text-[6px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 flex items-center gap-0.5 whitespace-nowrap" title="Reads State">
-              <ArrowRight size={6} className="rotate-180" />
-              {read}
-            </div>
-          ))}
-          {stateUsage.writes.filter(w => w !== '*').map(write => (
-            <div key={`write-${write}`} className="text-[6px] px-1 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 flex items-center gap-0.5 whitespace-nowrap" title="Writes State">
-              {write}
-              <ArrowRight size={6} />
-            </div>
-          ))}
-          {/* Context Badge for '*' reads */}
-          {stateUsage.reads.includes('*') && (
-            <div className="text-[6px] px-1 py-0.5 rounded bg-gray-50 text-gray-500 border border-gray-100 italic" title="Reads All State">
-              reads: *
-            </div>
-          )}
-        </div>
+        {/* Context Badge for '*' reads */}
+        {stateUsage.reads.includes('*') && (
+          <div className="text-[6px] px-1 py-0.5 rounded bg-gray-50 text-gray-500 border border-gray-100 italic" title="Reads All State">
+            reads: *
+          </div>
+        )}
 
         <TooltipProvider delayDuration={200}>
           <Tooltip>
@@ -516,6 +502,46 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
             </div>
           )
         })()}
+
+        {/* State Dependencies (Reads/Writes) */}
+        {(stateUsage.reads.length > 0 || stateUsage.writes.length > 0) && (
+          <div className="mt-2 pt-2 border-t border-gray-100/50 flex flex-col gap-1.5">
+            {/* Reads */}
+            {stateUsage.reads.length > 0 && stateUsage.reads.some(r => r !== '*') && (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[7px] text-gray-400 font-medium">Reads:</span>
+                {stateUsage.reads.filter(r => r !== '*').map((read) => (
+                  <div
+                    key={`read-${read}`}
+                    className="text-[6.5px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 flex items-center gap-0.5 cursor-pointer hover:bg-blue-100 transition-colors"
+                    title={`Highlight nodes reading or writing '${read}'`}
+                    onMouseEnter={() => setHighlightedStateVariable(read)}
+                    onMouseLeave={() => setHighlightedStateVariable(null)}
+                  >
+                    {read}
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Writes */}
+            {stateUsage.writes.length > 0 && stateUsage.writes.some(w => w !== '*') && (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[7px] text-gray-400 font-medium">Writes:</span>
+                {stateUsage.writes.filter(w => w !== '*').map((write) => (
+                  <div
+                    key={`write-${write}`}
+                    className="text-[6.5px] px-1 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 flex items-center gap-0.5 cursor-pointer hover:bg-amber-100 transition-colors"
+                    title={`Highlight nodes reading or writing '${write}'`}
+                    onMouseEnter={() => setHighlightedStateVariable(write)}
+                    onMouseLeave={() => setHighlightedStateVariable(null)}
+                  >
+                    {write}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {isExecuting && (
           <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-100/50">
