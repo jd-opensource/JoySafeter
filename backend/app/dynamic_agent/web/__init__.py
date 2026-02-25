@@ -7,7 +7,6 @@ Exports the main API router which aggregates all sub-routers.
 from fastapi import APIRouter
 
 from app.dynamic_agent.web.routes.history import router as history_router
-from app.dynamic_agent.web.routes.scan import router as scan_router
 from app.dynamic_agent.web.routes.sessions import router as sessions_router
 from app.dynamic_agent.web.routes.tasks import router as tasks_router
 from app.dynamic_agent.web.routes.tools import router as tools_router
@@ -44,10 +43,6 @@ router.include_router(web_router)
 # 2. Core Task Routes (Real implementation)
 # Prefix: /api/tasks
 router.include_router(tasks_router)
-
-# 3. Whitebox Scan Routes
-# Prefix: /api/scan
-router.include_router(scan_router)
 
 __all__ = [
     "router",

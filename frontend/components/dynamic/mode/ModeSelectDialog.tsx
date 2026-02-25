@@ -1,11 +1,10 @@
 /**
  * Mode Selection Dialog
  *
- * Prompts the user to choose between CTF Mode, Enterprise Scan Mode, and Whitebox Scanner
+ * Prompts the user to choose mode
  * when the mode cannot be determined from context.
  */
 
-import { useRouter } from 'next/navigation';
 import React from 'react';
 
 import { Mode, MODE_CONFIG, MODES } from '@/types/dynamic/mode';
@@ -35,21 +34,12 @@ export const ModeSelectDialog: React.FC<ModeSelectDialogProps> = ({
   onClose,
   allowCancel = false,
 }) => {
-  const router = useRouter();
-
   if (!isOpen) {
     return null;
   }
 
   const handleModeClick = (mode: Mode) => {
     onSelect(mode);
-  };
-
-  const handleWhiteboxClick = () => {
-    router.push('/whitebox-scan');
-    if (onClose) {
-      onClose();
-    }
   };
 
   const handleCancel = () => {
@@ -109,42 +99,6 @@ export const ModeSelectDialog: React.FC<ModeSelectDialogProps> = ({
             </div>
           </button>
 
-          {/* Whitebox Scanner Card */}
-          <button
-            onClick={handleWhiteboxClick}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px',
-              padding: '16px',
-              border: '2px solid #d1d5db',
-              borderRadius: '8px',
-              textAlign: 'left',
-              width: '100%',
-              minHeight: '72px',
-              cursor: 'pointer',
-              backgroundColor: 'transparent',
-              transition: 'border-color 0.2s, background-color 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = '#a855f7';
-              e.currentTarget.style.backgroundColor = '#faf5ff';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#d1d5db';
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
-          >
-            <div style={{ fontSize: '28px', flexShrink: 0, width: '40px', textAlign: 'center' }}>✓</div>
-            <div style={{ flex: 1 }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#111827', margin: 0 }}>
-                Whitebox Scanner
-              </h3>
-              <p style={{ fontSize: '14px', color: '#6b7280', margin: '4px 0 0 0' }}>
-                Scan source code for vulnerabilities
-              </p>
-            </div>
-          </button>
         </div>
 
         {allowCancel && (

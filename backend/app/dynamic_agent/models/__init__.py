@@ -35,16 +35,6 @@ from app.dynamic_agent.models.retry_strategy import (
     generate_adjustments,
 )
 
-# 005: Whitebox Scan models
-from app.dynamic_agent.models.scan import (
-    AgentVerificationStatus,
-    Finding,
-    ScanJobResponse,
-    ScanJobStatus,
-    ScanReport,
-    ScanStatus,
-)
-
 # 007: Intent-First Clean Context Architecture models
 from app.dynamic_agent.models.session_context import SessionContext
 
@@ -111,11 +101,4 @@ __all__ = [
     "close_trace_logger",
     # 007: Session Context
     "SessionContext",
-    # 005: Whitebox Scan
-    "ScanJobResponse",
-    "ScanJobStatus",
-    "ScanReport",
-    "Finding",
-    "ScanStatus",
-    "AgentVerificationStatus",
 ]
