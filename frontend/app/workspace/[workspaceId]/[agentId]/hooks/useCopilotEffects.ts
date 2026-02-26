@@ -163,22 +163,14 @@ export function useCopilotEffects({
       router.replace(newUrl, { scroll: false })
 
       // Set input and trigger send after a short delay
-      let timeout1: NodeJS.Timeout | null = null
-      let timeout2: NodeJS.Timeout | null = null
-
-      timeout1 = setTimeout(() => {
+      setTimeout(() => {
         if (!refs.isMountedRef.current) return
         actions.setInput(decodedInput)
-        timeout2 = setTimeout(() => {
+        setTimeout(() => {
           if (!refs.isMountedRef.current) return
           handleSendWithInput(decodedInput)
         }, 100)
       }, 300)
-
-      return () => {
-        if (timeout1) clearTimeout(timeout1)
-        if (timeout2) clearTimeout(timeout2)
-      }
     }
   }, [searchParams, state.loading, router, actions, refs, handleSendWithInput])
 }
