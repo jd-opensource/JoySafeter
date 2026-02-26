@@ -1,6 +1,0 @@
-name: list_active_processes
-category: process_management
-endpoint: api/tools/list_active_processes
-description: List all active processes on the HexStrike AI server.
-returns: List of active processes with their status and progress
-parameters: []

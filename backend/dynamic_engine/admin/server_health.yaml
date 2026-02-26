@@ -1,6 +1,0 @@
-name: server_health
-category: unknown
-endpoint: api/tools/server_health
-description: Check the health status of the HexStrike AI server.
-returns: Server health information with tool availability and telemetry
-parameters: []

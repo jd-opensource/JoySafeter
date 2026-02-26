@@ -1,6 +1,0 @@
-name: comprehensive_api_audit_workflow
-category: api_testing
-tags: [api_security, vulnerability_assessment, exploitation_patterns]
-description: Comprehensive API security auditing workflows
-severity: high
-last_updated: "2025-01-01T00:00:00Z"

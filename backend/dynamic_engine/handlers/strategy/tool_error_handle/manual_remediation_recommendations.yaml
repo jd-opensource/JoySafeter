@@ -1,9 +1,0 @@
-name: manual_remediation_recommendations
-category: incident_response
-tags: [tool_selection, penetration_testing]
-description: Generate context-aware manual remediation recommendations when automated tools fail, guiding analysts toward next steps.
-prerequisites:
-  - Failed operation type (network_discovery, web_discovery, etc.)
-  - List of failed tool components
-  - Knowledge of alternative manual techniques
-last_updated: 2025-11-17

@@ -1,9 +1,0 @@
-name: graceful_degradation_fallback_chains
-category: incident_response
-tags: [tool_selection, penetration_testing]
-description: Maintain mission-critical reconnaissance tasks by switching to predefined fallback tool chains when preferred scanners fail.
-prerequisites:
-  - Knowledge of available reconnaissance tools and their operational limits
-  - Access permissions to run substituted tooling (e.g., curl, ping)
-  - Monitoring to detect partial failures in automated workflows
-last_updated: 2025-11-17

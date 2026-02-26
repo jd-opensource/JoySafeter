@@ -1,9 +1,0 @@
-name: partial_failure_result_enrichment
-category: incident_response
-tags: [tool_selection, penetration_testing]
-description: Enhance partial scan results by auto-filling gaps and documenting graceful degradation context when core tooling fails.
-prerequisites:
-  - Ability to capture partial tool outputs and error metadata
-  - Network access for basic HTTP or TCP validation checks
-  - Recording of failed component names for audit trails
-last_updated: 2025-11-17

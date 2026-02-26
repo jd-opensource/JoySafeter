@@ -9,7 +9,6 @@ import type { ModeConfig } from '../../config/modeConfig'
 import { agentModeHandler } from './agentModeHandler'
 import { apkVulnerabilityHandler } from './apkVulnerabilityHandler'
 import { defaultChatModeHandler } from './defaultChatModeHandler'
-import { createDynamicModeHandler } from './dynamicModeHandler'
 import { createSimpleModeHandler } from './simpleModeHandler'
 import type { ModeHandler, ModeMetadata } from './types'
 
@@ -40,16 +39,11 @@ export function createHandlerFromConfig(config: ModeConfig): ModeHandler | null 
     description: config.descriptionKey, // Note: stores the translation key, actual description needs translation
     icon: config.icon,
     type: config.type,
-    scene: config.scene,
     templateName: config.templateName,
     templateGraphName: config.templateGraphName,
   }
 
   // Create handler based on type
-  if (config.type === 'dynamic') {
-    return createDynamicModeHandler(metadata)
-  }
-
   if (config.type === 'simple') {
     return createSimpleModeHandler(metadata)
   }

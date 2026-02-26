@@ -1,8 +1,0 @@
-name: file_upload_polyglot_files
-category: payload_templates
-tags: [payload_generation, exploitation_patterns, penetration_testing]
-description: Create and test polyglot files that are valid in multiple formats simultaneously
-prerequisites: [file-manipulation-tools, hex-editor, web-application-with-file-upload]
-severity: high
-last_updated: 2025-01-17T00:00:00Z
-related: [file_upload_bypass_techniques, file_upload_malicious_extensions]

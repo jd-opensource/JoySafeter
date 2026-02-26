@@ -6,9 +6,9 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 from loguru import logger
 from sqlalchemy import text
 
@@ -185,19 +185,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         logger.warning(f"   ⚠️  Default model cache initialization failed: {e}")
         logger.warning("   App will continue starting, LLM features available after configuring default model")
 
-    # Initialize Dynamic Agent storage system
-    try:
-        from app.dynamic_agent.main import startup as agent_startup
-
-        await agent_startup()
-        logger.info("   ✓ Dynamic Agent storage system initialized")
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        logger.warning(f"   ⚠️  Dynamic Agent storage system initialization failed: {e}")
-        logger.warning("   App will continue starting, Dynamic Agent features may be unavailable")
-
     # Initialize Checkpointer connection pool
     try:
         from app.core.agent.checkpointer.checkpointer import CheckpointerManager
@@ -261,25 +248,6 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def disable_cache_for_api(request: Request, call_next):
-    response: Response = await call_next(request)
-
-    if request.url.path.startswith("/dynamic/api"):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-
-        # Core: Remove conditional cache headers
-        # response.headers.pop("ETag", None)
-        # response.headers.pop("Last-Modified", None)
-
-    return response
-
-
-from app.dynamic_agent.server import DYNAMIC_AGENT_PREFIX  # noqa: E402
-from app.dynamic_agent.server import app as dynamic_agent_app  # noqa: E402
-
 # ENV = os.getenv("ENV", "dev")  # dev / prod
 
 
@@ -293,9 +261,6 @@ async def global_exception_handler(request, exc):
         content={"detail": "Internal server error"},
     )
 
-
-# Register API Router
-app.include_router(dynamic_agent_app, prefix=DYNAMIC_AGENT_PREFIX)
 
 app.include_router(api_router, prefix="/api")
 

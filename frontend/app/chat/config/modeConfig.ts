@@ -4,10 +4,9 @@
  * Mode configuration, defines all available chat modes and their metadata
  */
 
-import { Flag, Server, MessageSquare } from 'lucide-react'
+import { Server, MessageSquare } from 'lucide-react'
 
 import { AndroidIcon } from '../components/icons/AndroidIcon'
-import type { ModeMetadata } from '../services/modeHandlers/types'
 
 /**
  * Mode configuration type
@@ -17,8 +16,7 @@ export interface ModeConfig {
   labelKey: string
   descriptionKey: string
   icon: any
-  type?: 'dynamic' | 'template' | 'simple' | 'agent'
-  scene?: string
+  type?: 'template' | 'simple' | 'agent'
   templateName?: string
   templateGraphName?: string
 }
@@ -39,14 +37,6 @@ export const modeConfigs: ModeConfig[] = [
     type: 'template',
     templateName: 'default-chat',
     templateGraphName: 'Default Chat',
-  },
-  {
-    id: 'ctf',
-    labelKey: 'chat.ctf',
-    descriptionKey: 'chat.ctfDescription',
-    icon: Flag,
-    type: 'dynamic',
-    scene: 'ctf',
   },
   {
     id: 'mcp-scan',

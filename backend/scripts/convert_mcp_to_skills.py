@@ -124,7 +124,7 @@ This tool is part of the {category} category.
 
 ---
 
-*Converted from MCP tool - Source: backend/dynamic_engine/handlers/*
+*Converted from MCP tool - Source: backend/mcp_handlers/*
 """
 
     return yaml_front
@@ -318,8 +318,13 @@ if __name__ == "__main__":
 
     # 配置路径
     backend_dir = Path(__file__).parent.parent
-    handlers_dir = backend_dir / "dynamic_engine" / "handlers"
+    handlers_dir = backend_dir / "mcp_handlers"
     output_file = backend_dir / "scripts" / "converted_skills.json"
+
+    if not handlers_dir.exists():
+        print(f"错误: 处理器目录不存在: {handlers_dir}")
+        print("提示: dynamic_engine 已移除，请提供新的 MCP handlers 目录后再执行转换。")
+        sys.exit(1)
 
     # 解析命令行参数
     categories = None

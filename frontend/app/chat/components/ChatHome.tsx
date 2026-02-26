@@ -96,7 +96,6 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
       description: t(config.descriptionKey),
       icon: config.icon,
       type: config.type,
-      scene: config.scene,
       templateName: config.templateName,
       templateGraphName: config.templateGraphName,
       handler, // Used to execute mode-related business logic
@@ -331,12 +330,6 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
         onStartChat('', modeId, graphId)
       }
       // If initialization failed, error is already shown by handleModeSelect
-      return
-    }
-
-    // If it's a dynamic type, handler will handle the redirect
-    if (mode.type === 'dynamic' && mode.scene) {
-      await handleModeSelect(modeId)
       return
     }
 
