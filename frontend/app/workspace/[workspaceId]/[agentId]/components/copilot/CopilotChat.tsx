@@ -8,6 +8,7 @@ import React, { useState } from 'react'
 import type { CopilotMessage } from '@/hooks/copilot/useCopilotMessages'
 import { useTranslation } from '@/lib/i18n'
 import type { GraphAction } from '@/types/copilot'
+import { copyToClipboard } from '@/lib/utils/clipboard'
 
 import { CollapsibleList } from './CollapsibleList'
 
@@ -125,18 +126,19 @@ export function CopilotChat({
             <div
               className={`
                 relative group rounded-2xl text-xs leading-relaxed shadow-sm
-                ${
-                  m.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-br-none'
-                    : 'bg-white border border-gray-100 text-gray-800 rounded-bl-none'
+                ${m.role === 'user'
+                  ? 'bg-blue-600 text-white rounded-br-none'
+                  : 'bg-white border border-gray-100 text-gray-800 rounded-bl-none'
                 }
               `}
             >
               {/* Copy button */}
               <button
-                onClick={async () => {
+                onClick={async (e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
                   try {
-                    await navigator.clipboard.writeText(m.text)
+                    await copyToClipboard(m.text)
                     setCopiedMessageId(i)
                     setTimeout(() => setCopiedMessageId(null), 2000)
                   } catch (err) {
