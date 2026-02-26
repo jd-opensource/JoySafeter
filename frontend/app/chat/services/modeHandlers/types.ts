@@ -99,9 +99,7 @@ export interface ModeMetadata {
   /** Icon component */
   icon: LucideIcon | React.ComponentType<any>
   /** Mode type */
-  type?: 'dynamic' | 'template' | 'simple' | 'agent'
-  /** Scene (for dynamic type) */
-  scene?: string
+  type?: 'template' | 'simple' | 'agent'
   /** Template name (for template type) */
   templateName?: string
   /** Template graph name */

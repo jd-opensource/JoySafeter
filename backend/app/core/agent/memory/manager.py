@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Type, Union
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages.chat import ChatMessage as Message
+from langchain_openai import ChatOpenAI
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,7 @@ from app.core.agent.memory.strategies import (
 
 # Import DEFAULT_USER_ID for consistent user_id handling
 from app.core.constants import DEFAULT_USER_ID
+from app.core.settings import get_default_model_config
 from app.core.tools.tool import EnhancedTool
 from app.schemas.memory import UserMemory
 from app.services.memory_service import MemoryService
@@ -95,9 +97,17 @@ class MemoryManager:
     def get_model(self) -> BaseChatModel:
         if self.model is None:
             try:
-                from app.dynamic_agent.infra.llm import get_default_llm
-
-                self.model = get_default_llm()
+                config = get_default_model_config()
+                if not config:
+                    raise ValueError("Default model configuration is missing")
+                self.model = ChatOpenAI(
+                    model=config["model"],
+                    api_key=config.get("api_key"),
+                    base_url=config.get("base_url"),
+                    timeout=config.get("timeout", 30),
+                    streaming=False,
+                    callbacks=[],
+                )
             except Exception as e:
                 logger.error(f"Failed to get default model from settings: {e}")
                 raise ValueError("无法获取默认模型配置，请先在系统中配置默认模型")

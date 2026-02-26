@@ -1,8 +1,0 @@
-name: file_upload_bypass_techniques
-category: payload_templates
-tags: [payload_generation, exploitation_patterns, penetration_testing]
-description: Collection of techniques to bypass file upload validation and filtering mechanisms
-prerequisites: [web-application-with-file-upload, HTTP-client, file-manipulation-tools]
-severity: high
-last_updated: 2025-01-17T00:00:00Z
-related: [file_upload_malicious_extensions, file_upload_polyglot_files, file_upload_testing_workflow]

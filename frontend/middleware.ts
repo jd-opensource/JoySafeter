@@ -16,7 +16,6 @@ const ALLOWED_REDIRECT_PATHS = [
   '/chat',
   '/workspace',
   '/dashboard',
-  '/dynamic',
   '/signin',
   '/signup',
   '/verify',

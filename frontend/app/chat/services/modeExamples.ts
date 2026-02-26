@@ -22,24 +22,6 @@ export const modeExamples: Record<string, ModeExample[]> = {
       promptKey: 'chat.examples.chat4',
     },
   ],
-  ctf: [
-    {
-      id: 'ctf-1',
-      promptKey: 'chat.examples.ctf1',
-    },
-    {
-      id: 'ctf-2',
-      promptKey: 'chat.examples.ctf2',
-    },
-    {
-      id: 'ctf-3',
-      promptKey: 'chat.examples.ctf3',
-    },
-    {
-      id: 'ctf-4',
-      promptKey: 'chat.examples.ctf4',
-    },
-  ],
   'mcp-scan': [
     {
       id: 'mcp-scan-1',

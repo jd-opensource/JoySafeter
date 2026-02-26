@@ -1,8 +1,0 @@
-name: file_upload_testing_workflow
-category: payload_templates
-tags: [payload_generation, exploitation_patterns, penetration_testing]
-description: Comprehensive workflow for testing file upload vulnerabilities in web applications
-prerequisites: [web-application-with-file-upload, reconnaissance-tools, HTTP-client, file-generation-tools]
-severity: high
-last_updated: 2025-01-17T00:00:00Z
-related: [file_upload_malicious_extensions, file_upload_bypass_techniques, file_upload_polyglot_files]

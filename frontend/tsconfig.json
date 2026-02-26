@@ -37,13 +37,6 @@
       ],
       "@/providers": [
         "./providers"
-      ],
-      "@/dynamic/*": [
-        "./components/dynamic/*",
-        "./hooks/dynamic/*",
-        "./stores/dynamic/*",
-        "./lib/api/dynamic/*",
-        "./types/dynamic/*"
       ]
     },
     "allowJs": true,

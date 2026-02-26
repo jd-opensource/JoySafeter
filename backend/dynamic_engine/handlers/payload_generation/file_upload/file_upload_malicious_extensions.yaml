@@ -1,8 +1,0 @@
-name: file_upload_malicious_extensions
-category: payload_templates
-tags: [payload_generation, exploitation_patterns, penetration_testing]
-description: Identify and test malicious file extensions commonly used in file upload vulnerabilities
-prerequisites: [web-application-with-file-upload, file-upload-testing-framework, HTTP-client]
-severity: high
-last_updated: 2025-01-17T00:00:00Z
-related: [file_upload_bypass_techniques, file_upload_testing_workflow]

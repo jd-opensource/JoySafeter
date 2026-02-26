@@ -103,7 +103,6 @@ WORKDIR /app
 COPY pyproject_engine.toml ./pyproject.toml
 #COPY uv.lock README.md ./
 COPY README.md ./
-COPY dynamic_engine/ /app/dynamic_engine
 COPY app/ /app/app
 RUN uv sync
 
@@ -113,12 +112,7 @@ RUN echo 'export PATH="/home/seclens/go/bin:/home/seclens/.local/bin:/home/secle
     echo 'export PATH="/home/seclens/go/bin:/home/seclens/.local/bin:/home/seclens/.npm-global/bin:$PATH"' \
     >> /home/seclens/.profile
 
-# Copy entrypoint and set final config
-USER root
-COPY dynamic_engine/containers/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
 USER seclens
 WORKDIR /workspace
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["/bin/bash"]

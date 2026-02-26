@@ -1,6 +1,0 @@
-name: get_process_dashboard
-category: process_management
-endpoint: api/tools/get_process_dashboard
-description: Get enhanced process dashboard with visual status indicators.
-returns: Real-time dashboard with progress bars, system metrics, and process status
-parameters: []

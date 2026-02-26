@@ -1,8 +1,0 @@
-name: file_upload_web_shells
-category: payload_templates
-tags: [web_application_scanning, vulnerability_hunting, penetration_testing]
-description: Web shell payloads for testing file upload vulnerabilities across different server technologies
-prerequisites: [web-application-with-file-upload, server-access, command-execution-capability]
-severity: critical
-last_updated: 2025-01-17T00:00:00Z
-related: [file_upload_malicious_extensions, file_upload_testing_workflow]
