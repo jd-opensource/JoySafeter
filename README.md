@@ -429,19 +429,38 @@ For a detailed breakdown of the architecture, including core modules, workflows,
 | PostgreSQL | 15+ (optional, if not using Docker) |
 | Redis | 7+ (required, used for caching and session management) |
 
-### One-Command Setup (Docker) - Recommended
-
-The easiest way to get started:
+### Solution 1: One-Click Run (Recommended)
 
 ```bash
-git clone https://github.com/jd-opensource/JoySafeter.git
-cd JoySafeter/deploy
-
-# Quick start (automatically handles configuration and startup)
-./quick-start.sh
+# Initialize environment & Build images locally & Start services automatically
+sh deploy/quick-start.sh
 ```
 
-Access the application at **http://localhost:3000**
+### Solution 2: Manual Deployment
+
+```bash
+cd deploy
+
+# 1. Build images
+sh deploy.sh build --all
+
+# 2. Initialize environment variables
+cp ../frontend/env.example ../frontend/.env
+cp ../backend/env.example ../backend/.env
+
+# IMPORTANT!! Configure TAVILY_API_KEY for search (Register at https://www.tavily.com/)
+# Replace tvly-* with your actual API Key
+echo 'TAVILY_API_KEY=tvly-*' >> ../backend/.env
+
+# 3. Initialize database
+docker compose --profile init up
+
+# 4. Start services
+docker compose -f docker-compose.yml up
+
+# Stop services
+docker compose -f docker-compose.yml down
+```
 
 ### Using Pre-built Docker Images
 
@@ -456,7 +475,7 @@ docker pull docker.io/jdopensource/joysafeter-mcp:latest
 # Or use docker-compose with pre-built images
 cd deploy
 export DOCKER_REGISTRY=docker.io/jdopensource
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.yml up -d
 ```
 
 **Available Images:**

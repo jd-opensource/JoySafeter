@@ -10,10 +10,7 @@ import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
 
 
-import { validateDeepAgentsStructure } from '../services/deepAgentsValidator'
-import { validateGraphConsistency, hasCriticalErrors } from '../services/edgeValidator'
-import { validateNodeConfig } from '../services/nodeConfigValidator'
-import { ValidationError } from '../types/graph'
+import { useBuilderStore } from '../stores/builderStore'
 
 interface ValidationSummaryPanelProps {
   nodes: Node[]
@@ -25,11 +22,6 @@ interface ValidationSummaryPanelProps {
 
 /**
  * ValidationSummaryPanel - Display all validation errors in the graph
- *
- * Categories:
- * - Node configuration errors
- * - Edge configuration errors
- * - Graph structure errors
  */
 export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
   nodes,
@@ -39,6 +31,9 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
   onSelectEdge,
 }) => {
   const { t } = useTranslation()
+  const { validationErrors } = useBuilderStore()
+
+  const allErrors = validationErrors || []
 
   // Helper to translate category names
   const translateCategory = (category: string): string => {
@@ -47,8 +42,6 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
         return t('workspace.graphStructure')
       case 'Node Configuration':
         return t('workspace.nodeConfiguration')
-      case 'Edge Configuration':
-        return t('workspace.edgeConfiguration')
       case 'DeepAgents Structure':
         return t('workspace.deepAgentsStructure')
       default:
@@ -56,73 +49,15 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
     }
   }
 
-  // Collect all validation errors with enhanced categorization
-  const allErrors = useMemo(() => {
-    const errors: Array<ValidationError & { nodeId?: string; edgeId?: string; category: string; canAutoFix?: boolean }> = []
-
-    // 1. Graph structure errors (from edgeValidator)
-    const graphErrors = validateGraphConsistency(nodes, edges)
-    graphErrors.forEach((error) => {
-      // Try to extract node/edge ID from field path
-      const nodeMatch = error.field.match(/node\.([^\.]+)/)
-      const edgeMatch = error.field.match(/edge\.([^\.]+)/)
-
-      errors.push({
-        ...error,
-        category: 'Graph Structure',
-        nodeId: nodeMatch ? nodeMatch[1] : undefined,
-        edgeId: edgeMatch ? edgeMatch[1] : undefined,
-        canAutoFix: error.field.includes('route_key') || error.field.includes('source_handle_id'),
-      })
-    })
-
-    // 2. Node configuration errors (from unified validator)
-    nodes.forEach((node) => {
-      const nodeType = (node.data as { type?: string })?.type || ''
-      const config = (node.data as { config?: Record<string, unknown> })?.config || {}
-
-      // Skip validation for unknown node types
-      if (!nodeType || nodeType === 'unknown') {
-        return
-      }
-
-      const nodeErrors = validateNodeConfig(nodeType, config)
-
-      nodeErrors.forEach((error) => {
-        errors.push({
-          ...error,
-          category: 'Node Configuration',
-          nodeId: node.id,
-          canAutoFix: error.field.includes('routes') && error.message.includes('must have at least one'),
-        })
-      })
-    })
-
-    // 3. DeepAgents structure errors
-    const deepAgentsErrors = validateDeepAgentsStructure(nodes, edges)
-    deepAgentsErrors.forEach((error) => {
-      errors.push({
-        ...error,
-        category: 'DeepAgents Structure',
-        nodeId: error.nodeId,
-        edgeId: error.edgeId,
-      })
-    })
-
-    // 4. Skip individual edge validation (covered by graph structure validation)
-    // This avoids duplicate error reporting
-
-    return errors
-  }, [nodes, edges])
-
   // Group errors by category
   const errorsByCategory = useMemo(() => {
     const grouped: Record<string, typeof allErrors> = {}
     allErrors.forEach((error) => {
-      if (!grouped[error.category]) {
-        grouped[error.category] = []
+      const category = error.category || 'Other'
+      if (!grouped[category]) {
+        grouped[category] = []
       }
-      grouped[error.category].push(error)
+      grouped[category].push(error)
     })
     return grouped
   }, [allErrors])
@@ -232,8 +167,8 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
                       error.severity === 'error'
                         ? "bg-red-50 border-red-200"
                         : error.severity === 'warning'
-                        ? "bg-amber-50 border-amber-200"
-                        : "bg-blue-50 border-blue-200",
+                          ? "bg-amber-50 border-amber-200"
+                          : "bg-blue-50 border-blue-200",
                       isClickable && "cursor-pointer hover:shadow-sm"
                     )}
                   >

@@ -4,6 +4,7 @@ import React, { useMemo } from 'react'
 import { BaseEdge, EdgeProps, getBezierPath, EdgeLabelRenderer } from 'reactflow'
 
 import { EdgeData } from '../types/graph'
+import { EDGE_COLORS } from '../utils/edgeStyles'
 
 /**
  * DefaultEdge - Custom edge component for normal and conditional edges
@@ -46,14 +47,14 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
     if (edgeData.edge_type === 'conditional') {
       return {
         ...style,
-        stroke: '#3b82f6', // blue-500
+        stroke: EDGE_COLORS.conditional,
         strokeWidth: 2,
       }
     }
     // Normal edge
     return {
       ...style,
-      stroke: '#cbd5e1', // gray-300
+      stroke: EDGE_COLORS.normal,
       strokeWidth: 1.5,
     }
   }, [style, edgeData.edge_type])

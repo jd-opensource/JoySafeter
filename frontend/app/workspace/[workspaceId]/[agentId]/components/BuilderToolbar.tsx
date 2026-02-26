@@ -11,8 +11,9 @@ import {
   Rocket,
   Loader2,
   History,
-  Settings2,
   ShieldCheck,
+  FileJson,
+  Database,
 } from 'lucide-react'
 import React, { useRef, useState, useEffect } from 'react'
 
@@ -36,17 +37,10 @@ import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
 import { useDeploymentStore } from '@/stores/deploymentStore'
 
-import { validateDeepAgentsStructure } from '../services/deepAgentsValidator'
-import { validateGraphConsistency, hasCriticalErrors } from '../services/edgeValidator'
 import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/executionStore'
 
-
-import { validateNodeConfig } from '../services/nodeConfigValidator'
-import { ValidationError } from '../types/graph'
-
 import { DeploymentHistoryPanel } from './DeploymentHistoryPanel'
-
 
 interface BuilderToolbarProps {
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -74,7 +68,17 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
   // Get UI state and operation methods from Zustand store
   const { isDeploying, deploy } = useDeploymentStore()
 
-  const { setDeployedAt, toggleGraphSettings, toggleValidationSummary, nodes, edges } = useBuilderStore()
+  const {
+    setDeployedAt,
+    toggleGraphStatePanel,
+    toggleSchemaExport,
+    toggleValidationSummary,
+    validateGraph,
+    isValidating,
+    showAdvancedSettings,
+    toggleAdvancedSettings
+  } = useBuilderStore()
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showDeploymentHistory, setShowDeploymentHistory] = useState(false)
 
@@ -104,42 +108,13 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
   const handleDeploy = async () => {
     if (isDeploying || !agentId || nodesCount === 0) return
 
-    // Pre-deployment validation
-    const allErrors: ValidationError[] = []
+    // Pre-deployment validation (Async from backend)
+    const isValid = await validateGraph()
 
-    // 1. Graph structure errors
-    const graphErrors = validateGraphConsistency(nodes, edges)
-    allErrors.push(...graphErrors)
-
-    // 2. Node configuration errors
-    nodes.forEach((node) => {
-      const nodeType = (node.data as { type?: string })?.type || ''
-      const config = (node.data as { config?: Record<string, unknown> })?.config || {}
-      const nodeErrors = validateNodeConfig(nodeType, config)
-      // Convert nodeConfigValidator errors to ValidationError format with default severity
-      nodeErrors.forEach((error) => {
-        allErrors.push({
-          ...error,
-          severity: 'error', // Node config errors are always errors
-        })
-      })
-    })
-
-    // 3. DeepAgents structure errors
-    const deepAgentsErrors = validateDeepAgentsStructure(nodes, edges)
-    deepAgentsErrors.forEach((error) => {
-      allErrors.push(error)
-    })
-
-    const criticalErrors = allErrors.filter((e) => e.severity === 'error')
-
-    if (criticalErrors.length > 0) {
+    if (!isValid) {
       toast({
         title: t('workspace.validationFailed', { defaultValue: 'Validation Failed' }),
-        description: t('workspace.cannotDeployWithErrors', {
-          count: criticalErrors.length,
-          defaultValue: `Cannot deploy: ${criticalErrors.length} error(s) found. Please fix them first.`
-        }),
+        description: t('workspace.checkValidationPanel', { defaultValue: 'Please check the validation panel for errors.' }),
         variant: 'destructive',
       })
       // Open validation panel to show errors
@@ -234,10 +209,21 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="bottom" sideOffset={8}>
-                <DropdownMenuItem onClick={() => toggleGraphSettings(true)}>
-                  <Settings2 size={14} className="mr-2" /> {t('workspace.graphSettings')}
+                <DropdownMenuItem onClick={() => toggleAdvancedSettings()} className="font-medium text-blue-600">
+                  {showAdvancedSettings ? 'Hide Advanced Mode' : 'Show Advanced Mode'}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                {showAdvancedSettings && (
+                  <>
+                    <DropdownMenuItem onClick={() => toggleGraphStatePanel(true)}>
+                      <Database size={14} className="mr-2" /> Graph State Schema
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => toggleSchemaExport(true)}>
+                      <FileJson size={14} className="mr-2" /> Schema
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem onClick={handleImportClick}>
                   <Upload size={14} className="mr-2" /> {t('workspace.importGraph')}
                 </DropdownMenuItem>

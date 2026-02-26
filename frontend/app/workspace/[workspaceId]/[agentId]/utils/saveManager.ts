@@ -21,7 +21,7 @@ export interface GraphState {
   nodes: Node[]
   edges: Edge[]
   viewport?: { x: number; y: number; zoom: number }
-  graphVariables: Record<string, unknown>
+  graphStateFields?: any[]
   lastSavedStateHash?: string | null
 }
 
@@ -40,7 +40,7 @@ export class SaveManager {
   constructor(
     private getState: () => GraphState,
     private callbacks: SaveManagerCallbacks
-  ) {}
+  ) { }
 
   /**
    * Unified save entry point
@@ -64,7 +64,11 @@ export class SaveManager {
     }
 
     // Compute current state hash
-    const currentHash = computeGraphStateHash(state.nodes, state.edges)
+    const currentHash = computeGraphStateHash(
+      state.nodes,
+      state.edges,
+      state.graphStateFields
+    )
 
     // 优先从 state 同步 hash（如果 SaveManager 的 hash 还未设置，或者 state 中的 hash 更新）
     // 这确保在每次保存时都使用最新的 hash 进行比较
@@ -99,7 +103,9 @@ export class SaveManager {
         nodes: state.nodes,
         edges: deduplicatedEdges,
         viewport: state.viewport,
-        variables: { context: state.graphVariables },
+        variables: {
+          state_fields: state.graphStateFields
+        },
       })
 
       // Update state on success

@@ -33,10 +33,39 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/core/utils/cn'
 
-import { validateRouteRuleEdgeMatch } from '../../services/edgeValidator'
 import { RouteRule, EdgeData } from '../../types/graph'
 
 import { ConditionExprField } from './ConditionExprField'
+
+// Inline validation to avoid dependency on removed validator file
+const validateRouteRuleEdgeMatch = (rule: RouteRule, edges: Edge[], nodeId: string): { message: string }[] => {
+  const errors: { message: string }[] = []
+
+  if (!rule.targetEdgeKey) {
+    errors.push({ message: 'Target edge is required' })
+    return errors
+  }
+
+  // Find outgoing edges from this node
+  const outgoingEdges = edges.filter(e => e.source === nodeId)
+
+  // Check if any edge matches the route key
+  const hasMatchingEdge = outgoingEdges.some(edge => {
+    const edgeData = (edge.data || {}) as EdgeData
+    // Match logic: edge.data.route_key OR edge.id
+    const routeKey = (edgeData.route_key && edgeData.route_key.trim() !== '')
+      ? edgeData.route_key
+      : edge.id
+
+    return routeKey === rule.targetEdgeKey
+  })
+
+  if (!hasMatchingEdge) {
+    errors.push({ message: 'No matching edge found for this route' })
+  }
+
+  return errors
+}
 
 interface RouteListFieldProps {
   value: RouteRule[]
@@ -47,6 +76,7 @@ interface RouteListFieldProps {
   nodes: Node[]
   edges: Edge[]
   onCreateEdge?: (targetNodeId: string, routeKey: string) => void
+  graphStateFields?: import('../../types/graph').StateField[]
 }
 
 interface RouteRuleItemProps {
@@ -60,6 +90,7 @@ interface RouteRuleItemProps {
   onUpdate: (rule: RouteRule) => void
   onDelete: () => void
   onCreateEdge?: (targetNodeId: string, routeKey: string) => void
+  graphStateFields?: import('../../types/graph').StateField[]
 }
 
 const RouteRuleItem: React.FC<RouteRuleItemProps> = ({
@@ -73,6 +104,7 @@ const RouteRuleItem: React.FC<RouteRuleItemProps> = ({
   onUpdate,
   onDelete,
   onCreateEdge,
+  graphStateFields,
 }) => {
   const [showCreateEdge, setShowCreateEdge] = React.useState(false)
   const [selectedTargetNodeId, setSelectedTargetNodeId] = React.useState<string>('')
@@ -174,6 +206,7 @@ const RouteRuleItem: React.FC<RouteRuleItemProps> = ({
               nodes={nodes}
               edges={edges}
               currentNodeId={currentNodeId}
+              graphStateFields={graphStateFields}
             />
           </div>
 
@@ -364,6 +397,7 @@ export const RouteListField: React.FC<RouteListFieldProps> = ({
   nodes,
   edges,
   onCreateEdge,
+  graphStateFields,
 }) => {
   const rules = Array.isArray(value) ? value : []
 
@@ -442,6 +476,7 @@ export const RouteListField: React.FC<RouteListFieldProps> = ({
                 onUpdate={handleUpdateRule}
                 onDelete={() => handleDeleteRule(rule.id)}
                 onCreateEdge={onCreateEdge}
+                graphStateFields={graphStateFields}
               />
             ))}
           </div>

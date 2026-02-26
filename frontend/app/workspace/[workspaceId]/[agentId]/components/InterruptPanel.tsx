@@ -1,10 +1,11 @@
 'use client'
 
-import { PauseCircle, CheckCircle, XCircle, Edit, Play, SkipForward, ArrowRight } from 'lucide-react'
+import { PauseCircle, CheckCircle, XCircle, Edit, Play, SkipForward, ArrowRight, MessageSquare } from 'lucide-react'
 import React, { useState, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -130,8 +131,16 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
   const [isEditing, setIsEditing] = useState(false)
   const [showGotoSelector, setShowGotoSelector] = useState(false)
   const [selectedNodeId, setSelectedNodeId] = useState<string>('')
+  const [feedback, setFeedback] = useState('')
 
   const { setExecuting } = useExecutionStore()
+
+  // Detect gate mode from the interrupted node's config
+  const gateMode = useMemo(() => {
+    const interruptedNode = nodes.find(n => n.id === interrupt.nodeId)
+    const config = (interruptedNode?.data as { config?: { gate_mode?: string } })?.config
+    return config?.gate_mode || 'approval'
+  }, [nodes, interrupt.nodeId])
 
   // Get list of jumpable nodes (exclude current interrupt node)
   const availableNodes = useMemo(() => {
@@ -155,7 +164,13 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
       await resumeWithCommand(
         interrupt.threadId,
         {
-          update: {}, // Empty update, continue execution
+          update: {
+            _resume_data: {
+              decision: 'approved',
+              feedback: feedback || '',
+              state_overrides: {},
+            },
+          },
         },
         undefined
       )
@@ -238,9 +253,9 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
       // Use unified node name conversion tool (ensure consistency with backend LangGraph format)
       const nodeName = targetNode
         ? getNodeNameFromFlowNode({
-            id: targetNode.id,
-            data: targetNode.data as { label?: string; type?: string },
-          })
+          id: targetNode.id,
+          data: targetNode.data as { label?: string; type?: string },
+        })
         : `unknown_${nodeId.slice(0, 8)}`
 
       await resumeWithCommand(
@@ -423,25 +438,81 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
           </div>
         )}
 
+        {/* Gate Mode Feedback Input */}
+        {!isEditing && !showGotoSelector && (gateMode === 'input' || gateMode === 'review') && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-indigo-500" />
+              <label className="text-sm font-medium text-gray-700">
+                {gateMode === 'input' ? 'Your Response' : 'Review Feedback'}
+              </label>
+            </div>
+            <Textarea
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              placeholder={
+                gateMode === 'input'
+                  ? 'Type your response here…'
+                  : 'Optional: Provide feedback or revision notes…'
+              }
+              className="h-20 text-sm resize-none"
+            />
+          </div>
+        )}
+
         {/* Main Action Buttons */}
         {!isEditing && !showGotoSelector && (
           <div className="flex gap-2 pt-2 border-t border-amber-200">
             <Button
               onClick={handleContinue}
-              disabled={isResuming}
+              disabled={isResuming || (gateMode === 'input' && !feedback.trim())}
               className="flex-1 bg-green-600 hover:bg-green-700"
             >
               <CheckCircle className="h-4 w-4 mr-2" />
-              Continue Execution
+              {gateMode === 'approval' ? 'Approve' : gateMode === 'input' ? 'Send Response' : 'Approve & Continue'}
             </Button>
             <Button
-              onClick={handleStop}
+              onClick={async () => {
+                setIsResuming(true)
+                setExecuting(true)
+                try {
+                  await resumeWithCommand(
+                    interrupt.threadId,
+                    {
+                      update: {
+                        _resume_data: {
+                          decision: 'rejected',
+                          feedback: feedback || '',
+                          state_overrides: {},
+                        },
+                      },
+                    },
+                    undefined
+                  )
+                  removeInterrupt(interrupt.nodeId)
+                  toast({
+                    title: 'Execution Rejected',
+                    description: `Rejected at node "${interrupt.nodeLabel}"`,
+                  })
+                  onClose?.()
+                } catch (error: unknown) {
+                  setExecuting(false)
+                  const err = error as { message?: string }
+                  toast({
+                    title: 'Reject Failed',
+                    description: err?.message || 'Cannot reject execution',
+                    variant: 'destructive',
+                  })
+                } finally {
+                  setIsResuming(false)
+                }
+              }}
               disabled={isResuming}
               variant="destructive"
               className="flex-1"
             >
               <XCircle className="h-4 w-4 mr-2" />
-              Stop Execution
+              {gateMode === 'approval' ? 'Reject' : 'Stop Execution'}
             </Button>
           </div>
         )}

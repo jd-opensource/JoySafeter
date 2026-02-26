@@ -488,6 +488,8 @@ export default {
       nodeCategories: {
         agents: 'Agents',
         flowControl: 'Flow Control',
+        stateManagement: 'State Management',
+        aggregation: 'Aggregation',
         actions: 'Actions',
       },
       // Node Fields
