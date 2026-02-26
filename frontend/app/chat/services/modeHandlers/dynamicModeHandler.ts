@@ -1,11 +1,9 @@
 /**
  * Dynamic Mode Handler
  *
- * Handles dynamic type modes (e.g., ctf, whitebox)
+ * Handles dynamic type modes (e.g., ctf)
  * These modes directly redirect to /dynamic/chat page
  */
-
-import { Flag, ShieldCheck, Code } from 'lucide-react'
 
 import type {
   ModeHandler,

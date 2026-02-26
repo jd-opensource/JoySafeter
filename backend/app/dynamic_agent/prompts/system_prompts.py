@@ -23,8 +23,6 @@ class SceneType(Enum):
     """Supported scene types for agent operation modes."""
 
     CTF = "ctf"  # CTF competition mode
-    AUDIT = "audit"  # Security audit mode
-    WHITEBOX = "whitebox"  # General mode (default)
     GENERAL = "general"  # General mode (default)
 
     @classmethod
@@ -145,8 +143,6 @@ _SCENE_PROMPTS: Dict[str, str] = {}
 # Lazy load scene prompts from scenes/{scene}/ctf_{role}.md
 MAIN_AGENT_SYSTEM_PROMPT_MAP = {
     SceneType.CTF.value: "scenes/ctf/ctf_main_agent",
-    SceneType.AUDIT.value: "scenes/whitebox/whitebox_main_agent",
-    SceneType.WHITEBOX.value: "scenes/whitebox/whitebox_main_agent",
 }
 
 
@@ -162,8 +158,9 @@ def _get_scene_prompt_content(scene: str) -> str:
     """
     global _SCENE_PROMPTS
 
-    if scene and scene in SceneType.values():
-        scene_content = _load_prompt(MAIN_AGENT_SYSTEM_PROMPT_MAP[scene])
+    prompt_id = MAIN_AGENT_SYSTEM_PROMPT_MAP.get(scene) if scene else None
+    if prompt_id:
+        scene_content = _load_prompt(prompt_id)
     else:
         scene_content = _load_prompt("scenes/cybersecurity/cybersecurity_main_agent.md")
 
