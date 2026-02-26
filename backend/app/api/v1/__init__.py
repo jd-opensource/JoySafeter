@@ -19,6 +19,8 @@ from .graph_tests import router as graph_tests_router
 from .graphs import router as graphs_router
 from .mcp import router as mcp_router
 from .model_credentials import router as model_credentials_router
+from .openclaw_tasks import router as openclaw_tasks_router
+from .openclaw_workers import router as openclaw_workers_router
 from .model_providers import router as model_providers_router
 from .models import router as models_router
 from .oauth import router as oauth_router
@@ -56,6 +58,8 @@ ROUTERS = [
     traces_router,
     users_router,
     environment_router,
+    openclaw_workers_router,
+    openclaw_tasks_router,
 ]
 
 

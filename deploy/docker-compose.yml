@@ -187,6 +187,28 @@ services:
         condition: service_healthy
 
 
+  # OpenClaw Worker 实例（多副本模式）
+  # 使用 docker compose up --scale openclaw-worker=N 控制实例数
+  openclaw-worker:
+    image: ${OPENCLAW_IMAGE:-openclaw/openclaw:latest}
+    restart: unless-stopped
+    environment:
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-}
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
+      - REGISTER_URL=http://backend:8000/api/v1/openclaw/workers
+      - WORKER_MAX_TASKS=${OPENCLAW_WORKER_MAX_TASKS:-3}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - joysafeter-network
+
 volumes:
   joysafeter-db-data:
     driver: local

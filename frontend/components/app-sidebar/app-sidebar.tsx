@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Wrench,
   Brain,
+  Clapperboard,
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -58,6 +59,12 @@ const menuItems = [
     labelKey: 'sidebar.memory',
     icon: Brain,
     href: '/memory',
+  },
+  {
+    id: 'openclaw',
+    labelKey: 'sidebar.openclaw',
+    icon: Clapperboard,
+    href: '/openclaw',
   },
 ]
 

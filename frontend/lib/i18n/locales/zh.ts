@@ -20,6 +20,7 @@ export default {
       discover: '智能体商店',
       skillsHub: '技能商店',
       toolsAndMcp: '工具与 MCP',
+      openclaw: 'OpenClaw',
       collapse: '折叠侧边栏',
       expand: '展开侧边栏',
       knowledgeComingSoon: '知识库功能正在开发中，敬请期待...',

@@ -25,6 +25,7 @@ export default {
       knowledgeComingSoon: 'Knowledge base feature is under development, stay tuned...',
       discoverComingSoon: 'Discover feature is under development, stay tuned...',
       notifications: 'Notifications',
+      openclaw: 'OpenClaw',
     },
     user: {
       settingsAndPlan: 'Settings & Plan',
