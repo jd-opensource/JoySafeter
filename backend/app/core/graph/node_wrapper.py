@@ -89,6 +89,7 @@ class NodeExecutionWrapper:
         if self.node_config:
             try:
                 from app.core.graph.mapping_utils import apply_node_input_mapping
+
                 mapped_inputs = apply_node_input_mapping(self.node_config, state, self.node_id)
                 if mapped_inputs:
                     context = state.get("context", {})
@@ -96,11 +97,11 @@ class NodeExecutionWrapper:
                     # LangGraph updates dicts by merging, but "context" is a dict inside the state,
                     # so we should provide an updated dictionary.
                     new_context = {**context} if isinstance(context, dict) else {}
-                    
+
                     # Store mapped inputs in a dedicated namespace so executors can easily find them
                     new_context["mapped_inputs"] = mapped_inputs
                     state = {**state, "context": new_context}
-                    
+
                     logger.debug(f"[NodeExecutionWrapper] Injected mapped inputs into state | node_id={self.node_id}")
             except Exception as e:
                 logger.warning(
@@ -124,9 +125,11 @@ class NodeExecutionWrapper:
         """
         # 如果是 Command 对象，提取 update 部分进行处理
         is_command = COMMAND_AVAILABLE and isinstance(result, Command)
+        update_dict: Dict[str, Any]
         if is_command:
             # Command 对象：提取 update 字典进行处理
-            update_dict = result.update if hasattr(result, "update") else {}
+            update_raw = getattr(result, "update", {})
+            update_dict = cast(Dict[str, Any], update_raw)
         elif isinstance(result, str):
             # 条件节点或路由节点返回字符串 route_key，需要转换为字典以更新状态
             # 这通常发生在 condition 或 router 节点作为普通节点执行时
@@ -202,6 +205,7 @@ class NodeExecutionWrapper:
         if self.node_config:
             try:
                 from app.core.graph.mapping_utils import apply_node_output_mapping
+
                 # apply_node_output_mapping updates update_dict directly in place
                 apply_node_output_mapping(self.node_config, result, update_dict, self.node_id)
             except Exception as e:

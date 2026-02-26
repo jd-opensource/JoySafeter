@@ -132,7 +132,7 @@ class ToolNodeExecutor:
                 "messages": [AIMessage(content=f"Tool '{self.tool_name}' output: {output_content}")],
                 "current_node": self.node_id,
                 # Explicitly pass the original result or output content to Universal Mapper
-                "result": result
+                "result": result,
             }
 
             elapsed_ms = (time.time() - start_time) * 1000
@@ -245,7 +245,9 @@ class FunctionNodeExecutor:
                             val = self._get_value_by_path(wrapped_state, source_value)
                             local_scope[param_name] = val
                         except Exception as e:
-                            logger.warning(f"[FunctionNodeExecutor] Failed to resolve variable path '{source_value}': {e}")
+                            logger.warning(
+                                f"[FunctionNodeExecutor] Failed to resolve variable path '{source_value}': {e}"
+                            )
                             missing_vars.append(source_value)
                             local_scope[param_name] = None
                     else:
@@ -253,7 +255,9 @@ class FunctionNodeExecutor:
                         local_scope[param_name] = source_value
 
                 if missing_vars:
-                    logger.warning(f"[FunctionNodeExecutor] Some mapped variables could not be resolved: {missing_vars}")
+                    logger.warning(
+                        f"[FunctionNodeExecutor] Some mapped variables could not be resolved: {missing_vars}"
+                    )
 
                 # We need to trust the user here or sandbox strictly.
                 # For now, we execute with limited builtins.

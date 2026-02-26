@@ -39,7 +39,7 @@ class DirectReplyNodeExecutor:
         return_dict = {
             "messages": [AIMessage(content=content)],
             "current_node": self.node_id,
-            "result": {"content": content, "text": content}
+            "result": {"content": content, "text": content},
         }
 
         return return_dict

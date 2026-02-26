@@ -1,29 +1,30 @@
 """
 Mapping Utilities - Shared utilities for universal state mapping.
 
-Provides centralized functions to map inputs from the global graph state into 
-local execution scope, and map output results from the execution scope back 
+Provides centralized functions to map inputs from the global graph state into
+local execution scope, and map output results from the execution scope back
 to the global graph state.
 """
 
 from typing import Any, Dict
+
 from loguru import logger
 
 
-def apply_node_input_mapping(config: Dict[str, Any], state: Dict[str, Any], node_id: str = "unknown") -> Dict[str, Any]:
+def apply_node_input_mapping(config: Dict[str, Any], state: Any, node_id: str = "unknown") -> Dict[str, Any]:
     """Apply input mapping configuration to extract variables from state.
-    
+
     Reads from config.input_mapping, searches for the value in state,
     and returns a dictionary of the mapped inputs.
     """
     input_mapping = config.get("input_mapping", [])
     if not input_mapping:
         return {}
-        
+
     logger.debug(f"[MappingUtils] Applying input mapping for node '{node_id}': {input_mapping}")
-    
+
     mapped_inputs = {}
-    
+
     # Helper to safely get value from nested dicts
     def get_value(obj: Any, path: str) -> Any:
         parts = path.split(".")
@@ -38,22 +39,22 @@ def apply_node_input_mapping(config: Dict[str, Any], state: Dict[str, Any], node
             if current is None:
                 return None
         return current
-        
+
     for mapping in input_mapping:
         if isinstance(mapping, dict):
             # Format: {"key": "local_var", "type": "variable", "value": "state.path"}
             param_name = mapping.get("key")
             source_type = mapping.get("type", "static")
             source_value = mapping.get("value")
-            
+
             if not param_name:
                 continue
-                
+
             if source_type == "variable" and source_value:
                 mapped_inputs[param_name] = get_value(state, source_value)
             else:
                 mapped_inputs[param_name] = source_value
-                
+
     return mapped_inputs
 
 

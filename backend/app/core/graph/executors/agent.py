@@ -58,9 +58,6 @@ class BaseLLMNodeExecutor:
         self.builder = builder
 
 
-from app.core.graph.mapping_utils import apply_node_output_mapping
-
-
 class AgentNodeExecutor(BaseLLMNodeExecutor):
     """
     Executor for an Agent node in the graph.
