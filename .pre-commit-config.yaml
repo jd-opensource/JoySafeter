@@ -2,6 +2,8 @@
 # Install: pip install pre-commit && pre-commit install
 # Run manually: pre-commit run --all-files
 
+exclude: ^backend/app/one_person_security_dept/(openclaw|claude_agent_sdk_python/claude-agent-sdk-python)/
+
 repos:
   # General hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks

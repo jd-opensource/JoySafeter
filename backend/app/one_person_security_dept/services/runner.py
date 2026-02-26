@@ -6,7 +6,7 @@ import asyncio
 import traceback
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from loguru import logger
 
@@ -119,6 +119,11 @@ async def _execute_with_sdk(
     selected_skills: list[str],
 ) -> tuple[str, dict[str, Any], Optional[dict[str, Any]], Optional[float]]:
     sdk = load_claude_agent_sdk()
+    assistant_message_cls = cast(Any, sdk.AssistantMessage)
+    result_message_cls = cast(Any, sdk.ResultMessage)
+    text_block_cls = cast(Any, sdk.TextBlock)
+    tool_use_block_cls = cast(Any, sdk.ToolUseBlock)
+    tool_result_block_cls = cast(Any, sdk.ToolResultBlock)
 
     skill_paths = SecurityDeptSkillsService.resolve_skill_paths(selected_skills)
 
@@ -150,38 +155,42 @@ async def _execute_with_sdk(
     await SecurityDeptEventBus.publish(task_id, "status", {"message": "Task started", "stage": "running"})
 
     async for message in sdk.query(prompt=prompt, options=options):
-        if isinstance(message, sdk.AssistantMessage):
-            for block in message.content:
-                if isinstance(block, sdk.TextBlock):
-                    content = block.text or ""
+        message_any = cast(Any, message)
+        if isinstance(message_any, assistant_message_cls):
+            for block in cast(list[Any], message_any.content):
+                block_any = cast(Any, block)
+                if isinstance(block_any, text_block_cls):
+                    content = cast(str | None, block_any.text) or ""
                     if content:
                         text_parts.append(content)
                         await SecurityDeptEventBus.publish(task_id, "content", {"delta": content})
-                elif isinstance(block, sdk.ToolUseBlock):
+                elif isinstance(block_any, tool_use_block_cls):
                     tool_calls += 1
                     await SecurityDeptEventBus.publish(
                         task_id,
                         "tool_call",
                         {
-                            "tool_name": block.name,
-                            "tool_input": block.input,
-                            "tool_use_id": block.id,
+                            "tool_name": block_any.name,
+                            "tool_input": block_any.input,
+                            "tool_use_id": block_any.id,
                         },
                     )
-                elif isinstance(block, sdk.ToolResultBlock):
+                elif isinstance(block_any, tool_result_block_cls):
                     tool_results += 1
                     await SecurityDeptEventBus.publish(
                         task_id,
                         "tool_result",
                         {
-                            "tool_use_id": block.tool_use_id,
-                            "is_error": bool(block.is_error),
-                            "content": block.content if isinstance(block.content, str) else str(block.content),
+                            "tool_use_id": block_any.tool_use_id,
+                            "is_error": bool(block_any.is_error),
+                            "content": (
+                                block_any.content if isinstance(block_any.content, str) else str(block_any.content)
+                            ),
                         },
                     )
-        elif isinstance(message, sdk.ResultMessage):
-            token_usage = message.usage if isinstance(message.usage, dict) else None
-            cost_usd = message.total_cost_usd
+        elif isinstance(message_any, result_message_cls):
+            token_usage = message_any.usage if isinstance(message_any.usage, dict) else None
+            cost_usd = cast(Optional[float], message_any.total_cost_usd)
 
     summary_md = _summarize_output(text_parts, tool_calls, tool_results)
 

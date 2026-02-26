@@ -224,7 +224,9 @@ async def stream_task_events(
                     )
                 if latest.summary_md and latest.summary_md != last_summary:
                     last_summary = latest.summary_md
-                    yield _to_sse(SecurityDeptEventBus.build_event(task_id_str, "summary", {"summary_md": latest.summary_md}))
+                    yield _to_sse(
+                        SecurityDeptEventBus.build_event(task_id_str, "summary", {"summary_md": latest.summary_md})
+                    )
                 if latest.status in _TERMINAL_STATUSES:
                     yield _to_sse(SecurityDeptEventBus.build_event(task_id_str, "done", {"status": latest.status}))
                     return

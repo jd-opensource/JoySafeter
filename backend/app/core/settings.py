@@ -343,7 +343,9 @@ class Settings(BaseSettings):
     )
     security_dept_task_timeout_seconds: int = Field(
         default=1800,
-        validation_alias=AliasChoices("SECURITY_DEPT_TASK_TIMEOUT_SECONDS", "ONE_PERSON_SECURITY_DEPT_TASK_TIMEOUT_SECONDS"),
+        validation_alias=AliasChoices(
+            "SECURITY_DEPT_TASK_TIMEOUT_SECONDS", "ONE_PERSON_SECURITY_DEPT_TASK_TIMEOUT_SECONDS"
+        ),
         description="Timeout in seconds for one Security Dept task",
     )
     security_dept_workdir_root: str = Field(

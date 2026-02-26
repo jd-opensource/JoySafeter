@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TypedDict
 
 from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.skill.yaml_parser import extract_metadata_from_frontmatter, parse_skill_md
 
 _SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+class SecurityDeptSkillFsDict(TypedDict):
+    skill_name: str
+    display_name: str
+    description: str
+    has_skill_md: bool
+    abs_path: str
 
 
 class SecurityDeptSkillsService:
@@ -35,9 +44,9 @@ class SecurityDeptSkillsService:
             raise BadRequestException(f"Invalid skill name: {skill_name}")
 
     @classmethod
-    def list_fs_skills(cls) -> tuple[Path, list[dict[str, str | bool]]]:
+    def list_fs_skills(cls) -> tuple[Path, list[SecurityDeptSkillFsDict]]:
         root = cls.get_skills_root()
-        items: list[dict[str, str | bool]] = []
+        items: list[SecurityDeptSkillFsDict] = []
 
         for directory in sorted(root.iterdir(), key=lambda p: p.name.lower()):
             if not directory.is_dir() or directory.name.startswith("."):
