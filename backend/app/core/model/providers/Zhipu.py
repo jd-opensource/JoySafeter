@@ -8,6 +8,7 @@ from langchain_core.language_models import BaseChatModel
 from .base import BaseProvider, ModelType
 from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
 
+
 class ZhipuProvider(OpenAIAPICompatibleProvider):
     """Zhipu 智谱大模型供应商"""
 
@@ -45,6 +46,10 @@ class ZhipuProvider(OpenAIAPICompatibleProvider):
     def get_credential_schema(self) -> Dict[str, Any]:
         """获取凭据表单规则"""
         schema = super().get_credential_schema()
+<<<<<<< HEAD
+=======
+
+>>>>>>> ad0b497 (feat: Enhance model provider auto-sync to ensure consistency between database and available providers and add `model_count` to provider schema.)
         # 定制 Zhipu 的基础 URL
         base_url_prop = schema["properties"]["base_url"]
         base_url_prop["description"] = "Zhipu API 基础 URL (保留为空则使用默认值)"
@@ -60,6 +65,10 @@ class ZhipuProvider(OpenAIAPICompatibleProvider):
         creds = credentials.copy()
         if not creds.get("base_url"):
             creds["base_url"] = "https://open.bigmodel.cn/api/paas/v4/"
+<<<<<<< HEAD
+=======
+
+>>>>>>> ad0b497 (feat: Enhance model provider auto-sync to ensure consistency between database and available providers and add `model_count` to provider schema.)
         return await super().validate_credentials(creds)
 
     def create_model_instance(
@@ -73,6 +82,10 @@ class ZhipuProvider(OpenAIAPICompatibleProvider):
         creds = credentials.copy()
         if not creds.get("base_url"):
             creds["base_url"] = "https://open.bigmodel.cn/api/paas/v4/"
+<<<<<<< HEAD
+=======
+
+>>>>>>> ad0b497 (feat: Enhance model provider auto-sync to ensure consistency between database and available providers and add `model_count` to provider schema.)
         return super().create_model_instance(
             model_name=model_name,
             model_type=model_type,
