@@ -183,6 +183,60 @@ pytest
 pytest --cov=app
 ```
 
+## 🔄 One Person Security Dept SDK 更新（Git Subtree）
+
+`claude-agent-sdk-python` 已 vendored 到以下目录：
+
+`backend/app/one_person_security_dept/claude_agent_sdk_python/claude-agent-sdk-python`
+
+推荐通过 `git subtree` 更新，不影响现有开发者工作流。
+
+```bash
+# 1) 一次性设置 upstream remote
+make security-sdk-subtree-setup
+
+# 2) 先预览更新（建议）
+make security-sdk-subtree-dry-run REF=v0.1.43
+
+# 3) 实际更新到指定 tag/branch
+make security-sdk-subtree-update REF=v0.1.43
+# 或
+make security-sdk-subtree-update REF=main
+```
+
+也可直接运行脚本：
+
+```bash
+./scripts/update-security-sdk-subtree.sh --ref v0.1.43
+```
+
+## 🔄 One Person Security Dept OpenClaw 更新（Git Subtree）
+
+`openclaw` 已 vendored 到以下目录：
+
+`backend/app/one_person_security_dept/openclaw`
+
+同样推荐通过 `git subtree` 更新：
+
+```bash
+# 1) 一次性设置 upstream remote
+make openclaw-subtree-setup
+
+# 2) 先预览更新（建议）
+make openclaw-subtree-dry-run REF=v2026.2.24
+
+# 3) 实际更新到指定 tag/branch
+make openclaw-subtree-update REF=v2026.2.24
+# 或
+make openclaw-subtree-update REF=main
+```
+
+也可直接运行脚本：
+
+```bash
+./scripts/update-openclaw-subtree.sh --ref v2026.2.24
+```
+
 
 ### Docker 部署 (推荐)
 

@@ -35,6 +35,7 @@ from .model_provider import ModelProvider
 from .oauth_account import OAuthAccount
 from .organization import Member, Organization
 from .security_audit_log import SecurityAuditLog
+from .security_dept_task import SecurityDeptTask
 from .settings import Environment, Settings, WorkspaceEnvironment
 from .skill import Skill, SkillFile
 from .user_sandbox import UserSandbox
@@ -83,6 +84,7 @@ __all__ = [
     "Skill",
     "SkillFile",
     "SecurityAuditLog",
+    "SecurityDeptTask",
     "Memory",
     "ExecutionTrace",
     "ExecutionObservation",

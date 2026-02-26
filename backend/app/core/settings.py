@@ -330,6 +330,38 @@ class Settings(BaseSettings):
         description="Workspace root directory for storing session files and workspace data",
     )
 
+    # One Person Security Dept
+    security_dept_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SECURITY_DEPT_ENABLED", "ONE_PERSON_SECURITY_DEPT_ENABLED"),
+        description="Enable One Person Security Dept module",
+    )
+    security_dept_max_concurrent_tasks: int = Field(
+        default=2,
+        validation_alias=AliasChoices("SECURITY_DEPT_MAX_CONCURRENT_TASKS", "ONE_PERSON_SECURITY_DEPT_MAX_CONCURRENT"),
+        description="Maximum concurrent Security Dept tasks per backend process",
+    )
+    security_dept_task_timeout_seconds: int = Field(
+        default=1800,
+        validation_alias=AliasChoices("SECURITY_DEPT_TASK_TIMEOUT_SECONDS", "ONE_PERSON_SECURITY_DEPT_TASK_TIMEOUT_SECONDS"),
+        description="Timeout in seconds for one Security Dept task",
+    )
+    security_dept_workdir_root: str = Field(
+        default=str(BASE_DIR / "workspace" / "security_dept_runs"),
+        validation_alias=AliasChoices("SECURITY_DEPT_WORKDIR_ROOT", "ONE_PERSON_SECURITY_DEPT_WORKDIR_ROOT"),
+        description="Working root directory for Security Dept task execution sandboxes",
+    )
+    security_dept_event_ttl_seconds: int = Field(
+        default=7200,
+        validation_alias=AliasChoices("SECURITY_DEPT_EVENT_TTL_SECONDS", "ONE_PERSON_SECURITY_DEPT_EVENT_TTL_SECONDS"),
+        description="TTL for Security Dept task temporary Redis keys and status",
+    )
+    security_dept_claude_cli_path: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("SECURITY_DEPT_CLAUDE_CLI_PATH", "ONE_PERSON_SECURITY_DEPT_CLAUDE_CLI_PATH"),
+        description="Optional custom path to Claude Code CLI binary for claude-agent-sdk",
+    )
+
     @property
     def WORKSPACE_ROOT(self) -> str:
         """Alias for workspace_root for backward compatibility"""

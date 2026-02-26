@@ -1,0 +1,55 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    # Optional: Only run on specific file changes
+    # paths:
+    # - "src/**/*.ts"
+    # - "src/**/*.tsx"
+    # - "src/**/*.js"
+    # - "src/**/*.jsx"
+
+jobs:
+  claude-review:
+    # Skip on forks since they don't have access to secrets
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Run Claude Code Review
+      id: claude-review
+      uses: anthropics/claude-code-action@v1
+      with:
+        anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+        claude_args: --model claude-opus-4-6
+
+        # Direct prompt for automated review (no @claude mention needed)
+        prompt: |
+          Please review this pull request and provide feedback on:
+          - Code quality and best practices
+          - Potential bugs or issues
+          - Performance considerations
+          - Security concerns
+          - Test coverage
+
+          Be constructive and helpful in your feedback.
+
+        # Optional: Customize review based on file types
+        # prompt: |
+        #   Review this PR focusing on:
+        #   - For TypeScript files: Type safety and proper interface usage
+        #   - For API endpoints: Security, input validation, and error handling
+        #   - For React components: Performance, accessibility, and reusability
+        #   - For test files: Coverage, edge cases, and test quality

@@ -1,0 +1,170 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --cov=claude_agent_sdk --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  test-e2e:
+    # Skip on forks since they don't have access to secrets
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ matrix.os }}
+    needs: test # Run after unit tests pass
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Claude Code (Linux/macOS)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install Claude Code (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          irm https://claude.ai/install.ps1 | iex
+          $claudePath = "$env:USERPROFILE\.local\bin"
+          echo "$claudePath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Verify Claude Code installation
+        run: claude -v
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run end-to-end tests with real API
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python -m pytest e2e-tests/ -v -m e2e
+
+  test-e2e-docker:
+    # Skip on forks since they don't have access to secrets
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    needs: test # Run after unit tests pass
+    # Run e2e tests in Docker to catch container-specific issues like #406
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker test image
+        run: docker build -f Dockerfile.test -t claude-sdk-test .
+
+      - name: Run e2e tests in Docker
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          docker run --rm -e ANTHROPIC_API_KEY \
+            claude-sdk-test python -m pytest e2e-tests/ -v -m e2e
+
+  test-examples:
+    # Skip on forks since they don't have access to secrets
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    needs: test-e2e # Run after e2e tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Claude Code (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install Claude Code (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          irm https://claude.ai/install.ps1 | iex
+          $claudePath = "$env:USERPROFILE\.local\bin"
+          echo "$claudePath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Verify Claude Code installation
+        run: claude -v
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run example scripts (Linux)
+        if: runner.os == 'Linux'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python examples/quick_start.py
+          timeout 120 python examples/streaming_mode.py all
+          timeout 120 python examples/hooks.py PreToolUse
+          timeout 120 python examples/hooks.py DecisionFields
+
+      - name: Run example scripts (Windows)
+        if: runner.os == 'Windows'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python examples/quick_start.py
+          $job = Start-Job { python examples/streaming_mode.py all }
+          Wait-Job $job -Timeout 120 | Out-Null
+          Stop-Job $job
+          Receive-Job $job
+
+          $job = Start-Job { python examples/hooks.py PreToolUse }
+          Wait-Job $job -Timeout 120 | Out-Null
+          Stop-Job $job
+          Receive-Job $job
+
+          $job = Start-Job { python examples/hooks.py DecisionFields }
+          Wait-Job $job -Timeout 120 | Out-Null
+          Stop-Job $job
+          Receive-Job $job
+        shell: pwsh

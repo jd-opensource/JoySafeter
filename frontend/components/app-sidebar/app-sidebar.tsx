@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Blocks,
-  Compass,
+  Shield,
   ShieldCheck,
   Wrench,
   Brain,
@@ -58,6 +58,12 @@ const menuItems = [
     labelKey: 'sidebar.memory',
     icon: Brain,
     href: '/memory',
+  },
+  {
+    id: 'security-dept',
+    labelKey: 'sidebar.onePersonSecurityDept',
+    icon: Shield,
+    href: '/security-dept',
   },
 ]
 

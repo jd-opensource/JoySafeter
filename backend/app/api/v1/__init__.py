@@ -6,6 +6,8 @@ Each sub-router is expected to declare its own `prefix` and `tags`.
 
 from fastapi import APIRouter
 
+from app.one_person_security_dept.api.router import router as security_dept_router
+
 from .admin_sandboxes import router as admin_sandboxes_router
 from .api_keys import router as api_keys_router
 from .auth import router as auth_router
@@ -56,6 +58,7 @@ ROUTERS = [
     traces_router,
     users_router,
     environment_router,
+    security_dept_router,
 ]
 
 

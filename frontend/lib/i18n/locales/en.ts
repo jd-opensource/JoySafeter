@@ -20,6 +20,7 @@ export default {
       discover: 'Agent Store',
       skillsHub: 'Skills Store',
       toolsAndMcp: 'Tools & MCP',
+      onePersonSecurityDept: 'One Person Security Dept',
       collapse: 'Collapse sidebar',
       expand: 'Expand sidebar',
       knowledgeComingSoon: 'Knowledge base feature is under development, stay tuned...',
