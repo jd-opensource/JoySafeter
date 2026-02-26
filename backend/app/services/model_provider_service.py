@@ -138,6 +138,7 @@ class ModelProviderService(BaseService):
                 "supported_model_types": provider_info["supported_model_types"],
                 "credential_schema": provider_info["credential_schema"],
                 "config_schemas": provider_info.get("config_schemas", {}),
+                "model_count": provider_info.get("model_count", 0),
                 # 状态信息：数据库存在则使用数据库的值，否则默认为启用
                 "is_enabled": db_provider.is_enabled if db_provider else True,
             }
@@ -173,12 +174,18 @@ class ModelProviderService(BaseService):
         # 从数据库获取用户自定义的元数据（可选）
         db_provider = await self.repo.get_by_name(provider_name)
 
+        model_count = 0
+        for model_type in provider.get_supported_model_types():
+            models = provider.get_model_list(model_type, None)
+            model_count += len(models)
+
         # 主要信息从工厂获取（代码中定义）
         provider_info = {
             "provider_name": provider_name,
             "display_name": provider.display_name,
             "supported_model_types": [mt.value for mt in provider.get_supported_model_types()],
             "credential_schema": provider.get_credential_schema(),
+            "model_count": model_count,
             # 状态信息：数据库存在则使用数据库的值，否则默认为启用
             "is_enabled": db_provider.is_enabled if db_provider else True,
         }

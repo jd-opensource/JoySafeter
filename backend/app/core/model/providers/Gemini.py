@@ -152,7 +152,7 @@ class GeminiProvider(BaseProvider):
             }
             # Custom Transport/Client may be needed for Gemini proxying but kwargs usually support it
             if base_url:
-                kwargs["transport"] = "rest" 
+                kwargs["transport"] = "rest"
                 kwargs["client_options"] = {"api_endpoint": base_url}
 
             model = ChatGoogleGenerativeAI(**kwargs)  # type: ignore[misc]
@@ -209,7 +209,7 @@ class GeminiProvider(BaseProvider):
         }
 
         if base_url:
-            model_kwargs["transport"] = "rest" 
+            model_kwargs["transport"] = "rest"
             model_kwargs["client_options"] = {"api_endpoint": base_url}
 
         # 添加模型参数

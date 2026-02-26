@@ -67,11 +67,17 @@ class ModelFactory:
         """
         providers = []
         for provider_name, provider in self._providers.items():
+            model_count = 0
+            for model_type in provider.get_supported_model_types():
+                models = provider.get_model_list(model_type, None)
+                model_count += len(models)
+
             provider_info = {
                 "provider_name": provider_name,
                 "display_name": provider.display_name,
                 "supported_model_types": [mt.value for mt in provider.get_supported_model_types()],
                 "credential_schema": provider.get_credential_schema(),
+                "model_count": model_count,
             }
 
             # 为每种模型类型添加配置规则

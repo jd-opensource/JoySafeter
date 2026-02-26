@@ -17,6 +17,7 @@ export interface ModelProvider {
   supported_model_types: string[]
   credential_schema?: Record<string, any>
   config_schemas?: Record<string, any>
+  model_count?: number
   is_enabled: boolean
   background?: string // Provider card background color
 }
