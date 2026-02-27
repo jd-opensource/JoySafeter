@@ -94,7 +94,7 @@ async def get_task(
     return {"success": True, "data": _serialize_task(task)}
 
 
-@router.delete("/{task_id}")
+@router.post("/{task_id}/cancel")
 async def cancel_task(
     task_id: str,
     db: AsyncSession = Depends(get_db),
@@ -108,3 +108,19 @@ async def cancel_task(
     if not task:
         return {"success": False, "error": "Task not found"}
     return {"success": True, "data": _serialize_task(task)}
+
+
+@router.delete("/{task_id}")
+async def delete_task(
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = OpenClawTaskService(db)
+    try:
+        success = await service.delete_task(task_id, str(current_user.id))
+    except PermissionError as exc:
+        return {"success": False, "error": str(exc)}
+    if not success:
+        return {"success": False, "error": "Task not found"}
+    return {"success": True}

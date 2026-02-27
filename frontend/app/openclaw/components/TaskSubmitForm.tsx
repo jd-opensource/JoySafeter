@@ -33,17 +33,13 @@ export function TaskSubmitForm({ onSubmitted }: Props) {
             inputData = { prompt: input }
           }
         }
-        const res = await apiPost<{ success: boolean; error?: string }>('openclaw/tasks', {
+        await apiPost('openclaw/tasks', {
           title: title.trim(),
           input_data: inputData,
         })
-        if (!res.success) {
-          setError(res.error ?? 'Failed to submit task')
-        } else {
-          setTitle('')
-          setInput('')
-          onSubmitted()
-        }
+        setTitle('')
+        setInput('')
+        onSubmitted()
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : 'Unknown error')
       } finally {

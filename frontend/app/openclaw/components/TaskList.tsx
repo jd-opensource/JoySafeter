@@ -1,11 +1,12 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CheckCircle2, Circle, Loader2, Trash2, XCircle } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { apiGet } from '@/lib/api-client'
+import { apiDelete, apiGet } from '@/lib/api-client'
 import { cn } from '@/lib/core/utils/cn'
 
 interface Task {
@@ -29,17 +30,28 @@ const statusConfig: Record<string, { icon: typeof Circle; color: string }> = {
 interface Props {
   refreshKey: number
   selectedTaskId: string | null
-  onSelectTask: (id: string) => void
+  onSelectTask: (id: string | null) => void
 }
 
 export function TaskList({ refreshKey, selectedTaskId, onSelectTask }: Props) {
-  const { data, isLoading } = useQuery<{ success: boolean; data: Task[] }>({
+  const { data, isLoading } = useQuery<Task[]>({
     queryKey: ['openclaw-tasks', refreshKey],
-    queryFn: () => apiGet<{ success: boolean; data: Task[] }>('openclaw/tasks'),
+    queryFn: () => apiGet<Task[]>('openclaw/tasks'),
     refetchInterval: 5_000,
   })
 
-  const tasks = data?.data ?? []
+  const queryClient = useQueryClient()
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiDelete(`openclaw/tasks/${id}`),
+    onSuccess: (_, deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ['openclaw-tasks', refreshKey] })
+      if (selectedTaskId === deletedId) {
+        onSelectTask(null)
+      }
+    },
+  })
+
+  const tasks = data ?? []
 
   return (
     <Card className="flex flex-1 flex-col overflow-hidden">
@@ -91,6 +103,22 @@ export function TaskList({ refreshKey, selectedTaskId, onSelectTask }: Props) {
                   >
                     {t.status}
                   </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-[var(--text-tertiary)] hover:bg-red-500/10 hover:text-red-600"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteMutation.mutate(t.id)
+                    }}
+                    disabled={deleteMutation.isPending && deleteMutation.variables === t.id}
+                  >
+                    {deleteMutation.isPending && deleteMutation.variables === t.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3 w-3" />
+                    )}
+                  </Button>
                 </li>
               )
             })}

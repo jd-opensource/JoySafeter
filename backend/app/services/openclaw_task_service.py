@@ -147,6 +147,17 @@ class OpenClawTaskService(BaseService[OpenClawTask]):
         await self._publish(_channel_name(task_id), {"type": "cancelled"})
         return task
 
+    async def delete_task(self, task_id: str, user_id: str) -> bool:
+        task = await self.get_task(task_id)
+        if not task:
+            return False
+        if task.user_id != user_id:
+            raise PermissionError("Cannot delete another user's task")
+
+        await self.db.delete(task)
+        await self.db.commit()
+        return True
+
     @staticmethod
     async def _publish(channel: str, payload: dict) -> None:
         client = RedisClient.get_client()
