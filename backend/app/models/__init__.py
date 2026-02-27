@@ -38,6 +38,8 @@ from .security_audit_log import SecurityAuditLog
 from .settings import Environment, Settings, WorkspaceEnvironment
 from .skill import Skill, SkillFile
 from .user_sandbox import UserSandbox
+from .openclaw_instance import OpenClawInstance
+from .openclaw_task import OpenClawTask
 from .workspace import Workspace, WorkspaceFolder, WorkspaceMember, WorkspaceMemberRole, WorkspaceStatus
 from .workspace_files import WorkspaceFile, WorkspaceStoredFile
 
@@ -90,4 +92,6 @@ __all__ = [
     "ObservationType",
     "ObservationLevel",
     "ObservationStatus",
+    "OpenClawInstance",
+    "OpenClawTask",
 ]

@@ -187,6 +187,19 @@ services:
         condition: service_healthy
 
 
+  # OpenClaw base image build service (used by backend to create per-user containers)
+  # This service only builds the image; it does not run as a long-lived container.
+  # Per-user OpenClaw instances are dynamically created by the backend's
+  # OpenClawInstanceService using `docker run`.
+  openclaw-image:
+    image: joysafeter-openclaw:latest
+    build:
+      context: ./openclaw
+      dockerfile: Dockerfile
+    profiles:
+      - build
+    command: ["echo", "Image built successfully"]
+
 volumes:
   joysafeter-db-data:
     driver: local
