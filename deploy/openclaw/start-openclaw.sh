@@ -9,6 +9,12 @@ if pgrep -f "openclaw gateway" > /dev/null 2>&1; then
     exit 0
 fi
 
+if [ -z "$AI_GATEWAY_BASE_URL" ] || [ -z "$AI_GATEWAY_API_KEY" ] || [ -z "$AI_GATEWAY_MODEL" ]; then
+    echo "ERROR: Missing required environment variable(s)."
+    echo "Required: AI_GATEWAY_BASE_URL, AI_GATEWAY_API_KEY, AI_GATEWAY_MODEL"
+    exit 1
+fi
+
 CONFIG_DIR="/root/.openclaw"
 CONFIG_FILE="$CONFIG_DIR/openclaw.json"
 
@@ -62,6 +68,11 @@ config.gateway.port = 18789;
 config.gateway.mode = 'local';
 config.gateway.trustedProxies = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
 
+if (process.env.OPENCLAW_GATEWAY_TOKEN) {
+    config.gateway.auth = config.gateway.auth || {};
+    config.gateway.auth.token = process.env.OPENCLAW_GATEWAY_TOKEN;
+}
+
 config.gateway.controlUi = config.gateway.controlUi || {};
 
 if (process.env.OPENCLAW_DEV_MODE === 'true') {
@@ -110,6 +121,7 @@ rm -f /tmp/openclaw-gateway.lock 2>/dev/null || true
 rm -f "$CONFIG_DIR/gateway.lock" 2>/dev/null || true
 
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
+    echo "using token...$OPENCLAW_GATEWAY_TOKEN"
     exec openclaw gateway --port 18789 --verbose --allow-unconfigured --bind lan --token "$OPENCLAW_GATEWAY_TOKEN"
 else
     exec openclaw gateway --port 18789 --verbose --allow-unconfigured --bind lan

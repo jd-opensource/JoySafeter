@@ -33,13 +33,11 @@ const statusStyles: Record<string, string> = {
 export function InstanceManager() {
   const queryClient = useQueryClient()
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: InstanceStatus }>({
+  const { data: instance, isLoading } = useQuery<InstanceStatus>({
     queryKey: ['openclaw-instance'],
-    queryFn: () => apiGet<{ success: boolean; data: InstanceStatus }>('openclaw/instances'),
+    queryFn: () => apiGet<InstanceStatus>('openclaw/instances'),
     refetchInterval: 8_000,
   })
-
-  const instance = data?.data
 
   const startMutation = useMutation({
     mutationFn: () => apiPost('openclaw/instances'),

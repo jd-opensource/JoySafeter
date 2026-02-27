@@ -16,16 +16,46 @@ interface Device {
   lastSeen?: string
 }
 
+interface DeviceInfo {
+  deviceId: string
+  platform?: string
+  clientId?: string
+  clientMode?: string
+  role?: string
+  createdAtMs?: number
+  approvedAtMs?: number
+}
+
+interface DeviceResponse {
+  pending: DeviceInfo[]
+  paired: DeviceInfo[]
+}
+
 export function DeviceManager() {
   const queryClient = useQueryClient()
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: Device[] }>({
+  const { data, isLoading } = useQuery<DeviceResponse>({
     queryKey: ['openclaw-devices'],
-    queryFn: () => apiGet<{ success: boolean; data: Device[] }>('openclaw/devices'),
+    queryFn: () => apiGet<DeviceResponse>('openclaw/devices'),
     refetchInterval: 10_000,
   })
 
-  const devices = data?.data ?? []
+  const devices: Device[] = [
+    ...(data?.pending || []).map(d => ({
+      id: d.deviceId,
+      name: d.clientId,
+      type: d.platform,
+      status: 'pending',
+      lastSeen: d.createdAtMs ? new Date(d.createdAtMs).toLocaleString() : undefined,
+    })),
+    ...(data?.paired || []).map(d => ({
+      id: d.deviceId,
+      name: d.clientId,
+      type: d.platform,
+      status: 'paired',
+      lastSeen: d.approvedAtMs ? new Date(d.approvedAtMs).toLocaleString() : undefined,
+    })),
+  ]
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => apiPost(`openclaw/devices/${id}/approve`),

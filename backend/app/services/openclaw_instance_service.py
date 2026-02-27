@@ -153,6 +153,11 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             if val:
                 env_vars[key] = val
 
+        # Validate required AI Gateway variables
+        for required_key in ("AI_GATEWAY_BASE_URL", "AI_GATEWAY_API_KEY", "AI_GATEWAY_MODEL"):
+            if required_key not in env_vars:
+                raise ValueError(f"Missing required environment variable: {required_key}")
+
         # Also pass config overrides
         if instance.config_json:
             for k, v in instance.config_json.items():
