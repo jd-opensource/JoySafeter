@@ -91,7 +91,13 @@ async def approve_all_devices(
         return {"success": False, "error": "No running instance"}
 
     try:
-        _docker_exec(instance.container_id, ["openclaw", "devices", "approve-all"])
+        output = _docker_exec(instance.container_id, ["openclaw", "devices", "list", "--json"])
+        devices = json.loads(output) if output else {}
+        pending = devices.get("pending", [])
+        for p in pending:
+            device_id = p.get("deviceId")
+            if device_id:
+                _docker_exec(instance.container_id, ["openclaw", "devices", "approve", device_id])
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
