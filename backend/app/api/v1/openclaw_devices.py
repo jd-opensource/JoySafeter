@@ -1,7 +1,6 @@
 """
 OpenClaw Device pairing management API.
 
-Mirrors the moltworker AdminPage device management:
 - List paired devices
 - Approve individual device pairing requests
 - Approve all pending requests

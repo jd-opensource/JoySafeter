@@ -1,6 +1,5 @@
 #!/bin/bash
 # Simplified OpenClaw startup script for JoySafeter per-user containers.
-# Based on moltworker's start-openclaw.sh with R2/rclone parts removed.
 
 set -e
 
