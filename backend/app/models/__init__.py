@@ -27,6 +27,7 @@ from .execution_trace import (
 )
 from .graph import AgentGraph, GraphEdge, GraphNode
 from .graph_deployment_version import GraphDeploymentVersion
+from .graph_test import GraphTestCase
 from .mcp import McpServer
 from .memory import Memory
 from .model_credential import ModelCredential
@@ -78,6 +79,7 @@ __all__ = [
     "GraphNode",
     "GraphEdge",
     "GraphDeploymentVersion",
+    "GraphTestCase",
     "ModelProvider",
     "ModelCredential",
     "ModelInstance",
