@@ -52,8 +52,7 @@ async def chat_completions(
     Returns SSE stream if stream=True, JSON otherwise."""
     service = OpenClawInstanceService(db)
     instance = await service.ensure_instance_running(str(current_user.id))
-
-    url = f"http://127.0.0.1:{instance.gateway_port}/v1/chat/completions"
+    url = f"{service.get_gateway_url(instance)}/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {instance.gateway_token}",
         "Content-Type": "application/json",
@@ -102,8 +101,7 @@ async def invoke_tool(
     """Proxy tool invocation to the user's OpenClaw instance."""
     service = OpenClawInstanceService(db)
     instance = await service.ensure_instance_running(str(current_user.id))
-
-    url = f"http://127.0.0.1:{instance.gateway_port}/tools/invoke"
+    url = f"{service.get_gateway_url(instance)}/tools/invoke"
     headers = {
         "Authorization": f"Bearer {instance.gateway_token}",
         "Content-Type": "application/json",

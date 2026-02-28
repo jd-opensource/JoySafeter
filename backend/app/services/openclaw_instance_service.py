@@ -9,6 +9,7 @@ checking, and port allocation.
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -45,6 +46,37 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             select(OpenClawInstance).where(OpenClawInstance.id == instance_id)
         )
         return result.scalar_one_or_none()
+
+    def _is_running_in_docker(self) -> bool:
+        """Check if the current process is running inside a Docker container."""
+        # Check for the .dockerenv file which is present in most standard Docker containers
+        if os.path.exists("/.dockerenv"):
+            return True
+        # Also check cgroup for docker entries (more robust but sometimes restricted)
+        try:
+            with open("/proc/1/cgroup", "r", encoding="utf-8") as f:
+                content = f.read()
+                if "docker" in content or "kubepods" in content:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def get_gateway_url(self, instance: OpenClawInstance) -> str:
+        """Get the URL to communicate with the OpenClaw container instance.
+        
+        If we are running inside docker (on the same network), we use the internal
+        container name and port 18789. Otherwise (local dev), we use 127.0.0.1
+        and the mapped host port.
+        """
+        if self._is_running_in_docker() and instance.container_id:
+            # We assume the backend is on the same network (e.g., joysafeter-network)
+            # The internal port of the OpenClaw service is always 18789
+            container_name = f"openclaw-user-{instance.user_id[:12]}"
+            return f"http://{container_name}:18789"
+        else:
+            # Running locally on host
+            return f"http://127.0.0.1:{instance.gateway_port}"
 
     async def _allocate_port(self) -> int:
         """Find the next available port in the range."""
@@ -196,7 +228,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
     async def _wait_for_gateway(self, instance: OpenClawInstance) -> None:
         """Poll the gateway until it responds to HTTP requests."""
-        url = f"http://127.0.0.1:{instance.gateway_port}/v1/chat/completions"
+        url = f"{self.get_gateway_url(instance)}/v1/chat/completions"
         deadline = asyncio.get_event_loop().time() + GATEWAY_READY_TIMEOUT
 
         while asyncio.get_event_loop().time() < deadline:
@@ -228,7 +260,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
     async def _health_check(self, instance: OpenClawInstance) -> bool:
         """Quick health check via HTTP OPTIONS to the gateway."""
         try:
-            url = f"http://127.0.0.1:{instance.gateway_port}/v1/chat/completions"
+            url = f"{self.get_gateway_url(instance)}/v1/chat/completions"
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.options(url)
                 return resp.status_code < 500
@@ -328,9 +360,6 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             .values(**values)
         )
         await self.db.commit()
-
-    def get_gateway_url(self, instance: OpenClawInstance) -> str:
-        return f"http://127.0.0.1:{instance.gateway_port}"
 
     async def approve_all_pending_devices(self, user_id: str) -> bool:
         """Approve all pending device pairing requests for the user's instance."""

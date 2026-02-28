@@ -34,7 +34,12 @@ class OpenClawBridgeHandler:
             await ws.close(code=1008, reason="No running OpenClaw instance")
             return
 
-        gateway_ws_url = f"ws://127.0.0.1:{instance.gateway_port}"
+        base_url = service.get_gateway_url(instance)
+        # Convert http/https to ws/wss
+        scheme = "wss" if base_url.startswith("https") else "ws"
+        host_port = base_url.split("://")[-1]
+        gateway_ws_url = f"{scheme}://{host_port}"
+        
         logger.info(f"OpenClaw bridge connecting: user={user_id} -> {gateway_ws_url}")
 
         try:

@@ -113,7 +113,8 @@ async def proxy_to_openclaw(
     if not instance or instance.status != "running":
         return Response(content="OpenClaw instance not running", status_code=503)
 
-    target_url = f"http://127.0.0.1:{instance.gateway_port}/{path}"
+    base_url = service.get_gateway_url(instance)
+    target_url = f"{base_url}/{path}"
 
     # For Control UI entry pages, inject gatewayUrl + token so the dashboard can auto-connect
     entry_paths = ("", "overview", "index.html")
@@ -124,7 +125,7 @@ async def proxy_to_openclaw(
     if is_entry and instance.container_id:
         asyncio.create_task(_poll_approve_devices(instance.container_id))
 
-    query_params = dict(parse_qs(request.url.query))
+    query_params = {k: v for k, v in parse_qs(request.url.query).items()}
     if is_entry:
         scheme = "wss" if request.url.scheme == "https" else "ws"
         host = request.url.hostname or "localhost"
