@@ -208,11 +208,11 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         cmd.append(OPENCLAW_IMAGE)
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode != 0:
-            raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
+        run_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if run_result.returncode != 0:
+            raise RuntimeError(f"docker run failed: {run_result.stderr.strip()}")
 
-        container_id = result.stdout.strip()[:12]
+        container_id = run_result.stdout.strip()[:12]
         logger.info(
             f"Created OpenClaw container {container_id} for user {instance.user_id} on port {instance.gateway_port}"
         )
