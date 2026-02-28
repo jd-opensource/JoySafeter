@@ -8,12 +8,15 @@ OpenClaw Gateway running on its allocated port.
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
+from app.core.settings import settings
 from app.models.auth import AuthUser as User
 from app.services.openclaw_instance_service import OpenClawInstanceService
 
@@ -25,6 +28,8 @@ SKIP_RESPONSE_HEADERS = {
     "transfer-encoding",
     "connection",
     "keep-alive",
+    "content-security-policy",
+    "x-frame-options",
 }
 
 
@@ -66,7 +71,10 @@ async def proxy_to_openclaw(
             if k.lower() not in SKIP_RESPONSE_HEADERS:
                 response_headers[k] = v
 
-        response_headers["X-Frame-Options"] = "SAMEORIGIN"
+        parsed = urlparse(settings.frontend_url)
+        frontend_origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+        if frontend_origin:
+            response_headers["Content-Security-Policy"] = f"frame-ancestors 'self' {frontend_origin}"
         response_headers["Access-Control-Allow-Origin"] = "*"
 
         return Response(

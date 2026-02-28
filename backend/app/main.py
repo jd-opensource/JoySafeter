@@ -28,7 +28,7 @@ from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, rejec
 from app.websocket.chat_handler import ChatHandler
 from app.websocket.copilot_handler import copilot_handler
 from app.websocket.notification_manager import NotificationType, notification_manager
-from app.websocket.openclaw_handler import openclaw_bridge_handler, openclaw_handler
+from app.websocket.openclaw_handler import openclaw_bridge_handler
 
 setup_logging()
 
@@ -459,18 +459,6 @@ async def openclaw_bridge_websocket_endpoint(websocket: WebSocket, user_id: str)
         return
 
     await openclaw_bridge_handler.handle_bridge(websocket, user_id)
-
-
-@app.websocket("/ws/openclaw/{task_id}")
-async def openclaw_websocket_endpoint(websocket: WebSocket, task_id: str):
-    """WebSocket endpoint for streaming OpenClaw task output in real time."""
-    is_authenticated, user_id = await authenticate_websocket(websocket)
-
-    if not is_authenticated or not user_id:
-        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
-        return
-
-    await openclaw_handler.handle_connection(websocket, task_id)
 
 
 if __name__ == "__main__":

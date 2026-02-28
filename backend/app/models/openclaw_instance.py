@@ -14,7 +14,6 @@ from app.models.base import TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.auth import AuthUser
-    from app.models.openclaw_task import OpenClawTask
 
 
 class OpenClawInstance(Base, TimestampMixin):
@@ -39,6 +38,3 @@ class OpenClawInstance(Base, TimestampMixin):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     user: Mapped["AuthUser"] = relationship("AuthUser", lazy="selectin")
-    tasks: Mapped[list["OpenClawTask"]] = relationship(
-        "OpenClawTask", back_populates="instance", lazy="selectin"
-    )

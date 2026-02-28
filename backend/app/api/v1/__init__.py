@@ -26,7 +26,6 @@ from .openclaw_chat import router as openclaw_chat_router
 from .openclaw_devices import router as openclaw_devices_router
 from .openclaw_instances import router as openclaw_instances_router
 from .openclaw_proxy import router as openclaw_proxy_router
-from .openclaw_tasks import router as openclaw_tasks_router
 from .organizations import router as organizations_router
 from .skills import router as skills_router
 from .tools import router as tools_router
@@ -62,7 +61,6 @@ ROUTERS = [
     users_router,
     environment_router,
     openclaw_instances_router,
-    openclaw_tasks_router,
     openclaw_chat_router,
     openclaw_devices_router,
     openclaw_proxy_router,

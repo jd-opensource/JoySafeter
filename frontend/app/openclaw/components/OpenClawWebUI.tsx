@@ -1,11 +1,10 @@
 'use client'
 
-import { ExternalLink, Loader2, Monitor } from 'lucide-react'
+import { ExternalLink, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { env as runtimeEnv } from 'next-runtime-env'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 function getApiBaseUrl(): string {
   const url = runtimeEnv('NEXT_PUBLIC_API_URL') || process.env.NEXT_PUBLIC_API_URL
@@ -16,13 +15,12 @@ export function OpenClawWebUI() {
   const [loading, setLoading] = useState(true)
 
   const iframeSrc = useMemo(() => {
-    return `${getApiBaseUrl()}/api/v1/openclaw/proxy/`
+    return `${getApiBaseUrl()}/api/v1/openclaw/proxy/overview`
   }, [])
 
   return (
-    <Card className="flex h-full flex-col overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-        <CardTitle className="text-sm font-medium">OpenClaw 原生界面</CardTitle>
+    <div className="relative flex h-full flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg)]">
+      <div className="flex shrink-0 items-center justify-end gap-2 border-b border-[var(--border)] px-3 py-2">
         <Button
           variant="ghost"
           size="sm"
@@ -32,8 +30,8 @@ export function OpenClawWebUI() {
           <ExternalLink className="mr-1 h-3.5 w-3.5" />
           新窗口打开
         </Button>
-      </CardHeader>
-      <CardContent className="relative flex-1 overflow-hidden p-0">
+      </div>
+      <div className="relative min-h-0 flex-1">
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--bg)]">
             <div className="flex flex-col items-center gap-2">
@@ -50,7 +48,7 @@ export function OpenClawWebUI() {
           sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
           title="OpenClaw WebUI"
         />
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

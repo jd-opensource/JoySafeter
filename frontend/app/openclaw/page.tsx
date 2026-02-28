@@ -1,76 +1,58 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { ChevronDown, ChevronUp, Settings2 } from 'lucide-react'
+import { useState } from 'react'
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-
-import { DeviceManager } from './components/DeviceManager'
-import { InstanceManager } from './components/InstanceManager'
-import { OpenClawChat } from './components/OpenClawChat'
+import { OpenClawManagement } from './components/OpenClawManagement'
 import { OpenClawWebUI } from './components/OpenClawWebUI'
-import { TaskList } from './components/TaskList'
-import { TaskOutputViewer } from './components/TaskOutputViewer'
-import { TaskSubmitForm } from './components/TaskSubmitForm'
+import { cn } from '@/lib/core/utils/cn'
 
 export default function OpenClawPage() {
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0)
-
-  const handleTaskSubmitted = useCallback(() => {
-    setRefreshKey((k) => k + 1)
-  }, [])
+  const [managementOpen, setManagementOpen] = useState(true)
 
   return (
     <div className="flex h-full flex-col overflow-hidden p-6">
-      <div className="mb-4">
+      <div className="mb-4 shrink-0">
         <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
           OpenClaw
         </h1>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          管理你的 OpenClaw 实例，通过 Chat 对话或原生 Web UI 与 Agent 交互。
+          管理实例与设备配对后，在下方使用 OpenClaw 原生界面与 Agent 交互。
         </p>
       </div>
 
-      <Tabs defaultValue="dashboard" className="flex flex-1 flex-col overflow-hidden">
-        <TabsList className="w-fit">
-          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="chat">Chat</TabsTrigger>
-          <TabsTrigger value="webui">WebUI</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="dashboard" className="flex-1 overflow-auto">
-          <div className="flex flex-col gap-6 py-2">
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <InstanceManager />
-              <DeviceManager />
-            </div>
-
-            <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-2">
-              <div className="flex flex-col gap-6">
-                <TaskSubmitForm onSubmitted={handleTaskSubmitted} />
-                <TaskList
-                  refreshKey={refreshKey}
-                  selectedTaskId={selectedTaskId}
-                  onSelectTask={setSelectedTaskId}
-                />
-              </div>
-              <TaskOutputViewer taskId={selectedTaskId} />
-            </div>
+      <div className="mb-4 shrink-0 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
+        <button
+          type="button"
+          onClick={() => setManagementOpen((o) => !o)}
+          className={cn(
+            'flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors',
+            'hover:bg-[var(--muted)]/50',
+          )}
+          aria-expanded={managementOpen}
+        >
+          <span className="flex items-center gap-2.5 text-sm font-medium text-[var(--text-primary)]">
+            <Settings2 className="h-4 w-4 text-[var(--text-tertiary)]" />
+            实例与设备管理
+          </span>
+          <span className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--text-primary)]">
+            {managementOpen ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </span>
+        </button>
+        {managementOpen && (
+          <div className="border-t border-[var(--border)] p-4">
+            <OpenClawManagement />
           </div>
-        </TabsContent>
+        )}
+      </div>
 
-        <TabsContent value="chat" className="flex-1 overflow-hidden">
-          <div className="h-full py-2">
-            <OpenClawChat />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="webui" className="flex-1 overflow-hidden">
-          <div className="h-full py-2">
-            <OpenClawWebUI />
-          </div>
-        </TabsContent>
-      </Tabs>
+      <div className="min-h-0 flex-1">
+        <OpenClawWebUI />
+      </div>
     </div>
   )
 }
