@@ -8,12 +8,15 @@ OpenClaw Gateway running on its allocated port.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import subprocess
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
@@ -52,6 +55,39 @@ def _inject_script_into_html(html: str, script: str) -> str:
     if "<body" in html:
         return re.sub(r"(<body[^>]*>)", r"\1" + script, html, count=1, flags=re.I)
     return script + html
+
+
+async def _poll_approve_devices(container_id: str) -> None:
+    """Wait and poll to approve devices shortly after UI triggers websocket connect."""
+    if not container_id:
+        return
+    for _ in range(8):  # Poll every 1.5s for up to 12s
+        await asyncio.sleep(1.5)
+        try:
+            result = subprocess.run(
+                ["docker", "exec", container_id, "openclaw", "devices", "list", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                continue
+            devices = json.loads(result.stdout) if result.stdout else {}
+            pending = devices.get("pending", [])
+            for p in pending:
+                request_id = p.get("requestId")
+                if request_id:
+                    subprocess.run(
+                        ["docker", "exec", container_id, "openclaw", "devices", "approve", request_id],
+                        capture_output=True,
+                        timeout=30,
+                    )
+                    logger.info(f"[Auto-Pair] Approved device request {request_id} for openclaw container {container_id}")
+            if pending:
+                break  # We found and approved pending devices, done polling.
+        except Exception as e:
+            logger.warning(f"[Auto-Pair] Background approve devices failed: {e}")
+
 SKIP_RESPONSE_HEADERS = {
     "content-encoding",
     "transfer-encoding",
@@ -84,9 +120,9 @@ async def proxy_to_openclaw(
     path_normalized = (path or "").rstrip("/") or ""
     is_entry = path_normalized in entry_paths
 
-    # Auto device pair: approve pending devices when loading overview (best-effort)
-    if is_entry:
-        await service.approve_all_pending_devices(str(current_user.id))
+    # Auto device pair: wait for the client to connect WebSocket and then approve
+    if is_entry and instance.container_id:
+        asyncio.create_task(_poll_approve_devices(instance.container_id))
 
     query_params = dict(parse_qs(request.url.query))
     if is_entry:
