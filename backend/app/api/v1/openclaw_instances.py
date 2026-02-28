@@ -32,6 +32,7 @@ def _serialize_instance(inst) -> Dict[str, Any]:
         "status": inst.status,
         "containerId": inst.container_id,
         "gatewayPort": inst.gateway_port,
+        "gatewayToken": inst.gateway_token,
         "lastActiveAt": inst.last_active_at.isoformat() if inst.last_active_at else None,
         "errorMessage": inst.error_message,
         "createdAt": inst.created_at.isoformat() if inst.created_at else None,

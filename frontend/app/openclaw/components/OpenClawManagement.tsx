@@ -10,9 +10,11 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import {
   Check,
   CheckCheck,
+  Copy,
   Loader2,
   Play,
   Power,
@@ -32,6 +34,7 @@ interface InstanceStatus {
   id?: string
   status?: string
   gatewayPort?: number
+  gatewayToken?: string
   containerId?: string
   alive?: boolean
   lastActiveAt?: string | null
@@ -61,6 +64,13 @@ const instanceStatusStyles: Record<string, string> = {
 
 export function OpenClawManagement() {
   const queryClient = useQueryClient()
+  const [copiedToken, setCopiedToken] = useState(false)
+
+  const handleCopyToken = (token: string) => {
+    navigator.clipboard.writeText(token)
+    setCopiedToken(true)
+    setTimeout(() => setCopiedToken(false), 2000)
+  }
 
   const { data: instance, isLoading: instanceLoading } = useQuery<InstanceStatus>({
     queryKey: ['openclaw-instance'],
@@ -155,6 +165,21 @@ export function OpenClawManagement() {
           )}
           {instance.gatewayPort != null && (
             <span className="text-xs text-[var(--text-tertiary)]">端口 {instance.gatewayPort}</span>
+          )}
+          {instance.gatewayToken && (
+            <div className="flex items-center gap-1.5 ml-1 rounded border border-[var(--border)] bg-[var(--muted)]/50 px-1.5 py-0.5">
+              <span className="text-[10px] text-[var(--text-tertiary)]">Token</span>
+              <span className="font-mono text-[10px] text-[var(--text-primary)] max-w-[120px] truncate" title={instance.gatewayToken}>
+                {instance.gatewayToken}
+              </span>
+              <button
+                onClick={() => handleCopyToken(instance.gatewayToken!)}
+                className="ml-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+                title="复制 Token"
+              >
+                {copiedToken ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
           )}
           {instance.errorMessage && (
             <span className="text-xs text-red-600">{instance.errorMessage}</span>

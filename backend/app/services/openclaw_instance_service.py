@@ -296,6 +296,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             "id": instance.id,
             "status": instance.status,
             "gatewayPort": instance.gateway_port,
+            "gatewayToken": instance.gateway_token,
             "containerId": instance.container_id,
             "alive": alive,
             "lastActiveAt": instance.last_active_at.isoformat() if instance.last_active_at else None,
