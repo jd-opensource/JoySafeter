@@ -304,6 +304,13 @@ Pre-configured 10+ core security Skills and 200+ toolchains for modular reuse an
 - Workflow topology analysis and optimization suggestions to improve execution efficiency and resource utilization
 - Automatic best practices enforcement to ensure workflow design meets industry standards and security specifications
 
+#### 7. OpenClaw Multi-Tenant Proxy (v1.0)
+
+**一键搞定多租户小龙虾** 🦞 (One-Click Multi-tenant Device Proxy):
+- **Isolated User Environments**: Each user is automatically assigned an independent OpenClaw container and proxy gateway port.
+- **Port & Token Auto-allocation**: Automated secure allocation of ports on the server and generation of unique gateway tokens for isolated communication.
+- **(TODO) Agent Integration**: Establish deep connection between JoySafeter Agents and OpenClaw for automated device coordination and command execution across instances.
+
 ### Technical Highlights
 
 #### 1. Advanced Routing System
