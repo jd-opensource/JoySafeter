@@ -8,7 +8,9 @@ OpenClaw Gateway running on its allocated port.
 
 from __future__ import annotations
 
-from urllib.parse import urlparse
+import json
+import re
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
@@ -23,6 +25,33 @@ from app.services.openclaw_instance_service import OpenClawInstanceService
 router = APIRouter(prefix="/v1/openclaw/proxy", tags=["OpenClaw Proxy"])
 
 PROXY_TIMEOUT = 300
+
+
+def _make_inject_script(ws_url: str, token: str) -> str:
+    """Script to set Control UI connection config in localStorage (runs before app)."""
+    ws_js = json.dumps(ws_url)
+    tok_js = json.dumps(token)
+    return f"""<script>(function(){{
+        try {{
+            var k="openclaw.control.settings.v1";
+            var s=localStorage.getItem(k);
+            var o=s?JSON.parse(s):{{}};
+            o.gatewayUrl={ws_js};
+            o.token={tok_js};
+            localStorage.setItem(k,JSON.stringify(o));
+            localStorage.setItem("gatewayUrl",{ws_js});
+            localStorage.setItem("token",{tok_js});
+        }}catch(e){{}}
+    }})();</script>"""
+
+
+def _inject_script_into_html(html: str, script: str) -> str:
+    """Inject script as early as possible (after <head> or at <body> start)."""
+    if "<head" in html:
+        return re.sub(r"(<head[^>]*>)", r"\1" + script, html, count=1, flags=re.I)
+    if "<body" in html:
+        return re.sub(r"(<body[^>]*>)", r"\1" + script, html, count=1, flags=re.I)
+    return script + html
 SKIP_RESPONSE_HEADERS = {
     "content-encoding",
     "transfer-encoding",
@@ -30,6 +59,7 @@ SKIP_RESPONSE_HEADERS = {
     "keep-alive",
     "content-security-policy",
     "x-frame-options",
+    "content-length",
 }
 
 
@@ -48,8 +78,26 @@ async def proxy_to_openclaw(
         return Response(content="OpenClaw instance not running", status_code=503)
 
     target_url = f"http://127.0.0.1:{instance.gateway_port}/{path}"
-    if request.url.query:
-        target_url += f"?{request.url.query}"
+
+    # For Control UI entry pages, inject gatewayUrl + token so the dashboard can auto-connect
+    entry_paths = ("", "overview", "index.html")
+    path_normalized = (path or "").rstrip("/") or ""
+    is_entry = path_normalized in entry_paths
+
+    # Auto device pair: approve pending devices when loading overview (best-effort)
+    if is_entry:
+        await service.approve_all_pending_devices(str(current_user.id))
+
+    query_params = dict(parse_qs(request.url.query))
+    if is_entry:
+        scheme = "wss" if request.url.scheme == "https" else "ws"
+        host = request.url.hostname or "localhost"
+        ws_url = f"{scheme}://{host}:{instance.gateway_port}"
+        query_params["gatewayUrl"] = [ws_url]
+        query_params["token"] = [instance.gateway_token]
+
+    if query_params:
+        target_url += "?" + urlencode(query_params, doseq=True)
 
     body = await request.body()
 
@@ -77,8 +125,23 @@ async def proxy_to_openclaw(
             response_headers["Content-Security-Policy"] = f"frame-ancestors 'self' {frontend_origin}"
         response_headers["Access-Control-Allow-Origin"] = "*"
 
+        content = resp.content
+        # Iframe: Control UI may ignore URL params. Inject localStorage for auto-connect.
+        if is_entry and resp.status_code == 200:
+            ct = (resp.headers.get("content-type") or "").lower()
+            if "text/html" in ct:
+                scheme = "wss" if request.url.scheme == "https" else "ws"
+                host = request.url.hostname or "localhost"
+                ws_url = f"{scheme}://{host}:{instance.gateway_port}"
+                inj = _make_inject_script(ws_url, instance.gateway_token)
+                try:
+                    html = content.decode("utf-8", errors="replace")
+                    content = _inject_script_into_html(html, inj).encode("utf-8")
+                except Exception:
+                    pass
+
         return Response(
-            content=resp.content,
+            content=content,
             status_code=resp.status_code,
             headers=response_headers,
             media_type=resp.headers.get("content-type"),

@@ -331,3 +331,35 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
     def get_gateway_url(self, instance: OpenClawInstance) -> str:
         return f"http://127.0.0.1:{instance.gateway_port}"
+
+    async def approve_all_pending_devices(self, user_id: str) -> bool:
+        """Approve all pending device pairing requests for the user's instance."""
+        import json
+        import subprocess
+
+        instance = await self.get_instance_by_user(user_id)
+        if not instance or instance.status != "running" or not instance.container_id:
+            return False
+        try:
+            result = subprocess.run(
+                ["docker", "exec", instance.container_id, "openclaw", "devices", "list", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                return False
+            devices = json.loads(result.stdout) if result.stdout else {}
+            pending = devices.get("pending", [])
+            for p in pending:
+                device_id = p.get("deviceId")
+                if device_id:
+                    subprocess.run(
+                        ["docker", "exec", instance.container_id, "openclaw", "devices", "approve", device_id],
+                        capture_output=True,
+                        timeout=15,
+                    )
+            return True
+        except Exception as e:
+            logger.warning(f"approve_all_pending_devices failed for user {user_id}: {e}")
+            return False

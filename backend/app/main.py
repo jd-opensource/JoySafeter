@@ -445,6 +445,18 @@ async def copilot_websocket_endpoint(websocket: WebSocket, session_id: str):
     await copilot_handler.handle_connection(websocket, session_id)
 
 
+@app.websocket("/ws/openclaw/dashboard")
+async def openclaw_dashboard_websocket_endpoint(websocket: WebSocket):
+    """WebSocket proxy for Control UI — auth from cookie, no user_id in path."""
+    is_authenticated, user_id = await authenticate_websocket(websocket)
+
+    if not is_authenticated or not user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+
+    await openclaw_bridge_handler.handle_bridge(websocket, str(user_id))
+
+
 @app.websocket("/ws/openclaw/bridge/{user_id}")
 async def openclaw_bridge_websocket_endpoint(websocket: WebSocket, user_id: str):
     """Bidirectional WS bridge between client and OpenClaw Gateway."""
