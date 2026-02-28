@@ -322,9 +322,11 @@ build_all_images() {
     if [ "$BACKEND_ONLY" = true ]; then
         BUILD_FRONTEND=false
         BUILD_INIT=false
+        BUILD_OPENCLAW=false
     elif [ "$FRONTEND_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_INIT=false
+        BUILD_OPENCLAW=false
     elif [ "$INIT_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -406,7 +408,7 @@ build_all_images() {
     if [ "$BUILD_OPENCLAW" = true ]; then
         build_image "OpenClaw" \
             "$PROJECT_ROOT/deploy/openclaw/Dockerfile" \
-            "$PROJECT_ROOT/backend" \
+            "$PROJECT_ROOT/deploy/openclaw" \
             "$OPENCLAW_FULL_IMAGE"
         echo ""
     fi
