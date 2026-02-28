@@ -33,12 +33,12 @@ from .model_credential import ModelCredential
 from .model_instance import ModelInstance
 from .model_provider import ModelProvider
 from .oauth_account import OAuthAccount
+from .openclaw_instance import OpenClawInstance
 from .organization import Member, Organization
 from .security_audit_log import SecurityAuditLog
 from .settings import Environment, Settings, WorkspaceEnvironment
 from .skill import Skill, SkillFile
 from .user_sandbox import UserSandbox
-from .openclaw_instance import OpenClawInstance
 from .workspace import Workspace, WorkspaceFolder, WorkspaceMember, WorkspaceMemberRole, WorkspaceStatus
 from .workspace_files import WorkspaceFile, WorkspaceStoredFile
 

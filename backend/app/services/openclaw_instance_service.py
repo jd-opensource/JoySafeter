@@ -36,15 +36,11 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         super().__init__(db)
 
     async def get_instance_by_user(self, user_id: str) -> Optional[OpenClawInstance]:
-        result = await self.db.execute(
-            select(OpenClawInstance).where(OpenClawInstance.user_id == user_id)
-        )
+        result = await self.db.execute(select(OpenClawInstance).where(OpenClawInstance.user_id == user_id))
         return result.scalar_one_or_none()
 
     async def get_instance(self, instance_id: str) -> Optional[OpenClawInstance]:
-        result = await self.db.execute(
-            select(OpenClawInstance).where(OpenClawInstance.id == instance_id)
-        )
+        result = await self.db.execute(select(OpenClawInstance).where(OpenClawInstance.id == instance_id))
         return result.scalar_one_or_none()
 
     def _is_running_in_docker(self) -> bool:
@@ -64,7 +60,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
     def get_gateway_url(self, instance: OpenClawInstance) -> str:
         """Get the URL to communicate with the OpenClaw container instance.
-        
+
         If we are running inside docker (on the same network), we use the internal
         container name and port 18789. Otherwise (local dev), we use 127.0.0.1
         and the mapped host port.
@@ -80,9 +76,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
     async def _allocate_port(self) -> int:
         """Find the next available port in the range."""
-        result = await self.db.execute(
-            select(func.max(OpenClawInstance.gateway_port))
-        )
+        result = await self.db.execute(select(func.max(OpenClawInstance.gateway_port)))
         max_port = result.scalar_one_or_none()
         if max_port is None or max_port < PORT_RANGE_START:
             return PORT_RANGE_START
@@ -144,26 +138,19 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
     async def _create_container(self, instance: OpenClawInstance) -> str:
         """Create and start a Docker container for the instance."""
         import subprocess
-        import json
 
         container_name = f"openclaw-user-{instance.user_id[:12]}"
 
         # Stop and remove existing container if any
         if instance.container_id:
             try:
-                subprocess.run(
-                    ["docker", "rm", "-f", instance.container_id],
-                    capture_output=True, timeout=15
-                )
+                subprocess.run(["docker", "rm", "-f", instance.container_id], capture_output=True, timeout=15)
             except Exception:
                 pass
 
         # Also try to remove by name
         try:
-            subprocess.run(
-                ["docker", "rm", "-f", container_name],
-                capture_output=True, timeout=15
-            )
+            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=15)
         except Exception:
             pass
 
@@ -173,6 +160,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         # Pass through AI provider keys from host environment
         import os
+
         for key in (
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
@@ -196,10 +184,15 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                 env_vars[k] = str(v)
 
         cmd = [
-            "docker", "run", "-d",
-            "--name", container_name,
-            "-p", f"{instance.gateway_port}:18789",
-            "--restart", "unless-stopped",
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "-p",
+            f"{instance.gateway_port}:18789",
+            "--restart",
+            "unless-stopped",
         ]
 
         for k, v in env_vars.items():
@@ -207,10 +200,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         # Try to attach to the JoySafeter network
         try:
-            result = subprocess.run(
-                ["docker", "network", "inspect", OPENCLAW_NETWORK],
-                capture_output=True, timeout=10
-            )
+            result = subprocess.run(["docker", "network", "inspect", OPENCLAW_NETWORK], capture_output=True, timeout=10)
             if result.returncode == 0:
                 cmd.extend(["--network", OPENCLAW_NETWORK])
         except Exception:
@@ -223,7 +213,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
 
         container_id = result.stdout.strip()[:12]
-        logger.info(f"Created OpenClaw container {container_id} for user {instance.user_id} on port {instance.gateway_port}")
+        logger.info(
+            f"Created OpenClaw container {container_id} for user {instance.user_id} on port {instance.gateway_port}"
+        )
         return container_id
 
     async def _wait_for_gateway(self, instance: OpenClawInstance) -> None:
@@ -244,14 +236,19 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         # Last resort: check if container is still running
         import subprocess
+
         result = subprocess.run(
             ["docker", "inspect", "-f", "{{.State.Running}}", instance.container_id or ""],
-            capture_output=True, text=True, timeout=10
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.stdout.strip() != "true":
             logs = subprocess.run(
                 ["docker", "logs", "--tail", "30", instance.container_id or ""],
-                capture_output=True, text=True, timeout=10
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             raise RuntimeError(f"Container died during startup. Logs:\n{logs.stderr or logs.stdout}")
 
@@ -274,11 +271,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         if instance.container_id:
             import subprocess
+
             try:
-                subprocess.run(
-                    ["docker", "stop", instance.container_id],
-                    capture_output=True, timeout=30
-                )
+                subprocess.run(["docker", "stop", instance.container_id], capture_output=True, timeout=30)
             except Exception as e:
                 logger.warning(f"Failed to stop container {instance.container_id}: {e}")
 
@@ -298,11 +293,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         # Remove container
         if instance.container_id:
             import subprocess
+
             try:
-                subprocess.run(
-                    ["docker", "rm", "-f", instance.container_id],
-                    capture_output=True, timeout=15
-                )
+                subprocess.run(["docker", "rm", "-f", instance.container_id], capture_output=True, timeout=15)
             except Exception:
                 pass
 
@@ -354,11 +347,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         elif status in ("running", "starting"):
             values["error_message"] = None
 
-        await self.db.execute(
-            update(OpenClawInstance)
-            .where(OpenClawInstance.id == instance_id)
-            .values(**values)
-        )
+        await self.db.execute(update(OpenClawInstance).where(OpenClawInstance.id == instance_id).values(**values))
         await self.db.commit()
 
     async def approve_all_pending_devices(self, user_id: str) -> bool:

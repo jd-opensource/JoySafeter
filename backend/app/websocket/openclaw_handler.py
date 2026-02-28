@@ -39,7 +39,7 @@ class OpenClawBridgeHandler:
         scheme = "wss" if base_url.startswith("https") else "ws"
         host_port = base_url.split("://")[-1]
         gateway_ws_url = f"{scheme}://{host_port}"
-        
+
         logger.info(f"OpenClaw bridge connecting: user={user_id} -> {gateway_ws_url}")
 
         try:
@@ -48,12 +48,8 @@ class OpenClawBridgeHandler:
                 additional_headers={"Authorization": f"Bearer {instance.gateway_token}"},
             ) as gw_ws:
                 # Run two forwarding loops concurrently
-                client_to_gw = asyncio.create_task(
-                    self._forward_client_to_gateway(ws, gw_ws, user_id)
-                )
-                gw_to_client = asyncio.create_task(
-                    self._forward_gateway_to_client(ws, gw_ws, user_id)
-                )
+                client_to_gw = asyncio.create_task(self._forward_client_to_gateway(ws, gw_ws, user_id))
+                gw_to_client = asyncio.create_task(self._forward_gateway_to_client(ws, gw_ws, user_id))
 
                 done, pending = await asyncio.wait(
                     [client_to_gw, gw_to_client],

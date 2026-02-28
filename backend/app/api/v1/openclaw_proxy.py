@@ -82,11 +82,14 @@ async def _poll_approve_devices(container_id: str) -> None:
                         capture_output=True,
                         timeout=30,
                     )
-                    logger.info(f"[Auto-Pair] Approved device request {request_id} for openclaw container {container_id}")
+                    logger.info(
+                        f"[Auto-Pair] Approved device request {request_id} for openclaw container {container_id}"
+                    )
             if pending:
                 break  # We found and approved pending devices, done polling.
         except Exception as e:
             logger.warning(f"[Auto-Pair] Background approve devices failed: {e}")
+
 
 SKIP_RESPONSE_HEADERS = {
     "content-encoding",

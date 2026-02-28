@@ -1,6 +1,6 @@
 FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/ubuntu:22.04
 
-# Install Node.js 22 (required by OpenClaw) 
+# Install Node.js 22 (required by OpenClaw)
 # Using direct binary download for reliability
 ENV NODE_VERSION=22.13.1
 RUN ARCH="$(dpkg --print-architecture)" \

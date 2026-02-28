@@ -36,7 +36,9 @@ def _docker_exec(container_id: str, cmd: list[str], timeout: int = 15) -> str:
     """Run a command inside the user's OpenClaw container."""
     result = subprocess.run(
         ["docker", "exec", container_id] + cmd,
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"Command failed with exit code {result.returncode}")
