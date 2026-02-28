@@ -1072,6 +1072,7 @@ export default {
       save: 'Save',
     },
     openclaw: {
+      manageInstancesAndDevices: 'Manage Instances & Devices',
       instance: 'OpenClaw Instance',
       gatewayPort: 'Gateway Port',
       containerId: 'Container ID',

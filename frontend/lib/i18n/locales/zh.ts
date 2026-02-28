@@ -1072,6 +1072,7 @@ export default {
       save: '保存',
     },
     openclaw: {
+      manageInstancesAndDevices: '管理实例与设备',
       instance: 'OpenClaw 实例',
       gatewayPort: 'Gateway 端口',
       containerId: '容器 ID',
