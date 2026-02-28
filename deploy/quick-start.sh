@@ -4,6 +4,9 @@
 
 set -e
 
+# 默认使用 linux/amd64 架构
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'

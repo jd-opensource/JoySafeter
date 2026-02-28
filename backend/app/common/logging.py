@@ -5,6 +5,7 @@
 """
 # mypy: ignore-errors
 
+import logging
 import os
 import time
 import uuid
@@ -13,6 +14,25 @@ from collections.abc import Callable
 from fastapi import Request, Response
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
+
+
+class InterceptHandler(logging.Handler):
+    """拦截标准 logging 消息并将其路由到 loguru"""
+    def emit(self, record):
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        logging_file = getattr(logging, "__file__", "")
+        while frame and frame.f_code.co_filename == logging_file:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
+        )
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -116,5 +136,12 @@ def setup_logging():
     except (PermissionError, OSError):
         # 如果无法创建日志文件（例如权限不足），只使用控制台输出
         pass
+
+    # 拦截标准 logging 到 loguru
+    intercept_handler = InterceptHandler()
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
+        std_logger = logging.getLogger(logger_name)
+        std_logger.handlers = [intercept_handler]
+        std_logger.propagate = False
 
     logger.info("✅ 日志系统初始化完成")
