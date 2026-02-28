@@ -253,6 +253,12 @@ class Settings(BaseSettings):
         else:
             return []
 
+    cors_origin_regex: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("CORS_ORIGIN_REGEX"),
+        description="Regex string for allowed CORS origins",
+    )
+
     # Frontend URL (for email links)
     frontend_url: str = Field(
         default="http://localhost:3001",
