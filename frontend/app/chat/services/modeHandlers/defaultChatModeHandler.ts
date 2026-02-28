@@ -26,7 +26,7 @@ import type {
 
 const TEMPLATE_GRAPH_NAME = 'Default Chat'
 
-let creatingGraphPromise: Promise<ModeSelectionResult> | null = null
+let initPromise: Promise<ModeSelectionResult> | null = null
 
 export const defaultChatModeHandler: ModeHandler = {
   metadata: {
@@ -40,58 +40,58 @@ export const defaultChatModeHandler: ModeHandler = {
   requiresFiles: false,
 
   async onSelect(context: ModeContext): Promise<ModeSelectionResult> {
-    if (!context.personalWorkspaceId) {
-      return {
-        success: false,
-        error: 'Personal workspace not found. Please ensure you have a personal workspace.',
-      }
+    if (initPromise) {
+      return initPromise
     }
 
-    let workspaceGraphs: Array<{ id: string; name: string }> | undefined
-    if (context.queryClient.getQueryData) {
-      workspaceGraphs = context.queryClient.getQueryData<Array<{ id: string; name: string }>>(
-        [...graphKeys.list(context.personalWorkspaceId)]
-      )
-    }
-
-    if (!workspaceGraphs) {
+    initPromise = (async (): Promise<ModeSelectionResult> => {
       try {
-        workspaceGraphs = await agentService.listGraphs(context.personalWorkspaceId)
-      } catch (error) {
-        console.error('Failed to fetch workspace graphs:', error)
-        workspaceGraphs = []
-      }
-    }
+        if (!context.personalWorkspaceId) {
+          return {
+            success: false,
+            error: 'Personal workspace not found. Please ensure you have a personal workspace.',
+          }
+        }
 
-    const defaultChatGraph = workspaceGraphs?.find((g) => g.name === TEMPLATE_GRAPH_NAME)
+        let workspaceGraphs: Array<{ id: string; name: string }> | undefined
+        if (context.queryClient.getQueryData) {
+          workspaceGraphs = context.queryClient.getQueryData<Array<{ id: string; name: string }>>(
+            [...graphKeys.list(context.personalWorkspaceId)]
+          )
+        }
 
-    if (defaultChatGraph) {
-      return {
-        success: true,
-        stateUpdates: {
-          mode: 'default-chat',
-          graphId: defaultChatGraph.id,
-        },
-      }
-    }
+        if (!workspaceGraphs) {
+          try {
+            workspaceGraphs = await agentService.listGraphs(context.personalWorkspaceId)
+          } catch (error) {
+            console.error('Failed to fetch workspace graphs:', error)
+            workspaceGraphs = []
+          }
+        }
 
-    if (creatingGraphPromise) {
-      return creatingGraphPromise
-    }
+        const defaultChatGraph = workspaceGraphs?.find((g) => g.name === TEMPLATE_GRAPH_NAME)
 
-    const modeConfig = getModeConfig('default-chat')
-    if (!modeConfig?.templateName || !modeConfig.templateGraphName) {
-      return {
-        success: false,
-        error: 'Default Chat template configuration not found',
-      }
-    }
+        if (defaultChatGraph) {
+          return {
+            success: true,
+            stateUpdates: {
+              mode: 'default-chat',
+              graphId: defaultChatGraph.id,
+            },
+          }
+        }
 
-    const templateName = modeConfig.templateName
-    const templateGraphName = modeConfig.templateGraphName
+        const modeConfig = getModeConfig('default-chat')
+        if (!modeConfig?.templateName || !modeConfig.templateGraphName) {
+          return {
+            success: false,
+            error: 'Default Chat template configuration not found',
+          }
+        }
 
-    creatingGraphPromise = (async (): Promise<ModeSelectionResult> => {
-      try {
+        const templateName = modeConfig.templateName
+        const templateGraphName = modeConfig.templateGraphName
+
         if (context.queryClient.refetchQueries) {
           await context.queryClient.refetchQueries({
             queryKey: [...graphKeys.list(context.personalWorkspaceId!)],
@@ -143,11 +143,11 @@ export const defaultChatModeHandler: ModeHandler = {
           error: message,
         }
       } finally {
-        creatingGraphPromise = null
+        initPromise = null
       }
     })()
 
-    return creatingGraphPromise
+    return initPromise
   },
 
   async onSubmit(
