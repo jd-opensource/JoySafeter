@@ -27,6 +27,7 @@ BACKEND_IMAGE="${BACKEND_IMAGE:-joysafeter-backend}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-joysafeter-frontend}"
 MCP_IMAGE="${MCP_IMAGE:-joysafeter-mcp}"
 INIT_IMAGE="${INIT_IMAGE:-joysafeter-init}"
+OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-joysafeter-openclaw}"
 TAG="${IMAGE_TAG:-latest}"
 # 默认多平台构建：amd64 + arm64
 PLATFORMS="${BUILD_PLATFORMS:-linux/amd64,linux/arm64}"
@@ -89,7 +90,8 @@ show_usage() {
   --backend-only         只构建后端镜像
   --frontend-only        只构建前端镜像
   --init-only            只构建初始化镜像
-  --all                  构建所有镜像（包括 backend, frontend, init）
+  --openclaw-only        只构建 OpenClaw 镜像
+  --all                  构建所有镜像（包括 backend, frontend, init, openclaw）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
   --mirror MIRROR        使用国内镜像源加速基础镜像（aliyun, tencent, huawei, docker-cn）
   --pip-mirror MIRROR    使用国内 pip 镜像源（aliyun, tencent, huawei, jd）
@@ -100,6 +102,7 @@ show_usage() {
   FRONTEND_IMAGE         前端镜像名称（默认: joysafeter-frontend）
   MCP_IMAGE              MCP 服务镜像名称（默认: joysafeter-mcp）
   INIT_IMAGE             初始化镜像名称（默认: joysafeter-init）
+  OPENCLAW_IMAGE         OpenClaw 镜像名称（默认: joysafeter-openclaw）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
   NEXT_PUBLIC_API_URL    前端API地址（默认: http://localhost:8000）
@@ -313,6 +316,7 @@ build_all_images() {
     local BUILD_BACKEND=${BUILD_BACKEND:-true}
     local BUILD_FRONTEND=${BUILD_FRONTEND:-true}
     local BUILD_INIT=${BUILD_INIT:-false}
+    local BUILD_OPENCLAW=${BUILD_OPENCLAW:-true}
 
     # 检查是否只构建特定服务
     if [ "$BACKEND_ONLY" = true ]; then
@@ -325,10 +329,17 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_INIT=true
+        BUILD_OPENCLAW=false
+    elif [ "$OPENCLAW_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_INIT=false
+        BUILD_OPENCLAW=true
     elif [ "$BUILD_ALL" = true ]; then
         BUILD_BACKEND=true
         BUILD_FRONTEND=true
         BUILD_INIT=true
+        BUILD_OPENCLAW=true
     fi
 
     # 规范化镜像仓库地址
@@ -340,11 +351,13 @@ build_all_images() {
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
         MCP_FULL_IMAGE="${NORMALIZED_REGISTRY}/${MCP_IMAGE}:${TAG}"
         INIT_FULL_IMAGE="${NORMALIZED_REGISTRY}/${INIT_IMAGE}:${TAG}"
+        OPENCLAW_FULL_IMAGE="${NORMALIZED_REGISTRY}/${OPENCLAW_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
         MCP_FULL_IMAGE="${MCP_IMAGE}:${TAG}"
         INIT_FULL_IMAGE="${INIT_IMAGE}:${TAG}"
+        OPENCLAW_FULL_IMAGE="${OPENCLAW_IMAGE}:${TAG}"
     fi
 
     # 初始化 Buildx（如果需要）
@@ -389,12 +402,22 @@ build_all_images() {
         echo ""
     fi
 
+    # 构建 OpenClaw 镜像
+    if [ "$BUILD_OPENCLAW" = true ]; then
+        build_image "OpenClaw" \
+            "$PROJECT_ROOT/deploy/openclaw/Dockerfile" \
+            "$PROJECT_ROOT/backend" \
+            "$OPENCLAW_FULL_IMAGE"
+        echo ""
+    fi
+
     log_success "所有镜像构建完成！"
     echo ""
     echo "📦 镜像信息:"
     [ "$BUILD_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$BUILD_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
     [ "$BUILD_INIT" = true ] && echo "   Init: $INIT_FULL_IMAGE"
+    [ "$BUILD_OPENCLAW" = true ] && echo "   OpenClaw: $OPENCLAW_FULL_IMAGE"
     echo "   注意: MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest"
     echo ""
     echo "🏗️  构建平台: $PLATFORMS"
@@ -418,10 +441,12 @@ pull_images() {
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
         MCP_FULL_IMAGE="${NORMALIZED_REGISTRY}/${MCP_IMAGE}:${TAG}"
+        OPENCLAW_FULL_IMAGE="${NORMALIZED_REGISTRY}/${OPENCLAW_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
         MCP_FULL_IMAGE="${MCP_IMAGE}:${TAG}"
+        OPENCLAW_FULL_IMAGE="${OPENCLAW_IMAGE}:${TAG}"
     fi
 
     log_info "拉取后端镜像: $BACKEND_FULL_IMAGE"
@@ -448,11 +473,20 @@ pull_images() {
         exit 1
     fi
 
+    log_info "拉取 OpenClaw 镜像: $OPENCLAW_FULL_IMAGE"
+    if docker pull "$OPENCLAW_FULL_IMAGE"; then
+        log_success "OpenClaw 镜像拉取成功"
+    else
+        log_error "OpenClaw 镜像拉取失败"
+        exit 1
+    fi
+
     log_success "所有镜像拉取完成！"
     echo ""
     echo "📦 镜像信息:"
     echo "   后端: $BACKEND_FULL_IMAGE"
     echo "   前端: $FRONTEND_FULL_IMAGE"
+    echo "   OpenClaw: $OPENCLAW_FULL_IMAGE"
 }
 
 # 主函数
@@ -462,6 +496,7 @@ main() {
     local BACKEND_ONLY=false
     local FRONTEND_ONLY=false
     local INIT_ONLY=false
+    local OPENCLAW_ONLY=false
     local BUILD_ALL=false
     local ARCH_LIST=()
 
@@ -547,6 +582,10 @@ main() {
                 ;;
             --init-only)
                 INIT_ONLY=true
+                shift
+                ;;
+            --openclaw-only)
+                OPENCLAW_ONLY=true
                 shift
                 ;;
             --all)
