@@ -1,6 +1,6 @@
 'use client'
 
-import { ExternalLink, Loader2, Play, Server } from 'lucide-react'
+import { Loader2, Play, Server } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { env as runtimeEnv } from 'next-runtime-env'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -58,6 +58,10 @@ export function OpenClawWebUI() {
         </h3>
         <p className="mb-8 max-w-md text-center text-[var(--text-secondary)] leading-relaxed">
           你需要先启动 OpenClaw 实例，才能使用原生 Web 界面与 Agent 进行交互以及管理设备。
+          <br />
+          <span className="text-amber-500/90 text-sm mt-2 block">
+            提示：实例启动环境准备过程较长，大约需要 4 分钟，请耐心等待。
+          </span>
         </p>
         <Button
           size="lg"
@@ -78,17 +82,6 @@ export function OpenClawWebUI() {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg)] shadow-sm">
-      <div className="flex shrink-0 items-center justify-end gap-2 border-b border-[var(--border)] px-3 py-2 bg-[var(--muted)]/50">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          onClick={() => window.open(iframeSrc, '_blank')}
-        >
-          <ExternalLink className="mr-1 h-3.5 w-3.5" />
-          新窗口打开
-        </Button>
-      </div>
       <div className="relative min-h-0 flex-1">
         {iframeLoading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--bg)]">

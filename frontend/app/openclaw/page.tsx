@@ -21,9 +21,6 @@ export default function OpenClawPage() {
           <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
             OpenClaw
           </h1>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            在此使用 OpenClaw 原生界面与 Agent 交互。如需管理实例与设备，请点击右侧设置。
-          </p>
         </div>
 
         <Sheet>
