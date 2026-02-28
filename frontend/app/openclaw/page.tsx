@@ -18,7 +18,7 @@ export default function OpenClawPage() {
   const { t } = useTranslation()
 
   return (
-    <div className="flex h-full flex-col overflow-hidden p-6 gap-4">
+    <div className="flex h-full flex-col overflow-hidden p-6 gap-2">
       <div className="flex shrink-0 items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
@@ -28,8 +28,8 @@ export default function OpenClawPage() {
 
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2 shrink-0 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 dark:border-blue-800 shadow-sm font-medium">
-              <Settings2 className="h-4 w-4" />
+            <Button variant="default" className="gap-2 shrink-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-700 shadow-sm font-medium h-8 px-3 text-xs border-0 rounded-md">
+              <Settings2 className="h-3.5 w-3.5" />
               {t('openclaw.manageInstancesAndDevices')}
             </Button>
           </SheetTrigger>
