@@ -153,8 +153,8 @@ export function OpenClawManagement() {
       <div className="flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg)] shadow-sm overflow-hidden">
         {/* 上半部分：状态与操作 */}
         <div className="p-4 sm:p-5 relative">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-start gap-3.5">
+          <div className="flex flex-wrap gap-4 items-start justify-between">
+            <div className="flex items-start gap-3.5 min-w-0">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-500/10 border border-blue-500/20">
                 <Server className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               </div>
@@ -181,7 +181,7 @@ export function OpenClawManagement() {
               </div>
             </div>
 
-            <div className="flex shrink-0 gap-2 items-center self-end sm:self-start">
+            <div className="flex shrink-0 gap-2 items-center flex-wrap justify-end">
               {status !== 'running' && status !== 'starting' && (
                 <Button size="sm" onClick={() => startMutation.mutate()} disabled={isInstanceBusy} className="h-8 shadow-sm">
                   {startMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
