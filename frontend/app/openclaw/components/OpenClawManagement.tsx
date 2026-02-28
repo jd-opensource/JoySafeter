@@ -27,6 +27,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useToast } from '@/components/ui/use-toast'
 import { apiDelete, apiGet, apiPost } from '@/lib/api-client'
 import { cn } from '@/lib/core/utils/cn'
 
@@ -65,6 +66,7 @@ const instanceStatusStyles: Record<string, string> = {
 
 export function OpenClawManagement() {
   const { t } = useTranslation()
+  const { toast } = useToast()
   const queryClient = useQueryClient()
   const [copiedToken, setCopiedToken] = useState(false)
 
@@ -92,10 +94,24 @@ export function OpenClawManagement() {
   const startMutation = useMutation({
     mutationFn: () => apiPost('openclaw/instances'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-instance'] }),
+    onError: (err: any) => {
+      toast({
+        title: t('common.error'),
+        description: err.message || t('common.operationFailed'),
+        variant: 'destructive',
+      })
+    },
   })
   const stopMutation = useMutation({
     mutationFn: () => apiPost('openclaw/instances/stop'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-instance'] }),
+    onError: (err: any) => {
+      toast({
+        title: t('common.error'),
+        description: err.message || t('common.operationFailed'),
+        variant: 'destructive',
+      })
+    },
   })
   const restartMutation = useMutation({
     mutationFn: () => apiPost('openclaw/instances/restart'),
@@ -103,18 +119,46 @@ export function OpenClawManagement() {
       queryClient.invalidateQueries({ queryKey: ['openclaw-instance'] })
       queryClient.invalidateQueries({ queryKey: ['openclaw-devices'] })
     },
+    onError: (err: any) => {
+      toast({
+        title: t('common.error'),
+        description: err.message || t('common.operationFailed'),
+        variant: 'destructive',
+      })
+    },
   })
   const deleteMutation = useMutation({
     mutationFn: () => apiDelete('openclaw/instances'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-instance'] }),
+    onError: (err: any) => {
+      toast({
+        title: t('common.error'),
+        description: err.message || t('common.operationFailed'),
+        variant: 'destructive',
+      })
+    },
   })
   const approveMutation = useMutation({
     mutationFn: (id: string) => apiPost(`openclaw/devices/${id}/approve`),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-devices'] }),
+    onError: (err: any) => {
+      toast({
+        title: t('common.error'),
+        description: err.message || t('common.operationFailed'),
+        variant: 'destructive',
+      })
+    },
   })
   const approveAllMutation = useMutation({
     mutationFn: () => apiPost('openclaw/devices/approve-all'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-devices'] }),
+    onError: (err: any) => {
+      toast({
+        title: t('common.error'),
+        description: err.message || t('common.operationFailed'),
+        variant: 'destructive',
+      })
+    },
   })
 
   const pending = deviceData?.pending ?? []
