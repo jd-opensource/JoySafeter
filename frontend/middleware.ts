@@ -173,13 +173,16 @@ function generateCSPHeader(
   // Get backend API domain from environment variables (for connect-src)
   const backendApiDomains = getBackendApiDomains()
 
+  // Get extra connect-src domains from environment variables
+  const connectSrcExtra = process.env.NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA || ''
+
   // Enhanced strict CSP policy
   // Only enable upgrade-insecure-requests in production and when HTTPS is explicitly enabled
   const upgradeInsecureRequests = isProduction && process.env.NEXT_PUBLIC_FORCE_HTTPS === 'true' ? 'upgrade-insecure-requests;' : ''
 
   let cspHeader = `
     default-src 'self' ${csp} ${whiteList};
-    connect-src 'self' ${schemeSource} ${backendApiDomains} ${whiteList} http://*.jd.com https://*.jd.com ws://*.jd.com wss://*.jd.com;
+    connect-src 'self' ${schemeSource} ${backendApiDomains} ${whiteList} ${connectSrcExtra};
     script-src 'self' ${csp} ${inlineScriptHashes.join(' ')} ${whiteList} 'strict-dynamic';
     style-src 'self' 'unsafe-inline' ${whiteList};
     style-src-attr 'unsafe-inline';
