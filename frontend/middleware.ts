@@ -176,6 +176,9 @@ function generateCSPHeader(
   // Get extra connect-src domains from environment variables
   const connectSrcExtra = process.env.NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA || ''
 
+  // Get extra frame-src domains from environment variables
+  const frameSrcExtra = process.env.NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA || ''
+
   // Enhanced strict CSP policy
   // Only enable upgrade-insecure-requests in production and when HTTPS is explicitly enabled
   const upgradeInsecureRequests = isProduction && process.env.NEXT_PUBLIC_FORCE_HTTPS === 'true' ? 'upgrade-insecure-requests;' : ''
@@ -194,7 +197,7 @@ function generateCSPHeader(
     base-uri 'self';
     form-action 'self';
     frame-ancestors 'self';
-    frame-src 'none';
+    frame-src 'self' ${backendApiDomains} ${whiteList} ${frameSrcExtra};
     ${upgradeInsecureRequests}
   `
 
