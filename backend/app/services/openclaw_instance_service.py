@@ -214,7 +214,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         except Exception as e:
             raise RuntimeError(f"docker run failed: {str(e)}")
 
-        container_id = container.id[:12]
+        container_id = str(container.id)[:12]
         logger.info(
             f"Created OpenClaw container {container_id} for user {instance.user_id} on port {instance.gateway_port}"
         )
