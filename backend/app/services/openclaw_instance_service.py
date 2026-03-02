@@ -17,9 +17,6 @@ from typing import Any, Dict, Optional
 
 import docker
 import httpx
-
-
-
 from loguru import logger
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -197,7 +194,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         # Check if the network exists
         network_name = None
         try:
-            network = client.networks.get(OPENCLAW_NETWORK)
+            client.networks.get(OPENCLAW_NETWORK)
             network_name = OPENCLAW_NETWORK
         except docker.errors.NotFound:
             pass
@@ -212,7 +209,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                 ports={"18789/tcp": instance.gateway_port},
                 environment=env_vars,
                 network=network_name,
-                restart_policy={"Name": "unless-stopped"}
+                restart_policy={"Name": "unless-stopped"},
             )
         except Exception as e:
             raise RuntimeError(f"docker run failed: {str(e)}")
@@ -361,32 +358,32 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         instance = await self.get_instance_by_user(user_id)
         if not instance or instance.status != "running" or not instance.container_id:
             return False
-            
+
         try:
             client = docker.from_env()
             container = await asyncio.to_thread(client.containers.get, instance.container_id)
-            
+
             # List devices
             exit_code, output = await asyncio.to_thread(
-                container.exec_run,
-                cmd=["openclaw", "devices", "list", "--json"]
+                container.exec_run, cmd=["openclaw", "devices", "list", "--json"]
             )
-            
+
             if exit_code != 0:
-                logger.warning(f"Failed to list OpenClaw devices: {output.decode('utf-8') if isinstance(output, bytes) else output}")
+                logger.warning(
+                    f"Failed to list OpenClaw devices: {output.decode('utf-8') if isinstance(output, bytes) else output}"
+                )
                 return False
-                
-            output_str = output.decode('utf-8') if isinstance(output, bytes) else output
+
+            output_str = output.decode("utf-8") if isinstance(output, bytes) else output
             devices = json.loads(output_str) if output_str else {}
             pending = devices.get("pending", [])
-            
+
             success_all = True
             for p in pending:
                 device_id = p.get("deviceId")
                 if device_id:
                     approve_exit_code, _ = await asyncio.to_thread(
-                        container.exec_run,
-                        cmd=["openclaw", "devices", "approve", device_id]
+                        container.exec_run, cmd=["openclaw", "devices", "approve", device_id]
                     )
                     if approve_exit_code != 0:
                         success_all = False
