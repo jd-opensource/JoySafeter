@@ -156,7 +156,7 @@ Memory-based learning with long/short-term strategies, automatically accumulatin
 <td align="center" width="25%">
 <h4>Scenario-Based Capability Matching</h4>
 <strong>Out-of-the-Box Scenario Library</strong><br/>
-Pre-built scenarios including penetration testing, APK deep analysis, MCP compliance scanning, replicating DeepResearch workflows with 95%+ accuracy
+Pre-built scenarios including APK deep analysis, MCP compliance scanning, replicating DeepResearch workflows with 95%+ accuracy
 </td>
 <td align="center" width="25%">
 <h4>Skill Matrix Platform</h4>

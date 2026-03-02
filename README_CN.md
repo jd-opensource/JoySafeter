@@ -162,7 +162,7 @@ JoySafeter 提供两种工作模式，适配从快速验证到深度定制的全
 <td align="center" width="25%">
 <h4>场景化战力速配</h4>
 <strong>开箱即用的实战场景库</strong><br/>
-预置渗透测试、APK深度挖掘、MCP合规扫描等场景，复刻 DeepResearch 工作流精度达 95%+
+预置 APK深度挖掘、MCP合规扫描等场景，复刻 DeepResearch 工作流精度达 95%+
 </td>
 <td align="center" width="25%">
 <h4>技能矩阵中台</h4>
