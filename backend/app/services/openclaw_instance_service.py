@@ -15,7 +15,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+import docker
 import httpx
+
+
+
 from loguru import logger
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.openclaw_instance import OpenClawInstance
 from app.services.base import BaseService
 
-OPENCLAW_IMAGE = "joysafeter-openclaw:latest"
+OPENCLAW_IMAGE = "jdopensource/joysafeter-openclaw:latest"
 OPENCLAW_NETWORK = "joysafeter-network"
 PORT_RANGE_START = 19001
 PORT_RANGE_END = 19999
@@ -137,30 +141,37 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
     async def _create_container(self, instance: OpenClawInstance) -> str:
         """Create and start a Docker container for the instance."""
-        import subprocess
-
         container_name = f"openclaw-user-{instance.user_id[:12]}"
+
+        try:
+            client = docker.from_env()
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to Docker daemon: {e}")
 
         # Stop and remove existing container if any
         if instance.container_id:
             try:
-                subprocess.run(["docker", "rm", "-f", instance.container_id], capture_output=True, timeout=15)
-            except Exception:
+                container = client.containers.get(instance.container_id)
+                container.remove(force=True)
+            except docker.errors.NotFound:
                 pass
+            except Exception as e:
+                logger.warning(f"Failed to remove container {instance.container_id}: {e}")
 
         # Also try to remove by name
         try:
-            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=15)
-        except Exception:
+            container = client.containers.get(container_name)
+            container.remove(force=True)
+        except docker.errors.NotFound:
             pass
+        except Exception as e:
+            logger.warning(f"Failed to remove container {container_name}: {e}")
 
         env_vars = {
             "OPENCLAW_GATEWAY_TOKEN": instance.gateway_token,
         }
 
         # Pass through AI provider keys from host environment
-        import os
-
         for key in (
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
@@ -183,36 +194,30 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             for k, v in instance.config_json.items():
                 env_vars[k] = str(v)
 
-        cmd = [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            container_name,
-            "-p",
-            f"{instance.gateway_port}:18789",
-            "--restart",
-            "unless-stopped",
-        ]
-
-        for k, v in env_vars.items():
-            cmd.extend(["-e", f"{k}={v}"])
-
-        # Try to attach to the JoySafeter network
+        # Check if the network exists
+        network_name = None
         try:
-            result = subprocess.run(["docker", "network", "inspect", OPENCLAW_NETWORK], capture_output=True, timeout=10)
-            if result.returncode == 0:
-                cmd.extend(["--network", OPENCLAW_NETWORK])
-        except Exception:
+            network = client.networks.get(OPENCLAW_NETWORK)
+            network_name = OPENCLAW_NETWORK
+        except docker.errors.NotFound:
             pass
 
-        cmd.append(OPENCLAW_IMAGE)
+        try:
+            # We must use a separate thread or asyncio.to_thread for blocking docker operations
+            container = await asyncio.to_thread(
+                client.containers.run,
+                OPENCLAW_IMAGE,
+                detach=True,
+                name=container_name,
+                ports={"18789/tcp": instance.gateway_port},
+                environment=env_vars,
+                network=network_name,
+                restart_policy={"Name": "unless-stopped"}
+            )
+        except Exception as e:
+            raise RuntimeError(f"docker run failed: {str(e)}")
 
-        run_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if run_result.returncode != 0:
-            raise RuntimeError(f"docker run failed: {run_result.stderr.strip()}")
-
-        container_id = run_result.stdout.strip()[:12]
+        container_id = container.id[:12]
         logger.info(
             f"Created OpenClaw container {container_id} for user {instance.user_id} on port {instance.gateway_port}"
         )
@@ -235,22 +240,17 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             await asyncio.sleep(GATEWAY_READY_POLL_INTERVAL)
 
         # Last resort: check if container is still running
-        import subprocess
-
-        result = subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Running}}", instance.container_id or ""],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.stdout.strip() != "true":
-            logs = subprocess.run(
-                ["docker", "logs", "--tail", "30", instance.container_id or ""],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            raise RuntimeError(f"Container died during startup. Logs:\n{logs.stderr or logs.stdout}")
+        try:
+            client = docker.from_env()
+            container = await asyncio.to_thread(client.containers.get, instance.container_id)
+            if container.status != "running":
+                logs = await asyncio.to_thread(container.logs, tail=30)
+                logs_str = logs.decode("utf-8") if isinstance(logs, bytes) else str(logs)
+                raise RuntimeError(f"Container died during startup. Logs:\n{logs_str}")
+        except docker.errors.NotFound:
+            raise RuntimeError("Container was removed during startup.")
+        except Exception as e:
+            logger.warning(f"Failed to check container status: {e}")
 
         raise RuntimeError(f"Gateway not ready within {GATEWAY_READY_TIMEOUT}s")
 
@@ -270,10 +270,12 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             return None
 
         if instance.container_id:
-            import subprocess
-
             try:
-                subprocess.run(["docker", "stop", instance.container_id], capture_output=True, timeout=30)
+                client = docker.from_env()
+                container = await asyncio.to_thread(client.containers.get, instance.container_id)
+                await asyncio.to_thread(container.stop, timeout=10)
+            except docker.errors.NotFound:
+                pass
             except Exception as e:
                 logger.warning(f"Failed to stop container {instance.container_id}: {e}")
 
@@ -292,12 +294,14 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         # Remove container
         if instance.container_id:
-            import subprocess
-
             try:
-                subprocess.run(["docker", "rm", "-f", instance.container_id], capture_output=True, timeout=15)
-            except Exception:
+                client = docker.from_env()
+                container = await asyncio.to_thread(client.containers.get, instance.container_id)
+                await asyncio.to_thread(container.remove, force=True)
+            except docker.errors.NotFound:
                 pass
+            except Exception as e:
+                logger.warning(f"Failed to remove container {instance.container_id}: {e}")
 
         await self.db.delete(instance)
         await self.db.commit()
@@ -353,31 +357,42 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
     async def approve_all_pending_devices(self, user_id: str) -> bool:
         """Approve all pending device pairing requests for the user's instance."""
         import json
-        import subprocess
 
         instance = await self.get_instance_by_user(user_id)
         if not instance or instance.status != "running" or not instance.container_id:
             return False
+            
         try:
-            result = subprocess.run(
-                ["docker", "exec", instance.container_id, "openclaw", "devices", "list", "--json"],
-                capture_output=True,
-                text=True,
-                timeout=15,
+            client = docker.from_env()
+            container = await asyncio.to_thread(client.containers.get, instance.container_id)
+            
+            # List devices
+            exit_code, output = await asyncio.to_thread(
+                container.exec_run,
+                cmd=["openclaw", "devices", "list", "--json"]
             )
-            if result.returncode != 0:
+            
+            if exit_code != 0:
+                logger.warning(f"Failed to list OpenClaw devices: {output.decode('utf-8') if isinstance(output, bytes) else output}")
                 return False
-            devices = json.loads(result.stdout) if result.stdout else {}
+                
+            output_str = output.decode('utf-8') if isinstance(output, bytes) else output
+            devices = json.loads(output_str) if output_str else {}
             pending = devices.get("pending", [])
+            
+            success_all = True
             for p in pending:
                 device_id = p.get("deviceId")
                 if device_id:
-                    subprocess.run(
-                        ["docker", "exec", instance.container_id, "openclaw", "devices", "approve", device_id],
-                        capture_output=True,
-                        timeout=15,
+                    approve_exit_code, _ = await asyncio.to_thread(
+                        container.exec_run,
+                        cmd=["openclaw", "devices", "approve", device_id]
                     )
-            return True
+                    if approve_exit_code != 0:
+                        success_all = False
+            return success_all
+        except docker.errors.NotFound:
+            return False
         except Exception as e:
             logger.warning(f"approve_all_pending_devices failed for user {user_id}: {e}")
             return False
