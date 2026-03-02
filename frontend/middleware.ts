@@ -179,7 +179,7 @@ function generateCSPHeader(
 
   let cspHeader = `
     default-src 'self' ${csp} ${whiteList};
-    connect-src 'self' ${schemeSource} ${backendApiDomains} ${whiteList} http://*.jd.com https://*.jd.com;
+    connect-src 'self' ${schemeSource} ${backendApiDomains} ${whiteList} http://*.jd.com https://*.jd.com ws://*.jd.com wss://*.jd.com;
     script-src 'self' ${csp} ${inlineScriptHashes.join(' ')} ${whiteList} 'strict-dynamic';
     style-src 'self' 'unsafe-inline' ${whiteList};
     style-src-attr 'unsafe-inline';
