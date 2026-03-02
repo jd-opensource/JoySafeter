@@ -9,11 +9,11 @@ OpenClaw Gateway running on its allocated port.
 from __future__ import annotations
 
 import asyncio
-import docker
 import json
 import re
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import docker
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from loguru import logger
@@ -85,9 +85,7 @@ async def _poll_approve_devices(container_id: str) -> None:
             for p in pending:
                 request_id = p.get("requestId")
                 if request_id:
-                    await asyncio.to_thread(
-                        container.exec_run, cmd=["openclaw", "devices", "approve", request_id]
-                    )
+                    await asyncio.to_thread(container.exec_run, cmd=["openclaw", "devices", "approve", request_id])
                     logger.info(
                         f"[Auto-Pair] Approved device request {request_id} for openclaw container {container_id}"
                     )

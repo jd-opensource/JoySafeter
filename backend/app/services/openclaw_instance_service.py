@@ -203,7 +203,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                 pass
 
         if not network_name:
-            logger.warning(f"Could not find Docker network {OPENCLAW_NETWORK} or deploy_{OPENCLAW_NETWORK}. Defaulting to None (bridge network).")
+            logger.warning(
+                f"Could not find Docker network {OPENCLAW_NETWORK} or deploy_{OPENCLAW_NETWORK}. Defaulting to None (bridge network)."
+            )
 
         try:
             # We must use a separate thread or asyncio.to_thread for blocking docker operations

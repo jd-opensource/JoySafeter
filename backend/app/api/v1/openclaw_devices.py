@@ -9,9 +9,9 @@ OpenClaw Device pairing management API.
 from __future__ import annotations
 
 import asyncio
-import docker
 import json
 
+import docker
 from fastapi import APIRouter, Depends
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
