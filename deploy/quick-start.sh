@@ -4,8 +4,8 @@
 
 set -e
 
-# 默认使用 linux/amd64 架构
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
+# 默认使用原生架构，不再强行指定 linux/amd64
+# export DOCKER_DEFAULT_PLATFORM=linux/amd64
 
 # 颜色定义
 RED='\033[0;31m'

@@ -65,10 +65,16 @@ jobs:
           - name: joysafeter-init
             context: ./backend
             dockerfile: ./deploy/docker/init.Dockerfile
+          - name: joysafeter-openclaw
+            context: ./deploy/openclaw
+            dockerfile: ./deploy/openclaw/Dockerfile
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -96,7 +102,7 @@ jobs:
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.dockerfile }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             docker.io/jdopensource/${{ matrix.image.name }}:${{ steps.version.outputs.TAG }}
