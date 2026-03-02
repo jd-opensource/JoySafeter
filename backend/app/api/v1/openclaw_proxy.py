@@ -9,9 +9,9 @@ OpenClaw Gateway running on its allocated port.
 from __future__ import annotations
 
 import asyncio
+import docker
 import json
 import re
-import subprocess
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -61,32 +61,40 @@ async def _poll_approve_devices(container_id: str) -> None:
     """Wait and poll to approve devices shortly after UI triggers websocket connect."""
     if not container_id:
         return
+
+    try:
+        client = docker.from_env()
+        container = await asyncio.to_thread(client.containers.get, container_id)
+    except Exception as e:
+        logger.warning(f"[Auto-Pair] Failed to get container {container_id}: {e}")
+        return
+
     for _ in range(8):  # Poll every 1.5s for up to 12s
         await asyncio.sleep(1.5)
         try:
-            result = subprocess.run(
-                ["docker", "exec", container_id, "openclaw", "devices", "list", "--json"],
-                capture_output=True,
-                text=True,
-                timeout=30,
+            exit_code, output = await asyncio.to_thread(
+                container.exec_run, cmd=["openclaw", "devices", "list", "--json"]
             )
-            if result.returncode != 0:
+            if exit_code != 0:
                 continue
-            devices = json.loads(result.stdout) if result.stdout else {}
+
+            output_str = output.decode("utf-8") if isinstance(output, bytes) else output
+            devices = json.loads(output_str) if output_str else {}
             pending = devices.get("pending", [])
+
             for p in pending:
                 request_id = p.get("requestId")
                 if request_id:
-                    subprocess.run(
-                        ["docker", "exec", container_id, "openclaw", "devices", "approve", request_id],
-                        capture_output=True,
-                        timeout=30,
+                    await asyncio.to_thread(
+                        container.exec_run, cmd=["openclaw", "devices", "approve", request_id]
                     )
                     logger.info(
                         f"[Auto-Pair] Approved device request {request_id} for openclaw container {container_id}"
                     )
             if pending:
                 break  # We found and approved pending devices, done polling.
+        except docker.errors.NotFound:
+            break
         except Exception as e:
             logger.warning(f"[Auto-Pair] Background approve devices failed: {e}")
 
@@ -141,7 +149,7 @@ async def proxy_to_openclaw(
 
     body = await request.body()
 
-    upstream_headers = dict(request.headers)
+    upstream_headers = {k: v for k, v in request.headers.items()}
     upstream_headers.pop("host", None)
     upstream_headers["Authorization"] = f"Bearer {instance.gateway_token}"
 

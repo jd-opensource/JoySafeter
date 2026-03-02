@@ -8,8 +8,9 @@ OpenClaw Device pairing management API.
 
 from __future__ import annotations
 
+import asyncio
+import docker
 import json
-import subprocess
 
 from fastapi import APIRouter, Depends
 from loguru import logger
@@ -31,17 +32,18 @@ async def _get_running_instance(db: AsyncSession, user_id: str):
     return instance
 
 
-def _docker_exec(container_id: str, cmd: list[str], timeout: int = 15) -> str:
+async def _docker_exec(container_id: str, cmd: list[str]) -> str:
     """Run a command inside the user's OpenClaw container."""
-    result = subprocess.run(
-        ["docker", "exec", container_id] + cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"Command failed with exit code {result.returncode}")
-    return result.stdout.strip()
+    try:
+        client = docker.from_env()
+        container = await asyncio.to_thread(client.containers.get, container_id)
+        exit_code, output = await asyncio.to_thread(container.exec_run, cmd=cmd)
+        output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
+        if exit_code != 0:
+            raise RuntimeError(f"Command failed with exit code {exit_code}: {output_str.strip()}")
+        return output_str.strip()
+    except docker.errors.NotFound:
+        raise RuntimeError(f"Container {container_id} not found")
 
 
 @router.get("")
@@ -55,7 +57,7 @@ async def list_devices(
         return {"success": True, "data": []}
 
     try:
-        output = _docker_exec(instance.container_id, ["openclaw", "devices", "list", "--json"])
+        output = await _docker_exec(instance.container_id, ["openclaw", "devices", "list", "--json"])
         devices = json.loads(output) if output else []
         return {"success": True, "data": devices}
     except Exception as e:
@@ -75,7 +77,7 @@ async def approve_device(
         return {"success": False, "error": "No running instance"}
 
     try:
-        _docker_exec(instance.container_id, ["openclaw", "devices", "approve", device_id])
+        await _docker_exec(instance.container_id, ["openclaw", "devices", "approve", device_id])
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -92,13 +94,13 @@ async def approve_all_devices(
         return {"success": False, "error": "No running instance"}
 
     try:
-        output = _docker_exec(instance.container_id, ["openclaw", "devices", "list", "--json"])
+        output = await _docker_exec(instance.container_id, ["openclaw", "devices", "list", "--json"])
         devices = json.loads(output) if output else {}
         pending = devices.get("pending", [])
         for p in pending:
             device_id = p.get("deviceId")
             if device_id:
-                _docker_exec(instance.container_id, ["openclaw", "devices", "approve", device_id])
+                await _docker_exec(instance.container_id, ["openclaw", "devices", "approve", device_id])
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
