@@ -17,7 +17,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && npm --version \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g pnpm openclaw@2026.2.26 \
+RUN npm install -g pnpm openclaw@2026.3.1 \
     && openclaw --version
 
 RUN mkdir -p /root/.openclaw /root/clawd /root/clawd/skills
