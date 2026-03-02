@@ -24,8 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.openclaw_instance import OpenClawInstance
 from app.services.base import BaseService
 
-OPENCLAW_IMAGE = "jdopensource/joysafeter-openclaw:latest"
-OPENCLAW_NETWORK = "joysafeter-network"
+OPENCLAW_IMAGE = os.environ.get("OPENCLAW_IMAGE", "jdopensource/joysafeter-openclaw:latest")
+OPENCLAW_NETWORK = os.environ.get("OPENCLAW_NETWORK", "joysafeter-network")
 PORT_RANGE_START = 19001
 PORT_RANGE_END = 19999
 GATEWAY_READY_TIMEOUT = 300
@@ -193,11 +193,17 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         # Check if the network exists
         network_name = None
-        try:
-            client.networks.get(OPENCLAW_NETWORK)
-            network_name = OPENCLAW_NETWORK
-        except docker.errors.NotFound:
-            pass
+        candidates = [OPENCLAW_NETWORK, f"deploy_{OPENCLAW_NETWORK}"]
+        for cand in candidates:
+            try:
+                client.networks.get(cand)
+                network_name = cand
+                break
+            except docker.errors.NotFound:
+                pass
+
+        if not network_name:
+            logger.warning(f"Could not find Docker network {OPENCLAW_NETWORK} or deploy_{OPENCLAW_NETWORK}. Defaulting to None (bridge network).")
 
         try:
             # We must use a separate thread or asyncio.to_thread for blocking docker operations

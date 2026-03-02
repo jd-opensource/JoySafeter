@@ -217,4 +217,5 @@ volumes:
 
 networks:
   joysafeter-network:
+    name: joysafeter-network
     driver: bridge
