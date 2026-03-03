@@ -6,7 +6,6 @@ Each sub-router is expected to declare its own `prefix` and `tags`.
 
 from fastapi import APIRouter
 
-from .sandboxes import router as sandboxes_router
 from .api_keys import router as api_keys_router
 from .auth import router as auth_router
 from .chat import router as chat_router
@@ -27,6 +26,7 @@ from .openclaw_devices import router as openclaw_devices_router
 from .openclaw_instances import router as openclaw_instances_router
 from .openclaw_proxy import router as openclaw_proxy_router
 from .organizations import router as organizations_router
+from .sandboxes import router as sandboxes_router
 from .skills import router as skills_router
 from .tools import router as tools_router
 from .traces import router as traces_router
