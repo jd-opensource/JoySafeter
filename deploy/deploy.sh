@@ -26,7 +26,6 @@ REGISTRY="${DOCKER_REGISTRY:-docker.io/jdopensource}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-joysafeter-backend}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-joysafeter-frontend}"
 MCP_IMAGE="${MCP_IMAGE:-joysafeter-mcp}"
-INIT_IMAGE="${INIT_IMAGE:-joysafeter-init}"
 OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-joysafeter-openclaw}"
 TAG="${IMAGE_TAG:-latest}"
 # 默认多平台构建：amd64 + arm64
@@ -89,9 +88,8 @@ show_usage() {
   --api-url URL          前端连接后端的API地址（构建时注入）
   --backend-only         只构建后端镜像
   --frontend-only        只构建前端镜像
-  --init-only            只构建初始化镜像
   --openclaw-only        只构建 OpenClaw 镜像
-  --all                  构建所有镜像（包括 backend, frontend, init, openclaw）
+  --all                  构建所有镜像（包括 backend, frontend, openclaw）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
   --mirror MIRROR        使用国内镜像源加速基础镜像（aliyun, tencent, huawei, docker-cn）
   --pip-mirror MIRROR    使用国内 pip 镜像源（aliyun, tencent, huawei, jd）
@@ -101,7 +99,6 @@ show_usage() {
   BACKEND_IMAGE          后端镜像名称（默认: joysafeter-backend）
   FRONTEND_IMAGE         前端镜像名称（默认: joysafeter-frontend）
   MCP_IMAGE              MCP 服务镜像名称（默认: joysafeter-mcp）
-  INIT_IMAGE             初始化镜像名称（默认: joysafeter-init）
   OPENCLAW_IMAGE         OpenClaw 镜像名称（默认: joysafeter-openclaw）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
@@ -121,7 +118,7 @@ show_usage() {
   # 只构建前端多架构镜像
   $0 build --frontend-only
 
-  # 构建所有镜像（包括 init）
+  # 构建所有镜像
   $0 build --all
 
   # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
@@ -315,32 +312,26 @@ build_image() {
 build_all_images() {
     local BUILD_BACKEND=${BUILD_BACKEND:-true}
     local BUILD_FRONTEND=${BUILD_FRONTEND:-true}
-    local BUILD_INIT=${BUILD_INIT:-false}
     local BUILD_OPENCLAW=${BUILD_OPENCLAW:-true}
 
     # 检查是否只构建特定服务
     if [ "$BACKEND_ONLY" = true ]; then
         BUILD_FRONTEND=false
-        BUILD_INIT=false
         BUILD_OPENCLAW=false
     elif [ "$FRONTEND_ONLY" = true ]; then
         BUILD_BACKEND=false
-        BUILD_INIT=false
         BUILD_OPENCLAW=false
     elif [ "$INIT_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
-        BUILD_INIT=true
         BUILD_OPENCLAW=false
     elif [ "$OPENCLAW_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
-        BUILD_INIT=false
         BUILD_OPENCLAW=true
     elif [ "$BUILD_ALL" = true ]; then
         BUILD_BACKEND=true
         BUILD_FRONTEND=true
-        BUILD_INIT=true
         BUILD_OPENCLAW=true
     fi
 
@@ -352,13 +343,11 @@ build_all_images() {
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
         MCP_FULL_IMAGE="${NORMALIZED_REGISTRY}/${MCP_IMAGE}:${TAG}"
-        INIT_FULL_IMAGE="${NORMALIZED_REGISTRY}/${INIT_IMAGE}:${TAG}"
         OPENCLAW_FULL_IMAGE="${NORMALIZED_REGISTRY}/${OPENCLAW_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
         MCP_FULL_IMAGE="${MCP_IMAGE}:${TAG}"
-        INIT_FULL_IMAGE="${INIT_IMAGE}:${TAG}"
         OPENCLAW_FULL_IMAGE="${OPENCLAW_IMAGE}:${TAG}"
     fi
 
@@ -395,14 +384,6 @@ build_all_images() {
     # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
     # 如需拉取 MCP 镜像，请使用 pull 命令
 
-    # 构建初始化镜像
-    if [ "$BUILD_INIT" = true ]; then
-        build_image "初始化" \
-            "$SCRIPT_DIR/docker/backend.Dockerfile" \
-            "$PROJECT_ROOT/backend" \
-            "$INIT_FULL_IMAGE"
-        echo ""
-    fi
 
     # 构建 OpenClaw 镜像
     if [ "$BUILD_OPENCLAW" = true ]; then
@@ -418,7 +399,6 @@ build_all_images() {
     echo "📦 镜像信息:"
     [ "$BUILD_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$BUILD_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
-    [ "$BUILD_INIT" = true ] && echo "   Init: $INIT_FULL_IMAGE"
     [ "$BUILD_OPENCLAW" = true ] && echo "   OpenClaw: $OPENCLAW_FULL_IMAGE"
     echo "   注意: MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest"
     echo ""
@@ -497,7 +477,6 @@ main() {
     local PUSH=false
     local BACKEND_ONLY=false
     local FRONTEND_ONLY=false
-    local INIT_ONLY=false
     local OPENCLAW_ONLY=false
     local BUILD_ALL=false
     local ARCH_LIST=()
@@ -580,10 +559,6 @@ main() {
                 ;;
             --frontend-only)
                 FRONTEND_ONLY=true
-                shift
-                ;;
-            --init-only)
-                INIT_ONLY=true
                 shift
                 ;;
             --openclaw-only)

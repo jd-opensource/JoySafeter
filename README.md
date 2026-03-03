@@ -489,7 +489,6 @@ docker-compose -f docker-compose.yml up -d
 - `docker.io/jdopensource/joysafeter-backend:latest` - Backend API service
 - `docker.io/jdopensource/joysafeter-frontend:latest` - Frontend web application
 - `docker.io/jdopensource/joysafeter-mcp:latest` - MCP server with security tools
-- `docker.io/jdopensource/joysafeter-init:latest` - Database initialization service
 
 All images support multi-architecture (amd64, arm64).
 
