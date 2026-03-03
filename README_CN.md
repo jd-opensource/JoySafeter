@@ -544,6 +544,16 @@ sh deploy/quick-start.sh
 
 ---
 
+
+
+### 欢迎加入用户交流群
+
+如果您有任何问题、建议或想与其他用户交流，欢迎扫码加入我们的微信交流群：
+
+<p align="center">
+  <img src="docs/assets/web-chat-group.jpg" alt="JoySafeter 用户交流群" width="300" />
+</p>
+
 ## 贡献指南
 
 我们欢迎社区贡献！详情请查看 [贡献指南](CONTRIBUTING.md)。

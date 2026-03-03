@@ -535,6 +535,16 @@ For complete installation instructions, including manual deployment, pre-built D
 
 ---
 
+
+
+### Join Our Community
+
+If you have any questions, suggestions, or want to connect with other users, feel free to join our WeChat user group:
+
+<p align="center">
+  <img src="docs/assets/web-chat-group.jpg" alt="JoySafeter User Group" width="300" />
+</p>
+
 ## Contributing
 
 We welcome contributions from the community! See our [Contributing Guide](CONTRIBUTING.md) for details.
