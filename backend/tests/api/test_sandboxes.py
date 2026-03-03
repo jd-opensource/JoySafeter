@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.v1.admin_sandboxes import router
+from app.api.v1.sandboxes import router
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 
@@ -18,7 +18,7 @@ app.include_router(router)
 
 
 # Mock dependencies
-async def mock_get_current_admin_user():
+async def mock_get_current_user():
     user = MagicMock(spec=User)
     user.id = "admin-user"
     user.is_super_user = True
@@ -36,17 +36,17 @@ def client():
     test_app.include_router(router)
 
     # Import the exact dependency function object to override
-    from app.api.v1.admin_sandboxes import get_current_admin_user
+    from app.common.dependencies import get_current_user
 
     # helper to override
-    test_app.dependency_overrides[get_current_admin_user] = mock_get_current_admin_user
+    test_app.dependency_overrides[get_current_user] = mock_get_current_user
     test_app.dependency_overrides[get_db] = mock_get_db
 
     with TestClient(test_app) as c:
         yield c
 
 
-@patch("app.api.v1.admin_sandboxes.SandboxManagerService")
+@patch("app.api.v1.sandboxes.SandboxManagerService")
 def test_list_sandboxes(mock_service_cls, client):
     # Setup
     mock_db = AsyncMock()
@@ -85,7 +85,7 @@ def test_list_sandboxes(mock_service_cls, client):
     mock_db.execute.side_effect = [mock_count_result, mock_list_result]
 
     # Run
-    response = client.get("/admin/sandboxes")
+    response = client.get("/v1/sandboxes")
 
     # Verify
     assert response.status_code == 200
@@ -93,14 +93,14 @@ def test_list_sandboxes(mock_service_cls, client):
     assert data["total"] == 1
 
 
-@patch("app.api.v1.admin_sandboxes.SandboxManagerService")
+@patch("app.api.v1.sandboxes.SandboxManagerService")
 def test_stop_sandbox(mock_service_cls, client):
     # Setup
     mock_service = mock_service_cls.return_value
     mock_service.stop_sandbox = AsyncMock(return_value=True)
 
     # Run
-    response = client.post("/admin/sandboxes/sb-1/stop")
+    response = client.post("/v1/sandboxes/sb-1/stop")
 
     # Verify
     assert response.status_code == 200
@@ -108,27 +108,27 @@ def test_stop_sandbox(mock_service_cls, client):
     mock_service.stop_sandbox.assert_called_once_with("sb-1")
 
 
-@patch("app.api.v1.admin_sandboxes.SandboxManagerService")
+@patch("app.api.v1.sandboxes.SandboxManagerService")
 def test_stop_sandbox_not_found(mock_service_cls, client):
     # Setup
     mock_service = mock_service_cls.return_value
     mock_service.stop_sandbox = AsyncMock(return_value=False)
 
     # Run
-    response = client.post("/admin/sandboxes/sb-unknown/stop")
+    response = client.post("/v1/sandboxes/sb-unknown/stop")
 
     # Verify
     assert response.status_code == 404
 
 
-@patch("app.api.v1.admin_sandboxes.SandboxManagerService")
+@patch("app.api.v1.sandboxes.SandboxManagerService")
 def test_delete_sandbox(mock_service_cls, client):
     # Setup
     mock_service = mock_service_cls.return_value
     mock_service.delete_sandbox = AsyncMock(return_value=True)
 
     # Run
-    response = client.delete("/admin/sandboxes/sb-1")
+    response = client.delete("/v1/sandboxes/sb-1")
 
     # Verify
     assert response.status_code == 200
