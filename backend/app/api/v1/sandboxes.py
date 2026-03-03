@@ -211,14 +211,19 @@ async def rebuild_sandbox(
 ):
     """Rebuild a sandbox (force stop and recreate)."""
     await _verify_sandbox_ownership(sandbox_id, current_user, db)
-    # Simply delete and let it recreate on next usage,
-    # OR explicitly stop and clear container_id
     service = SandboxManagerService(db)
     # Stop first
     await service.stop_sandbox(sandbox_id)
 
-    # Mark as pending/creating effectively "rebuilds" it on next usage
-    # We can also update image here if we accept a body
+    # 获取记录以确认 user_id
+    result = await db.execute(select(UserSandbox).where(UserSandbox.id == sandbox_id))
+    record = result.scalar_one_or_none()
+    if record:
+        try:
+            await service.ensure_sandbox_running(record.user_id)
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to rebuild sandbox {sandbox_id}: {e}")
 
     return success_response(message="Sandbox rebuilt successfully")
 

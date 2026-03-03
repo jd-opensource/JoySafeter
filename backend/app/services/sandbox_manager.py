@@ -182,14 +182,13 @@ class SandboxManagerService:
         if not record:
             return False
 
-        # 重新启动 (ensure_sandbox_running 会处理启动逻辑)
-        # 注意：这里我们只负责触发状态变更，真正的启动通常是懒加载的
-        # 或者我们可以显式调用 ensure_sandbox_running，但它需要返回 adapter
-        # 这里为了 API 响应速度，我们可能只做停止，下次使用时自动启动
-        # 或者我们可以异步启动
+        # 重新启动
+        try:
+            await self.ensure_sandbox_running(record.user_id)
+        except Exception as e:
+            logger.error(f"Failed to restart sandbox {sandbox_id}: {e}")
+            return False
 
-        # 为了简单起见，这里我们只确保它被停止，后续请求会重新启动它
-        # 如果需要立即重启，可以调用 ensure_sandbox_running
         return True
 
     async def delete_sandbox(self, sandbox_id: str) -> bool:
