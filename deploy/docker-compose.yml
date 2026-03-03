@@ -84,7 +84,7 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - REDIS_POOL_SIZE=10
       - FRONTEND_URL=${FRONTEND_URL}
-      - CORS_ORIGINS=["${FRONTEND_URL}"]
+      - CORS_ORIGINS=${CORS_ORIGINS:-["${FRONTEND_URL}"]}
     ports:
       - "${BACKEND_PORT_HOST:-8000}:8000"
     depends_on:
@@ -143,7 +143,7 @@ services:
       args:
         # 基础镜像源配置（可选，用于国内加速）
         # BASE_IMAGE_REGISTRY: "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
-        NEXT_PUBLIC_API_URL: "http://${BACKEND_HOST:-localhost}:${BACKEND_PORT_HOST:-8000}"
+        NEXT_PUBLIC_API_URL: "${BACKEND_URL:-http://localhost:8000}"
     container_name: joysafeter-frontend
     restart: unless-stopped
     env_file:
@@ -154,7 +154,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "${FRONTEND_URL}"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -180,12 +180,13 @@ services:
       # MCP HTTP/SSE服务端口映射（8001-8010）
       # 根据实际需要添加或移除端口映射
       # 格式: "宿主机端口:容器端口"
-      - "${DEMO_MCP_SERVER_PORT:-8001}:${DEMO_MCP_SERVER_PORT:-8001}"
-      - "${SCANNER_MCP_PORT:-8002}:${SCANNER_MCP_PORT:-8002}"
-      - "${JEB_MCP_PORT:-8008}:${JEB_MCP_PORT:-8008}"
-      - "${MCP_PORT_3:-8003}:${MCP_PORT_3:-8003}"
-      - "${MCP_PORT_4:-8004}:${MCP_PORT_4:-8004}"
-      - "${MCP_PORT_5:-8005}:${MCP_PORT_5:-8005}"
+      # 注意：MCP 服务内部始终监听默认的 8001-8010 端口，因此等号后半部分（容器端口）不应被变量覆盖。
+      - "${DEMO_MCP_SERVER_PORT:-8001}:8001"
+      - "${SCANNER_MCP_PORT:-8002}:8002"
+      - "${JEB_MCP_PORT:-8008}:8008"
+      - "${MCP_PORT_3:-8003}:8003"
+      - "${MCP_PORT_4:-8004}:8004"
+      - "${MCP_PORT_5:-8005}:8005"
       # 如需更多端口，请添加更多映射行
     healthcheck:
       test: ["CMD", "supervisorctl", "-c", "/export/App/supervisor/supervisord.conf", "status"]
