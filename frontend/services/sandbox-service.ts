@@ -38,22 +38,22 @@ export const sandboxService = {
             params.append('status', status)
         }
 
-        return apiGet<SandboxListResponse>(`admin/sandboxes?${params.toString()}`)
+        return apiGet<SandboxListResponse>(`sandboxes?${params.toString()}`)
     },
 
     async stopSandbox(id: string): Promise<void> {
-        await apiPost(`admin/sandboxes/${id}/stop`)
+        await apiPost(`sandboxes/${id}/stop`)
     },
 
     async restartSandbox(id: string): Promise<void> {
-        await apiPost(`admin/sandboxes/${id}/restart`)
+        await apiPost(`sandboxes/${id}/restart`)
     },
 
     async rebuildSandbox(id: string): Promise<void> {
-        await apiPost(`admin/sandboxes/${id}/rebuild`)
+        await apiPost(`sandboxes/${id}/rebuild`)
     },
 
     async deleteSandbox(id: string): Promise<void> {
-        await apiDelete(`admin/sandboxes/${id}`)
+        await apiDelete(`sandboxes/${id}`)
     },
 }

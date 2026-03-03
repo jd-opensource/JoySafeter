@@ -75,9 +75,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChan
                         <div className="px-3 mb-2 mt-6 text-[10px] font-bold text-gray-400 uppercase tracking-wider">{t('settings.workspace')}</div>
                         <MenuItem icon={Brain} label={t('settings.models')} isActive={activeTab === 'models'} onClick={() => setActiveTab('models')} />
 
-                        {user?.isSuperUser && (
-                            <MenuItem icon={Box} label={t('settings.sandboxes.title')} isActive={activeTab === 'sandboxes'} onClick={() => setActiveTab('sandboxes')} />
-                        )}
+                        <MenuItem icon={Box} label={t('settings.sandboxes.title')} isActive={activeTab === 'sandboxes'} onClick={() => setActiveTab('sandboxes')} />
                     </div>
                 </div>
 

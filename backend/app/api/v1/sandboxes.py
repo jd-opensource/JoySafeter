@@ -18,19 +18,22 @@ from app.models.auth import AuthUser as User
 from app.models.user_sandbox import UserSandbox
 from app.services.sandbox_manager import SandboxManagerService
 
-router = APIRouter(prefix="/v1/admin/sandboxes", tags=["Admin Sandboxes"])
+router = APIRouter(prefix="/v1/sandboxes", tags=["Sandboxes"])
 
 
 # Dependencies
 
 
-async def get_current_admin_user(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """Validate that the current user is a super user."""
-    if not current_user.is_super_user:
-        raise ForbiddenException("Admin privileges required")
-    return current_user
+async def _verify_sandbox_ownership(sandbox_id: str, current_user: User, db: AsyncSession):
+    """Validate that the current user owns the sandbox or is a super user."""
+    if current_user.is_super_user:
+        return
+    result = await db.execute(select(UserSandbox).where(UserSandbox.id == sandbox_id))
+    sb = result.scalar_one_or_none()
+    if not sb:
+        raise HTTPException(status_code=404, detail="Sandbox not found")
+    if sb.user_id != str(current_user.id):
+        raise ForbiddenException("Access denied")
 
 
 # Schemas
@@ -74,12 +77,15 @@ async def list_sandboxes(
     size: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None),
     user_id: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all user sandboxes with pagination and filtering."""
     # Build query
     query = select(UserSandbox).join(UserSandbox.user)
+
+    if not current_user.is_super_user:
+        user_id = str(current_user.id)
 
     if status:
         query = query.where(UserSandbox.status == status)
@@ -134,10 +140,12 @@ async def list_sandboxes(
 @router.get("/{sandbox_id}", response_model=SandboxResponse)
 async def get_sandbox(
     sandbox_id: str,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get sandbox details."""
+    await _verify_sandbox_ownership(sandbox_id, current_user, db)
+
     result = await db.execute(select(UserSandbox).where(UserSandbox.id == sandbox_id))
     sb = result.scalar_one_or_none()
 
@@ -166,10 +174,11 @@ async def get_sandbox(
 @router.post("/{sandbox_id}/stop")
 async def stop_sandbox(
     sandbox_id: str,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Stop a sandbox."""
+    await _verify_sandbox_ownership(sandbox_id, current_user, db)
     service = SandboxManagerService(db)
     success = await service.stop_sandbox(sandbox_id)
     if not success:
@@ -181,10 +190,11 @@ async def stop_sandbox(
 @router.post("/{sandbox_id}/restart")
 async def restart_sandbox(
     sandbox_id: str,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Restart a sandbox."""
+    await _verify_sandbox_ownership(sandbox_id, current_user, db)
     service = SandboxManagerService(db)
     success = await service.restart_sandbox(sandbox_id)
     if not success:
@@ -196,10 +206,11 @@ async def restart_sandbox(
 @router.post("/{sandbox_id}/rebuild")
 async def rebuild_sandbox(
     sandbox_id: str,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Rebuild a sandbox (force stop and recreate)."""
+    await _verify_sandbox_ownership(sandbox_id, current_user, db)
     # Simply delete and let it recreate on next usage,
     # OR explicitly stop and clear container_id
     service = SandboxManagerService(db)
@@ -215,10 +226,11 @@ async def rebuild_sandbox(
 @router.delete("/{sandbox_id}")
 async def delete_sandbox(
     sandbox_id: str,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a sandbox permanently."""
+    await _verify_sandbox_ownership(sandbox_id, current_user, db)
     service = SandboxManagerService(db)
     success = await service.delete_sandbox(sandbox_id)
     if not success:
