@@ -223,6 +223,7 @@ async def rebuild_sandbox(
             await service.ensure_sandbox_running(record.user_id)
         except Exception as e:
             import logging
+
             logging.error(f"Failed to rebuild sandbox {sandbox_id}: {e}")
 
     return success_response(message="Sandbox rebuilt successfully")
