@@ -10,6 +10,10 @@ export default {
       next: 'Next',
       cancel: 'Cancel',
       saving: 'Saving...',
+      success: 'Success',
+      error: 'Error',
+      loading: 'Loading...',
+      operationFailed: 'Operation failed',
     },
     sidebar: {
       dashboard: 'AgentSpark',

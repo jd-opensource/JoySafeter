@@ -10,6 +10,10 @@ export default {
       next: '下一页',
       cancel: '取消',
       saving: '保存中...',
+      success: '成功',
+      error: '错误',
+      loading: '加载中...',
+      operationFailed: '操作失败',
     },
     sidebar: {
       dashboard: 'AgentSpark',
