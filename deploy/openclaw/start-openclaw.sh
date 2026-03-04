@@ -107,6 +107,27 @@ if (baseUrl && apiKey) {
     console.warn('CF_AI_GATEWAY_MODEL set but missing required config (account ID, gateway ID, or API key)');
 }
 
+
+// Add dynamic skills directory configuration (populated by JoySafeter Backend's SkillSandboxLoader)
+const DYNAMIC_SKILLS_DIR = '/workspace/skills';
+try {
+    if (!fs.existsSync(DYNAMIC_SKILLS_DIR)) {
+        fs.mkdirSync(DYNAMIC_SKILLS_DIR, { recursive: true });
+    }
+} catch (e) {
+    console.error('Failed to create dynamic skills directory', e);
+}
+
+config.skills = config.skills || {};
+config.skills.load = config.skills.load || {};
+// Add our dynamic directory to extraDirs if it's not already there
+config.skills.load.extraDirs = config.skills.load.extraDirs || [];
+if (!config.skills.load.extraDirs.includes(DYNAMIC_SKILLS_DIR)) {
+    config.skills.load.extraDirs.push(DYNAMIC_SKILLS_DIR);
+}
+// Enable watching for immediate reload
+config.skills.load.watch = true;
+
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 console.log('Configuration patched successfully');
 EOFPATCH

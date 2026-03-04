@@ -9,8 +9,10 @@ checking, and port allocation.
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import secrets
+import tarfile
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -126,6 +128,10 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             await self._update_status(instance.id, "starting")
             container_id = await self._create_container(instance)
             await self._update_status(instance.id, "starting", container_id=container_id)
+            
+            # Sync skills into the newly created OpenClaw container
+            await self.sync_skills_to_container(user_id, container_id)
+            
             await self._wait_for_gateway(instance)
             await self._update_status(instance.id, "running", container_id=container_id)
             await self.db.refresh(instance)
@@ -400,4 +406,63 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             return False
         except Exception as e:
             logger.warning(f"approve_all_pending_devices failed for user {user_id}: {e}")
+            return False
+
+    async def sync_skills_to_container(self, user_id: str, container_id: str) -> bool:
+        """Push the user's active skills to the OpenClaw container's /workspace/skills directory."""
+        from app.services.skill_service import SkillService
+        from app.utils.path_utils import sanitize_skill_name
+        
+        try:
+            skill_service = SkillService(self.db)
+            skills = await skill_service.list_skills(current_user_id=user_id, include_public=True)
+            if not skills:
+                # Still create the directory even if there are no skills
+                try:
+                    client = docker.from_env()
+                    container = await asyncio.to_thread(client.containers.get, container_id)
+                    await asyncio.to_thread(container.exec_run, cmd=["mkdir", "-p", "/workspace/skills"])
+                except Exception:
+                    pass
+                return True
+
+            client = docker.from_env()
+            container = await asyncio.to_thread(client.containers.get, container_id)
+            
+            # Ensure the skills directory exists
+            await asyncio.to_thread(container.exec_run, cmd=["mkdir", "-p", "/workspace/skills"])
+            
+            tar_stream = io.BytesIO()
+            with tarfile.open(fileobj=tar_stream, mode='w') as tar:
+                for skill in skills:
+                    # Get full skill with its files relationship
+                    full_skill = await skill_service.get_skill(skill.id, current_user_id=user_id)
+                    if not full_skill or not full_skill.files:
+                        continue
+                        
+                    folder_name = sanitize_skill_name(full_skill.name)
+                    
+                    for skill_file in full_skill.files:
+                        if skill_file.content is None:
+                            continue
+                            
+                        file_content = skill_file.content.encode('utf-8') if isinstance(skill_file.content, str) else skill_file.content
+                        file_path = f"{folder_name}/{skill_file.path}"
+                        
+                        tarinfo = tarfile.TarInfo(name=file_path)
+                        tarinfo.size = len(file_content)
+                        tarinfo.mode = 0o644
+                        
+                        tar.addfile(tarinfo, io.BytesIO(file_content))
+            
+            tar_stream.seek(0)
+            
+            success = await asyncio.to_thread(container.put_archive, "/workspace/skills", tar_stream.read())
+            logger.info(f"Synced {len(skills)} skills to OpenClaw container {container_id} for user {user_id}")
+            return bool(success)
+        except docker.errors.NotFound:
+            logger.warning(f"Container {container_id} not found when trying to sync skills")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to sync skills to OpenClaw container {container_id}: {e}", exc_info=True)
             return False
