@@ -1097,6 +1097,9 @@ export default {
       delete: 'Delete',
       copyToken: 'Copy Token',
       deleteInstanceTitle: 'Delete Instance',
+      syncSkills: 'Sync Skills',
+      syncSkillsSuccess: 'Successfully synced {{count}} skills',
+      syncSkillsFailed: 'Failed to sync skills',
     },
   },
 }

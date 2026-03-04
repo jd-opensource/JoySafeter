@@ -111,3 +111,23 @@ async def delete_instance(
     if not deleted:
         return {"success": False, "error": "No instance found"}
     return {"success": True}
+
+
+@router.post("/sync-skills")
+async def sync_skills(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sync the current user's skills to their OpenClaw container."""
+    service = OpenClawInstanceService(db)
+    instance = await service.get_instance_by_user(str(current_user.id))
+    
+    if not instance or not instance.container_id or instance.status != "running":
+        return {"success": False, "error": "Instance is not running"}
+
+    synced_count = await service.sync_skills_to_container(str(current_user.id), instance.container_id)
+    
+    if synced_count < 0:
+        return {"success": False, "error": "Failed to sync skills"}
+        
+    return {"success": True, "data": {"syncedCount": synced_count}}

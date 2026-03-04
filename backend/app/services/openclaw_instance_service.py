@@ -408,8 +408,10 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             logger.warning(f"approve_all_pending_devices failed for user {user_id}: {e}")
             return False
 
-    async def sync_skills_to_container(self, user_id: str, container_id: str) -> bool:
-        """Push the user's active skills to the OpenClaw container's /workspace/skills directory."""
+    async def sync_skills_to_container(self, user_id: str, container_id: str) -> int:
+        """Push the user's active skills to the OpenClaw container's /workspace/skills directory.
+        Returns the number of skills synced, or -1 on failure.
+        """
         from app.services.skill_service import SkillService
         from app.utils.path_utils import sanitize_skill_name
         
@@ -424,7 +426,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                     await asyncio.to_thread(container.exec_run, cmd=["mkdir", "-p", "/workspace/skills"])
                 except Exception:
                     pass
-                return True
+                return 0
 
             client = docker.from_env()
             container = await asyncio.to_thread(client.containers.get, container_id)
@@ -433,6 +435,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             await asyncio.to_thread(container.exec_run, cmd=["mkdir", "-p", "/workspace/skills"])
             
             tar_stream = io.BytesIO()
+            synced_count = 0
             with tarfile.open(fileobj=tar_stream, mode='w') as tar:
                 for skill in skills:
                     # Get full skill with its files relationship
@@ -454,18 +457,20 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                         tarinfo.mode = 0o644
                         
                         tar.addfile(tarinfo, io.BytesIO(file_content))
+                    
+                    synced_count += 1
             
             tar_stream.seek(0)
             
             success = await asyncio.to_thread(container.put_archive, "/workspace/skills", tar_stream.read())
-            logger.info(f"Synced {len(skills)} skills to OpenClaw container {container_id} for user {user_id}")
-            return bool(success)
+            logger.info(f"Synced {synced_count} skills to OpenClaw container {container_id} for user {user_id}")
+            return synced_count if success else -1
         except docker.errors.NotFound:
             logger.warning(f"Container {container_id} not found when trying to sync skills")
-            return False
+            return -1
         except Exception as e:
             logger.error(f"Failed to sync skills to OpenClaw container {container_id}: {e}", exc_info=True)
-            return False
+            return -1
 
     async def delete_skill_from_container(self, user_id: str, container_id: str, skill_name: str) -> bool:
         """Delete a specific skill directory from the OpenClaw container."""

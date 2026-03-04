@@ -161,11 +161,28 @@ export function OpenClawManagement() {
     },
   })
 
+  const syncSkillsMutation = useMutation({
+    mutationFn: () => apiPost<{ syncedCount: number }>('openclaw/instances/sync-skills'),
+    onSuccess: (data) => {
+      toast({
+        title: t('common.success'),
+        description: t('openclaw.syncSkillsSuccess', { count: data.syncedCount }),
+      })
+    },
+    onError: (err: any) => {
+      toast({
+        title: t('common.error'),
+        description: err.message || t('openclaw.syncSkillsFailed'),
+        variant: 'destructive',
+      })
+    },
+  })
+
   const pending = deviceData?.pending ?? []
   const paired = deviceData?.paired ?? []
   const hasPending = pending.length > 0
   const isInstanceBusy =
-    startMutation.isPending || stopMutation.isPending || restartMutation.isPending || deleteMutation.isPending
+    startMutation.isPending || stopMutation.isPending || restartMutation.isPending || deleteMutation.isPending || syncSkillsMutation.isPending
 
   if (instanceLoading) {
     return (
@@ -233,21 +250,27 @@ export function OpenClawManagement() {
                 </Button>
               )}
               {status === 'running' && (
-                <Button size="sm" variant="outline" onClick={() => stopMutation.mutate()} disabled={isInstanceBusy} className="h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20 shadow-sm">
+                <Button size="sm" variant="outline" onClick={() => stopMutation.mutate()} disabled={isInstanceBusy} className="h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20 shadow-sm transition-colors">
                   {stopMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Power className="mr-1.5 h-3.5 w-3.5" />}
                   {t('openclaw.stop')}
                 </Button>
               )}
-              <Button size="sm" variant="secondary" onClick={() => restartMutation.mutate()} disabled={isInstanceBusy} className="h-8 shadow-sm">
+              <Button size="sm" variant="outline" onClick={() => restartMutation.mutate()} disabled={isInstanceBusy} className="h-8 shadow-sm transition-colors">
                 {restartMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
                 {t('openclaw.restart')}
               </Button>
+              {status === 'running' && (
+                <Button size="sm" variant="outline" onClick={() => syncSkillsMutation.mutate()} disabled={isInstanceBusy || syncSkillsMutation.isPending} className="h-8 shadow-sm transition-colors border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20">
+                  {syncSkillsMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+                  {t('openclaw.syncSkills')}
+                </Button>
+              )}
               <Button
                 size="icon"
-                variant="ghost"
+                variant="outline"
                 onClick={() => deleteMutation.mutate()}
                 disabled={isInstanceBusy}
-                className="h-8 w-8 text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 rounded-md"
+                className="h-8 w-8 text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:border-red-900/50 transition-colors shadow-sm"
                 title={t('openclaw.deleteInstanceTitle')}
               >
                 {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
@@ -257,7 +280,7 @@ export function OpenClawManagement() {
         </div>
 
         {/* 下半部分：详细信息 */}
-        <div className="border-t border-[var(--border)] bg-[var(--muted)]/20 p-4 sm:p-5">
+        <div className="border-t border-[var(--border)] bg-[var(--bg)] p-4 sm:p-5">
           <div className="grid grid-cols-2 gap-y-4 gap-x-6">
             <div className="flex flex-col gap-1.5">
               <span className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">{t('openclaw.gatewayPort')}</span>
@@ -324,18 +347,18 @@ export function OpenClawManagement() {
 
         <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg)] shadow-sm">
           {!instanceRunning ? (
-            <div className="flex flex-col items-center justify-center p-8 text-center bg-[var(--muted)]/10">
+            <div className="flex flex-col items-center justify-center p-8 text-center">
               <Server className="mb-3 h-8 w-8 text-[var(--text-tertiary)] opacity-60" />
               <p className="text-sm font-medium text-[var(--text-secondary)]">{t('openclaw.instanceNotRunning')}</p>
               <p className="mt-1 text-xs text-[var(--text-tertiary)]">{t('openclaw.startInstanceFirst')}</p>
             </div>
           ) : devicesLoading ? (
-            <div className="flex items-center justify-center p-8 text-sm text-[var(--text-secondary)] bg-[var(--muted)]/10">
+            <div className="flex items-center justify-center p-8 text-sm text-[var(--text-secondary)]">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               {t('openclaw.loadingDevices')}
             </div>
           ) : pending.length === 0 && paired.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-8 text-center bg-[var(--muted)]/10">
+            <div className="flex flex-col items-center justify-center p-8 text-center">
               <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--muted)]/50">
                 <Smartphone className="h-5 w-5 text-[var(--text-tertiary)]" />
               </div>

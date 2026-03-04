@@ -1097,6 +1097,9 @@ export default {
       delete: '删除',
       copyToken: '复制 Token',
       deleteInstanceTitle: '删除实例',
+      syncSkills: '同步技能',
+      syncSkillsSuccess: '成功同步 {{count}} 个技能',
+      syncSkillsFailed: '同步技能失败',
     },
   },
 }
