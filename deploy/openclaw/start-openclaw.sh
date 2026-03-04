@@ -78,7 +78,14 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
     config.gateway.controlUi.allowInsecureAuth = true;
 }
 
-config.gateway.controlUi.allowedOrigins = ["http://localhost:18789", "http://127.0.0.1:18789", "http://192.168.1.100:18789"]
+config.gateway.controlUi.allowedOrigins = ["http://localhost:18789", "http://127.0.0.1:18789", "http://localhost:8000", "http://127.0.0.1:8000"]
+
+if (process.env.FRONTEND_URL) {
+    config.gateway.controlUi.allowedOrigins.push(process.env.FRONTEND_URL);
+}
+if (process.env.OPENCLAW_DEV_MODE === 'true') {
+    config.gateway.controlUi.allowedOrigins.push("*");
+}
 
 // Enable OpenAI-compatible HTTP API
 
