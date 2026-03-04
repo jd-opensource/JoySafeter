@@ -128,10 +128,10 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             await self._update_status(instance.id, "starting")
             container_id = await self._create_container(instance)
             await self._update_status(instance.id, "starting", container_id=container_id)
-            
+
             # Sync skills into the newly created OpenClaw container
             await self.sync_skills_to_container(user_id, container_id)
-            
+
             await self._wait_for_gateway(instance)
             await self._update_status(instance.id, "running", container_id=container_id)
             await self.db.refresh(instance)
@@ -414,7 +414,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         """
         from app.services.skill_service import SkillService
         from app.utils.path_utils import sanitize_skill_name
-        
+
         try:
             skill_service = SkillService(self.db)
             skills = await skill_service.list_skills(current_user_id=user_id, include_public=True)
@@ -430,38 +430,42 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
             client = docker.from_env()
             container = await asyncio.to_thread(client.containers.get, container_id)
-            
+
             # Ensure the skills directory exists
             await asyncio.to_thread(container.exec_run, cmd=["mkdir", "-p", "/workspace/skills"])
-            
+
             tar_stream = io.BytesIO()
             synced_count = 0
-            with tarfile.open(fileobj=tar_stream, mode='w') as tar:
+            with tarfile.open(fileobj=tar_stream, mode="w") as tar:
                 for skill in skills:
                     # Get full skill with its files relationship
                     full_skill = await skill_service.get_skill(skill.id, current_user_id=user_id)
                     if not full_skill or not full_skill.files:
                         continue
-                        
+
                     folder_name = sanitize_skill_name(full_skill.name)
-                    
+
                     for skill_file in full_skill.files:
                         if skill_file.content is None:
                             continue
-                            
-                        file_content = skill_file.content.encode('utf-8') if isinstance(skill_file.content, str) else skill_file.content
+
+                        file_content = (
+                            skill_file.content.encode("utf-8")
+                            if isinstance(skill_file.content, str)
+                            else skill_file.content
+                        )
                         file_path = f"{folder_name}/{skill_file.path}"
-                        
+
                         tarinfo = tarfile.TarInfo(name=file_path)
                         tarinfo.size = len(file_content)
                         tarinfo.mode = 0o644
-                        
+
                         tar.addfile(tarinfo, io.BytesIO(file_content))
-                    
+
                     synced_count += 1
-            
+
             tar_stream.seek(0)
-            
+
             success = await asyncio.to_thread(container.put_archive, "/workspace/skills", tar_stream.read())
             logger.info(f"Synced {synced_count} skills to OpenClaw container {container_id} for user {user_id}")
             return synced_count if success else -1
@@ -475,23 +479,24 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
     async def delete_skill_from_container(self, user_id: str, container_id: str, skill_name: str) -> bool:
         """Delete a specific skill directory from the OpenClaw container."""
         from app.utils.path_utils import sanitize_skill_name
-        
+
         try:
             folder_name = sanitize_skill_name(skill_name)
             client = docker.from_env()
             container = await asyncio.to_thread(client.containers.get, container_id)
-            
+
             # Execute rm -rf directly in the container
             exit_code, _ = await asyncio.to_thread(
-                container.exec_run, 
-                cmd=["rm", "-rf", f"/workspace/skills/{folder_name}"]
+                container.exec_run, cmd=["rm", "-rf", f"/workspace/skills/{folder_name}"]
             )
-            
+
             if exit_code == 0:
                 logger.info(f"Deleted skill {skill_name} from OpenClaw container {container_id} for user {user_id}")
                 return True
             else:
-                logger.warning(f"Failed to delete skill {skill_name} from container {container_id}, exit code {exit_code}")
+                logger.warning(
+                    f"Failed to delete skill {skill_name} from container {container_id}, exit code {exit_code}"
+                )
                 return False
         except docker.errors.NotFound:
             logger.warning(f"Container {container_id} not found when trying to delete skill {skill_name}")

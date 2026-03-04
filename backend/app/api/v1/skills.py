@@ -8,6 +8,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user, get_current_user_optional
@@ -21,9 +22,9 @@ from app.schemas.skill import (
     SkillSchema,
     SkillUpdate,
 )
-from app.services.skill_service import SkillService
 from app.services.openclaw_instance_service import OpenClawInstanceService
-from loguru import logger
+from app.services.skill_service import SkillService
+
 
 async def _trigger_openclaw_skill_sync(user_id: str, db: AsyncSession):
     """Trigger a sync of skills to the user's OpenClaw container if it is running."""
@@ -34,6 +35,7 @@ async def _trigger_openclaw_skill_sync(user_id: str, db: AsyncSession):
             await instance_service.sync_skills_to_container(user_id, instance.container_id)
     except Exception as e:
         logger.error(f"Failed to trigger openclaw skill sync for user {user_id}: {e}", exc_info=True)
+
 
 router = APIRouter(prefix="/v1/skills", tags=["Skills"])
 
@@ -89,11 +91,12 @@ async def create_skill(
 
     # 重新加载以获取文件
     skill = await service.get_skill(skill.id, current_user.id)
-    
+
     # Trigger sync to OpenClaw container
     import asyncio
+
     asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
-    
+
     return {
         "success": True,
         "data": SkillSchema.model_validate(skill).model_dump(),
@@ -148,11 +151,12 @@ async def update_skill(
     )
     # 重新加载以获取文件
     skill = await service.get_skill(skill.id, current_user.id)
-    
+
     # Trigger sync to OpenClaw container
     import asyncio
+
     asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
-    
+
     return {
         "success": True,
         "data": SkillSchema.model_validate(skill).model_dump(),
@@ -167,9 +171,10 @@ async def delete_skill(
 ):
     """删除 Skill"""
     service = SkillService(db)
-    
+
     # 获取要删除的 skill 名称
     from app.common.exceptions import NotFoundException
+
     try:
         skill = await service.get_skill(skill_id, current_user.id)
         skill_name = skill.name
@@ -177,23 +182,30 @@ async def delete_skill(
         skill_name = None
 
     await service.delete_skill(skill_id, current_user.id)
-    
+
     if skill_name:
         # Trigger incremental sync to OpenClaw container
         async def _delete_from_container():
             try:
                 from app.services.openclaw_instance_service import OpenClawInstanceService
+
                 instance_service = OpenClawInstanceService(db)
                 instance = await instance_service.get_instance_by_user(current_user.id)
                 if instance and instance.container_id and instance.status == "running":
-                    await instance_service.delete_skill_from_container(current_user.id, instance.container_id, skill_name)
+                    await instance_service.delete_skill_from_container(
+                        current_user.id, instance.container_id, skill_name
+                    )
             except Exception as e:
                 from loguru import logger
-                logger.error(f"Failed to delete skill {skill_name} from container for user {current_user.id}: {e}", exc_info=True)
-                
+
+                logger.error(
+                    f"Failed to delete skill {skill_name} from container for user {current_user.id}: {e}", exc_info=True
+                )
+
         import asyncio
+
         asyncio.create_task(_delete_from_container())
-    
+
     return {"success": True}
 
 
@@ -217,11 +229,12 @@ async def add_file(
         storage_key=file.storage_key,
         size=file.size,
     )
-    
+
     # Trigger sync to OpenClaw container
     import asyncio
+
     asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
-    
+
     return {
         "success": True,
         "data": SkillFileSchema.model_validate(file_obj).model_dump(),
@@ -237,11 +250,12 @@ async def delete_file(
     """删除文件"""
     service = SkillService(db)
     await service.delete_file(file_id, current_user.id)
-    
+
     # Trigger sync to OpenClaw container
     import asyncio
+
     asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
-    
+
     return {"success": True}
 
 
@@ -261,11 +275,12 @@ async def update_file(
         path=payload.path,
         file_name=payload.file_name,
     )
-    
+
     # Trigger sync to OpenClaw container
     import asyncio
+
     asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
-    
+
     return {
         "success": True,
         "data": SkillFileSchema.model_validate(file_obj).model_dump(),
