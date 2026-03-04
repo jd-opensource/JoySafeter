@@ -466,3 +466,31 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         except Exception as e:
             logger.error(f"Failed to sync skills to OpenClaw container {container_id}: {e}", exc_info=True)
             return False
+
+    async def delete_skill_from_container(self, user_id: str, container_id: str, skill_name: str) -> bool:
+        """Delete a specific skill directory from the OpenClaw container."""
+        from app.utils.path_utils import sanitize_skill_name
+        
+        try:
+            folder_name = sanitize_skill_name(skill_name)
+            client = docker.from_env()
+            container = await asyncio.to_thread(client.containers.get, container_id)
+            
+            # Execute rm -rf directly in the container
+            exit_code, _ = await asyncio.to_thread(
+                container.exec_run, 
+                cmd=["rm", "-rf", f"/workspace/skills/{folder_name}"]
+            )
+            
+            if exit_code == 0:
+                logger.info(f"Deleted skill {skill_name} from OpenClaw container {container_id} for user {user_id}")
+                return True
+            else:
+                logger.warning(f"Failed to delete skill {skill_name} from container {container_id}, exit code {exit_code}")
+                return False
+        except docker.errors.NotFound:
+            logger.warning(f"Container {container_id} not found when trying to delete skill {skill_name}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to delete skill {skill_name} from container {container_id}: {e}", exc_info=True)
+            return False

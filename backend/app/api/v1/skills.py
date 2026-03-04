@@ -167,11 +167,32 @@ async def delete_skill(
 ):
     """删除 Skill"""
     service = SkillService(db)
+    
+    # 获取要删除的 skill 名称
+    from app.common.exceptions import NotFoundException
+    try:
+        skill = await service.get_skill(skill_id, current_user.id)
+        skill_name = skill.name
+    except NotFoundException:
+        skill_name = None
+
     await service.delete_skill(skill_id, current_user.id)
     
-    # Trigger sync to OpenClaw container
-    import asyncio
-    asyncio.create_task(_trigger_openclaw_skill_sync(current_user.id, db))
+    if skill_name:
+        # Trigger incremental sync to OpenClaw container
+        async def _delete_from_container():
+            try:
+                from app.services.openclaw_instance_service import OpenClawInstanceService
+                instance_service = OpenClawInstanceService(db)
+                instance = await instance_service.get_instance_by_user(current_user.id)
+                if instance and instance.container_id and instance.status == "running":
+                    await instance_service.delete_skill_from_container(current_user.id, instance.container_id, skill_name)
+            except Exception as e:
+                from loguru import logger
+                logger.error(f"Failed to delete skill {skill_name} from container for user {current_user.id}: {e}", exc_info=True)
+                
+        import asyncio
+        asyncio.create_task(_delete_from_container())
     
     return {"success": True}
 
