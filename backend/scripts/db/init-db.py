@@ -220,7 +220,7 @@ def main():
     fix_collation_warning(config)
 
     # 5. 加载 Skills
-    run_skill_loader()
+    # run_skill_loader()
 
     print("=" * 60)
     print("✅ 数据库初始化完成！")
