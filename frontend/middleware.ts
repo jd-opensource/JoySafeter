@@ -128,7 +128,13 @@ function addSecurityHeaders(
 
 /**
  * 从 NEXT_PUBLIC_API_URL 环境变量提取后端 API 域名
- * 用于 CSP connect-src 指令
+ * 用于 CSP connect-src / frame-src 指令
+ *
+ * 自动生成规则：
+ * 1. 精确匹配后端 API URL（含端口）的 http/https/ws/wss 变体
+ * 2. 同主机端口通配（hostname:*），自动覆盖同一主机上的 MCP 等关联服务
+ *
+ * 如需添加不同主机的域名，请使用 NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA / NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA
  */
 function getBackendApiDomains(): string {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
@@ -136,14 +142,14 @@ function getBackendApiDomains(): string {
 
   try {
     const url = new URL(apiUrl)
-    const host = url.host
+    const hostname = url.hostname // 不含端口，如 "[IP_ADDRESS]"
+    const host = url.host         // 含端口，如 "[IP_ADDRESS]"
 
-    // Return both HTTP and HTTPS protocols (CSP needs explicit protocol specification)
-    // Also support ws:// and wss:// WebSocket connections
+    // 精确匹配 + 端口通配，同时覆盖 http/https/ws/wss 四种协议
     if (url.protocol === 'https:') {
-      return `https://${host} wss://${host}`
+      return `https://${host} wss://${host} https://${hostname}:* wss://${hostname}:*`
     } else {
-      return `http://${host} https://${host} ws://${host} wss://${host}`
+      return `http://${host} https://${host} ws://${host} wss://${host} http://${hostname}:* https://${hostname}:* ws://${hostname}:* wss://${hostname}:*`
     }
   } catch {
     // URL parsing failed, return original value directly
@@ -170,13 +176,13 @@ function generateCSPHeader(
     "'sha256-z0nb1PpkFco8UDVc/Xq/SKYGByn8TQYxeliFAv309DM='",
   ]
 
-  // Get backend API domain from environment variables (for connect-src)
+  // 从 NEXT_PUBLIC_API_URL 自动推导后端域名（含端口通配，覆盖同主机 MCP 等服务）
   const backendApiDomains = getBackendApiDomains()
 
-  // Get extra connect-src domains from environment variables
+  // 额外的 connect-src 域名（用于非后端主机的外部服务，如第三方 API）
   const connectSrcExtra = process.env.NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA || ''
 
-  // Get extra frame-src domains from environment variables
+  // 额外的 frame-src 域名（用于非后端主机的外部 iframe 嵌入）
   const frameSrcExtra = process.env.NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA || ''
 
   // Enhanced strict CSP policy
