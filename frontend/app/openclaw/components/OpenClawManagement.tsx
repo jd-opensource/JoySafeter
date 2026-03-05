@@ -25,6 +25,17 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
@@ -265,17 +276,42 @@ export function OpenClawManagement() {
                   <span className="truncate">{t('openclaw.syncSkills')}</span>
                 </Button>
               )}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => deleteMutation.mutate()}
-                disabled={isInstanceBusy}
-                className="h-8 text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:border-red-900/50 transition-colors shadow-sm"
-                title={t('openclaw.deleteInstanceTitle')}
-              >
-                {deleteMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}
-                <span className="truncate">{t('common.delete', 'Delete')}</span>
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isInstanceBusy}
+                    className="h-8 text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:border-red-900/50 transition-colors shadow-sm"
+                    title={t('openclaw.deleteInstanceTitle')}
+                  >
+                    {deleteMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}
+                    <span className="truncate">{t('common.delete', 'Delete')}</span>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('openclaw.confirmDeleteInstance', 'Delete Instance?')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('openclaw.confirmDeleteInstanceDesc', 'Are you sure you want to delete this OpenClaw instance?')}
+                    </AlertDialogDescription>
+                    <div className="mt-2 rounded-md bg-amber-50 p-3 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-900/30">
+                      <p className="text-sm text-amber-800 dark:text-amber-500 font-medium">
+                        {t('openclaw.deleteInstanceWarning', 'Warning: Deleting the instance will clear all of its execution history.')}
+                      </p>
+                    </div>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteMutation.mutate()}
+                      className="bg-red-600 hover:bg-red-700 text-white border-0"
+                    >
+                      {t('common.confirm', 'Confirm')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
         </div>
