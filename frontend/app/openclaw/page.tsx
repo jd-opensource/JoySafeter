@@ -17,14 +17,8 @@ export default function OpenClawPage() {
     <div className="flex h-full w-full overflow-hidden">
       {/* Main Content Area */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden p-6 gap-2 transition-all duration-300">
-        <div className="flex shrink-0 items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-              OpenClaw
-            </h1>
-          </div>
-
-          {!isRightSidebarOpen && (
+        {!isRightSidebarOpen && (
+          <div className="flex shrink-0 items-start justify-end">
             <Button
               variant="default"
               className="gap-2 shrink-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-700 shadow-sm font-medium h-8 px-3 text-xs border-0 rounded-md"
@@ -33,8 +27,8 @@ export default function OpenClawPage() {
               <PanelRight className="h-3.5 w-3.5" />
               {t('openclaw.manageInstancesAndDevices')}
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="min-h-0 flex-1">
           <OpenClawWebUI />

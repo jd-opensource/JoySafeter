@@ -242,9 +242,9 @@ export function OpenClawManagement() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 items-center justify-start mt-2">
+            <div className="grid grid-cols-2 gap-2 mt-4">
               {status !== 'running' && status !== 'starting' && (
-                <Button size="sm" onClick={() => startMutation.mutate()} disabled={isInstanceBusy} className="h-8 shadow-sm">
+                <Button size="sm" onClick={() => startMutation.mutate()} disabled={isInstanceBusy} className="h-8 shadow-sm col-span-2">
                   {startMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
                   {t('openclaw.start')}
                 </Button>
@@ -252,28 +252,29 @@ export function OpenClawManagement() {
               {status === 'running' && (
                 <Button size="sm" variant="outline" onClick={() => stopMutation.mutate()} disabled={isInstanceBusy} className="h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20 shadow-sm transition-colors">
                   {stopMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Power className="mr-1.5 h-3.5 w-3.5" />}
-                  {t('openclaw.stop')}
+                  <span className="truncate">{t('openclaw.stop')}</span>
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => restartMutation.mutate()} disabled={isInstanceBusy} className="h-8 shadow-sm transition-colors">
                 {restartMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-                {t('openclaw.restart')}
+                <span className="truncate">{t('openclaw.restart')}</span>
               </Button>
               {status === 'running' && (
-                <Button size="sm" variant="outline" onClick={() => syncSkillsMutation.mutate()} disabled={isInstanceBusy || syncSkillsMutation.isPending} className="h-8 shadow-sm transition-colors border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20 w-full sm:w-auto">
+                <Button size="sm" variant="outline" onClick={() => syncSkillsMutation.mutate()} disabled={isInstanceBusy || syncSkillsMutation.isPending} className="h-8 shadow-sm transition-colors border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20">
                   {syncSkillsMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-                  {t('openclaw.syncSkills')}
+                  <span className="truncate">{t('openclaw.syncSkills')}</span>
                 </Button>
               )}
               <Button
-                size="icon"
+                size="sm"
                 variant="outline"
                 onClick={() => deleteMutation.mutate()}
                 disabled={isInstanceBusy}
-                className="h-8 w-8 text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:border-red-900/50 transition-colors shadow-sm"
+                className="h-8 text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:border-red-900/50 transition-colors shadow-sm"
                 title={t('openclaw.deleteInstanceTitle')}
               >
-                {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {deleteMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}
+                <span className="truncate">{t('common.delete', 'Delete')}</span>
               </Button>
             </div>
           </div>
