@@ -25,14 +25,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const setIsAppSidebarCollapsed = useSidebarStore((state) => state.setIsAppSidebarCollapsed)
 
-  // Automatically determine whether to collapse based on pathname: collapse when path starts with /workspace
-  const isAppSidebarCollapsed = pathname?.startsWith('/workspace') ?? false
+  // Automatically determine whether to collapse based on pathname: collapse when path starts with /workspace or /openclaw
+  const isAppSidebarCollapsed = !!(pathname?.startsWith('/workspace') || pathname?.startsWith('/openclaw'))
 
   useEffect(() => {
     // Sync state to store so other components can access it
     setIsAppSidebarCollapsed(isAppSidebarCollapsed)
   }, [isAppSidebarCollapsed, setIsAppSidebarCollapsed])
-
   if (isPublicRoute(pathname)) {
     return <>{children}</>
   }
