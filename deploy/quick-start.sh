@@ -158,6 +158,43 @@ init_env_files() {
     fi
 }
 
+# 检查 TAVILY_API_KEY
+check_tavily_api_key() {
+    log_step "检查 TAVILY_API_KEY..."
+    local backend_env="$PROJECT_ROOT/backend/.env"
+    
+    if [ ! -f "$backend_env" ]; then
+        log_warning "backend/.env 不存在，跳过检查"
+        return 0
+    fi
+    
+    # 检查 backend/.env 中是否已经有 TAVILY_API_KEY 且不为空
+    if grep -q "^TAVILY_API_KEY=[^[:space:]]" "$backend_env"; then
+        log_success "TAVILY_API_KEY 已在 backend/.env 中配置"
+    else
+        if [ -n "$TAVILY_API_KEY" ]; then
+            log_info "检测到系统环境变量 TAVILY_API_KEY，准备写入 backend/.env"
+            tavily_key="$TAVILY_API_KEY"
+        else
+            log_warning "未在 backend/.env 中发现有效的 TAVILY_API_KEY"
+            # 兼容 bash read
+            printf "请输入 TAVILY_API_KEY (回车跳过): "
+            read -r tavily_key
+        fi
+        
+        if [ -n "$tavily_key" ]; then
+            # 清理旧的空配置
+            grep -v "^TAVILY_API_KEY=" "$backend_env" > "${backend_env}.tmp" || true
+            mv "${backend_env}.tmp" "$backend_env"
+            
+            echo "TAVILY_API_KEY=$tavily_key" >> "$backend_env"
+            log_success "TAVILY_API_KEY 已写入 backend/.env"
+        else
+            log_info "跳过 TAVILY_API_KEY 设置"
+        fi
+    fi
+}
+
 # 初始化数据库
 init_database() {
     log_step "初始化数据库..."
@@ -329,6 +366,8 @@ main() {
     # 2. 初始化 .env 文件
     if [ "$SKIP_ENV" = false ]; then
         init_env_files
+        echo ""
+        check_tavily_api_key
         echo ""
     else
         log_info "跳过 .env 文件初始化"
