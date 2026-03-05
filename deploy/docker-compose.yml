@@ -148,6 +148,8 @@ services:
     restart: unless-stopped
     env_file:
       - ../frontend/.env
+    environment:
+      - NEXT_PUBLIC_API_URL=${BACKEND_URL:-http://localhost:8000}
     ports:
       - "${FRONTEND_PORT_HOST:-3000}:3000"
     depends_on:
