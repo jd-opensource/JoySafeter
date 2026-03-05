@@ -175,7 +175,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                 if container.status != "running":
                     logger.info(f"Container not running (status={container.status}), calling start()...")
                     await asyncio.to_thread(container.start)
-                    logger.info(f"container.start() completed successfully")
+                    logger.info("container.start() completed successfully")
 
                 logger.info(f"Re-started existing OpenClaw container {container.id[:12]} for user {instance.user_id}")
                 return str(container.id)[:12]
@@ -186,9 +186,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             except Exception as e:
                 logger.warning(f"Failed to reuse existing container (exception type={type(e).__name__}): {e}")
         else:
-            logger.info(f"recreate=True, skipping reuse attempt")
+            logger.info("recreate=True, skipping reuse attempt")
 
-        logger.info(f"Proceeding to CREATE NEW container (reuse failed or recreate=True)")
+        logger.info("Proceeding to CREATE NEW container (reuse failed or recreate=True)")
 
         # Stop and remove existing container if any (for recreate or if reuse failed)
         if instance.container_id:
