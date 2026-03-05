@@ -145,6 +145,11 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
     async def _create_container(self, instance: OpenClawInstance, recreate: bool = False) -> str:
         """Create and start a Docker container for the instance, or start an existing one."""
         container_name = f"openclaw-user-{instance.user_id[:12]}"
+        logger.info(
+            f"_create_container called: recreate={recreate}, "
+            f"container_id={instance.container_id}, container_name={container_name}, "
+            f"instance_status={instance.status}"
+        )
 
         try:
             client = docker.from_env()
@@ -156,27 +161,43 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             try:
                 # Try by instance.container_id first
                 if instance.container_id:
+                    logger.info(f"Trying to get container by ID: {instance.container_id}")
                     container = client.containers.get(instance.container_id)
                 else:
+                    logger.info(f"No container_id, trying by name: {container_name}")
                     container = client.containers.get(container_name)
 
+                logger.info(
+                    f"Found existing container: id={container.id[:12]}, "
+                    f"status={container.status}, name={container.name}"
+                )
+
                 if container.status != "running":
+                    logger.info(f"Container not running (status={container.status}), calling start()...")
                     await asyncio.to_thread(container.start)
+                    logger.info(f"container.start() completed successfully")
 
                 logger.info(f"Re-started existing OpenClaw container {container.id[:12]} for user {instance.user_id}")
                 return str(container.id)[:12]
-            except docker.errors.NotFound:
+            except docker.errors.NotFound as e:
                 # Fall through to create new if not found
+                logger.warning(f"Container NOT FOUND (NotFound): {e}")
                 pass
             except Exception as e:
-                logger.warning(f"Failed to reuse existing container, will recreate: {e}")
+                logger.warning(f"Failed to reuse existing container (exception type={type(e).__name__}): {e}")
+        else:
+            logger.info(f"recreate=True, skipping reuse attempt")
+
+        logger.info(f"Proceeding to CREATE NEW container (reuse failed or recreate=True)")
 
         # Stop and remove existing container if any (for recreate or if reuse failed)
         if instance.container_id:
             try:
                 container = client.containers.get(instance.container_id)
                 container.remove(force=True)
+                logger.info(f"Removed old container by ID: {instance.container_id}")
             except docker.errors.NotFound:
+                logger.info(f"Old container by ID not found for removal: {instance.container_id}")
                 pass
             except Exception as e:
                 logger.warning(f"Failed to remove container {instance.container_id}: {e}")
@@ -185,7 +206,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         try:
             container = client.containers.get(container_name)
             container.remove(force=True)
+            logger.info(f"Removed old container by name: {container_name}")
         except docker.errors.NotFound:
+            logger.info(f"Old container by name not found for removal: {container_name}")
             pass
         except Exception as e:
             logger.warning(f"Failed to remove container {container_name}: {e}")
