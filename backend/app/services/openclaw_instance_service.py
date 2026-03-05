@@ -159,10 +159,10 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                     container = client.containers.get(instance.container_id)
                 else:
                     container = client.containers.get(container_name)
-                    
+
                 if container.status != "running":
                     await asyncio.to_thread(container.start)
-                    
+
                 logger.info(f"Re-started existing OpenClaw container {container.id[:12]} for user {instance.user_id}")
                 return str(container.id)[:12]
             except docker.errors.NotFound:
