@@ -337,13 +337,19 @@ const SchemaFieldRenderer = ({
         <ModelSelectField
           value={value as string}
           onChange={(modelName) => {
-            // Maintain backward compatibility: update the field itself
-            onChange(modelName)
+            // Only call onChange if onModelChange is not handling the update
+            // to avoid two competing state updates that race
+            if (!onModelChange) {
+              onChange(modelName)
+            }
           }}
           onModelChange={(modelName, providerName) => {
             // Update both model_name and provider_name simultaneously
             if (onModelChange) {
               onModelChange(modelName, providerName)
+            } else {
+              // Fallback: just update the field value with combined id
+              onChange(`${providerName}:${modelName}`)
             }
           }}
         />
@@ -857,9 +863,18 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       onModelChange={
                         field.key === 'memoryModel'
                           ? (modelName, providerName) => {
-                            // Update both memoryModel and memoryProvider simultaneously
-                            updateConfig('memoryModel', `${providerName}:${modelName}`)
-                            updateConfig('memoryProvider', providerName)
+                            // Update memoryModel and memoryProvider in a single onUpdate call
+                            // to avoid race condition where separate updateConfig calls
+                            // spread from the same stale config and overwrite each other
+                            const combinedModelId = `${providerName}:${modelName}`
+                            onUpdate(node.id, {
+                              label: nodeData.label || '',
+                              config: {
+                                ...config,
+                                memoryModel: combinedModelId,
+                                memoryProvider: providerName,
+                              },
+                            })
                           }
                           : undefined
                       }
