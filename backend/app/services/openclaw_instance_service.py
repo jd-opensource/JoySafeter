@@ -126,10 +126,10 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         try:
             await self._update_status(instance.id, "starting")
-            container_id = await self._create_container(instance)
+            container_id = await self._create_container(instance, recreate=False)
             await self._update_status(instance.id, "starting", container_id=container_id)
 
-            # Sync skills into the newly created OpenClaw container
+            # Sync skills into the OpenClaw container
             await self.sync_skills_to_container(user_id, container_id)
 
             await self._wait_for_gateway(instance)
@@ -142,8 +142,8 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             await self.db.refresh(instance)
             raise RuntimeError(f"Failed to start OpenClaw instance: {e}")
 
-    async def _create_container(self, instance: OpenClawInstance) -> str:
-        """Create and start a Docker container for the instance."""
+    async def _create_container(self, instance: OpenClawInstance, recreate: bool = False) -> str:
+        """Create and start a Docker container for the instance, or start an existing one."""
         container_name = f"openclaw-user-{instance.user_id[:12]}"
 
         try:
@@ -151,7 +151,27 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Docker daemon: {e}")
 
-        # Stop and remove existing container if any
+        # Try to find and start existing container
+        if not recreate:
+            try:
+                # Try by instance.container_id first
+                if instance.container_id:
+                    container = client.containers.get(instance.container_id)
+                else:
+                    container = client.containers.get(container_name)
+                    
+                if container.status != "running":
+                    await asyncio.to_thread(container.start)
+                    
+                logger.info(f"Re-started existing OpenClaw container {container.id[:12]} for user {instance.user_id}")
+                return str(container.id)[:12]
+            except docker.errors.NotFound:
+                # Fall through to create new if not found
+                pass
+            except Exception as e:
+                logger.warning(f"Failed to reuse existing container, will recreate: {e}")
+
+        # Stop and remove existing container if any (for recreate or if reuse failed)
         if instance.container_id:
             try:
                 container = client.containers.get(instance.container_id)
