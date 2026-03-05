@@ -214,7 +214,7 @@ export function OpenClawManagement() {
       <div className="flex flex-col rounded-xl border border-[var(--border)] bg-[var(--bg)] shadow-sm overflow-hidden">
         {/* 上半部分：状态与操作 */}
         <div className="p-4 sm:p-5 relative">
-          <div className="flex flex-wrap gap-4 items-start justify-between">
+          <div className="flex flex-col gap-4">
             <div className="flex items-start gap-3.5 min-w-0">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-500/10 border border-blue-500/20">
                 <Server className="h-6 w-6 text-blue-600 dark:text-blue-400" />
@@ -242,7 +242,7 @@ export function OpenClawManagement() {
               </div>
             </div>
 
-            <div className="flex shrink-0 gap-2 items-center flex-wrap justify-end">
+            <div className="flex flex-wrap gap-2 items-center justify-start mt-2">
               {status !== 'running' && status !== 'starting' && (
                 <Button size="sm" onClick={() => startMutation.mutate()} disabled={isInstanceBusy} className="h-8 shadow-sm">
                   {startMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
@@ -260,7 +260,7 @@ export function OpenClawManagement() {
                 {t('openclaw.restart')}
               </Button>
               {status === 'running' && (
-                <Button size="sm" variant="outline" onClick={() => syncSkillsMutation.mutate()} disabled={isInstanceBusy || syncSkillsMutation.isPending} className="h-8 shadow-sm transition-colors border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20">
+                <Button size="sm" variant="outline" onClick={() => syncSkillsMutation.mutate()} disabled={isInstanceBusy || syncSkillsMutation.isPending} className="h-8 shadow-sm transition-colors border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20 w-full sm:w-auto">
                   {syncSkillsMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
                   {t('openclaw.syncSkills')}
                 </Button>
@@ -281,7 +281,7 @@ export function OpenClawManagement() {
 
         {/* 下半部分：详细信息 */}
         <div className="border-t border-[var(--border)] bg-[var(--bg)] p-4 sm:p-5">
-          <div className="grid grid-cols-2 gap-y-4 gap-x-6">
+          <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <span className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">{t('openclaw.gatewayPort')}</span>
               <span className="font-mono text-sm font-medium text-[var(--text-primary)]">
@@ -294,11 +294,11 @@ export function OpenClawManagement() {
                 {instance.containerId ? instance.containerId.substring(0, 12) : '--'}
               </span>
             </div>
-            <div className="col-span-2 flex flex-col gap-1.5 mt-1">
+            <div className="flex flex-col gap-1.5">
               <span className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">{t('openclaw.token')}</span>
               {instance.gatewayToken ? (
-                <div className="group flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 shadow-sm">
-                  <span className="block truncate font-mono text-sm text-[var(--text-secondary)]" title={instance.gatewayToken}>
+                <div className="group flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 shadow-sm min-w-0">
+                  <span className="block truncate font-mono text-sm text-[var(--text-secondary)] min-w-0 flex-1" title={instance.gatewayToken}>
                     {instance.gatewayToken}
                   </span>
                   <button
@@ -369,13 +369,13 @@ export function OpenClawManagement() {
             <ul className="divide-y divide-[var(--border)]">
               {pending.map((d) => (
                 <li key={d.deviceId} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 sm:px-4 hover:bg-[var(--muted)]/30 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 mt-0.5">
                       <Smartphone className="h-4 w-4" />
                     </div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-[var(--text-primary)]">{d.clientId || d.deviceId}</span>
-                      <span className="text-xs text-[var(--text-tertiary)]">{d.platform || t('openclaw.platformUnknown')} · {t('openclaw.statusPending')}</span>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-medium text-[var(--text-primary)] truncate">{d.clientId || d.deviceId}</span>
+                      <span className="text-xs text-[var(--text-tertiary)] truncate">{d.platform || t('openclaw.platformUnknown')} · {t('openclaw.statusPending')}</span>
                     </div>
                   </div>
                   <Button
@@ -391,13 +391,13 @@ export function OpenClawManagement() {
               ))}
               {paired.map((d) => (
                 <li key={d.deviceId} className="flex items-center justify-between p-3 sm:px-4 hover:bg-[var(--muted)]/30 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-green-500/10 text-green-600 dark:bg-green-500/20 dark:text-green-400">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-green-500/10 text-green-600 dark:bg-green-500/20 dark:text-green-400 mt-0.5">
                       <CheckCheck className="h-4 w-4" />
                     </div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-[var(--text-primary)]">{d.clientId || d.deviceId}</span>
-                      <span className="text-xs text-[var(--text-tertiary)]">{d.platform || t('openclaw.platformUnknown')} · {t('openclaw.statusPaired')}</span>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-medium text-[var(--text-primary)] truncate">{d.clientId || d.deviceId}</span>
+                      <span className="text-xs text-[var(--text-tertiary)] truncate">{d.platform || t('openclaw.platformUnknown')} · {t('openclaw.statusPaired')}</span>
                     </div>
                   </div>
                 </li>
