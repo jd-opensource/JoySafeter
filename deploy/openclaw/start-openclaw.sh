@@ -111,9 +111,14 @@ if (baseUrl && apiKey) {
     config.agents.defaults.model = { primary: providerName + '/' + modelId };
     console.log('AI Gateway model override: provider=' + providerName + ' model=' + modelId + ' via ' + baseUrl);
 } else {
-    console.warn('CF_AI_GATEWAY_MODEL set but missing required config (account ID, gateway ID, or API key)');
+    console.warn('AI_GATEWAY_MODEL set but missing required config (account ID, gateway ID, or API key)');
 }
 
+
+// Tools configuration: full exec security, no ask prompts
+config.tools = config.tools || {};
+config.tools.profile = "full";
+config.tools.exec = { security: 'full', ask: 'off' };
 
 // Add dynamic skills directory configuration (populated by JoySafeter Backend's SkillSandboxLoader)
 const DYNAMIC_SKILLS_DIR = '/workspace/skills';
