@@ -270,12 +270,7 @@ export function OpenClawManagement() {
                 {restartMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
                 <span className="truncate">{t('openclaw.restart')}</span>
               </Button>
-              {status === 'running' && (
-                <Button size="sm" variant="outline" onClick={() => syncSkillsMutation.mutate()} disabled={isInstanceBusy || syncSkillsMutation.isPending} className="h-8 shadow-sm transition-colors border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20">
-                  {syncSkillsMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-                  <span className="truncate">{t('openclaw.syncSkills')}</span>
-                </Button>
-              )}
+
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
@@ -356,6 +351,41 @@ export function OpenClawManagement() {
             <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/30 dark:bg-red-900/10">
               <span className="font-semibold block mb-1">{t('openclaw.errorMessage')}</span>
               {instance.errorMessage}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 技能同步 */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-[var(--text-primary)]" />
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t('openclaw.syncSkills')}</h3>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg)] shadow-sm">
+          {!instanceRunning ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <Server className="mb-3 h-8 w-8 text-[var(--text-tertiary)] opacity-60" />
+              <p className="text-sm font-medium text-[var(--text-secondary)]">{t('openclaw.instanceNotRunning')}</p>
+              <p className="mt-1 text-xs text-[var(--text-tertiary)]">{t('openclaw.startInstanceFirst')}</p>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4">
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-medium text-[var(--text-primary)]">{t('openclaw.syncSkillsDesc', 'Manually synchronize your configured skills to the OpenClaw container.')}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => syncSkillsMutation.mutate()}
+                disabled={isInstanceBusy || syncSkillsMutation.isPending}
+                className="h-8 w-full sm:w-auto shrink-0 shadow-sm border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20"
+              >
+                {syncSkillsMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+                {t('openclaw.syncSkills')}
+              </Button>
             </div>
           )}
         </div>
