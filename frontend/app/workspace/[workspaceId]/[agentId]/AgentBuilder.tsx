@@ -25,6 +25,7 @@ import { BuilderCanvas } from './components/BuilderCanvas'
 import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'
 import { BuilderToolbar } from './components/BuilderToolbar'
 import { ExecutionPanelNew as ExecutionPanel } from './components/execution/ExecutionPanelNew'
+import { ErrorBoundary } from './error-boundary'
 import { GraphStatePanel } from './components/GraphStatePanel'
 import { LoadModal } from './components/LoadModal'
 import { RunInputModal } from './components/RunInputModal'
@@ -610,7 +611,9 @@ const AgentBuilderContent = () => {
 
       {/* Main Content Area - Canvas takes full space, panels overlay on top */}
       <div className="flex-1 min-h-0 relative">
-        <BuilderCanvas />
+        <ErrorBoundary>
+          <BuilderCanvas />
+        </ErrorBoundary>
       </div>
 
       {/* RIGHT: Panel - Fixed Position (combines Toolbar and Sidebar) */}
