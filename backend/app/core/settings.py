@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     )
 
     # Server
+    backend_port: int = Field(
+        default=8000,
+        validation_alias=AliasChoices("BACKEND_PORT", "PORT"),
+        description="Backend server port",
+    )
     # API settings
     api_v1_prefix: str = "/api/v1"
     reload: bool = Field(
