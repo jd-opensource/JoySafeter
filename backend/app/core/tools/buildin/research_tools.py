@@ -20,8 +20,7 @@ try:
     tavily_client = TavilyClient() if TavilyClient else None
 except Exception:
     logger.warning(
-        "Tavily client initialization failed. "
-        "Please set the TAVILY_API_KEY environment variable to enable web search."
+        "Tavily client initialization failed. Please set the TAVILY_API_KEY environment variable to enable web search."
     )
     tavily_client = None
 
