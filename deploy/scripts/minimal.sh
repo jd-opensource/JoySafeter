@@ -154,6 +154,7 @@ main() {
     else
         log_info "跳过 .env 文件初始化"
         echo ""
+        load_deploy_env
     fi
 
     start_services

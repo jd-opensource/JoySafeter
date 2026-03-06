@@ -57,6 +57,8 @@ detect_docker_compose
 # 初始化配置文件（可选）
 if [ "$SKIP_ENV" = false ]; then
     init_env_files
+else
+    load_deploy_env
 fi
 
 # 颜色输出

@@ -323,9 +323,11 @@ export UV_INDEX_URL="https://mirrors.aliyun.com/pypi/simple"
 
 项目需要配置两个环境变量文件，它们有不同的用途：
 
-### 1. Docker Compose 端口映射配置（deploy/.env）⭐ 必需
+### 1. Docker Compose 变量配置（deploy/.env）⭐ 必需
 
-**重要**：`docker-compose.yml` 中的端口映射变量（如 `BACKEND_PORT_HOST`）必须在 `deploy/.env` 文件中定义，这样 Docker Compose 在启动时才能正确解析端口映射。
+`deploy/.env` 是 **Docker Compose 解析 `${VAR}`** 时读取的配置（同时也会作为脚本的默认配置来源）。
+
+**重要**：在本项目的 `docker-compose*.yml` 中，除了端口映射外，还有一部分容器环境变量也使用了 `${VAR}`（例如 `POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB`、`REDIS_URL` 等）。因此它不只是“端口映射”，也是 Compose 场景下的关键运行参数来源之一（属于历史机制，保留现状）。
 
 #### 创建配置文件
 
@@ -342,14 +344,21 @@ cp .env.example .env
 # 服务端口映射配置（宿主机端口）
 BACKEND_PORT_HOST=8000
 FRONTEND_PORT_HOST=3000
-FRONTEND_URL=http://localhost:3000  # 前端完整 URL（用于健康检查等）
-
-# 数据库端口映射
 POSTGRES_PORT_HOST=5432
-
-# Redis 端口映射（必需）
-# 注意：Redis 是系统必需组件，用于缓存和会话管理
 REDIS_PORT_HOST=6379
+
+# 前后端集成（极度重要）
+# 必须为用户在浏览器中访问前端的真实公网绝对 URL，结尾不要加斜杠
+FRONTEND_URL=http://localhost:3000
+
+# 前端访问后端的公共 URL（供前端和浏览器访问）
+BACKEND_URL=http://localhost:8000
+
+# 数据库/缓存（Compose 解析期变量：会被 docker-compose*.yml 用到）
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=joysafeter
+REDIS_URL=redis://redis:6379/0
 
 # MCP Server 端口映射
 DEMO_MCP_SERVER_PORT=8001
@@ -359,57 +368,48 @@ MCP_PORT_3=8003
 MCP_PORT_4=8004
 MCP_PORT_5=8005
 
-# 构建配置（可选）
+# 构建加速（可选）
 PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 ```
 
-**作用**：这些变量用于 Docker Compose 解析 `docker-compose.yml` 文件，控制容器端口到宿主机的映射。
+**作用**：
+- `*_PORT_HOST`：控制容器端口到宿主机的映射
+- `FRONTEND_URL/BACKEND_URL`：用于前后端集成（OAuth 回调、邮件内链、前端 API 地址注入等）
+- `POSTGRES_* / REDIS_URL`：用于 Compose 场景下数据库/缓存的初始化与连接（由 `docker-compose*.yml` 的 `${VAR}` 引用决定）
 
 ### 2. 应用环境变量配置（backend/.env）⭐ 必需
 
-在 `backend/.env` 中配置应用运行时需要的环境变量：
+`backend/.env` 是 **后端应用进程** 读取的配置（Pydantic Settings 会加载 `backend/.env`）。
+
+在 Docker Compose 场景下，`docker-compose*.yml` 还会通过 `environment:` 对部分变量进行覆盖（例如 `POSTGRES_HOST=db` 等），所以你通常只需要在这里配置 **应用自身的必需项**。
 
 ```bash
-# PostgreSQL 配置
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_password
-POSTGRES_DB=joysafeter
-POSTGRES_HOST=db                    # 容器内使用服务名 "db"
-POSTGRES_PORT=5432                  # 容器内端口（固定为 5432）
-
-# Redis 配置（可选）
-# 注意：Redis 是系统必需组件，后端服务依赖 Redis 才能正常运行
-# 在 Docker Compose 环境中，如果不配置 REDIS_URL，将自动使用默认值 redis://redis:6379/0
-# 如果需要使用外部 Redis 或自定义配置（如密码、不同端口等），请配置 REDIS_URL
-# 格式: redis://[:密码@]主机:端口/数据库编号
-# REDIS_URL=redis://redis:6379/0
-
-# 应用服务器配置
-BACKEND_PORT=8000                   # 应用监听端口（容器内，固定为 8000）
-
 # JWT 密钥（生产环境必须修改）
 SECRET_KEY=your-secret-key-change-in-production-CHANGE-THIS-IN-PRODUCTION
 
+# 运行模式（可选）
+DEBUG=false
+ENVIRONMENT=production
+
+# 其他应用配置...
 # 其他应用配置...
 ```
 
-**作用**：这些变量用于容器内部应用运行时的配置，如数据库连接、JWT 密钥等。
+**作用**：这些变量用于后端应用运行时配置（认证密钥、功能开关、可观测性等）。
 
 ### 配置区别说明
 
 | 配置项 | deploy/.env | backend/.env |
 |--------|-------------|--------------|
-| **用途** | Docker Compose 端口映射解析 | 容器内应用运行时配置 |
-| **生效时机** | Docker Compose 启动时 | 容器内应用启动时 |
-| **端口变量** | `*_PORT_HOST`（宿主机端口） | `*_PORT`（容器内端口） |
-| **必需性** | ⭐ 必需（端口映射） | ⭐ 必需（应用配置） |
+| **用途** | Docker Compose 解析 `${VAR}`（端口、镜像、部分运行参数） | 后端应用进程读取（应用配置为主） |
+| **生效时机** | Compose 解析与容器创建时 | 后端进程启动时（`backend/.env`） |
+| **端口变量** | `*_PORT_HOST`（宿主机端口映射） | `BACKEND_PORT`（容器内监听端口，通常无需改） |
+| **必需性** | ⭐ 必需 | ⭐ 必需（至少要有 `SECRET_KEY`） |
 
 **重要提示**：
-- 两个文件中的端口变量用途不同，不要混淆
-- `deploy/.env` 中的 `*_PORT_HOST` 控制宿主机端口映射
-- `backend/.env` 中的 `*_PORT` 是容器内应用监听的端口（通常不需要修改）
-- `REDIS_URL` 在 Docker Compose 环境中是可选的，如果不配置，将自动使用默认值 `redis://redis:6379/0`
+- 不要混淆 **Compose 解析期 `${VAR}`** 与 **容器内 env_file**：两者读取来源不同。
+- 如果你在 `deploy/.env` 改了 `POSTGRES_PASSWORD` 等，生效与否取决于对应 `docker-compose*.yml` 是否用 `${POSTGRES_PASSWORD}` 进行了解析。
 
 ## 数据库管理
 
@@ -891,42 +891,45 @@ docker system prune -a --volumes       # 清理所有资源
 # 端口映射配置（根据实际部署环境调整）
 BACKEND_PORT_HOST=8000
 FRONTEND_PORT_HOST=3000
-FRONTEND_URL=https://your-domain.com
 POSTGRES_PORT_HOST=5432
 REDIS_PORT_HOST=6379
+
+# 前后端集成（必须为公网真实 URL）
+FRONTEND_URL=https://your-domain.com
+BACKEND_URL=https://api.your-domain.com
+
+# 数据库/缓存（docker-compose.prod.yml 会通过 ${VAR} 引用）
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=strong_password_here
+POSTGRES_DB=joysafeter
+REDIS_URL=redis://redis:6379/0
+
+# 镜像（如使用自建仓库/指定 tag）
+# DOCKER_REGISTRY=your-registry.com/namespace
+# IMAGE_TAG=v1.0.0
 # ... 其他端口配置
 ```
 
 #### backend/.env（必需）
 ```bash
-# 数据库配置
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=strong_password_here
-POSTGRES_DB=joysafeter
-POSTGRES_HOST=db
-POSTGRES_PORT=5432
-
-# Redis 配置（可选）
-# 在 Docker Compose 环境中，如果不配置 REDIS_URL，将自动使用默认值 redis://redis:6379/0
-# 如果需要使用外部 Redis 或自定义配置，请配置 REDIS_URL
-# REDIS_URL=redis://redis:6379/0
-
 # 应用配置
-BACKEND_PORT=8000
 SECRET_KEY=your-strong-secret-key-here  # ⚠️ 必须修改为强随机字符串
 DEBUG=false
 ENVIRONMENT=production
 
 # CORS 配置
 CORS_ORIGINS=["https://your-domain.com"]
-FRONTEND_URL=https://your-domain.com
+# FRONTEND_URL 通常由 docker compose 从 deploy/.env 注入；如需手动覆盖可在此配置
+# FRONTEND_URL=https://your-domain.com
 
 # 其他生产环境配置...
 ```
 
 #### frontend/.env（可选）
 ```bash
-NEXT_PUBLIC_API_URL=https://api.your-domain.com
+# 仅在你需要额外的前端运行期/构建期覆盖时使用
+#（在 docker-compose.yml 场景下，NEXT_PUBLIC_API_URL 通常由 deploy/.env 的 BACKEND_URL 注入）
+# NEXT_PUBLIC_API_URL=https://api.your-domain.com
 # 其他前端配置...
 ```
 

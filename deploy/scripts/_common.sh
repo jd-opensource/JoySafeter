@@ -76,6 +76,16 @@ detect_docker_compose() {
   return 1
 }
 
+load_deploy_env() {
+  # 将 deploy/.env 中的变量导出到当前进程，供后续脚本与 docker compose 使用
+  if [ -f "$DEPLOY_DIR/.env" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$DEPLOY_DIR/.env" 2>/dev/null || true
+    set +a
+  fi
+}
+
 init_env_files() {
   log_step "初始化 .env 文件..."
 
@@ -127,6 +137,9 @@ init_env_files() {
   else
     log_success ".env 文件初始化完成"
   fi
+
+  # 初始化完成后加载 deploy/.env 到当前进程
+  load_deploy_env
 }
 
 check_tavily_api_key() {

@@ -4,54 +4,49 @@
 
 set -e
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/_common.sh"
 
-# 日志函数
-log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
-}
+SKIP_ENV=false
+SKIP_DB_INIT=false
+SKIP_MCP=false
 
-log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
+show_usage() {
+    cat << EOF
+使用方法: $0 [选项]
 
-log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
+选项:
+  -h, --help          显示帮助信息
+  --skip-env          跳过 .env 文件初始化
+  --skip-db-init      跳过数据库初始化（db-init）
+  --skip-mcp          不启动 MCP 服务（mcpserver）
 
-log_error() {
-    echo -e "${RED}❌ $1${NC}"
+说明:
+  - 先启动中间件（PostgreSQL + Redis [+可选 MCP]）
+  - 再使用 deploy/docker-compose.yml 启动完整服务（快速验证/功能测试）
+EOF
 }
 
 # 检查配置文件
 check_config() {
-    if [ ! -f "$DEPLOY_DIR/.env" ]; then
-        log_warning "deploy/.env 文件不存在，使用默认配置"
-        # 创建最小化配置
-        cat > "$DEPLOY_DIR/.env" << EOF
-BACKEND_PORT_HOST=8000
-FRONTEND_PORT_HOST=3000
-POSTGRES_PORT_HOST=5432
-REDIS_PORT_HOST=6379
-FRONTEND_URL=http://localhost:3000
-EOF
-        log_success "已创建最小化配置"
+    if [ "$SKIP_ENV" = false ]; then
+        init_env_files
+        echo ""
+        check_tavily_api_key
+        echo ""
+    else
+        log_info "跳过 .env 文件初始化"
+        load_deploy_env
+        echo ""
     fi
 
-    if [ ! -f "$DEPLOY_DIR/../backend/.env" ]; then
-        log_warning "backend/.env 文件不存在，使用默认配置"
-        if [ -f "$DEPLOY_DIR/../backend/env.example" ]; then
-            cp "$DEPLOY_DIR/../backend/env.example" "$DEPLOY_DIR/../backend/.env"
-            log_success "已从示例文件创建配置"
+    # 若跳过 env 初始化，仍需确保 backend/.env 存在（供中间件与容器读取）
+    if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
+        log_warning "backend/.env 文件不存在，将从示例文件创建"
+        if [ -f "$PROJECT_ROOT/backend/env.example" ]; then
+            cp "$PROJECT_ROOT/backend/env.example" "$PROJECT_ROOT/backend/.env"
+            log_success "已创建 backend/.env"
         else
             log_error "backend/env.example 不存在"
             exit 1
@@ -61,17 +56,25 @@ EOF
 
 # 启动服务
 start_services() {
-    log_info "启动测试环境服务..."
-
     cd "$DEPLOY_DIR"
 
     # 启动中间件
     log_info "启动中间件..."
-    "$DEPLOY_DIR/scripts/start-middleware.sh"
+    middleware_args=()
+    if [ "$SKIP_ENV" = true ]; then
+        middleware_args+=(--skip-env)
+    fi
+    if [ "$SKIP_DB_INIT" = true ]; then
+        middleware_args+=(--skip-db-init)
+    fi
+    if [ "$SKIP_MCP" = true ]; then
+        middleware_args+=(--skip-mcp)
+    fi
+    "$DEPLOY_DIR/scripts/start-middleware.sh" "${middleware_args[@]}"
 
     # 启动完整服务（使用开发配置，但快速启动）
     log_info "启动测试服务..."
-    docker-compose up -d
+    $DOCKER_COMPOSE_CMD up -d
 
     log_success "测试环境服务启动完成"
 }
@@ -101,22 +104,51 @@ show_info() {
     echo ""
     echo "测试环境特性:"
     echo "  ✅ 快速启动"
-    echo "  ✅ 最小化配置"
+    echo "  ✅ 使用 deploy/.env.example 默认配置"
     echo "  ✅ 适合功能测试"
     echo ""
     echo "常用命令:"
-    echo "  查看日志: docker-compose logs -f"
-    echo "  停止服务: docker-compose down"
-    echo "  清理数据: docker-compose down -v"
+    echo "  查看日志: $DOCKER_COMPOSE_CMD logs -f"
+    echo "  停止服务: $DOCKER_COMPOSE_CMD down"
+    echo "  清理数据: $DOCKER_COMPOSE_CMD down -v"
     echo ""
 }
 
 # 主函数
 main() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            --skip-env)
+                SKIP_ENV=true
+                shift
+                ;;
+            --skip-db-init)
+                SKIP_DB_INIT=true
+                shift
+                ;;
+            --skip-mcp)
+                SKIP_MCP=true
+                shift
+                ;;
+            *)
+                log_error "未知选项: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+
     echo "=========================================="
     echo "  测试环境启动"
     echo "=========================================="
     echo ""
+
+    check_docker_running
+    detect_docker_compose
 
     check_config
 
