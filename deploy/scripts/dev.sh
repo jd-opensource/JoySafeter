@@ -4,65 +4,66 @@
 
 set -e
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/_common.sh"
 
-# 日志函数
-log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+# 参数
+SKIP_ENV=false
+SKIP_DB_INIT=false
+NO_BUILD=false
+
+show_usage() {
+    cat << EOF
+使用方法: $0 [选项]
+
+选项:
+  -h, --help          显示帮助信息
+  --skip-env          跳过 .env 文件初始化
+  --skip-db-init      跳过数据库初始化（db-init）
+  --no-build          启动时不执行镜像构建（跳过 --build）
+
+说明:
+  - 开发场景使用 deploy/docker-compose.yml
+  - 会自动检测 docker compose / docker-compose
+  - 默认会执行一次 db-init（可用 --skip-db-init 跳过）
+
+示例:
+  $0
+  $0 --skip-env
+  $0 --skip-db-init
+  $0 --no-build
+EOF
 }
 
-log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
-
-log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
-
-log_error() {
-    echo -e "${RED}❌ $1${NC}"
-}
-
-# 检查配置文件
-check_config() {
-    if [ ! -f "$DEPLOY_DIR/.env" ]; then
-        log_error "deploy/.env 文件不存在"
-        echo "请先运行安装脚本: cd $DEPLOY_DIR && ./install.sh"
-        exit 1
-    fi
-
-    if [ ! -f "$DEPLOY_DIR/../backend/.env" ]; then
-        log_error "backend/.env 文件不存在"
-        echo "请先运行安装脚本: cd $DEPLOY_DIR && ./install.sh"
-        exit 1
-    fi
-}
-
-# 启动服务
-start_services() {
-    log_info "启动开发环境服务..."
-
+init_database() {
+    log_step "初始化数据库..."
     cd "$DEPLOY_DIR"
 
-    # 确保中间件已启动
-    log_info "检查中间件服务..."
-    if ! docker-compose -f docker-compose-middleware.yml ps | grep -q "Up"; then
-        log_info "启动中间件..."
-        "$DEPLOY_DIR/scripts/start-middleware.sh"
+    log_info "启动数据库服务..."
+    $DOCKER_COMPOSE_CMD up -d db
+
+    log_info "等待数据库就绪..."
+    if ! wait_for_db_service "docker-compose.yml" "db" 30; then
+        log_error "数据库健康检查超时"
+        $DOCKER_COMPOSE_CMD ps db || true
+        return 1
     fi
 
-    # 启动完整服务
-    log_info "启动完整服务（开发模式）..."
-    docker-compose up -d --build
+    log_info "运行数据库初始化..."
+    $DOCKER_COMPOSE_CMD --profile init run --rm db-init
+    log_success "数据库初始化完成"
+}
+
+start_services() {
+    log_step "启动开发环境服务..."
+    cd "$DEPLOY_DIR"
+
+    if [ "$NO_BUILD" = true ]; then
+        $DOCKER_COMPOSE_CMD up -d
+    else
+        $DOCKER_COMPOSE_CMD up -d --build
+    fi
 
     log_success "开发环境服务启动完成"
 }
@@ -96,21 +97,67 @@ show_info() {
     echo "  ✅ 详细日志输出"
     echo ""
     echo "常用命令:"
-    echo "  查看日志: docker-compose logs -f [service]"
-    echo "  停止服务: docker-compose down"
-    echo "  重启服务: docker-compose restart [service]"
-    echo "  查看状态: docker-compose ps"
+    echo "  查看日志: $DOCKER_COMPOSE_CMD logs -f [service]"
+    echo "  停止服务: $DOCKER_COMPOSE_CMD down"
+    echo "  重启服务: $DOCKER_COMPOSE_CMD restart [service]"
+    echo "  查看状态: $DOCKER_COMPOSE_CMD ps"
     echo ""
 }
 
 # 主函数
 main() {
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            --skip-env)
+                SKIP_ENV=true
+                shift
+                ;;
+            --skip-db-init)
+                SKIP_DB_INIT=true
+                shift
+                ;;
+            --no-build)
+                NO_BUILD=true
+                shift
+                ;;
+            *)
+                log_error "未知选项: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+
     echo "=========================================="
     echo "  开发环境启动"
     echo "=========================================="
     echo ""
 
-    check_config
+    check_docker_running
+    detect_docker_compose
+
+    if [ "$SKIP_ENV" = false ]; then
+        init_env_files
+        echo ""
+        check_tavily_api_key
+        echo ""
+    else
+        log_info "跳过 .env 文件初始化"
+        echo ""
+    fi
+
+    if [ "$SKIP_DB_INIT" = false ]; then
+        init_database
+        echo ""
+    else
+        log_info "跳过数据库初始化"
+        echo ""
+    fi
 
     start_services
 

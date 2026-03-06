@@ -4,56 +4,57 @@
 
 set -e
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/_common.sh"
 
-# 日志函数
-log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+SKIP_ENV=false
+SKIP_DB_INIT=false
+WITH_MCP=false
+
+show_usage() {
+    cat << EOF
+使用方法: $0 [选项]
+
+选项:
+  -h, --help          显示帮助信息
+  --skip-env          跳过 .env 文件初始化
+  --skip-db-init      跳过数据库初始化（db-init）
+  --with-mcp          同时启动 MCP 服务（mcpserver）
+
+说明:
+  - 最小化场景默认仅启动 PostgreSQL + Redis
+  - 如需 MCP 服务，请加 --with-mcp
+EOF
 }
 
-log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
-
-log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
-
-log_error() {
-    echo -e "${RED}❌ $1${NC}"
-}
-
-# 检查配置文件
-check_config() {
-    if [ ! -f "$DEPLOY_DIR/../backend/.env" ]; then
-        log_warning "backend/.env 文件不存在，使用默认配置"
-        if [ -f "$DEPLOY_DIR/../backend/env.example" ]; then
-            cp "$DEPLOY_DIR/../backend/env.example" "$DEPLOY_DIR/../backend/.env"
-            log_success "已从示例文件创建配置"
-        else
-            log_error "backend/env.example 不存在"
-            exit 1
-        fi
-    fi
-}
-
-# 启动服务
 start_services() {
-    log_info "启动最小化环境（仅中间件）..."
-
+    log_step "启动最小化环境（仅中间件）..."
     cd "$DEPLOY_DIR"
 
-    # 启动中间件
-    "$DEPLOY_DIR/scripts/start-middleware.sh"
+    log_info "启动 PostgreSQL + Redis..."
+    $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml up -d db redis
+
+    log_info "等待数据库就绪..."
+    if ! wait_for_db_service "docker-compose-middleware.yml" "db" 30; then
+        log_error "数据库健康检查超时"
+        $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml ps db || true
+        return 1
+    fi
+
+    if [ "$SKIP_DB_INIT" = false ]; then
+        log_info "运行数据库初始化..."
+        $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml --profile init run --rm db-init
+        log_success "数据库初始化完成"
+    else
+        log_info "跳过数据库初始化"
+    fi
+
+    if [ "$WITH_MCP" = true ]; then
+        log_info "启动 MCP 服务..."
+        $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml up -d mcpserver
+        log_success "MCP 服务已启动"
+    fi
 
     log_success "最小化环境启动完成"
 }
@@ -83,7 +84,11 @@ show_info() {
     echo "已启动服务:"
     echo "  ✅ PostgreSQL 数据库"
     echo "  ✅ Redis 缓存"
-    echo "  ✅ 数据库已初始化"
+    if [ "$SKIP_DB_INIT" = false ]; then
+        echo "  ✅ 数据库已初始化"
+    else
+        echo "  ⚠️  数据库未初始化（使用 --skip-db-init 跳过）"
+    fi
     echo ""
     echo "适用场景:"
     echo "  • 本地开发（后端和前端在本地运行）"
@@ -91,25 +96,65 @@ show_info() {
     echo "  • 测试数据库连接"
     echo ""
     echo "常用命令:"
-    echo "  查看日志: docker-compose -f docker-compose-middleware.yml logs -f"
-    echo "  停止服务: docker-compose -f docker-compose-middleware.yml down"
-    echo "  进入数据库: docker-compose -f docker-compose-middleware.yml exec db psql -U postgres"
-    echo "  进入 Redis: docker-compose -f docker-compose-middleware.yml exec redis redis-cli"
+    echo "  查看日志: $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml logs -f"
+    echo "  停止服务: $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml down"
+    echo "  进入数据库: $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml exec db psql -U postgres"
+    echo "  进入 Redis: $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml exec redis redis-cli"
     echo ""
     echo "下一步:"
     echo "  启动完整服务: ./scripts/dev.sh"
     echo "  或使用本地开发: ./scripts/dev-local.sh"
+    if [ "$WITH_MCP" = false ]; then
+        echo "  如需 MCP: $0 --with-mcp"
+    fi
     echo ""
 }
 
 # 主函数
 main() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            --skip-env)
+                SKIP_ENV=true
+                shift
+                ;;
+            --skip-db-init)
+                SKIP_DB_INIT=true
+                shift
+                ;;
+            --with-mcp)
+                WITH_MCP=true
+                shift
+                ;;
+            *)
+                log_error "未知选项: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+
     echo "=========================================="
     echo "  最小化环境启动"
     echo "=========================================="
     echo ""
 
-    check_config
+    check_docker_running
+    detect_docker_compose
+
+    if [ "$SKIP_ENV" = false ]; then
+        init_env_files
+        echo ""
+        check_tavily_api_key
+        echo ""
+    else
+        log_info "跳过 .env 文件初始化"
+        echo ""
+    fi
 
     start_services
 

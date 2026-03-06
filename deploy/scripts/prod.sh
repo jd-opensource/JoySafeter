@@ -4,32 +4,26 @@
 
 set -e
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/_common.sh"
 
-# 日志函数
-log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
-}
+SKIP_ENV=false
+SKIP_DB_INIT=false
+SKIP_PULL=false
+SKIP_MCP=false
 
-log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
+show_usage() {
+    cat << EOF
+使用方法: $0 [选项]
 
-log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
-
-log_error() {
-    echo -e "${RED}❌ $1${NC}"
+选项:
+  -h, --help          显示帮助信息
+  --skip-env          跳过 .env 文件初始化
+  --skip-db-init      跳过数据库初始化（db-init）
+  --skip-pull         跳过镜像拉取
+  --skip-mcp          不启动 MCP 服务（默认会启动）
+EOF
 }
 
 # 检查配置文件
@@ -59,6 +53,26 @@ check_config() {
     if grep -q "DEBUG=true" "$DEPLOY_DIR/../backend/.env"; then
         log_warning "⚠️  警告: DEBUG 模式已启用，生产环境建议关闭"
     fi
+}
+
+# 初始化数据库
+init_database() {
+    log_step "初始化数据库..."
+    cd "$DEPLOY_DIR"
+
+    log_info "启动数据库服务..."
+    $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml up -d db
+
+    log_info "等待数据库就绪..."
+    if ! wait_for_db_service "docker-compose.prod.yml" "db" 30; then
+        log_error "数据库健康检查超时"
+        $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml ps db || true
+        return 1
+    fi
+
+    log_info "运行数据库初始化..."
+    $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml --profile init run --rm db-init
+    log_success "数据库初始化完成"
 }
 
 # 拉取镜像
@@ -95,17 +109,12 @@ start_services() {
     log_info "启动生产环境服务..."
 
     cd "$DEPLOY_DIR"
-
-    # 确保中间件已启动
-    log_info "检查中间件服务..."
-    if ! docker-compose -f docker-compose-middleware.yml ps | grep -q "Up"; then
-        log_info "启动中间件..."
-        "$DEPLOY_DIR/scripts/start-middleware.sh"
-    fi
-
-    # 启动生产服务
     log_info "启动生产服务..."
-    docker-compose -f docker-compose.prod.yml up -d
+    if [ "$SKIP_MCP" = true ]; then
+        $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml up -d
+    else
+        $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml --profile mcpserver up -d
+    fi
 
     log_success "生产环境服务启动完成"
 }
@@ -139,10 +148,10 @@ show_info() {
     echo "  ✅ 生产级日志"
     echo ""
     echo "常用命令:"
-    echo "  查看日志: docker-compose -f docker-compose.prod.yml logs -f"
-    echo "  停止服务: docker-compose -f docker-compose.prod.yml down"
-    echo "  重启服务: docker-compose -f docker-compose.prod.yml restart"
-    echo "  查看状态: docker-compose -f docker-compose.prod.yml ps"
+    echo "  查看日志: $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml logs -f"
+    echo "  停止服务: $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml down"
+    echo "  重启服务: $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml restart"
+    echo "  查看状态: $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml ps"
     echo ""
     echo "安全建议:"
     echo "  ⚠️  确保已修改 SECRET_KEY"
@@ -154,16 +163,73 @@ show_info() {
 
 # 主函数
 main() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            --skip-env)
+                SKIP_ENV=true
+                shift
+                ;;
+            --skip-db-init)
+                SKIP_DB_INIT=true
+                shift
+                ;;
+            --skip-pull)
+                SKIP_PULL=true
+                shift
+                ;;
+            --skip-mcp)
+                SKIP_MCP=true
+                shift
+                ;;
+            *)
+                log_error "未知选项: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+
     echo "=========================================="
     echo "  生产环境启动"
     echo "=========================================="
     echo ""
 
+    check_docker_running
+    detect_docker_compose
+
+    if [ "$SKIP_ENV" = false ]; then
+        init_env_files
+        echo ""
+        check_tavily_api_key
+        echo ""
+    else
+        log_info "跳过 .env 文件初始化"
+        echo ""
+    fi
+
     check_config
     echo ""
 
-    pull_images
+    if [ "$SKIP_PULL" = false ]; then
+        pull_images
+        echo ""
+    else
+        log_info "跳过镜像拉取"
+        echo ""
+    fi
     echo ""
+
+    if [ "$SKIP_DB_INIT" = false ]; then
+        init_database
+        echo ""
+    else
+        log_info "跳过数据库初始化"
+        echo ""
+    fi
 
     start_services
     echo ""

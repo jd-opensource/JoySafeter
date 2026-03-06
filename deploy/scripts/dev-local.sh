@@ -4,35 +4,31 @@
 
 set -e
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"
+source "$SCRIPT_DIR/_common.sh"
+
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 
-# 日志函数
-log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
-}
+SKIP_ENV=false
+SKIP_DB_INIT=false
+SKIP_MCP=false
 
-log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
+show_usage() {
+    cat << EOF
+使用方法: $0 [选项]
 
-log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
+选项:
+  -h, --help          显示帮助信息
+  --skip-env          跳过 .env 文件初始化
+  --skip-db-init      跳过数据库初始化（db-init）
+  --skip-mcp          不启动 MCP 服务（mcpserver）
 
-log_error() {
-    echo -e "${RED}❌ $1${NC}"
+说明:
+  - 仅启动中间件（PostgreSQL + Redis [+可选 MCP]）
+  - 后端与前端在本地运行（非容器）
+EOF
 }
 
 # 检查命令
@@ -98,6 +94,17 @@ check_local_env() {
 check_config() {
     log_info "检查配置文件..."
 
+    # deploy/.env（用于端口映射与 URL 变量）
+    if [ ! -f "$DEPLOY_DIR/.env" ]; then
+        log_warning "deploy/.env 文件不存在"
+        if [ -f "$DEPLOY_DIR/.env.example" ]; then
+            cp "$DEPLOY_DIR/.env.example" "$DEPLOY_DIR/.env"
+            log_success "已从示例文件创建 deploy/.env"
+        else
+            log_warning "deploy/.env.example 不存在，跳过"
+        fi
+    fi
+
     if [ ! -f "$BACKEND_DIR/.env" ]; then
         log_warning "backend/.env 文件不存在"
         if [ -f "$BACKEND_DIR/env.example" ]; then
@@ -109,28 +116,40 @@ check_config() {
         fi
     fi
 
-    # 确保数据库配置正确（本地开发使用 localhost）
-    if grep -q "POSTGRES_HOST=db" "$BACKEND_DIR/.env"; then
-        log_info "更新数据库配置为本地连接..."
-        # 使用 sed 或直接修改
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' 's/POSTGRES_HOST=db/POSTGRES_HOST=localhost/' "$BACKEND_DIR/.env"
-        else
-            sed -i 's/POSTGRES_HOST=db/POSTGRES_HOST=localhost/' "$BACKEND_DIR/.env"
-        fi
-        log_success "数据库配置已更新为 localhost"
-    fi
-
     if [ ! -f "$FRONTEND_DIR/.env.local" ] && [ ! -f "$FRONTEND_DIR/.env" ]; then
         log_warning "frontend/.env.local 文件不存在（可选）"
     fi
 }
 
-# 启动中间件
 start_middleware() {
-    log_info "启动中间件服务（PostgreSQL + Redis）..."
+    log_step "启动中间件服务（PostgreSQL + Redis）..."
+    cd "$DEPLOY_DIR"
 
-    "$DEPLOY_DIR/scripts/start-middleware.sh"
+    log_info "启动 PostgreSQL + Redis..."
+    $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml up -d db redis
+
+    log_info "等待数据库就绪..."
+    if ! wait_for_db_service "docker-compose-middleware.yml" "db" 30; then
+        log_error "数据库健康检查超时"
+        $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml ps db || true
+        exit 1
+    fi
+
+    if [ "$SKIP_DB_INIT" = false ]; then
+        log_info "运行数据库初始化..."
+        $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml --profile init run --rm db-init
+        log_success "数据库初始化完成"
+    else
+        log_info "跳过数据库初始化"
+    fi
+
+    if [ "$SKIP_MCP" = false ]; then
+        log_info "启动 MCP 服务..."
+        $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml up -d mcpserver
+        log_success "MCP 服务已启动"
+    else
+        log_info "跳过 MCP 服务启动"
+    fi
 }
 
 # 显示启动说明
@@ -150,6 +169,8 @@ show_startup_info() {
         source "$DEPLOY_DIR/.env" 2>/dev/null || true
         postgres_port=${POSTGRES_PORT_HOST:-5432}
         redis_port=${REDIS_PORT_HOST:-6379}
+        backend_port=${BACKEND_PORT_HOST:-8000}
+        frontend_port=${FRONTEND_PORT_HOST:-3000}
     fi
 
     echo ""
@@ -177,18 +198,58 @@ show_startup_info() {
     echo "  API 文档: http://localhost:$backend_port/docs"
     echo ""
     echo "常用命令:"
-    echo "  查看中间件日志: docker-compose -f docker-compose-middleware.yml logs -f"
-    echo "  停止中间件: docker-compose -f docker-compose-middleware.yml down"
-    echo "  进入数据库: docker-compose -f docker-compose-middleware.yml exec db psql -U postgres"
+    echo "  查看中间件日志: $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml logs -f"
+    echo "  停止中间件: $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml down"
+    echo "  进入数据库: $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml exec db psql -U postgres"
     echo ""
 }
 
 # 主函数
 main() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            --skip-env)
+                SKIP_ENV=true
+                shift
+                ;;
+            --skip-db-init)
+                SKIP_DB_INIT=true
+                shift
+                ;;
+            --skip-mcp)
+                SKIP_MCP=true
+                shift
+                ;;
+            *)
+                log_error "未知选项: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+
     echo "=========================================="
     echo "  本地开发环境启动"
     echo "=========================================="
     echo ""
+
+    check_docker_running
+    detect_docker_compose
+    echo ""
+
+    if [ "$SKIP_ENV" = false ]; then
+        init_env_files
+        echo ""
+        check_tavily_api_key
+        echo ""
+    else
+        log_info "跳过 .env 文件初始化"
+        echo ""
+    fi
 
     check_local_env
     echo ""

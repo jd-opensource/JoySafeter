@@ -16,6 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"
 
+# Docker Compose 命令变量（将在检测后设置）
+DOCKER_COMPOSE_CMD=""
+
 # 检查结果
 ERRORS=0
 WARNINGS=0
@@ -95,10 +98,12 @@ check_docker_compose() {
     if docker compose version &> /dev/null; then
         local compose_version=$(docker compose version 2>/dev/null | cut -d' ' -f4)
         log_success "Docker Compose 已安装 (版本: $compose_version)"
+        DOCKER_COMPOSE_CMD="docker compose"
         return 0
     elif check_command docker-compose; then
         local compose_version=$(docker-compose --version 2>/dev/null | cut -d' ' -f4 | cut -d',' -f1)
         log_success "Docker Compose 已安装 (版本: $compose_version)"
+        DOCKER_COMPOSE_CMD="docker-compose"
         return 0
     else
         log_error "Docker Compose 未安装"
@@ -282,8 +287,12 @@ main() {
         echo ""
         echo "可以开始部署服务了："
         echo "  cd $DEPLOY_DIR"
-        echo "  ./scripts/start-middleware.sh  # 启动中间件"
-        echo "  docker-compose up -d            # 启动完整服务"
+        echo "  ./scripts/start-middleware.sh  # 启动中间件（本地开发/最小化场景）"
+        if [ -n "$DOCKER_COMPOSE_CMD" ]; then
+            echo "  $DOCKER_COMPOSE_CMD up -d       # 启动完整服务"
+        else
+            echo "  docker compose up -d            # 启动完整服务"
+        fi
         exit 0
     elif [ $ERRORS -eq 0 ]; then
         log_warning "检查完成，有 $WARNINGS 个警告"

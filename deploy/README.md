@@ -94,13 +94,15 @@ cd ../backend
 cp env.example .env
 # 配置数据库连接、JWT 密钥等应用配置
 
-# 3. 启动中间件（PostgreSQL + Redis）并初始化数据库
+# 3. 启动中间件并且按需初始化数据库
 # 注意：Redis 是必需组件，必须启动
 cd ../deploy
 ./scripts/start-middleware.sh
+# ./scripts/start-middleware.sh 内部带有可选参数，比如可以 --skip-mcp 或者 --skip-db-init
 
 # 4. 启动完整服务
 docker-compose up -d
+# 或者也可以使用更推荐的配套脚本： ./scripts/dev.sh
 ```
 
 ## 部署场景说明
@@ -138,12 +140,15 @@ docker-compose up -d
 - ✅ 使用预构建镜像（快速启动）
 - ✅ 优化配置（性能优化）
 - ✅ 生产级日志
+- ✅ 默认启动 MCP 服务（可通过 `--skip-mcp` 跳过）
 - ⚠️ 需要配置镜像仓库
 
 **启动方式**：
 ```bash
 ./scripts/prod.sh
-# 或
+# 跳过 MCP 服务:
+# ./scripts/prod.sh --skip-mcp
+# 或手动启动:
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
@@ -180,12 +185,16 @@ docker-compose -f docker-compose.prod.yml up -d
 - ✅ 仅启动 PostgreSQL 和 Redis（两者都是必需组件）
 - ✅ 数据库已初始化
 - ✅ 资源占用最小
+- ✅ 默认不启动 MCP 服务（可通过 `--with-mcp` 选择性启动）
 
 **启动方式**：
 ```bash
 ./scripts/minimal.sh
-# 或
+# 启动 MCP 服务:
+# ./scripts/minimal.sh --with-mcp
+# 或手动启动:
 ./scripts/start-middleware.sh
+# ./scripts/start-middleware.sh --skip-mcp
 ```
 
 ### 本地开发场景 (dev-local)
@@ -197,6 +206,7 @@ docker-compose -f docker-compose.prod.yml up -d
 
 **特性**：
 - ✅ 仅启动中间件容器
+- ✅ 默认启动 MCP 服务（可通过 `--skip-mcp` 跳过）
 - ✅ 后端和前端在本地运行
 - ✅ 支持 IDE 调试
 - ✅ 支持代码热重载
@@ -204,6 +214,8 @@ docker-compose -f docker-compose.prod.yml up -d
 **启动方式**：
 ```bash
 ./scripts/dev-local.sh
+# 跳过 MCP 服务:
+# ./scripts/dev-local.sh --skip-mcp
 ```
 
 然后在新终端启动后端和前端：
@@ -251,8 +263,14 @@ bun run dev
 # 只构建前端镜像
 ./deploy.sh build --frontend-only
 
-# 只构建初始化镜像
-./deploy.sh build --init-only
+# 只构建 OpenClaw 镜像
+./deploy.sh build --openclaw-only
+
+# 构建所有镜像 (包含 backend, frontend, openclaw)
+./deploy.sh build --all
+
+# 禁用 Docker 构建缓存
+./deploy.sh build --no-cache
 
 # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
 # 如需拉取 MCP 镜像，使用: ./deploy.sh pull
@@ -287,6 +305,7 @@ bun run dev
 export DOCKER_REGISTRY="your-registry.com/namespace"
 export BACKEND_IMAGE="agent-platform-backend"
 export FRONTEND_IMAGE="agent-platform-frontend"
+export OPENCLAW_IMAGE="joysafeter-openclaw"
 export IMAGE_TAG="v1.0.0"
 
 # 构建平台配置
@@ -322,9 +341,7 @@ cp .env.example .env
 ```bash
 # 服务端口映射配置（宿主机端口）
 BACKEND_PORT_HOST=8000
-BACKEND_HOST=localhost  # 后端服务主机名（用于前端连接，容器内访问时使用 "backend"）
 FRONTEND_PORT_HOST=3000
-FRONTEND_HOSTNAME=localhost  # 前端服务主机名（用于后端 CORS 配置）
 FRONTEND_URL=http://localhost:3000  # 前端完整 URL（用于健康检查等）
 
 # 数据库端口映射
@@ -369,7 +386,6 @@ POSTGRES_PORT=5432                  # 容器内端口（固定为 5432）
 # REDIS_URL=redis://redis:6379/0
 
 # 应用服务器配置
-BACKEND_HOST=0.0.0.0                # 应用监听地址（容器内）
 BACKEND_PORT=8000                   # 应用监听端口（容器内，固定为 8000）
 
 # JWT 密钥（生产环境必须修改）
@@ -399,7 +415,7 @@ SECRET_KEY=your-secret-key-change-in-production-CHANGE-THIS-IN-PRODUCTION
 
 ### 初始化数据库
 
-数据库初始化会在 `./scripts/start.sh` 中自动执行，也可以手动运行：
+数据库初始化通常会在各种场景的启动脚本（如 `./scripts/dev.sh`, `./scripts/start-middleware.sh` 等）中自动执行，也可以手动运行：
 
 ```bash
 # 使用中间件配置初始化
@@ -626,6 +642,8 @@ docker-compose exec db pg_isready -U postgres
 
 # 手动运行初始化脚本
 docker-compose --profile init run --rm db-init
+# 如果是本地开发环境的中间件：
+docker-compose -f docker-compose-middleware.yml --profile init run --rm db-init
 
 # 如果失败，查看详细日志
 docker-compose logs db-init
@@ -778,8 +796,13 @@ cd ../backend && cp env.example .env    # 创建应用配置
 ./scripts/prod.sh                       # 生产场景
 ./scripts/minimal.sh                    # 最小化场景
 
-# 传统方式
-./scripts/start-middleware.sh            # 启动中间件
+# 推荐方式
+./scripts/dev.sh                        # 开发场景（包含启动配置）
+./scripts/prod.sh                       # 生产场景（包含启动配置）
+./scripts/minimal.sh                    # 最小化场景（仅中间件）
+
+# 传统单步方式
+./scripts/start-middleware.sh           # 启动中间件
 docker-compose up -d                    # 启动完整服务
 docker-compose -f docker-compose.prod.yml up -d  # 生产环境
 ```
@@ -867,9 +890,7 @@ docker system prune -a --volumes       # 清理所有资源
 ```bash
 # 端口映射配置（根据实际部署环境调整）
 BACKEND_PORT_HOST=8000
-BACKEND_HOST=your-domain.com  # 或使用内网 IP
 FRONTEND_PORT_HOST=3000
-FRONTEND_HOSTNAME=your-domain.com
 FRONTEND_URL=https://your-domain.com
 POSTGRES_PORT_HOST=5432
 REDIS_PORT_HOST=6379
@@ -891,7 +912,6 @@ POSTGRES_PORT=5432
 # REDIS_URL=redis://redis:6379/0
 
 # 应用配置
-BACKEND_HOST=0.0.0.0
 BACKEND_PORT=8000
 SECRET_KEY=your-strong-secret-key-here  # ⚠️ 必须修改为强随机字符串
 DEBUG=false
