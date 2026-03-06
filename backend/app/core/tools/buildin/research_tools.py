@@ -4,14 +4,11 @@ This module provides search and content processing utilities for the research ag
 using Tavily for URL discovery and fetching full webpage content.
 """
 
-import logging
-
 import httpx
 from langchain_core.tools import InjectedToolArg, tool
+from loguru import logger
 from markdownify import markdownify
 from typing_extensions import Annotated, Literal
-
-logger = logging.getLogger(__name__)
 
 try:
     from tavily import TavilyClient
