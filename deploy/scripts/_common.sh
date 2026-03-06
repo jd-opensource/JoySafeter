@@ -192,4 +192,3 @@ wait_for_db_service() {
 
   return 1
 }
-
