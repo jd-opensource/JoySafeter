@@ -49,16 +49,8 @@ class Settings(BaseSettings):
     )
 
     # Server
-    host: str = Field(
-        default="0.0.0.0",
-        validation_alias=AliasChoices("BACKEND_HOST", "HOST", "SERVER_HOST"),
-        description="Backend server host",
-    )
-    port: int = Field(
-        default=8000,
-        validation_alias=AliasChoices("BACKEND_PORT", "PORT", "SERVER_PORT"),
-        description="Backend server port",
-    )
+    # API settings
+    api_v1_prefix: str = "/api/v1"
     reload: bool = Field(
         default=True,
         validation_alias=AliasChoices("RELOAD", "AUTO_RELOAD"),
