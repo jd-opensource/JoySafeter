@@ -78,6 +78,7 @@ services:
       # 其他参数（USER/PASSWORD/DB）从 env_file 继承，不再使用 ${VAR:-default} 语法
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:3000}"
     networks:
       - joysafeter-network
     profiles:

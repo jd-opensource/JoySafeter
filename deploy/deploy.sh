@@ -32,7 +32,7 @@ TAG="${IMAGE_TAG:-latest}"
 PLATFORMS="${BUILD_PLATFORMS:-linux/amd64,linux/arm64}"
 USE_BUILDX="${USE_BUILDX:-true}"
 BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-}"
-FRONTEND_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:8000}"
+FRONTEND_API_URL="${NEXT_PUBLIC_API_URL:-${BACKEND_URL:-http://localhost:8000}}"
 # 是否禁用 Docker 构建缓存（默认使用缓存）
 NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
@@ -102,7 +102,7 @@ show_usage() {
   OPENCLAW_IMAGE         OpenClaw 镜像名称（默认: joysafeter-openclaw）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
-  NEXT_PUBLIC_API_URL    前端API地址（默认: http://localhost:8000）
+  NEXT_PUBLIC_API_URL    前端API地址（默认优先使用 BACKEND_URL 或 http://localhost:8000）
   PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   BASE_IMAGE_REGISTRY    基础镜像仓库前缀

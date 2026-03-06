@@ -56,6 +56,9 @@ services:
     env_file:
       - ../backend/.env
     environment:
+      # 生产环境标识（覆盖 backend/.env 中的默认值）
+      - ENVIRONMENT=production
+      - DEBUG=false
       # Redis 连接 URL（Docker Compose 环境默认值）
       # 如果 backend/.env 中配置了 REDIS_URL，则使用 .env 中的值
       # 如果未配置，则使用默认值 redis://redis:6379/0
@@ -94,6 +97,7 @@ services:
       # Node 环境
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_API_URL=${BACKEND_URL:-http://localhost:8000}
     ports:
       - "${FRONTEND_PORT_HOST:-3000}:3000"
     depends_on:
@@ -159,6 +163,8 @@ services:
         condition: service_healthy
     env_file:
       - ../backend/.env
+    environment:
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     # 注意：数据库连接信息完全从 env_file (../backend/.env) 读取
     # 支持使用外部 PostgreSQL，只需在 backend/.env 中配置正确的 POSTGRES_HOST、POSTGRES_PORT 等
     # 如果使用外部数据库，需要注释掉上面的 depends_on: db 部分
