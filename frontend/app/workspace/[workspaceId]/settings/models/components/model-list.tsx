@@ -1,22 +1,26 @@
 'use client'
 
-import { ChevronUp, Sparkles } from 'lucide-react'
-import React from 'react'
+import { ChevronUp, Plus, Sparkles } from 'lucide-react'
+import React, { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import type { ModelProvider, AvailableModel } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
 
+import { AddCustomModelDialog } from './add-custom-model-dialog'
 import { ModelListItem } from './model-list-item'
 
 interface ModelListProps {
   provider: ModelProvider
   models: AvailableModel[]
   onCollapse: () => void
+  workspaceId?: string
 }
 
-export function ModelList({ provider, models, onCollapse }: ModelListProps) {
+export function ModelList({ provider, models, onCollapse, workspaceId }: ModelListProps) {
   const { t } = useTranslation()
+  const [showAddCustomModel, setShowAddCustomModel] = useState(false)
+  const isCustomProvider = provider.provider_name === 'custom'
 
   // Sort by default model, default models first
   const sortedModels = [...models].sort((a, b) => {
@@ -34,6 +38,20 @@ export function ModelList({ provider, models, onCollapse }: ModelListProps) {
         <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
           <Sparkles size={12} className="text-gray-400" />
           <span>{t('settings.modelsNum', { num: models.length })}</span>
+          {isCustomProvider && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowAddCustomModel(true)
+              }}
+            >
+              <Plus size={12} className="mr-1" />
+              {t('settings.addCustomModel', { defaultValue: '添加自定义模型' })}
+            </Button>
+          )}
         </div>
         <Button
           variant="ghost"
@@ -64,9 +82,26 @@ export function ModelList({ provider, models, onCollapse }: ModelListProps) {
             <p className="text-sm text-gray-400">
               {t('settings.noModelsAvailable')}
             </p>
+            {isCustomProvider && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => setShowAddCustomModel(true)}
+              >
+                <Plus size={14} className="mr-1.5" />
+                {t('settings.addCustomModel', { defaultValue: '添加自定义模型' })}
+              </Button>
+            )}
           </div>
         )}
       </div>
+
+      <AddCustomModelDialog
+        open={showAddCustomModel}
+        onOpenChange={setShowAddCustomModel}
+        workspaceId={workspaceId}
+      />
     </div>
   )
 }

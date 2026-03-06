@@ -29,11 +29,11 @@ def parse_model_ref(
         Tuple of (provider_name, model_name). Either or both can be None if not resolvable.
 
     Examples:
-        >>> parse_model_ref("aisafety:Qwen3-30B")
-        ("aisafety", "Qwen3-30B")
+        >>> parse_model_ref("custom:gpt-4o-mini")
+        ("custom", "gpt-4o-mini")
 
-        >>> parse_model_ref("Qwen3-30B", "aisafety")
-        ("aisafety", "Qwen3-30B")
+        >>> parse_model_ref("gpt-4o-mini", "custom")
+        ("custom", "gpt-4o-mini")
 
         >>> parse_model_ref("Qwen3-30B")
         (None, "Qwen3-30B")
@@ -86,13 +86,13 @@ def format_model_ref(provider_name: Optional[str], model_name: Optional[str]) ->
         None if model_name is None.
 
     Examples:
-        >>> format_model_ref("aisafety", "Qwen3-30B")
-        "aisafety:Qwen3-30B"
+        >>> format_model_ref("custom", "gpt-4o-mini")
+        "custom:gpt-4o-mini"
 
         >>> format_model_ref(None, "Qwen3-30B")
         "Qwen3-30B"
 
-        >>> format_model_ref("aisafety", None)
+        >>> format_model_ref("custom", None)
         None
     """
     if not model_name:

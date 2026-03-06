@@ -14,6 +14,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
 import { truncateValidationError, useCreateCredential, useValidateCredential } from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
@@ -55,6 +62,8 @@ export function ModelCredentialDialog({
         required: (schema as any).required?.includes(key) || false,
         description: value.description,
         default: value.default,
+        enum: Array.isArray(value.enum) ? value.enum : undefined,
+        enumNames: Array.isArray((value as any).enumNames) ? (value as any).enumNames : undefined,
       }))
     }
 
@@ -67,6 +76,9 @@ export function ModelCredentialDialog({
     formFields.forEach(field => {
       if (field.default !== undefined) {
         initial[field.key] = String(field.default)
+      } else if (field.enum && field.enum.length > 0) {
+        // Default first enum value for select fields (e.g. protocol_type -> openai)
+        initial[field.key] = String(field.enum[0])
       } else {
         // Don't display existing sensitive information in edit mode
         initial[field.key] = ''
@@ -137,6 +149,8 @@ export function ModelCredentialDialog({
       formFields.forEach(field => {
         if (field.default !== undefined) {
           initial[field.key] = String(field.default)
+        } else if (field.enum && field.enum.length > 0) {
+          initial[field.key] = String(field.enum[0])
         } else {
           initial[field.key] = ''
         }
@@ -222,24 +236,51 @@ export function ModelCredentialDialog({
             ) : (
               formFields.map(field => {
                 const fieldDescription =
-                  provider.provider_name === 'openaiapicompatible' && field.key === 'base_url'
+                  (provider.provider_name === 'openaiapicompatible' && field.key === 'base_url')
                     ? t('settings.baseUrlDescription')
-                    : field.description
+                    : (provider.provider_name === 'custom' && field.key === 'base_url')
+                      ? t('settings.baseUrlDescription')
+                      : field.description
+                const isEnum = field.enum && field.enum.length > 0
+                const options = isEnum
+                  ? (field.enum as string[]).map((val, i) => ({
+                      value: String(val),
+                      label: (field.enumNames && field.enumNames[i]) ? String(field.enumNames[i]) : String(val),
+                    }))
+                  : []
                 return (
                   <div key={field.key}>
                     <Label htmlFor={field.key}>
                       {field.label}
                       {field.required && <span className="text-destructive ml-1">*</span>}
                     </Label>
-                    <Input
-                      id={field.key}
-                      type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
-                      value={formData[field.key] || ''}
-                      onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
-                      placeholder={fieldDescription || field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
-                      required={field.required}
-                      className="mt-1"
-                    />
+                    {isEnum ? (
+                      <Select
+                        value={(formData[field.key] || options[0]?.value) ?? ''}
+                        onValueChange={(val) => setFormData({ ...formData, [field.key]: val })}
+                      >
+                        <SelectTrigger id={field.key} className="mt-1">
+                          <SelectValue placeholder={field.label} />
+                        </SelectTrigger>
+                        <SelectContent position="popper" className="z-[10000001]">
+                          {options.map(opt => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id={field.key}
+                        type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
+                        value={formData[field.key] || ''}
+                        onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                        placeholder={fieldDescription || field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
+                        required={field.required}
+                        className="mt-1"
+                      />
+                    )}
                     {fieldDescription && (
                       <p className="text-xs text-muted-foreground mt-1">{fieldDescription}</p>
                     )}

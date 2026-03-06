@@ -83,6 +83,7 @@ export function ModelProviderAddedCard({
             provider={provider}
             models={providerModels}
             onCollapse={() => setCollapsed(true)}
+            workspaceId={workspaceId}
           />
         )}
       </div>

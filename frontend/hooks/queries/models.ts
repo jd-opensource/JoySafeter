@@ -143,6 +143,11 @@ export function useModelProvidersByConfig(
         notConfigured.push(provider)
       }
     }
+    // 自定义模型卡片排到列表最后
+    const sortCustomLast = (a: ModelProvider, b: ModelProvider) =>
+      a.provider_name === 'custom' ? 1 : b.provider_name === 'custom' ? -1 : 0
+    configured.sort(sortCustomLast)
+    notConfigured.sort(sortCustomLast)
     return [configured, notConfigured]
   }, [providers, credentialsByProvider])
 
