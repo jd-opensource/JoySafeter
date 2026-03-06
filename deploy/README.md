@@ -24,8 +24,13 @@ deploy/
 ├── install.sh                       # 统一安装脚本
 ├── quick-start.sh                   # 快速启动脚本
 ├── deploy.sh                        # 镜像构建和推送脚本
+├── PRODUCTION_IP_GUIDE.md           # 生产环境 & 指定前后端 IP/域名 最佳实践
 └── .env.example                     # 环境变量配置示例
 ```
+
+## 推荐阅读
+
+- [生产环境 & 指定前后端 IP/域名 最佳实践](./PRODUCTION_IP_GUIDE.md)
 
 ## 快速开始
 
