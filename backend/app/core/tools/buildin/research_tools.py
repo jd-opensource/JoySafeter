@@ -4,10 +4,14 @@ This module provides search and content processing utilities for the research ag
 using Tavily for URL discovery and fetching full webpage content.
 """
 
+import logging
+
 import httpx
 from langchain_core.tools import InjectedToolArg, tool
 from markdownify import markdownify
 from typing_extensions import Annotated, Literal
+
+logger = logging.getLogger(__name__)
 
 try:
     from tavily import TavilyClient
@@ -18,6 +22,10 @@ except ImportError:
 try:
     tavily_client = TavilyClient() if TavilyClient else None
 except Exception:
+    logger.warning(
+        "Tavily client initialization failed. "
+        "Please set the TAVILY_API_KEY environment variable to enable web search."
+    )
     tavily_client = None
 
 
@@ -62,7 +70,10 @@ def tavily_search(
         Formatted search results with full webpage content
     """
     if tavily_client is None:
-        return "Error: Tavily client is not available. Please install tavily-python package."
+        return (
+            "Error: Tavily client is not available. "
+            "Please set the TAVILY_API_KEY environment variable and restart the service."
+        )
 
     # Use Tavily to discover URLs
     search_results = tavily_client.search(
