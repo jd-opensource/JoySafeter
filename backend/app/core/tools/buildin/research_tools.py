@@ -14,8 +14,11 @@ try:
 except ImportError:
     TavilyClient = None
 
-# Initialize Tavily client if available
-tavily_client = TavilyClient() if TavilyClient else None
+# Initialize Tavily client if available and API key is configured
+try:
+    tavily_client = TavilyClient() if TavilyClient else None
+except Exception:
+    tavily_client = None
 
 
 def fetch_webpage_content(url: str, timeout: float = 10.0) -> str:
