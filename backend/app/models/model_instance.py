@@ -5,7 +5,7 @@
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,8 +34,11 @@ class ModelInstance(BaseModel):
         nullable=True,
         comment="工作空间ID，如果为None则为用户级配置",
     )
-    provider_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("model_provider.id", ondelete="CASCADE"), nullable=False, comment="供应商ID"
+    provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("model_provider.id", ondelete="CASCADE"), nullable=True, comment="供应商ID（用户派生时使用）"
+    )
+    provider_name: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, comment="模板供应商名称（如 custom），当 provider_id 为空时使用"
     )
     model_name: Mapped[str] = mapped_column(
         String(255), nullable=False, comment="模型名称，如 'gpt-4o', 'claude-3-5-sonnet'"
@@ -47,8 +50,8 @@ class ModelInstance(BaseModel):
     # 是否为默认模型
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否为默认模型")
 
-    # 关系
-    provider: Mapped["ModelProvider"] = relationship("ModelProvider", lazy="selectin")
+    # 关系（provider_id 为空时 provider 为 None）
+    provider: Mapped[Optional["ModelProvider"]] = relationship("ModelProvider", lazy="selectin")
     user: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")
     workspace: Mapped[Optional["Workspace"]] = relationship("Workspace", lazy="selectin")
 
@@ -57,8 +60,6 @@ class ModelInstance(BaseModel):
         Index("model_instance_workspace_id_idx", "workspace_id"),
         Index("model_instance_provider_id_idx", "provider_id"),
         Index("model_instance_user_provider_model_idx", "user_id", "provider_id", "model_name"),
-        # 确保同一用户/工作空间对同一供应商+模型只有一条配置
-        UniqueConstraint(
-            "user_id", "workspace_id", "provider_id", "model_name", name="uq_model_instance_user_provider_model"
-        ),
+        Index("model_instance_provider_name_idx", "provider_name"),
+        # 唯一性由迁移中的部分唯一索引保证：provider_id 非空或 (provider_name + model_name)
     )

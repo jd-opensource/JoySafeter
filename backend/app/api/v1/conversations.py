@@ -97,7 +97,9 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
     # 获取默认模型
     default_instance = await model_service.repo.get_default()
     if default_instance:
-        provider_name = default_instance.provider.name
+        provider_name = (
+            default_instance.provider.name if default_instance.provider else default_instance.provider_name
+        )
         model_name = default_instance.model_name
         model_type = ModelType.CHAT  # 简化处理，假设是 Chat 模型
 
@@ -117,11 +119,12 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
                 provider_name = str(provider_name_raw) if provider_name_raw is not None else ""
                 # 尝试获取该 provider 的第一个模型
                 provider = await model_service.provider_repo.get_by_name(provider_name)
+                instances = await model_service.repo.list_all()
                 if provider:
-                    # 获取该 provider 的第一个模型实例
-                    instances = await model_service.repo.list_all()
                     provider_instances = [i for i in instances if i.provider_id == provider.id]
-                    if provider_instances:
+                else:
+                    provider_instances = [i for i in instances if i.provider_name == provider_name]
+                if provider_instances:
                         model_name = provider_instances[0].model_name
                         model_type = ModelType.CHAT
                         credentials = await credential_service.get_current_credentials(

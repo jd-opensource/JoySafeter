@@ -61,20 +61,19 @@ class ModelProviderService(BaseService):
                 config_schemas = provider_info.get("config_schemas", {})
 
                 if existing:
-                    # 更新现有供应商
+                    # 仅更新已存在的供应商（方向 A：不再为模板创建新行）
                     await self.repo.update(
                         existing.id,
                         {
                             "display_name": provider_info.get("display_name", existing.display_name),
                             "supported_model_types": provider_info.get("supported_model_types", []),
                             "credential_schema": provider_info.get("credential_schema", {}),
-                            "config_schema": config_schemas,  # 注意：数据库字段是 config_schema（单数）
+                            "config_schema": config_schemas,
                             "is_template": provider_info.get("is_template", False),
                             "provider_type": provider_info.get("provider_type", "system"),
                             "template_name": provider_info.get("template_name"),
                         },
                     )
-                    # Convert ModelProvider to dict
                     synced_providers.append(
                         {
                             "id": str(existing.id),
@@ -90,37 +89,7 @@ class ModelProviderService(BaseService):
                         }
                     )
                     logger.debug(f"已更新供应商: {provider_name}")
-                else:
-                    # 创建新供应商
-                    new_provider = await self.repo.create(
-                        {
-                            "name": provider_name,
-                            "display_name": provider_info.get("display_name", provider_name),
-                            "supported_model_types": provider_info.get("supported_model_types", []),
-                            "credential_schema": provider_info.get("credential_schema", {}),
-                            "config_schema": config_schemas,  # 注意：数据库字段是 config_schema（单数）
-                            "is_template": provider_info.get("is_template", False),
-                            "provider_type": provider_info.get("provider_type", "system"),
-                            "template_name": provider_info.get("template_name"),
-                            "is_enabled": True,
-                        }
-                    )
-                    # Convert ModelProvider to dict
-                    synced_providers.append(
-                        {
-                            "id": str(new_provider.id),
-                            "name": new_provider.name,
-                            "display_name": new_provider.display_name,
-                            "supported_model_types": new_provider.supported_model_types or [],
-                            "credential_schema": new_provider.credential_schema or {},
-                            "config_schema": new_provider.config_schema or {},
-                            "is_enabled": new_provider.is_enabled,
-                            "is_template": new_provider.is_template,
-                            "provider_type": new_provider.provider_type,
-                            "template_name": new_provider.template_name,
-                        }
-                    )
-                    logger.debug(f"已创建供应商: {provider_name}")
+                # 方向 A：不创建新行，模板仅存在于 Factory
             except Exception as e:
                 error_msg = f"同步供应商 {provider_name} 失败: {str(e)}"
                 errors.append(error_msg)
@@ -373,7 +342,7 @@ class ModelProviderService(BaseService):
                 models = provider_instance.get_model_list(model_type)
                 for model_info in models:
                     model_name = model_info["name"]
-                    existing = await self.instance_repo.get_by_provider_and_model(provider.id, model_name)
+                    existing = await self.instance_repo.get_by_provider_and_model(model_name=model_name, provider_id=provider.id)
                     if not existing:
                         await self.instance_repo.create(
                             {

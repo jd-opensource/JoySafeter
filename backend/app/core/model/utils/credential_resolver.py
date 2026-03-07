@@ -57,10 +57,12 @@ class LLMCredentialResolver:
                 model_service = ModelService(db)
                 credential_service = ModelCredentialService(db)
 
-                # Try to get default model
+                # Try to get default model（支持模板实例 provider 为空）
                 default_instance = await model_service.repo.get_default()
                 if default_instance:
-                    provider_name = default_instance.provider.name
+                    provider_name = (
+                        default_instance.provider.name if default_instance.provider else default_instance.provider_name
+                    )
                     model_name = default_instance.model_name
                     model_type = ModelType.CHAT  # Simplified: assume Chat model
 
@@ -80,23 +82,27 @@ class LLMCredentialResolver:
                             provider_name_from_cred = cred.get("provider_name")
                             if not provider_name_from_cred or not isinstance(provider_name_from_cred, str):
                                 continue
-                            # Try to get first model for this provider
+                            # Try to get first model for this provider（模板无 DB 行，按 provider_name 匹配实例）
                             provider = await model_service.provider_repo.get_by_name(provider_name_from_cred)
+                            instances = await model_service.repo.list_all()
                             if provider:
-                                instances = await model_service.repo.list_all()
                                 provider_instances = [i for i in instances if i.provider_id == provider.id]
-                                if provider_instances:
-                                    model_name = provider_instances[0].model_name
-                                    model_type = ModelType.CHAT
-                                    credentials = await credential_service.get_current_credentials(
-                                        provider_name=provider_name or provider_name_from_cred,
-                                        model_type=model_type,
-                                        model_name=model_name or "",
-                                    )
-                                    if credentials:
-                                        api_key = credentials.get("api_key")
-                                        base_url = base_url or credentials.get("base_url")
-                                        break
+                            else:
+                                provider_instances = [
+                                    i for i in instances if i.provider_name == provider_name_from_cred
+                                ]
+                            if provider_instances:
+                                model_name = provider_instances[0].model_name
+                                model_type = ModelType.CHAT
+                                credentials = await credential_service.get_current_credentials(
+                                    provider_name=provider_name or provider_name_from_cred,
+                                    model_type=model_type,
+                                    model_name=model_name or "",
+                                )
+                                if credentials:
+                                    api_key = credentials.get("api_key")
+                                    base_url = base_url or credentials.get("base_url")
+                                    break
             except Exception as e:
                 logger.warning(f"[LLMCredentialResolver] Failed to get credentials from DB: {e}")
 

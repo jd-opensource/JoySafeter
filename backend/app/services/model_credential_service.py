@@ -38,58 +38,63 @@ class ModelCredentialService(BaseService):
         provider_display_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        创建或更新凭据（全局，与 workspace 无关）
+        创建或更新凭据（全局，与 workspace 无关）。
+        模板供应商（如 custom）以 Factory 为准，不要求 DB 中有行；用户派生供应商仍写 model_provider。
         """
-        # 验证供应商是否存在
+        import time
+
+        template = self.factory.get_provider(provider_name)
         provider = await self.provider_repo.get_by_name(provider_name)
-        if not provider:
-            raise NotFoundException(f"供应商不存在: {provider_name}")
-
-        # 如果提供了 provider_display_name 且是一个模板，则创建一个新的自定义供应商
-        if provider_display_name and provider.is_template:
-            # 生成唯一的供应商名称
-            import time
-
-            new_provider_name = f"{provider.name}-{int(time.time())}"
-
-            # 创建新供应商
-            provider = await self.provider_repo.create(
+        # 模板存在且未提供显示名：仅用 provider_name，不写 provider_id
+        if template and not provider_display_name:
+            # 模板路径：不依赖 DB 的 provider 行
+            implementation_name = provider_name
+            provider_id_to_use = None
+            provider_name_to_store = provider_name
+            final_provider_name = provider_name
+            db_provider_for_ensure = None
+        elif template and provider_display_name:
+            # 用户派生：创建 model_provider 行
+            new_provider_name = f"{provider_name}-{int(time.time())}"
+            db_provider = await self.provider_repo.create(
                 {
                     "name": new_provider_name,
                     "display_name": provider_display_name,
-                    "supported_model_types": provider.supported_model_types,
-                    "credential_schema": provider.credential_schema,
-                    "config_schema": provider.config_schema,
+                    "supported_model_types": [mt.value for mt in template.get_supported_model_types()],
+                    "credential_schema": template.get_credential_schema(),
+                    "config_schema": None,
                     "is_template": False,
                     "provider_type": "custom",
-                    "template_name": provider.name,
+                    "template_name": provider_name,
                     "is_enabled": True,
                 }
             )
-            provider_name = new_provider_name
-            # 重新确保模型实例（新供应商需要同步模型）
-            await self._ensure_model_instances(provider)
+            provider_id_to_use = db_provider.id
+            provider_name_to_store = None
+            final_provider_name = new_provider_name
+            implementation_name = provider_name
+            db_provider_for_ensure = db_provider
+        elif provider:
+            # 仅 DB 存在的用户派生供应商
+            provider_id_to_use = provider.id
+            provider_name_to_store = None
+            final_provider_name = provider_name
+            implementation_name = provider.template_name or provider.name
+            db_provider_for_ensure = provider
+        else:
+            raise NotFoundException(f"供应商不存在: {provider_name}")
 
-        # 验证凭据
         is_valid = False
         validation_error = None
-
         if validate:
-            # 使用模板名称进行验证 if applicable，但 model_credential_service 已经处理了 template_name logic
-            # 这里直接传递 provider_name (如果是新创建的，它有 template_name)
-            is_valid, validation_error = await validate_provider_credentials(
-                provider.template_name or provider.name,
-                credentials,
-            )
+            is_valid, validation_error = await validate_provider_credentials(implementation_name, credentials)
 
-        # 加密凭据
         encrypted_credentials = encrypt_credentials(credentials)
 
-        # 检查是否已存在（全局：不按 workspace 区分）
-        existing = await self.repo.get_by_user_and_provider(provider_id=provider.id)
-
+        existing = await self.repo.get_by_user_and_provider(
+            provider_id=provider_id_to_use, provider_name=provider_name_to_store
+        )
         if existing:
-            # 更新现有凭据
             existing.credentials = encrypted_credentials
             existing.is_valid = is_valid
             existing.last_validated_at = datetime.now(timezone.utc) if is_valid else None
@@ -98,12 +103,12 @@ class ModelCredentialService(BaseService):
             await self.db.refresh(existing)
             credential = existing
         else:
-            # 创建新凭据（全局：workspace_id 固定为 None）
             credential = await self.repo.create(
                 {
                     "user_id": user_id,
                     "workspace_id": None,
-                    "provider_id": provider.id,
+                    "provider_id": provider_id_to_use,
+                    "provider_name": provider_name_to_store,
                     "credentials": encrypted_credentials,
                     "is_valid": is_valid,
                     "last_validated_at": datetime.now(timezone.utc) if is_valid else None,
@@ -111,17 +116,15 @@ class ModelCredentialService(BaseService):
                 }
             )
 
-        # 创建凭据后，自动为该 provider 的所有模型创建全局模型实例记录（如果不存在）
-        await self._ensure_model_instances(provider)
+        if db_provider_for_ensure:
+            await self._ensure_model_instances(db_provider_for_ensure)
 
         await self.commit()
-
-        # 检查是否需要更新默认模型缓存
-        await self._update_default_model_cache_if_needed(provider_name)
+        await self._update_default_model_cache_if_needed(final_provider_name)
 
         return {
             "id": str(credential.id),
-            "provider_name": provider_name,
+            "provider_name": final_provider_name,
             "is_valid": credential.is_valid,
             "last_validated_at": credential.last_validated_at,
             "validation_error": credential.validation_error,
@@ -163,7 +166,8 @@ class ModelCredentialService(BaseService):
         try:
             repo = ModelInstanceRepository(self.db)
             default_instance = await repo.get_default()
-            if default_instance and default_instance.provider and default_instance.provider.name == provider_name:
+            effective_name = (default_instance.provider.name if default_instance.provider else default_instance.provider_name)
+            if default_instance and effective_name == provider_name:
                 await self._update_default_model_cache(
                     provider_name=provider_name,
                     model_name=default_instance.model_name,
@@ -199,12 +203,19 @@ class ModelCredentialService(BaseService):
         # 解密凭据
         decrypted_credentials = decrypt_credentials(credential.credentials)
 
-        # 验证凭据
-        provider_name_to_validate = credential.provider.template_name or credential.provider.name
-        is_valid, error = await validate_provider_credentials(
-            provider_name_to_validate,
-            decrypted_credentials,
+        # 验证凭据（模板凭据无 provider 行，用 provider_name）
+        provider_name_to_validate = (
+            (credential.provider.template_name or credential.provider.name)
+            if credential.provider
+            else (credential.provider_name or "")
         )
+        if not provider_name_to_validate:
+            is_valid, error = False, "无法解析供应商"
+        else:
+            is_valid, error = await validate_provider_credentials(
+                provider_name_to_validate,
+                decrypted_credentials,
+            )
 
         # 更新验证状态
         credential.is_valid = is_valid
@@ -238,10 +249,18 @@ class ModelCredentialService(BaseService):
         if not credential:
             raise NotFoundException("凭据不存在")
 
+        pname = credential.provider.name if credential.provider else (credential.provider_name or "")
+        if credential.provider:
+            pdisplay = credential.provider.display_name
+        elif credential.provider_name:
+            p = self.factory.get_provider(credential.provider_name)
+            pdisplay = p.display_name if p else credential.provider_name
+        else:
+            pdisplay = ""
         result = {
             "id": str(credential.id),
-            "provider_name": credential.provider.name,
-            "provider_display_name": credential.provider.display_name,
+            "provider_name": pname,
+            "provider_display_name": pdisplay,
             "is_valid": credential.is_valid,
             "last_validated_at": credential.last_validated_at,
             "validation_error": credential.validation_error,
@@ -258,17 +277,25 @@ class ModelCredentialService(BaseService):
         """
         credentials = await self.repo.list_all()
 
-        return [
-            {
+        out = []
+        for c in credentials:
+            pname = c.provider.name if c.provider else (c.provider_name or "")
+            if c.provider:
+                pdisplay = c.provider.display_name
+            elif c.provider_name:
+                p = self.factory.get_provider(c.provider_name)
+                pdisplay = p.display_name if p else c.provider_name
+            else:
+                pdisplay = ""
+            out.append({
                 "id": str(c.id),
-                "provider_name": c.provider.name,
-                "provider_display_name": c.provider.display_name,
+                "provider_name": pname,
+                "provider_display_name": pdisplay,
                 "is_valid": c.is_valid,
                 "last_validated_at": c.last_validated_at,
                 "validation_error": c.validation_error,
-            }
-            for c in credentials
-        ]
+            })
+        return out
 
     async def delete_credential(self, credential_id: uuid.UUID) -> None:
         """
@@ -305,40 +332,34 @@ class ModelCredentialService(BaseService):
         Returns:
             解密后的凭据，如果不存在则返回None
         """
+        # 模板：按 provider_name 查凭据（无 provider_id）
+        credential = await self.repo.get_by_provider_name(provider_name)
+        if credential and credential.is_valid:
+            return decrypt_credentials(credential.credentials)
+        # 用户派生：按 DB provider 查
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
             return None
-
-        # TODO: 如果将来支持模型级别的凭据，在这里优先查找
-        # 当前系统只支持 provider 级别的凭据，所以直接使用 provider 级别的凭据
-
-        # 优先查找全局凭据（user_id 为 NULL）
         credential = await self.repo.get_by_provider(provider.id)
-
-        # 如果没有全局凭据，查找任意有效凭据
         if not credential:
             credential = await self.repo.get_by_user_and_provider(provider_id=provider.id)
-
         if not credential or not credential.is_valid:
             return None
-
         return decrypt_credentials(credential.credentials)
 
     async def get_decrypted_credentials(self, provider_name: str) -> Optional[Dict[str, Any]]:
         """
-        获取解密后的凭据（全局，与 workspace 无关）。推荐使用 get_current_credentials。
+        获取解密后的凭据（全局）。先按模板名查，再按 DB 供应商查。
         """
+        credential = await self.repo.get_by_provider_name(provider_name)
+        if credential and credential.is_valid:
+            return decrypt_credentials(credential.credentials)
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
             return None
-
-        # 优先查找全局凭据（user_id 为 NULL）
         credential = await self.repo.get_by_provider(provider.id)
-
         if not credential:
             credential = await self.repo.get_by_user_and_provider(provider_id=provider.id)
-
         if not credential or not credential.is_valid:
             return None
-
         return decrypt_credentials(credential.credentials)

@@ -36,52 +36,73 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
 
     async def get_by_provider_and_model(
         self,
-        provider_id: uuid.UUID,
         model_name: str,
         user_id: Optional[str] = None,
+        provider_id: Optional[uuid.UUID] = None,
+        provider_name: Optional[str] = None,
     ) -> ModelInstance | None:
-        """根据供应商和模型名获取实例
-
-        优先返回全局记录（user_id 为 None），如果没有则返回用户记录
-        """
-        # 先尝试查找全局记录
-        result = await self.db.execute(
-            select(ModelInstance).where(
-                and_(
-                    ModelInstance.provider_id == provider_id,
-                    ModelInstance.model_name == model_name,
-                    ModelInstance.user_id.is_(None),  # 全局记录
-                )
-            )
-        )
-        instance = result.scalar_one_or_none()
-
-        # 如果没有全局记录，且指定了 user_id，则查找用户记录
-        if not instance and user_id:
+        """根据供应商和模型名获取实例。支持 provider_id（用户派生）或 provider_name（模板）。"""
+        if provider_id is not None:
+            # 按 provider_id 查
             result = await self.db.execute(
                 select(ModelInstance).where(
                     and_(
                         ModelInstance.provider_id == provider_id,
                         ModelInstance.model_name == model_name,
-                        ModelInstance.user_id == user_id,
+                        ModelInstance.user_id.is_(None),
                     )
                 )
             )
             instance = result.scalar_one_or_none()
-
-        # 如果还是没有，查找所有匹配的记录（不限制 user_id）
-        if not instance:
+            if not instance and user_id:
+                result = await self.db.execute(
+                    select(ModelInstance).where(
+                        and_(
+                            ModelInstance.provider_id == provider_id,
+                            ModelInstance.model_name == model_name,
+                            ModelInstance.user_id == user_id,
+                        )
+                    )
+                )
+                instance = result.scalar_one_or_none()
+            if not instance:
+                result = await self.db.execute(
+                    select(ModelInstance).where(
+                        and_(
+                            ModelInstance.provider_id == provider_id,
+                            ModelInstance.model_name == model_name,
+                        )
+                    )
+                )
+                instance = result.scalar_one_or_none()
+            return instance
+        if provider_name is not None:
+            # 按 provider_name 查（模板）
             result = await self.db.execute(
                 select(ModelInstance).where(
                     and_(
-                        ModelInstance.provider_id == provider_id,
+                        ModelInstance.provider_id.is_(None),
+                        ModelInstance.provider_name == provider_name,
                         ModelInstance.model_name == model_name,
+                        ModelInstance.user_id.is_(None),
                     )
                 )
             )
             instance = result.scalar_one_or_none()
-
-        return instance
+            if not instance and user_id:
+                result = await self.db.execute(
+                    select(ModelInstance).where(
+                        and_(
+                            ModelInstance.provider_id.is_(None),
+                            ModelInstance.provider_name == provider_name,
+                            ModelInstance.model_name == model_name,
+                            ModelInstance.user_id == user_id,
+                        )
+                    )
+                )
+                instance = result.scalar_one_or_none()
+            return instance
+        return None
 
     async def list_all(self) -> list[ModelInstance]:
         """获取所有模型实例（所有用户和工作空间可见）"""

@@ -163,29 +163,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                 provider_repo = ModelProviderRepository(db)
                 credential_service = ModelCredentialService(db)
 
-                # Get default model instance
+                # Get default model instance（支持模板实例 provider 为空，用 provider_name）
                 default_instance = await repo.get_default()
-                if default_instance and default_instance.provider:
-                    # Get credentials
-                    credentials = await credential_service.get_current_credentials(
-                        provider_name=default_instance.provider.name,
-                        model_type="chat",
-                        model_name=default_instance.model_name,
+                if default_instance:
+                    default_provider_name = (
+                        default_instance.provider.name if default_instance.provider else default_instance.provider_name
                     )
-
-                    if credentials:
-                        config = {
-                            "model": default_instance.model_name,
-                            "api_key": credentials.get("api_key", ""),
-                            "base_url": credentials.get("base_url"),
-                            "timeout": default_instance.model_parameters.get("timeout", 30)
-                            if default_instance.model_parameters
-                            else 30,
-                        }
-                        set_default_model_config(config)
-                        logger.info("   ✓ Default model cache initialized")
+                    if default_provider_name:
+                        credentials = await credential_service.get_current_credentials(
+                            provider_name=default_provider_name,
+                            model_type="chat",
+                            model_name=default_instance.model_name,
+                        )
+                        if credentials:
+                            params = default_instance.model_parameters or {}
+                            config = {
+                                "model": default_instance.model_name,
+                                "api_key": credentials.get("api_key", ""),
+                                "base_url": credentials.get("base_url"),
+                                "timeout": params.get("timeout", 30),
+                            }
+                            set_default_model_config(config)
+                            logger.info("   ✓ Default model cache initialized")
+                        else:
+                            logger.warning("   ⚠️  Default model credentials not found")
                     else:
-                        logger.warning("   ⚠️  Default model credentials not found")
+                        logger.info("   ✓ No default model configuration")
                 else:
                     logger.info("   ✓ No default model configuration")
     except Exception as e:
