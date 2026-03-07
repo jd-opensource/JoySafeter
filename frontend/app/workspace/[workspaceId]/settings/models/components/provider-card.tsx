@@ -6,6 +6,7 @@ import React from 'react'
 import { Button } from '@/components/ui/button'
 import type { ModelProvider } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/core/utils/cn'
 
 import { ModelCredentialDialog } from './credential-dialog'
 import { ProviderIcon } from './provider-icon'
@@ -18,6 +19,8 @@ interface ModelProviderCardProps {
 export function ModelProviderCard({ provider, workspaceId }: ModelProviderCardProps) {
   const { t } = useTranslation()
   const [showCredentialDialog, setShowCredentialDialog] = React.useState(false)
+  const isCustom = provider.provider_type === 'custom'
+  const isTemplate = provider.is_template
 
   const supportedTypes = provider.supported_model_types || []
   const modelCount = (provider as any).model_count || supportedTypes.length
@@ -25,23 +28,36 @@ export function ModelProviderCard({ provider, workspaceId }: ModelProviderCardPr
   return (
     <>
       <div
-        className="group relative flex flex-col px-4 py-3 h-[140px] bg-white rounded-xl border border-gray-200 shadow-sm hover:border-blue-200 hover:shadow-md transition-all duration-200 cursor-pointer"
+        className={cn(
+          'group relative flex flex-col px-4 py-3 h-[140px] rounded-xl border shadow-sm transition-all duration-200 cursor-pointer',
+          isCustom
+            ? 'bg-gradient-to-br from-violet-50/90 to-indigo-50/90 border-violet-200 hover:border-violet-300 hover:shadow-md hover:shadow-violet-100/50'
+            : 'bg-white border-gray-200 hover:border-blue-200 hover:shadow-md'
+        )}
         onClick={() => setShowCredentialDialog(true)}
       >
+        {isCustom && (
+          <span className="absolute top-2 right-10 px-1.5 py-0.5 text-[9px] font-medium text-violet-600 bg-violet-100 rounded">
+            {isTemplate ? t('settings.template', { defaultValue: '模板' }) : t('settings.custom', { defaultValue: '自定义' })}
+          </span>
+        )}
         {/* Header: Icon + Setup link */}
         <div className="flex items-start justify-between mb-2">
           <ProviderIcon provider={provider} />
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-[10px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            className={cn(
+              "h-6 px-2 text-[10px] font-medium",
+              isTemplate ? "text-violet-600 hover:text-violet-700 hover:bg-violet-50" : "text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            )}
             onClick={(e) => {
               e.stopPropagation()
               setShowCredentialDialog(true)
             }}
           >
             <Plus size={12} />
-            {t('settings.setup')}
+            {isTemplate ? t('settings.useTemplate', { defaultValue: '使用模板' }) : t('settings.setup')}
           </Button>
         </div>
 

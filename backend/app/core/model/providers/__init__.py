@@ -8,8 +8,8 @@ import pkgutil
 from pathlib import Path
 from typing import List, Optional, Type
 
-from .Custom import CustomProvider
 from .base import BaseProvider, ModelType
+from .Custom import CustomProvider
 
 # 向后兼容：显式导入现有 provider（避免破坏现有代码）
 from .OpenaiApiCompatible import OpenAIAPICompatibleProvider

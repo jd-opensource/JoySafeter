@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import type { ModelProvider } from '@/hooks/queries/models'
 import { useCreateModelInstance } from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
@@ -22,12 +23,15 @@ interface AddCustomModelDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   workspaceId?: string
+  /** 当前供应商，用于确定创建实例的 provider_name；不传则默认为 'custom'，便于后续扩展模板派生供应商下自填模型名 */
+  provider?: ModelProvider | null
 }
 
 export function AddCustomModelDialog({
   open,
   onOpenChange,
   workspaceId,
+  provider,
 }: AddCustomModelDialogProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -36,17 +40,18 @@ export function AddCustomModelDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const name = modelName.trim()
-    if (!name) {
+    if (!modelName?.trim()) {
       toast({
         variant: 'destructive',
         description: t('settings.customModelNameRequired', { defaultValue: '请输入模型名称' }),
       })
       return
     }
+    const name = modelName.trim()
+    const providerName = provider?.provider_name ?? 'custom'
     try {
       await createInstance.mutateAsync({
-        provider_name: 'custom',
+        provider_name: providerName,
         model_name: name,
         model_type: 'chat',
         workspaceId,
@@ -96,6 +101,11 @@ export function AddCustomModelDialog({
                 required
                 className="mt-1"
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                {t('settings.modelNameRequiredHint', {
+                  defaultValue: '模型名称为必填项，如 gpt-4o-mini、claude-3-5-sonnet',
+                })}
+              </p>
             </div>
           </div>
           <DialogFooter className="border-t border-gray-100 px-6 py-4 flex justify-end gap-2">

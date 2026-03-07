@@ -101,6 +101,7 @@ export function ModelList({ provider, models, onCollapse, workspaceId }: ModelLi
         open={showAddCustomModel}
         onOpenChange={setShowAddCustomModel}
         workspaceId={workspaceId}
+        provider={provider}
       />
     </div>
   )

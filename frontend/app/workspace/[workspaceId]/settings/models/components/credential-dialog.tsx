@@ -46,6 +46,7 @@ export function ModelCredentialDialog({
   const createCredential = useCreateCredential()
   const validateCredential = useValidateCredential()
   const [validating, setValidating] = useState(false)
+  const [providerDisplayName, setProviderDisplayName] = useState(provider.is_template ? '' : provider.display_name)
 
   // Parse form fields from credential_schema
   const formFields = useMemo(() => {
@@ -122,6 +123,7 @@ export function ModelCredentialDialog({
     try {
       const data = await createCredential.mutateAsync({
         provider_name: provider.provider_name,
+        providerDisplayName: provider.is_template ? providerDisplayName.trim() : undefined,
         credentials: filteredData,
         workspaceId,
         validate: true,
@@ -220,6 +222,27 @@ export function ModelCredentialDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className={bodyClassName}>
+            {provider.is_template && (
+              <div>
+                <Label htmlFor="provider-display-name">
+                  {t('settings.providerDisplayName', { defaultValue: '供应商名称' })}
+                  <span className="text-destructive ml-1">*</span>
+                </Label>
+                <Input
+                  id="provider-display-name"
+                  type="text"
+                  value={providerDisplayName}
+                  onChange={(e) => setProviderDisplayName(e.target.value)}
+                  placeholder={t('settings.enterProviderDisplayName', { defaultValue: '例如：DeepSeek、Groq' })}
+                  required
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('settings.providerDisplayNameHint', { defaultValue: '为此供应商实例起一个名字' })}
+                </p>
+                <div className="h-4" /> {/* Spacer */}
+              </div>
+            )}
             {formFields.length === 0 ? (
               <div>
                 <Label htmlFor="api_key">{t('settings.apiKeyLabel', { defaultValue: 'API Key' })}</Label>
@@ -244,9 +267,9 @@ export function ModelCredentialDialog({
                 const isEnum = field.enum && field.enum.length > 0
                 const options = isEnum
                   ? (field.enum as string[]).map((val, i) => ({
-                      value: String(val),
-                      label: (field.enumNames && field.enumNames[i]) ? String(field.enumNames[i]) : String(val),
-                    }))
+                    value: String(val),
+                    label: (field.enumNames && field.enumNames[i]) ? String(field.enumNames[i]) : String(val),
+                  }))
                   : []
                 return (
                   <div key={field.key}>

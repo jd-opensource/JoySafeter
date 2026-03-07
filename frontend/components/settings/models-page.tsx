@@ -24,6 +24,15 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
     noValidCredential,
   } = useModelProvidersByConfig(providers, credentials)
 
+  // 分组逻辑：
+  // 1. 已配置的供应商（由 credentialsByProvider 决定）
+  // 2. 未配置的系统供应商 (provider_type === 'system')
+  // 3. 模板供应商 (is_template === true)
+
+  const configuredProvidersList = configuredProviders
+  const notConfiguredSystemProviders = notConfiguredProviders.filter(p => p.provider_type === 'system' && !p.is_template)
+  const templateProviders = providers.filter(p => p.is_template)
+
   if (providersLoading || credentialsLoading) {
     return (
       <div className="flex items-center justify-center h-full min-h-[400px]">
@@ -51,10 +60,10 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
       )}
 
       <div className="flex-1 overflow-y-auto">
-        {/* Configured providers */}
-        {configuredProviders.length > 0 && (
+        {/* 已配置的供应商 */}
+        {configuredProvidersList.length > 0 && (
           <div className="pb-4 space-y-3">
-            {configuredProviders.map(provider => {
+            {configuredProvidersList.map(provider => {
               const credential = credentialsByProvider.get(provider.provider_name)
               return (
                 <ModelProviderAddedCard
@@ -68,8 +77,8 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
           </div>
         )}
 
-        {/* Unconfigured providers */}
-        {notConfiguredProviders.length > 0 && (
+        {/* 添加系统模型供应商 */}
+        {notConfiguredSystemProviders.length > 0 && (
           <>
             <div className="flex items-center gap-3 mb-3 mt-2">
               <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest shrink-0">
@@ -78,8 +87,29 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
               </div>
               <div className="flex-1 h-px bg-gray-200" />
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              {notConfiguredProviders.map(provider => (
+            <div className="grid grid-cols-3 gap-3 pb-4">
+              {notConfiguredSystemProviders.map(provider => (
+                <ModelProviderCard
+                  key={provider.provider_name}
+                  provider={provider}
+                  workspaceId={workspaceId}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* 自定义模型/模板（独立分组） */}
+        {templateProviders.length > 0 && (
+          <>
+            <div className="flex items-center gap-3 mb-3 mt-2">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest shrink-0">
+                {t('settings.customModels')}
+              </div>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="grid grid-cols-3 gap-3 pb-4">
+              {templateProviders.map(provider => (
                 <ModelProviderCard
                   key={provider.provider_name}
                   provider={provider}

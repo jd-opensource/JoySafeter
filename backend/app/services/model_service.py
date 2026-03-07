@@ -83,7 +83,7 @@ class ModelService(BaseService):
             display_name = instance.model_name  # 默认使用 model_name
             description = ""  # 默认描述为空
 
-            provider_instance = factory.get_provider(provider.name)
+            provider_instance = factory.get_provider(provider.template_name or provider.name)
             if provider_instance:
                 # 获取该 provider 的凭据（如果有）
                 provider_credentials = credentials_dict.get(provider.name)
@@ -162,31 +162,13 @@ class ModelService(BaseService):
 
         await self.commit()
 
-        # 如果设置为默认模型，更新缓存
         if is_default:
-            try:
-                # 获取凭据来更新缓存
-                credentials = await self.credential_service.get_current_credentials(
-                    provider_name=provider_name,
-                    model_type=model_type.value,
-                    model_name=model_name,
-                )
-                if credentials:
-                    from app.core.settings import set_default_model_config
-
-                    set_default_model_config(
-                        {
-                            "model": model_name,
-                            "api_key": credentials.get("api_key", ""),
-                            "base_url": credentials.get("base_url"),
-                            "timeout": instance.model_parameters.get("timeout", 30)
-                            if instance.model_parameters
-                            else 30,
-                        }
-                    )
-            except Exception as e:
-                # 缓存更新失败不影响主要功能，只记录日志
-                print(f"Warning: Failed to update model cache: {e}")
+            await self.credential_service._update_default_model_cache(
+                provider_name=provider_name,
+                model_name=model_name,
+                model_type=model_type.value,
+                model_parameters=instance.model_parameters,
+            )
 
         return {
             "id": str(instance.id),
@@ -237,33 +219,14 @@ class ModelService(BaseService):
         instance.is_default = is_default
         await self.commit()
 
-        # 更新缓存
         if is_default:
-            try:
-                # 获取凭据来更新缓存
-                credentials = await self.credential_service.get_current_credentials(
-                    provider_name=provider_name,
-                    model_type="chat",
-                    model_name=model_name,
-                )
-                if credentials:
-                    from app.core.settings import set_default_model_config
-
-                    set_default_model_config(
-                        {
-                            "model": model_name,
-                            "api_key": credentials.get("api_key", ""),
-                            "base_url": credentials.get("base_url"),
-                            "timeout": instance.model_parameters.get("timeout", 30)
-                            if instance.model_parameters
-                            else 30,
-                        }
-                    )
-            except Exception as e:
-                # 缓存更新失败不影响主要功能，只记录日志
-                print(f"Warning: Failed to update model cache: {e}")
+            await self.credential_service._update_default_model_cache(
+                provider_name=provider_name,
+                model_name=model_name,
+                model_type="chat",
+                model_parameters=instance.model_parameters,
+            )
         else:
-            # 取消默认状态时清除缓存
             try:
                 from app.core.settings import clear_default_model_config
 
@@ -302,11 +265,13 @@ class ModelService(BaseService):
             LangChain模型实例
         """
         # 如果未指定，使用默认模型
+        implementation_name: Optional[str] = None
         if not provider_name or not model_name:
             if use_default:
                 default_instance = await self.repo.get_default()
                 if default_instance:
                     provider_name = default_instance.provider.name
+                    implementation_name = default_instance.provider.template_name or default_instance.provider.name
                     model_name = default_instance.model_name
                     model_parameters = default_instance.model_parameters
                 else:
@@ -319,6 +284,7 @@ class ModelService(BaseService):
             if not provider:
                 raise NotFoundException(f"供应商不存在: {provider_name}")
 
+            implementation_name = provider.template_name or provider.name
             instance = await self.repo.get_by_provider_and_model(provider.id, model_name)
             model_parameters = instance.model_parameters if instance else {}
 
@@ -326,8 +292,9 @@ class ModelService(BaseService):
         model_type = ModelType.CHAT
 
         assert provider_name is not None and model_name is not None
+        assert implementation_name is not None
 
-        # 获取凭据
+        # 获取凭据（按 DB 的 provider 名查找）
         credentials = await self.credential_service.get_current_credentials(
             provider_name=provider_name,
             model_type=model_type,
@@ -337,9 +304,9 @@ class ModelService(BaseService):
         if not credentials:
             raise NotFoundException(f"未找到模型 {provider_name}/{model_name} 的有效凭据")
 
-        # 创建模型实例
+        # 创建模型实例（工厂按实现名 template_name 解析，如 custom、openaiapicompatible）
         model = create_model_instance(
-            provider_name,
+            implementation_name,
             model_name,
             model_type,
             credentials,
@@ -416,13 +383,12 @@ class ModelService(BaseService):
             f"model_name={instance.model_name} | provider={instance.provider.name}"
         )
 
-        # 获取供应商名称
+        # 凭据按 DB 的 provider 名查找；工厂按实现名（template_name）创建实例
         provider_name = instance.provider.name
+        implementation_name = instance.provider.template_name or instance.provider.name
 
-        # 简化：统一按 Chat 模型类型处理
         model_type = ModelType.CHAT
 
-        # 获取凭据
         credentials = await self.credential_service.get_current_credentials(
             provider_name=provider_name,
             model_type=model_type,
@@ -432,9 +398,8 @@ class ModelService(BaseService):
         if not credentials:
             raise NotFoundException(f"未找到模型 {provider_name}/{model_name} 的有效凭据")
 
-        # 创建并返回模型实例
         model = create_model_instance(
-            provider_name,
+            implementation_name,
             model_name,
             model_type,
             credentials,
@@ -462,19 +427,15 @@ class ModelService(BaseService):
         Returns:
             模型输出结果
         """
-        # 获取模型实例配置
         instance = await self.repo.get_by_name(model_name, workspace_id)
 
         if not instance:
             raise NotFoundException(f"模型实例不存在: {model_name}")
 
-        # 获取供应商名称
         provider_name = instance.provider.name
-
-        # 创建模型实例
+        implementation_name = instance.provider.template_name or instance.provider.name
         model_type = ModelType.CHAT
 
-        # 获取凭据
         credentials = await self.credential_service.get_current_credentials(
             provider_name=provider_name,
             model_type=model_type,
@@ -484,7 +445,7 @@ class ModelService(BaseService):
         if not credentials:
             raise NotFoundException(f"未找到模型 {provider_name}/{model_name} 的有效凭据")
         model = create_model_instance(
-            provider_name,
+            implementation_name,
             model_name,
             model_type,
             credentials,

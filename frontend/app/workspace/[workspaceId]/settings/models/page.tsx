@@ -25,8 +25,14 @@ export default function ModelsPage() {
     credentialsByProvider,
     configuredProviders,
     notConfiguredProviders,
+    templateProviders,
     noValidCredential,
   } = useModelProvidersByConfig(providers, credentials)
+
+  // 已配置列表包含 custom，需在 UI 中展示；非 custom 与「已配置的自定义模型」分块展示
+  const configuredNonCustom = configuredProviders.filter(p => p.provider_name !== 'custom')
+  const customProvider = providers.find(p => p.provider_name === 'custom')
+  const isCustomConfigured = Boolean(customProvider && credentialsByProvider.has('custom'))
 
   if (providersLoading || credentialsLoading) {
     return (
@@ -57,10 +63,10 @@ export default function ModelsPage() {
           )}
         </div>
 
-        {/* Configured providers */}
-        {configuredProviders.length > 0 && (
+        {/* 已配置的供应商（不含自定义模型） */}
+        {configuredNonCustom.length > 0 && (
           <div className="space-y-3 mb-6">
-            {configuredProviders.map(provider => {
+            {configuredNonCustom.map(provider => {
               const credential = credentialsByProvider.get(provider.provider_name)
               return (
                 <ModelProviderAddedCard
@@ -74,15 +80,26 @@ export default function ModelsPage() {
           </div>
         )}
 
-        {/* Unconfigured providers */}
-        {notConfiguredProviders.length > 0 && (
+        {/* 已配置的自定义模型：展示凭证状态、模型列表与添加自定义模型入口 */}
+        {isCustomConfigured && customProvider && (
+          <div className="space-y-3 mb-6">
+            <ModelProviderAddedCard
+              provider={customProvider}
+              credential={credentialsByProvider.get('custom')}
+              workspaceId={workspaceId}
+            />
+          </div>
+        )}
+
+        {/* 添加模型供应商（系统供应商 + 模板） */}
+        {(notConfiguredProviders.length > 0 || templateProviders.length > 0) && (
           <>
             <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
               + {t('settings.addModelProvider')}
               <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              {notConfiguredProviders.map(provider => (
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {[...notConfiguredProviders, ...templateProviders].map(provider => (
                 <ModelProviderCard
                   key={provider.provider_name}
                   provider={provider}

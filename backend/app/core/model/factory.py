@@ -78,6 +78,8 @@ class ModelFactory:
                 "supported_model_types": [mt.value for mt in provider.get_supported_model_types()],
                 "credential_schema": provider.get_credential_schema(),
                 "model_count": model_count,
+                "is_template": provider.is_template,
+                "provider_type": provider.provider_type,
             }
 
             # 为每种模型类型添加配置规则

@@ -117,6 +117,7 @@ export interface ModelProvidersByConfigResult {
   credentialsByProvider: Map<string, ModelCredential>
   configuredProviders: ModelProvider[]
   notConfiguredProviders: ModelProvider[]
+  templateProviders: ModelProvider[]
   noValidCredential: boolean
 }
 
@@ -133,22 +134,35 @@ export function useModelProvidersByConfig(
     [credentials]
   )
 
-  const [configuredProviders, notConfiguredProviders] = useMemo(() => {
+  const [configuredProviders, notConfiguredProviders, templateProviders] = useMemo(() => {
     const configured: ModelProvider[] = []
     const notConfigured: ModelProvider[] = []
+    const templates: ModelProvider[] = []
+
     for (const provider of providers) {
       if (credentialsByProvider.has(provider.provider_name)) {
         configured.push(provider)
+      } else if (provider.is_template) {
+        templates.push(provider)
       } else {
         notConfigured.push(provider)
       }
     }
-    // 自定义模型卡片排到列表最后
-    const sortCustomLast = (a: ModelProvider, b: ModelProvider) =>
-      a.provider_name === 'custom' ? 1 : b.provider_name === 'custom' ? -1 : 0
-    configured.sort(sortCustomLast)
-    notConfigured.sort(sortCustomLast)
-    return [configured, notConfigured]
+
+    // 排序逻辑
+    const sortProviders = (a: ModelProvider, b: ModelProvider) => {
+      // 模板排在后面
+      if (a.is_template !== b.is_template) return a.is_template ? 1 : -1
+      // 系统供应商排在前面
+      if (a.provider_type !== b.provider_type) return a.provider_type === 'custom' ? 1 : -1
+      return a.display_name.localeCompare(b.display_name)
+    }
+
+    configured.sort(sortProviders)
+    notConfigured.sort(sortProviders)
+    templates.sort(sortProviders)
+
+    return [configured, notConfigured, templates]
   }, [providers, credentialsByProvider])
 
   const noValidCredential =
@@ -159,6 +173,7 @@ export function useModelProvidersByConfig(
     credentialsByProvider,
     configuredProviders,
     notConfiguredProviders,
+    templateProviders,
     noValidCredential,
   }
 }
@@ -266,6 +281,7 @@ export function useCreateCredential() {
     mutationFn: async (request: CreateCredentialRequest) => {
       const data = await apiPost<ModelCredential>(MODEL_CREDENTIALS_PATH, {
         provider_name: request.provider_name,
+        providerDisplayName: request.providerDisplayName,
         credentials: request.credentials,
         workspaceId: request.workspaceId,
         validate: request.validate !== false,

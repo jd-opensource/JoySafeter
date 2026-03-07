@@ -7,6 +7,7 @@ from typing import Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.model_instance import ModelInstance
 
@@ -23,8 +24,10 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         workspace_id: Optional[uuid.UUID] = None,
     ) -> ModelInstance | None:
         """获取默认模型实例（所有用户和工作空间可见）"""
-        # 移除所有 user_id 和 workspace_id 过滤，返回第一个默认模型
-        result = await self.db.execute(select(ModelInstance).where(ModelInstance.is_default))
+        # 移除所有 user_id 和 workspace_id 过滤，返回第一个默认模型；预加载 provider 供调用方使用 template_name
+        result = await self.db.execute(
+            select(ModelInstance).where(ModelInstance.is_default).options(selectinload(ModelInstance.provider))
+        )
         return result.scalar_one_or_none()
 
     async def list_by_user(
@@ -43,9 +46,12 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         model_name: str,
         workspace_id: Optional[uuid.UUID] = None,
     ) -> ModelInstance | None:
-        """获取指定模型名的实例（所有用户和工作空间可见）"""
-        # 移除所有 workspace_id 过滤
-        result = await self.db.execute(select(ModelInstance).where(ModelInstance.model_name == model_name))
+        """获取指定模型名的实例（所有用户和工作空间可见）；预加载 provider 供调用方使用 template_name"""
+        result = await self.db.execute(
+            select(ModelInstance)
+            .where(ModelInstance.model_name == model_name)
+            .options(selectinload(ModelInstance.provider))
+        )
         return result.scalar_one_or_none()
 
     async def get_by_provider_and_model(

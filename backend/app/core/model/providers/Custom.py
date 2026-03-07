@@ -26,7 +26,7 @@ class CustomProvider(BaseProvider):
     PROTOCOL_GEMINI = "gemini"
 
     def __init__(self):
-        super().__init__(provider_name="custom", display_name="自定义模型")
+        super().__init__(provider_name="custom", display_name="自定义模型", is_template=True, provider_type="custom")
 
     def get_supported_model_types(self) -> List[ModelType]:
         """获取支持的模型类型"""

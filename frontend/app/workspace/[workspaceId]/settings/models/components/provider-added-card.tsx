@@ -6,6 +6,7 @@ import React, { useState } from 'react'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
 import { useAvailableModels } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/core/utils/cn'
 
 import { ModelCredentialDialog } from './credential-dialog'
 import { CredentialPanel } from './credential-panel'
@@ -27,6 +28,7 @@ export function ModelProviderAddedCard({
   const [collapsed, setCollapsed] = useState(true)
   const [showCredentialDialog, setShowCredentialDialog] = useState(false)
   const { data: models = [], isLoading: modelsLoading } = useAvailableModels('chat', workspaceId)
+  const isCustom = provider.provider_name === 'custom'
 
   const providerModels = models.filter(m => m.provider_name === provider.provider_name)
   const hasModels = providerModels.length > 0
@@ -35,7 +37,19 @@ export function ModelProviderAddedCard({
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:border-blue-200 hover:shadow-md transition-all duration-200 overflow-hidden">
+      <div
+        className={cn(
+          'relative rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden',
+          isCustom
+            ? 'bg-gradient-to-br from-violet-50/80 to-indigo-50/80 border-violet-200 hover:border-violet-300'
+            : 'bg-white border-gray-200 hover:border-blue-200'
+        )}
+      >
+        {isCustom && (
+          <span className="absolute top-3 right-12 px-1.5 py-0.5 text-[9px] font-medium text-violet-600 bg-violet-100 rounded z-10">
+            自定义
+          </span>
+        )}
         <div className="flex pl-4 py-3 pr-3">
           <div className="grow px-1 pt-1 pb-0.5">
             <div className="mb-2">

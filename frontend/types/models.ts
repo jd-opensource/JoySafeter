@@ -19,6 +19,9 @@ export interface ModelProvider {
   config_schemas?: Record<string, any>
   model_count?: number
   is_enabled: boolean
+  is_template?: boolean
+  provider_type?: 'system' | 'custom'
+  template_name?: string
   background?: string // Provider card background color
 }
 
@@ -41,6 +44,7 @@ export interface ModelCredential {
  */
 export interface CreateCredentialRequest {
   provider_name: string
+  providerDisplayName?: string
   credentials: Record<string, any>
   workspaceId?: string
   validate?: boolean
