@@ -138,6 +138,7 @@ export default {
       modelProviderDescription: '管理模型供应商配置和凭据',
       noModelProviders: '暂无模型供应商',
       deleteCredentialConfirm: '确定要删除此凭据吗？',
+      clearCredential: '清除凭据',
       credentialDeleted: '凭据已成功删除',
       credentialCreated: '凭据已成功创建',
       credentialSaved: '凭据已保存',

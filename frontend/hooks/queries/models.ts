@@ -328,6 +328,8 @@ export function useDeleteCredential() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
       queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
+      queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
     },
   })
 }

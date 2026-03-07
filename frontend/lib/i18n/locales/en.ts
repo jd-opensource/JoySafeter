@@ -137,6 +137,7 @@ export default {
       modelProviderDescription: 'Manage model provider configurations and credentials',
       noModelProviders: 'No model providers available',
       deleteCredentialConfirm: 'Are you sure you want to delete this credential?',
+      clearCredential: 'Clear credential',
       credentialDeleted: 'Credential deleted successfully',
       credentialCreated: 'Credential created successfully',
       credentialSaved: 'Credential saved',
