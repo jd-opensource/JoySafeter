@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import React from 'react'
@@ -13,6 +14,9 @@ import { useTranslation } from '@/lib/i18n'
 
 import { ModelProviderAddedCard } from './components/provider-added-card'
 import { ModelProviderCard } from './components/provider-card'
+
+const BUILTIN_PROVIDER_NAMES = ['openaiapicompatible', 'anthropic', 'gemini', 'zhipu'] as const
+const CUSTOM_PROVIDER_NAME = 'custom'
 
 export default function ModelsPage() {
   const { t } = useTranslation()
@@ -29,10 +33,23 @@ export default function ModelsPage() {
     noValidCredential,
   } = useModelProvidersByConfig(providers, credentials)
 
-  // 已配置列表包含 custom，需在 UI 中展示；非 custom 与「已配置的自定义模型」分块展示
-  const configuredNonCustom = configuredProviders.filter(p => p.provider_name !== 'custom')
-  const customProvider = providers.find(p => p.provider_name === 'custom')
-  const isCustomConfigured = Boolean(customProvider && credentialsByProvider.has('custom'))
+  const providerMap = useMemo(() => new Map(providers.map(p => [p.provider_name, p])), [providers])
+
+  const builtinConfigured = useMemo(() => {
+    return BUILTIN_PROVIDER_NAMES.filter(name => configuredProviders.some(p => p.provider_name === name))
+      .map(name => providerMap.get(name))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
+  }, [providerMap, configuredProviders])
+
+  const builtinNotConfigured = useMemo(() => {
+    return BUILTIN_PROVIDER_NAMES.filter(name => notConfiguredProviders.some(p => p.provider_name === name))
+      .map(name => providerMap.get(name))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
+  }, [providerMap, notConfiguredProviders])
+
+  const customProvider = providerMap.get(CUSTOM_PROVIDER_NAME)
+  const isCustomConfigured = Boolean(customProvider && credentialsByProvider.has(CUSTOM_PROVIDER_NAME))
+  const customNotConfigured = customProvider && templateProviders.some(p => p.provider_name === CUSTOM_PROVIDER_NAME)
 
   if (providersLoading || credentialsLoading) {
     return (
@@ -63,43 +80,55 @@ export default function ModelsPage() {
           )}
         </div>
 
-        {/* 已配置的供应商（不含自定义模型） */}
-        {configuredNonCustom.length > 0 && (
-          <div className="space-y-3 mb-6">
-            {configuredNonCustom.map(provider => {
-              const credential = credentialsByProvider.get(provider.provider_name)
-              return (
-                <ModelProviderAddedCard
-                  key={provider.provider_name}
-                  provider={provider}
-                  credential={credential}
-                  workspaceId={workspaceId}
-                />
-              )
-            })}
+        {/* 系统内置供应商：已配置的 */}
+        {builtinConfigured.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
+              {t('settings.builtinProviders', { defaultValue: '系统内置供应商' })}
+              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
+            </div>
+            <div className="space-y-3">
+              {builtinConfigured.map(provider => {
+                const credential = credentialsByProvider.get(provider.provider_name)
+                return (
+                  <ModelProviderAddedCard
+                    key={provider.provider_name}
+                    provider={provider}
+                    credential={credential}
+                    workspaceId={workspaceId}
+                  />
+                )
+              })}
+            </div>
           </div>
         )}
 
-        {/* 已配置的自定义模型：展示凭证状态、模型列表与添加自定义模型入口 */}
+        {/* 自定义模型：已配置的 */}
         {isCustomConfigured && customProvider && (
-          <div className="space-y-3 mb-6">
-            <ModelProviderAddedCard
-              provider={customProvider}
-              credential={credentialsByProvider.get('custom')}
-              workspaceId={workspaceId}
-            />
+          <div className="mb-6">
+            <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
+              {t('settings.customModels', { defaultValue: '自定义模型' })}
+              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
+            </div>
+            <div className="space-y-3">
+              <ModelProviderAddedCard
+                provider={customProvider}
+                credential={credentialsByProvider.get(CUSTOM_PROVIDER_NAME)}
+                workspaceId={workspaceId}
+              />
+            </div>
           </div>
         )}
 
-        {/* 添加模型供应商（系统供应商 + 模板） */}
-        {(notConfiguredProviders.length > 0 || templateProviders.length > 0) && (
-          <>
+        {/* 添加：系统内置供应商（未配置的） */}
+        {builtinNotConfigured.length > 0 && (
+          <div className="mb-6">
             <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
               + {t('settings.addModelProvider')}
               <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
             </div>
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              {[...notConfiguredProviders, ...templateProviders].map(provider => (
+            <div className="grid grid-cols-3 gap-3">
+              {builtinNotConfigured.map(provider => (
                 <ModelProviderCard
                   key={provider.provider_name}
                   provider={provider}
@@ -107,7 +136,20 @@ export default function ModelsPage() {
                 />
               ))}
             </div>
-          </>
+          </div>
+        )}
+
+        {/* 添加：自定义模型（未配置的） */}
+        {customNotConfigured && customProvider && (
+          <div className="mb-6">
+            <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
+              + {t('settings.customModels', { defaultValue: '自定义模型' })}
+              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <ModelProviderCard provider={customProvider} workspaceId={workspaceId} />
+            </div>
+          </div>
         )}
 
         {providers.length === 0 && (

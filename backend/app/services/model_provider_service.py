@@ -14,6 +14,18 @@ from app.repositories.model_provider import ModelProviderRepository
 
 from .base import BaseService
 
+# 内置供应商固定展示顺序
+BUILTIN_PROVIDER_ORDER = ("openaiapicompatible", "anthropic", "gemini", "zhipu", "custom")
+
+
+def _provider_sort_key(provider_data: Dict[str, Any]) -> int:
+    """用于按固定顺序排序供应商。内置供应商优先，custom 其次，其他放最后。"""
+    name = provider_data.get("provider_name", "")
+    try:
+        return BUILTIN_PROVIDER_ORDER.index(name)
+    except ValueError:
+        return len(BUILTIN_PROVIDER_ORDER)
+
 
 class ModelProviderService(BaseService):
     """模型供应商服务"""
@@ -200,6 +212,7 @@ class ModelProviderService(BaseService):
             }
             result.append(provider_data)
 
+        result.sort(key=_provider_sort_key)
         return result
 
     async def get_provider(self, provider_name: str) -> Dict[str, Any] | None:

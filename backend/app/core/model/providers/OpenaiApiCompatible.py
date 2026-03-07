@@ -73,8 +73,8 @@ class OpenAIAPICompatibleProvider(BaseProvider):
         super().__init__(
             provider_name="openaiapicompatible",
             display_name="OpenAI's API Compatible",
-            is_template=True,
-            provider_type="custom",
+            is_template=False,
+            provider_type="system",
         )
 
     def get_supported_model_types(self) -> List[ModelType]:
