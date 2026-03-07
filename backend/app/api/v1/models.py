@@ -52,7 +52,7 @@ async def list_available_models(
         raise BadRequestException(f"不支持的模型类型: {model_type}")
 
     service = ModelService(db)
-    models = await service.get_available_models(model_type=model_type_enum)
+    models = await service.get_available_models(model_type=model_type_enum, user_id=current_user.id)
     return success_response(data=models, message="获取模型列表成功")
 
 

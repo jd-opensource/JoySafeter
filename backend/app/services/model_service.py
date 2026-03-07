@@ -26,21 +26,33 @@ class ModelService(BaseService):
         self.provider_repo = ModelProviderRepository(db)
         self.credential_service = ModelCredentialService(db)
 
-    async def get_available_models(self, model_type: ModelType) -> List[Dict[str, Any]]:
+    async def get_available_models(self, model_type: ModelType, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        获取可用模型列表（全局）。支持模板实例（provider_name）与用户派生（provider_id）。
+        获取可用模型列表（支持用户级或全局凭据）。
         """
         all_instances = await self.repo.list_all()
         providers = await self.provider_repo.find()
         provider_map = {p.id: p for p in providers}
 
+        # 获取当前用户可用的凭据
         credentials_list = await self.credential_service.list_credentials()
+        # 注意：list_credentials 返回的是简要信息，接下来我们需要为每个 provider 获取解密后的凭据（如果有效）
+        
         credentials_dict = {}
-        for cred in credentials_list:
-            if cred["is_valid"]:
-                decrypted = await self.credential_service.get_decrypted_credentials(cred["provider_name"])
-                if decrypted:
-                    credentials_dict[cred["provider_name"]] = decrypted
+        # 为了提高效率，我们只对 instances 中出现的 provider 进行查询
+        relevant_providers = set()
+        for instance in all_instances:
+            if instance.provider_id:
+                provider = provider_map.get(instance.provider_id)
+                if provider:
+                    relevant_providers.add(provider.name)
+            elif instance.provider_name:
+                relevant_providers.add(instance.provider_name)
+
+        for pname in relevant_providers:
+            decrypted = await self.credential_service.get_decrypted_credentials(pname, user_id=user_id)
+            if decrypted:
+                credentials_dict[pname] = decrypted
 
         factory = get_factory()
         models = []

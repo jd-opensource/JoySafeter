@@ -20,11 +20,16 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
 
     async def get_by_user_and_provider(
         self,
+        user_id: Optional[str] = None,
         provider_id: Optional[uuid.UUID] = None,
         provider_name: Optional[str] = None,
     ) -> ModelCredential | None:
-        """根据供应商获取凭据（全局）。支持按 provider_id 或 provider_name（模板）查询。"""
-        conditions = [ModelCredential.user_id.is_(None)]
+        """根据供应商获取凭据（支持用户级或全局）。"""
+        if user_id:
+            conditions = [ModelCredential.user_id == user_id]
+        else:
+            conditions = [ModelCredential.user_id.is_(None)]
+
         if provider_id is not None:
             conditions.append(ModelCredential.provider_id == provider_id)
         if provider_name is not None:
@@ -37,13 +42,19 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
     async def get_by_provider(
         self,
         provider_id: uuid.UUID,
+        user_id: Optional[str] = None,
     ) -> ModelCredential | None:
-        """根据供应商 ID 获取全局凭据（用户派生供应商）"""
+        """根据供应商 ID 获取凭据（支持用户级或全局）"""
+        if user_id:
+            user_cond = (ModelCredential.user_id == user_id)
+        else:
+            user_cond = ModelCredential.user_id.is_(None)
+
         result = await self.db.execute(
             select(ModelCredential).where(
                 and_(
                     ModelCredential.provider_id == provider_id,
-                    ModelCredential.user_id.is_(None),
+                    user_cond,
                 )
             )
         )
@@ -52,14 +63,20 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
     async def get_by_provider_name(
         self,
         provider_name: str,
+        user_id: Optional[str] = None,
     ) -> ModelCredential | None:
-        """根据模板供应商名称获取全局凭据（provider_id 为空、provider_name 匹配）"""
+        """根据模板供应商名称获取凭据（支持用户级或全局）"""
+        if user_id:
+            user_cond = (ModelCredential.user_id == user_id)
+        else:
+            user_cond = ModelCredential.user_id.is_(None)
+
         result = await self.db.execute(
             select(ModelCredential).where(
                 and_(
                     ModelCredential.provider_id.is_(None),
                     ModelCredential.provider_name == provider_name,
-                    ModelCredential.user_id.is_(None),
+                    user_cond,
                 )
             )
         )

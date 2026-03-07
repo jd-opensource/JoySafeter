@@ -230,6 +230,7 @@ class ModelCredentialService(BaseService):
                 provider_name=provider_name,
                 model_type=model_type,
                 model_name=model_name,
+                user_id=None,  # Cache is global for now, but we search for global credentials
             )
             if credentials:
                 params = model_parameters or {}
@@ -401,6 +402,7 @@ class ModelCredentialService(BaseService):
         provider_name: str,
         model_type: Any,
         model_name: str,
+        user_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         获取当前凭据
@@ -413,38 +415,45 @@ class ModelCredentialService(BaseService):
             provider_name: 供应商名称
             model_type: 模型类型（ModelType 枚举）
             model_name: 模型名称
+            user_id: 用户ID（可选）
 
         Returns:
-            解密后的凭据，如果不存在则返回None
+            解 decrypted后的凭据，如果不存在则返回None
         """
-        # 模板：按 provider_name 查凭据（无 provider_id）
-        credential = await self.repo.get_by_provider_name(provider_name)
+        # 模板：按 provider_name 查凭据
+        credential = await self.repo.get_by_provider_name(provider_name, user_id=user_id)
         if credential and credential.is_valid:
             return decrypt_credentials(credential.credentials)
         # 用户派生：按 DB provider 查
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
             return None
-        credential = await self.repo.get_by_provider(provider.id)
-        if not credential:
-            credential = await self.repo.get_by_user_and_provider(provider_id=provider.id)
+        credential = await self.repo.get_by_provider(provider.id, user_id=user_id)
+        if not credential or not credential.is_valid:
+            # 再查一次全局的，以防用户级不存在
+            if user_id:
+                credential = await self.repo.get_by_provider(provider.id, user_id=None)
+        
         if not credential or not credential.is_valid:
             return None
         return decrypt_credentials(credential.credentials)
 
-    async def get_decrypted_credentials(self, provider_name: str) -> Optional[Dict[str, Any]]:
+    async def get_decrypted_credentials(self, provider_name: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         获取解密后的凭据（全局）。先按模板名查，再按 DB 供应商查。
         """
-        credential = await self.repo.get_by_provider_name(provider_name)
+        credential = await self.repo.get_by_provider_name(provider_name, user_id=user_id)
         if credential and credential.is_valid:
             return decrypt_credentials(credential.credentials)
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
             return None
-        credential = await self.repo.get_by_provider(provider.id)
-        if not credential:
-            credential = await self.repo.get_by_user_and_provider(provider_id=provider.id)
+        credential = await self.repo.get_by_provider(provider.id, user_id=user_id)
+        if not credential or not credential.is_valid:
+            # 同样尝试全局
+            if user_id:
+                credential = await self.repo.get_by_provider(provider.id, user_id=None)
+
         if not credential or not credential.is_valid:
             return None
         return decrypt_credentials(credential.credentials)
