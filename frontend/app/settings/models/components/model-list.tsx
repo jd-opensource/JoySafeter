@@ -14,10 +14,9 @@ interface ModelListProps {
   provider: ModelProvider
   models: AvailableModel[]
   onCollapse: () => void
-  workspaceId?: string
 }
 
-export function ModelList({ provider, models, onCollapse, workspaceId }: ModelListProps) {
+export function ModelList({ provider, models, onCollapse }: ModelListProps) {
   const { t } = useTranslation()
   const [showAddCustomModel, setShowAddCustomModel] = useState(false)
   const isCustomProvider = provider.provider_name === 'custom'
@@ -100,7 +99,6 @@ export function ModelList({ provider, models, onCollapse, workspaceId }: ModelLi
       <AddCustomModelDialog
         open={showAddCustomModel}
         onOpenChange={setShowAddCustomModel}
-        workspaceId={workspaceId}
         provider={provider}
       />
     </div>

@@ -1,8 +1,7 @@
 """
-模型管理API
+模型管理API（全局，与 workspace 无关）
 """
 
-import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -20,50 +19,30 @@ router = APIRouter(prefix="/v1/models", tags=["Models"])
 
 
 class ModelInstanceCreate(BaseModel):
-    """创建模型实例配置请求"""
+    """创建模型实例配置请求（全局，与 workspace 无关）"""
 
     provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
     model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
     model_type: str = Field(default="chat", description="模型类型：chat, llm, embedding等", examples=["chat"])
     model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数配置", examples=[{}])
-    workspace_id: Optional[uuid.UUID] = Field(
-        default=None,
-        alias="workspaceId",
-        description="工作空间ID（可选）",
-        examples=["38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc"],
-    )
     is_default: bool = Field(default=True, description="是否为默认模型")
 
 
 class ModelTestRequest(BaseModel):
-    """测试模型输出请求"""
+    """测试模型输出请求（全局）"""
 
     model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
     input: str = Field(description="输入文本", examples=["你好，请介绍一下你自己"])
-    workspace_id: Optional[uuid.UUID] = Field(
-        default=None,
-        alias="workspaceId",
-        description="工作空间ID（可选）",
-        examples=["38e895c7-eb7a-4c7c-be2a-4a1e1ec4e3dc"],
-    )
 
 
 @router.get("")
 async def list_available_models(
     model_type: str = Query(default="chat", description="模型类型：chat, llm, embedding等"),
-    workspace_id: Optional[uuid.UUID] = Query(default=None, alias="workspaceId"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取可用模型列表
-
-    Args:
-        model_type: 模型类型
-        workspace_id: 工作空间ID（可选）
-
-    Returns:
-        可用模型列表
+    获取可用模型列表（全局，与 workspace 无关）
     """
     try:
         model_type_enum = ModelType(model_type)
@@ -73,12 +52,7 @@ async def list_available_models(
         raise BadRequestException(f"不支持的模型类型: {model_type}")
 
     service = ModelService(db)
-    user_id = current_user.id
-    models = await service.get_available_models(
-        model_type=model_type_enum,
-        user_id=user_id,
-        workspace_id=workspace_id,
-    )
+    models = await service.get_available_models(model_type=model_type_enum)
     return success_response(data=models, message="获取模型列表成功")
 
 
@@ -112,7 +86,6 @@ async def create_model_instance(
         model_name=payload.model_name,
         model_type=model_type_enum,
         model_parameters=payload.model_parameters,
-        workspace_id=payload.workspace_id,
         is_default=payload.is_default,
     )
     return success_response(data=instance, message="创建模型实例配置成功")
@@ -120,25 +93,14 @@ async def create_model_instance(
 
 @router.get("/instances")
 async def list_model_instances(
-    workspace_id: Optional[uuid.UUID] = Query(default=None, alias="workspaceId"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取用户的所有模型实例配置
-
-    Args:
-        workspace_id: 工作空间ID（可选）
-
-    Returns:
-        模型实例配置列表
+    获取模型实例配置列表（全局，与 workspace 无关）
     """
     service = ModelService(db)
-    user_id = current_user.id
-    instances = await service.list_model_instances(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    )
+    instances = await service.list_model_instances()
     return success_response(data=instances, message="获取模型实例配置列表成功")
 
 
@@ -163,7 +125,6 @@ async def test_output(
         user_id=user_id,
         model_name=payload.model_name,
         input_text=payload.input,
-        workspace_id=payload.workspace_id,
     )
     return success_response(data={"output": output}, message="测试模型输出成功")
 

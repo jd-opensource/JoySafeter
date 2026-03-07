@@ -13,10 +13,9 @@ import { ProviderIcon } from './provider-icon'
 
 interface ModelProviderCardProps {
   provider: ModelProvider
-  workspaceId?: string
 }
 
-export function ModelProviderCard({ provider, workspaceId }: ModelProviderCardProps) {
+export function ModelProviderCard({ provider }: ModelProviderCardProps) {
   const { t } = useTranslation()
   const [showCredentialDialog, setShowCredentialDialog] = React.useState(false)
   const isCustom = provider.provider_type === 'custom'
@@ -93,7 +92,6 @@ export function ModelProviderCard({ provider, workspaceId }: ModelProviderCardPr
       {showCredentialDialog && (
         <ModelCredentialDialog
           provider={provider}
-          workspaceId={workspaceId}
           open={showCredentialDialog}
           onOpenChange={setShowCredentialDialog}
         />

@@ -19,14 +19,13 @@ router = APIRouter(prefix="/v1/model-credentials", tags=["ModelCredentials"])
 
 
 class CredentialCreate(BaseModel):
-    """创建凭据请求"""
+    """创建凭据请求（全局，与 workspace 无关）"""
 
     provider_name: str = Field(description="供应商名称或模板名称", examples=["openaiapicompatible"])
     provider_display_name: Optional[str] = Field(
         default=None, alias="providerDisplayName", description="自定义供应商显示名称"
     )
     credentials: Dict[str, Any] = Field(..., description="凭据字典（明文）")
-    workspace_id: Optional[uuid.UUID] = Field(default=None, alias="workspaceId", description="工作空间ID（可选）")
     should_validate: bool = Field(default=True, alias="validate", description="是否验证凭据")
 
 
@@ -59,7 +58,6 @@ async def create_or_update_credential(
         user_id=user_id,
         provider_name=payload.provider_name,
         credentials=payload.credentials,
-        workspace_id=payload.workspace_id,
         validate=payload.should_validate,
         provider_display_name=payload.provider_display_name,
     )
@@ -68,25 +66,14 @@ async def create_or_update_credential(
 
 @router.get("")
 async def list_credentials(
-    workspace_id: Optional[uuid.UUID] = Query(default=None, alias="workspaceId"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取用户的所有凭据列表
-
-    Args:
-        workspace_id: 工作空间ID（可选）
-
-    Returns:
-        凭据列表
+    获取凭据列表（全局，与 workspace 无关）
     """
     service = ModelCredentialService(db)
-    user_id = current_user.id
-    credentials = await service.list_credentials(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    )
+    credentials = await service.list_credentials()
     return success_response(data=credentials, message="获取凭据列表成功")
 
 

@@ -3,20 +3,16 @@
 import { AlertTriangle, Loader2, Brain, Plus } from 'lucide-react'
 import React from 'react'
 
-import { ModelProviderAddedCard } from '@/app/workspace/[workspaceId]/settings/models/components/provider-added-card'
-import { ModelProviderCard } from '@/app/workspace/[workspaceId]/settings/models/components/provider-card'
+import { ModelProviderAddedCard } from '@/app/settings/models/components/provider-added-card'
+import { ModelProviderCard } from '@/app/settings/models/components/provider-card'
 import { useModelProviders, useModelCredentials, useModelProvidersByConfig } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
 
-interface ModelsPageProps {
-  workspaceId?: string
-}
-
-export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPageProps) {
+export function ModelsPage() {
   const { t } = useTranslation()
 
   const { data: providers = [], isLoading: providersLoading } = useModelProviders()
-  const { data: credentials = [], isLoading: credentialsLoading } = useModelCredentials(workspaceId)
+  const { data: credentials = [], isLoading: credentialsLoading } = useModelCredentials()
   const {
     credentialsByProvider,
     configuredProviders,
@@ -70,7 +66,6 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
                   key={provider.provider_name}
                   provider={provider}
                   credential={credential}
-                  workspaceId={workspaceId}
                 />
               )
             })}
@@ -89,11 +84,7 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
             </div>
             <div className="grid grid-cols-3 gap-3 pb-4">
               {notConfiguredSystemProviders.map(provider => (
-                <ModelProviderCard
-                  key={provider.provider_name}
-                  provider={provider}
-                  workspaceId={workspaceId}
-                />
+                <ModelProviderCard key={provider.provider_name} provider={provider} />
               ))}
             </div>
           </>
@@ -110,11 +101,7 @@ export function ModelsPage({ workspaceId }: ModelsPageProps = {} as ModelsPagePr
             </div>
             <div className="grid grid-cols-3 gap-3 pb-4">
               {templateProviders.map(provider => (
-                <ModelProviderCard
-                  key={provider.provider_name}
-                  provider={provider}
-                  workspaceId={workspaceId}
-                />
+                <ModelProviderCard key={provider.provider_name} provider={provider} />
               ))}
             </div>
           </>

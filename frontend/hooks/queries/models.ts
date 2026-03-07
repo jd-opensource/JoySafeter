@@ -81,12 +81,11 @@ export function useModelProvider(providerName: string) {
   })
 }
 
-export function useModelCredentials(workspaceId?: string) {
+export function useModelCredentials() {
   return useQuery({
-    queryKey: [...modelKeys.credentials(), workspaceId],
+    queryKey: modelKeys.credentials(),
     queryFn: async (): Promise<ModelCredential[]> => {
-      const params = workspaceId ? `?workspaceId=${workspaceId}` : ''
-      return await apiGet<ModelCredential[]>(`${MODEL_CREDENTIALS_PATH}${params}`)
+      return await apiGet<ModelCredential[]>(MODEL_CREDENTIALS_PATH)
     },
     enabled: true,
     retry: false,
@@ -197,14 +196,12 @@ export function useModelCredential(credentialId: string) {
 
 export function useAvailableModels(
   modelType: string = 'chat',
-  workspaceId?: string,
   options?: { enabled?: boolean }
 ) {
   return useQuery({
     queryKey: modelKeys.available(modelType),
     queryFn: async (): Promise<AvailableModel[]> => {
       const params = new URLSearchParams({ model_type: modelType })
-      if (workspaceId) params.append('workspaceId', workspaceId)
       return await apiGet<AvailableModel[]>(`${MODELS_PATH}?${params.toString()}`)
     },
     enabled: options?.enabled !== false, // 默认 true，但可以设置为 false
@@ -214,12 +211,11 @@ export function useAvailableModels(
   })
 }
 
-export function useModelInstances(workspaceId?: string) {
+export function useModelInstances() {
   return useQuery({
-    queryKey: [...modelKeys.instances(), workspaceId],
+    queryKey: modelKeys.instances(),
     queryFn: async (): Promise<ModelInstance[]> => {
-      const params = workspaceId ? `?workspaceId=${workspaceId}` : ''
-      return await apiGet<ModelInstance[]>(`${MODELS_PATH}/instances${params}`)
+      return await apiGet<ModelInstance[]>(`${MODELS_PATH}/instances`)
     },
     enabled: true,
     retry: false,
@@ -283,7 +279,6 @@ export function useCreateCredential() {
         provider_name: request.provider_name,
         providerDisplayName: request.providerDisplayName,
         credentials: request.credentials,
-        workspaceId: request.workspaceId,
         validate: request.validate !== false,
       })
       logger.info(`Created credential for provider: ${request.provider_name}`)
@@ -340,7 +335,6 @@ export function useCreateModelInstance() {
         model_name: request.model_name,
         model_type: request.model_type || 'chat',
         model_parameters: request.model_parameters,
-        workspaceId: request.workspaceId,
         is_default: request.is_default,
       })
       logger.info(`Created model instance: ${request.model_name}`)

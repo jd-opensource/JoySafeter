@@ -2,7 +2,6 @@
 
 import { useMemo } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
-import { useParams } from 'next/navigation'
 import React from 'react'
 
 import {
@@ -20,11 +19,9 @@ const CUSTOM_PROVIDER_NAME = 'custom'
 
 export default function ModelsPage() {
   const { t } = useTranslation()
-  const params = useParams()
-  const workspaceId = params?.workspaceId as string | undefined
 
   const { data: providers = [], isLoading: providersLoading } = useModelProviders()
-  const { data: credentials = [], isLoading: credentialsLoading } = useModelCredentials(workspaceId)
+  const { data: credentials = [], isLoading: credentialsLoading } = useModelCredentials()
   const {
     credentialsByProvider,
     configuredProviders,
@@ -95,7 +92,6 @@ export default function ModelsPage() {
                     key={provider.provider_name}
                     provider={provider}
                     credential={credential}
-                    workspaceId={workspaceId}
                   />
                 )
               })}
@@ -114,7 +110,6 @@ export default function ModelsPage() {
               <ModelProviderAddedCard
                 provider={customProvider}
                 credential={credentialsByProvider.get(CUSTOM_PROVIDER_NAME)}
-                workspaceId={workspaceId}
               />
             </div>
           </div>
@@ -129,11 +124,7 @@ export default function ModelsPage() {
             </div>
             <div className="grid grid-cols-3 gap-3">
               {builtinNotConfigured.map(provider => (
-                <ModelProviderCard
-                  key={provider.provider_name}
-                  provider={provider}
-                  workspaceId={workspaceId}
-                />
+                <ModelProviderCard key={provider.provider_name} provider={provider} />
               ))}
             </div>
           </div>
@@ -147,7 +138,7 @@ export default function ModelsPage() {
               <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <ModelProviderCard provider={customProvider} workspaceId={workspaceId} />
+              <ModelProviderCard provider={customProvider} />
             </div>
           </div>
         )}

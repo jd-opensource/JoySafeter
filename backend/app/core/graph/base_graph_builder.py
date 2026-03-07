@@ -364,14 +364,10 @@ class BaseGraphBuilder(ABC):
                     user_id=str(self.user_id) if self.user_id else "system",
                     provider_name=provider_name,
                     model_name=model_name,
-                    workspace_id=workspace_id,
                     use_default=False,
                 )
             else:
-                model = await model_service.get_runtime_model_by_name(
-                    model_name=model_name,
-                    workspace_id=workspace_id,
-                )
+                model = await model_service.get_runtime_model_by_name(model_name=model_name)
             logger.info(
                 f"[BaseGraphBuilder] Resolved model via ModelService | provider={provider_name} | model={model_name}"
             )
@@ -393,7 +389,6 @@ class BaseGraphBuilder(ABC):
             workspace_id = getattr(self.graph, "workspace_id", None)
             default_model = await model_service.get_model_instance(
                 user_id=str(self.user_id) if self.user_id else "system",
-                workspace_id=workspace_id,
                 use_default=True,
             )
             logger.info(
@@ -745,7 +740,6 @@ class BaseGraphBuilder(ABC):
                             user_id=str(self.user_id) if self.user_id else "system",
                             provider_name=memory_provider_name,
                             model_name=str(memory_model_name),
-                            workspace_id=workspace_id,
                             use_default=False,
                         )
                         logger.info(
@@ -755,7 +749,6 @@ class BaseGraphBuilder(ABC):
                     else:
                         memory_model = await self.model_service.get_runtime_model_by_name(
                             model_name=str(memory_model_name),
-                            workspace_id=workspace_id,
                         )
                         logger.info(
                             f"[BaseGraphBuilder._resolve_memory_middleware] Successfully resolved memory model "

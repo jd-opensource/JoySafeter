@@ -26,24 +26,10 @@ class ModelService(BaseService):
         self.provider_repo = ModelProviderRepository(db)
         self.credential_service = ModelCredentialService(db)
 
-    async def get_available_models(
-        self,
-        model_type: ModelType,
-        user_id: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> List[Dict[str, Any]]:
+    async def get_available_models(self, model_type: ModelType) -> List[Dict[str, Any]]:
         """
-        获取可用模型列表（所有用户和工作空间可见）
-
-        Args:
-            model_type: 模型类型
-            user_id: 用户ID（已废弃，保留用于向后兼容）
-            workspace_id: 工作空间ID（已废弃，保留用于向后兼容）
-
-        Returns:
-            模型列表
+        获取可用模型列表（全局，与 workspace 无关）
         """
-        # 从数据库获取所有模型实例（不进行 user_id 和 workspace_id 过滤）
         all_instances = await self.repo.list_all()
 
         # 获取所有供应商
@@ -118,23 +104,10 @@ class ModelService(BaseService):
         model_name: str,
         model_type: ModelType,
         model_parameters: Optional[Dict[str, Any]] = None,
-        workspace_id: Optional[uuid.UUID] = None,
         is_default: bool = False,
     ) -> Dict[str, Any]:
         """
-        创建模型实例配置
-
-        Args:
-            user_id: 用户ID
-            provider_name: 供应商名称
-            model_name: 模型名称
-            model_type: 模型类型
-            model_parameters: 模型参数
-            workspace_id: 工作空间ID（可选）
-            is_default: 是否为默认模型
-
-        Returns:
-            创建的模型实例配置
+        创建模型实例配置（全局，与 workspace 无关）
         """
         # 验证供应商是否存在
         provider = await self.provider_repo.get_by_name(provider_name)
@@ -148,11 +121,11 @@ class ModelService(BaseService):
                 existing_default.is_default = False
                 await self.db.flush()
 
-        # 创建模型实例配置
+        # 创建模型实例配置（全局：workspace_id 固定为 None）
         instance = await self.repo.create(
             {
                 "user_id": user_id,
-                "workspace_id": workspace_id,
+                "workspace_id": None,
                 "provider_id": provider.id,
                 "model_name": model_name,
                 "model_parameters": model_parameters or {},
@@ -248,21 +221,10 @@ class ModelService(BaseService):
         user_id: str,
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
         use_default: bool = True,
     ) -> Any:
         """
-        获取模型实例（LangChain模型对象）
-
-        Args:
-            user_id: 用户ID
-            provider_name: 供应商名称（可选）
-            model_name: 模型名称（可选）
-            workspace_id: 工作空间ID（可选）
-            use_default: 如果未指定provider_name和model_name，是否使用默认模型
-
-        Returns:
-            LangChain模型实例
+        获取模型实例（LangChain模型对象）。全局，与 workspace 无关。
         """
         # 如果未指定，使用默认模型
         implementation_name: Optional[str] = None
@@ -279,7 +241,6 @@ class ModelService(BaseService):
             else:
                 raise BadRequestException("必须指定provider_name和model_name，或设置use_default=True")
         else:
-            # 获取模型实例配置（不进行 user_id 和 workspace_id 过滤）
             provider = await self.provider_repo.get_by_name(provider_name)
             if not provider:
                 raise NotFoundException(f"供应商不存在: {provider_name}")
@@ -315,22 +276,11 @@ class ModelService(BaseService):
 
         return model
 
-    async def list_model_instances(
-        self,
-        user_id: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> List[Dict[str, Any]]:
+    async def list_model_instances(self) -> List[Dict[str, Any]]:
         """
-        获取所有模型实例配置（所有用户和工作空间可见）
-
-        Args:
-            user_id: 用户ID（已废弃，保留用于向后兼容）
-            workspace_id: 工作空间ID（已废弃，保留用于向后兼容）
-
-        Returns:
-            模型实例配置列表
+        获取所有模型实例配置（全局，与 workspace 无关）
         """
-        instances = await self.repo.list_by_user(user_id, workspace_id)
+        instances = await self.repo.list_all()
 
         return [
             {
@@ -344,26 +294,15 @@ class ModelService(BaseService):
             for i in instances
         ]
 
-    async def get_runtime_model_by_name(
-        self,
-        model_name: str,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> Any:
+    async def get_runtime_model_by_name(self, model_name: str) -> Any:
         """
-        根据 model_name 获取运行时模型实例（LangChain 模型对象）。
-
-        - 使用 ModelInstanceRepository.get_by_name 查找模型实例
-        - 根据实例的 provider 和参数，通过 create_model_instance 创建模型
+        根据 model_name 获取运行时模型实例（LangChain 模型对象）。全局，与 workspace 无关。
         """
         from loguru import logger
 
-        logger.debug(
-            f"[ModelService.get_runtime_model_by_name] Looking up model | "
-            f"model_name={model_name} | workspace_id={workspace_id}"
-        )
+        logger.debug(f"[ModelService.get_runtime_model_by_name] Looking up model | model_name={model_name}")
 
-        # 获取模型实例配置（所有用户和工作空间可见）
-        instance = await self.repo.get_by_name(model_name, workspace_id)
+        instance = await self.repo.get_by_name(model_name)
 
         if not instance:
             # 列出所有可用的模型实例，帮助调试
@@ -408,26 +347,11 @@ class ModelService(BaseService):
 
         return model
 
-    async def test_output(
-        self,
-        user_id: str,
-        model_name: str,
-        input_text: str,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> str:
+    async def test_output(self, user_id: str, model_name: str, input_text: str) -> str:
         """
-        测试模型输出
-
-        Args:
-            user_id: 用户ID
-            model_name: 模型名称
-            input_text: 输入文本
-            workspace_id: 工作空间ID（可选）
-
-        Returns:
-            模型输出结果
+        测试模型输出（全局，与 workspace 无关）
         """
-        instance = await self.repo.get_by_name(model_name, workspace_id)
+        instance = await self.repo.get_by_name(model_name)
 
         if not instance:
             raise NotFoundException(f"模型实例不存在: {model_name}")

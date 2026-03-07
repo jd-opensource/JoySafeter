@@ -335,9 +335,9 @@ export const agentService = {
     })
   },
 
-  async getModels(workspaceId?: string): Promise<ModelOption[]> {
+  async getModels(): Promise<ModelOption[]> {
     try {
-      const models = await modelService.getAvailableModels('chat', workspaceId)
+      const models = await modelService.getAvailableModels('chat')
       return models.map((model) => ({
         id: `${model.provider_name}:${model.name}`,
         label: model.display_name || model.name,
@@ -352,14 +352,11 @@ export const agentService = {
   },
 
   /**
-   * Get default model ID
-   * Returns model marked as default first, or first available model if no default is set
-   * @param workspaceId Workspace ID (optional)
-   * @returns Default model ID, or empty string if no available models
+   * Get default model ID（全局，与 workspace 无关）
    */
-  async getDefaultModelId(workspaceId?: string): Promise<string> {
+  async getDefaultModelId(): Promise<string> {
     try {
-      const models = await this.getModels(workspaceId)
+      const models = await this.getModels()
 
       // Find model marked as default
       const defaultModel = models.find((m) => m.isDefault === true && m.isAvailable !== false)

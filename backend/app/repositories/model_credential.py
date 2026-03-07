@@ -20,12 +20,9 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
 
     async def get_by_user_and_provider(
         self,
-        user_id: Optional[str] = None,
         provider_id: Optional[uuid.UUID] = None,
-        workspace_id: Optional[uuid.UUID] = None,
     ) -> ModelCredential | None:
-        """根据供应商获取凭据（所有用户和工作空间可见）"""
-        # 移除所有 user_id 和 workspace_id 过滤
+        """根据供应商获取凭据（全局）"""
         conditions = []
         if provider_id:
             conditions.append(ModelCredential.provider_id == provider_id)
@@ -50,16 +47,6 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
             )
         )
         return result.scalar_one_or_none()
-
-    async def list_by_user(
-        self,
-        user_id: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> list[ModelCredential]:
-        """获取所有凭据（所有用户和工作空间可见）"""
-        # 移除所有 user_id 和 workspace_id 过滤
-        result = await self.db.execute(select(ModelCredential).options(selectinload(ModelCredential.provider)))
-        return list(result.scalars().all())
 
     async def list_all(self) -> list[ModelCredential]:
         """获取所有凭据（所有用户和工作空间可见）"""

@@ -34,22 +34,11 @@ class ModelCredentialService(BaseService):
         user_id: str,
         provider_name: str,
         credentials: Dict[str, Any],
-        workspace_id: Optional[uuid.UUID] = None,
         validate: bool = True,
         provider_display_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        创建或更新凭据
-
-        Args:
-            user_id: 用户ID
-            provider_name: 供应商名称
-            credentials: 凭据字典（明文）
-            workspace_id: 工作空间ID（可选）
-            validate: 是否验证凭据
-
-        Returns:
-            创建的凭据信息
+        创建或更新凭据（全局，与 workspace 无关）
         """
         # 验证供应商是否存在
         provider = await self.provider_repo.get_by_name(provider_name)
@@ -96,12 +85,8 @@ class ModelCredentialService(BaseService):
         # 加密凭据
         encrypted_credentials = encrypt_credentials(credentials)
 
-        # 检查是否已存在
-        existing = await self.repo.get_by_user_and_provider(
-            user_id,
-            provider.id,
-            workspace_id,
-        )
+        # 检查是否已存在（全局：不按 workspace 区分）
+        existing = await self.repo.get_by_user_and_provider(provider_id=provider.id)
 
         if existing:
             # 更新现有凭据
@@ -113,11 +98,11 @@ class ModelCredentialService(BaseService):
             await self.db.refresh(existing)
             credential = existing
         else:
-            # 创建新凭据
+            # 创建新凭据（全局：workspace_id 固定为 None）
             credential = await self.repo.create(
                 {
                     "user_id": user_id,
-                    "workspace_id": workspace_id,
+                    "workspace_id": None,
                     "provider_id": provider.id,
                     "credentials": encrypted_credentials,
                     "is_valid": is_valid,
@@ -267,22 +252,11 @@ class ModelCredentialService(BaseService):
 
         return result
 
-    async def list_credentials(
-        self,
-        user_id: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> List[Dict[str, Any]]:
+    async def list_credentials(self) -> List[Dict[str, Any]]:
         """
-        获取所有凭据（所有用户和工作空间可见）
-
-        Args:
-            user_id: 用户ID（已废弃，当前未使用，保留用于向后兼容）
-            workspace_id: 工作空间ID（已废弃，当前未使用，保留用于向后兼容）
-
-        Returns:
-            凭据列表
+        获取凭据列表（全局，与 workspace 无关）
         """
-        credentials = await self.repo.list_by_user(user_id, workspace_id)
+        credentials = await self.repo.list_all()
 
         return [
             {
@@ -343,33 +317,16 @@ class ModelCredentialService(BaseService):
 
         # 如果没有全局凭据，查找任意有效凭据
         if not credential:
-            credential = await self.repo.get_by_user_and_provider(
-                None,
-                provider.id,
-                None,
-            )
+            credential = await self.repo.get_by_user_and_provider(provider_id=provider.id)
 
         if not credential or not credential.is_valid:
             return None
 
         return decrypt_credentials(credential.credentials)
 
-    async def get_decrypted_credentials(
-        self,
-        provider_name: str,
-        user_id: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> Optional[Dict[str, Any]]:
+    async def get_decrypted_credentials(self, provider_name: str) -> Optional[Dict[str, Any]]:
         """
-        获取解密后的凭据（向后兼容方法，推荐使用 get_current_credentials）
-
-        Args:
-            provider_name: 供应商名称
-            user_id: 用户ID（已废弃，当前未使用，保留用于向后兼容）
-            workspace_id: 工作空间ID（已废弃，当前未使用，保留用于向后兼容）
-
-        Returns:
-            解密后的凭据，如果不存在则返回None
+        获取解密后的凭据（全局，与 workspace 无关）。推荐使用 get_current_credentials。
         """
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
@@ -378,13 +335,8 @@ class ModelCredentialService(BaseService):
         # 优先查找全局凭据（user_id 为 NULL）
         credential = await self.repo.get_by_provider(provider.id)
 
-        # 如果没有全局凭据，查找任意有效凭据
         if not credential:
-            credential = await self.repo.get_by_user_and_provider(
-                None,
-                provider.id,
-                None,
-            )
+            credential = await self.repo.get_by_user_and_provider(provider_id=provider.id)
 
         if not credential or not credential.is_valid:
             return None

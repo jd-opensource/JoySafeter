@@ -75,7 +75,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Available models (for "no default model" notice); backend returns same list regardless of workspaceId
   const { data: availableModels = [], isSuccess: modelsLoaded, isError: modelsError } = useAvailableModels(
     'chat',
-    personalWorkspaceId ?? undefined,
     { enabled: true }
   )
   // No "usable" default: no model that is both default and available (has credentials)
@@ -601,7 +600,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <AlertDialogAction
               onClick={() => {
                 if (personalWorkspaceId) {
-                  router.push(`/workspace/${personalWorkspaceId}/settings/models`)
+                  router.push('/settings/models')
                 }
                 setShowNoDefaultModelNotice(false)
               }}

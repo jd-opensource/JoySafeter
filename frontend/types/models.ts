@@ -46,7 +46,6 @@ export interface CreateCredentialRequest {
   provider_name: string
   providerDisplayName?: string
   credentials: Record<string, any>
-  workspaceId?: string
   validate?: boolean
 }
 
@@ -73,7 +72,6 @@ export interface CreateModelInstanceRequest {
   model_name: string
   model_type?: string
   model_parameters?: Record<string, unknown>
-  workspaceId?: string
   is_default?: boolean
 }
 
@@ -109,7 +107,6 @@ export interface AvailableModel {
 export interface TestModelOutputRequest {
   model_name: string
   input: string
-  workspaceId?: string
 }
 
 /**

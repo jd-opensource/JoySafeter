@@ -29,7 +29,6 @@ import { useTranslation } from '@/lib/i18n'
 interface ModelCredentialDialogProps {
   provider: ModelProvider
   credential?: ModelCredential
-  workspaceId?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -37,7 +36,6 @@ interface ModelCredentialDialogProps {
 export function ModelCredentialDialog({
   provider,
   credential,
-  workspaceId,
   open,
   onOpenChange,
 }: ModelCredentialDialogProps) {
@@ -125,7 +123,6 @@ export function ModelCredentialDialog({
         provider_name: provider.provider_name,
         providerDisplayName: provider.is_template ? providerDisplayName.trim() : undefined,
         credentials: filteredData,
-        workspaceId,
         validate: true,
       })
 

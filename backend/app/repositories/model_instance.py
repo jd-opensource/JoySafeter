@@ -18,35 +18,15 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     def __init__(self, db: AsyncSession):
         super().__init__(ModelInstance, db)
 
-    async def get_default(
-        self,
-        user_id: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> ModelInstance | None:
-        """获取默认模型实例（所有用户和工作空间可见）"""
-        # 移除所有 user_id 和 workspace_id 过滤，返回第一个默认模型；预加载 provider 供调用方使用 template_name
+    async def get_default(self) -> ModelInstance | None:
+        """获取默认模型实例（全局）"""
         result = await self.db.execute(
             select(ModelInstance).where(ModelInstance.is_default).options(selectinload(ModelInstance.provider))
         )
         return result.scalar_one_or_none()
 
-    async def list_by_user(
-        self,
-        user_id: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> list[ModelInstance]:
-        """获取所有模型实例（所有用户和工作空间可见）"""
-        # 移除所有 user_id 和 workspace_id 过滤
-        result = await self.db.execute(select(ModelInstance))
-        return list(result.scalars().all())
-
-    # 获取指定模型名的实例
-    async def get_by_name(
-        self,
-        model_name: str,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> ModelInstance | None:
-        """获取指定模型名的实例（所有用户和工作空间可见）；预加载 provider 供调用方使用 template_name"""
+    async def get_by_name(self, model_name: str) -> ModelInstance | None:
+        """获取指定模型名的实例（全局）；预加载 provider 供调用方使用 template_name"""
         result = await self.db.execute(
             select(ModelInstance)
             .where(ModelInstance.model_name == model_name)

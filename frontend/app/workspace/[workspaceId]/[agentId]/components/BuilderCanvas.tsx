@@ -382,7 +382,7 @@ export const BuilderCanvas: React.FC = () => {
       let configOverride: Record<string, unknown> | undefined
       if (type === 'agent') {
         try {
-          const defaultModelId = await agentService.getDefaultModelId(workspaceId)
+          const defaultModelId = await agentService.getDefaultModelId()
           if (defaultModelId) {
             const agentDef = nodeRegistry.get('agent')
             configOverride = { ...agentDef?.defaultConfig }

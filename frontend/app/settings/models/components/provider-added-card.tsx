@@ -16,18 +16,16 @@ import { ProviderIcon } from './provider-icon'
 interface ModelProviderAddedCardProps {
   provider: ModelProvider
   credential?: ModelCredential
-  workspaceId?: string
 }
 
 export function ModelProviderAddedCard({
   provider,
   credential,
-  workspaceId,
 }: ModelProviderAddedCardProps) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(true)
   const [showCredentialDialog, setShowCredentialDialog] = useState(false)
-  const { data: models = [], isLoading: modelsLoading } = useAvailableModels('chat', workspaceId)
+  const { data: models = [], isLoading: modelsLoading } = useAvailableModels('chat')
   const isCustom = provider.provider_name === 'custom'
 
   const providerModels = models.filter(m => m.provider_name === provider.provider_name)
@@ -97,7 +95,6 @@ export function ModelProviderAddedCard({
             provider={provider}
             models={providerModels}
             onCollapse={() => setCollapsed(true)}
-            workspaceId={workspaceId}
           />
         )}
       </div>
@@ -106,7 +103,6 @@ export function ModelProviderAddedCard({
         <ModelCredentialDialog
           provider={provider}
           credential={credential}
-          workspaceId={workspaceId}
           open={showCredentialDialog}
           onOpenChange={setShowCredentialDialog}
         />

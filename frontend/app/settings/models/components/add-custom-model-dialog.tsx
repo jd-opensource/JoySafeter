@@ -22,7 +22,6 @@ import { useTranslation } from '@/lib/i18n'
 interface AddCustomModelDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  workspaceId?: string
   /** 当前供应商，用于确定创建实例的 provider_name；不传则默认为 'custom'，便于后续扩展模板派生供应商下自填模型名 */
   provider?: ModelProvider | null
 }
@@ -30,7 +29,6 @@ interface AddCustomModelDialogProps {
 export function AddCustomModelDialog({
   open,
   onOpenChange,
-  workspaceId,
   provider,
 }: AddCustomModelDialogProps) {
   const { t } = useTranslation()
@@ -54,7 +52,6 @@ export function AddCustomModelDialog({
         provider_name: providerName,
         model_name: name,
         model_type: 'chat',
-        workspaceId,
         is_default: false,
       })
       toast({
