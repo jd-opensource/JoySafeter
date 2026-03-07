@@ -36,25 +36,36 @@ class ModelCredentialService(BaseService):
         credentials: Dict[str, Any],
         validate: bool = True,
         provider_display_name: Optional[str] = None,
+        model_name: Optional[str] = None,
+        model_parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        创建或更新凭据（全局，与 workspace 无关）。
-        模板供应商（如 custom）以 Factory 为准，不要求 DB 中有行；用户派生供应商仍写 model_provider。
+        创建或更新凭据（全局）。当 provider_name=custom 且 model_name 非空时：以模型维度新增一条
+        （创建 custom-xxx provider + 凭据 + model_instance），一步到位。
         """
         import time
 
+        # 一步到位：添加一个自定义模型（凭据 + 模型名）→ 新建 custom-xxx + 凭据 + 实例
+        if provider_name == "custom" and model_name and model_name.strip():
+            return await self._add_one_custom_model(
+                user_id=user_id,
+                credentials=credentials,
+                validate=validate,
+                model_name=model_name.strip(),
+                model_parameters=model_parameters,
+                display_name=provider_display_name,
+            )
+
+        # 以下为原有逻辑：仅创建/更新凭据
         template = self.factory.get_provider(provider_name)
         provider = await self.provider_repo.get_by_name(provider_name)
-        # 模板存在且未提供显示名：仅用 provider_name，不写 provider_id
         if template and not provider_display_name:
-            # 模板路径：不依赖 DB 的 provider 行
             implementation_name = provider_name
             provider_id_to_use = None
             provider_name_to_store = provider_name
             final_provider_name = provider_name
             db_provider_for_ensure = None
         elif template and provider_display_name:
-            # 用户派生：创建 model_provider 行
             new_provider_name = f"{provider_name}-{int(time.time())}"
             db_provider = await self.provider_repo.create(
                 {
@@ -75,7 +86,6 @@ class ModelCredentialService(BaseService):
             implementation_name = provider_name
             db_provider_for_ensure = db_provider
         elif provider:
-            # 仅 DB 存在的用户派生供应商
             provider_id_to_use = provider.id
             provider_name_to_store = None
             final_provider_name = provider_name
@@ -125,6 +135,81 @@ class ModelCredentialService(BaseService):
         return {
             "id": str(credential.id),
             "provider_name": final_provider_name,
+            "is_valid": credential.is_valid,
+            "last_validated_at": credential.last_validated_at,
+            "validation_error": credential.validation_error,
+        }
+
+    async def _add_one_custom_model(
+        self,
+        user_id: str,
+        credentials: Dict[str, Any],
+        validate: bool,
+        model_name: str,
+        model_parameters: Optional[Dict[str, Any]],
+        display_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """以模型维度新增一个自定义模型：custom-xxx + 凭据 + model_instance，同一事务。"""
+        import time
+
+        template = self.factory.get_provider("custom")
+        if not template:
+            raise NotFoundException("供应商不存在: custom")
+
+        is_valid = False
+        validation_error = None
+        if validate:
+            is_valid, validation_error = await validate_provider_credentials("custom", credentials)
+        encrypted = encrypt_credentials(credentials)
+
+        new_provider_name = f"custom-{int(time.time())}"
+        display = (display_name or model_name).strip() or new_provider_name
+
+        db_provider = await self.provider_repo.create(
+            {
+                "name": new_provider_name,
+                "display_name": display,
+                "supported_model_types": [mt.value for mt in template.get_supported_model_types()],
+                "credential_schema": template.get_credential_schema(),
+                "config_schema": None,
+                "is_template": False,
+                "provider_type": "custom",
+                "template_name": "custom",
+                "is_enabled": True,
+            }
+        )
+
+        credential = await self.repo.create(
+            {
+                "user_id": user_id,
+                "workspace_id": None,
+                "provider_id": db_provider.id,
+                "provider_name": None,
+                "credentials": encrypted,
+                "is_valid": is_valid,
+                "last_validated_at": datetime.now(timezone.utc) if is_valid else None,
+                "validation_error": validation_error,
+            }
+        )
+
+        await self.instance_repo.create(
+            {
+                "user_id": user_id,
+                "workspace_id": None,
+                "provider_id": db_provider.id,
+                "provider_name": None,
+                "model_name": model_name,
+                "model_parameters": model_parameters or {},
+                "is_default": False,
+            }
+        )
+
+        await self.commit()
+        await self._update_default_model_cache_if_needed(new_provider_name)
+
+        return {
+            "id": str(credential.id),
+            "provider_name": new_provider_name,
             "is_valid": credential.is_valid,
             "last_validated_at": credential.last_validated_at,
             "validation_error": credential.validation_error,

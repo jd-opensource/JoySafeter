@@ -275,18 +275,25 @@ export function useCreateCredential() {
 
   return useMutation({
     mutationFn: async (request: CreateCredentialRequest) => {
-      const data = await apiPost<ModelCredential>(MODEL_CREDENTIALS_PATH, {
+      const body: Record<string, unknown> = {
         provider_name: request.provider_name,
         providerDisplayName: request.providerDisplayName,
         credentials: request.credentials,
         validate: request.validate !== false,
-      })
+      }
+      if (request.model_name != null) body.model_name = request.model_name
+      if (request.model_parameters != null) body.model_parameters = request.model_parameters
+      const data = await apiPost<ModelCredential>(MODEL_CREDENTIALS_PATH, body)
       logger.info(`Created credential for provider: ${request.provider_name}`)
       return data
     },
-    onSuccess: () => {
+    onSuccess: (_, request) => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
       queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
+      if (request.model_name) {
+        queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
+        queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
+      }
     },
   })
 }

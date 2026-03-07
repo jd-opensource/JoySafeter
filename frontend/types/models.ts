@@ -40,13 +40,16 @@ export interface ModelCredential {
 }
 
 /**
- * Create model credential request
+ * Create model credential request.
+ * When provider_name is "custom", model_name can be set to add one custom model (credential + instance) in one call.
  */
 export interface CreateCredentialRequest {
   provider_name: string
   providerDisplayName?: string
   credentials: Record<string, any>
   validate?: boolean
+  model_name?: string
+  model_parameters?: Record<string, unknown>
 }
 
 // ==================== Model Instance ====================
