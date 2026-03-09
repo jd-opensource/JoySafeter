@@ -308,7 +308,7 @@ class ModelCredentialService(BaseService):
                 provider_name_to_validate,
                 decrypted_credentials,
             )
-            error = error_to_store
+            error = error_to_store or ""
 
         # 更新验证状态
         credential.is_valid = is_valid

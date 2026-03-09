@@ -26,7 +26,7 @@ class ModelProvider(BaseModel):
     description: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="供应商描述")
 
     # 支持的模型类型列表，如 ["llm", "chat", "embedding", "rerank", "speech_to_text", "text_to_speech", "moderation"]
-    supported_model_types: Mapped[dict] = mapped_column(
+    supported_model_types: Mapped[list] = mapped_column(
         JSON, nullable=False, default=list, comment="支持的模型类型列表"
     )
 
