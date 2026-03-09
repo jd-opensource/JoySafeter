@@ -255,8 +255,10 @@ class ModelCredentialService(BaseService):
             repo = ModelInstanceRepository(self.db)
             default_instance = await repo.get_default()
             effective_name = (
-                default_instance.provider.name if default_instance.provider else default_instance.provider_name
-            ) if default_instance else None
+                (default_instance.provider.name if default_instance.provider else default_instance.provider_name)
+                if default_instance
+                else None
+            )
             if default_instance and effective_name == provider_name:
                 await self._update_default_model_cache(
                     provider_name=provider_name,
@@ -400,7 +402,11 @@ class ModelCredentialService(BaseService):
             raise NotFoundException("凭据不存在")
 
         # 如果是专用自定义供应商，删除供应商（触发级联删除）
-        if credential.provider and credential.provider.provider_type == "custom" and not credential.provider.is_template:
+        if (
+            credential.provider
+            and credential.provider.provider_type == "custom"
+            and not credential.provider.is_template
+        ):
             from loguru import logger
 
             logger.info(f"正在删除专用自定义供应商及其凭据: {credential.provider.name}")
