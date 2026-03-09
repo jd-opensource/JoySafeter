@@ -367,7 +367,10 @@ class BaseGraphBuilder(ABC):
                     use_default=False,
                 )
             else:
-                model = await model_service.get_runtime_model_by_name(model_name=model_name)
+                model = await model_service.get_runtime_model_by_name(
+                    model_name=model_name,
+                    user_id=str(self.user_id) if self.user_id else None
+                )
             logger.info(
                 f"[BaseGraphBuilder] Resolved model via ModelService | provider={provider_name} | model={model_name}"
             )
@@ -749,6 +752,7 @@ class BaseGraphBuilder(ABC):
                     else:
                         memory_model = await self.model_service.get_runtime_model_by_name(
                             model_name=str(memory_model_name),
+                            user_id=str(self.user_id) if self.user_id else None
                         )
                         logger.info(
                             f"[BaseGraphBuilder._resolve_memory_middleware] Successfully resolved memory model "

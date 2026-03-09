@@ -25,6 +25,7 @@ class ModelService(BaseService):
         self.repo = ModelInstanceRepository(db)
         self.provider_repo = ModelProviderRepository(db)
         self.credential_service = ModelCredentialService(db)
+        self.factory = get_factory()
 
     async def get_available_models(self, model_type: ModelType, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -54,7 +55,6 @@ class ModelService(BaseService):
             if decrypted:
                 credentials_dict[pname] = decrypted
 
-        factory = get_factory()
         models = []
         for instance in all_instances:
             if instance.provider_id is not None:
@@ -70,7 +70,7 @@ class ModelService(BaseService):
                     continue
                 pname = instance.provider_name
                 impl_name = instance.provider_name
-                prov = factory.get_provider(instance.provider_name)
+                prov = self.factory.get_provider(instance.provider_name)
                 if not prov:
                     continue
                 pdisplay = prov.display_name
@@ -81,7 +81,7 @@ class ModelService(BaseService):
             has_credentials = pname in credentials_dict
             display_name = instance.model_name
             description = ""
-            prov_impl = factory.get_provider(impl_name)
+            prov_impl = self.factory.get_provider(impl_name)
             if prov_impl:
                 provider_credentials = credentials_dict.get(pname)
                 model_list = prov_impl.get_model_list(model_type, provider_credentials)
@@ -291,6 +291,7 @@ class ModelService(BaseService):
             provider_name=provider_name,
             model_type=model_type,
             model_name=model_name,
+            user_id=user_id,
         )
 
         if not credentials:
@@ -312,7 +313,6 @@ class ModelService(BaseService):
         获取所有模型实例配置（全局）。支持模板（provider_name）与用户派生（provider）。
         """
         instances = await self.repo.list_all()
-        factory = get_factory()
         out = []
         for i in instances:
             if i.provider:
@@ -320,7 +320,7 @@ class ModelService(BaseService):
                 pdisplay = i.provider.display_name
             else:
                 pname = i.provider_name or ""
-                p = factory.get_provider(i.provider_name) if i.provider_name else None
+                p = self.factory.get_provider(i.provider_name) if i.provider_name else None
                 pdisplay = p.display_name if p else pname
             out.append({
                 "id": str(i.id),
@@ -332,7 +332,7 @@ class ModelService(BaseService):
             })
         return out
 
-    async def get_runtime_model_by_name(self, model_name: str) -> Any:
+    async def get_runtime_model_by_name(self, model_name: str, user_id: Optional[str] = None) -> Any:
         """
         根据 model_name 获取运行时模型实例（LangChain 模型对象）。全局，与 workspace 无关。
         """
@@ -374,6 +374,7 @@ class ModelService(BaseService):
             provider_name=provider_name,
             model_type=model_type,
             model_name=model_name,
+            user_id=user_id,
         )
 
         if not credentials:
@@ -412,6 +413,7 @@ class ModelService(BaseService):
             provider_name=provider_name,
             model_type=model_type,
             model_name=model_name,
+            user_id=user_id,
         )
 
         if not credentials:
