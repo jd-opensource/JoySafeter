@@ -436,11 +436,11 @@ For a detailed breakdown of the architecture, including core modules, workflows,
 | PostgreSQL | 15+ (optional, if not using Docker) |
 | Redis | 7+ (required, used for caching and session management) |
 
-### Solution 1: One-Click Run (Recommended)
+### Solution 1: One-Click Run (Docker, Recommended)
 
 ```bash
-# Initialize environment & Build images locally & Start services automatically
-sh deploy/quick-start.sh
+# Initialize environment & build if needed & start services automatically
+./deploy/quick-start.sh
 ```
 
 
@@ -456,6 +456,32 @@ For complete installation instructions, including manual deployment, pre-built D
 | ReDoc | http://localhost:8000/redoc |
 
 ---
+
+### Production Deployment (Important)
+
+For production, please follow the Docker deployment guide and best practices:
+
+```bash
+# On your server
+cd deploy
+./install.sh --mode prod            # Initialize config files if needed
+./scripts/prod.sh                   # Start with prebuilt images
+# Skip MCP service if you don't need it right away:
+# ./scripts/prod.sh --skip-mcp
+```
+
+Before starting in production, make sure you:
+- Set strong random secrets in backend/.env:
+  - SECRET_KEY (JWT secret)
+  - CREDENTIAL_ENCRYPTION_KEY (MANDATORY; used to encrypt stored model credentials — must be fixed and not change between restarts)
+- Set real public URLs in deploy/.env:
+  - FRONTEND_URL (what users open in browser, no trailing slash)
+  - BACKEND_URL (public API base reachable by browsers)
+- Do not expose DB/Redis/MCP ports to the public Internet; put an HTTPS reverse proxy (e.g., Nginx/Caddy) in front of 3000/8000 and keep them internal
+
+References:
+- Docker Deployment Guide: deploy/README.md
+- Production IP/Domain Best Practices: deploy/PRODUCTION_IP_GUIDE.md
 
 ## Roadmap
 

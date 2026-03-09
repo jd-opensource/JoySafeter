@@ -445,8 +445,8 @@ interface StreamEventEnvelope {
 ### 方案一：一键运行
 
 ```bash
-# 一键初始化环境 & 本地构建镜像 & 自动启动
-sh deploy/quick-start.sh
+# 一键初始化环境 & 本地构建镜像（如有需要）& 自动启动
+./deploy/quick-start.sh
 ```
 
 有关完整的安装说明，包括手动部署、预构建 Docker 镜像和其他设置方法，请参阅 [安装指南](INSTALL_CN.md)。
@@ -459,6 +459,34 @@ sh deploy/quick-start.sh
 | 后端 API | http://localhost:8000 |
 | API 文档 | http://localhost:8000/docs |
 | ReDoc | http://localhost:8000/redoc |
+
+---
+
+### 生产部署（重要）
+
+生产环境请遵循 Docker 部署指南与最佳实践：
+
+```bash
+# 在服务器上
+cd deploy
+./install.sh --mode prod          # 如需，初始化配置文件
+./scripts/prod.sh                 # 使用预构建镜像启动
+# 如暂不需要 MCP 服务：
+# ./scripts/prod.sh --skip-mcp
+```
+
+启动前，请务必确认：
+- 在 backend/.env 设置强随机密钥：
+  - SECRET_KEY（JWT 密钥）
+  - CREDENTIAL_ENCRYPTION_KEY（必填；用于加密已存储的模型凭据，必须固定且不可随重启变化）
+- 在 deploy/.env 设置真实公网地址：
+  - FRONTEND_URL（用户在浏览器中访问的前端地址，结尾不要带 `/`）
+  - BACKEND_URL（浏览器可访问到的后端 API 公网地址）
+- 不要将 DB/Redis/MCP 端口暴露到公网；建议在 3000/8000 前使用 HTTPS 反向代理（如 Nginx/Caddy），将内部端口置于内网
+
+参考文档：
+- Docker 部署指南：deploy/README.md
+- 生产 IP/域名最佳实践：deploy/PRODUCTION_IP_GUIDE.md
 
 ---
 

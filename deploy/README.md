@@ -248,7 +248,7 @@ bun run dev
 # 构建前后端镜像（默认：linux/amd64,linux/arm64）
 ./deploy.sh build
 
-# 构建所有镜像（包括 backend, frontend, init）
+# 构建所有镜像（包括 backend, frontend, openclaw）
 # 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
 ./deploy.sh build --all
 
@@ -919,6 +919,8 @@ REDIS_URL=redis://redis:6379/0
 ```bash
 # 应用配置
 SECRET_KEY=your-strong-secret-key-here  # ⚠️ 必须修改为强随机字符串
+# 用于加密存储的模型凭据的密钥（⚠️ 必须设置为固定强随机字符串，重启后不能变化）
+CREDENTIAL_ENCRYPTION_KEY=your-strong-credential-key-here
 DEBUG=false
 ENVIRONMENT=production
 
@@ -981,8 +983,10 @@ server {
 ### 5. 安全建议
 
 - ✅ 使用强密码和 JWT 密钥
+- ✅ 配置并固定 `CREDENTIAL_ENCRYPTION_KEY`（用于凭据加密）
 - ✅ 启用 HTTPS（SSL/TLS）
 - ✅ 配置防火墙规则，限制端口访问
+- ✅ MCP 端口（默认 8001–8010）仅供内部访问，避免暴露公网
 - ✅ 定期更新镜像和依赖
 - ✅ 配置日志轮转和监控
 - ✅ 使用 Docker secrets 或密钥管理服务存储敏感信息
