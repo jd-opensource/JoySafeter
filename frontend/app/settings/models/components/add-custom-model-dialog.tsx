@@ -158,7 +158,7 @@ export function AddCustomModelDialog({
                     <SelectTrigger id={`custom-${field.key}`} className="mt-1">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" className="z-[10000001]">
                       {field.enum.map((opt, i) => (
                         <SelectItem key={opt} value={opt}>
                           {(field.enumNames && field.enumNames[i]) || opt}

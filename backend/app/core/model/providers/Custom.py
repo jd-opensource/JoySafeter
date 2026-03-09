@@ -128,7 +128,7 @@ class CustomProvider(BaseProvider):
         return (credentials.get("protocol_type") or self.PROTOCOL_OPENAI).lower()
 
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
-        """根据协议类型使用对应客户端验证凭据"""
+        """根据协议类型使用对应客户端验证凭据。若凭据中含 _validate_model，则用该模型名做验证（一步添加自定义模型时传入）。"""
         try:
             api_key = credentials.get("api_key")
             if not api_key:
@@ -137,17 +137,23 @@ class CustomProvider(BaseProvider):
             protocol = self._get_protocol(credentials)
             base_url = credentials.get("base_url") or ""
 
+            # 一步添加自定义模型时传入待验证的模型名，用该模型做连通性测试，避免固定模型在部分端点不可用导致误报「验证未通过」
+            validate_model = credentials.get("_validate_model") or ""
+            validate_model = validate_model.strip() if isinstance(validate_model, str) else ""
+
             if protocol == self.PROTOCOL_OPENAI:
+                model_name = validate_model or _VALIDATE_MODEL_OPENAI
                 model = ChatOpenAI(
-                    model=_VALIDATE_MODEL_OPENAI,
+                    model=model_name,
                     api_key=api_key,
                     base_url=base_url or None,
                     max_retries=3,
                     timeout=5.0,
                 )  # type: ignore[misc]
             elif protocol == self.PROTOCOL_ANTHROPIC:
+                model_name = validate_model or _VALIDATE_MODEL_ANTHROPIC
                 kwargs: Dict[str, Any] = {
-                    "model": _VALIDATE_MODEL_ANTHROPIC,
+                    "model": model_name,
                     "api_key": api_key,
                     "max_retries": 1,
                     "timeout": 10.0,
@@ -156,8 +162,9 @@ class CustomProvider(BaseProvider):
                     kwargs["anthropic_api_url"] = base_url
                 model = ChatAnthropic(**kwargs)  # type: ignore[misc]
             elif protocol == self.PROTOCOL_GEMINI:
+                model_name = validate_model or _VALIDATE_MODEL_GEMINI
                 kwargs = {
-                    "model": _VALIDATE_MODEL_GEMINI,
+                    "model": model_name,
                     "api_key": api_key,
                     "max_retries": 1,
                     "timeout": 10.0,

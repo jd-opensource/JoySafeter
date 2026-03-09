@@ -159,7 +159,9 @@ class ModelCredentialService(BaseService):
         is_valid = False
         validation_error = None
         if validate:
-            is_valid, validation_error = await validate_provider_credentials("custom", credentials)
+            # 用用户填写的模型名做验证，避免固定模型（如 gpt-4o-mini）在自定义端点不可用导致误报「验证未通过」
+            creds_for_validate = {**credentials, "_validate_model": model_name}
+            is_valid, validation_error = await validate_provider_credentials("custom", creds_for_validate)
         encrypted = encrypt_credentials(credentials)
 
         new_provider_name = f"custom-{int(time.time())}"

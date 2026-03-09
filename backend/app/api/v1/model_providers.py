@@ -79,3 +79,19 @@ async def sync_providers(
     service = ModelProviderService(db)
     result = await service.sync_all()
     return success_response(data=result, message="同步完成")
+
+@router.delete("/{provider_name}")
+async def delete_provider(
+    provider_name: str,
+    db: AsyncSession = Depends(get_db),
+    # current_user: User = Depends(get_current_user),
+):
+    """
+    删除供应商（仅限自定义供应商）
+
+    Args:
+        provider_name: 供应商名称
+    """
+    service = ModelProviderService(db)
+    await service.delete_provider(provider_name)
+    return success_response(message=f"删除供应商 {provider_name} 成功")

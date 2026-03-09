@@ -334,6 +334,23 @@ export function useDeleteCredential() {
   })
 }
 
+export function useDeleteModelProvider() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (providerName: string) => {
+      await apiDelete(`${MODEL_PROVIDERS_PATH}/${providerName}`)
+      logger.info(`Deleted model provider: ${providerName}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
+      queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
+      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
+    },
+  })
+}
+
 export function useCreateModelInstance() {
   const queryClient = useQueryClient()
 

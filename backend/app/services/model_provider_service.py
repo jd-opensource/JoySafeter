@@ -12,6 +12,7 @@ from app.models.model_instance import ModelInstance
 from app.repositories.model_instance import ModelInstanceRepository
 from app.repositories.model_provider import ModelProviderRepository
 
+from app.common.exceptions import NotFoundException, BadRequestException
 from .base import BaseService
 
 # 内置供应商固定展示顺序
@@ -183,6 +184,56 @@ class ModelProviderService(BaseService):
 
         result.sort(key=_provider_sort_key)
         return result
+
+    async def delete_provider(self, provider_name: str) -> None:
+        """
+        删除供应商。仅允许删除自定义供应商（provider_type='custom'）。
+        由于数据库配置了级联删除，相关的凭据和模型实例会自动清理。
+
+        Args:
+            provider_name: 供应商名称
+        """
+        from loguru import logger
+
+        # 1. 检查供应商是否存在且是自定义类型
+        provider = await self.repo.get_by_name(provider_name)
+        if not provider:
+            # 检查是否为内置供应商（可能在工厂中但不在 DB 中）
+            factory_provider = self.factory.get_provider(provider_name)
+            if factory_provider:
+                raise BadRequestException(f"内置供应商不允许删除: {provider_name}")
+            raise NotFoundException(f"供应商不存在: {provider_name}")
+
+        if provider.provider_type != "custom":
+            raise BadRequestException(f"仅允许删除自定义供应商: {provider_name}")
+
+        # 2. 检查删除的是否包含当前默认模型
+        default_instance = await self.instance_repo.get_default()
+        needs_new_default = False
+        if default_instance and default_instance.provider_id == provider.id:
+            logger.info(f"正在删除包含默认模型({default_instance.model_name})的供应商({provider_name})，将重新分配默认模型")
+            needs_new_default = True
+
+        # 3. 执行删除
+        await self.repo.delete(provider.id)
+        logger.info(f"已删除自定义供应商: {provider_name}")
+
+        # 4. 如果需要，重新分配默认模型
+        if needs_new_default:
+            # 找到一个新的非本次删除的全局模型
+            query = (
+                select(ModelInstance)
+                .where(ModelInstance.user_id.is_(None))
+                .order_by(ModelInstance.created_at.asc())
+            )
+            result = await self.db.execute(query)
+            remaining_models = list(result.scalars().all())
+            if remaining_models:
+                new_default = remaining_models[0]
+                await self.instance_repo.update(new_default.id, {"is_default": True})
+                logger.info(f"已自动重新分配默认模型: {new_default.model_name}")
+
+        await self.commit()
 
     async def get_provider(self, provider_name: str) -> Dict[str, Any] | None:
         """

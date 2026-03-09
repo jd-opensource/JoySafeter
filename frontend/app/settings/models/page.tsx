@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { AlertTriangle, Loader2, Plus } from 'lucide-react'
 import React from 'react'
 
 import {
@@ -10,7 +10,9 @@ import {
   useModelProvidersByConfig,
 } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
+import { Button } from '@/components/ui/button'
 
+import { AddCustomModelDialog } from './components/add-custom-model-dialog'
 import { ModelProviderAddedCard } from './components/provider-added-card'
 import { ModelProviderCard } from './components/provider-card'
 
@@ -44,9 +46,22 @@ export default function ModelsPage() {
       .filter((p): p is NonNullable<typeof p> => Boolean(p))
   }, [providerMap, notConfiguredProviders])
 
+  /** 已配置的自定义类供应商：模板 custom 或 custom-{ts}，避免与内置混在一起 */
+  const customConfigured = useMemo(
+    () =>
+      configuredProviders.filter(
+        p =>
+          p.provider_type === 'custom' ||
+          p.provider_name === CUSTOM_PROVIDER_NAME ||
+          (p.provider_name != null && p.provider_name.startsWith('custom-'))
+      ),
+    [configuredProviders]
+  )
+
   const customProvider = providerMap.get(CUSTOM_PROVIDER_NAME)
-  const isCustomConfigured = Boolean(customProvider && credentialsByProvider.has(CUSTOM_PROVIDER_NAME))
   const customNotConfigured = customProvider && templateProviders.some(p => p.provider_name === CUSTOM_PROVIDER_NAME)
+
+  const [showAddCustomModel, setShowAddCustomModel] = useState(false)
 
   if (providersLoading || credentialsLoading) {
     return (
@@ -99,27 +114,33 @@ export default function ModelsPage() {
           </div>
         )}
 
-        {/* 自定义模型：已配置的 */}
-        {isCustomConfigured && customProvider && (
+        {/* 自定义模型：已配置的（含 custom 模板与 custom-{ts}） */}
+        {customConfigured.length > 0 && (
           <div className="mb-6">
             <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
               {t('settings.customModels', { defaultValue: '自定义模型' })}
               <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
             </div>
             <div className="space-y-3">
-              <ModelProviderAddedCard
-                provider={customProvider}
-                credential={credentialsByProvider.get(CUSTOM_PROVIDER_NAME)}
-              />
+              {customConfigured.map(provider => {
+                const credential = credentialsByProvider.get(provider.provider_name)
+                return (
+                  <ModelProviderAddedCard
+                    key={provider.provider_name}
+                    provider={provider}
+                    credential={credential}
+                  />
+                )
+              })}
             </div>
           </div>
         )}
 
-        {/* 添加：系统内置供应商（未配置的） */}
+        {/* 内置供应商（未配置的） */}
         {builtinNotConfigured.length > 0 && (
           <div className="mb-6">
             <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
-              + {t('settings.addModelProvider')}
+              {t('settings.builtinProvidersNotConfigured')}
               <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -130,16 +151,29 @@ export default function ModelsPage() {
           </div>
         )}
 
-        {/* 添加：自定义模型（未配置的） */}
+        {/* 自定义模型：未配置时一步添加入口 */}
         {customNotConfigured && customProvider && (
           <div className="mb-6">
             <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
-              + {t('settings.customModels', { defaultValue: '自定义模型' })}
+              {t('settings.customModels', { defaultValue: '自定义模型' })}
               <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <ModelProviderCard provider={customProvider} />
+            <div className="flex">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-violet-200 text-violet-700 hover:bg-violet-50 hover:border-violet-300"
+                onClick={() => setShowAddCustomModel(true)}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {t('settings.addCustomModel', { defaultValue: '添加自定义模型' })}
+              </Button>
             </div>
+            <AddCustomModelDialog
+              open={showAddCustomModel}
+              onOpenChange={setShowAddCustomModel}
+              provider={customProvider}
+            />
           </div>
         )}
 
