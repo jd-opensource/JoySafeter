@@ -397,17 +397,17 @@ interface StreamEventEnvelope {
 ## 最近更新日志
 
 ### 核心能力 (Core Capabilities)
-- **元认知超能力 (Meta-Cognitive Superpowers)** (`57fdac5`): 引入了包括头脑风暴 (Brainstorming)、战略规划 (Writing Plans) 和执行 (Executing Plans) 在内的结构化推理能力。通过将 "思考过程" 形式化为可执行的语义技能，将 Agent 从简单的任务执行提升到解决复杂问题的层面。
-- **可扩展技能协议 (Extensible Skill Protocol)** (`cada4d3`): 确立了包含 "渐进式披露 (Progressive Disclosure)" 架构的 `SKILL.md` 标准。该机制通过按需动态加载技能元数据、指令和资源，极大优化了上下文窗口 (Context Window) 的利用率，使 Agent 成为一个能力无限扩展的平台。
+- **元认知超能力 (Meta-Cognitive Superpowers)**: 引入了包括头脑风暴 (Brainstorming)、战略规划 (Writing Plans) 和执行 (Executing Plans) 在内的结构化推理能力。通过将 "思考过程" 形式化为可执行的语义技能，将 Agent 从简单的任务执行提升到解决复杂问题的层面。
+- **可扩展技能协议 (Extensible Skill Protocol)**: 确立了包含 "渐进式披露 (Progressive Disclosure)" 架构的 `SKILL.md` 标准。该机制通过按需动态加载技能元数据、指令和资源，极大优化了上下文窗口 (Context Window) 的利用率，使 Agent 成为一个能力无限扩展的平台。
 
 ### 系统架构 (System Architecture)
-- **多租户沙箱引擎 (Multi-Tenant Sandbox Engine)** (`7aa24c8`): 实现了代码执行环境的严格用户级隔离。这一企业级安全特性保证了数据主权，彻底防止了并发用户会话之间的状态泄露。
-- **白盒可观测性 (Glass-Box Observability)** (`f5a8a16`): 集成了基于 Langfuse 的深度执行追踪可视化。用户现在可以实时观察 Agent 的决策过程和状态流转，为 Agent 的 "思维过程" 提供了完全的透明度。
+- **多租户沙箱引擎 (Multi-Tenant Sandbox Engine)**: 实现了代码执行环境的严格用户级隔离。这一企业级安全特性保证了数据主权，彻底防止了并发用户会话之间的状态泄露。
+- **白盒可观测性 (Glass-Box Observability)**: 集成了基于 Langfuse 的深度执行追踪可视化。用户现在可以实时观察 Agent 的决策过程和状态流转，为 Agent 的 "思维过程" 提供了完全的透明度。
 
 ### 优化与基础设施 (Optimization & Infrastructure)
-- **安全运行时迁移** (`420da8f`): 废弃了遗留的不安全执行路径，强制所有动态代码操作使用新的沙箱架构，提升了系统的整体安全性。
-- **企业身份集成** (`9583309`): 标准化了单点登录 (SSO) 协议，修正了命名规范并增加了对 `jd` 提供商的支持，确保了企业身份管理的无缝集成。
-- **核心内核升级** (`4390ae5`): 将 `deepagents` 核心库升级至 v0.3.11，引入了最新的稳定性改进和性能优化。
+- **安全运行时迁移**: 废弃了遗留的不安全执行路径，强制所有动态代码操作使用新的沙箱架构，提升了系统的整体安全性。
+- **企业身份集成**: 标准化单点登录 (SSO) 能力：内置 GitHub / Google / Microsoft 模板，并支持 Keycloak / Authentik / GitLab 等 OIDC 配置，以及 JD SSO（非标准 OAuth2）。详见 backend/config/oauth_providers.yaml 与 backend/config/README_OAUTH_LOCAL.md。
+- **核心内核升级**: 将 `deepagents` 核心库升级至 v0.4.0，引入了最新的稳定性改进和性能优化。
 ---
 
 ## 技术栈
@@ -548,9 +548,6 @@ cd deploy
 | **企业级 RBAC** | 是 | 是 | 有限 | 是 | 是 |
 
 ---
-=
----
-
 ## 文档
 
 | 文档 | 说明 |

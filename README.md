@@ -328,7 +328,7 @@ Pre-configured 10+ core security Skills and 200+ toolchains for modular reuse an
 - **Conditional Edges**: Route-based branching
 - **Loop-back Edges**: Cycle control with state isolation
 
-#### 3. SSE Real-time Communication
+#### 2. SSE Real-time Communication
 
 **Standardized Event Envelope** for reliable streaming:
 
@@ -391,17 +391,17 @@ For a detailed breakdown of the architecture, including core modules, workflows,
 ## Recent Change Log
 
 ### Core Capabilities
-- **Meta-Cognitive Superpowers** (`57fdac5`): Introduced structured reasoning capabilities including Brainstorming, Strategic Planning, and Execution. This elevates the agent from simple task execution to complex problem-solving by formalizing the "thinking process" into executable semantic skills.
-- **Extensible Skill Protocol** (`cada4d3`): Established the `SKILL.md` standard with a "Progressive Disclosure" architecture. This mechanism optimizes context window usage by dynamically loading skill metadata, instructions, and resources only when needed, turning the agent into an infinitely validatable platform.
+- **Meta-Cognitive Superpowers**: Introduced structured reasoning capabilities including Brainstorming, Strategic Planning, and Execution. This elevates the agent from simple task execution to complex problem-solving by formalizing the "thinking process" into executable semantic skills.
+- **Extensible Skill Protocol**: Established the `SKILL.md` standard with a "Progressive Disclosure" architecture. This mechanism optimizes context window usage by dynamically loading skill metadata, instructions, and resources only when needed, turning the agent into an infinitely validatable platform.
 
 ### System Architecture
-- **Multi-Tenant Sandbox Engine** (`7aa24c8`): Implemented strict per-user isolation for code execution environments. This enterprise-grade security feature guarantees data sovereignty and prevents state leakage between concurrent user sessions.
-- **Glass-Box Observability** (`f5a8a16`): Integrated deep visualization of agent execution traces with Langfuse. Users can now observe the real-time decision-making process and state transitions, providing full transparency into the agent's "thought process".
+- **Multi-Tenant Sandbox Engine**: Implemented strict per-user isolation for code execution environments. This enterprise-grade security feature guarantees data sovereignty and prevents state leakage between concurrent user sessions.
+- **Glass-Box Observability**: Integrated deep visualization of agent execution traces with Langfuse. Users can now observe the real-time decision-making process and state transitions, providing full transparency into the agent's "thought process".
 
 ### Optimization & Infrastructure
-- **Secure Runtime Transition** (`420da8f`): Deprecated legacy insecure execution paths, enforcing the new Sandbox architecture for all dynamic code operations.
-- **Enterprise Identity Integration** (`9583309`): Standardized Single Sign-On (SSO) protocols, correcting naming conventions and adding support for `jd` providers to ensure seamless enterprise identity management.
-- **Core Kernel Upgrade** (`4390ae5`): Upgraded `deepagents` kernel to v0.3.11, incorporating the latest stability improvements and performance optimizations.
+- **Secure Runtime Transition**: Deprecated legacy insecure execution paths, enforcing the new Sandbox architecture for all dynamic code operations.
+- **Enterprise Identity Integration**: Standardized Single Sign-On (SSO) protocols with built-in templates for GitHub, Google, and Microsoft, plus configurable OIDC providers (Keycloak, Authentik, GitLab) and JD SSO support. See backend/config/oauth_providers.yaml and backend/config/README_OAUTH_LOCAL.md.
+- **Core Kernel Upgrade**: Upgraded `deepagents` kernel to v0.4.0, incorporating the latest stability improvements and performance optimizations.
 
 
 ---
