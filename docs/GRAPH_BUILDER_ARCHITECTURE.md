@@ -21,7 +21,7 @@
 
 ## 1. 系统架构概览
 
-### 1.1 整体架构图
+### 1.1 整体架构图（以当前代码为准：Schema → GraphCompiler）
 
 ```mermaid
 flowchart TB
@@ -39,26 +39,25 @@ flowchart TB
     end
 
     subgraph Builders["构建器层"]
-        LGB[LanggraphModelBuilder<br/>标准 LangGraph]
+        SGB[LanggraphModelBuilder<br/>（实现位于 standard_graph_builder.py）]
         DAGB[DeepAgentsGraphBuilder<br/>DeepAgents 星型结构]
     end
 
-    subgraph DeepAgents["DeepAgents 组件"]
-        BM[BackendManager<br/>共享后端管理]
-        SM[SkillsManager<br/>技能管理]
-        NF[NodeFactory<br/>节点工厂]
-        AC[AgentConfig<br/>配置解析]
+    subgraph Compiler["编译层（标准 LangGraph）"]
+        Schema[GraphSchema<br/>from_db 生成可序列化 Schema]
+        CompilerCore[GraphCompiler<br/>compile_from_schema]
+        Wrapper[NodeExecutionWrapper<br/>节点包装/异常兜底/interrupt]
     end
 
     subgraph Backend["后端层 Python/FastAPI"]
         BaseBuilder[BaseGraphBuilder<br/>基础构建器]
         Executors[NodeExecutors<br/>节点执行器]
-        State[GraphState<br/>状态定义]
+        State[GraphState / Dynamic State Class<br/>状态定义]
         Validator[NodeConfigValidator<br/>配置验证器]
     end
 
     subgraph Runtime["运行时层"]
-        LG[LangGraph<br/>StateGraph]
+        LG[LangGraph<br/>StateGraph Runnable]
         DA[DeepAgents<br/>Manager/SubAgent]
         Checkpointer[Checkpointer<br/>状态持久化]
     end
@@ -72,20 +71,20 @@ flowchart TB
     Store --> API
     API --> GB
     GB -->|检测 useDeepAgents| DAGB
-    GB -->|默认| LGB
-    DAGB --> BM
-    DAGB --> SM
-    DAGB --> NF
-    NF --> AC
-    LGB --> BaseBuilder
+    GB -->|默认| SGB
+
+    SGB --> Schema
+    Schema --> CompilerCore
+    CompilerCore --> Wrapper
+    Wrapper --> LG
+
     DAGB --> BaseBuilder
+    SGB --> BaseBuilder
     BaseBuilder --> Executors
-    LGB --> State
-    DAGB --> State
-    LGB --> LG
-    DAGB --> DA
+    CompilerCore --> State
     LG --> Checkpointer
     DA --> Checkpointer
+
     Registry --> UI
     EdgePanel --> Store
     PropsPanel --> Store
@@ -99,7 +98,7 @@ flowchart TB
 
 | 构建模式 | 触发条件 | 构建器类 | 适用场景 |
 |---------|---------|---------|---------|
-| **标准 LangGraph** | 节点未启用 `useDeepAgents` | `LanggraphModelBuilder` | 传统工作流、条件路由、循环控制 |
+| **标准 LangGraph** | 节点未启用 `useDeepAgents` | `LanggraphModelBuilder`（standard_graph_builder.py） | 传统工作流、条件路由、循环控制 |
 | **DeepAgents** | 至少一个节点启用 `useDeepAgents` | `DeepAgentsGraphBuilder` | 多 Agent 协作、Manager-Worker 模式 |
 
 **选择逻辑**：
@@ -209,9 +208,11 @@ compiled_graph = await builder.build()
 
 ### 2.2 LanggraphModelBuilder 类
 
-**文件位置**: `backend/app/core/graph/langgraph_model_builder.py`
+**文件位置**: `backend/app/core/graph/standard_graph_builder.py`
 
-`LanggraphModelBuilder` 是图构建的核心类，继承自 `BaseGraphBuilder`，负责将前端定义的节点和边转换为 LangGraph 的 `StateGraph`。
+> 注意：历史上可能存在 `langgraph_model_builder.py` 的实现/文档引用，但当前仓库以 `standard_graph_builder.py` + `graph_schema.py` + `graph_compiler.py` 的 Schema 编译管线为准。
+
+`LanggraphModelBuilder` 是标准 LangGraph 构建入口，继承自 `BaseGraphBuilder`，但**不再直接手写 wiring 逻辑**；当前实现会先把 DB 模型转换为 `GraphSchema`，再交由 `GraphCompiler.compile_from_schema()` 负责 StateGraph 的 wiring 与编译。
 
 #### 核心职责
 
@@ -234,40 +235,35 @@ class LanggraphModelBuilder(BaseGraphBuilder):
         self._parallel_nodes: Set[str] = set()         # 并行节点
 ```
 
-#### 构建流程
+#### 构建流程（Schema-Driven）
 
 ```mermaid
 flowchart LR
-    subgraph Build["build() 方法"]
-        V[验证图结构]
-        L[识别循环体]
-        P[识别并行节点]
-        N[添加所有节点]
-        C[构建条件边]
-        S[添加 START 边]
-        R[添加常规边]
-        E[添加 END 边]
-        CO[编译图]
+    subgraph Build["build() / build_from_schema()"]
+        S1[GraphSchema.from_db<br/>DB→Schema]
+        V[validate_state_dependencies<br/>可选校验]
+        C1[GraphCompiler: precompute/classify]
+        N[创建 executors + add_node]
+        CE[add_conditional_edges<br/>router/condition/loop]
+        NE[add_edge<br/>normal edges]
+        SE[add_edge START/END<br/>基于 schema.get_start_nodes/get_end_nodes]
+        CO[workflow.compile<br/>checkpointer/interrupt]
     end
 
-    V --> L --> P --> N --> C --> S --> R --> E --> CO
+    S1 --> V --> C1 --> N --> CE --> NE --> SE --> CO
 ```
 
-#### 关键方法
+#### 关键入口/方法（当前代码）
 
-| 方法 | 功能 |
-|------|------|
-| `build()` | 异步构建并编译 StateGraph |
-| `_build_conditional_edges_for_router()` | 为 Router 节点构建条件边 |
-| `_build_conditional_edges_for_condition()` | 为 Condition 节点构建条件边 |
-| `_build_conditional_edges_for_loop()` | 为 Loop 节点构建条件边 |
-| `_identify_loop_bodies()` | 识别循环体节点 |
-| `_identify_parallel_nodes()` | 识别 Fan-Out 节点 |
-| `_wrap_node_executor()` | 包装执行器（自动状态更新） |
+| 组件 | 入口 | 功能 |
+|------|------|------|
+| `LanggraphModelBuilder` | `build()` / `build_from_schema()` | 入口，负责 DB→Schema，并调用 compiler |
+| `GraphSchema` | `from_db()` | 将 AgentGraph/GraphNode/GraphEdge 转成可序列化 Schema（包含 edge_type/route_key/state_fields） |
+| `GraphCompiler` | `compile_from_schema()` | 负责 wiring：分类节点、创建 executors、conditional/normal/start/end 边、compile |
 
 ### 2.2 BaseGraphBuilder 基类
 
-**文件位置**: `backend/app/core/graph/base_builder.py`
+**文件位置**: `backend/app/core/graph/base_graph_builder.py`
 
 提供节点/边管理、执行器创建等基础功能。
 
@@ -619,37 +615,35 @@ sequenceDiagram
     Store->>Store: 更新 lastSavedStateHash
 ```
 
-### 4.2 图构建流程
+### 4.2 图构建流程（Schema → Compiler）
 
 ```mermaid
 sequenceDiagram
     participant API as REST API
-    participant Builder as LanggraphModelBuilder
+    participant Builder as LanggraphModelBuilder(standard)
+    participant Schema as GraphSchema
+    participant Compiler as GraphCompiler
     participant Base as BaseGraphBuilder
     participant Exec as NodeExecutors
     participant LG as LangGraph
 
     API->>Builder: build(graph, nodes, edges)
-    Builder->>Builder: validate_graph_structure()
-    Builder->>Builder: _identify_loop_bodies()
-    Builder->>Builder: _identify_parallel_nodes()
-
+    Builder->>Schema: GraphSchema.from_db(graph,nodes,edges)
+    Builder->>Compiler: compile_from_schema(schema, builder=self)
+    Compiler->>Compiler: precompute/classify/start_end
     loop 每个节点
-        Builder->>Base: _create_node_executor(node)
-        Base->>Exec: new XxxNodeExecutor(node, name)
-        Exec-->>Builder: executor
-        Builder->>LG: workflow.add_node(name, executor)
+        Compiler->>Base: builder._get_or_create_executor(db_node, node_name)
+        Base->>Exec: _create_node_executor(...)
+        Exec-->>Compiler: executor
+        Compiler->>LG: workflow.add_node(node_name, NodeExecutionWrapper(executor))
     end
 
-    loop 条件节点
-        Builder->>Builder: _build_conditional_edges_for_xxx()
-        Builder->>LG: workflow.add_conditional_edges()
-    end
-
-    Builder->>LG: workflow.add_edge(START, first_node)
-    Builder->>LG: workflow.add_edge(last_node, END)
-    Builder->>LG: workflow.compile(checkpointer)
-    LG-->>Builder: CompiledStateGraph
+    Compiler->>LG: add_conditional_edges(router/condition/loop)
+    Compiler->>LG: add_edge(normal edges)
+    Compiler->>LG: add_edge(START/END)
+    Compiler->>LG: workflow.compile(checkpointer/interrupt)
+    LG-->>Compiler: CompiledStateGraph
+    Compiler-->>Builder: CompilationResult
     Builder-->>API: compiled_graph
 ```
 
@@ -690,10 +684,10 @@ flowchart LR
         E2["边 2 配置<br/>route_key: 'low'"]
     end
 
-    subgraph Backend["后端处理"]
-        B1["_build_conditional_edges_for_router()"]
+    subgraph Backend["后端处理（GraphCompiler）"]
+        B1["_build_router_conditional_edges()"]
         B2["conditional_map = {<br/>'high': 'node_a',<br/>'low': 'node_b'}"]
-        B3["add_conditional_edges(<br/>router_name,<br/>executor,<br/>conditional_map)"]
+        B3["add_conditional_edges(<br/>router_name,<br/>executor.route,<br/>conditional_map)"]
     end
 
     subgraph Runtime["运行时"]
@@ -1012,38 +1006,16 @@ interface EdgeData {
 { route_key: "exit_loop", edge_type: "conditional" }
 ```
 
-### 6.4 后端边处理逻辑
+### 6.4 后端边处理逻辑（注意：此段为“概念性伪代码”）
 
-```python
-def _build_conditional_edges_for_router(self, workflow, router_node, router_node_name, router_executor):
-    conditional_map = {}
-    handle_to_route_map = {}
+该段落用于解释“route_key / source_handle_id → conditional_map → add_conditional_edges”的整体机制，但**当前实现已迁移到 Schema + GraphCompiler 管线**，不再存在 `LanggraphModelBuilder._build_conditional_edges_for_router()` 的同名方法。
 
-    for edge in self.edges:
-        if edge.source_node_id == router_node.id:
-            edge_data = edge.data or {}
-            source_handle_id = edge_data.get("source_handle_id")
-            route_key = edge_data.get("route_key", "default")
+如需对照真实实现，请以：
+- `backend/app/core/graph/graph_schema.py`（DB→Schema，edge_type/route_key/source_handle_id）
+- `backend/app/core/graph/graph_compiler.py`（conditional edges wiring）
+为准。
 
-            # 构建 Handle ID 到 route_key 的映射
-            if source_handle_id:
-                handle_to_route_map[source_handle_id] = route_key
-
-            # 构建 route_key 到目标节点的映射
-            target_name = self._node_id_to_name.get(edge.target_node_id)
-            if target_name:
-                conditional_map[route_key] = target_name
-
-    # 设置 Handle 映射到执行器
-    router_executor.set_handle_to_route_map(handle_to_route_map)
-
-    # 添加条件边
-    workflow.add_conditional_edges(
-        router_node_name,
-        router_executor,  # 返回 route_key
-        conditional_map,  # route_key -> target_node_name
-    )
-```
+> 若后续需要提供“可复制粘贴的真实代码片段”，建议从 `GraphCompiler` 中摘取当前版本的实现并同步更新本节。
 
 ---
 
@@ -1321,14 +1293,14 @@ mapping_errors = builder.validate_handle_to_route_mapping()
 [LoopConditionNodeExecutor] <<< Loop condition evaluated | route=continue_loop
 ```
 
-### 9.4 前端验证
+### 9.4 前端验证（更新说明）
 
-`edgeValidator.ts` 提供实时边配置验证：
+历史文档中提到 `edgeValidator.ts`（以及 `validateEdgeData()`），但当前仓库前端仅在 `EdgePropertiesPanel.tsx` 内实现最小校验逻辑，并且 `validateEdgeData` import 处于注释状态；暂未落盘为独立服务文件。
 
-```typescript
-const errors = validateEdgeData(edge, sourceNode, targetNode)
-// 返回: ValidationError[] = [{ field, message, severity }]
-```
+如需恢复统一校验能力，建议：
+1) 新增 `frontend/app/workspace/[workspaceId]/[agentId]/services/edgeValidator.ts`
+2) 在 `EdgePropertiesPanel.tsx` 调用该校验函数并展示结果
+3) 覆盖 loop_condition_node 的 continue_loop / exit_loop 约束与 route_key 覆盖风险
 
 ---
 
@@ -1687,9 +1659,9 @@ A: CodeAgent 的 `runnable` 必须返回 `AIMessage` 对象，而不是字典。
 | 文件 | 路径 |
 |------|------|
 | GraphBuilder | `backend/app/core/graph/graph_builder.py` |
-| LanggraphModelBuilder | `backend/app/core/graph/langgraph_model_builder.py` |
+| LanggraphModelBuilder（标准 LangGraph） | `backend/app/core/graph/standard_graph_builder.py` |
 | DeepAgentsGraphBuilder | `backend/app/core/graph/deep_agents_builder.py` |
-| BaseGraphBuilder | `backend/app/core/graph/base_builder.py` |
+| BaseGraphBuilder | `backend/app/core/graph/base_graph_builder.py` |
 | NodeExecutors | `backend/app/core/graph/node_executors.py` |
 | GraphState | `backend/app/core/graph/graph_state.py` |
 | NodeConfigValidator | `backend/app/core/graph/node_config_validator.py` |
@@ -1708,11 +1680,20 @@ A: CodeAgent 的 `runnable` 必须返回 `AIMessage` 对象，而不是字典。
 | builderStore | `frontend/app/workspace/[workspaceId]/[agentId]/stores/builderStore.ts` |
 | EdgePropertiesPanel | `frontend/app/workspace/[workspaceId]/[agentId]/components/EdgePropertiesPanel.tsx` |
 | graph.ts Types | `frontend/app/workspace/[workspaceId]/[agentId]/types/graph.ts` |
-| edgeValidator | `frontend/app/workspace/[workspaceId]/[agentId]/services/edgeValidator.ts` |
+| edgeValidator | （当前未落盘为独立文件；相关校验逻辑在 `EdgePropertiesPanel.tsx` 内） |
 
 ---
 
-## 附录 B: 前后端 State 协同架构
+## 附录 B: 前后端 State 协同架构（以契约为准：context vs state_fields）
+
+> 说明：本附录只保留“数据流示意”，不再在此处重复定义 `context/state_fields` 的含义与优先级。
+> 唯一权威定义请以 `docs/runtime_state_context_contract.md` 为准。
+
+当前仓库已同时存在两套能力：
+- `graph.variables.context`：图级默认上下文（运行时可被请求级 context 覆盖）
+- `graph.variables.state_fields`：动态 state class（Schema-Driven 编译，影响运行时 state 结构与 reducer）
+
+如需更新本附录的实现对照，请先更新契约文档，再同步到此处的数据流图。
 
 ### B.1 协同架构图
 
