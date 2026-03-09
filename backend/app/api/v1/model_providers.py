@@ -80,6 +80,7 @@ async def sync_providers(
     result = await service.sync_all()
     return success_response(data=result, message="同步完成")
 
+
 @router.delete("/{provider_name}")
 async def delete_provider(
     provider_name: str,

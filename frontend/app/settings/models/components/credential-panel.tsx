@@ -74,30 +74,6 @@ export function CredentialPanel({ provider, credential, onSetup }: CredentialPan
             {t('settings.validationFailed')}
           </span>
         )}
-
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-[10px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-            onClick={onSetup}
-          >
-            <Settings size={11} />
-            {t('settings.setup')}
-          </Button>
-          {hasCredential && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-[10px] font-medium text-gray-500 hover:text-red-600 hover:bg-red-50"
-              onClick={() => setClearConfirmOpen(true)}
-              disabled={deleteCredential.isPending}
-            >
-              <Trash2 size={11} />
-              {t('settings.clearCredential')}
-            </Button>
-          )}
-        </div>
       </div>
 
       <AlertDialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>

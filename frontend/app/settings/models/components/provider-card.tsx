@@ -63,31 +63,29 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
 
         {isCustom && (
           <div className="absolute top-0 right-0 p-3">
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-violet-100/80 text-violet-700 backdrop-blur-sm border border-violet-200">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase bg-violet-100/80 text-violet-700 backdrop-blur-sm border border-violet-200">
               {isTemplate ? t('settings.template', { defaultValue: 'TEMPLATE' }) : t('settings.custom', { defaultValue: 'CUSTOM' })}
             </span>
           </div>
         )}
 
         {/* Header */}
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <ProviderIcon provider={provider} className="shadow-sm" />
-            <div>
-              <h3 className="font-bold text-sm text-gray-900 leading-tight">
-                {provider.display_name}
-              </h3>
-              <div className="flex items-center gap-1 text-[10px] text-gray-400 mt-0.5">
-                <Sparkles size={10} className={isCustom ? "text-violet-400" : "text-blue-400"} />
-                <span>{modelCount} {t('settings.modelsLabel')}</span>
-              </div>
+        <div className="flex items-start gap-3 mb-3">
+          <ProviderIcon provider={provider} className="shadow-sm border border-gray-50 mt-1" />
+          <div className="grow">
+            <h3 className="font-bold text-sm text-gray-900 leading-tight">
+              {provider.display_name}
+            </h3>
+            <div className="flex items-center gap-1 text-[10px] text-gray-400 mt-1">
+              <Sparkles size={10} className={isCustom ? "text-violet-400" : "text-blue-400"} />
+              <span>{modelCount} {t('settings.modelsLabel')}</span>
             </div>
           </div>
         </div>
 
-        {/* Description & Actions */}
-        <div className="relative flex-1 mb-4">
-          <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed h-[32px] pr-16 group-hover:text-gray-600 transition-colors">
+        {/* Description & Action Group */}
+        <div className="relative flex-1 mb-2">
+          <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed h-[32px] pr-8 group-hover:text-gray-600 transition-colors">
             {provider.description || t('settings.providerDescriptionPlaceholder')}
           </p>
 
@@ -123,22 +121,16 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
           </div>
         </div>
 
-        {/* Footer: Model types tags */}
-        <div className="flex flex-wrap gap-1.5 mt-auto">
+        {/* Footer tags */}
+        <div className="flex flex-wrap gap-1 mt-auto">
           {supportedTypes.map(modelType => (
             <span
               key={modelType}
-              className="px-2 py-0.5 text-[9px] font-bold text-gray-500 bg-gray-50 border border-gray-100 rounded-md group-hover:bg-white group-hover:border-gray-200 transition-colors"
+              className="px-1.5 py-0.5 text-[9px] font-bold text-gray-500 bg-gray-50 border border-gray-100 rounded-md"
             >
               {t(`settings.modelTypes.${modelType}` as any, { defaultValue: modelType.toUpperCase() })}
             </span>
           ))}
-          {supportedTypes.length === 0 && (
-            <span className="flex items-center gap-1 px-2 py-0.5 text-[9px] font-medium text-amber-600 bg-amber-50 border border-amber-100 rounded-md">
-              <AlertCircle size={8} />
-              No models
-            </span>
-          )}
         </div>
       </motion.div>
 

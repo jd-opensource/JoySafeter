@@ -2,7 +2,6 @@
 模型服务
 """
 
-import uuid
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,9 +35,8 @@ class ModelService(BaseService):
         provider_map = {p.id: p for p in providers}
 
         # 获取当前用户可用的凭据
-        credentials_list = await self.credential_service.list_credentials()
         # 注意：list_credentials 返回的是简要信息，接下来我们需要为每个 provider 获取解密后的凭据（如果有效）
-        
+
         credentials_dict = {}
         # 为了提高效率，我们只对 instances 中出现的 provider 进行查询
         relevant_providers = set()
@@ -64,7 +62,7 @@ class ModelService(BaseService):
                 pname = provider.name
                 pdisplay = provider.display_name
                 impl_name = provider.template_name or provider.name
-                supported_types = provider.supported_model_types or []
+                supported_types: List[str] = provider.supported_model_types or []
             else:
                 if not instance.provider_name:
                     continue
@@ -90,15 +88,17 @@ class ModelService(BaseService):
                     display_name = matched.get("display_name", instance.model_name)
                     description = matched.get("description", "")
 
-            models.append({
-                "provider_name": pname,
-                "provider_display_name": pdisplay,
-                "name": instance.model_name,
-                "display_name": display_name,
-                "description": description,
-                "is_available": has_credentials,
-                "is_default": instance.is_default,
-            })
+            models.append(
+                {
+                    "provider_name": pname,
+                    "provider_display_name": pdisplay,
+                    "name": instance.model_name,
+                    "display_name": display_name,
+                    "description": description,
+                    "is_available": has_credentials,
+                    "is_default": instance.is_default,
+                }
+            )
         return models
 
     async def create_model_instance_config(
@@ -267,14 +267,10 @@ class ModelService(BaseService):
             provider = await self.provider_repo.get_by_name(provider_name)
             instance = None
             if template:
-                instance = await self.repo.get_by_provider_and_model(
-                    model_name=model_name, provider_name=provider_name
-                )
+                instance = await self.repo.get_by_provider_and_model(model_name=model_name, provider_name=provider_name)
                 implementation_name = provider_name
             if not instance and provider:
-                instance = await self.repo.get_by_provider_and_model(
-                    model_name=model_name, provider_id=provider.id
-                )
+                instance = await self.repo.get_by_provider_and_model(model_name=model_name, provider_id=provider.id)
                 implementation_name = provider.template_name or provider.name
             if not instance:
                 raise NotFoundException(f"供应商不存在或模型实例不存在: {provider_name}/{model_name}")
@@ -322,14 +318,16 @@ class ModelService(BaseService):
                 pname = i.provider_name or ""
                 p = self.factory.get_provider(i.provider_name) if i.provider_name else None
                 pdisplay = p.display_name if p else pname
-            out.append({
-                "id": str(i.id),
-                "provider_name": pname,
-                "provider_display_name": pdisplay,
-                "model_name": i.model_name,
-                "model_parameters": i.model_parameters or {},
-                "is_default": i.is_default,
-            })
+            out.append(
+                {
+                    "id": str(i.id),
+                    "provider_name": pname,
+                    "provider_display_name": pdisplay,
+                    "model_name": i.model_name,
+                    "model_parameters": i.model_parameters or {},
+                    "is_default": i.is_default,
+                }
+            )
         return out
 
     async def get_runtime_model_by_name(self, model_name: str, user_id: Optional[str] = None) -> Any:
@@ -355,9 +353,7 @@ class ModelService(BaseService):
                 f"模型实例不存在: {model_name}。可用的模型: {', '.join(available_model_names[:10])}"
             )
 
-        provider_name = (
-            instance.provider.name if instance.provider else (instance.provider_name or "")
-        )
+        provider_name = instance.provider.name if instance.provider else (instance.provider_name or "")
         implementation_name = (
             (instance.provider.template_name or instance.provider.name)
             if instance.provider
@@ -399,9 +395,7 @@ class ModelService(BaseService):
         if not instance:
             raise NotFoundException(f"模型实例不存在: {model_name}")
 
-        provider_name = (
-            instance.provider.name if instance.provider else (instance.provider_name or "")
-        )
+        provider_name = instance.provider.name if instance.provider else (instance.provider_name or "")
         implementation_name = (
             (instance.provider.template_name or instance.provider.name)
             if instance.provider

@@ -7,12 +7,12 @@ from typing import Any, Dict, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.model import get_factory
 from app.models.model_instance import ModelInstance
 from app.repositories.model_instance import ModelInstanceRepository
 from app.repositories.model_provider import ModelProviderRepository
 
-from app.common.exceptions import NotFoundException, BadRequestException
 from .base import BaseService
 
 # 内置供应商固定展示顺序
@@ -211,7 +211,9 @@ class ModelProviderService(BaseService):
         default_instance = await self.instance_repo.get_default()
         needs_new_default = False
         if default_instance and default_instance.provider_id == provider.id:
-            logger.info(f"正在删除包含默认模型({default_instance.model_name})的供应商({provider_name})，将重新分配默认模型")
+            logger.info(
+                f"正在删除包含默认模型({default_instance.model_name})的供应商({provider_name})，将重新分配默认模型"
+            )
             needs_new_default = True
 
         # 3. 执行删除
@@ -222,9 +224,7 @@ class ModelProviderService(BaseService):
         if needs_new_default:
             # 找到一个新的非本次删除的全局模型
             query = (
-                select(ModelInstance)
-                .where(ModelInstance.user_id.is_(None))
-                .order_by(ModelInstance.created_at.asc())
+                select(ModelInstance).where(ModelInstance.user_id.is_(None)).order_by(ModelInstance.created_at.asc())
             )
             result = await self.db.execute(query)
             remaining_models = list(result.scalars().all())
@@ -393,7 +393,9 @@ class ModelProviderService(BaseService):
                 models = provider_instance.get_model_list(model_type)
                 for model_info in models:
                     model_name = model_info["name"]
-                    existing = await self.instance_repo.get_by_provider_and_model(model_name=model_name, provider_id=provider.id)
+                    existing = await self.instance_repo.get_by_provider_and_model(
+                        model_name=model_name, provider_id=provider.id
+                    )
                     if not existing:
                         await self.instance_repo.create(
                             {

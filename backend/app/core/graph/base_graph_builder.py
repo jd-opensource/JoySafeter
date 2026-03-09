@@ -354,7 +354,6 @@ class BaseGraphBuilder(ABC):
 
     async def _resolve_by_model_service(self, provider_name: Optional[str], model_name: str) -> Any:
         """Try to resolve model via ModelService (exact or name-based lookup)."""
-        workspace_id = getattr(self.graph, "workspace_id", None)
         try:
             from typing import cast
 
@@ -368,8 +367,7 @@ class BaseGraphBuilder(ABC):
                 )
             else:
                 model = await model_service.get_runtime_model_by_name(
-                    model_name=model_name,
-                    user_id=str(self.user_id) if self.user_id else None
+                    model_name=model_name, user_id=str(self.user_id) if self.user_id else None
                 )
             logger.info(
                 f"[BaseGraphBuilder] Resolved model via ModelService | provider={provider_name} | model={model_name}"
@@ -389,7 +387,6 @@ class BaseGraphBuilder(ABC):
             from typing import cast
 
             model_service = cast(Any, self.model_service)
-            workspace_id = getattr(self.graph, "workspace_id", None)
             default_model = await model_service.get_model_instance(
                 user_id=str(self.user_id) if self.user_id else "system",
                 use_default=True,
@@ -736,7 +733,6 @@ class BaseGraphBuilder(ABC):
             memory_model = None
             if self.model_service and memory_model_name:
                 try:
-                    workspace_id = getattr(self.graph, "workspace_id", None)
                     # If provider is known, prefer exact match
                     if memory_provider_name:
                         memory_model = await self.model_service.get_model_instance(
@@ -751,8 +747,7 @@ class BaseGraphBuilder(ABC):
                         )
                     else:
                         memory_model = await self.model_service.get_runtime_model_by_name(
-                            model_name=str(memory_model_name),
-                            user_id=str(self.user_id) if self.user_id else None
+                            model_name=str(memory_model_name), user_id=str(self.user_id) if self.user_id else None
                         )
                         logger.info(
                             f"[BaseGraphBuilder._resolve_memory_middleware] Successfully resolved memory model "

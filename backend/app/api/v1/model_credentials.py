@@ -5,7 +5,7 @@
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,9 @@ class CredentialCreate(BaseModel):
     )
     credentials: Dict[str, Any] = Field(..., description="凭据字典（明文）")
     should_validate: bool = Field(default=True, alias="validate", description="是否验证凭据")
-    model_name: Optional[str] = Field(default=None, description="模型名称；仅当 provider_name=custom 时有效，表示一步添加凭据+该模型")
+    model_name: Optional[str] = Field(
+        default=None, description="模型名称；仅当 provider_name=custom 时有效，表示一步添加凭据+该模型"
+    )
     model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数；与 model_name 配套使用")
 
 

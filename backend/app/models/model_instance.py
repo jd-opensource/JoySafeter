@@ -35,7 +35,10 @@ class ModelInstance(BaseModel):
         comment="工作空间ID，如果为None则为用户级配置",
     )
     provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("model_provider.id", ondelete="CASCADE"), nullable=True, comment="供应商ID（用户派生时使用）"
+        UUID(as_uuid=True),
+        ForeignKey("model_provider.id", ondelete="CASCADE"),
+        nullable=True,
+        comment="供应商ID（用户派生时使用）",
     )
     provider_name: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True, comment="模板供应商名称（如 custom），当 provider_id 为空时使用"

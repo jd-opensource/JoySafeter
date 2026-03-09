@@ -9,6 +9,7 @@ Create Date: 2026-03-07 12:00:00.000000+00:00
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "a1b2c3d4e5f6"
@@ -21,7 +22,9 @@ def upgrade() -> None:
     # model_credential: add provider_name, make provider_id nullable
     op.add_column(
         "model_credential",
-        sa.Column("provider_name", sa.String(length=100), nullable=True, comment="模板供应商名称，当 provider_id 为空时使用"),
+        sa.Column(
+            "provider_name", sa.String(length=100), nullable=True, comment="模板供应商名称，当 provider_id 为空时使用"
+        ),
     )
     op.alter_column(
         "model_credential",
@@ -43,7 +46,9 @@ def upgrade() -> None:
     # model_instance: add provider_name, make provider_id nullable, replace unique constraint
     op.add_column(
         "model_instance",
-        sa.Column("provider_name", sa.String(length=100), nullable=True, comment="模板供应商名称，当 provider_id 为空时使用"),
+        sa.Column(
+            "provider_name", sa.String(length=100), nullable=True, comment="模板供应商名称，当 provider_id 为空时使用"
+        ),
     )
     op.drop_constraint("uq_model_instance_user_provider_model", "model_instance", type_="unique")
     op.alter_column(

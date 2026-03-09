@@ -97,14 +97,12 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
     # 获取默认模型
     default_instance = await model_service.repo.get_default()
     if default_instance:
-        provider_name = (
-            default_instance.provider.name if default_instance.provider else default_instance.provider_name
-        )
+        provider_name = default_instance.provider.name if default_instance.provider else default_instance.provider_name
         model_name = default_instance.model_name
         model_type = ModelType.CHAT  # 简化处理，假设是 Chat 模型
 
         credentials = await credential_service.get_current_credentials(
-            provider_name=provider_name,
+            provider_name=str(provider_name),
             model_type=model_type,
             model_name=model_name,
         )
@@ -125,17 +123,17 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
                 else:
                     provider_instances = [i for i in instances if i.provider_name == provider_name]
                 if provider_instances:
-                        model_name = provider_instances[0].model_name
-                        model_type = ModelType.CHAT
-                        credentials = await credential_service.get_current_credentials(
-                            provider_name=provider_name,
-                            model_type=model_type,
-                            model_name=model_name,
-                        )
-                        if credentials:
-                            api_key = credentials.get("api_key")
-                            base_url = credentials.get("base_url")
-                            break
+                    model_name = provider_instances[0].model_name
+                    model_type = ModelType.CHAT
+                    credentials = await credential_service.get_current_credentials(
+                        provider_name=provider_name,
+                        model_type=model_type,
+                        model_name=model_name,
+                    )
+                    if credentials:
+                        api_key = credentials.get("api_key")
+                        base_url = credentials.get("base_url")
+                        break
 
     return await get_agent(
         checkpointer=get_checkpointer(),

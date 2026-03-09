@@ -143,7 +143,7 @@ class CustomProvider(BaseProvider):
 
             if protocol == self.PROTOCOL_OPENAI:
                 model_name = validate_model or _VALIDATE_MODEL_OPENAI
-                model = ChatOpenAI(
+                model: BaseChatModel = ChatOpenAI(
                     model=model_name,
                     api_key=api_key,
                     base_url=base_url or None,

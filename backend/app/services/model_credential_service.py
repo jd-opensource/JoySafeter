@@ -254,7 +254,9 @@ class ModelCredentialService(BaseService):
         try:
             repo = ModelInstanceRepository(self.db)
             default_instance = await repo.get_default()
-            effective_name = (default_instance.provider.name if default_instance.provider else default_instance.provider_name)
+            effective_name = (
+                default_instance.provider.name if default_instance.provider else default_instance.provider_name
+            ) if default_instance else None
             if default_instance and effective_name == provider_name:
                 await self._update_default_model_cache(
                     provider_name=provider_name,
@@ -300,10 +302,11 @@ class ModelCredentialService(BaseService):
         if not provider_name_to_validate:
             is_valid, error = False, "无法解析供应商"
         else:
-            is_valid, error = await validate_provider_credentials(
+            is_valid, error_to_store = await validate_provider_credentials(
                 provider_name_to_validate,
                 decrypted_credentials,
             )
+            error = error_to_store
 
         # 更新验证状态
         credential.is_valid = is_valid
@@ -375,14 +378,16 @@ class ModelCredentialService(BaseService):
                 pdisplay = p.display_name if p else c.provider_name
             else:
                 pdisplay = ""
-            out.append({
-                "id": str(c.id),
-                "provider_name": pname,
-                "provider_display_name": pdisplay,
-                "is_valid": c.is_valid,
-                "last_validated_at": c.last_validated_at,
-                "validation_error": c.validation_error,
-            })
+            out.append(
+                {
+                    "id": str(c.id),
+                    "provider_name": pname,
+                    "provider_display_name": pdisplay,
+                    "is_valid": c.is_valid,
+                    "last_validated_at": c.last_validated_at,
+                    "validation_error": c.validation_error,
+                }
+            )
         return out
 
     async def delete_credential(self, credential_id: uuid.UUID) -> None:
@@ -435,12 +440,14 @@ class ModelCredentialService(BaseService):
             # 再查一次全局的，以防用户级不存在
             if user_id:
                 credential = await self.repo.get_by_provider(provider.id, user_id=None)
-        
+
         if not credential or not credential.is_valid:
             return None
         return decrypt_credentials(credential.credentials)
 
-    async def get_decrypted_credentials(self, provider_name: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def get_decrypted_credentials(
+        self, provider_name: str, user_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         获取解密后的凭据（全局）。先按模板名查，再按 DB 供应商查。
         """

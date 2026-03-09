@@ -46,7 +46,7 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
     ) -> ModelCredential | None:
         """根据供应商 ID 获取凭据（支持用户级或全局）"""
         if user_id:
-            user_cond = (ModelCredential.user_id == user_id)
+            user_cond = ModelCredential.user_id == user_id
         else:
             user_cond = ModelCredential.user_id.is_(None)
 
@@ -67,7 +67,7 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
     ) -> ModelCredential | None:
         """根据模板供应商名称获取凭据（支持用户级或全局）"""
         if user_id:
-            user_cond = (ModelCredential.user_id == user_id)
+            user_cond = ModelCredential.user_id == user_id
         else:
             user_cond = ModelCredential.user_id.is_(None)
 

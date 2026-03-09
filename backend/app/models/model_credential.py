@@ -36,7 +36,10 @@ class ModelCredential(BaseModel):
         comment="工作空间ID，如果为None则为用户级凭据",
     )
     provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("model_provider.id", ondelete="CASCADE"), nullable=True, comment="供应商ID（用户派生时使用）"
+        UUID(as_uuid=True),
+        ForeignKey("model_provider.id", ondelete="CASCADE"),
+        nullable=True,
+        comment="供应商ID（用户派生时使用）",
     )
     provider_name: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True, comment="模板供应商名称（如 custom），当 provider_id 为空时使用"
@@ -57,7 +60,9 @@ class ModelCredential(BaseModel):
     validation_error: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="验证错误信息")
 
     # 关系（provider_id 为空时 provider 为 None）
-    provider: Mapped[Optional["ModelProvider"]] = relationship("ModelProvider", back_populates="credentials", lazy="selectin")
+    provider: Mapped[Optional["ModelProvider"]] = relationship(
+        "ModelProvider", back_populates="credentials", lazy="selectin"
+    )
     user: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")
     workspace: Mapped[Optional["Workspace"]] = relationship("Workspace", lazy="selectin")
 
