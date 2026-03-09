@@ -204,6 +204,8 @@ interface BuilderState {
   addStateField: (field: import('../types/graph').StateField) => void
   updateStateField: (name: string, field: Partial<import('../types/graph').StateField>) => void
   deleteStateField: (name: string) => void
+  fallbackNodeId: string | null
+  setFallbackNodeId: (nodeId: string | null) => void
 }
 
 export const useBuilderStore = create<BuilderState>((set, get) => {
@@ -216,6 +218,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       edges: get().edges,
       viewport: get().rfInstance?.getViewport(),
       graphStateFields: get().graphStateFields,
+      fallbackNodeId: get().fallbackNodeId,
       lastSavedStateHash: get().lastSavedStateHash,
     }),
     {
@@ -264,9 +267,14 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     activeExecutionNodeId: null,
     executionLogs: [],
     graphStateFields: [],
+    fallbackNodeId: null,
     showGraphStatePanel: false,
     highlightedStateVariable: null,
     setHighlightedStateVariable: (variableName) => set({ highlightedStateVariable: variableName }),
+    setFallbackNodeId: (nodeId) => {
+      set({ fallbackNodeId: nodeId, hasPendingChanges: true })
+      get().triggerAutoSave()
+    },
 
     toggleGraphStatePanel: (show) =>
       set((state) => ({ showGraphStatePanel: show ?? !state.showGraphStatePanel })),
@@ -292,9 +300,10 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
         const graphMeta = graphs.find((g) => g.id === graphId)
 
-        // Parse state fields from variables (including legacy context migration)
+        // Parse state fields and fallback_node_id from variables
         const variables = (graphState.variables || {}) as any
         const stateFields = migrateLegacyContextToStateFields(variables)
+        const fallbackNodeId = variables?.fallback_node_id ?? null
 
         set({
           nodes: graphState.nodes || [],
@@ -302,9 +311,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           graphName: graphMeta?.name || 'Untitled Graph',
           deployedAt: graphMeta?.isDeployed ? new Date().toISOString() : null,
           graphStateFields: stateFields,
+          fallbackNodeId: fallbackNodeId || null,
           lastSavedStateHash: computeGraphStateHash(
             graphState.nodes || [],
-            graphState.edges || []
+            graphState.edges || [],
+            stateFields,
+            fallbackNodeId
           ),
           isInitializing: false,
         })
@@ -546,7 +558,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         Object.assign(defaultConfig, configOverride)
       }
       const newNode: Node = {
-        id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        id: crypto.randomUUID(),
         type: 'custom',
         position,
         data: {
@@ -630,7 +642,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
       const newNode: Node = {
         ...nodeToDuplicate,
-        id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        id: crypto.randomUUID(),
         position: { x: newX, y: newY },
         selected: false,
       }
@@ -746,13 +758,15 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           // Process edges to ensure correct type and style based on edge_type
           const processedEdges = processEdgesForReactFlow(edges)
 
-          // Load state fields from variables (including legacy context migration)
+          // Load state fields and fallback_node_id from variables
           const loadedStateFields = migrateLegacyContextToStateFields(variables as Record<string, any> || {})
+          const fallbackNodeId = (variables as any)?.fallback_node_id ?? null
 
           set({
             nodes,
             edges: processedEdges,
             graphStateFields: loadedStateFields,
+            fallbackNodeId: fallbackNodeId || null,
             past: [],
             future: [],
             isInitializing: false

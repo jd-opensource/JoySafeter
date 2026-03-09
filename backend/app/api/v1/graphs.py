@@ -2,6 +2,7 @@
 Graph API（路径 /api/v1/graphs）
 """
 
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -20,10 +21,11 @@ from app.core.copilot import (
     CopilotResponse,
 )
 from app.core.database import get_db
+from app.core.graph.state_variable_tracker import StateVariableTracker
 from app.core.redis import RedisClient
 from app.core.settings import settings
 from app.models.auth import AuthUser as User
-from app.models.graph import AgentGraph, GraphNode
+from app.models.graph import AgentGraph, GraphEdge, GraphNode
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceRepository
 from app.services.copilot_service import CopilotService
@@ -59,6 +61,13 @@ class CreateGraphRequest(BaseModel):
     folderId: Optional[uuid.UUID] = Field(default=None, description="文件夹ID")
     parentId: Optional[uuid.UUID] = Field(default=None, description="父图ID")
     variables: Optional[Dict[str, Any]] = Field(default_factory=dict, description="变量")
+
+
+class ValidateVariablesBody(BaseModel):
+    """变量校验请求体"""
+
+    node_id: str = Field(..., description="节点 ID")
+    expression: str = Field(default="", description="表达式")
 
 
 class UpdateGraphRequest(BaseModel):
@@ -169,7 +178,10 @@ async def list_graphs(
             min_role=WorkspaceMemberRole.viewer,
         )
         # 返回工作空间中的所有 graphs（不限制用户）
-        query = select(AgentGraph).where(AgentGraph.workspace_id == workspace_id)
+        query = select(AgentGraph).where(
+            AgentGraph.workspace_id == workspace_id,
+            AgentGraph.deleted_at.is_(None),
+        )
         if parent_id is not None:
             query = query.where(AgentGraph.parent_id == parent_id)
         query = query.order_by(AgentGraph.updated_at.desc(), AgentGraph.id.desc())
@@ -232,7 +244,7 @@ async def list_deployed_graphs(
     user_workspaces = await workspace_repo.list_for_user(current_user.id)
     accessible_workspace_ids = [ws.id for ws in user_workspaces]
 
-    conditions = [AgentGraph.is_deployed]
+    conditions = [AgentGraph.is_deployed, AgentGraph.deleted_at.is_(None)]
 
     user_owned_condition = AgentGraph.user_id == str(current_user.id)
 
@@ -441,7 +453,7 @@ async def delete_graph(
         if graph.user_id != current_user.id:
             raise ForbiddenException("Only graph owner can delete personal graph")
 
-    await service.graph_repo.delete(graph_id)
+    await service.graph_repo.soft_delete(graph_id)
     await db.commit()
     return {"success": True}
 
@@ -528,6 +540,146 @@ async def save_graph_state_put(
 ):
     """PUT 方式保存图状态（别名）"""
     return await save_graph_state(request, graph_id, payload, db, current_user)
+
+
+# ==================== Compile (pre-build + cache warm) ====================
+
+@router.post("/{graph_id}/compile")
+async def compile_graph(
+    request: Request,
+    graph_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """编译图并预热缓存；返回编译耗时。执行时若缓存未过期将直接使用。"""
+    service = GraphService(db)
+    graph = await service.graph_repo.get(graph_id)
+    if not graph:
+        raise NotFoundException("Graph not found")
+    await service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
+    start = time.time()
+    try:
+        await service.create_graph_by_graph_id(
+            graph_id=graph_id,
+            user_id=current_user.id,
+            current_user=current_user,
+        )
+        build_time_ms = (time.time() - start) * 1000
+        return {"ok": True, "build_time_ms": round(build_time_ms, 2)}
+    except Exception as e:
+        log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
+        log.error(f"graph.compile failed: {e}")
+        raise
+
+
+# ==================== Graph Variables (v1, same auth as graphs) ====================
+
+@router.get("/{graph_id}/variables")
+async def get_graph_variables(
+    graph_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """获取图中所有变量的信息。路径统一在 /api/v1/graphs 下，与 graphs 权限一致。"""
+    service = GraphService(db)
+    graph = await service.graph_repo.get(graph_id)
+    if not graph:
+        raise NotFoundException("Graph not found")
+    await service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
+    nodes_result = await db.execute(
+        select(GraphNode).where(GraphNode.graph_id == graph_id).order_by(GraphNode.position_x)
+    )
+    nodes = nodes_result.scalars().all()
+    edges_result = await db.execute(select(GraphEdge).where(GraphEdge.graph_id == graph_id))
+    edges = edges_result.scalars().all()
+    tracker = StateVariableTracker(list(nodes), list(edges))
+    variables_info = tracker.analyze_graph()
+    variables_list = []
+    for var_name, var_info in variables_info.items():
+        variables_list.append({
+            "name": var_name,
+            "path": var_info.definitions[0].path if var_info.definitions else (
+                var_info.usages[0].path if var_info.usages else f"context.{var_name}"
+            ),
+            "source": var_info.definitions[0].source_node_label if var_info.definitions else "Unknown",
+            "source_node_id": var_info.definitions[0].source_node_id if var_info.definitions else None,
+            "scope": var_info.scope,
+            "description": var_info.definitions[0].description if var_info.definitions else None,
+            "value_type": var_info.definitions[0].value_type if var_info.definitions else None,
+            "is_defined": var_info.is_defined,
+            "is_used": var_info.is_used,
+            "usages": [
+                {"node_id": u.used_in_node_id, "node_label": u.used_in_node_label, "usage_type": u.usage_type}
+                for u in var_info.usages
+            ],
+        })
+    return {"variables": variables_list}
+
+
+@router.get("/{graph_id}/nodes/{node_id}/available-variables")
+async def get_node_available_variables(
+    graph_id: uuid.UUID,
+    node_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """获取节点可用的变量列表。"""
+    service = GraphService(db)
+    graph = await service.graph_repo.get(graph_id)
+    if not graph:
+        raise NotFoundException("Graph not found")
+    await service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
+    nodes_result = await db.execute(
+        select(GraphNode).where(GraphNode.graph_id == graph_id).order_by(GraphNode.position_x)
+    )
+    nodes = nodes_result.scalars().all()
+    edges_result = await db.execute(select(GraphEdge).where(GraphEdge.graph_id == graph_id))
+    edges = edges_result.scalars().all()
+    target_node = next((n for n in nodes if n.id == node_id), None)
+    if not target_node:
+        raise NotFoundException("Node not found")
+    tracker = StateVariableTracker(list(nodes), list(edges))
+    available_vars = tracker.get_available_variables_for_node(str(node_id))
+    return {"variables": available_vars}
+
+
+@router.post("/{graph_id}/validate-variables")
+async def validate_variables(
+    graph_id: uuid.UUID,
+    body: ValidateVariablesBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """验证表达式中使用的变量。Body: { node_id, expression }"""
+    service = GraphService(db)
+    graph = await service.graph_repo.get(graph_id)
+    if not graph:
+        raise NotFoundException("Graph not found")
+    await service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
+    node_id = body.node_id
+    expression = body.expression
+    if not node_id:
+        raise HTTPException(status_code=400, detail="node_id is required")
+    nodes_result = await db.execute(
+        select(GraphNode).where(GraphNode.graph_id == graph_id).order_by(GraphNode.position_x)
+    )
+    nodes = nodes_result.scalars().all()
+    edges_result = await db.execute(select(GraphEdge).where(GraphEdge.graph_id == graph_id))
+    edges = edges_result.scalars().all()
+    tracker = StateVariableTracker(list(nodes), list(edges))
+    errors = tracker.validate_variable_usage(str(node_id), expression)
+    used_vars = tracker._extract_variables_from_expression(expression)
+    available_vars = tracker.get_available_variables_for_node(str(node_id))
+    available_var_names = {v["name"] for v in available_vars}
+    variables_info = [
+        {
+            "name": var_name,
+            "path": var_path,
+            "available": var_name in available_var_names or any(v["path"] == var_path for v in available_vars),
+        }
+        for var_name, var_path in used_vars.items()
+    ]
+    return {"valid": len(errors) == 0, "errors": errors, "variables": variables_info}
 
 
 # ==================== Copilot Endpoints ====================

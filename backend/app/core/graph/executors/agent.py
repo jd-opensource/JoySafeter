@@ -103,9 +103,7 @@ class AgentNodeExecutor(BaseLLMNodeExecutor):
         self._agent_lock = asyncio.Lock()
 
     def _get_system_prompt(self) -> str:
-        """Extract system prompt from node configuration."""
-        if self.node.prompt:
-            return self.node.prompt
+        """Extract system prompt from node configuration (data.config only)."""
         data = self.node.data or {}
         config = data.get("config", {})
         system_prompt = config.get("systemPrompt", "")

@@ -15,7 +15,11 @@ except ImportError:
     COMMAND_AVAILABLE = False
     Command = None  # type: ignore[assignment,misc]
 
-from app.core.graph.expression_evaluator import StateWrapper, validate_condition_expression
+from app.core.graph.expression_evaluator import (
+    StateWrapper,
+    safe_eval_expression,
+    validate_condition_expression,
+)
 from app.core.graph.graph_state import GraphState
 from app.core.graph.route_types import RouteKey
 from app.models.graph import GraphNode
@@ -128,8 +132,8 @@ class ConditionNodeExecutor:
                     f"node_id={self.node_id} | error={attr_e}"
                 )
 
-            # Evaluate the expression
-            result = eval(self.expression, {"__builtins__": {}}, eval_context)
+            # Evaluate the expression via AST interpreter (no eval)
+            result = safe_eval_expression(self.expression, eval_context)
             bool_result = bool(result)
 
             # Print expression and result for debugging
@@ -284,7 +288,7 @@ class RouterNodeExecutor:
                 continue
 
             try:
-                result = eval(condition, {"__builtins__": {}}, eval_context)
+                result = safe_eval_expression(condition, eval_context)
                 if bool(result):
                     selected_route_key = target_edge_key
                     logger.info(
@@ -412,7 +416,7 @@ class LoopConditionNodeExecutor:
                         "loop_count": iteration_count,  # Use local count
                         "loop_item": state.get("context", {}).get("loop_item"),
                     }
-                    result = eval(self.condition, {"__builtins__": {}}, eval_context)
+                    result = safe_eval_expression(self.condition, eval_context)
                     should_continue = bool(result)
 
             else:

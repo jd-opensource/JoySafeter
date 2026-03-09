@@ -426,7 +426,7 @@ export const RouteListField: React.FC<RouteListFieldProps> = ({
 
   const handleAddRule = () => {
     const newRule: RouteRule = {
-      id: `route_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      id: crypto.randomUUID(),
       condition: '',
       targetEdgeKey: '',
       label: `Route ${rules.length + 1}`,

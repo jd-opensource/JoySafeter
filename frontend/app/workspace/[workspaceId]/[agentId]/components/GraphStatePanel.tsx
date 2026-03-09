@@ -84,7 +84,10 @@ export const GraphStatePanel: React.FC = () => {
 
     const showGraphStatePanel = useBuilderStore((state) => state.showGraphStatePanel)
     const toggleGraphStatePanel = useBuilderStore((state) => state.toggleGraphStatePanel)
+    const nodes = useBuilderStore((state) => state.nodes)
     const graphStateFields = useBuilderStore((state) => state.graphStateFields)
+    const fallbackNodeId = useBuilderStore((state) => state.fallbackNodeId)
+    const setFallbackNodeId = useBuilderStore((state) => state.setFallbackNodeId)
     const addStateField = useBuilderStore((state) => state.addStateField)
     const updateStateField = useBuilderStore((state) => state.updateStateField)
     const deleteStateField = useBuilderStore((state) => state.deleteStateField)
@@ -265,6 +268,31 @@ export const GraphStatePanel: React.FC = () => {
 
                         {/* ═══ Tab 1: State Fields ═══ */}
                         <TabsContent value="global" className="flex-1 overflow-y-auto p-4 space-y-4 m-0 border-0 focus-visible:outline-none focus-visible:ring-0">
+                            {/* Fallback node (global error handler) */}
+                            <div className="space-y-1.5">
+                                <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                                    Global error handler (fallback node)
+                                </Label>
+                                <Select
+                                    value={fallbackNodeId || '__none__'}
+                                    onValueChange={(v) => setFallbackNodeId(v === '__none__' ? null : v)}
+                                    disabled={!userPermissions.canEdit}
+                                >
+                                    <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue placeholder="None" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="__none__" className="text-xs">None</SelectItem>
+                                        {nodes.map((n) => (
+                                            <SelectItem key={n.id} value={n.id} className="text-xs">
+                                                {(n.data as { label?: string })?.label || n.id.slice(0, 8)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-[9px] text-gray-400">On node error, execution jumps to this node when set.</p>
+                            </div>
+
                             {/* Info Banner */}
                             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
                                 <div className="flex items-start gap-2">

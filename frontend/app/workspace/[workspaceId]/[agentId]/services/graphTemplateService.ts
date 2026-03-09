@@ -70,12 +70,10 @@ class GraphTemplateService {
     // 1. Load template
     const template = await this.loadTemplate(templateName)
 
-    // 2. Regenerate node IDs and create mapping
+    // 2. Regenerate node IDs and create mapping (UUID for backend consistency)
     const nodeIdMap = new Map<string, string>()
-    const timestamp = Date.now()
-    const newNodes = template.nodes.map((node, index) => {
-      // Use index to ensure uniqueness even if called in quick succession
-      const newId = `node_${timestamp}_${index}_${Math.random().toString(36).slice(2, 7)}`
+    const newNodes = template.nodes.map((node) => {
+      const newId = crypto.randomUUID()
       nodeIdMap.set(node.id, newId)
       return {
         ...node,
@@ -84,12 +82,11 @@ class GraphTemplateService {
     })
 
     // 3. Update edges with new source and target IDs
-    const newEdges = template.edges.map((edge, index) => ({
+    const newEdges = template.edges.map((edge) => ({
       ...edge,
+      id: edge.id ? crypto.randomUUID() : undefined,
       source: nodeIdMap.get(edge.source) || edge.source,
       target: nodeIdMap.get(edge.target) || edge.target,
-      // Regenerate edge ID as well
-      id: `edge_${timestamp}_${index}_${Math.random().toString(36).slice(2, 7)}`,
     }))
 
     // 4. Create graph metadata

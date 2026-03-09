@@ -158,6 +158,173 @@ def validate_condition_expression(expr: str) -> bool:
         return False
 
 
+# Safe builtins for expression evaluation (no eval() - AST interpreter only uses these for Call nodes)
+SAFE_BUILTINS: Dict[str, Any] = {
+    "len": len,
+    "str": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "abs": abs,
+    "min": min,
+    "max": max,
+    "sum": sum,
+    "any": any,
+    "all": all,
+    "sorted": sorted,
+    "list": list,
+    "dict": dict,
+    "set": set,
+    "tuple": tuple,
+    "enumerate": enumerate,
+    "range": range,
+    "reversed": reversed,
+}
+
+
+def safe_eval_expression(expr: str, context: Dict[str, Any]) -> Any:
+    """
+    Evaluate a condition expression using AST interpretation (no eval/exec).
+
+    Only expressions that pass validate_condition_expression() should be passed.
+    Interprets the AST with a whitelist of operations and safe builtins.
+    """
+    if not expr or not expr.strip():
+        return False
+
+    if not validate_condition_expression(expr):
+        raise ValueError(f"Expression failed safety validation: {expr[:80]}")
+
+    try:
+        tree = ast.parse(expr, mode="eval")
+        eval_context = {**SAFE_BUILTINS, **context}
+        return _eval_ast_node(tree.body, eval_context)
+    except SyntaxError as e:
+        logger.warning(f"[SafeEval] Syntax error in expression '{expr}': {e}")
+        return False
+    except Exception as e:
+        logger.warning(f"[SafeEval] Error evaluating expression '{expr}': {e}")
+        return False
+
+
+def _eval_ast_node(node: ast.AST, context: Dict[str, Any]) -> Any:
+    """Interpret a single AST node with the given context."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return context.get(node.id)
+    if isinstance(node, ast.Attribute):
+        value = _eval_ast_node(node.value, context)
+        if value is None:
+            return None
+        return getattr(value, node.attr, None)
+    if isinstance(node, ast.Subscript):
+        value = _eval_ast_node(node.value, context)
+        if value is None:
+            return None
+        slice_val = getattr(node.slice, "value", node.slice)
+        idx = _eval_ast_node(slice_val, context)
+        try:
+            return value[idx]  # type: ignore[index]
+        except (KeyError, IndexError, TypeError):
+            return None
+    if isinstance(node, ast.UnaryOp):
+        if isinstance(node.op, ast.Not):
+            return not _eval_ast_node(node.operand, context)
+        if isinstance(node.op, ast.USub):
+            val = _eval_ast_node(node.operand, context)
+            return -val if val is not None else None
+        if isinstance(node.op, ast.UAdd):
+            return _eval_ast_node(node.operand, context)
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            return all(_eval_ast_node(v, context) for v in node.values)
+        if isinstance(node.op, ast.Or):
+            return any(_eval_ast_node(v, context) for v in node.values)
+    if isinstance(node, ast.Compare):
+        left = _eval_ast_node(node.left, context)
+        for op, comparator in zip(node.ops, node.comparators):
+            right = _eval_ast_node(comparator, context)
+            if isinstance(op, ast.Eq):
+                if not (left == right):
+                    return False
+            elif isinstance(op, ast.NotEq):
+                if not (left != right):
+                    return False
+            elif isinstance(op, ast.Lt):
+                if not (left < right):
+                    return False
+            elif isinstance(op, ast.LtE):
+                if not (left <= right):
+                    return False
+            elif isinstance(op, ast.Gt):
+                if not (left > right):
+                    return False
+            elif isinstance(op, ast.GtE):
+                if not (left >= right):
+                    return False
+            elif isinstance(op, ast.In):
+                if not (left in right):
+                    return False
+            elif isinstance(op, ast.NotIn):
+                if not (left not in right):
+                    return False
+            else:
+                return False
+            left = right
+        return True
+    if isinstance(node, ast.BinOp):
+        left = _eval_ast_node(node.left, context)
+        right = _eval_ast_node(node.right, context)
+        if left is None or right is None:
+            return None
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        if isinstance(node.op, ast.Div):
+            return left / right if right != 0 else None
+        if isinstance(node.op, ast.FloorDiv):
+            return left // right if right != 0 else None
+        if isinstance(node.op, ast.Mod):
+            return left % right if right != 0 else None
+        if isinstance(node.op, ast.Pow):
+            return left ** right
+        if isinstance(node.op, ast.And):
+            return left and right
+        if isinstance(node.op, ast.Or):
+            return left or right
+        if isinstance(node.op, ast.BitOr):
+            return left | right
+        if isinstance(node.op, ast.BitAnd):
+            return left & right
+        raise ValueError(f"Unsupported binop: {type(node.op).__name__}")
+    if isinstance(node, ast.Call):
+        func = _eval_ast_node(node.func, context)
+        if func is None:
+            return None
+        args = [_eval_ast_node(a, context) for a in node.args]
+        kwargs = {}
+        for kw in node.keywords:
+            kwargs[kw.arg] = _eval_ast_node(kw.value, context) if kw.arg else None
+        if callable(func):
+            return func(*args, **kwargs)
+        return None
+    if isinstance(node, (ast.List, ast.Tuple)):
+        elts = [_eval_ast_node(e, context) for e in node.elts]
+        return tuple(elts) if isinstance(node, ast.Tuple) else elts
+    if isinstance(node, ast.Dict):
+        return {
+            _eval_ast_node(k, context): _eval_ast_node(v, context)
+            for k, v in zip(node.keys, node.values)
+            if k is not None
+        }
+    logger.warning(f"[SafeEval] Unsupported node type: {type(node).__name__}")
+    return None
+
+
 class StateWrapper:
     """Wrapper that allows both dot notation and dict access to state.
 

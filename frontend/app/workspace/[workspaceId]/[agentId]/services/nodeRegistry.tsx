@@ -308,8 +308,21 @@ const REGISTRY: NodeDefinition[] = [
     style: { color: 'text-indigo-500', bg: 'bg-indigo-50' },
     stateReads: ['messages'],
     stateWrites: ['messages', 'current_node'],
-    defaultConfig: {},
-    schema: [],
+    defaultConfig: { interrupt_before: true, interrupt_after: false },
+    schema: [
+      {
+        key: 'interrupt_before',
+        label: 'Pause before execution (Human-in-the-Loop)',
+        type: 'boolean',
+        description: 'Pause workflow before this node runs so user can provide input.',
+      },
+      {
+        key: 'interrupt_after',
+        label: 'Pause after execution',
+        type: 'boolean',
+        description: 'Pause workflow after this node runs.',
+      },
+    ],
   },
   // ==================== New Node Types ====================
   {
@@ -323,14 +336,14 @@ const REGISTRY: NodeDefinition[] = [
     defaultConfig: {
       routes: [
         {
-          id: `route_${Date.now()}_1`,
+          id: crypto.randomUUID(),
           condition: "state.get('value', 0) > 10",
           targetEdgeKey: 'high',
           label: 'High Score',
           priority: 0,
         },
         {
-          id: `route_${Date.now()}_2`,
+          id: crypto.randomUUID(),
           condition: "state.get('value', 0) > 5",
           targetEdgeKey: 'medium',
           label: 'Medium Score',

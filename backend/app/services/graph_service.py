@@ -2,6 +2,7 @@
 Graph 相关 Service
 """
 
+import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -11,14 +12,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.graph.graph_builder_factory import GraphBuilder
+from app.core.graph.node_secrets import (
+    hydrate_nodes_a2a_secrets,
+    prepare_node_data_for_save,
+    store_a2a_auth_headers,
+)
 from app.models.auth import AuthUser
-from app.models.graph import AgentGraph, GraphEdge, GraphNode
+from app.models.graph import AgentGraph, GraphEdge, GraphNode, GraphNodeSecret
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.graph import GraphEdgeRepository, GraphNodeRepository, GraphRepository
 
 from .base import BaseService
 from .model_service import ModelService
 from .workspace_permission import check_workspace_access
+
+# In-memory compile cache: (graph_id, updated_at_iso) -> (compiled_graph, cached_at_ts). TTL 300s.
+_compile_cache: Dict[Tuple[str, str], Tuple[Any, float]] = {}
+_COMPILE_CACHE_TTL = 300.0
+
+
+def _invalidate_compile_cache(graph_id: uuid.UUID) -> None:
+    """Remove any cache entry for this graph (call after save)."""
+    to_drop = [k for k in _compile_cache if k[0] == str(graph_id)]
+    for k in to_drop:
+        _compile_cache.pop(k, None)
 
 
 class GraphService(BaseService):
@@ -332,8 +349,19 @@ class GraphService(BaseService):
             position = node_data.get("position", {})
             position_absolute = node_data.get("positionAbsolute", position)
             data_payload = node_data.get("data", {}) or {}
-            config = data_payload.get("config", {}) if isinstance(data_payload, dict) else {}
-            node_type = data_payload.get("type") or node_data.get("type") or "agent"
+            data_for_save, headers_to_store = prepare_node_data_for_save(data_payload)
+            if headers_to_store:
+                try:
+                    secret_id = await store_a2a_auth_headers(
+                        self.db, graph_id, new_db_node_id, headers_to_store
+                    )
+                    if "config" not in data_for_save:
+                        data_for_save["config"] = {}
+                    data_for_save["config"]["a2a_auth_headers"] = {"__secretRef": str(secret_id)}
+                except Exception as e:
+                    logger.warning(f"[GraphService] Failed to store a2a_auth_headers for node {new_db_node_id}: {e}")
+            config = data_for_save.get("config", {}) if isinstance(data_for_save, dict) else {}
+            node_type = data_for_save.get("type") or node_data.get("type") or "agent"
 
             node_create_data = {
                 "graph_id": graph_id,
@@ -345,18 +373,8 @@ class GraphService(BaseService):
                 "position_absolute_y": float(position_absolute.get("y", position.get("y", 0))),
                 "width": float(node_data.get("width", 0)),
                 "height": float(node_data.get("height", 0)),
-                "prompt": "",
-                "tools": (config.get("tools") if isinstance(config, dict) else None)
-                or data_payload.get("tools", {})
-                or {},
-                "memory": data_payload.get("memory", {}) if isinstance(data_payload, dict) else {},
-                "data": data_payload,
+                "data": data_for_save,
             }
-
-            if "systemPrompt" in config:
-                node_create_data["prompt"] = config["systemPrompt"]
-            elif "prompt" in config:
-                node_create_data["prompt"] = config["prompt"]
 
             await self.node_repo.create(node_create_data)
 
@@ -365,8 +383,24 @@ class GraphService(BaseService):
             position = node_data.get("position", {})
             position_absolute = node_data.get("positionAbsolute", position)
             data_payload = node_data.get("data", {}) or {}
-            config = data_payload.get("config", {}) if isinstance(data_payload, dict) else {}
-            node_type = data_payload.get("type") or node_data.get("type") or "agent"
+            data_for_save, headers_to_store = prepare_node_data_for_save(data_payload)
+            if headers_to_store:
+                try:
+                    from sqlalchemy import delete
+
+                    await self.db.execute(delete(GraphNodeSecret).where(
+                        GraphNodeSecret.graph_id == graph_id,
+                        GraphNodeSecret.node_id == db_node_id,
+                        GraphNodeSecret.key_slug == "a2a_auth_headers",
+                    ))
+                    secret_id = await store_a2a_auth_headers(self.db, graph_id, db_node_id, headers_to_store)
+                    if "config" not in data_for_save:
+                        data_for_save["config"] = {}
+                    data_for_save["config"]["a2a_auth_headers"] = {"__secretRef": str(secret_id)}
+                except Exception as e:
+                    logger.warning(f"[GraphService] Failed to store a2a_auth_headers for node {db_node_id}: {e}")
+            config = data_for_save.get("config", {}) if isinstance(data_for_save, dict) else {}
+            node_type = data_for_save.get("type") or node_data.get("type") or "agent"
 
             update_data = {
                 "type": node_type,
@@ -376,17 +410,8 @@ class GraphService(BaseService):
                 "position_absolute_y": float(position_absolute.get("y", position.get("y", 0))),
                 "width": float(node_data.get("width", 0)),
                 "height": float(node_data.get("height", 0)),
-                "tools": (config.get("tools") if isinstance(config, dict) else None)
-                or data_payload.get("tools", {})
-                or {},
-                "memory": data_payload.get("memory", {}) if isinstance(data_payload, dict) else {},
-                "data": data_payload,
+                "data": data_for_save,
             }
-
-            if "systemPrompt" in config:
-                update_data["prompt"] = config["systemPrompt"]
-            elif "prompt" in config:
-                update_data["prompt"] = config["prompt"]
 
             await self.node_repo.update(db_node_id, update_data)
 
@@ -456,6 +481,8 @@ class GraphService(BaseService):
 
         if update_data:
             await self.graph_repo.update(graph_id, update_data)
+
+        _invalidate_compile_cache(graph_id)
 
         return {
             "graph_id": str(graph_id),
@@ -540,26 +567,11 @@ class GraphService(BaseService):
             node_data_dict = frontend_node["data"] if isinstance(frontend_node["data"], dict) else {}
             if "config" not in node_data_dict:
                 node_data_dict["config"] = {}
+            # 脱敏：若仍为明文 a2a_auth_headers，不返回给前端
+            a2a_headers = node_data_dict.get("config", {}).get("a2a_auth_headers")
+            if isinstance(a2a_headers, dict) and "__secretRef" not in a2a_headers and a2a_headers:
+                node_data_dict.setdefault("config", {})["a2a_auth_headers"] = {"__redacted": True}
             frontend_node["data"] = node_data_dict
-
-            # 优先使用 node.data.config 中已有的值，如果没有则从 node.prompt/node.tools 恢复
-            # 这是为了确保从部署版本回滚时，能保留完整的配置信息
-            config = node_data_dict.get("config", {})
-            if isinstance(config, dict):
-                # systemPrompt: 优先使用 config 中的值
-                if "systemPrompt" not in config or not config.get("systemPrompt"):
-                    if node.prompt:
-                        config["systemPrompt"] = node.prompt
-
-                # tools: 优先使用 config 中的值
-                if "tools" not in config or not config.get("tools"):
-                    if node.tools:
-                        config["tools"] = node.tools
-
-            # memory: 优先使用 data.config 中的值
-            if "memory" not in node_data_dict or not node_data_dict.get("memory"):
-                if node.memory:
-                    node_data_dict["memory"] = node.memory
 
             frontend_nodes.append(frontend_node)
 
@@ -794,10 +806,21 @@ class GraphService(BaseService):
             await self._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
             logger.debug("[GraphService] Access permission check passed")
 
+        # Check in-memory compile cache (keyed by graph_id + updated_at)
+        cache_key = (str(graph_id), graph.updated_at.isoformat() if graph.updated_at else "")
+        now_ts = time.time()
+        if cache_key in _compile_cache:
+            cached_graph, cached_at = _compile_cache[cache_key]
+            if (now_ts - cached_at) < _COMPILE_CACHE_TTL:
+                logger.info(f"[GraphService] Using cached compiled graph | graph_id={graph_id}")
+                return cached_graph
+            _compile_cache.pop(cache_key, None)
+
         # Load nodes and edges
         logger.debug(f"[GraphService] Loading nodes and edges for graph_id={graph_id}")
         nodes = await self.node_repo.list_by_graph(graph_id)
         edges = await self.edge_repo.list_by_graph(graph_id)
+        await hydrate_nodes_a2a_secrets(self.db, nodes)
 
         logger.info(f"[GraphService] Loaded graph data | nodes_count={len(nodes)} | edges_count={len(edges)}")
 
@@ -805,7 +828,7 @@ class GraphService(BaseService):
         for idx, node in enumerate(nodes):
             logger.debug(
                 f"[GraphService] Node [{idx + 1}/{len(nodes)}] | "
-                f"id={node.id} | type={node.type} | has_prompt={bool(node.prompt)}"
+                f"id={node.id} | type={node.type}"
             )
 
         # Build the graph
@@ -834,4 +857,5 @@ class GraphService(BaseService):
             f"nodes={len(nodes)} | edges={len(edges)} | elapsed={elapsed_ms:.2f}ms"
         )
 
+        _compile_cache[cache_key] = (compiled_graph, time.time())
         return compiled_graph

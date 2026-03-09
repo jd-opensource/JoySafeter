@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import BaseModel
+from .base import BaseModel, SoftDeleteMixin
 
 if TYPE_CHECKING:
     from .auth import AuthUser
@@ -31,8 +31,8 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
-class AgentGraph(BaseModel):
-    """Agent 图模型"""
+class AgentGraph(BaseModel, SoftDeleteMixin):
+    """Agent 图模型（支持软删除）"""
 
     __tablename__ = "graphs"
 
@@ -121,9 +121,6 @@ class GraphNode(BaseModel):
         ForeignKey("graphs.id", ondelete="CASCADE"),
         nullable=False,
     )
-    tools: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    memory: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    prompt: Mapped[str] = mapped_column(Text, nullable=False)
     position_x: Mapped[float] = mapped_column(Numeric, nullable=False)
     position_y: Mapped[float] = mapped_column(Numeric, nullable=False)
     position_absolute_x: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
@@ -207,4 +204,27 @@ class GraphEdge(BaseModel):
         Index("graph_edges_target_node_id_idx", "target_node_id"),
         Index("graph_edges_graph_source_idx", "graph_id", "source_node_id"),
         Index("graph_edges_graph_target_idx", "graph_id", "target_node_id"),
+    )
+
+
+class GraphNodeSecret(BaseModel):
+    """Encrypted secrets for graph nodes (e.g. a2a_auth_headers). Not stored in node.data JSONB."""
+
+    __tablename__ = "graph_node_secrets"
+
+    graph_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("graphs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("graph_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    key_slug: Mapped[str] = mapped_column(String(64), nullable=False, default="a2a_auth_headers")
+    encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index("graph_node_secrets_graph_node_idx", "graph_id", "node_id"),
     )

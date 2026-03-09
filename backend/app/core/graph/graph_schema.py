@@ -289,9 +289,6 @@ class GraphSchema(BaseModel):
                     reads=config.get("reads", ["*"]),
                     writes=config.get("writes", ["*"]),
                     metadata={
-                        "prompt": n.prompt,
-                        "tools": n.tools,
-                        "memory": n.memory,
                         "width": float(n.width) if n.width else None,
                         "height": float(n.height) if n.height else None,
                     },
@@ -333,7 +330,7 @@ class GraphSchema(BaseModel):
                 )
             )
 
-        # Extract custom state fields from graph variables (if present)
+        # Extract custom state fields and fallback_node_id from graph variables
         variables = getattr(graph, "variables", {}) or {}
         state_field_defs = variables.get("state_fields", [])
         state_fields = []
@@ -341,7 +338,8 @@ class GraphSchema(BaseModel):
             try:
                 state_fields.append(StateFieldSchema(**sf))
             except Exception:
-                pass  # Skip malformed definitions
+                pass
+        fallback_node_id = variables.get("fallback_node_id") or None
 
         return cls(
             name=getattr(graph, "name", "Untitled Graph"),
@@ -350,6 +348,7 @@ class GraphSchema(BaseModel):
             use_default_state=True,
             nodes=node_schemas,
             edges=edge_schemas,
+            fallback_node_id=fallback_node_id,
             metadata={
                 "graph_id": str(graph.id) if hasattr(graph, "id") else None,
                 "color": getattr(graph, "color", None),

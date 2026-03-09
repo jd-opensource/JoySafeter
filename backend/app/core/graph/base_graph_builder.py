@@ -152,9 +152,7 @@ class BaseGraphBuilder(ABC):
         return str(node_name) if node_name is not None else ""
 
     def _get_system_prompt_from_node(self, node: GraphNode) -> Optional[str]:
-        """Extract system prompt from node configuration."""
-        if node.prompt:
-            return node.prompt
+        """Extract system prompt from node configuration (data.config only)."""
         data = node.data or {}
         config: Dict[str, Any] = data.get("config", {})
         return config.get("systemPrompt", "") or config.get("prompt", "") or None

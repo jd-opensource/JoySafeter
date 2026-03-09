@@ -13,7 +13,6 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.api import api_router
-from app.api.graph.variables import router as graph_variables_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.files import router as files_router
 from app.api.v1.memory import router as memory_router
@@ -274,10 +273,6 @@ async def global_exception_handler(request, exc):
 
 
 app.include_router(api_router, prefix="/api")
-
-# Graph Variables Router (/api/graph/{graph_id}/variables)
-app.include_router(graph_variables_router, prefix="/api", tags=["Graph Variables"])
-
 
 # Register Conversation Management Router
 app.include_router(conversations_router, prefix="/api/v1")
