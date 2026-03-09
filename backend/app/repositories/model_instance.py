@@ -26,13 +26,14 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         return result.scalar_one_or_none()
 
     async def get_by_name(self, model_name: str) -> ModelInstance | None:
-        """获取指定模型名的实例（全局）；预加载 provider 供调用方使用 template_name"""
+        """获取指定模型名的实例（全局）；若有多个同名实例，取最新的一个。"""
         result = await self.db.execute(
             select(ModelInstance)
             .where(ModelInstance.model_name == model_name)
             .options(selectinload(ModelInstance.provider))
+            .order_by(ModelInstance.created_at.desc())
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_by_provider_and_model(
         self,

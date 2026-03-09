@@ -392,16 +392,23 @@ class ModelCredentialService(BaseService):
 
     async def delete_credential(self, credential_id: uuid.UUID) -> None:
         """
-        删除凭据
-
-        Args:
-            credential_id: 凭据ID
+        删除凭据。
+        如果是自定义供应商的专用凭据（provider_type='custom' 且非模板），则连同供应商一并删除，以防残留。
         """
-        credential = await self.repo.get(credential_id)
+        credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
             raise NotFoundException("凭据不存在")
 
-        await self.repo.delete(credential_id)
+        # 如果是专用自定义供应商，删除供应商（触发级联删除）
+        if credential.provider and credential.provider.provider_type == "custom" and not credential.provider.is_template:
+            from loguru import logger
+
+            logger.info(f"正在删除专用自定义供应商及其凭据: {credential.provider.name}")
+            await self.provider_repo.delete(credential.provider.id)
+        else:
+            # 否则仅删除凭据（如内置供应商的凭据）
+            await self.repo.delete(credential_id)
+
         await self.commit()
 
     async def get_current_credentials(
