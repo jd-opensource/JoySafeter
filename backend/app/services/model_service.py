@@ -41,12 +41,7 @@ class ModelService(BaseService):
         # 为了提高效率，我们只对 instances 中出现的 provider 进行查询
         relevant_providers = set()
         for instance in all_instances:
-            if instance.provider_id:
-                provider = provider_map.get(instance.provider_id)
-                if provider:
-                    relevant_providers.add(provider.name)
-            elif instance.provider_name:
-                relevant_providers.add(instance.provider_name)
+            relevant_providers.add(instance.resolved_provider_name)
 
         for pname in relevant_providers:
             decrypted = await self.credential_service.get_decrypted_credentials(pname, user_id=user_id)
@@ -59,15 +54,15 @@ class ModelService(BaseService):
                 provider = provider_map.get(instance.provider_id)
                 if not provider:
                     continue
-                pname = provider.name
+                pname = instance.resolved_provider_name
                 pdisplay = provider.display_name
-                impl_name = provider.template_name or provider.name
+                impl_name = instance.resolved_implementation_name
                 supported_types: List[str] = provider.supported_model_types or []
             else:
                 if not instance.provider_name:
                     continue
-                pname = instance.provider_name
-                impl_name = instance.provider_name
+                pname = instance.resolved_provider_name
+                impl_name = instance.resolved_implementation_name
                 prov = self.factory.get_provider(instance.provider_name)
                 if not prov:
                     continue
@@ -113,31 +108,14 @@ class ModelService(BaseService):
         """
         创建模型实例配置（全局）。模板供应商以 Factory 为准；用户派生以 DB 为准。
         """
-        template = self.factory.get_provider(provider_name)
         provider = await self.provider_repo.get_by_name(provider_name)
-        if template and not provider:
-            provider_id_to_use = None
-            provider_name_to_use = provider_name
-            final_provider_name = provider_name
-        elif provider:
-            provider_id_to_use = provider.id
-            provider_name_to_use = None
-            final_provider_name = provider_name
-        else:
-            raise NotFoundException(f"供应商不存在: {provider_name}")
-
-        if is_default:
-            existing_default = await self.repo.get_default()
-            if existing_default:
-                existing_default.is_default = False
-                await self.db.flush()
 
         instance = await self.repo.create(
             {
                 "user_id": user_id,
                 "workspace_id": None,
-                "provider_id": provider_id_to_use,
-                "provider_name": provider_name_to_use,
+                "provider_id": provider.id if provider else None,
+                "provider_name": provider_name if not provider else None,
                 "model_name": model_name,
                 "model_parameters": model_parameters or {},
                 "is_default": is_default,
@@ -148,7 +126,7 @@ class ModelService(BaseService):
 
         if is_default:
             await self.credential_service._update_default_model_cache(
-                provider_name=final_provider_name,
+                provider_name=provider_name,
                 model_name=model_name,
                 model_type=model_type.value,
                 model_parameters=instance.model_parameters,
@@ -156,7 +134,7 @@ class ModelService(BaseService):
 
         return {
             "id": str(instance.id),
-            "provider_name": final_provider_name,
+            "provider_name": provider_name,
             "model_name": model_name,
             "model_type": model_type.value,
             "model_parameters": instance.model_parameters,
@@ -182,17 +160,17 @@ class ModelService(BaseService):
         Returns:
             更新后的模型实例配置
         """
-        template = self.factory.get_provider(provider_name)
         provider = await self.provider_repo.get_by_name(provider_name)
-        instance = None
-        if template:
-            instance = await self.repo.get_by_provider_and_model(
-                model_name=model_name, user_id=user_id, provider_name=provider_name
-            )
-        if not instance and provider:
-            instance = await self.repo.get_by_provider_and_model(
-                model_name=model_name, user_id=user_id, provider_id=provider.id
-            )
+        
+        provider_id = provider.id if provider else None
+        
+        instance = await self.repo.get_best_instance(
+            model_name=model_name,
+            provider_name=provider_name,
+            provider_id=provider_id,
+            user_id=user_id,
+        )
+
         if not instance:
             raise NotFoundException(f"供应商不存在或模型实例不存在: {provider_name}/{model_name}")
 
@@ -248,14 +226,8 @@ class ModelService(BaseService):
             if use_default:
                 default_instance = await self.repo.get_default()
                 if default_instance:
-                    provider_name = (
-                        default_instance.provider.name if default_instance.provider else default_instance.provider_name
-                    )
-                    implementation_name = (
-                        (default_instance.provider.template_name or default_instance.provider.name)
-                        if default_instance.provider
-                        else (default_instance.provider_name or "")
-                    )
+                    provider_name = default_instance.resolved_provider_name
+                    implementation_name = default_instance.resolved_implementation_name
                     model_name = default_instance.model_name
                     model_parameters = default_instance.model_parameters or {}
                 else:
@@ -353,12 +325,8 @@ class ModelService(BaseService):
                 f"模型实例不存在: {model_name}。可用的模型: {', '.join(available_model_names[:10])}"
             )
 
-        provider_name = instance.provider.name if instance.provider else (instance.provider_name or "")
-        implementation_name = (
-            (instance.provider.template_name or instance.provider.name)
-            if instance.provider
-            else (instance.provider_name or "")
-        )
+        provider_name = instance.resolved_provider_name
+        implementation_name = instance.resolved_implementation_name
         logger.debug(
             f"[ModelService.get_runtime_model_by_name] Found model instance | "
             f"model_name={instance.model_name} | provider={provider_name}"
@@ -395,12 +363,8 @@ class ModelService(BaseService):
         if not instance:
             raise NotFoundException(f"模型实例不存在: {model_name}")
 
-        provider_name = instance.provider.name if instance.provider else (instance.provider_name or "")
-        implementation_name = (
-            (instance.provider.template_name or instance.provider.name)
-            if instance.provider
-            else (instance.provider_name or "")
-        )
+        provider_name = instance.resolved_provider_name
+        implementation_name = instance.resolved_implementation_name
         model_type = ModelType.CHAT
 
         credentials = await self.credential_service.get_current_credentials(

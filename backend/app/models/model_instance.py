@@ -58,6 +58,18 @@ class ModelInstance(BaseModel):
     user: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")
     workspace: Mapped[Optional["Workspace"]] = relationship("Workspace", lazy="selectin")
 
+    @property
+    def resolved_provider_name(self) -> str:
+        """获取解析后的供应商名称（处理了模板与派生供应商的差异）"""
+        return self.provider.name if self.provider else (self.provider_name or "")
+
+    @property
+    def resolved_implementation_name(self) -> str:
+        """获取解析后的实现名称（处理了模板与派生供应商的差异）"""
+        if self.provider:
+            return self.provider.template_name or self.provider.name
+        return self.provider_name or ""
+
     __table_args__ = (
         Index("model_instance_user_id_idx", "user_id"),
         Index("model_instance_workspace_id_idx", "workspace_id"),

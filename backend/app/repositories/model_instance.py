@@ -35,75 +35,41 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         )
         return result.scalars().first()
 
-    async def get_by_provider_and_model(
+    async def get_best_instance(
         self,
         model_name: str,
-        user_id: Optional[str] = None,
+        provider_name: str,
         provider_id: Optional[uuid.UUID] = None,
-        provider_name: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> ModelInstance | None:
-        """根据供应商和模型名获取实例。支持 provider_id（用户派生）或 provider_name（模板）。"""
+        """根据供应商和模型名获取实例。优先匹配用户级，其次全局，最后匹配任意有效。"""
+        conditions = [ModelInstance.model_name == model_name]
+        
         if provider_id is not None:
-            # 按 provider_id 查
-            result = await self.db.execute(
-                select(ModelInstance).where(
-                    and_(
-                        ModelInstance.provider_id == provider_id,
-                        ModelInstance.model_name == model_name,
-                        ModelInstance.user_id.is_(None),
-                    )
-                )
-            )
-            instance = result.scalar_one_or_none()
-            if not instance and user_id:
-                result = await self.db.execute(
-                    select(ModelInstance).where(
-                        and_(
-                            ModelInstance.provider_id == provider_id,
-                            ModelInstance.model_name == model_name,
-                            ModelInstance.user_id == user_id,
-                        )
-                    )
-                )
-                instance = result.scalar_one_or_none()
-            if not instance:
-                result = await self.db.execute(
-                    select(ModelInstance).where(
-                        and_(
-                            ModelInstance.provider_id == provider_id,
-                            ModelInstance.model_name == model_name,
-                        )
-                    )
-                )
-                instance = result.scalar_one_or_none()
-            return instance
-        if provider_name is not None:
-            # 按 provider_name 查（模板）
-            result = await self.db.execute(
-                select(ModelInstance).where(
-                    and_(
-                        ModelInstance.provider_id.is_(None),
-                        ModelInstance.provider_name == provider_name,
-                        ModelInstance.model_name == model_name,
-                        ModelInstance.user_id.is_(None),
-                    )
-                )
-            )
-            instance = result.scalar_one_or_none()
-            if not instance and user_id:
-                result = await self.db.execute(
-                    select(ModelInstance).where(
-                        and_(
-                            ModelInstance.provider_id.is_(None),
-                            ModelInstance.provider_name == provider_name,
-                            ModelInstance.model_name == model_name,
-                            ModelInstance.user_id == user_id,
-                        )
-                    )
-                )
-                instance = result.scalar_one_or_none()
-            return instance
-        return None
+            conditions.append(ModelInstance.provider_id == provider_id)
+        else:
+            conditions.append(ModelInstance.provider_id.is_(None))
+            conditions.append(ModelInstance.provider_name == provider_name)
+
+        result = await self.db.execute(select(ModelInstance).where(and_(*conditions)))
+        instances = result.scalars().all()
+
+        if not instances:
+            return None
+
+        # Priority 1: match user_id
+        if user_id:
+            for inst in instances:
+                if inst.user_id == user_id:
+                    return inst
+
+        # Priority 2: user_id is None (Global)
+        for inst in instances:
+            if inst.user_id is None:
+                return inst
+
+        # Priority 3: any available
+        return instances[0]
 
     async def list_all(self) -> list[ModelInstance]:
         """获取所有模型实例（所有用户和工作空间可见）"""
