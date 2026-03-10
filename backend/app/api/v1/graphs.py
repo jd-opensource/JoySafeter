@@ -544,6 +544,7 @@ async def save_graph_state_put(
 
 # ==================== Compile (pre-build + cache warm) ====================
 
+
 @router.post("/{graph_id}/compile")
 async def compile_graph(
     request: Request,
@@ -574,6 +575,7 @@ async def compile_graph(
 
 # ==================== Graph Variables (v1, same auth as graphs) ====================
 
+
 @router.get("/{graph_id}/variables")
 async def get_graph_variables(
     graph_id: uuid.UUID,
@@ -596,23 +598,25 @@ async def get_graph_variables(
     variables_info = tracker.analyze_graph()
     variables_list = []
     for var_name, var_info in variables_info.items():
-        variables_list.append({
-            "name": var_name,
-            "path": var_info.definitions[0].path if var_info.definitions else (
-                var_info.usages[0].path if var_info.usages else f"context.{var_name}"
-            ),
-            "source": var_info.definitions[0].source_node_label if var_info.definitions else "Unknown",
-            "source_node_id": var_info.definitions[0].source_node_id if var_info.definitions else None,
-            "scope": var_info.scope,
-            "description": var_info.definitions[0].description if var_info.definitions else None,
-            "value_type": var_info.definitions[0].value_type if var_info.definitions else None,
-            "is_defined": var_info.is_defined,
-            "is_used": var_info.is_used,
-            "usages": [
-                {"node_id": u.used_in_node_id, "node_label": u.used_in_node_label, "usage_type": u.usage_type}
-                for u in var_info.usages
-            ],
-        })
+        variables_list.append(
+            {
+                "name": var_name,
+                "path": var_info.definitions[0].path
+                if var_info.definitions
+                else (var_info.usages[0].path if var_info.usages else f"context.{var_name}"),
+                "source": var_info.definitions[0].source_node_label if var_info.definitions else "Unknown",
+                "source_node_id": var_info.definitions[0].source_node_id if var_info.definitions else None,
+                "scope": var_info.scope,
+                "description": var_info.definitions[0].description if var_info.definitions else None,
+                "value_type": var_info.definitions[0].value_type if var_info.definitions else None,
+                "is_defined": var_info.is_defined,
+                "is_used": var_info.is_used,
+                "usages": [
+                    {"node_id": u.used_in_node_id, "node_label": u.used_in_node_label, "usage_type": u.usage_type}
+                    for u in var_info.usages
+                ],
+            }
+        )
     return {"variables": variables_list}
 
 

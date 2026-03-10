@@ -264,7 +264,7 @@ def _eval_ast_node(node: ast.AST, context: Dict[str, Any]) -> Any:
                 if not (left >= right):
                     return False
             elif isinstance(op, ast.In):
-                if not (left in right):
+                if left not in right:
                     return False
             elif isinstance(op, ast.NotIn):
                 if not (left not in right):
@@ -291,7 +291,7 @@ def _eval_ast_node(node: ast.AST, context: Dict[str, Any]) -> Any:
         if isinstance(node.op, ast.Mod):
             return left % right if right != 0 else None
         if isinstance(node.op, ast.Pow):
-            return left ** right
+            return left**right
         if isinstance(node.op, ast.And):
             return left and right
         if isinstance(node.op, ast.Or):

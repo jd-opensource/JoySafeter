@@ -352,15 +352,12 @@ class GraphService(BaseService):
             data_for_save, headers_to_store = prepare_node_data_for_save(data_payload)
             if headers_to_store:
                 try:
-                    secret_id = await store_a2a_auth_headers(
-                        self.db, graph_id, new_db_node_id, headers_to_store
-                    )
+                    secret_id = await store_a2a_auth_headers(self.db, graph_id, new_db_node_id, headers_to_store)
                     if "config" not in data_for_save:
                         data_for_save["config"] = {}
                     data_for_save["config"]["a2a_auth_headers"] = {"__secretRef": str(secret_id)}
                 except Exception as e:
                     logger.warning(f"[GraphService] Failed to store a2a_auth_headers for node {new_db_node_id}: {e}")
-            config = data_for_save.get("config", {}) if isinstance(data_for_save, dict) else {}
             node_type = data_for_save.get("type") or node_data.get("type") or "agent"
 
             node_create_data = {
@@ -388,18 +385,19 @@ class GraphService(BaseService):
                 try:
                     from sqlalchemy import delete
 
-                    await self.db.execute(delete(GraphNodeSecret).where(
-                        GraphNodeSecret.graph_id == graph_id,
-                        GraphNodeSecret.node_id == db_node_id,
-                        GraphNodeSecret.key_slug == "a2a_auth_headers",
-                    ))
+                    await self.db.execute(
+                        delete(GraphNodeSecret).where(
+                            GraphNodeSecret.graph_id == graph_id,
+                            GraphNodeSecret.node_id == db_node_id,
+                            GraphNodeSecret.key_slug == "a2a_auth_headers",
+                        )
+                    )
                     secret_id = await store_a2a_auth_headers(self.db, graph_id, db_node_id, headers_to_store)
                     if "config" not in data_for_save:
                         data_for_save["config"] = {}
                     data_for_save["config"]["a2a_auth_headers"] = {"__secretRef": str(secret_id)}
                 except Exception as e:
                     logger.warning(f"[GraphService] Failed to store a2a_auth_headers for node {db_node_id}: {e}")
-            config = data_for_save.get("config", {}) if isinstance(data_for_save, dict) else {}
             node_type = data_for_save.get("type") or node_data.get("type") or "agent"
 
             update_data = {
@@ -685,7 +683,6 @@ class GraphService(BaseService):
         Returns:
             CompiledStateGraph: Same type as create_graph_by_graph_id, ready for ainvoke/astream_events.
         """
-        import time
 
         start_time = time.time()
         graph_id = uuid.uuid4()
@@ -778,7 +775,6 @@ class GraphService(BaseService):
             NotFoundException: If the graph is not found
             ForbiddenException: If the user doesn't have access to the graph
         """
-        import time
 
         start_time = time.time()
         logger.info(
@@ -826,10 +822,7 @@ class GraphService(BaseService):
 
         # Log node details
         for idx, node in enumerate(nodes):
-            logger.debug(
-                f"[GraphService] Node [{idx + 1}/{len(nodes)}] | "
-                f"id={node.id} | type={node.type}"
-            )
+            logger.debug(f"[GraphService] Node [{idx + 1}/{len(nodes)}] | " f"id={node.id} | type={node.type}")
 
         # Build the graph
         logger.info("[GraphService] Starting GraphBuilder...")

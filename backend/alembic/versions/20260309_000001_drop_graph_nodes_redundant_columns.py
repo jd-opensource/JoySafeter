@@ -7,11 +7,13 @@ Create Date: 2026-03-09 00:00:01.000000+00:00
 - Drop graph_nodes.prompt, tools, memory (compiler uses data.config only).
 - Add graphs.deleted_at for AgentGraph soft delete.
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "b2c3d4e5f6a7"
 down_revision: Union[str, None] = "a1b2c3d4e5f6"

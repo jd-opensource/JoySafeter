@@ -5,6 +5,7 @@ Revises: 0faa0dc41210
 Create Date: 2026-03-09 00:00:00.000000+00:00
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -22,8 +23,15 @@ def upgrade() -> None:
     op.create_table(
         "graph_node_secrets",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("graph_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("graphs.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("node_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("graph_nodes.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "graph_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("graphs.id", ondelete="CASCADE"), nullable=False
+        ),
+        sa.Column(
+            "node_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("graph_nodes.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("key_slug", sa.String(64), nullable=False, server_default="a2a_auth_headers"),
         sa.Column("encrypted_value", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),

@@ -225,6 +225,4 @@ class GraphNodeSecret(BaseModel):
     key_slug: Mapped[str] = mapped_column(String(64), nullable=False, default="a2a_auth_headers")
     encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
 
-    __table_args__ = (
-        Index("graph_node_secrets_graph_node_idx", "graph_id", "node_id"),
-    )
+    __table_args__ = (Index("graph_node_secrets_graph_node_idx", "graph_id", "node_id"),)
