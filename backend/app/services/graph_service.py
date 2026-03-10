@@ -822,7 +822,7 @@ class GraphService(BaseService):
 
         # Log node details
         for idx, node in enumerate(nodes):
-            logger.debug(f"[GraphService] Node [{idx + 1}/{len(nodes)}] | " f"id={node.id} | type={node.type}")
+            logger.debug(f"[GraphService] Node [{idx + 1}/{len(nodes)}] | id={node.id} | type={node.type}")
 
         # Build the graph
         logger.info("[GraphService] Starting GraphBuilder...")
