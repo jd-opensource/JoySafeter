@@ -158,7 +158,9 @@ class OpenApiGraphService(BaseService):
 
                 # 配置
                 thread_id = f"openapi_{execution_id}"
-                config = {
+                from langchain_core.runnables.config import RunnableConfig
+
+                config: RunnableConfig = {
                     "configurable": {"thread_id": thread_id, "user_id": user_id},
                     "recursion_limit": 150,
                 }

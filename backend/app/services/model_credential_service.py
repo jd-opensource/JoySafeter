@@ -450,9 +450,7 @@ class ModelCredentialService(BaseService):
         优先匹配当前 user_id，其次匹配全局(user_id IS NULL)，最后匹配任意有效的凭据。
         """
         # 1. 尝试模板凭据 (provider_id IS NULL)
-        credential = await self.repo.get_best_valid_credential(
-            provider_name=provider_name, user_id=user_id
-        )
+        credential = await self.repo.get_best_valid_credential(provider_name=provider_name, user_id=user_id)
 
         if credential:
             return decrypt_credentials(credential.credentials)

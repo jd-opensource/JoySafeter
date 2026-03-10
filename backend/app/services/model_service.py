@@ -161,9 +161,9 @@ class ModelService(BaseService):
             更新后的模型实例配置
         """
         provider = await self.provider_repo.get_by_name(provider_name)
-        
+
         provider_id = provider.id if provider else None
-        
+
         instance = await self.repo.get_best_instance(
             model_name=model_name,
             provider_name=provider_name,
@@ -235,18 +235,21 @@ class ModelService(BaseService):
             else:
                 raise BadRequestException("必须指定provider_name和model_name，或设置use_default=True")
         else:
-            template = self.factory.get_provider(provider_name)
             provider = await self.provider_repo.get_by_name(provider_name)
-            instance = None
-            if template:
-                instance = await self.repo.get_by_provider_and_model(model_name=model_name, provider_name=provider_name)
-                implementation_name = provider_name
-            if not instance and provider:
-                instance = await self.repo.get_by_provider_and_model(model_name=model_name, provider_id=provider.id)
-                implementation_name = provider.template_name or provider.name
+            provider_id = provider.id if provider else None
+
+            instance = await self.repo.get_best_instance(
+                model_name=model_name,
+                provider_name=provider_name,
+                provider_id=provider_id,
+            )
+
             if not instance:
                 raise NotFoundException(f"供应商不存在或模型实例不存在: {provider_name}/{model_name}")
-            model_parameters = instance.model_parameters if instance else {}
+
+            implementation_name = instance.resolved_implementation_name
+            provider_name = instance.resolved_provider_name
+            model_parameters = instance.model_parameters or {}
 
         # 确定模型类型（这里简化处理，假设是Chat模型）
         model_type = ModelType.CHAT

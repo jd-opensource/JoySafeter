@@ -53,7 +53,9 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
         3. 任何人的有效凭据
         参数说明：如果传入 provider_id，则精确匹配该 ID；否则匹配 provider_id IS NULL 且 provider_name 等于传入值的记录。
         """
-        conditions = [ModelCredential.is_valid == True]
+        from typing import Any
+
+        conditions: list[Any] = [ModelCredential.is_valid]
         if provider_id:
             conditions.append(ModelCredential.provider_id == provider_id)
         else:

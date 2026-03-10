@@ -44,7 +44,7 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     ) -> ModelInstance | None:
         """根据供应商和模型名获取实例。优先匹配用户级，其次全局，最后匹配任意有效。"""
         conditions = [ModelInstance.model_name == model_name]
-        
+
         if provider_id is not None:
             conditions.append(ModelInstance.provider_id == provider_id)
         else:
