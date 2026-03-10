@@ -27,7 +27,7 @@ from .model_service import ModelService
 from .workspace_permission import check_workspace_access
 
 # In-memory compile cache: (graph_id, updated_at_iso) -> (compiled_graph, cached_at_ts). TTL 300s.
-_compile_cache: Dict[Tuple[str, str], Tuple[Any, float]] = {}
+_compile_cache: Dict[Tuple[str, str], Tuple[CompiledStateGraph, float]] = {}
 _COMPILE_CACHE_TTL = 300.0
 
 

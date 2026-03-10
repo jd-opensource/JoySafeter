@@ -84,7 +84,7 @@ class GraphTemplateService {
     // 3. Update edges with new source and target IDs
     const newEdges = template.edges.map((edge) => ({
       ...edge,
-      id: edge.id ? crypto.randomUUID() : undefined,
+      id: crypto.randomUUID(),
       source: nodeIdMap.get(edge.source) || edge.source,
       target: nodeIdMap.get(edge.target) || edge.target,
     }))
