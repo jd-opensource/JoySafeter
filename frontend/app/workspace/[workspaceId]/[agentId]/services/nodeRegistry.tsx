@@ -336,14 +336,14 @@ const REGISTRY: NodeDefinition[] = [
     defaultConfig: {
       routes: [
         {
-          id: crypto.randomUUID(),
+          id: 'default-route-1',
           condition: "state.get('value', 0) > 10",
           targetEdgeKey: 'high',
           label: 'High Score',
           priority: 0,
         },
         {
-          id: crypto.randomUUID(),
+          id: 'default-route-2',
           condition: "state.get('value', 0) > 5",
           targetEdgeKey: 'medium',
           label: 'Medium Score',

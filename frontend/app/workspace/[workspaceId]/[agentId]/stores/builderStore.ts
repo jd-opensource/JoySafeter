@@ -51,6 +51,19 @@ import { determineEdgeTypeAndRouteKey, autoWireConnection } from '../utils/conne
 import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExport'
 
 /**
+ * Generate a unique ID (fallback for crypto.randomUUID in strict SSR environments)
+ */
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
+
+/**
  * Migrate legacy context variables to state fields.
  * Converts variables.context entries to StateField[] format.
  * Only applies when state_fields is empty but context has entries.
@@ -558,7 +571,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         Object.assign(defaultConfig, configOverride)
       }
       const newNode: Node = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         type: 'custom',
         position,
         data: {
@@ -642,7 +655,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
       const newNode: Node = {
         ...nodeToDuplicate,
-        id: crypto.randomUUID(),
+        id: generateId(),
         position: { x: newX, y: newY },
         selected: false,
       }
