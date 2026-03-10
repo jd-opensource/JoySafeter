@@ -440,42 +440,33 @@ class ModelCredentialService(BaseService):
         Returns:
             解 decrypted后的凭据，如果不存在则返回None
         """
-        # 模板：按 provider_name 查凭据
-        credential = await self.repo.get_by_provider_name(provider_name, user_id=user_id)
-        if credential and credential.is_valid:
-            return decrypt_credentials(credential.credentials)
-        # 用户派生：按 DB provider 查
-        provider = await self.provider_repo.get_by_name(provider_name)
-        if not provider:
-            return None
-        credential = await self.repo.get_by_provider(provider.id, user_id=user_id)
-        if not credential or not credential.is_valid:
-            # 再查一次全局的，以防用户级不存在
-            if user_id:
-                credential = await self.repo.get_by_provider(provider.id, user_id=None)
-
-        if not credential or not credential.is_valid:
-            return None
-        return decrypt_credentials(credential.credentials)
+        return await self.get_decrypted_credentials(provider_name, user_id)
 
     async def get_decrypted_credentials(
         self, provider_name: str, user_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         获取解密后的凭据（全局）。先按模板名查，再按 DB 供应商查。
+        优先匹配当前 user_id，其次匹配全局(user_id IS NULL)，最后匹配任意有效的凭据。
         """
-        credential = await self.repo.get_by_provider_name(provider_name, user_id=user_id)
-        if credential and credential.is_valid:
+        # 1. 尝试模板凭据 (provider_id IS NULL)
+        credential = await self.repo.get_best_valid_credential(
+            provider_name=provider_name, user_id=user_id
+        )
+
+        if credential:
             return decrypt_credentials(credential.credentials)
+
+        # 2. 尝试用户派生凭据 (provider_id = DB.provider.id)
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
             return None
-        credential = await self.repo.get_by_provider(provider.id, user_id=user_id)
-        if not credential or not credential.is_valid:
-            # 同样尝试全局
-            if user_id:
-                credential = await self.repo.get_by_provider(provider.id, user_id=None)
 
-        if not credential or not credential.is_valid:
-            return None
-        return decrypt_credentials(credential.credentials)
+        credential = await self.repo.get_best_valid_credential(
+            provider_name=provider_name, provider_id=provider.id, user_id=user_id
+        )
+
+        if credential:
+            return decrypt_credentials(credential.credentials)
+
+        return None

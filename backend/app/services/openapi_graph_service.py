@@ -120,6 +120,7 @@ class OpenApiGraphService(BaseService):
                     base_url=None,
                     llm_model=None,
                     max_tokens=4096,
+                    user_id=user_id,
                 )
 
                 # 编译 graph

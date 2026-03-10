@@ -19,6 +19,7 @@ class LLMCredentialResolver:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         llm_model: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Get credentials from database if not provided.
@@ -70,6 +71,7 @@ class LLMCredentialResolver:
                         provider_name=provider_name or "",
                         model_type=model_type,
                         model_name=model_name or "",
+                        user_id=user_id,
                     )
                     if credentials:
                         api_key = credentials.get("api_key")
@@ -98,6 +100,7 @@ class LLMCredentialResolver:
                                     provider_name=provider_name or provider_name_from_cred,
                                     model_type=model_type,
                                     model_name=model_name or "",
+                                    user_id=user_id,
                                 )
                                 if credentials:
                                     api_key = credentials.get("api_key")
@@ -122,6 +125,7 @@ class LLMCredentialResolver:
         base_url: Optional[str] = None,
         llm_model: Optional[str] = None,
         max_tokens: int = 4096,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get LLM parameters in dict format.
@@ -149,6 +153,7 @@ class LLMCredentialResolver:
             api_key=api_key,
             base_url=base_url,
             llm_model=llm_model,
+            user_id=user_id,
         )
 
         return {
