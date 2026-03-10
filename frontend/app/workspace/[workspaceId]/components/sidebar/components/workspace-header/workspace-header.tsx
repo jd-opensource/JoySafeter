@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, ChevronDown, Copy, MoreHorizontal, PanelLeft, Pencil, Plus, Search, Settings, Trash2, X, Users } from 'lucide-react'
+import { Check, ChevronDown, Copy, MoreHorizontal, PanelLeft, Pencil, Plus, Search, Settings, Trash2, X, Users, Key } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 
@@ -750,6 +750,19 @@ export function WorkspaceHeader({
                   >
                     <Users className='h-[12px] w-[12px]' />
                     {t('workspace.membersManagement')}
+                  </button>
+                  <button
+                    type='button'
+                    className='flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      router.push(`/workspace/${workspace.id}/settings/api-keys`)
+                      setShowWorkspaceMenu(null)
+                      setMenuPosition(null)
+                    }}
+                  >
+                    <Key className='h-[12px] w-[12px]' />
+                    API Keys
                   </button>
                   <div className='my-[4px] h-[1px] bg-[var(--border)]' />
                   <button

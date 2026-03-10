@@ -1,7 +1,7 @@
 """add graph_node_secrets table for encrypted a2a_auth_headers
 
 Revision ID: a1b2c3d4e5f6
-Revises: 0faa0dc41210
+Revises: d7e8f9a0b1c2
 Create Date: 2026-03-09 00:00:00.000000+00:00
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, None] = "0faa0dc41210"
+down_revision: Union[str, None] = "d7e8f9a0b1c2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

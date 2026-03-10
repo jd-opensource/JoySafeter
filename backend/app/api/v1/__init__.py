@@ -21,6 +21,7 @@ from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
 from .models import router as models_router
 from .oauth import router as oauth_router
+from .openapi_graph import router as openapi_graph_router
 from .openclaw_chat import router as openclaw_chat_router
 from .openclaw_devices import router as openclaw_devices_router
 from .openclaw_instances import router as openclaw_instances_router
@@ -64,6 +65,7 @@ ROUTERS = [
     openclaw_chat_router,
     openclaw_devices_router,
     openclaw_proxy_router,
+    openapi_graph_router,
 ]
 
 
