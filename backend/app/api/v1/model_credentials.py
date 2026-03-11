@@ -5,7 +5,7 @@
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,12 +19,18 @@ router = APIRouter(prefix="/v1/model-credentials", tags=["ModelCredentials"])
 
 
 class CredentialCreate(BaseModel):
-    """创建凭据请求"""
+    """创建凭据请求（全局）。custom 且带 model_name 时表示「添加一个自定义模型」：创建 provider+凭据+实例。"""
 
-    provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
+    provider_name: str = Field(description="供应商名称或模板名称", examples=["openaiapicompatible"])
+    provider_display_name: Optional[str] = Field(
+        default=None, alias="providerDisplayName", description="自定义供应商显示名称（添加自定义模型时可选）"
+    )
     credentials: Dict[str, Any] = Field(..., description="凭据字典（明文）")
-    workspace_id: Optional[uuid.UUID] = Field(default=None, alias="workspaceId", description="工作空间ID（可选）")
     should_validate: bool = Field(default=True, alias="validate", description="是否验证凭据")
+    model_name: Optional[str] = Field(
+        default=None, description="模型名称；仅当 provider_name=custom 时有效，表示一步添加凭据+该模型"
+    )
+    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数；与 model_name 配套使用")
 
 
 class CredentialValidateResponse(BaseModel):
@@ -56,33 +62,24 @@ async def create_or_update_credential(
         user_id=user_id,
         provider_name=payload.provider_name,
         credentials=payload.credentials,
-        workspace_id=payload.workspace_id,
         validate=payload.should_validate,
+        provider_display_name=payload.provider_display_name,
+        model_name=payload.model_name,
+        model_parameters=payload.model_parameters,
     )
     return success_response(data=credential, message="创建/更新凭据成功")
 
 
 @router.get("")
 async def list_credentials(
-    workspace_id: Optional[uuid.UUID] = Query(default=None, alias="workspaceId"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取用户的所有凭据列表
-
-    Args:
-        workspace_id: 工作空间ID（可选）
-
-    Returns:
-        凭据列表
+    获取凭据列表（全局，与 workspace 无关）
     """
     service = ModelCredentialService(db)
-    user_id = current_user.id
-    credentials = await service.list_credentials(
-        user_id=user_id,
-        workspace_id=workspace_id,
-    )
+    credentials = await service.list_credentials()
     return success_response(data=credentials, message="获取凭据列表成功")
 
 

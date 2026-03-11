@@ -38,10 +38,10 @@ export interface VariableValidationResult {
 
 /**
  * Get all variables in a graph.
+ * Uses /api/v1/graphs/{id}/variables (unified under v1).
  */
 export async function getGraphVariables(graphId: string): Promise<VariableInfo[]> {
-  // Note: This endpoint uses /graph/ instead of /v1/graphs/
-  const response = await apiGet<{ variables: VariableInfo[] }>(`/graph/${graphId}/variables`)
+  const response = await apiGet<{ variables: VariableInfo[] }>(`graphs/${graphId}/variables`)
   return response.variables || []
 }
 
@@ -71,8 +71,9 @@ export async function getNodeAvailableVariables(
   }
 
   try {
-    // Note: This endpoint uses /graph/ instead of /v1/graphs/
-    const response = await apiGet<{ variables: VariableInfo[] }>(`/graph/${graphId}/nodes/${nodeId}/available-variables`)
+    const response = await apiGet<{ variables: VariableInfo[] }>(
+      `graphs/${graphId}/nodes/${nodeId}/available-variables`
+    )
     return response.variables || []
   } catch (error) {
     // If API call fails, return empty array - caller should use frontend fallback
@@ -103,11 +104,13 @@ export async function validateVariableUsage(
   }
 
   try {
-    // Note: This endpoint uses /graph/ instead of /v1/graphs/
-    const response = await apiPost<VariableValidationResult>(`/graph/${graphId}/validate-variables`, {
+    const response = await apiPost<VariableValidationResult>(
+      `graphs/${graphId}/validate-variables`,
+      {
       node_id: nodeId,
-      expression,
-    })
+        expression,
+      }
+    )
     return response
   } catch (error) {
     // If API call fails, return basic validation result

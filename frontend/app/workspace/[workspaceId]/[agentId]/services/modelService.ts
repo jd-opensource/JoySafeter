@@ -25,26 +25,13 @@ export type { AvailableModel }
 
 export const modelService = {
   /**
-   * Get available model list
-   * @param modelType Model type, defaults to 'chat'
-   * @param workspaceId Workspace ID (optional)
-   * @returns List of available models
+   * Get available model list（全局，与 workspace 无关）
    */
-  async getAvailableModels(
-    modelType: string = 'chat',
-    workspaceId?: string
-  ): Promise<AvailableModel[]> {
+  async getAvailableModels(modelType: string = 'chat'): Promise<AvailableModel[]> {
     try {
       const params = new URLSearchParams()
       params.append('model_type', modelType)
-      if (workspaceId) {
-        params.append('workspaceId', workspaceId)
-      }
-
-      // API client automatically adds /api/v1 prefix and handles success_response format
-      return await apiGet<AvailableModel[]>(
-        `models?${params.toString()}`
-      )
+      return await apiGet<AvailableModel[]>(`models?${params.toString()}`)
     } catch (error) {
       console.error('Failed to fetch available models:', error)
       throw error
@@ -52,28 +39,14 @@ export const modelService = {
   },
 
   /**
-   * Test model output
-   * @param modelName Model name
-   * @param input Input text
-   * @param workspaceId Workspace ID (optional)
-   * @returns Model output result
+   * Test model output（全局，与 workspace 无关）
    */
-  async testModelOutput(
-    modelName: string,
-    input: string,
-    workspaceId?: string
-  ): Promise<string> {
+  async testModelOutput(modelName: string, input: string): Promise<string> {
     try {
       const payload: TestModelOutputRequest = {
         model_name: modelName,
         input,
       }
-
-      if (workspaceId) {
-        payload.workspaceId = workspaceId
-      }
-
-      // API client automatically adds /api/v1 prefix and handles success_response format
       const result = await apiPost<TestModelOutputResponse>(
         'models/test-output',
         payload

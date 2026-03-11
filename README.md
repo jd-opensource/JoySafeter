@@ -328,7 +328,7 @@ Pre-configured 10+ core security Skills and 200+ toolchains for modular reuse an
 - **Conditional Edges**: Route-based branching
 - **Loop-back Edges**: Cycle control with state isolation
 
-#### 3. SSE Real-time Communication
+#### 2. SSE Real-time Communication
 
 **Standardized Event Envelope** for reliable streaming:
 
@@ -391,17 +391,17 @@ For a detailed breakdown of the architecture, including core modules, workflows,
 ## Recent Change Log
 
 ### Core Capabilities
-- **Meta-Cognitive Superpowers** (`57fdac5`): Introduced structured reasoning capabilities including Brainstorming, Strategic Planning, and Execution. This elevates the agent from simple task execution to complex problem-solving by formalizing the "thinking process" into executable semantic skills.
-- **Extensible Skill Protocol** (`cada4d3`): Established the `SKILL.md` standard with a "Progressive Disclosure" architecture. This mechanism optimizes context window usage by dynamically loading skill metadata, instructions, and resources only when needed, turning the agent into an infinitely validatable platform.
+- **Meta-Cognitive Superpowers**: Introduced structured reasoning capabilities including Brainstorming, Strategic Planning, and Execution. This elevates the agent from simple task execution to complex problem-solving by formalizing the "thinking process" into executable semantic skills.
+- **Extensible Skill Protocol**: Established the `SKILL.md` standard with a "Progressive Disclosure" architecture. This mechanism optimizes context window usage by dynamically loading skill metadata, instructions, and resources only when needed, turning the agent into an infinitely validatable platform.
 
 ### System Architecture
-- **Multi-Tenant Sandbox Engine** (`7aa24c8`): Implemented strict per-user isolation for code execution environments. This enterprise-grade security feature guarantees data sovereignty and prevents state leakage between concurrent user sessions.
-- **Glass-Box Observability** (`f5a8a16`): Integrated deep visualization of agent execution traces with Langfuse. Users can now observe the real-time decision-making process and state transitions, providing full transparency into the agent's "thought process".
+- **Multi-Tenant Sandbox Engine**: Implemented strict per-user isolation for code execution environments. This enterprise-grade security feature guarantees data sovereignty and prevents state leakage between concurrent user sessions.
+- **Glass-Box Observability**: Integrated deep visualization of agent execution traces with Langfuse. Users can now observe the real-time decision-making process and state transitions, providing full transparency into the agent's "thought process".
 
 ### Optimization & Infrastructure
-- **Secure Runtime Transition** (`420da8f`): Deprecated legacy insecure execution paths, enforcing the new Sandbox architecture for all dynamic code operations.
-- **Enterprise Identity Integration** (`9583309`): Standardized Single Sign-On (SSO) protocols, correcting naming conventions and adding support for `jd` providers to ensure seamless enterprise identity management.
-- **Core Kernel Upgrade** (`4390ae5`): Upgraded `deepagents` kernel to v0.3.11, incorporating the latest stability improvements and performance optimizations.
+- **Secure Runtime Transition**: Deprecated legacy insecure execution paths, enforcing the new Sandbox architecture for all dynamic code operations.
+- **Enterprise Identity Integration**: Standardized Single Sign-On (SSO) protocols with built-in templates for GitHub, Google, and Microsoft, plus configurable OIDC providers (Keycloak, Authentik, GitLab) and JD SSO support. See backend/config/oauth_providers.yaml and backend/config/README_OAUTH_LOCAL.md.
+- **Core Kernel Upgrade**: Upgraded `deepagents` kernel to v0.4.0, incorporating the latest stability improvements and performance optimizations.
 
 
 ---
@@ -436,11 +436,11 @@ For a detailed breakdown of the architecture, including core modules, workflows,
 | PostgreSQL | 15+ (optional, if not using Docker) |
 | Redis | 7+ (required, used for caching and session management) |
 
-### Solution 1: One-Click Run (Recommended)
+### Solution 1: One-Click Run (Docker, Recommended)
 
 ```bash
-# Initialize environment & Build images locally & Start services automatically
-sh deploy/quick-start.sh
+# Initialize environment & build if needed & start services automatically
+./deploy/quick-start.sh
 ```
 
 
@@ -456,6 +456,32 @@ For complete installation instructions, including manual deployment, pre-built D
 | ReDoc | http://localhost:8000/redoc |
 
 ---
+
+### Production Deployment (Important)
+
+For production, please follow the Docker deployment guide and best practices:
+
+```bash
+# On your server
+cd deploy
+./install.sh --mode prod            # Initialize config files if needed
+./scripts/prod.sh                   # Start with prebuilt images
+# Skip MCP service if you don't need it right away:
+# ./scripts/prod.sh --skip-mcp
+```
+
+Before starting in production, make sure you:
+- Set strong random secrets in backend/.env:
+  - SECRET_KEY (JWT secret)
+  - CREDENTIAL_ENCRYPTION_KEY (MANDATORY; used to encrypt stored model credentials — must be fixed and not change between restarts)
+- Set real public URLs in deploy/.env:
+  - FRONTEND_URL (what users open in browser, no trailing slash)
+  - BACKEND_URL (public API base reachable by browsers)
+- Do not expose DB/Redis/MCP ports to the public Internet; put an HTTPS reverse proxy (e.g., Nginx/Caddy) in front of 3000/8000 and keep them internal
+
+References:
+- Docker Deployment Guide: deploy/README.md
+- Production IP/Domain Best Practices: deploy/PRODUCTION_IP_GUIDE.md
 
 ## Roadmap
 

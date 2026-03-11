@@ -22,44 +22,65 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
         self,
         user_id: Optional[str] = None,
         provider_id: Optional[uuid.UUID] = None,
-        workspace_id: Optional[uuid.UUID] = None,
+        provider_name: Optional[str] = None,
     ) -> ModelCredential | None:
-        """根据供应商获取凭据（所有用户和工作空间可见）"""
-        # 移除所有 user_id 和 workspace_id 过滤
-        conditions = []
+        """根据供应商获取凭据（支持用户级或全局）。"""
+        if user_id:
+            conditions = [ModelCredential.user_id == user_id]
+        else:
+            conditions = [ModelCredential.user_id.is_(None)]
+
+        if provider_id is not None:
+            conditions.append(ModelCredential.provider_id == provider_id)
+        if provider_name is not None:
+            conditions.append(ModelCredential.provider_name == provider_name)
+        if provider_id is None and provider_name is None:
+            return None
+        result = await self.db.execute(select(ModelCredential).where(and_(*conditions)))
+        return result.scalar_one_or_none()
+
+    async def get_best_valid_credential(
+        self,
+        provider_name: str,
+        provider_id: Optional[uuid.UUID] = None,
+        user_id: Optional[str] = None,
+    ) -> ModelCredential | None:
+        """
+        获取供应商的最优有效凭据。
+        优先级：
+        1. 匹配 user_id 的凭据
+        2. 全局凭据 (user_id IS NULL)
+        3. 任何人的有效凭据
+        参数说明：如果传入 provider_id，则精确匹配该 ID；否则匹配 provider_id IS NULL 且 provider_name 等于传入值的记录。
+        """
+        from typing import Any
+
+        conditions: list[Any] = [ModelCredential.is_valid]
         if provider_id:
             conditions.append(ModelCredential.provider_id == provider_id)
-
-        if conditions:
-            result = await self.db.execute(select(ModelCredential).where(and_(*conditions)))
         else:
-            result = await self.db.execute(select(ModelCredential))
-        return result.scalar_one_or_none()
+            conditions.append(ModelCredential.provider_id.is_(None))
+            conditions.append(ModelCredential.provider_name == provider_name)
 
-    async def get_by_provider(
-        self,
-        provider_id: uuid.UUID,
-    ) -> ModelCredential | None:
-        """根据供应商获取全局凭据（用于同步）"""
-        result = await self.db.execute(
-            select(ModelCredential).where(
-                and_(
-                    ModelCredential.provider_id == provider_id,
-                    ModelCredential.user_id.is_(None),  # 只查询全局记录
-                )
-            )
-        )
-        return result.scalar_one_or_none()
+        result = await self.db.execute(select(ModelCredential).where(and_(*conditions)))
+        credentials = result.scalars().all()
 
-    async def list_by_user(
-        self,
-        user_id: Optional[str] = None,
-        workspace_id: Optional[uuid.UUID] = None,
-    ) -> list[ModelCredential]:
-        """获取所有凭据（所有用户和工作空间可见）"""
-        # 移除所有 user_id 和 workspace_id 过滤
-        result = await self.db.execute(select(ModelCredential).options(selectinload(ModelCredential.provider)))
-        return list(result.scalars().all())
+        if not credentials:
+            return None
+
+        # Priority 1: match user_id
+        if user_id:
+            for c in credentials:
+                if c.user_id == user_id:
+                    return c
+
+        # Priority 2: user_id is None (Global)
+        for c in credentials:
+            if c.user_id is None:
+                return c
+
+        # Priority 3: any available
+        return credentials[0]
 
     async def list_all(self) -> list[ModelCredential]:
         """获取所有凭据（所有用户和工作空间可见）"""

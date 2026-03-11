@@ -19,6 +19,9 @@ export interface ModelProvider {
   config_schemas?: Record<string, any>
   model_count?: number
   is_enabled: boolean
+  is_template?: boolean
+  provider_type?: 'system' | 'custom'
+  template_name?: string
   background?: string // Provider card background color
 }
 
@@ -37,13 +40,16 @@ export interface ModelCredential {
 }
 
 /**
- * Create model credential request
+ * Create model credential request.
+ * When provider_name is "custom", model_name can be set to add one custom model (credential + instance) in one call.
  */
 export interface CreateCredentialRequest {
   provider_name: string
+  providerDisplayName?: string
   credentials: Record<string, any>
-  workspaceId?: string
   validate?: boolean
+  model_name?: string
+  model_parameters?: Record<string, unknown>
 }
 
 // ==================== Model Instance ====================
@@ -69,7 +75,6 @@ export interface CreateModelInstanceRequest {
   model_name: string
   model_type?: string
   model_parameters?: Record<string, unknown>
-  workspaceId?: string
   is_default?: boolean
 }
 
@@ -105,7 +110,6 @@ export interface AvailableModel {
 export interface TestModelOutputRequest {
   model_name: string
   input: string
-  workspaceId?: string
 }
 
 /**

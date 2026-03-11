@@ -184,15 +184,36 @@ pytest --cov=app
 ```
 
 
-### Docker 部署 (推荐)
+### Docker 部署（推荐）
+
+详尽的 Docker 部署与场景化启动说明请参考：
+- 项目部署总览：`deploy/README.md`
+- 生产环境与前后端 URL/IP 配置最佳实践：`deploy/PRODUCTION_IP_GUIDE.md`
+
+常用命令速查：
 
 ```bash
-# 开发环境
-docker-compose up -d postgres redis
+# 一键开发快速启动（自动初始化 .env 与数据库）
+cd deploy && ./quick-start.sh
 
-# 生产环境 (多实例)
-docker-compose --profile production up -d --scale app=4
+# 开发场景（包含构建与初始化）
+cd deploy && ./scripts/dev.sh
+
+# 仅启动中间件（PostgreSQL + Redis），用于本地直接运行后端/前端
+cd deploy && ./scripts/minimal.sh
+# 或：cd deploy && ./scripts/start-middleware.sh
+
+# 生产场景（服务器）：使用预构建镜像
+cd deploy && ./scripts/prod.sh
+# 跳过 MCP 服务：cd deploy && ./scripts/prod.sh --skip-mcp
+# 手动 Compose：cd deploy && docker-compose -f docker-compose.prod.yml up -d
 ```
+
+生产环境安全提示：
+- 在 `backend/.env` 中设置强随机的 `SECRET_KEY`
+- 在 `backend/.env` 中设置强随机且固定不变的 `CREDENTIAL_ENCRYPTION_KEY`（用于加密模型凭据；未配置或变更将导致重启后历史凭据无法解密）
+- 关闭 `DEBUG`
+- 通过反向代理启用 HTTPS 与合理的防火墙规则（数据库、Redis、MCP 端口不对公网暴露）
 
 ### 部署架构
 

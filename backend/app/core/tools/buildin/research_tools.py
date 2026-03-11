@@ -6,6 +6,7 @@ using Tavily for URL discovery and fetching full webpage content.
 
 import httpx
 from langchain_core.tools import InjectedToolArg, tool
+from loguru import logger
 from markdownify import markdownify
 from typing_extensions import Annotated, Literal
 
@@ -14,8 +15,14 @@ try:
 except ImportError:
     TavilyClient = None
 
-# Initialize Tavily client if available
-tavily_client = TavilyClient() if TavilyClient else None
+# Initialize Tavily client if available and API key is configured
+try:
+    tavily_client = TavilyClient() if TavilyClient else None
+except Exception:
+    logger.warning(
+        "Tavily client initialization failed. Please set the TAVILY_API_KEY environment variable to enable web search."
+    )
+    tavily_client = None
 
 
 def fetch_webpage_content(url: str, timeout: float = 10.0) -> str:
@@ -59,7 +66,10 @@ def tavily_search(
         Formatted search results with full webpage content
     """
     if tavily_client is None:
-        return "Error: Tavily client is not available. Please install tavily-python package."
+        return (
+            "Error: Tavily client is not available. "
+            "Please set the TAVILY_API_KEY environment variable and restart the service."
+        )
 
     # Use Tavily to discover URLs
     search_results = tavily_client.search(

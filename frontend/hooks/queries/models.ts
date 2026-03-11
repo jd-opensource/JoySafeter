@@ -81,12 +81,11 @@ export function useModelProvider(providerName: string) {
   })
 }
 
-export function useModelCredentials(workspaceId?: string) {
+export function useModelCredentials() {
   return useQuery({
-    queryKey: [...modelKeys.credentials(), workspaceId],
+    queryKey: modelKeys.credentials(),
     queryFn: async (): Promise<ModelCredential[]> => {
-      const params = workspaceId ? `?workspaceId=${workspaceId}` : ''
-      return await apiGet<ModelCredential[]>(`${MODEL_CREDENTIALS_PATH}${params}`)
+      return await apiGet<ModelCredential[]>(MODEL_CREDENTIALS_PATH)
     },
     enabled: true,
     retry: false,
@@ -117,6 +116,7 @@ export interface ModelProvidersByConfigResult {
   credentialsByProvider: Map<string, ModelCredential>
   configuredProviders: ModelProvider[]
   notConfiguredProviders: ModelProvider[]
+  templateProviders: ModelProvider[]
   noValidCredential: boolean
 }
 
@@ -133,17 +133,35 @@ export function useModelProvidersByConfig(
     [credentials]
   )
 
-  const [configuredProviders, notConfiguredProviders] = useMemo(() => {
+  const [configuredProviders, notConfiguredProviders, templateProviders] = useMemo(() => {
     const configured: ModelProvider[] = []
     const notConfigured: ModelProvider[] = []
+    const templates: ModelProvider[] = []
+
     for (const provider of providers) {
       if (credentialsByProvider.has(provider.provider_name)) {
         configured.push(provider)
+      } else if (provider.is_template) {
+        templates.push(provider)
       } else {
         notConfigured.push(provider)
       }
     }
-    return [configured, notConfigured]
+
+    // 排序逻辑
+    const sortProviders = (a: ModelProvider, b: ModelProvider) => {
+      // 模板排在后面
+      if (a.is_template !== b.is_template) return a.is_template ? 1 : -1
+      // 系统供应商排在前面
+      if (a.provider_type !== b.provider_type) return a.provider_type === 'custom' ? 1 : -1
+      return a.display_name.localeCompare(b.display_name)
+    }
+
+    configured.sort(sortProviders)
+    notConfigured.sort(sortProviders)
+    templates.sort(sortProviders)
+
+    return [configured, notConfigured, templates]
   }, [providers, credentialsByProvider])
 
   const noValidCredential =
@@ -154,6 +172,7 @@ export function useModelProvidersByConfig(
     credentialsByProvider,
     configuredProviders,
     notConfiguredProviders,
+    templateProviders,
     noValidCredential,
   }
 }
@@ -177,14 +196,12 @@ export function useModelCredential(credentialId: string) {
 
 export function useAvailableModels(
   modelType: string = 'chat',
-  workspaceId?: string,
   options?: { enabled?: boolean }
 ) {
   return useQuery({
     queryKey: modelKeys.available(modelType),
     queryFn: async (): Promise<AvailableModel[]> => {
       const params = new URLSearchParams({ model_type: modelType })
-      if (workspaceId) params.append('workspaceId', workspaceId)
       return await apiGet<AvailableModel[]>(`${MODELS_PATH}?${params.toString()}`)
     },
     enabled: options?.enabled !== false, // 默认 true，但可以设置为 false
@@ -194,12 +211,11 @@ export function useAvailableModels(
   })
 }
 
-export function useModelInstances(workspaceId?: string) {
+export function useModelInstances() {
   return useQuery({
-    queryKey: [...modelKeys.instances(), workspaceId],
+    queryKey: modelKeys.instances(),
     queryFn: async (): Promise<ModelInstance[]> => {
-      const params = workspaceId ? `?workspaceId=${workspaceId}` : ''
-      return await apiGet<ModelInstance[]>(`${MODELS_PATH}/instances${params}`)
+      return await apiGet<ModelInstance[]>(`${MODELS_PATH}/instances`)
     },
     enabled: true,
     retry: false,
@@ -259,18 +275,25 @@ export function useCreateCredential() {
 
   return useMutation({
     mutationFn: async (request: CreateCredentialRequest) => {
-      const data = await apiPost<ModelCredential>(MODEL_CREDENTIALS_PATH, {
+      const body: Record<string, unknown> = {
         provider_name: request.provider_name,
+        providerDisplayName: request.providerDisplayName,
         credentials: request.credentials,
-        workspaceId: request.workspaceId,
         validate: request.validate !== false,
-      })
+      }
+      if (request.model_name != null) body.model_name = request.model_name
+      if (request.model_parameters != null) body.model_parameters = request.model_parameters
+      const data = await apiPost<ModelCredential>(MODEL_CREDENTIALS_PATH, body)
       logger.info(`Created credential for provider: ${request.provider_name}`)
       return data
     },
-    onSuccess: () => {
+    onSuccess: (_, request) => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
       queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
+      if (request.model_name) {
+        queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
+        queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
+      }
     },
   })
 }
@@ -305,6 +328,25 @@ export function useDeleteCredential() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
       queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
+      queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
+    },
+  })
+}
+
+export function useDeleteModelProvider() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (providerName: string) => {
+      await apiDelete(`${MODEL_PROVIDERS_PATH}/${providerName}`)
+      logger.info(`Deleted model provider: ${providerName}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
+      queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
+      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
@@ -319,7 +361,6 @@ export function useCreateModelInstance() {
         model_name: request.model_name,
         model_type: request.model_type || 'chat',
         model_parameters: request.model_parameters,
-        workspaceId: request.workspaceId,
         is_default: request.is_default,
       })
       logger.info(`Created model instance: ${request.model_name}`)

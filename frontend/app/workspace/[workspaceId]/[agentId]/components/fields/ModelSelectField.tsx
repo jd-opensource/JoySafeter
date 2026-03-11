@@ -1,7 +1,6 @@
 'use client'
 
 import { Loader2 } from 'lucide-react'
-import { useParams } from 'next/navigation'
 import React, { useMemo } from 'react'
 
 
@@ -29,11 +28,8 @@ interface ModelSelectFieldProps {
 
 export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onChange, onModelChange }) => {
   const { t } = useTranslation()
-  const params = useParams()
-  const workspaceId = params?.workspaceId as string | undefined
 
-  // Use React Query hook for models (with caching and request deduplication)
-  const { data: availableModelsData = [], isLoading: loading, error: queryError } = useAvailableModels('chat', workspaceId)
+  const { data: availableModelsData = [], isLoading: loading, error: queryError } = useAvailableModels('chat')
 
   // Convert AvailableModel[] to ModelOption[] and deduplicate by id (provider_name:name)
   const models: ModelOption[] = useMemo(() => {

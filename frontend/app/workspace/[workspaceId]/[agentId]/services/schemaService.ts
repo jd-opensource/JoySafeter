@@ -15,11 +15,11 @@ export interface StateFieldSchema {
 
 export interface NodeSchema {
     id: string
-    node_type: string
+    type: string
     label: string
     config: Record<string, unknown>
-    state_reads: string[]
-    state_writes: string[]
+    reads: string[]
+    writes: string[]
 }
 
 export interface EdgeSchema {
@@ -107,11 +107,11 @@ export const schemaService = {
             state_fields: [], // We might not have state fields in frontend easily, pass empty for now
             nodes: nodes.map(n => ({
                 id: n.id,
-                node_type: n.data?.type || 'unknown',
+                type: n.data?.type || 'unknown',
                 label: n.data?.label || n.id,
                 config: n.data?.config || {},
-                state_reads: n.data?.stateReads || [],
-                state_writes: n.data?.stateWrites || [],
+                reads: n.data?.stateReads || [],
+                writes: n.data?.stateWrites || [],
                 metadata: {
                     position: n.position,
                     ...n.data?.metadata

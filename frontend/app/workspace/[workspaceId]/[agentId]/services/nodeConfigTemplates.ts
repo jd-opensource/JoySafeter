@@ -18,14 +18,14 @@ export const nodeConfigTemplates: Record<string, NodeConfigTemplate[]> = {
       config: {
         routes: [
           {
-            id: `route_template_1_${Date.now()}`,
+            id: 'template-route-1',
             condition: "state.get('value', 0) > 10",
             targetEdgeKey: 'high',
             label: 'High Value',
             priority: 0,
           },
           {
-            id: `route_template_2_${Date.now()}`,
+            id: 'template-route-2',
             condition: 'True',
             targetEdgeKey: 'low',
             label: 'Low Value',
@@ -41,28 +41,28 @@ export const nodeConfigTemplates: Record<string, NodeConfigTemplate[]> = {
       config: {
         routes: [
           {
-            id: `route_template_3_${Date.now()}`,
+            id: 'template-route-3',
             condition: "state.get('value', 0) > 100",
             targetEdgeKey: 'very_high',
             label: 'Very High',
             priority: 0,
           },
           {
-            id: `route_template_4_${Date.now()}`,
+            id: 'template-route-4',
             condition: "state.get('value', 0) > 50",
             targetEdgeKey: 'high',
             label: 'High',
             priority: 1,
           },
           {
-            id: `route_template_5_${Date.now()}`,
+            id: 'template-route-5',
             condition: "state.get('value', 0) > 10",
             targetEdgeKey: 'medium',
             label: 'Medium',
             priority: 2,
           },
           {
-            id: `route_template_6_${Date.now()}`,
+            id: 'template-route-6',
             condition: 'True',
             targetEdgeKey: 'low',
             label: 'Low',

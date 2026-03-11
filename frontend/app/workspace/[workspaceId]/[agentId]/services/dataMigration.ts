@@ -85,7 +85,7 @@ export function migrateRouterNodeConfig(node: Node): Node {
   // Migrate routes
   const migratedRoutes: RouteRule[] = routes.map((route) => {
     const migrated: RouteRule = {
-      id: route.id || `route_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      id: route.id || crypto.randomUUID(),
       condition: route.condition || '',
       targetEdgeKey: route.targetEdgeKey || route.target || '',
       label: route.label || '',

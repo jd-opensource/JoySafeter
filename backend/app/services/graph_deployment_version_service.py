@@ -102,24 +102,13 @@ class GraphDeploymentVersionService(BaseService):
                 node_data["config"] = {}
 
             config = node_data.get("config", {})
-            if isinstance(config, dict):
-                # 同步数据库字段到 config（确保回滚时能恢复）
-                # prompt -> systemPrompt
-                if node.prompt and (not config.get("systemPrompt")):
-                    config["systemPrompt"] = node.prompt
-
-                # tools
-                if node.tools and (not config.get("tools")):
-                    config["tools"] = copy.deepcopy(dict(node.tools)) if node.tools else {}
-
-                node_data["config"] = config
+            if not isinstance(config, dict):
+                config = {}
+            node_data["config"] = config
 
             normalized_nodes[node_id] = {
                 "id": node_id,
                 "type": node.type,
-                "tools": copy.deepcopy(dict(node.tools)) if node.tools else {},
-                "memory": copy.deepcopy(dict(node.memory)) if node.memory else {},
-                "prompt": node.prompt or "",
                 "position": {
                     "x": float(node.position_x) if node.position_x else 0,
                     "y": float(node.position_y) if node.position_y else 0,

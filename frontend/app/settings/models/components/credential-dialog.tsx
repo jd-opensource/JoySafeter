@@ -14,6 +14,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
 import { truncateValidationError, useCreateCredential, useValidateCredential } from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
@@ -22,7 +29,6 @@ import { useTranslation } from '@/lib/i18n'
 interface ModelCredentialDialogProps {
   provider: ModelProvider
   credential?: ModelCredential
-  workspaceId?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -30,7 +36,6 @@ interface ModelCredentialDialogProps {
 export function ModelCredentialDialog({
   provider,
   credential,
-  workspaceId,
   open,
   onOpenChange,
 }: ModelCredentialDialogProps) {
@@ -39,6 +44,7 @@ export function ModelCredentialDialog({
   const createCredential = useCreateCredential()
   const validateCredential = useValidateCredential()
   const [validating, setValidating] = useState(false)
+  const [providerDisplayName, setProviderDisplayName] = useState(provider.is_template ? '' : provider.display_name)
 
   // Parse form fields from credential_schema
   const formFields = useMemo(() => {
@@ -55,6 +61,8 @@ export function ModelCredentialDialog({
         required: (schema as any).required?.includes(key) || false,
         description: value.description,
         default: value.default,
+        enum: Array.isArray(value.enum) ? value.enum : undefined,
+        enumNames: Array.isArray((value as any).enumNames) ? (value as any).enumNames : undefined,
       }))
     }
 
@@ -67,6 +75,9 @@ export function ModelCredentialDialog({
     formFields.forEach(field => {
       if (field.default !== undefined) {
         initial[field.key] = String(field.default)
+      } else if (field.enum && field.enum.length > 0) {
+        // Default first enum value for select fields (e.g. protocol_type -> openai)
+        initial[field.key] = String(field.enum[0])
       } else {
         // Don't display existing sensitive information in edit mode
         initial[field.key] = ''
@@ -110,8 +121,8 @@ export function ModelCredentialDialog({
     try {
       const data = await createCredential.mutateAsync({
         provider_name: provider.provider_name,
+        providerDisplayName: provider.is_template ? providerDisplayName.trim() : undefined,
         credentials: filteredData,
-        workspaceId,
         validate: true,
       })
 
@@ -137,6 +148,8 @@ export function ModelCredentialDialog({
       formFields.forEach(field => {
         if (field.default !== undefined) {
           initial[field.key] = String(field.default)
+        } else if (field.enum && field.enum.length > 0) {
+          initial[field.key] = String(field.enum[0])
         } else {
           initial[field.key] = ''
         }
@@ -206,6 +219,27 @@ export function ModelCredentialDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className={bodyClassName}>
+            {provider.is_template && (
+              <div>
+                <Label htmlFor="provider-display-name">
+                  {t('settings.providerDisplayName', { defaultValue: '供应商名称' })}
+                  <span className="text-destructive ml-1">*</span>
+                </Label>
+                <Input
+                  id="provider-display-name"
+                  type="text"
+                  value={providerDisplayName}
+                  onChange={(e) => setProviderDisplayName(e.target.value)}
+                  placeholder={t('settings.enterProviderDisplayName', { defaultValue: '例如：DeepSeek、Groq' })}
+                  required
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('settings.providerDisplayNameHint', { defaultValue: '为此供应商实例起一个名字' })}
+                </p>
+                <div className="h-4" /> {/* Spacer */}
+              </div>
+            )}
             {formFields.length === 0 ? (
               <div>
                 <Label htmlFor="api_key">{t('settings.apiKeyLabel', { defaultValue: 'API Key' })}</Label>
@@ -222,24 +256,51 @@ export function ModelCredentialDialog({
             ) : (
               formFields.map(field => {
                 const fieldDescription =
-                  provider.provider_name === 'openaiapicompatible' && field.key === 'base_url'
+                  (provider.provider_name === 'openaiapicompatible' && field.key === 'base_url')
                     ? t('settings.baseUrlDescription')
-                    : field.description
+                    : (provider.provider_name === 'custom' && field.key === 'base_url')
+                      ? t('settings.baseUrlDescription')
+                      : field.description
+                const isEnum = field.enum && field.enum.length > 0
+                const options = isEnum
+                  ? (field.enum as string[]).map((val, i) => ({
+                    value: String(val),
+                    label: (field.enumNames && field.enumNames[i]) ? String(field.enumNames[i]) : String(val),
+                  }))
+                  : []
                 return (
                   <div key={field.key}>
                     <Label htmlFor={field.key}>
                       {field.label}
                       {field.required && <span className="text-destructive ml-1">*</span>}
                     </Label>
-                    <Input
-                      id={field.key}
-                      type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
-                      value={formData[field.key] || ''}
-                      onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
-                      placeholder={fieldDescription || field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
-                      required={field.required}
-                      className="mt-1"
-                    />
+                    {isEnum ? (
+                      <Select
+                        value={(formData[field.key] || options[0]?.value) ?? ''}
+                        onValueChange={(val) => setFormData({ ...formData, [field.key]: val })}
+                      >
+                        <SelectTrigger id={field.key} className="mt-1">
+                          <SelectValue placeholder={field.label} />
+                        </SelectTrigger>
+                        <SelectContent position="popper" className="z-[10000001]">
+                          {options.map(opt => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id={field.key}
+                        type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
+                        value={formData[field.key] || ''}
+                        onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                        placeholder={fieldDescription || field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
+                        required={field.required}
+                        className="mt-1"
+                      />
+                    )}
                     {fieldDescription && (
                       <p className="text-xs text-muted-foreground mt-1">{fieldDescription}</p>
                     )}

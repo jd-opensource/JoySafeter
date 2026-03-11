@@ -29,16 +29,20 @@ class BaseProvider(ABC):
     - create_model_instance: 创建模型实例
     """
 
-    def __init__(self, provider_name: str, display_name: str):
+    def __init__(self, provider_name: str, display_name: str, is_template: bool = False, provider_type: str = "system"):
         """
         初始化供应商
 
         Args:
             provider_name: 供应商唯一标识（如 'openai'）
             display_name: 显示名称（如 'OpenAI'）
+            is_template: 是否为模板（用于创建自定义供应商）
+            provider_type: 供应商类型：system, custom
         """
         self.provider_name = provider_name
         self.display_name = display_name
+        self.is_template = is_template
+        self.provider_type = provider_type
 
     @abstractmethod
     def get_supported_model_types(self) -> List[ModelType]:

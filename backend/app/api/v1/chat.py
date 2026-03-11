@@ -397,6 +397,7 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession):
             base_url=None,
             llm_model=None,
             max_tokens=4096,
+            user_id=str(user_id),
         )
 
         # 验证是否获取到有效的凭据

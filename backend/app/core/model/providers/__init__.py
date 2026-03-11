@@ -8,8 +8,8 @@ import pkgutil
 from pathlib import Path
 from typing import List, Optional, Type
 
-from .AiSafety import AiSafetyProvider
 from .base import BaseProvider, ModelType
+from .Custom import CustomProvider
 
 # 向后兼容：显式导入现有 provider（避免破坏现有代码）
 from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
@@ -95,7 +95,7 @@ __all__ = [
     "BaseProvider",
     "ModelType",
     "OpenAIAPICompatibleProvider",
-    "AiSafetyProvider",
+    "CustomProvider",
     "get_all_provider_classes",
     "get_all_provider_instances",
 ]

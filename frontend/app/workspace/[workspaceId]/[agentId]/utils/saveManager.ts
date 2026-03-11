@@ -22,6 +22,7 @@ export interface GraphState {
   edges: Edge[]
   viewport?: { x: number; y: number; zoom: number }
   graphStateFields?: any[]
+  fallbackNodeId?: string | null
   lastSavedStateHash?: string | null
 }
 
@@ -67,7 +68,8 @@ export class SaveManager {
     const currentHash = computeGraphStateHash(
       state.nodes,
       state.edges,
-      state.graphStateFields
+      state.graphStateFields,
+      state.fallbackNodeId
     )
 
     // 优先从 state 同步 hash（如果 SaveManager 的 hash 还未设置，或者 state 中的 hash 更新）
@@ -104,7 +106,10 @@ export class SaveManager {
         edges: deduplicatedEdges,
         viewport: state.viewport,
         variables: {
-          state_fields: state.graphStateFields
+          state_fields: state.graphStateFields,
+          ...(state.fallbackNodeId != null && state.fallbackNodeId !== ''
+            ? { fallback_node_id: state.fallbackNodeId }
+            : {}),
         },
       })
 

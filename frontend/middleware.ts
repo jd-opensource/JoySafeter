@@ -174,6 +174,7 @@ function generateCSPHeader(
   // PublicEnvScript (next-runtime-env) inline script hash
   const inlineScriptHashes = [
     "'sha256-z0nb1PpkFco8UDVc/Xq/SKYGByn8TQYxeliFAv309DM='",
+    "'sha256-hweB5ft6P5GckAdddQeQ/oIE/5wsGJGlNDKQmAvF9CU='"
   ]
 
   // 从 NEXT_PUBLIC_API_URL 自动推导后端域名（含端口通配，覆盖同主机 MCP 等服务）

@@ -64,13 +64,15 @@ def _make_node(
     n.position_y = position_y
     n.width = 200
     n.height = 100
-    n.prompt = prompt
-    n.tools = tools or {}
-    n.memory = memory or {}
+    cfg = dict(config or {})
+    if prompt and "systemPrompt" not in cfg:
+        cfg["systemPrompt"] = prompt
+    if tools and "tools" not in cfg:
+        cfg["tools"] = tools
     data = {
         "type": node_type,
         "label": label,
-        "config": config or {},
+        "config": cfg,
     }
     n.data = data
     return n

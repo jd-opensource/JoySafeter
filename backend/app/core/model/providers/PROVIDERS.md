@@ -261,16 +261,16 @@ MYPROVIDER_REGION=us-east-1
 - 使用小写字母
 - 可以使用连字符 `-`（会自动转换为下划线）
 - 建议使用简洁、描述性的名称
-- 示例：`openaiapicompatible`, `aisafety`, `anthropic`
+- 示例：`openaiapicompatible`, `custom`, `anthropic`, `gemini`
 
 ## 示例：完整的新 Provider
 
 参考以下现有实现作为示例：
 
 - **OpenAI API Compatible**: `OpenaiApiCompatible.py`
-- **AiSafety**: `AiSafety.py`
+- **自定义模型 (Custom)**: `Custom.py`（类名 `CustomProvider`，provider_name=`custom`）
 
-这些文件展示了完整的实现模式。
+**自定义模型**：用户可选择协议类型（OpenAI / Anthropic / Google Gemini），配置 API Key 与 Base URL 后，通过「添加自定义模型」填写具体模型名，无预定义模型列表。原 AiSafety Provider 已由此替代，原 `aisafety` 凭据需在「自定义模型」中重新配置（协议选 OpenAI 等）。
 
 ## 自动发现机制
 
@@ -291,7 +291,7 @@ MYPROVIDER_REGION=us-east-1
 现有的硬编码配置仍然有效：
 
 - `openaiapicompatible`: 优先使用 `openai_api_key` 和 `openai_base_url`
-- `aisafety`: 优先使用 `aisafety_api_key` 和 `aisafety_base_url`
+- `custom`: 自定义模型凭据（含 `protocol_type`、`api_key`、`base_url`），从前端配置
 
 如果硬编码字段不存在，系统会自动尝试从环境变量读取（使用动态命名约定）。
 

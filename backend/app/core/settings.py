@@ -243,10 +243,21 @@ class Settings(BaseSettings):
     def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
         """解析 CORS origins，支持字符串（逗号分隔或单个值）和列表格式"""
         if isinstance(v, str):
-            # 如果是字符串，按逗号分割并去除空白
+            v = v.strip()
+            # 支持 JSON 数组格式，例如 ["http://localhost:3000"]
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    import json
+
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [str(origin).strip() for origin in parsed if origin]
+                except Exception:
+                    pass
+            # 如果是普通的逗号分隔字符串
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         elif isinstance(v, list):
-            return v
+            return [str(origin).strip() for origin in v if origin]
         else:
             return []
 

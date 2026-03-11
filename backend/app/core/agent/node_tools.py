@@ -37,15 +37,14 @@ def extract_tools_config(node: GraphNode) -> Optional[dict]:
     Extract tools config dict from a GraphNode.
 
     Preference order:
-    1) node.data.config.tools (frontend canonical)
-    2) node.tools (DB dedicated field)
-    3) node.data.tools (legacy)
+    1) node.data.config.tools (canonical)
+    2) node.data.tools (legacy)
     """
     data = node.data or {}
     config = data.get("config", {}) if isinstance(data, dict) else {}
     tools_from_config = config.get("tools") if isinstance(config, dict) else None
 
-    tools_dict = _first_dict(tools_from_config, node.tools, data.get("tools") if isinstance(data, dict) else None)
+    tools_dict = _first_dict(tools_from_config, data.get("tools") if isinstance(data, dict) else None)
     if not tools_dict:
         return None
     return tools_dict

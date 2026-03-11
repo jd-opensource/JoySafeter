@@ -152,9 +152,7 @@ class BaseGraphBuilder(ABC):
         return str(node_name) if node_name is not None else ""
 
     def _get_system_prompt_from_node(self, node: GraphNode) -> Optional[str]:
-        """Extract system prompt from node configuration."""
-        if node.prompt:
-            return node.prompt
+        """Extract system prompt from node configuration (data.config only)."""
         data = node.data or {}
         config: Dict[str, Any] = data.get("config", {})
         return config.get("systemPrompt", "") or config.get("prompt", "") or None
@@ -354,7 +352,6 @@ class BaseGraphBuilder(ABC):
 
     async def _resolve_by_model_service(self, provider_name: Optional[str], model_name: str) -> Any:
         """Try to resolve model via ModelService (exact or name-based lookup)."""
-        workspace_id = getattr(self.graph, "workspace_id", None)
         try:
             from typing import cast
 
@@ -364,13 +361,11 @@ class BaseGraphBuilder(ABC):
                     user_id=str(self.user_id) if self.user_id else "system",
                     provider_name=provider_name,
                     model_name=model_name,
-                    workspace_id=workspace_id,
                     use_default=False,
                 )
             else:
                 model = await model_service.get_runtime_model_by_name(
-                    model_name=model_name,
-                    workspace_id=workspace_id,
+                    model_name=model_name, user_id=str(self.user_id) if self.user_id else None
                 )
             logger.info(
                 f"[BaseGraphBuilder] Resolved model via ModelService | provider={provider_name} | model={model_name}"
@@ -390,10 +385,8 @@ class BaseGraphBuilder(ABC):
             from typing import cast
 
             model_service = cast(Any, self.model_service)
-            workspace_id = getattr(self.graph, "workspace_id", None)
             default_model = await model_service.get_model_instance(
                 user_id=str(self.user_id) if self.user_id else "system",
-                workspace_id=workspace_id,
                 use_default=True,
             )
             logger.info(
@@ -738,14 +731,12 @@ class BaseGraphBuilder(ABC):
             memory_model = None
             if self.model_service and memory_model_name:
                 try:
-                    workspace_id = getattr(self.graph, "workspace_id", None)
                     # If provider is known, prefer exact match
                     if memory_provider_name:
                         memory_model = await self.model_service.get_model_instance(
                             user_id=str(self.user_id) if self.user_id else "system",
                             provider_name=memory_provider_name,
                             model_name=str(memory_model_name),
-                            workspace_id=workspace_id,
                             use_default=False,
                         )
                         logger.info(
@@ -754,8 +745,7 @@ class BaseGraphBuilder(ABC):
                         )
                     else:
                         memory_model = await self.model_service.get_runtime_model_by_name(
-                            model_name=str(memory_model_name),
-                            workspace_id=workspace_id,
+                            model_name=str(memory_model_name), user_id=str(self.user_id) if self.user_id else None
                         )
                         logger.info(
                             f"[BaseGraphBuilder._resolve_memory_middleware] Successfully resolved memory model "

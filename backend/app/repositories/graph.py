@@ -9,32 +9,50 @@ from typing import List, Optional
 
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.graph import AgentGraph, GraphEdge, GraphNode
 
 from .base import BaseRepository
 
 
+def _graph_not_deleted(query):
+    """Filter out soft-deleted graphs."""
+    return query.where(AgentGraph.deleted_at.is_(None))
+
+
 class GraphRepository(BaseRepository[AgentGraph]):
-    """Agent Graph Repository"""
+    """Agent Graph Repository (soft-delete aware)"""
 
     def __init__(self, db: AsyncSession):
         super().__init__(AgentGraph, db)
 
+    async def get(self, id: uuid.UUID, relations: Optional[List[str]] = None):
+        """Get graph by ID; returns None if deleted."""
+        query = select(AgentGraph).where(AgentGraph.id == id)
+        query = _graph_not_deleted(query)
+        if relations:
+            for rel in relations:
+                if hasattr(AgentGraph, rel):
+                    query = query.options(selectinload(getattr(AgentGraph, rel)))
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
     async def list_by_user(self, user_id: str) -> List[AgentGraph]:
-        """根据用户ID获取所有图"""
+        """根据用户ID获取所有图（排除已软删除）"""
         query = select(AgentGraph).where(AgentGraph.user_id == user_id)
+        query = _graph_not_deleted(query)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def list_by_workspace(self, workspace_id: uuid.UUID) -> List[AgentGraph]:
         """根据工作空间ID获取所有图"""
-        # workspace_id field not in database, return empty list
         return []
 
     async def list_by_parent(self, parent_id: uuid.UUID) -> List[AgentGraph]:
-        """根据父图ID获取子图列表"""
+        """根据父图ID获取子图列表（排除已软删除）"""
         query = select(AgentGraph).where(AgentGraph.parent_id == parent_id)
+        query = _graph_not_deleted(query)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
@@ -44,30 +62,14 @@ class GraphRepository(BaseRepository[AgentGraph]):
         parent_id: Optional[uuid.UUID] = None,
         workspace_id: Optional[uuid.UUID] = None,
     ) -> List[AgentGraph]:
-        """
-        根据用户ID获取图列表，支持额外的过滤条件
-
-        Args:
-            user_id: 用户ID（必需）
-            parent_id: 父图ID（可选，用于过滤子图）
-            workspace_id: 工作空间ID（可选，用于过滤工作空间下的图）
-
-        Returns:
-            符合条件的图列表，按更新时间倒序排列（最新的在前）
-        """
+        """根据用户ID获取图列表（排除已软删除）"""
         query = select(AgentGraph).where(AgentGraph.user_id == user_id)
-
-        # 添加 parent_id 过滤（如果提供）
+        query = _graph_not_deleted(query)
         if parent_id is not None:
             query = query.where(AgentGraph.parent_id == parent_id)
-
-        # 添加 workspace_id 过滤（如果提供）
         if workspace_id is not None:
             query = query.where(AgentGraph.workspace_id == workspace_id)
-
-        # 按更新时间倒序排列（最新的在前），如果更新时间相同则按ID倒序排列以确保排序稳定
         query = query.order_by(AgentGraph.updated_at.desc(), AgentGraph.id.desc())
-
         result = await self.db.execute(query)
         return list(result.scalars().all())
 

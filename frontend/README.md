@@ -257,20 +257,25 @@ npm run build
 使用 Docker 进行部署，Dockerfile 位于 `deploy/docker/frontend.Dockerfile`。
 
 详细部署说明请参考：
-- [Docker 部署文档](../deploy/docker/DOCKER_DEPLOYMENT.md)
-- [前端 Docker 说明](./DOCKER_README.md)
+- [Deploy - Docker 部署配置](../deploy/README.md)
+- [生产环境 & 指定前后端 IP/域名 最佳实践](../deploy/PRODUCTION_IP_GUIDE.md)
 
 快速部署：
 
 ```bash
-# 从项目根目录
-cd /path/to/agent-platform
-./deploy/docker/docker-start.sh
+# 开发快速启动（本机）
+cd deploy
+./quick-start.sh
+
+# 生产部署（服务器）
+./scripts/prod.sh
 ```
 
 ### 环境变量
 
 生产环境需要配置以下环境变量：
+
+提示：在 Docker Compose 部署场景下，`NEXT_PUBLIC_API_URL` 通常由 `deploy/.env` 中的 `BACKEND_URL` 注入，无需手动设置。
 
 **必需变量：**
 - `NEXT_PUBLIC_API_URL` - 后端 API 地址

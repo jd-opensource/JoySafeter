@@ -26,7 +26,7 @@ class ModelProvider(BaseModel):
     description: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="供应商描述")
 
     # 支持的模型类型列表，如 ["llm", "chat", "embedding", "rerank", "speech_to_text", "text_to_speech", "moderation"]
-    supported_model_types: Mapped[dict] = mapped_column(
+    supported_model_types: Mapped[list] = mapped_column(
         JSON, nullable=False, default=list, comment="支持的模型类型列表"
     )
 
@@ -37,6 +37,19 @@ class ModelProvider(BaseModel):
 
     # 配置规则（参数规则）
     config_schema: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="模型参数配置规则")
+
+    # 是否为模板（用于创建自定义供应商）
+    is_template: Mapped[bool] = mapped_column(
+        default=False, nullable=False, comment="是否为模板（用于创建自定义供应商）"
+    )
+
+    # 模板名称（如果provider_type是custom，则引用其模板的名称）
+    template_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="引用模板的名称")
+
+    # 供应商类型：system, custom
+    provider_type: Mapped[str] = mapped_column(
+        String(50), default="system", nullable=False, comment="供应商类型：system, custom"
+    )
 
     # 是否启用
     is_enabled: Mapped[bool] = mapped_column(default=True, nullable=False, comment="是否启用该供应商")
