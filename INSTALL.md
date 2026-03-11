@@ -4,23 +4,19 @@ Below you will find comprehensive setup instructions depending on your deploymen
 
 ## Prerequisites
 
-| Requirement | Version |
-|-------------|---------|
-| Docker | 20.10+ |
-| Docker Compose | 2.0+ |
-| Python | 3.12+ (for local development) |
-| Node.js | 20+ (for local development) |
-| PostgreSQL | 15+ (optional, if not using Docker) |
-| Redis | 7+ (required, used for caching and session management) |
+- Docker 20.10+ and Docker Compose 2.0+
+- Python 3.12+ and Node.js 20+ (only for local development)
+- PostgreSQL/Redis are included in Docker deployment
 
-## Solution 1: One-Click Run (Recommended)
+## Recommended: One-Click Run (Docker)
 
 ```bash
-# Initialize environment & Build images locally & Start services automatically
-sh deploy/quick-start.sh
+./deploy/quick-start.sh
 ```
 
-## Solution 2: Manual Deployment
+> For production and advanced deployment scenarios (pre-built images, custom registry, middleware-only, etc.), use the scenario scripts and docs under: [deploy/README.md](deploy/README.md).
+
+## Manual Deployment
 
 ```bash
 cd deploy
@@ -48,28 +44,26 @@ docker compose -f docker-compose.yml down
 
 ## Using Pre-built Docker Images
 
-We provide pre-built Docker images on GitHub Container Registry. You can use them directly:
+We provide pre-built Docker images on Docker Hub:
+
+- `docker.io/jdopensource/joysafeter-backend:latest`
+- `docker.io/jdopensource/joysafeter-frontend:latest`
+- `docker.io/jdopensource/joysafeter-mcp:latest`
+
+Use them via:
 
 ```bash
-# Pull images from GitHub Container Registry
-docker pull docker.io/jdopensource/joysafeter-backend:latest
-docker pull docker.io/jdopensource/joysafeter-frontend:latest
-docker pull docker.io/jdopensource/joysafeter-mcp:latest
-
-# Or use docker-compose with pre-built images
 cd deploy
 export DOCKER_REGISTRY=docker.io/jdopensource
 docker-compose -f docker-compose.yml up -d
 ```
 
-**Available Images:**
-- `docker.io/jdopensource/joysafeter-backend:latest` - Backend API service
-- `docker.io/jdopensource/joysafeter-frontend:latest` - Frontend web application
-- `docker.io/jdopensource/joysafeter-mcp:latest` - MCP server with security tools
-
 All images support multi-architecture (amd64, arm64).
 
-## Alternative Setup Methods
+## Other setup methods
+
+> The deploy module is the single source of truth for all Docker scenarios:
+> [deploy/README.md](deploy/README.md)
 
 ### Option 1: Interactive Installation
 

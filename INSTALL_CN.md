@@ -4,23 +4,19 @@
 
 ## 环境要求
 
-| 依赖 | 版本 |
-|------|------|
-| Docker | 20.10+ |
-| Docker Compose | 2.0+ |
-| Python | 3.12+（本地开发需要） |
-| Node.js | 20+（本地开发需要） |
-| PostgreSQL | 15+（不使用 Docker 时需要） |
-| Redis | 7+（不使用 Docker 时需要） |
+- Docker 20.10+ 与 Docker Compose 2.0+
+- Python 3.12+ 与 Node.js 20+（仅本地开发需要）
+- PostgreSQL/Redis 在 Docker 部署场景下会自动包含
 
-## 方案一：一键运行（推荐）
+## 推荐：一键启动（Docker）
 
 ```bash
-# 一键初始化环境 & 本地构建镜像 & 自动启动
-sh deploy/quick-start.sh
+./deploy/quick-start.sh
 ```
 
-## 方案二：手动部署
+> 生产与更多 Docker 场景（预构建镜像、自定义 registry、仅中间件等）请以 [deploy/README.md](deploy/README.md) 为准。
+
+## 手动部署
 
 ```bash
 cd deploy
@@ -50,28 +46,25 @@ docker compose logs
 
 ## 使用预构建的 Docker 镜像
 
-我们在 GitHub Container Registry 提供了预构建的 Docker 镜像，您可以直接使用：
+我们提供预构建镜像（Docker Hub）：
+
+- `docker.io/jdopensource/joysafeter-backend:latest`
+- `docker.io/jdopensource/joysafeter-frontend:latest`
+- `docker.io/jdopensource/joysafeter-mcp:latest`
+
+使用方式：
 
 ```bash
-# 拉取镜像
-docker pull docker.io/jdopensource/joysafeter-backend:latest
-docker pull docker.io/jdopensource/joysafeter-frontend:latest
-docker pull docker.io/jdopensource/joysafeter-mcp:latest
-
-# 或者使用 docker-compose 搭配预构建镜像
 cd deploy
 export DOCKER_REGISTRY=docker.io/jdopensource
 docker-compose -f docker-compose.yml up -d
 ```
 
-**可用镜像：**
-- `docker.io/jdopensource/joysafeter-backend:latest` - 后端 API 服务
-- `docker.io/jdopensource/joysafeter-frontend:latest` - 前端 Web 应用
-- `docker.io/jdopensource/joysafeter-mcp:latest` - 包含安全工具的 MCP 服务
-
 所有镜像均支持多架构（amd64, arm64）。
 
 ## 其他配置方式
+
+> Docker 部署场景的单一入口： [deploy/README.md](deploy/README.md)
 
 ### 方式 1：交互式安装
 
