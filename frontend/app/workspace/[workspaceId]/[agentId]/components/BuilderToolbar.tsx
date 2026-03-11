@@ -12,9 +12,11 @@ import {
   Loader2,
   History,
   ShieldCheck,
-  FileJson,
   Database,
+  Terminal,
+  FileJson,
 } from 'lucide-react'
+import { useParams } from 'next/navigation'
 import React, { useRef, useState, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -40,6 +42,7 @@ import { useDeploymentStore } from '@/stores/deploymentStore'
 import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/executionStore'
 
+import { ApiAccessDialog } from './ApiAccessDialog'
 import { DeploymentHistoryPanel } from './DeploymentHistoryPanel'
 
 interface BuilderToolbarProps {
@@ -57,6 +60,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
   agentId,
   nodesCount = 0,
 }) => {
+  const { workspaceId = '' } = useParams() as { workspaceId: string }
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -81,6 +85,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showDeploymentHistory, setShowDeploymentHistory] = useState(false)
+  const [showApiAccess, setShowApiAccess] = useState(false)
 
   // Sync deployment status with builderStore
   useEffect(() => {
@@ -170,15 +175,15 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
 
   const getDeployText = () => {
     if (isDeploying) {
-      return t('workspace.deploying')
+      return t('workspace.deploying', { defaultValue: '发布中' })
     }
     if (deploymentStatus?.isDeployed) {
       if ((deploymentStatus as any).needsRedeployment) {
-        return t('workspace.redeploy')
+        return t('workspace.publishUpdate', { defaultValue: '发布更新' })
       }
-      return t('workspace.active')
+      return t('workspace.activeDeploymentShort', { defaultValue: '已发布' })
     }
-    return t('workspace.deploy')
+    return t('workspace.publish', { defaultValue: '发布' })
   }
 
   const isDeployed = deploymentStatus?.isDeployed || false
@@ -277,34 +282,70 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
 
           {/* Right: Action Buttons */}
           <div className="flex items-center gap-2">
-            {/* Deploy Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
+            {/* Deploy Dropdown */}
+            <DropdownMenu>
+              <div className="flex rounded-md shadow-sm hover:shadow transition-all group">
+                {/* Main Deploy Action Button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        size="sm"
+                        onClick={handleDeploy}
+                        disabled={isDeploying || nodesCount === 0}
+                        className={cn(
+                          'h-7 px-3 gap-1.5 text-[13px] font-medium transition-all rounded-r-none',
+                          isDeployed
+                            ? needsRedeployment
+                              ? 'bg-primary hover:bg-primary/90 text-primary-foreground border border-primary border-r-white/20'
+                              : 'bg-green-100 hover:bg-green-200 text-green-800 border border-green-300 border-r-green-400/50'
+                            : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 border-r-black/10'
+                        )}
+                        style={{ borderRightWidth: '1px' }}
+                      >
+                        {isDeploying ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Rocket size={13} strokeWidth={2} />
+                        )}
+                        <span>{getDeployText()}</span>
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{getDeployTooltip()}</TooltipContent>
+                </Tooltip>
+
+                {/* Dropdown Trigger */}
+                <DropdownMenuTrigger asChild>
                   <Button
                     size="sm"
-                    onClick={handleDeploy}
-                    disabled={isDeploying || nodesCount === 0}
                     className={cn(
-                      'h-7 px-3 gap-1.5 text-[13px] font-medium rounded-md transition-all',
+                      'h-7 px-1 rounded-l-none transition-all',
                       isDeployed
                         ? needsRedeployment
-                          ? 'bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200'
-                          : 'bg-green-50 hover:bg-green-100 text-green-700 border border-green-200'
-                        : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 shadow-sm hover:shadow'
+                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground border border-l-0 border-primary'
+                          : 'bg-green-100 hover:bg-green-200 text-green-800 border border-l-0 border-green-300'
+                        : 'bg-white hover:bg-gray-50 text-gray-700 border border-l-0 border-gray-200'
                     )}
                   >
-                    {isDeploying ? (
-                      <Loader2 size={13} className="animate-spin" />
-                    ) : (
-                      <Rocket size={13} strokeWidth={2} />
-                    )}
-                    <span>{getDeployText()}</span>
+                    <ChevronDown size={14} />
                   </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{getDeployTooltip()}</TooltipContent>
-            </Tooltip>
+                </DropdownMenuTrigger>
+              </div>
+
+              <DropdownMenuContent align="end" side="bottom" sideOffset={8}>
+                <DropdownMenuItem onClick={handleDeploy} disabled={isDeploying || nodesCount === 0}>
+                  <Rocket size={14} className="mr-2" />
+                  {getDeployText()}
+                </DropdownMenuItem>
+                {agentId && (
+                  <DropdownMenuItem onClick={() => setShowApiAccess(true)}>
+                    <Terminal size={14} className="mr-2" />
+                    Access API
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {/* Run Button */}
             <Button
@@ -340,6 +381,16 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
           open={showDeploymentHistory}
           onOpenChange={setShowDeploymentHistory}
           nodesCount={nodesCount}
+        />
+      )}
+
+      {/* API Access Dialog */}
+      {agentId && (
+        <ApiAccessDialog
+          open={showApiAccess}
+          onOpenChange={setShowApiAccess}
+          agentId={agentId}
+          workspaceId={workspaceId}
         />
       )}
     </>
