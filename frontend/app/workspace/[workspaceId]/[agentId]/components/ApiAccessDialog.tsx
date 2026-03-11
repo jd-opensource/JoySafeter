@@ -166,12 +166,12 @@ export function ApiAccessDialog({
               {/* Documentation Link */}
               <div className="pt-2">
                 <a
-                  href="https://github.com/refly-ai/refly/blob/main/docs/en/guide/api/openapi.md"
+                  href="https://github.com/jd-opensource/JoySafeter/blob/main/docs/api/openapi.md"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-blue-600 hover:text-blue-700 hover:underline font-medium inline-flex items-center"
                 >
-                  View Full API Documentation
+                  {t('workspace.viewFullApiDocs', { defaultValue: 'View Full API Documentation' })}
                   <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
