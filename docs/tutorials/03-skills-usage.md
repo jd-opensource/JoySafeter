@@ -134,8 +134,8 @@ docker exec -it <你的容器ID> ls -l /workspace/skills
    - 打开右上角的 **【Action Logs（动作执行日志）】**，你会清晰地看到大模型生成的代码。
    - 看到最后的输出 `Success! Wrote to /workspace/verification.log`。
 
-**核心结论：** 
-至此，一个 Skill 走完了它的一生： 
+**核心结论：**
+至此，一个 Skill 走完了它的一生：
 「你手写的 `verify.py`」 -> 「封装进带 YAML 的 `.zip`」 -> 「存入 `SkillService` 数据库通过安检」 -> 「`SkillSandboxLoader` 打包推送到专属 OpenClaw 容器内落盘」 -> 「Graph 引擎中的 Agent 节点挂载描述文件」 -> 「大模型在隔离环境中动态运行你的代码」。这就是 JoySafeter 安全、合规、可复用的高阶本地技能管线架构。
 
 ## 3. 前端 UI 管控与发布市场真实案例 (Marketplace)

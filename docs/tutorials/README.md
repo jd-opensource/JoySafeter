@@ -24,7 +24,7 @@
 
 1. **教程 01**：配置模型（OpenAI 或本地 Ollama）
 2. **教程 05**：用 Copilot 与 Agent 进行第一次对话
-3. **教程 04**（案例 1）：构建一个简单的线性 3 步工作流
+3. **教程 04a**：构建一个简单的线性 3 步工作流
 
 ### 🔧 完整功能（1 小时）
 
@@ -32,12 +32,12 @@
 2. **教程 06**：启动 OpenClaw，并验证 skills 同步与预加载链路（后续所有“可执行工具/脚本”的前提）
 3. **教程 03**：导入 Skills，并跑通“DB →（可选）OpenClaw → Sandbox/Graph → Agent 消费”的闭环
 4. **教程 02**：添加自定义 MCP 工具（让 Skill 不只是文档，而是可调用的工具能力）
-5. **教程 04**（案例 2-5）：掌握条件分支、循环、并行、DeepAgents
+5. **教程 04a & 04b**：掌握条件分支、循环、并行、DeepAgents 协作模式
 
 ### 🏆 高级应用
 
 - 结合教程 02 + 04 + 05，构建完整的自动化渗透测试工作流
-- 使用 DeepAgents 模式（教程 04 案例 6）构建 Manager-Worker 多 Agent 系统
+- 使用 DeepAgents 模式（教程 04b）构建 Manager-Worker 多 Agent 系统
 - 通过 Copilot 的 Human-in-the-Loop（教程 05 案例 B）实现审批流程
 
 ---

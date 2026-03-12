@@ -19,9 +19,9 @@ MCP（Model Context Protocol）是一种让 Agent 调用外部工具的标准协
 
 当前教程最大的问题是把两条不同链路混在一起讲：
 
-- **链路 1：本地 skills/ 目录 → convert → converted_skills.json → 前端 Skills 列表**  
+- **链路 1：本地 skills/ 目录 → convert → converted_skills.json → 前端 Skills 列表**
   这是“把工具能力包装成 Skills 内容/元数据”的导入链路，重点在**内容分发与索引**。
-- **链路 2：MCP Server（DB 配置）→ 连接 → 拉取 tools → ToolRegistry 注册 → Graph 节点引用**  
+- **链路 2：MCP Server（DB 配置）→ 连接 → 拉取 tools → ToolRegistry 注册 → Graph 节点引用**
   这是“运行时工具系统”，重点在**连接、权限、注册与调用**。
 
 两条链路都能让 Agent“看起来能用工具”，但它们的运行时语义和排障路径完全不同。
@@ -43,11 +43,11 @@ MCP（Model Context Protocol）是一种让 Agent 调用外部工具的标准协
 MCP tools 不会直接“写死在代码里”，而是在启动或你启用 server 后动态注册到 registry：
 
 - 注册逻辑：`backend/app/core/tools/tool_registry.py`
-- MCP tool 的标识格式：`server_name::tool_name`  
+- MCP tool 的标识格式：`server_name::tool_name`
   代码里有专门的 separator 与 parse（`make_mcp_tool_key` / `parse_mcp_tool_key`）
 
-**关键理解点**：  
-- `tool.name` 仍然是 MCP 原始工具名（LLM 会看到）  
+**关键理解点**：
+- `tool.name` 仍然是 MCP 原始工具名（LLM 会看到）
 - `tool.label_name` 才是 `server::tool`（用于管理/显示/选择）
 
 ### 3）Graph 节点如何引用 MCP 工具
@@ -84,7 +84,7 @@ Graph 节点的 tools 配置结构（后端注释写得很直白）：
 ## 调试与排障（按层定位，不要靠猜）
 
 ### A. 节点配置层（Graph / Agent）
-- 确认 node tools 的 mcp 项是否是 `server::tool` 格式  
+- 确认 node tools 的 mcp 项是否是 `server::tool` 格式
 - 任何缺少 `::` 的值都会被当成非 MCP tool，导致解析失败
 
 ### B. Server 层（DB 记录是否存在/启用）
@@ -107,7 +107,7 @@ Graph 节点的 tools 配置结构（后端注释写得很直白）：
    - 是否需要人工确认（Human-in-the-loop）
    - 是否需要沙箱/网络隔离（避免越权访问内网资源）
 
-2. “仅在 manifest.md 写 Safety Notes”是不够的  
+2. “仅在 manifest.md 写 Safety Notes”是不够的
    安全策略必须落到：
    - 工具注册时的 `requires_confirmation`（如果你有这类机制）
    - 或 Graph 节点中断（教程 05 里会讲）
@@ -118,7 +118,7 @@ Graph 节点的 tools 配置结构（后端注释写得很直白）：
 
 ## 真实可跑：用 JoySafeter 自己的 MCP API 接入一个 MCP Server（端到端示例）
 
-> 目的：给出“能跑”的最小闭环：**创建 server → 测试连接 → 刷新/列出 tools → 节点引用格式 → 执行**。  
+> 目的：给出“能跑”的最小闭环：**创建 server → 测试连接 → 刷新/列出 tools → 节点引用格式 → 执行**。
 > 你可以先不改任何前端代码，直接用 curl 验证 MCP 链路打通。
 
 ### 前置：你需要一个可访问的 MCP Server URL（streamable-http）

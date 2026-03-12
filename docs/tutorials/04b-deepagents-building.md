@@ -34,7 +34,7 @@
   - `web_investigator`：擅长网页木马与 XSS 反查。
   - `network_investigator`：擅长流量抓包与内网渗透回溯。
   - `report_writer`：只负责把调查结果清洗汇编成高管能看的 Markdown 早报。
-  
+
   请分析用户给出的被攻击现象，动态组合并分派任务给最合适的人。必须等到他们都汇报结果后，由你整合最终方案回复给人类。
   ```
 - **Description（关键字段）**：在这个模式下，Manager 必须要在下方的“Agent Description”框里填入简单明了的短句，比如：“安全响应总指挥官”。
@@ -63,7 +63,73 @@
 
 ---
 
-## 2. 闭环验证：一句话唤起一支军队
+## 2. 实操：一键导入并运行你的 DeepAgents 团队
+
+为了让你直观感受“老板分活”的威力，我们提供了一个 **“多兵种安全应急小组”** 的导入 JSON。
+
+### 2.1 复制以下测试 JSON
+
+```json
+{
+  "name": "DeepAgents 安全小组 demo",
+  "description": "演示 Manager 节点如何动态调遣 SubAgents 进行异步协作。",
+  "nodes": [
+    {
+      "id": "a1b1c1d1-e1f1-4111-a1b1-c1d1e1f1a1b1",
+      "type": "agent",
+      "label": "安全响应中心 (Manager)",
+      "config": {
+        "useDeepAgents": true,
+        "systemPrompt": "你是一个安全应急响应 Manager。你会通过调用子智能体来处理安全威胁。请分析用户问题，分派给 web_analyst 或 report_specialist。",
+        "description": "安全指挥官",
+        "model": "gpt-4o"
+      }
+    },
+    {
+      "id": "b2b2c2d2-e2f2-4222-b2b2-c2d2e2f2b2b2",
+      "type": "agent",
+      "label": "Web 漏洞专家 (Worker)",
+      "config": {
+        "systemPrompt": "你是一个 Web 安全专家。你的任务是分析日志并识别木马或 SQL 注入特征。",
+        "description": "web_analyst",
+        "model": "gpt-4o"
+      }
+    },
+    {
+      "id": "c3c3c3d3-e3f3-4333-c3c3-c3d3e3f3c3c3",
+      "type": "agent",
+      "label": "报告编写员 (Worker)",
+      "config": {
+        "systemPrompt": "你是一个专业的文案。根据专家提供的技术数据，生成一份极其正式的安全通报。",
+        "description": "report_specialist",
+        "model": "gpt-4o"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "a1b1c1d1-e1f1-4111-a1b1-c1d1e1f1a1b1",
+      "target": "b2b2c2d2-e2f2-4222-b2b2-c2d2e2f2b2b2",
+      "edge_type": "normal"
+    },
+    {
+      "source": "a1b1c1d1-e1f1-4111-a1b1-c1d1e1f1a1b1",
+      "target": "c3c3c3d3-e3f3-4333-c3c3-c3d3e3f3c3c3",
+      "edge_type": "normal"
+    }
+  ]
+}
+```
+
+### 2.2 验证运行
+
+1. **导入后**：你会发现画布变成了一个“1 对多”的星型结构，Manager 到 Worker 的连线是灰色实线（虽然线是死的，但 Manager 的思维是活的）。
+2. **在 Runner 输入**：“我的服务器 /var/www/html 下出现了几个奇怪的 .php 文件，帮我看看是什么，并出一份通报。”
+3. **观察行为**：你会看到 Manager 节点并不是“一锅端”，它会先调用 `web_analyst`，得到分析后再调用 `report_specialist`。如果是多件任务，它还会**同时异步并发**拉起多个专家。
+
+---
+
+## 3. 闭环验证：一句话唤起一支军队
 
 保存这幅干净漂亮的“1 带 3”树状图。
 打开调试器（Runner），输入：
@@ -79,7 +145,7 @@
    `task(name="report_writer", prompt="拿这份合并的脱敏数据去写一封信...")`。
 5. 最终，一份规整清晰的文字吐在了你的公屏上，没有附带那些杂乱的终端日志栈。
 
-**这就是 DeepAgents 引擎的威力——动态决策图景。** 
+**这就是 DeepAgents 引擎的威力——动态决策图景。**
 在这个模式下，你只需专注招什么样的专业人才（配什么样的 Skill 并且写好 prompt），连同线告诉谁是老板，其他千变万化的执行分支规划，大模型底层会在每一次聊天时**即时计算排查**，完全免去了你手写几十根不同 Router 判断线的噩梦。
 
 ---

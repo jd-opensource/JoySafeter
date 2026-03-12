@@ -42,7 +42,7 @@
 - **你在 UI 里“Configure/Validate/Save”主要改的是这一层**
 - **关键点**：JoySafeter 会按“模板凭据 vs 派生凭据”的策略选择最合适的一条有效凭据
 
-> API：`backend/app/api/v1/model_credentials.py`  
+> API：`backend/app/api/v1/model_credentials.py`
 > 选择与校验：`backend/app/services/model_credential_service.py`
 
 ---
@@ -51,8 +51,8 @@
 
 当你在 Copilot/Chat 里触发执行时，大体会走下面的链路（理解这段，你就知道应该查哪一层）：
 
-1. **确定 Model Instance**  
-   - 显式指定 `provider_name + model_name` → 找对应实例  
+1. **确定 Model Instance**
+   - 显式指定 `provider_name + model_name` → 找对应实例
    - 否则使用默认实例（`is_default=true`）
 2. **从实例得到最终 Provider**：`instance.resolved_provider_name`
 3. **取该 Provider 的有效凭据**：`ModelCredentialService.get_current_credentials(provider_name, ...)`
@@ -67,23 +67,23 @@
 
 ## 深度踩坑清单（先看这 5 条，少走弯路）
 
-1. **“配置了凭据 ≠ 配置了默认模型”**  
+1. **“配置了凭据 ≠ 配置了默认模型”**
    默认模型由 **Model Instance** 决定，不是 Credential。
 
-2. **模板 provider 与派生 provider 容易混用**  
-   - 模板：通常 `provider_id = NULL` 且 `provider_name=<模板名>`  
-   - 派生：`provider_id=<uuid>`，运行时 `resolved_provider_name` 是派生 provider 的 `name`  
+2. **模板 provider 与派生 provider 容易混用**
+   - 模板：通常 `provider_id = NULL` 且 `provider_name=<模板名>`
+   - 派生：`provider_id=<uuid>`，运行时 `resolved_provider_name` 是派生 provider 的 `name`
    你的 Instance 必须指向你期望的那一个，否则会“看起来配置对了但实际取错凭据”。
 
-3. **`api_base` 是否要带 `/v1` 取决于你接入的服务**  
+3. **`api_base` 是否要带 `/v1` 取决于你接入的服务**
    JoySafeter 不会自动补全路径；Ollama 常见是 `http://localhost:11434/v1`。
 
-4. **文档/示例里的 provider_name 需要与你实际系统一致**  
-   后端接口 `provider_name` 字段含义是“供应商名称或模板名称”（见 `model_credentials.py` 的 Field 描述）。  
+4. **文档/示例里的 provider_name 需要与你实际系统一致**
+   后端接口 `provider_name` 字段含义是“供应商名称或模板名称”（见 `model_credentials.py` 的 Field 描述）。
    如果你看到 `openai_api_compatible` / `openaiapicompatible` 这类差异，照抄前先以系统返回的 provider 列表为准。
 
-5. **把 `model_name` 放进 credentials 容易造成语义混淆**  
-   `model_name` 本质属于 Instance 层；credentials 只负责“怎么连”（key/base）。  
+5. **把 `model_name` 放进 credentials 容易造成语义混淆**
+   `model_name` 本质属于 Instance 层；credentials 只负责“怎么连”（key/base）。
   （某些兼容实现会容忍，但不建议当成规范写法。）
 
 ---
