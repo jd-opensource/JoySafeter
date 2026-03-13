@@ -28,8 +28,28 @@ FRONTEND_IMAGE="${FRONTEND_IMAGE:-joysafeter-frontend}"
 MCP_IMAGE="${MCP_IMAGE:-joysafeter-mcp}"
 OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-joysafeter-openclaw}"
 TAG="${IMAGE_TAG:-latest}"
+# 获取主机架构
+get_host_platform() {
+    local arch=$(uname -m)
+    case "$arch" in
+        x86_64)
+            echo "linux/amd64"
+            ;;
+        arm64|aarch64)
+            echo "linux/arm64"
+            ;;
+        armv7l)
+            echo "linux/arm/v7"
+            ;;
+        *)
+            echo "linux/amd64" # 默认回退
+            ;;
+    esac
+}
+
 # 默认多平台构建：amd64 + arm64
-PLATFORMS="${BUILD_PLATFORMS:-linux/amd64,linux/arm64}"
+DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
+PLATFORMS="" # 初始为空，稍后根据命令和系统动态设置
 USE_BUILDX="${USE_BUILDX:-true}"
 BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-}"
 FRONTEND_API_URL="${NEXT_PUBLIC_API_URL:-${BACKEND_URL:-http://localhost:8000}}"
@@ -53,19 +73,19 @@ normalize_registry() {
 
 # 日志函数
 log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+    printf "${BLUE}ℹ️  %s${NC}\n" "$1"
 }
 
 log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    printf "${GREEN}✅ %s${NC}\n" "$1"
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    printf "${YELLOW}⚠️  %s${NC}\n" "$1"
 }
 
 log_error() {
-    echo -e "${RED}❌ $1${NC}"
+    printf "${RED}❌ %s${NC}\n" "$1"
 }
 
 # 显示使用说明
@@ -240,6 +260,35 @@ build_image() {
             build_args+=("--build-arg" "NEXT_PUBLIC_API_URL=$FRONTEND_API_URL")
             log_info "前端API地址: $FRONTEND_API_URL"
         fi
+        
+        # 动态选择 Node 版本 (处理 ARM64 平台兼容性)
+        local node_version="20-alpine"
+        if [[ "$PLATFORMS" == *"arm64"* ]]; then
+            node_version="${node_version}-linuxarm64"
+        fi
+        build_args+=("--build-arg" "NODE_VERSION=${node_version}")
+        log_info "前端使用 Node 版本: ${node_version}"
+    fi
+
+    # OpenClaw 镜像动态选择 Base 镜像 (处理 ARM64 平台兼容性)
+    if [ "$service" = "OpenClaw" ]; then
+        local base_image="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:22-slim"
+        if [[ "$PLATFORMS" == *"arm64"* ]]; then
+            base_image="${base_image}-linuxarm64"
+        fi
+        build_args+=("--build-arg" "BASE_IMAGE=${base_image}")
+        log_info "OpenClaw 使用 Base 镜像: ${base_image}"
+    fi
+
+    # 后端镜像动态选择 Python 版本 (处理 ARM64 平台兼容性)
+    if [ "$service" = "后端" ]; then
+        local python_version="3.12-slim"
+        if [[ "$PLATFORMS" == *"arm64"* ]]; then
+            # 使用用户提供的 ARM64 专用标签
+            python_version="3.12-slim-bookworm-linuxarm64"
+        fi
+        build_args+=("--build-arg" "PYTHON_VERSION=${python_version}")
+        log_info "后端使用 Python 版本: ${python_version}"
     fi
 
     if [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ]; then
@@ -479,7 +528,7 @@ main() {
     local FRONTEND_ONLY=false
     local OPENCLAW_ONLY=false
     local BUILD_ALL=false
-    local ARCH_LIST=()
+    local ARCH_LIST_STR=""
 
     # 解析参数
     while [[ $# -gt 0 ]]; do
@@ -501,7 +550,12 @@ main() {
                 shift 2
                 ;;
             --arch)
-                ARCH_LIST+=("$2")
+                local platform=$(convert_arch_to_platform "$2")
+                if [ -z "$ARCH_LIST_STR" ]; then
+                    ARCH_LIST_STR="$platform"
+                else
+                    ARCH_LIST_STR="$ARCH_LIST_STR,$platform"
+                fi
                 shift 2
                 ;;
             --api-url)
@@ -585,6 +639,19 @@ main() {
         esac
     done
 
+    # 如果没有指定平台且没有设置环境变量，根据命令动态决定
+    if [ -z "$PLATFORMS" ] && [ -z "$BUILD_PLATFORMS" ] && [ -z "$ARCH_LIST_STR" ]; then
+        if [ "$COMMAND" = "push" ]; then
+            PLATFORMS="$DEFAULT_PLATFORMS"
+            log_info "未指定架构，推送模式默认使用多架构: $PLATFORMS"
+        else
+            PLATFORMS=$(get_host_platform)
+            log_info "自动检测主机架构: $PLATFORMS"
+        fi
+    elif [ -z "$PLATFORMS" ]; then
+        PLATFORMS="${BUILD_PLATFORMS:-$DEFAULT_PLATFORMS}"
+    fi
+
     # 如果没有指定命令，显示帮助
     if [ -z "$COMMAND" ]; then
         show_usage
@@ -615,28 +682,24 @@ main() {
     echo ""
 
     # 处理简化架构参数
-    if [ ${#ARCH_LIST[@]} -gt 0 ]; then
-        local platforms_list=()
-        for arch in "${ARCH_LIST[@]}"; do
-            platforms_list+=("$(convert_arch_to_platform "$arch")")
-        done
-        PLATFORMS=$(IFS=','; echo "${platforms_list[*]}")
-        log_info "架构选项转换为: $PLATFORMS"
+    if [ -n "$ARCH_LIST_STR" ]; then
+        PLATFORMS="$ARCH_LIST_STR"
+        log_info "使用指定的架构: $PLATFORMS"
     fi
 
     # 执行命令
     case "$COMMAND" in
-        build)
+        (build)
             build_all_images
             ;;
-        push)
+        (push)
             PUSH=true
             build_all_images
             ;;
-        pull)
+        (pull)
             pull_images
             ;;
-        *)
+        (*)
             log_error "未知命令: $COMMAND"
             show_usage
             exit 1

@@ -1,5 +1,6 @@
 # OpenClaw Docker 镜像
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:22-slim
+ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:22-slim
+FROM ${BASE_IMAGE}
 
 # 设置工作目录
 WORKDIR /app
