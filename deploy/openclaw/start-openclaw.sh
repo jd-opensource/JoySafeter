@@ -151,9 +151,9 @@ config.skills.load = config.skills.load || {};
 config.skills.load.extraDirs = config.skills.load.extraDirs || [];
 if (!config.skills.load.extraDirs.includes(DYNAMIC_SKILLS_DIR)) {
     config.skills.load.extraDirs.push(DYNAMIC_SKILLS_DIR);
+    config.skills.load.watch = true;
+    config.skills.load.watchDebounceMs = 300;
 }
-// Enable watching for immediate reload
-config.skills.load.watch = true;
 
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 console.log('Configuration patched successfully');
