@@ -491,52 +491,62 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     },
 
     onConnect: (connection: Connection) => {
-      const { edges, nodes } = get()
-      const exists = edges.some(
-        (e) => e.source === connection.source && e.target === connection.target
-      )
-      if (exists) return
+      try {
+        if (!connection.source || !connection.target) return
 
-      // Determine edge type and route_key using extracted utility
-      const { edgeType, routeKey } = determineEdgeTypeAndRouteKey(
-        connection.source!,
-        connection.target!,
-        nodes,
-        edges,
-      )
+        const { edges, nodes } = get()
+        const exists = edges.some(
+          (e) => e.source === connection.source && e.target === connection.target
+        )
+        if (exists) return
 
-      const edgeData: EdgeData = {
-        edge_type: edgeType,
-        route_key: routeKey,
-      }
+        if (connection.source === connection.target) return
 
-      const { style: edgeStyle } = getEdgeStyleByType(edgeType)
+        const sourceNode = nodes.find((n) => n.id === connection.source)
+        const targetNode = nodes.find((n) => n.id === connection.target)
+        if (!sourceNode || !targetNode) return
 
-      get().takeSnapshot()
-      set({
-        edges: addEdge(
-          {
-            ...connection,
-            data: edgeData,
-            type: edgeType === 'loop_back' ? 'loop_back' : 'default',
-            animated: true,
-            style: edgeStyle,
-          },
-          get().edges
-        ),
-      })
+        // Determine edge type and route_key using extracted utility
+        const { edgeType, routeKey } = determineEdgeTypeAndRouteKey(
+          connection.source,
+          connection.target,
+          nodes,
+          edges,
+        )
 
-      // Auto-wire source output to target input mappings
-      if (connection.target && connection.source) {
+        const edgeData: EdgeData = {
+          edge_type: edgeType,
+          route_key: routeKey,
+        }
+
+        const { style: edgeStyle } = getEdgeStyleByType(edgeType)
+
+        get().takeSnapshot()
+        set({
+          edges: addEdge(
+            {
+              ...connection,
+              data: edgeData,
+              type: edgeType === 'loop_back' ? 'loop_back' : 'default',
+              animated: true,
+              style: edgeStyle,
+            },
+            get().edges
+          ),
+        })
+
+        // Auto-wire source output to target input mappings
         autoWireConnection(
           connection.source,
           connection.target,
           get().nodes,
           get().updateNodeConfig,
         )
-      }
 
-      get().triggerAutoSave()
+        get().triggerAutoSave()
+      } catch (error) {
+        console.error('Failed to create connection:', error)
+      }
     },
 
     setRfInstance: (instance) => set({ rfInstance: instance }),

@@ -34,14 +34,10 @@ deploy/
 
 ## 快速开始
 
-### 方式一：一键快速启动（推荐新手）
-
-最简单的启动方式，自动完成所有配置：
+### 方式一：一键启动（推荐）
 
 ```bash
 cd deploy
-
-# 一键启动（自动检查环境、创建配置、启动服务）
 ./quick-start.sh
 ```
 
@@ -50,197 +46,60 @@ cd deploy
 - 后端 API: http://localhost:8000
 - API 文档: http://localhost:8000/docs
 
-### 方式二：交互式安装（推荐）
-
-使用安装向导，根据场景选择配置：
+### 方式二：场景化脚本（推荐）
 
 ```bash
 cd deploy
 
-# 交互式安装
-./install.sh
-
-# 或快速安装开发环境
-./install.sh --mode dev --non-interactive
-```
-
-安装完成后，使用场景化脚本启动：
-
-```bash
 # 开发场景
 ./scripts/dev.sh
 
-# 生产场景
+# 生产场景（服务器）：使用预构建镜像
 ./scripts/prod.sh
+# 跳过 MCP：./scripts/prod.sh --skip-mcp
 
 # 测试场景
 ./scripts/test.sh
 
-# 最小化场景（仅中间件）
+# 最小化场景（仅中间件：db + redis，可选 MCP）
 ./scripts/minimal.sh
+# 启动 MCP：./scripts/minimal.sh --with-mcp
 
-# 本地开发（后端和前端在本地运行）
+# 本地开发（后端/前端在本地跑，容器只启中间件）
 ./scripts/dev-local.sh
 ```
 
-### 方式三：手动配置（高级用户）
+### 方式三：手动 Compose（高级）
 
-如果需要完全控制配置过程：
+> 建议优先使用脚本（会处理初始化/检查/参数），手动方式仅用于排障或特殊定制。
 
 ```bash
 cd deploy
-
-# 1. 创建 Docker Compose 端口映射配置文件（必需）
 cp .env.example .env
-# 根据需要修改 .env 文件中的端口配置，避免端口冲突
-
-# 2. 创建后端应用环境变量文件（必需）
-cd ../backend
-cp env.example .env
-# 配置数据库连接、JWT 密钥等应用配置
-
-# 3. 启动中间件并且按需初始化数据库
-# 注意：Redis 是必需组件，必须启动
+cd ../backend && cp env.example .env
 cd ../deploy
-./scripts/start-middleware.sh
-# ./scripts/start-middleware.sh 内部带有可选参数，比如可以 --skip-mcp 或者 --skip-db-init
-
-# 4. 启动完整服务
 docker-compose up -d
-# 或者也可以使用更推荐的配套脚本： ./scripts/dev.sh
 ```
 
 ## 部署场景说明
 
-项目支持多种部署场景，根据实际需求选择：
+> 场景的“单一入口”是 `deploy/scripts/*.sh`。命令行参数与细节请直接查看脚本源码或 `--help`（如支持）。
 
-### 开发场景 (dev)
+| 场景 | 脚本 | 适用场景 | 说明 |
+|------|------|----------|------|
+| dev | `./scripts/dev.sh` | 本地 Docker 全量开发 | 前后端容器化运行，适合快速联调 |
+| prod | `./scripts/prod.sh` | 服务器生产部署 | 默认使用预构建镜像（可 `--skip-mcp`） |
+| test | `./scripts/test.sh` | CI/快速验证 | 最小化依赖，适合自动化 |
+| minimal | `./scripts/minimal.sh` | 本地跑后端/前端 | 只启中间件（db+redis），可选 MCP |
+| dev-local | `./scripts/dev-local.sh` | 本地代码 + 容器中间件 | IDE 友好，后端/前端本地启动 |
 
-**适用场景**：
-- 本地开发调试
-- 需要代码热重载
-- 需要频繁修改代码
+本地代码启动（配合 `dev-local` 或 `minimal`）：
+- 后端：见 [`backend/README.md`](../backend/README.md)
+- 前端：见 [`frontend/README.md`](../frontend/README.md)
 
-**特性**：
-- ✅ 代码挂载（可直接编辑代码）
-- ✅ 热重载（修改代码后自动重启）
-- ✅ 详细日志输出
-- ✅ 支持调试
+## 镜像构建（进阶）
 
-**启动方式**：
-```bash
-./scripts/dev.sh
-# 或
-docker-compose up -d
-```
-
-### 生产场景 (prod)
-
-**适用场景**：
-- 生产环境部署
-- 使用预构建镜像
-- 需要优化性能
-
-**特性**：
-- ✅ 使用预构建镜像（快速启动）
-- ✅ 优化配置（性能优化）
-- ✅ 生产级日志
-- ✅ 默认启动 MCP 服务（可通过 `--skip-mcp` 跳过）
-- ⚠️ 需要配置镜像仓库
-
-**启动方式**：
-```bash
-./scripts/prod.sh
-# 跳过 MCP 服务:
-# ./scripts/prod.sh --skip-mcp
-# 或手动启动:
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-**前置要求**：
-1. 已构建并推送镜像到仓库
-2. 已配置 `deploy/.env` 中的镜像仓库地址
-3. 已修改 `backend/.env` 中的 `SECRET_KEY`（生产环境必须）
-
-### 测试场景 (test)
-
-**适用场景**：
-- 功能测试
-- 快速验证
-- CI/CD 环境
-
-**特性**：
-- ✅ 快速启动
-- ✅ 最小化配置
-- ✅ 适合自动化测试
-
-**启动方式**：
-```bash
-./scripts/test.sh
-```
-
-### 最小化场景 (minimal)
-
-**适用场景**：
-- 本地开发（后端和前端在本地运行）
-- 仅需要数据库和缓存服务
-- 测试数据库连接
-
-**特性**：
-- ✅ 仅启动 PostgreSQL 和 Redis（两者都是必需组件）
-- ✅ 数据库已初始化
-- ✅ 资源占用最小
-- ✅ 默认不启动 MCP 服务（可通过 `--with-mcp` 选择性启动）
-
-**启动方式**：
-```bash
-./scripts/minimal.sh
-# 启动 MCP 服务:
-# ./scripts/minimal.sh --with-mcp
-# 或手动启动:
-./scripts/start-middleware.sh
-# ./scripts/start-middleware.sh --skip-mcp
-```
-
-### 本地开发场景 (dev-local)
-
-**适用场景**：
-- 本地开发调试
-- 需要直接运行后端和前端代码
-- 需要完整的开发工具支持
-
-**特性**：
-- ✅ 仅启动中间件容器
-- ✅ 默认启动 MCP 服务（可通过 `--skip-mcp` 跳过）
-- ✅ 后端和前端在本地运行
-- ✅ 支持 IDE 调试
-- ✅ 支持代码热重载
-
-**启动方式**：
-```bash
-./scripts/dev-local.sh
-# 跳过 MCP 服务:
-# ./scripts/dev-local.sh --skip-mcp
-```
-
-然后在新终端启动后端和前端：
-```bash
-# 启动后端
-cd backend
-uv venv && source .venv/bin/activate
-uv sync
-alembic upgrade head
-uv run uvicorn app.main:app --reload --port 8000
-
-# 启动前端（新终端）
-cd frontend
-bun install
-bun run dev
-```
-
-## 镜像构建和管理
-
-`deploy.sh` 是统一的镜像构建和推送脚本，支持多架构构建、镜像推送和拉取。
+镜像构建、`deploy.sh`、多架构构建说明已拆分到：[`ADVANCED_BUILD.md`](./ADVANCED_BUILD.md)
 
 ### 基本用法
 
@@ -416,92 +275,14 @@ ENVIRONMENT=production
 - 不要混淆 **Compose 解析期 `${VAR}`** 与 **容器内 env_file**：两者读取来源不同。
 - 如果你在 `deploy/.env` 改了 `POSTGRES_PASSWORD` 等，生效与否取决于对应 `docker-compose*.yml` 是否用 `${POSTGRES_PASSWORD}` 进行了解析。
 
-## 数据库管理
+## 数据库 / 服务管理
 
-### 初始化数据库
+- 数据库初始化与手动操作：[`DATABASE.md`](./DATABASE.md)
+- 查看状态/日志/重启/停止：[`SERVICE_MANAGEMENT.md`](./SERVICE_MANAGEMENT.md)
 
-数据库初始化通常会在各种场景的启动脚本（如 `./scripts/dev.sh`, `./scripts/start-middleware.sh` 等）中自动执行，也可以手动运行：
+## 多架构构建（进阶）
 
-```bash
-# 使用中间件配置初始化
-docker-compose -f docker-compose-middleware.yml --profile init run --rm db-init
-
-# 使用完整服务配置初始化
-docker-compose --profile init run --rm db-init
-```
-
-### 数据库脚本
-
-位于 `backend/scripts/db/`：
-
-- `init-db.py` - 初始化数据库（创建表结构）
-- `clean-db.py` - 清理数据（保留表结构）
-- `wait-for-db.py` - 等待数据库就绪
-
-### 手动操作数据库
-
-```bash
-# 进入数据库容器
-docker-compose exec db psql -U postgres -d joysafeter
-
-# 查看数据库状态
-docker-compose exec db pg_isready -U postgres
-```
-
-## 服务管理
-
-### 查看服务状态
-
-```bash
-# 查看所有服务状态
-docker-compose ps
-
-# 查看中间件状态
-docker-compose -f docker-compose-middleware.yml ps
-
-# 查看服务日志
-docker-compose logs -f backend
-docker-compose logs -f frontend
-docker-compose logs -f db
-docker-compose logs -f redis
-```
-
-### 停止和清理
-
-```bash
-# 停止服务（保留数据）
-docker-compose down
-
-# 停止并删除数据卷（⚠️ 会删除所有数据）
-docker-compose down -v
-
-# 停止中间件
-docker-compose -f docker-compose-middleware.yml down
-```
-
-### 重启服务
-
-```bash
-# 重启单个服务
-docker-compose restart backend
-
-# 重启所有服务
-docker-compose restart
-```
-
-## 多架构构建说明
-
-`deploy.sh` 默认使用 Docker Buildx 进行多架构构建，支持：
-
-- `linux/amd64` - Intel/AMD 64位
-- `linux/arm64` - ARM 64位（Apple Silicon, ARM 服务器）
-- `linux/arm/v7` - ARM 32位
-
-### 多架构构建注意事项
-
-1. **本地构建多架构镜像**：使用 `--push` 选项才能保存所有架构的镜像到仓库
-2. **本地测试**：不使用 `--push` 时，只会构建第一个架构的镜像用于本地测试
-3. **Buildx 要求**：多架构构建需要 Docker Buildx，脚本会自动初始化
+多架构构建说明已包含在：[`ADVANCED_BUILD.md`](./ADVANCED_BUILD.md)
 
 ## 环境检查工具
 
@@ -523,473 +304,41 @@ cd deploy
 
 ## 故障排查
 
-### 常见问题
-
-#### 1. 环境检查失败
-
-**问题**：运行 `./scripts/check-env.sh` 时出现错误
-
-**解决方案**：
-```bash
-# 检查 Docker 是否运行
-docker info
-
-# 检查 Docker Compose 是否安装
-docker compose version
-# 或
-docker-compose --version
-
-# 检查端口占用
-lsof -i :8000  # 检查后端端口
-lsof -i :3000  # 检查前端端口
-lsof -i :5432  # 检查数据库端口
-```
-
-#### 2. 数据库连接失败
-
-**问题**：后端无法连接到数据库
-
-**解决方案**：
-```bash
-# 检查数据库容器状态
-docker-compose ps db
-
-# 查看数据库日志
-docker-compose logs db
-
-# 检查网络连接
-docker-compose exec backend ping db
-
-# 检查数据库配置
-# 确保 backend/.env 中 POSTGRES_HOST=db（容器内使用服务名）
-# 确保 deploy/.env 中 POSTGRES_PORT_HOST 正确映射
-```
-
-#### 3. 端口冲突
-
-**问题**：端口已被占用
-
-**解决方案**：
-```bash
-# 方法一：使用环境检查工具查找可用端口
-./scripts/check-env.sh
-
-# 方法二：修改 deploy/.env 中的端口映射
-POSTGRES_PORT_HOST=5433    # 改为其他端口
-REDIS_PORT_HOST=6380       # 改为其他端口
-BACKEND_PORT_HOST=8001     # 改为其他端口
-FRONTEND_PORT_HOST=3001    # 改为其他端口
-
-# 修改后重启服务
-docker-compose down
-docker-compose up -d
-```
-
-#### 4. 镜像构建失败
-
-**问题**：构建 Docker 镜像时失败
-
-**解决方案**：
-```bash
-# 查看详细构建日志
-./deploy.sh build --backend-only 2>&1 | tee build.log
-
-# 使用国内镜像源加速
-./deploy.sh build --mirror huawei --pip-mirror aliyun
-
-# 清理构建缓存后重试
-docker builder prune
-./deploy.sh build
-```
-
-#### 5. 服务启动失败
-
-**问题**：服务无法正常启动
-
-**解决方案**：
-```bash
-# 查看服务日志
-docker-compose logs -f [service_name]
-
-# 查看所有服务状态
-docker-compose ps
-
-# 重启服务
-docker-compose restart [service_name]
-
-# 完全重建服务
-docker-compose down
-docker-compose up -d --build
-```
-
-#### 6. 配置文件缺失
-
-**问题**：提示配置文件不存在
-
-**解决方案**：
-```bash
-# 使用安装脚本自动创建
-./install.sh
-
-# 或手动创建
-cp .env.example .env
-cd ../backend && cp env.example .env
-```
-
-#### 7. 数据库初始化失败
-
-**问题**：数据库初始化脚本执行失败
-
-**解决方案**：
-```bash
-# 检查数据库是否就绪
-docker-compose exec db pg_isready -U postgres
-
-# 手动运行初始化脚本
-docker-compose --profile init run --rm db-init
-# 如果是本地开发环境的中间件：
-docker-compose -f docker-compose-middleware.yml --profile init run --rm db-init
-
-# 如果失败，查看详细日志
-docker-compose logs db-init
-```
-
-#### 8. 前端无法连接后端
-
-**问题**：前端页面无法访问后端 API
-
-**解决方案**：
-```bash
-# 检查后端服务是否运行
-docker-compose ps backend
-
-# 检查后端日志
-docker-compose logs backend
-
-# 检查 CORS 配置
-# 确保 backend/.env 中 CORS_ORIGINS 包含前端地址
-# 确保 deploy/.env 中 FRONTEND_URL 正确
-
-# 检查网络连接
-curl http://localhost:8000/health  # 测试后端健康检查
-```
-
-### 日志查看
-
-```bash
-# 查看所有服务日志
-docker-compose logs -f
-
-# 查看特定服务日志
-docker-compose logs -f backend
-docker-compose logs -f frontend
-docker-compose logs -f db
-
-# 查看最近 100 行日志
-docker-compose logs --tail=100 backend
-
-# 查看特定时间段的日志
-docker-compose logs --since 30m backend
-```
-
-### 服务状态检查
-
-```bash
-# 查看所有服务状态
-docker-compose ps
-
-# 查看服务健康状态
-docker-compose ps --format json | jq '.[] | {name: .Name, status: .State, health: .Health}'
-
-# 检查服务资源使用
-docker stats
-
-# 进入容器调试
-docker-compose exec backend bash
-docker-compose exec frontend sh
-```
-
-### 清理和重置
-
-```bash
-# 停止所有服务（保留数据）
-docker-compose down
-
-# 停止并删除数据卷（⚠️ 会删除所有数据）
-docker-compose down -v
-
-# 清理未使用的镜像和容器
-docker system prune -a
-
-# 完全重置（停止所有服务、删除数据、清理镜像）
-docker-compose down -v
-docker system prune -a --volumes
-```
-
-## 使用新脚本（推荐）
-
-### 安装和配置
-
-```bash
-cd deploy
-
-# 方式一：交互式安装（推荐）
-./install.sh
-
-# 方式二：快速安装开发环境
-./install.sh --mode dev --non-interactive
-
-# 方式三：快速安装生产环境
-./install.sh --mode prod --non-interactive
-```
-
-### 环境检查
-
-```bash
-# 检查部署前置条件
-./scripts/check-env.sh
-```
-
-### 快速启动
-
-```bash
-# 一键启动完整服务（自动处理配置）
-./quick-start.sh
-
-# 跳过安装步骤
-./quick-start.sh --skip-install
-```
-
-### 场景化启动
-
-```bash
-# 开发场景
-./scripts/dev.sh
-
-# 生产场景
-./scripts/prod.sh
-
-# 测试场景
-./scripts/test.sh
-
-# 最小化场景（仅中间件）
-./scripts/minimal.sh
-
-# 本地开发场景（后端和前端在本地运行）
-./scripts/dev-local.sh
-```
+- 故障排查与日志/重置指引：[`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)
 
 ## 常用命令速查
 
-### 安装和配置
-
-```bash
-# 使用安装脚本（推荐）
-cd deploy && ./install.sh
-
-# 手动配置
-cp .env.example .env                    # 创建端口映射配置
-cd ../backend && cp env.example .env    # 创建应用配置
-```
-
-### 启动服务
-
-```bash
-# 使用新脚本（推荐）
-./quick-start.sh                        # 一键启动
-./scripts/dev.sh                        # 开发场景
-./scripts/prod.sh                       # 生产场景
-./scripts/minimal.sh                    # 最小化场景
-
-# 推荐方式
-./scripts/dev.sh                        # 开发场景（包含启动配置）
-./scripts/prod.sh                       # 生产场景（包含启动配置）
-./scripts/minimal.sh                    # 最小化场景（仅中间件）
-
-# 传统单步方式
-./scripts/start-middleware.sh           # 启动中间件
-docker-compose up -d                    # 启动完整服务
-docker-compose -f docker-compose.prod.yml up -d  # 生产环境
-```
-
-### 构建镜像
-
-```bash
-./deploy.sh build                       # 构建前后端
-./deploy.sh build --all                 # 构建所有镜像
-./deploy.sh push                        # 构建并推送
-./deploy.sh pull                        # 拉取镜像
-```
-
-### 查看状态和日志
-
-```bash
-# 环境检查
-./scripts/check-env.sh                  # 检查环境
-
-# 服务状态
-docker-compose ps                       # 查看服务状态
-
-# 查看日志
-docker-compose logs -f                  # 所有服务日志
-docker-compose logs -f backend          # 后端日志
-docker-compose logs -f frontend         # 前端日志
-docker-compose logs --tail=100 backend  # 最近 100 行
-```
-
-### 数据库操作
-
-```bash
-# 初始化数据库
-docker-compose --profile init run --rm db-init
-
-# 进入数据库
-docker-compose exec db psql -U postgres -d joysafeter
-
-# 查看数据库状态
-docker-compose exec db pg_isready -U postgres
-```
-
-### 服务管理
-
-```bash
-# 停止服务
-docker-compose down                     # 停止服务（保留数据）
-docker-compose down -v                  # 停止并删除数据
-./scripts/stop-middleware.sh            # 停止中间件
-
-# 重启服务
-docker-compose restart                  # 重启所有服务
-docker-compose restart backend          # 重启后端
-
-# 进入容器
-docker-compose exec backend bash        # 进入后端容器
-docker-compose exec frontend sh         # 进入前端容器
-```
-
-### 清理
-
-```bash
-# 清理未使用的资源
-docker system prune                     # 清理未使用的容器和镜像
-docker system prune -a                  # 清理所有未使用的资源
-
-# 完全重置
-docker-compose down -v                  # 停止并删除数据卷
-docker system prune -a --volumes       # 清理所有资源
-```
-
-## 生产环境部署
-
-### 1. 构建生产镜像
-
-```bash
-./deploy.sh push --registry your-registry.com/namespace --tag v1.0.0
-```
-
-### 2. 配置生产环境变量
-
-在服务器上配置以下环境变量文件：
-
-#### deploy/.env（必需）
-```bash
-# 端口映射配置（根据实际部署环境调整）
-BACKEND_PORT_HOST=8000
-FRONTEND_PORT_HOST=3000
-POSTGRES_PORT_HOST=5432
-REDIS_PORT_HOST=6379
-
-# 前后端集成（必须为公网真实 URL）
-FRONTEND_URL=https://your-domain.com
-BACKEND_URL=https://api.your-domain.com
-
-# 数据库/缓存（docker-compose.prod.yml 会通过 ${VAR} 引用）
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=strong_password_here
-POSTGRES_DB=joysafeter
-REDIS_URL=redis://redis:6379/0
-
-# 镜像（如使用自建仓库/指定 tag）
-# DOCKER_REGISTRY=your-registry.com/namespace
-# IMAGE_TAG=v1.0.0
-# ... 其他端口配置
-```
-
-#### backend/.env（必需）
-```bash
-# 应用配置
-SECRET_KEY=your-strong-secret-key-here  # ⚠️ 必须修改为强随机字符串
-# 用于加密存储的模型凭据的密钥（⚠️ 必须设置为固定强随机字符串，重启后不能变化）
-CREDENTIAL_ENCRYPTION_KEY=your-strong-credential-key-here
-DEBUG=false
-ENVIRONMENT=production
-
-# CORS 配置
-CORS_ORIGINS=["https://your-domain.com"]
-# FRONTEND_URL 通常由 docker compose 从 deploy/.env 注入；如需手动覆盖可在此配置
-# FRONTEND_URL=https://your-domain.com
-
-# 其他生产环境配置...
-```
-
-#### frontend/.env（可选）
-```bash
-# 仅在你需要额外的前端运行期/构建期覆盖时使用
-#（在 docker-compose.yml 场景下，NEXT_PUBLIC_API_URL 通常由 deploy/.env 的 BACKEND_URL 注入）
-# NEXT_PUBLIC_API_URL=https://api.your-domain.com
-# 其他前端配置...
-```
-
-### 3. 使用生产配置启动
-
 ```bash
 cd deploy
-docker-compose -f docker-compose.prod.yml up -d
+
+# 交互式安装/生成配置
+./install.sh
+
+# 环境检查
+./scripts/check-env.sh
+
+# 一键启动（推荐新手）
+./quick-start.sh
+
+# 开发/生产/测试/最小化
+./scripts/dev.sh
+./scripts/prod.sh
+./scripts/test.sh
+./scripts/minimal.sh
+
+# 查看状态/日志
+docker-compose ps
+docker-compose logs -f
 ```
 
-### 4. 配置反向代理（推荐）
+## 生产部署（入口）
 
-使用 Nginx 或 Traefik 作为反向代理，配置 SSL 证书：
+生产部署请以这里为准：[`PRODUCTION_IP_GUIDE.md`](./PRODUCTION_IP_GUIDE.md)
 
-```nginx
-# Nginx 配置示例
-server {
-    listen 80;
-    server_name your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location /api {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-### 5. 安全建议
-
-- ✅ 使用强密码和 JWT 密钥
-- ✅ 配置并固定 `CREDENTIAL_ENCRYPTION_KEY`（用于凭据加密）
-- ✅ 启用 HTTPS（SSL/TLS）
-- ✅ 配置防火墙规则，限制端口访问
-- ✅ MCP 端口（默认 8001–8010）仅供内部访问，避免暴露公网
-- ✅ 定期更新镜像和依赖
-- ✅ 配置日志轮转和监控
-- ✅ 使用 Docker secrets 或密钥管理服务存储敏感信息
+该文档包含：
+- 前后端 URL / IP / 域名的正确配置方式（`FRONTEND_URL` / `BACKEND_URL`）
+- 反向代理 / HTTPS 建议
+- 生产安全项（`SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、端口暴露策略等）
 
 ## 相关文档
 

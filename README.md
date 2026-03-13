@@ -27,11 +27,10 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> •
   <a href="#quick-start">Quick Start</a> •
-  <a href="#roadmap">Roadmap</a> •
   <a href="#documentation">Documentation</a> •
-  <a href="#contributing">Contributing</a>
+  <a href="#contributing">Contributing</a> •
+  <a href="#license">License</a>
 </p>
 
 <!-- Screenshot placeholder - add docs/assets/screenshot-builder.png when available -->
@@ -42,17 +41,10 @@
 ## Table of Contents
 
 - [Why JoySafeter?](#why-joysafeter)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Recent Change Log](#recent-change-log)
-- [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
-- [Roadmap](#roadmap)
-- [Comparison](#comparison)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
-- [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -88,305 +80,29 @@
 
 ---
 
-## Dual-Mode Architecture: Rapid & Deep
-
-JoySafeter offers two distinct modes to meet diverse operational needs:
-
-<table>
-<tr>
-<td width="50%">
-
-### ⚡ Rapid Mode
-
-**Value Proposition**: Describe requirements → Auto-orchestrate Skills → Auto-team formation → Minute-level deployment
-
-**Key Benefits**:
-- 🚀 **Zero-Barrier Entry**: Natural language requirements, AI automatically understands and orchestrates
-- 🎯 **Intelligent Matching**: Platform auto-matches optimal Skills combinations, builds professional Agent teams
-- ⏱️ **Minute-Level Deployment**: From requirements to runnable Agent in 3-5 minutes
-- 🔄 **Out-of-the-Box**: Built-in 10+ core security scenario templates, one-click activation
-
-**Use Cases**:
-- Rapid security assessment and vulnerability scanning
-- Standardized security detection workflows
-- Quick onboarding for beginners
-- Emergency security incident response
-
-</td>
-<td width="50%">
-
-### 🎨 Deep Mode
-
-**Value Proposition**: Visual orchestration → Debugging → Observability → Continuous iteration for professional team collaboration
-
-**Key Benefits**:
-- 🏗️ **Visual Orchestration**: Drag-and-drop complex workflows, 11 node types, supports loops, conditions, parallel execution
-- 🔍 **Full-Stack Debugging**: Real-time execution tracing, state visualization, breakpoint debugging, precise problem localization
-- 📊 **Enterprise Observability**: Langfuse integration, complete execution trace tracking and performance analytics
-- 🔄 **Continuous Evolution**: Version control, A/B testing, memory evolution, Agents get smarter over time
-
-**Use Cases**:
-- Complex multi-step security research tasks
-- Customized security detection workflows
-- Enterprise-grade security operations platform
-- Professional security team collaboration
-
-</td>
-</tr>
-</table>
-
----
-
 ## Features
 
-### Core Value Propositions
+JoySafeter is an enterprise-grade AI security agent orchestration platform, featuring:
 
-<table>
-<tr>
-<td align="center" width="25%">
-<h4>Intelligent Team Orchestration</h4>
-<strong>Automated Multi-Agent Task Force Construction</strong><br/>
-Intelligent task decomposition and collaborative execution, breaking complex security tasks into specialized Agent team collaboration
-</td>
-<td align="center" width="25%">
-<h4>Cognitive Evolution Engine</h4>
-<strong>Continuously Learning Security Agents</strong><br/>
-Memory-based learning with long/short-term strategies, automatically accumulating "tacit knowledge" from offensive/defensive practices for continuous self-iteration
-</td>
-<td align="center" width="25%">
-<h4>Scenario-Based Capability Matching</h4>
-<strong>Out-of-the-Box Scenario Library</strong><br/>
-Pre-built scenarios including APK deep analysis, MCP compliance scanning, replicating DeepResearch workflows with 95%+ accuracy
-</td>
-<td align="center" width="25%">
-<h4>Skill Matrix Platform</h4>
-<strong>Modular Security Capability Reuse</strong><br/>
-Pre-configured 10+ core security Skills and 200+ toolchains for modular reuse and building-block assembly
-</td>
-</tr>
-</table>
+- **Rapid Mode**: Natural language → auto-orchestrated agent teams → runnable workflow in minutes
+- **Deep Mode**: Visual workflow builder + debugging + observability for complex, iterative security research
+- **Skills**: Pre-built security skills and a scalable skill system (progressive disclosure)
+- **Multi-agent orchestration**: DeepAgents manager-worker star topology
+- **Observability**: Streaming execution + tracing (Langfuse)
+- **Deployment**: Production-ready Docker deployment and scenario scripts
 
-### Technical Capability Matrix
-
-<table>
-<tr>
-<td align="center" width="25%">
-<h4>Visual Orchestration Engine</h4>
-<sub>ReactFlow-powered drag-and-drop workflow builder, 11 node types, supports complex control flows</sub>
-</td>
-<td align="center" width="25%">
-<h4>MCP Tool Protocol</h4>
-<sub>Model Context Protocol for seamless integration with 200+ security tools and custom APIs</sub>
-</td>
-<td align="center" width="25%">
-<h4>Progressive Skill System</h4>
-<sub>Token-efficient skill disclosure mechanism, on-demand loading, supports 200+ skill expansion</sub>
-</td>
-<td align="center" width="25%">
-<h4>Real-time Streaming</h4>
-<sub>Server-Sent Events for full-stack real-time observability, providing complete views of execution status, performance metrics, and error tracking</sub>
-</td>
-</tr>
-<tr>
-<td align="center" width="25%">
-<h4>Enterprise Observability</h4>
-<sub>Langfuse integration for complete execution trace tracking, monitoring, and performance analytics</sub>
-</td>
-<td align="center" width="25%">
-<h4>Multi-tenant Workspaces</h4>
-<sub>Granular permission control and RBAC, supports enterprise-grade workspace isolation and collaboration</sub>
-</td>
-<td align="center" width="25%">
-<h4>Human-in-the-Loop</h4>
-<sub>Workflow interruption and resumption, human approval checkpoints for complex decision flows</sub>
-</td>
-<td align="center" width="25%">
-<h4>Sandbox Execution</h4>
-<sub>Secure Python code execution environment for custom function nodes and dynamic code generation</sub>
-</td>
-</tr>
-</table>
-
-### Key Features & Innovations
-
-#### 1. Visual Orchestration Engine
-
-**Drag-and-Drop Interface** powered by ReactFlow:
-- **11 Node Types**: Agent, Control Flow, Actions, Data, Aggregation
-- **Real-time Preview**: See graph structure as you build
-- **Auto-layout**: Automatic node positioning and edge routing
-- **Edge Configuration**: Conditional edges, loop-back edges, route keys
-- **Validation**: Real-time graph structure validation
-
-**Key Capabilities:**
-- Enterprise-grade visual workflow design for complex security tasks without coding
-- Powerful control flow engine supporting loop iteration, conditional branching, parallel execution, and result aggregation
-- DeepAgents mode visualization with Manager-Worker star topology architecture for multi-agent collaboration
-- Context variable management and state passing for complex workflow state sharing
-- Graph versioning and deployment management with version rollback and history tracking
-
-#### 2. DeepAgents Multi-Agent Orchestration
-
-**Manager-Worker Star Topology** for complex task decomposition:
-
-- **Automatic Detection**: System auto-detects `useDeepAgents` configuration
-- **Star Topology**: Manager connects directly to all SubAgents (not chain)
-- **Shared Backend**: Docker backend shared across agents for resource optimization
-- **Skill Preloading**: Skills preloaded to `/workspace/skills/` before execution
-- **Task Delegation**: Manager uses `task()` tool to coordinate SubAgents
-
-**Use Cases:**
-- Complex multi-step security research tasks requiring specialized Agent team collaboration
-- Large-scale security analysis workflows involving deep analysis across multiple specialized domains
-- Parallel task processing with result aggregation for improved overall execution efficiency
-- Hierarchical decision-making and task delegation scenarios for intelligent task distribution and coordination
-
-#### 3. Progressive Skill Disclosure
-
-**Token-Efficient Skill System** that reduces context window usage:
-
-| Component | Description |
-|-----------|-------------|
-| **SkillService** | CRUD operations with permission control, skill tagging and categorization |
-| **SkillsMiddleware** | Injects skill descriptions into agent system prompts automatically (uses deepagents SkillsMiddleware) |
-| **SkillSandboxLoader** | Preloads skills to Docker backend before execution |
-| **FilesystemMiddleware** | Agent directly reads skill files from `/workspace/skills/{skill_name}/` via filesystem access |
-| **Progressive Disclosure** | Shows skill summaries first, loads full content when needed |
-
-**Key Benefits:**
-- **Token-Efficient Optimization**: Progressive skill disclosure mechanism loads full skill content only when needed, significantly reducing context window usage
-- **Enterprise Scalability**: Supports 200+ skill expansion without context overflow, meeting large-scale security capability matrix requirements
-- **High-Performance Access**: Skills preloaded to Docker backend enable millisecond-level skill content access, improving Agent execution efficiency
-- **Dynamic Capability Discovery**: Agents can dynamically discover and use skills, enabling flexible combination and on-demand invocation of security capabilities
-
-#### 4. Long/Short-term Memory System
-
-**Persistent Memory** across sessions for continuous learning:
-
-- **Memory Types**: Fact, Procedure, Episodic, Semantic
-- **Retrieval Methods**: Last N, First N, Agentic retrieval
-- **Memory Middleware**: Automatic memory injection and storage
-- **Topic-based Organization**: Memories organized by topics for efficient retrieval
-- **Importance Scoring**: Memories ranked by importance and relevance
-
-**Memory Flow:**
-1. **Pre-Model Memory Injection**: Intelligently retrieves relevant memories and injects them into system prompts, providing context-aware capabilities for Agents
-2. **Post-Model Memory Accumulation**: Automatically stores user inputs and Agent responses as new memories, enabling continuous accumulation of knowledge assets
-3. **Continuous Evolutionary Learning**: Memory system continuously optimizes over time, Agent performance improves continuously, achieving self-iteration of security capabilities
-
-#### 5. Extensible Middleware Architecture
-
-**Strategy Pattern** for easy middleware extension:
-
-- **Priority System**: Middleware executed in priority order (0-100)
-- **Error Isolation**: Failed middleware doesn't break others
-- **Strategy Resolvers**: Easy to add new middleware types
-- **Backward Compatible**: New features don't affect existing code
-
-**Built-in Middleware:**
-- **SkillMiddleware** (Priority: 50): Intelligent skill injection middleware that automatically injects skill descriptions into Agent system prompts
-- **MemoryMiddleware** (Priority: 50): Memory retrieval and storage middleware for persistent memory management across sessions
-- **TaggingMiddleware** (Priority: 100): Observability and monitoring middleware providing full-stack execution tracing and performance analytics
-
-#### 6. AI Copilot for Graph Building
-
-**Intelligent Assistant** for graph construction:
-
-- **Topology Analysis**: Analyzes current graph structure
-- **Smart Recommendations**: Suggests nodes and connections
-- **DeepAgents Guidance**: Provides architecture guidance for multi-agent workflows
-- **Auto-positioning**: Calculates optimal node positions
-- **Validation**: Validates graph structure and suggests improvements
-
-**Key Capabilities:**
-- Natural language-driven graph creation, automatically converting requirement descriptions into visual workflows
-- Intelligent multi-agent team design assistance with architecture guidance and role allocation recommendations
-- Workflow topology analysis and optimization suggestions to improve execution efficiency and resource utilization
-- Automatic best practices enforcement to ensure workflow design meets industry standards and security specifications
-
-#### 7. OpenClaw Multi-Tenant Proxy (v1.0)
-
-**一键搞定多租户小龙虾** 🦞 (One-Click Multi-tenant Device Proxy):
-- **Isolated User Environments**: Each user is automatically assigned an independent OpenClaw container and proxy gateway port.
-- **Port & Token Auto-allocation**: Automated secure allocation of ports on the server and generation of unique gateway tokens for isolated communication.
-- **(TODO) Agent Integration**: Establish deep connection between JoySafeter Agents and OpenClaw for automated device coordination and command execution across instances.
-
-### Technical Highlights
-
-#### 1. Advanced Routing System
-
-**Flexible Control Flow** with multiple routing patterns:
-
-- **Conditional Routing**: Binary conditions (true/false)
-- **Multi-rule Routing**: Router node with priority-based rules
-- **Loop Control**: forEach, while, doWhile patterns
-- **Parallel Execution**: Fan-Out/Fan-In with aggregator
-- **Command Mode**: Optional Command object support for explicit routing
-
-**Edge Configuration:**
-- **Normal Edges**: Sequential flow
-- **Conditional Edges**: Route-based branching
-- **Loop-back Edges**: Cycle control with state isolation
-
-#### 2. SSE Real-time Communication
-
-**Standardized Event Envelope** for reliable streaming:
-
-```typescript
-interface StreamEventEnvelope {
-  type: 'content' | 'tool_start' | 'tool_end' | 'status' | 'error' | 'done';
-  node_name: string;      // Current executing node
-  run_id: string;         // Group events by execution run
-  timestamp: number;      // Event timestamp
-  thread_id: string;      // Conversation thread
-  data: any;              // Event-specific data
-}
-```
-
-**Features:**
-- **run_id Grouping**: Group events from same execution run
-- **node_name Tracking**: Show which agent/node is executing
-- **Incremental Updates**: Delta-based content updates
-- **Error Handling**: Graceful error propagation
-
-#### 3. MCP Tool Integration
-
-**Native MCP Protocol Support** with 200+ pre-integrated tools:
-
-- **Tool Registry**: Unified tool management and registration
-- **Multi-Server Support**: Connect to multiple MCP servers
-- **Tool Categories**: Network Scanning, Web Security, Binary Analysis, Container Security, Cloud Security, Attack Strategy, Knowledge Base
-- **Custom Tools**: Extend with custom tool implementations
-- **Tool Discovery**: Automatic tool discovery from MCP servers
-
-**Tool Execution:**
-- Direct MCP protocol communication
-- Tool result caching and error handling
-- Support for async tool execution
-- Tool metadata and documentation
-
-### Security-Specific Features
-
-| Category | Tools Count | Capabilities |
-|----------|-------------|--------------|
-| **Network Scanning** | 15+ | Nmap, Masscan, ZMap, port discovery |
-| **Web Security** | 14+ | SQLi, XSS, SSRF, authentication testing |
-| **Vulnerability Scanning** | 5+ | Nuclei, Nikto, comprehensive CVE detection |
-| **Binary Analysis** | 14+ | Ghidra, radare2, angr, JEB APK analysis |
-| **Container Security** | 7+ | Trivy, Clair, Docker image scanning |
-| **Cloud Security** | 4+ | Prowler, ScoutSuite, AWS/GCP auditing |
-| **Attack Strategies** | 90+ | Attack chain generation, risk assessment |
-| **Knowledge Base** | 115+ | Security knowledge YAML patterns |
+For detailed feature descriptions and the technical matrix, see:
+- Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Developer details: [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ---
+
 
 ## Architecture
 
-For a detailed breakdown of the architecture, including core modules, workflows, and data flow, please refer to the [Architecture Documentation](docs/ARCHITECTURE.md).
+See: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
-
-
 
 ## Recent Change Log
 
@@ -427,24 +143,14 @@ For a detailed breakdown of the architecture, including core modules, workflows,
 
 ### Prerequisites
 
-| Requirement | Version |
-|-------------|---------|
-| Docker | 20.10+ |
-| Docker Compose | 2.0+ |
-| Python | 3.12+ (for local development) |
-| Node.js | 20+ (for local development) |
-| PostgreSQL | 15+ (optional, if not using Docker) |
-| Redis | 7+ (required, used for caching and session management) |
+- Docker + Docker Compose (recommended for first-time users)
+- Python 3.12+ and Node.js 20+ (only if you plan to run backend/frontend locally)
 
-### Solution 1: One-Click Run (Docker, Recommended)
+### One-Click Run (Docker, Recommended)
 
 ```bash
-# Initialize environment & build if needed & start services automatically
 ./deploy/quick-start.sh
 ```
-
-
-For complete installation instructions, including manual deployment, pre-built Docker images, and alternative setup methods, please see the [Installation Guide](INSTALL.md).
 
 ### Access Points
 
@@ -453,119 +159,49 @@ For complete installation instructions, including manual deployment, pre-built D
 | Frontend | http://localhost:3000 |
 | Backend API | http://localhost:8000 |
 | API Documentation | http://localhost:8000/docs |
-| ReDoc | http://localhost:8000/redoc |
 
----
+### Next Steps
 
-### Production Deployment (Important)
-
-For production, please follow the Docker deployment guide and best practices:
-
-```bash
-# On your server
-cd deploy
-./install.sh --mode prod            # Initialize config files if needed
-./scripts/prod.sh                   # Start with prebuilt images
-# Skip MCP service if you don't need it right away:
-# ./scripts/prod.sh --skip-mcp
-```
-
-Before starting in production, make sure you:
-- Set strong random secrets in backend/.env:
-  - SECRET_KEY (JWT secret)
-  - CREDENTIAL_ENCRYPTION_KEY (MANDATORY; used to encrypt stored model credentials — must be fixed and not change between restarts)
-- Set real public URLs in deploy/.env:
-  - FRONTEND_URL (what users open in browser, no trailing slash)
-  - BACKEND_URL (public API base reachable by browsers)
-- Do not expose DB/Redis/MCP ports to the public Internet; put an HTTPS reverse proxy (e.g., Nginx/Caddy) in front of 3000/8000 and keep them internal
-
-References:
-- Docker Deployment Guide: deploy/README.md
-- Production IP/Domain Best Practices: deploy/PRODUCTION_IP_GUIDE.md
+- Full installation options (manual deploy / pre-built images): [INSTALL.md](INSTALL.md)
+- Local development: [DEVELOPMENT.md](DEVELOPMENT.md)
+- Production deployment guide: [deploy/README.md](deploy/README.md) and [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md)
 
 ## Roadmap
 
-### Completed
-
-- [x] LangGraph-based graph orchestration engine
-- [x] Visual Agent Builder with 11 node types
-- [x] MCP tool protocol integration
-- [x] 200+ security tool handlers
-- [x] Multi-Agent orchestration (DeepAgents)
-- [x] Long/short-term memory system
-- [x] Skill System with progressive disclosure
-- [x] SkillsMiddleware for agent skill injection (using deepagents SkillsMiddleware)
-- [x] Direct filesystem access for skill loading (Agent reads from `/workspace/skills/` via FilesystemMiddleware)
-- [x] SSE real-time streaming output
-- [x] Multi-tenant workspace isolation
-- [x] Langfuse observability integration
-- [x] Docker deployment solution
-- [x] RBAC permission control
-- [x] API Key management
-- [x] Extensible middleware architecture
-- [x] Sandbox execution for custom Python code
-
-### In Progress
-
-- [ ] Unit test coverage (target 80%+)
-- [ ] API documentation enhancement
-- [ ] User guide (EN/CN bilingual)
-- [ ] Developer documentation
-
-### Planned
-
-- [ ] MCP Tool Marketplace
-- [ ] Multi-model support (Claude, Gemini, open-source models)
-- [ ] Middleware caching mechanism
-- [ ] Graph compilation optimization
-- [ ] Enterprise case studies
-- [ ] Community plugin ecosystem
+See [docs/plans/](docs/plans/) and project issues for the latest roadmap and design notes.
 
 ---
 
-## Comparison
-
-| Feature | JoySafeter | Dify | Flowise | n8n | Coze |
-|---------|------------|------|---------|-----|------|
-| **Security Focus** | Native | - | - | - | - |
-| **LangGraph Native** | Yes | No | No | No | No |
-| **Multi-Agent (DeepAgents)** | Yes | Limited | No | No | Limited |
-| **MCP Protocol** | Yes | No | No | No | No |
-| **200+ Security Tools** | Yes | No | No | No | No |
-| **Skill System** | Yes | No | No | No | No |
-| **Memory Evolution** | Yes | Basic | Basic | No | Basic |
-| **Open Source** | Apache 2.0 | Apache 2.0 | Apache 2.0 | Fair-code | Closed |
-| **Self-Hosted** | Yes | Yes | Yes | Yes | No |
-| **Loop/Parallel Control** | Advanced | Basic | Basic | Yes | Limited |
-| **Enterprise RBAC** | Yes | Yes | Limited | Yes | Yes |
 
 ---
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Layered Architecture](docs/layered-architecture.md) | Complete 7-layer architecture overview from presentation to infrastructure |
-| [Graph Builder Architecture](docs/GRAPH_BUILDER_ARCHITECTURE.md) | Complete system design, data flow, and node type reference |
-| [Middleware Architecture](docs/middleware-architecture-complete.md) | Extensible middleware system with strategy pattern |
-| [MCP Skills Integration](docs/mcp-skills-integration.md) | MCP tool to skill conversion and integration guide |
-| [SSE Protocol Migration](docs/sse-protocol-migration.md) | Real-time streaming protocol and event structure |
-| [LangGraph Improvements](docs/langgraph-improvements-summary.md) | State separation and Command mode enhancements |
-| [Backend Guide](backend/README.md) | API reference and backend configuration |
-| [Frontend Guide](frontend/README.md) | Component library and state management |
-| [Docker Deployment Guide](deploy/README.md) | Complete deployment guide with installation scripts, scenarios, and troubleshooting |
-| [Development Guide](DEVELOPMENT.md) | Local development setup and workflow |
-| [Contributing](CONTRIBUTING.md) | How to contribute to the project |
-| [Security Policy](SECURITY.md) | Security policy and vulnerability reporting |
-| [Code of Conduct](CODE_OF_CONDUCT.md) | Community guidelines |
+### Start here
+
+- Installation: [INSTALL.md](INSTALL.md)
+- Development: [DEVELOPMENT.md](DEVELOPMENT.md)
+- Deployment (Docker): [deploy/README.md](deploy/README.md)
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+### Submodules
+
+- Backend: [backend/README.md](backend/README.md)
+- Frontend: [frontend/README.md](frontend/README.md)
+
+### Project governance
+
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security policy: [SECURITY.md](SECURITY.md)
+- Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ---
 
 
 
-### Join Our Community
+## Community
 
-If you have any questions, suggestions, or want to connect with other users, feel free to join our WeChat user group:
+Join the WeChat user group if you have questions or want to connect with other users:
 
 <p align="center">
   <img src="docs/assets/web-chat-group.jpg" alt="JoySafeter User Group" width="300" />
