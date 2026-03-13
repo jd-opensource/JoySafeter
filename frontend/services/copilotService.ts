@@ -110,6 +110,7 @@ export const copilotService = {
     session_id: string
     status: string | null
     content: string | null
+    error?: string | null
     created_at: string | null
     updated_at: string | null
   }> {
@@ -117,6 +118,7 @@ export const copilotService = {
       session_id: string
       status: string | null
       content: string | null
+      error?: string | null
       created_at: string | null
       updated_at: string | null
     }>(`graphs/copilot/sessions/${sessionId}`)

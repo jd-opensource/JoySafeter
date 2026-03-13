@@ -992,7 +992,16 @@ async def stream_copilot_manager(
 
     except Exception as e:
         logger.error(f"[DeepAgentsCopilot] Error: {e}")
-        yield {"type": "error", "message": str(e)}
+        # Identify error code for frontend mapping
+        error_code = "AGENT_ERROR"
+        if "api_key" in str(e).lower() or "credential" in str(e).lower():
+            error_code = "CREDENTIAL_ERROR"
+
+        yield {
+            "type": "error",
+            "message": str(e),
+            "code": error_code
+        }
 
 
 # ==================== Schema Validation Helpers ====================

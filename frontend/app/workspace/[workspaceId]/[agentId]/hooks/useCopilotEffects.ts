@@ -1,14 +1,14 @@
 /**
  * useCopilotEffects - Side effects hook for Copilot
  *
- * Handles all useEffect logic: session recovery, auto-scroll, URL parameters, etc.
+ * Handles UI side effects: page title, auto-scroll, URL parameter cleanup.
+ * Session restoration is handled by useCopilotSession (init) and this hook (fetch).
  */
 
-import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { graphKeys } from '@/hooks/queries/graphs'
+import { useToast } from '@/hooks/use-toast'
 import { copilotService } from '@/services/copilotService'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
@@ -21,9 +21,6 @@ interface UseCopilotEffectsOptions {
   handleSendWithInput: (input: string) => Promise<void>
 }
 
-/**
- * Helper function to check if there's a current message being streamed
- */
 function hasCurrentMessage(messages: Array<{ role: string; text?: string }>, checkEmptyText = true): boolean {
   if (messages.length === 0) return false
   const lastMessage = messages[messages.length - 1]
@@ -36,94 +33,69 @@ export function useCopilotEffects({
   state,
   actions,
   refs,
-  graphId,
   handleSendWithInput,
 }: UseCopilotEffectsOptions) {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const lastRestoredSessionIdRef = useRef<string | null>(null)
 
   // Session recovery: restore state and content when sessionId is restored
   useEffect(() => {
     const { currentSessionId } = state
-    if (!currentSessionId || refs.isCreatingSessionRef.current) {
-      return
-    }
+    if (!currentSessionId || refs.isCreatingSessionRef.current || lastRestoredSessionIdRef.current === currentSessionId) return
 
     const restoreSession = async () => {
-      try {
-        const sessionData = await copilotService.getSession(currentSessionId)
+      console.log('[useCopilotEffects] Restoring session:', currentSessionId)
+      lastRestoredSessionIdRef.current = currentSessionId
 
+      try {
+        actions.setLoading(true)
+        const sessionData = await copilotService.getSession(currentSessionId)
         if (!refs.isMountedRef.current) return
 
         if (sessionData?.status === 'generating') {
-          actions.setLoading(true)
-
           if (sessionData.content) {
             actions.setStreamingContent(sessionData.content)
             actions.setCurrentStage({ stage: 'processing', message: '继续处理中...' })
-
-            if (!hasCurrentMessage(state.messages, false)) {
-              actions.setThinkingMessage()
-            }
+            if (!hasCurrentMessage(state.messages, false)) actions.setThinkingMessage()
           }
-        } else {
-          if (refs.isMountedRef.current) {
-            actions.setLoading(false)
-          }
+        } else if (sessionData?.status === 'failed') {
+          toast({ title: 'Copilot 任务失败', description: sessionData.error || '执行过程中出现错误，请重试', variant: 'destructive' })
+          actions.clearSession()
         }
       } catch (error) {
         console.warn('[CopilotPanel] Failed to restore session:', error)
-        if (refs.isMountedRef.current) {
-          actions.setLoading(false)
-        }
+      } finally {
+        if (refs.isMountedRef.current) actions.setLoading(false)
       }
     }
 
     restoreSession()
-  }, [
-    state.currentSessionId,
-    state.messages,
-    actions,
-    refs,
-  ])
+  }, [state.currentSessionId, actions, refs])
 
   // Update page title to show loading status
   useEffect(() => {
     const baseTitle = 'Agent Platform'
-    if (state.loading && state.currentStage) {
-      document.title = `⏳ ${state.currentStage.message} - ${baseTitle}`
-    } else {
-      document.title = baseTitle
-    }
+    document.title = state.loading && state.currentStage 
+      ? `⏳ ${state.currentStage.message} - ${baseTitle}` 
+      : baseTitle
   }, [state.loading, state.currentStage])
 
   // Auto-scroll to bottom when content changes
   useEffect(() => {
-    if (!refs.scrollRef.current) return
+    const scrollEl = refs.scrollRef.current
+    if (!scrollEl) return
 
-    // Create a content signature to detect actual changes
     const contentSignature = `${state.messages.length}-${state.streamingContent.length}-${state.loading}`
-    if (contentSignature === refs.lastScrollContentRef.current) {
-      return // No actual content change, skip scrolling
-    }
+    if (contentSignature === refs.lastScrollContentRef.current) return
     refs.lastScrollContentRef.current = contentSignature
 
-    // Use requestAnimationFrame to ensure DOM is updated before scrolling
     requestAnimationFrame(() => {
-      if (!refs.isMountedRef.current || !refs.scrollRef.current) return
-
-      refs.scrollRef.current.scrollTo({
-        top: refs.scrollRef.current.scrollHeight,
-        behavior: state.streamingContent ? 'smooth' : 'auto'
-      })
-
-      // Also scroll streaming content container if it has its own scroll
+      if (!refs.isMountedRef.current || !scrollEl) return
+      scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: state.streamingContent ? 'smooth' : 'auto' })
       if (refs.streamingContentRef.current) {
-        refs.streamingContentRef.current.scrollTo({
-          top: refs.streamingContentRef.current.scrollHeight,
-          behavior: 'smooth'
-        })
+        refs.streamingContentRef.current.scrollTo({ top: refs.streamingContentRef.current.scrollHeight, behavior: 'smooth' })
       }
     })
   }, [state.messages, state.loading, state.streamingContent, refs])
@@ -137,40 +109,28 @@ export function useCopilotEffects({
         return ''
       }
     }
-
     window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-    }
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [state.loading, state.executingActions])
 
   // Handle URL parameter for auto-executing copilot input
   useEffect(() => {
     const copilotInput = searchParams.get('copilotInput')
+    if (!copilotInput || refs.hasProcessedUrlInputRef.current || state.loading) return
 
-    if (copilotInput && !refs.hasProcessedUrlInputRef.current && !state.loading) {
-      refs.hasProcessedUrlInputRef.current = true
+    refs.hasProcessedUrlInputRef.current = true
+    const decodedInput = decodeURIComponent(copilotInput)
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('copilotInput')
+    const newSearch = params.toString()
+    router.replace(newSearch ? `${window.location.pathname}?${newSearch}` : window.location.pathname, { scroll: false })
 
-      const decodedInput = decodeURIComponent(copilotInput)
-
-      // Clean up URL parameter first
-      const params = new URLSearchParams(searchParams.toString())
-      params.delete('copilotInput')
-      const newSearch = params.toString()
-      const newUrl = newSearch
-        ? `${window.location.pathname}?${newSearch}`
-        : window.location.pathname
-      router.replace(newUrl, { scroll: false })
-
-      // Set input and trigger send after a short delay
+    setTimeout(() => {
+      if (!refs.isMountedRef.current) return
+      actions.setInput(decodedInput)
       setTimeout(() => {
-        if (!refs.isMountedRef.current) return
-        actions.setInput(decodedInput)
-        setTimeout(() => {
-          if (!refs.isMountedRef.current) return
-          handleSendWithInput(decodedInput)
-        }, 100)
-      }, 300)
-    }
+        if (refs.isMountedRef.current) handleSendWithInput(decodedInput)
+      }, 100)
+    }, 300)
   }, [searchParams, state.loading, router, actions, refs, handleSendWithInput])
 }

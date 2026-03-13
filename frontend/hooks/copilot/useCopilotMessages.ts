@@ -2,7 +2,7 @@
  * useCopilotMessages - Hook for managing Copilot messages state
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 import { useCopilotHistory } from '@/hooks/queries/graphs'
 import type { GraphAction } from '@/types/copilot'
@@ -49,11 +49,11 @@ export function useCopilotMessages(graphId?: string) {
     }
   }, [graphId, isHistoryLoaded, historyData])
 
-  const addMessage = (message: CopilotMessage) => {
+  const addMessage = useCallback((message: CopilotMessage) => {
     setMessages((prev) => [...prev, message])
-  }
+  }, [])
 
-  const updateCurrentMessage = (updates: Partial<CopilotMessage>) => {
+  const updateCurrentMessage = useCallback((updates: Partial<CopilotMessage>) => {
     setMessages((prev) => {
       const newMessages = [...prev]
       if (currentMessageIndexRef.current !== null && newMessages[currentMessageIndexRef.current]) {
@@ -64,9 +64,9 @@ export function useCopilotMessages(graphId?: string) {
       }
       return newMessages
     })
-  }
+  }, [])
 
-  const addThoughtStep = (step: { index: number; content: string }) => {
+  const addThoughtStep = useCallback((step: { index: number; content: string }) => {
     setMessages((prev) => {
       const newMessages = [...prev]
       if (currentMessageIndexRef.current !== null && newMessages[currentMessageIndexRef.current]) {
@@ -82,14 +82,14 @@ export function useCopilotMessages(graphId?: string) {
       }
       return newMessages
     })
-  }
+  }, [])
 
-  const clearMessages = () => {
+  const clearMessages = useCallback(() => {
     setMessages([])
     currentMessageIndexRef.current = null
-  }
+  }, [])
 
-  const setThinkingMessage = () => {
+  const setThinkingMessage = useCallback(() => {
     setMessages((prev) => {
       const newMessages = [...prev]
       currentMessageIndexRef.current = newMessages.length
@@ -100,9 +100,9 @@ export function useCopilotMessages(graphId?: string) {
       })
       return newMessages
     })
-  }
+  }, [])
 
-  const finalizeCurrentMessage = (message: string, actions?: GraphAction[]) => {
+  const finalizeCurrentMessage = useCallback((message: string, actions?: GraphAction[]) => {
     setMessages((prev) => {
       const newMessages = [...prev]
       if (currentMessageIndexRef.current !== null && newMessages[currentMessageIndexRef.current]) {
@@ -123,14 +123,14 @@ export function useCopilotMessages(graphId?: string) {
       currentMessageIndexRef.current = null
       return newMessages
     })
-  }
+  }, [])
 
-  const removeCurrentMessage = () => {
+  const removeCurrentMessage = useCallback(() => {
     if (currentMessageIndexRef.current !== null) {
       setMessages((prev) => prev.filter((_, idx) => idx !== currentMessageIndexRef.current))
       currentMessageIndexRef.current = null
     }
-  }
+  }, [])
 
   return {
     messages,

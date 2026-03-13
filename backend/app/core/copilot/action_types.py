@@ -82,6 +82,7 @@ class CopilotRequest(BaseModel):
         default=None,
         description="Previous conversation messages for context. Format: [{'role': 'user'|'assistant', 'content': '...'}, ...]",
     )
+    mode: str = Field(default="deepagents", description="Copilot engine mode: 'standard' or 'deepagents'")
 
 
 class CopilotResponse(BaseModel):

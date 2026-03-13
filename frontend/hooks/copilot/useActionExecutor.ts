@@ -2,7 +2,7 @@
  * useActionExecutor - Hook for executing graph actions
  */
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Node, Edge } from 'reactflow'
 
 import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
@@ -13,7 +13,7 @@ export function useActionExecutor() {
   const [executingActions, setExecutingActions] = useState(false)
   const { applyAIChanges } = useBuilderStore()
 
-  const executeActions = async (actions: GraphAction[]) => {
+  const executeActions = useCallback(async (actions: GraphAction[]) => {
     console.log('[useActionExecutor] executeActions called', {
       actionsCount: actions.length,
       actions: actions,
@@ -49,7 +49,7 @@ export function useActionExecutor() {
     console.log('[useActionExecutor] applyAIChanges completed')
 
     setExecutingActions(false)
-  }
+  }, [applyAIChanges])
 
   return {
     executingActions,

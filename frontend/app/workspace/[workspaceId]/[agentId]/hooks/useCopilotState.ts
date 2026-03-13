@@ -5,7 +5,7 @@
  * encapsulating the complexity of managing multiple state domains.
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 
 import { useActionExecutor } from '@/hooks/copilot/useActionExecutor'
 import { useCopilotMessages } from '@/hooks/copilot/useCopilotMessages'
@@ -138,7 +138,7 @@ export function useCopilotState(graphId?: string) {
   }, [])
 
   // State object
-  const state: CopilotState = {
+  const state: CopilotState = useMemo(() => ({
     messages: messagesHook.messages,
     loadingHistory: messagesHook.loadingHistory,
     streamingContent: streamingHook.streamingContent,
@@ -152,44 +152,56 @@ export function useCopilotState(graphId?: string) {
     loading,
     expandedItems,
     copiedStreaming,
-  }
+  }), [
+    messagesHook.messages,
+    messagesHook.loadingHistory,
+    streamingHook.streamingContent,
+    streamingHook.currentStage,
+    streamingHook.currentToolCall,
+    streamingHook.toolResults,
+    streamingHook.expandedToolTypes,
+    actionExecutorHook.executingActions,
+    sessionHook.currentSessionId,
+    input,
+    loading,
+    expandedItems,
+    copiedStreaming,
+  ])
 
-  // Actions object
-  const actions: CopilotActions = {
-    // Message actions
-    addMessage: messagesHook.addMessage,
-    addThoughtStep: messagesHook.addThoughtStep,
-    clearMessages: messagesHook.clearMessages,
-    setThinkingMessage: messagesHook.setThinkingMessage,
-    finalizeCurrentMessage: messagesHook.finalizeCurrentMessage,
-    removeCurrentMessage: messagesHook.removeCurrentMessage,
-
-    // Streaming actions
-    setCurrentStage: streamingHook.setCurrentStage,
-    setCurrentToolCall: streamingHook.setCurrentToolCall,
-    addToolResult: streamingHook.addToolResult,
-    appendContent: streamingHook.appendContent,
-    clearStreaming: streamingHook.clearStreaming,
-    toggleToolType: streamingHook.toggleToolType,
-    setStreamingContent: streamingHook.setStreamingContent,
-
-    // Action execution
-    executeActions: actionExecutorHook.executeActions,
-
-    // Session actions
-    setSession: sessionHook.setSession,
-    clearSession: sessionHook.clearSession,
-
-    // Local UI actions
+  // Actions object - using stable function references
+  const actions: CopilotActions = useMemo(() => ({
+    ...messagesHook,
+    ...streamingHook,
+    ...actionExecutorHook,
+    ...sessionHook,
     setInput,
     setLoading,
     toggleExpand,
     clearExpandedItems,
     setCopiedStreaming,
-  }
+  }), [
+    messagesHook.addMessage,
+    messagesHook.addThoughtStep,
+    messagesHook.clearMessages,
+    messagesHook.setThinkingMessage,
+    messagesHook.finalizeCurrentMessage,
+    messagesHook.removeCurrentMessage,
+    streamingHook.setCurrentStage,
+    streamingHook.setCurrentToolCall,
+    streamingHook.addToolResult,
+    streamingHook.appendContent,
+    streamingHook.clearStreaming,
+    streamingHook.toggleToolType,
+    streamingHook.setStreamingContent,
+    actionExecutorHook.executeActions,
+    sessionHook.setSession,
+    sessionHook.clearSession,
+    toggleExpand,
+    clearExpandedItems,
+  ])
 
   // Refs object
-  const refs: CopilotRefs = {
+  const refs: CopilotRefs = useMemo(() => ({
     isMountedRef,
     isCreatingSessionRef,
     hasProcessedUrlInputRef: sessionHook.hasProcessedUrlInputRef,
@@ -197,7 +209,7 @@ export function useCopilotState(graphId?: string) {
     streamingContentRef: streamingHook.streamingContentRef,
     copyTimeoutRef,
     lastScrollContentRef,
-  }
+  }), [sessionHook.hasProcessedUrlInputRef, streamingHook.streamingContentRef])
 
   return {
     state,

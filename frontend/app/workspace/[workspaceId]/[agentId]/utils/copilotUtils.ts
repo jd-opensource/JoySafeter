@@ -84,5 +84,20 @@ export function getStageConfig(
       color: 'text-amber-600',
       label: t('copilot.stage.generating', { defaultValue: '生成节点' })
     },
+    analyzing: {
+      icon: '🔍',
+      color: 'text-blue-600',
+      label: t('copilot.stage.analyzing', { defaultValue: '需求分析' })
+    },
+    planning: {
+      icon: '📋',
+      color: 'text-indigo-600',
+      label: t('copilot.stage.planning', { defaultValue: '架构计划' })
+    },
+    validating: {
+      icon: '🛡️',
+      color: 'text-teal-600',
+      label: t('copilot.stage.validating', { defaultValue: '方案验证' })
+    },
   }
 }

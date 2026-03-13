@@ -935,6 +935,7 @@ async def create_copilot_task(
         prompt=payload.prompt,
         graph_context=payload.graph_context,
         conversation_history=payload.conversation_history,
+        mode=payload.mode,
     )
 
     log.info(f"copilot.actions.create session_id={session_id} graph_id={payload.graph_id}")

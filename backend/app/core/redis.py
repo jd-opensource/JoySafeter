@@ -204,11 +204,29 @@ class RedisClient:
         return True
 
     @classmethod
+    async def set_copilot_error(cls, session_id: str, error: str, ttl: int = 86400) -> bool:
+        """Set Copilot session error message"""
+        if not cls._client:
+            return False
+        key = f"copilot:session:{session_id}:error"
+        await cls._client.set(key, error, ex=ttl)
+        return True
+
+    @classmethod
     async def get_copilot_status(cls, session_id: str) -> Optional[str]:
         """Get Copilot session status"""
         if not cls._client:
             return None
         key = f"copilot:session:{session_id}:status"
+        result = await cls._client.get(key)
+        return str(result) if result is not None else None
+
+    @classmethod
+    async def get_copilot_error(cls, session_id: str) -> Optional[str]:
+        """Get Copilot session error message"""
+        if not cls._client:
+            return None
+        key = f"copilot:session:{session_id}:error"
         result = await cls._client.get(key)
         return str(result) if result is not None else None
 
@@ -223,17 +241,19 @@ class RedisClient:
 
     @classmethod
     async def get_copilot_session(cls, session_id: str) -> Optional[Dict[str, Any]]:
-        """Get Copilot session data (status and content)"""
+        """Get Copilot session data (status, content, error)"""
         if not cls._client:
             return None
         status = await cls.get_copilot_status(session_id)
         if status is None:
             return None
         content = await cls.get_copilot_content(session_id) or ""
+        error = await cls.get_copilot_error(session_id)
         return {
             "session_id": session_id,
             "status": status,
             "content": content,
+            "error": error,
         }
 
     @classmethod
@@ -244,6 +264,7 @@ class RedisClient:
         keys = [
             f"copilot:session:{session_id}:status",
             f"copilot:session:{session_id}:content",
+            f"copilot:session:{session_id}:error",
         ]
         if keys:
             await cls._client.delete(*keys)

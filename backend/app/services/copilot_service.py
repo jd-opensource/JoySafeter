@@ -89,6 +89,7 @@ class CopilotService:
         prompt: str,
         graph_context: Dict[str, Any],
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        mode: str = "deepagents",
     ) -> CopilotResponse:
         """
         Generate graph actions (non-streaming).
@@ -129,15 +130,34 @@ class CopilotService:
                 logger.error(f"[CopilotService] Credential error: {e}")
                 raise CopilotCredentialError("Failed to retrieve credentials", original_error=e)  # type: ignore[call-arg]
 
+            # Determine which engine to use
+            if mode == "deepagents":
+                from app.core.copilot_deepagents.manager import run_copilot_manager
+                result_data = await run_copilot_manager(
+                    user_prompt=prompt,
+                    graph_context=graph_context,
+                    graph_id=None, # Non-streaming doesn't usually need graph_id for persistence here
+                    user_id=self.user_id,
+                    api_key=api_key,
+                    base_url=base_url,
+                    llm_model=final_model_name,
+                    conversation_history=conversation_history,
+                )
+                return CopilotResponse(
+                    message=result_data.get("message", ""),
+                    actions=result_data.get("actions", []),
+                )
+
+            # Standard Engine (Standard Mode)
             # Create the Copilot agent (with db for model preloading)
             try:
                 agent = await get_copilot_agent(
                     graph_context=graph_context,
                     user_id=self.user_id,
-                    llm_model=final_model_name,  # 使用从数据库获取的模型名称
+                    llm_model=final_model_name,
                     api_key=api_key,
                     base_url=base_url,
-                    db=self.db,  # Pass db for preloading available models
+                    db=self.db,
                 )
             except Exception as e:
                 logger.error(f"[CopilotService] Agent creation error: {e}")
@@ -180,6 +200,7 @@ class CopilotService:
         prompt: str,
         graph_context: Dict[str, Any],
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        mode: str = "deepagents",
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Generate graph actions with streaming (SSE events).
@@ -208,6 +229,41 @@ class CopilotService:
         reset_node_registry()
 
         try:
+            # Determine which engine to use
+            if mode == "deepagents":
+                # Resolve credentials for DeepAgents
+                try:
+                    api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
+                        db=self.db,
+                        api_key=self.api_key,
+                        base_url=self.base_url,
+                        llm_model=self.llm_model,
+                    )
+                except Exception as e:
+                    logger.error(f"[CopilotService] Credential error in stream: {e}")
+                    yield {
+                        "type": "error",
+                        "message": f"Credential error: {str(e)}",
+                        "code": "CREDENTIAL_ERROR"
+                    }
+                    return
+
+                from app.core.copilot_deepagents.streaming import stream_deepagents_actions
+                stream = stream_deepagents_actions(
+                    prompt=prompt,
+                    graph_context=graph_context,
+                    graph_id=None,
+                    user_id=self.user_id,
+                    api_key=api_key,
+                    base_url=base_url,
+                    llm_model=final_model_name,
+                    conversation_history=conversation_history,
+                )
+                async for event in stream:
+                    yield event
+                return
+
+            # Standard Engine (Standard Mode)
             # Single status: Thinking
             yield {"type": "status", "stage": "thinking", "message": "正在思考..."}
 
@@ -246,10 +302,10 @@ class CopilotService:
                 agent = await get_copilot_agent(
                     graph_context=graph_context,
                     user_id=self.user_id,
-                    llm_model=final_model_name,  # 使用从数据库获取的模型名称
+                    llm_model=final_model_name,
                     api_key=api_key,
                     base_url=base_url,
-                    db=self.db,  # Pass db for preloading available models
+                    db=self.db,
                 )
             except Exception as e:
                 logger.error(f"[CopilotService] Agent creation error: {e}")
@@ -265,8 +321,6 @@ class CopilotService:
             last_streamed_steps_count = 0
             collected_actions: List[Dict[str, Any]] = []
             final_message = ""
-
-            # Use the unified _expand_action_payload method
 
             # Stream events from the agent with explicit recursion limit
             async for event in agent.astream_events(
@@ -297,9 +351,6 @@ class CopilotService:
                     # Yield thought step event if extracted
                     if thought_step_event:
                         yield thought_step_event
-                        # Note: _handle_chat_model_stream_event returns only the first new step
-                        # If multiple steps are detected, we may need to yield all of them
-                        # This could be enhanced in the future
 
                 elif event_kind == "on_tool_start":
                     # Tool invocation started
@@ -928,12 +979,13 @@ class CopilotService:
         prompt: str,
         graph_context: Dict[str, Any],
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        mode: str = "standard",
     ) -> None:
         """
         Generate graph actions asynchronously and store results in Redis.
 
         This method runs as a background task:
-        1. Calls generate_actions_stream to get events
+        1. Calls generate_actions_stream (or stream_deepagents_actions) to get events
         2. Writes each event to Redis (content and Pub/Sub)
         3. Saves final result to database when complete
         4. Cleans up Redis temporary data
@@ -944,6 +996,7 @@ class CopilotService:
             prompt: User's request
             graph_context: Current graph state
             conversation_history: Optional previous conversation messages
+            mode: Copilot engine mode: 'standard' or 'deepagents'
         """
         import time
 
@@ -955,7 +1008,7 @@ class CopilotService:
         # Log task start
         logger.info(
             f"[CopilotService] Async task started session_id={session_id} "
-            f"graph_id={graph_id} user_id={self.user_id} "
+            f"graph_id={graph_id} user_id={self.user_id} mode={mode} "
             f"prompt_length={len(prompt) if prompt else 0}"
         )
 
@@ -978,12 +1031,52 @@ class CopilotService:
             final_message = ""
             final_actions: List[Dict[str, Any]] = []
 
+            # Get credentials using unified CredentialManager
+            # We must do this before starting the stream to pass them to DeepAgents
+            try:
+                # Use a fresh DB session if needed, but here we try to use self.db first
+                # If self.db fails (closed), we'll catch it.
+                api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
+                    db=self.db,
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    llm_model=self.llm_model,
+                )
+            except Exception as e:
+                logger.error(f"[CopilotService] Credential error in async task: {e}")
+                error_msg = f"Credential error: {str(e)}"
+                await RedisClient.set_copilot_status(session_id, "failed")
+                await RedisClient.set_copilot_error(session_id, error_msg)
+                await RedisClient.publish_copilot_event(session_id, {
+                    "type": "error", 
+                    "message": error_msg,
+                    "code": "CREDENTIAL_ERROR"
+                })
+                return
+
+            # Determine which stream to use
+            if mode == "deepagents":
+                from app.core.copilot_deepagents.streaming import stream_deepagents_actions
+
+                stream = stream_deepagents_actions(
+                    prompt=prompt,
+                    graph_context=graph_context,
+                    graph_id=graph_id,
+                    user_id=self.user_id,
+                    api_key=api_key,
+                    base_url=base_url,
+                    llm_model=final_model_name,
+                    conversation_history=conversation_history,
+                )
+            else:
+                stream = self.generate_actions_stream(
+                    prompt=prompt,
+                    graph_context=graph_context,
+                    conversation_history=conversation_history,
+                )
+
             # Stream events and publish to Redis
-            async for event in self.generate_actions_stream(
-                prompt=prompt,
-                graph_context=graph_context,
-                conversation_history=conversation_history,
-            ):
+            async for event in stream:
                 event_type = event.get("type")
 
                 # Publish event to Pub/Sub
@@ -1146,4 +1239,5 @@ class CopilotService:
                 exc_info=True,
             )
             await RedisClient.set_copilot_status(session_id, "failed")
+            await RedisClient.set_copilot_error(session_id, str(e))
             await RedisClient.publish_copilot_event(session_id, {"type": "error", "message": str(e)})

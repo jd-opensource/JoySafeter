@@ -9,7 +9,6 @@ from fastapi import APIRouter
 from .api_keys import router as api_keys_router
 from .auth import router as auth_router
 from .chat import router as chat_router
-from .copilot_deepagents import router as copilot_deepagents_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
 from .graph_deployments import router as graph_deployments_router
@@ -57,7 +56,6 @@ ROUTERS = [
     skills_router,
     chat_router,
     graphs_router,
-    copilot_deepagents_router,
     traces_router,
     users_router,
     environment_router,
