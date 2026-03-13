@@ -255,7 +255,7 @@ check_openclaw_config() {
                     local p_url=$(grep "^AI_GATEWAY_BASE_URL=" "$backend_env" | cut -d'=' -f2)
                     local p_key=$(grep "^AI_GATEWAY_API_KEY=" "$backend_env" | cut -d'=' -f2)
                     local p_model=$(grep "^AI_GATEWAY_MODEL=" "$backend_env" | cut -d'=' -f2)
-                    
+
                     {
                         echo "ANTHROPIC_BASE_URL=$p_url"
                         echo "ANTHROPIC_AUTH_TOKEN=$p_key"

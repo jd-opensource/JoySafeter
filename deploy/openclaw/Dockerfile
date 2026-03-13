@@ -96,7 +96,7 @@ RUN mkdir -p /home/node/.linuxbrew/Homebrew && \
 #  find /home/node/.openclaw/extensions -name ".git" -type d -exec rm -rf {} + && \
 #  rm -rf /home/node/.openclaw/qqbot/.git && \
 #  rm -rf /tmp/* /home/node/.npm /home/node/.cache
-  
+
 # 3. 最终配置
 USER root
 

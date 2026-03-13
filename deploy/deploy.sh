@@ -260,7 +260,7 @@ build_image() {
             build_args+=("--build-arg" "NEXT_PUBLIC_API_URL=$FRONTEND_API_URL")
             log_info "前端API地址: $FRONTEND_API_URL"
         fi
-        
+
         # 动态选择 Node 版本 (处理 ARM64 平台兼容性)
         local node_version="20-alpine"
         if [[ "$PLATFORMS" == *"arm64"* ]]; then
