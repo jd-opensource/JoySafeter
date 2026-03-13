@@ -195,6 +195,98 @@ check_tavily_api_key() {
     fi
 }
 
+# 检查 OpenClaw 配置
+check_openclaw_config() {
+    log_step "检查 OpenClaw 配置..."
+    local backend_env="$PROJECT_ROOT/backend/.env"
+
+    if [ ! -f "$backend_env" ]; then
+        return 0
+    fi
+
+    # 1. 检查并配置 OpenClaw 平台底座 (AI_GATEWAY_*)
+    if grep -q "^AI_GATEWAY_BASE_URL=" "$backend_env"; then
+        log_success "OpenClaw 平台网关配置已存在"
+    else
+        log_info "OpenClaw 平台需要一个 AI Gateway 作为底座。"
+        printf "${YELLOW}是否配置 OpenClaw 平台网关 (AI_GATEWAY_*)? (y/N): ${NC}"
+        read -n 1 -r config_platform
+        echo
+        if [[ $config_platform =~ ^[Yy]$ ]]; then
+            printf "请输入 AI_GATEWAY_BASE_URL: "
+            read -r gw_url
+            printf "请输入 AI_GATEWAY_API_KEY: "
+            read -r gw_key
+            printf "请输入 AI_GATEWAY_MODEL: "
+            read -r gw_model
+            printf "请输入 AI_GATEWAY_PROVIDER (openai/anthropic, 默认 openai): "
+            read -r gw_provider
+            gw_provider=${gw_provider:-openai}
+
+            if [ -n "$gw_url" ]; then
+                {
+                    echo "AI_GATEWAY_BASE_URL=$gw_url"
+                    echo "AI_GATEWAY_API_KEY=$gw_key"
+                    echo "AI_GATEWAY_MODEL=$gw_model"
+                    echo "AI_GATEWAY_PROVIDER=$gw_provider"
+                } >> "$backend_env"
+                log_success "平台网关配置已写入"
+            fi
+        fi
+    fi
+
+    # 2. 检查并配置容器内工具 (ANTHROPIC_*)
+    if grep -q "^ANTHROPIC_BASE_URL=" "$backend_env"; then
+        log_success "Claude Code 等工具配置已存在"
+    else
+        log_info "OpenClaw 内部集成了 Claude Code，它通常需要独立的 Anthropic 变量。"
+        printf "${YELLOW}是否配置内部工具 (ANTHROPIC_*)? (y/N): ${NC}"
+        read -n 1 -r config_tools
+        echo
+        if [[ $config_tools =~ ^[Yy]$ ]]; then
+            # 尝试同步平台配置
+            local sync_done=false
+            if grep -q "^AI_GATEWAY_BASE_URL=" "$backend_env"; then
+                printf "${CYAN}是否直接使用刚才配置的平台网关作为工具配置? (y/N): ${NC}"
+                read -n 1 -r use_platform
+                echo
+                if [[ $use_platform =~ ^[Yy]$ ]]; then
+                    # 从 .env 中提取刚才写入的值
+                    local p_url=$(grep "^AI_GATEWAY_BASE_URL=" "$backend_env" | cut -d'=' -f2)
+                    local p_key=$(grep "^AI_GATEWAY_API_KEY=" "$backend_env" | cut -d'=' -f2)
+                    local p_model=$(grep "^AI_GATEWAY_MODEL=" "$backend_env" | cut -d'=' -f2)
+                    
+                    {
+                        echo "ANTHROPIC_BASE_URL=$p_url"
+                        echo "ANTHROPIC_AUTH_TOKEN=$p_key"
+                        echo "ANTHROPIC_MODEL=$p_model"
+                    } >> "$backend_env"
+                    log_success "已同步平台网关配置到内部工具"
+                    sync_done=true
+                fi
+            fi
+
+            if [ "$sync_done" = false ]; then
+                printf "请输入 ANTHROPIC_BASE_URL: "
+                read -r tool_url
+                printf "请输入 ANTHROPIC_AUTH_TOKEN: "
+                read -r tool_token
+                printf "请输入 ANTHROPIC_MODEL: "
+                read -r tool_model
+
+                if [ -n "$tool_url" ]; then
+                    {
+                        echo "ANTHROPIC_BASE_URL=$tool_url"
+                        echo "ANTHROPIC_AUTH_TOKEN=$tool_token"
+                        echo "ANTHROPIC_MODEL=$tool_model"
+                    } >> "$backend_env"
+                    log_success "内部工具配置已写入"
+                fi
+            fi
+        fi
+    fi
+}
+
 # 初始化数据库
 init_database() {
     log_step "初始化数据库..."
@@ -368,6 +460,8 @@ main() {
         init_env_files
         echo ""
         check_tavily_api_key
+        echo ""
+        check_openclaw_config
         echo ""
     else
         log_info "跳过 .env 文件初始化"

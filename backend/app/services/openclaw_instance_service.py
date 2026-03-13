@@ -225,15 +225,20 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             "AI_GATEWAY_API_KEY",
             "AI_GATEWAY_PROVIDER",
             "AI_GATEWAY_MODEL",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_MODEL",
         ):
             val = os.environ.get(key)
             if val:
                 env_vars[key] = val
 
-        # Validate required AI Gateway variables
-        for required_key in ("AI_GATEWAY_BASE_URL", "AI_GATEWAY_API_KEY", "AI_GATEWAY_MODEL"):
-            if required_key not in env_vars:
-                raise ValueError(f"Missing required environment variable: {required_key}")
+        # Validate required AI Gateway variables (either AI_GATEWAY or ANTHROPIC variants)
+        has_ai_gw = all(k in env_vars for k in ("AI_GATEWAY_BASE_URL", "AI_GATEWAY_API_KEY", "AI_GATEWAY_MODEL"))
+        has_anthropic = all(k in env_vars for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL"))
+
+        if not (has_ai_gw or has_anthropic):
+            raise ValueError("Missing required environment variables for AI Gateway (need AI_GATEWAY_* or ANTHROPIC_*)")
 
         # Also pass config overrides
         if instance.config_json:

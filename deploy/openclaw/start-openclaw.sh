@@ -14,7 +14,7 @@ if [ -z "$AI_GATEWAY_BASE_URL" ] || [ -z "$AI_GATEWAY_API_KEY" ] || [ -z "$AI_GA
     exit 1
 fi
 
-CONFIG_DIR="/root/.openclaw"
+CONFIG_DIR="$HOME/.openclaw"
 CONFIG_FILE="$CONFIG_DIR/openclaw.json"
 
 mkdir -p "$CONFIG_DIR"
@@ -41,9 +41,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
         --skip-skills \
         --skip-health
 
-    echo "Onboard completed"
+    echo "Onboard completed: $CONFIG_FILE"
 else
-    echo "Using existing config"
+    echo "Using existing config: $CONFIG_FILE"
 fi
 
 # ============================================================
@@ -52,13 +52,15 @@ fi
 node << 'EOFPATCH'
 const fs = require('fs');
 
-const configPath = '/root/.openclaw/openclaw.json';
+const configPath = `${process.env.HOME}/.openclaw/openclaw.json`;
 let config = {};
 
 try {
-    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (fs.existsSync(configPath)) {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
 } catch (e) {
-    console.log('Starting with empty config');
+    console.log('Error reading config, starting with empty object');
 }
 
 config.gateway = config.gateway || {};
@@ -72,26 +74,28 @@ if (process.env.OPENCLAW_GATEWAY_TOKEN) {
     config.gateway.auth.token = process.env.OPENCLAW_GATEWAY_TOKEN;
 }
 
-config.gateway.controlUi = config.gateway.controlUi || {};
+config.gateway.controlUi = {
+    allowInsecureAuth: true,
+    dangerouslyDisableDeviceAuth: true,
+    allowedOrigins: ["http://localhost", "http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:18789"]
+};
 
-if (process.env.OPENCLAW_DEV_MODE === 'true') {
-    config.gateway.controlUi.allowInsecureAuth = true;
-}
+config.update = {
+    checkOnStart: false
+};
 
-config.gateway.controlUi.allowedOrigins = ["http://localhost:18789", "http://127.0.0.1:18789", "http://localhost:8000", "http://127.0.0.1:8000"]
-
-if (process.env.FRONTEND_URL) {
-    config.gateway.controlUi.allowedOrigins.push(process.env.FRONTEND_URL);
-}
-if (process.env.OPENCLAW_DEV_MODE === 'true') {
-    config.gateway.controlUi.allowedOrigins.push("*");
-}
+config.browser = {
+    headless: true,
+    noSandbox: true,
+    defaultProfile: "openclaw",
+    executablePath: "/usr/bin/chromium"
+};
 
 // Enable OpenAI-compatible HTTP API
 
 let baseUrl = process.env.AI_GATEWAY_BASE_URL;
 let apiKey = process.env.AI_GATEWAY_API_KEY;
-let gwProvider = process.env.AI_GATEWAY_PROVIDER;
+let gwProvider = process.env.AI_GATEWAY_PROVIDER || 'openai';
 let modelId = process.env.AI_GATEWAY_MODEL;
 
 if (baseUrl && apiKey) {
@@ -115,10 +119,21 @@ if (baseUrl && apiKey) {
 }
 
 
-// Tools configuration: full exec security, no ask prompts
-config.tools = config.tools || {};
-config.tools.profile = "full";
-config.tools.exec = { security: 'full', ask: 'off' };
+config.commands = {
+    native: "auto",
+    nativeSkills: "auto"
+};
+
+config.tools = {
+    profile: "full",
+    sessions: {
+        visibility: "all"
+    },
+    fs: {
+        workspaceOnly: true
+    }
+};
+
 
 // Add dynamic skills directory configuration (populated by JoySafeter Backend's SkillSandboxLoader)
 const DYNAMIC_SKILLS_DIR = '/workspace/skills';
