@@ -111,17 +111,24 @@ def apply_actions_to_graph_state(
     processed_nodes: List[Dict[str, Any]] = [node.copy() for node in current_nodes]
     processed_edges: List[Dict[str, Any]] = [edge.copy() for edge in current_edges]
 
+    # Track existing node IDs for idempotent CREATE_NODE
+    existing_node_ids: set = {n.get("id") for n in processed_nodes if n.get("id")}
+
     for action in actions:
         action_type = action.get("type")
         payload = action.get("payload", {})
 
         try:
             if action_type == "CREATE_NODE":
-                node_id = payload.get("id")
+                node_id = payload.get("id") or f"ai_{hash(str(action)) % 1000000}"
                 node_type = payload.get("type", "agent")
                 label = payload.get("label")
                 position = payload.get("position", {"x": 0, "y": 0})
                 config = payload.get("config", {})
+
+                if node_id in existing_node_ids:
+                    logger.warning(f"[ActionApplier] Skipping duplicate node: {node_id}")
+                    continue
 
                 # Get default config and merge with action config
                 base_config = get_node_default_config(node_type)
@@ -130,20 +137,19 @@ def apply_actions_to_graph_state(
                 # Use default label if not provided
                 node_label = label or get_node_label(node_type)
 
-                # Create node in format expected by GraphService.save_graph_state
-                # Format matches frontend: { id, type: 'custom', position, data: { label, type, config } }
                 new_node: Dict[str, Any] = {
-                    "id": node_id or f"ai_{hash(str(action)) % 1000000}",
-                    "type": "custom",  # React Flow node type (fixed)
+                    "id": node_id,
+                    "type": "custom",
                     "position": position,
                     "data": {
                         "label": node_label,
-                        "type": node_type,  # Business type (agent, condition, etc.)
+                        "type": node_type,
                         "config": merged_config,
                     },
                 }
 
                 processed_nodes.append(new_node)
+                existing_node_ids.add(node_id)
                 logger.debug(f"[ActionApplier] Created node: {node_id}, type: {node_type}, label: {node_label}")
 
             elif action_type == "CONNECT_NODES":

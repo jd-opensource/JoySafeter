@@ -1020,7 +1020,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
       get().takeSnapshot()
       set((state) => ({
-        // Use explicit undefined check to allow empty arrays
         nodes: nodes !== undefined ? nodes : state.nodes,
         edges: edges !== undefined ? edges : state.edges,
       }))
@@ -1030,19 +1029,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         newEdgesCount: get().edges.length,
       })
 
-      // ⭐ For Copilot actions, use immediate save instead of debounced save
-      // This ensures data is saved immediately without waiting for the 2-second debounce delay
-      const { graphId } = get()
-      if (graphId) {
-        saveManager.immediateSave().catch((error) => {
-          console.error('[BuilderStore] Immediate save failed after applyAIChanges:', error)
-          // Fallback to debounced save if immediate save fails
-          get().triggerAutoSave()
-        })
-      } else {
-        // If no graphId, fallback to triggerAutoSave (shouldn't happen in normal flow)
-        get().triggerAutoSave()
-      }
+      // Optimistic render only - no save to DB.
+      // Backend _persist_graph_from_actions is the authoritative writer
+      // for Copilot-generated changes. Frontend syncs from backend on "done".
     },
 
     getGraphContext: () => {

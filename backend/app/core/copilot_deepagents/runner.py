@@ -240,7 +240,9 @@ async def stream_copilot_manager(
             "batch": True,
         }
 
-        yield {"type": "done"}
+        # done is NOT yielded here; generate_actions_async publishes it
+        # AFTER _persist_graph_from_actions completes, so frontend can
+        # safely refetch the authoritative state on "done".
 
         logger.info(f"[DeepAgentsCopilot] Completed run_id={store.run_id} actions={len(collected_actions)}")
 

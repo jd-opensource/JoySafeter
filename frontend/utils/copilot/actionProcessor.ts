@@ -33,15 +33,23 @@ export class ActionProcessor {
     let processedNodes: Node[] = [...currentNodes]
     let processedEdges: Edge[] = [...currentEdges]
 
+    const existingNodeIds = new Set(processedNodes.map((n) => n.id))
+
     actions.forEach((action) => {
       switch (action.type) {
         case 'CREATE_NODE': {
           const { id, type, label, position, config } = action.payload
+          const nodeId = (id as string) || `ai_${Date.now()}`
+
+          if (existingNodeIds.has(nodeId)) {
+            break
+          }
+
           const def = nodeRegistry.get(type || '')
           const baseConfig = def ? { ...def.defaultConfig } : {}
 
           processedNodes.push({
-            id: id || `ai_${Date.now()}`,
+            id: nodeId,
             type: 'custom',
             position: position || { x: 0, y: 0 },
             data: {
@@ -50,6 +58,7 @@ export class ActionProcessor {
               config: { ...baseConfig, ...config },
             },
           })
+          existingNodeIds.add(nodeId)
           break
         }
         case 'CONNECT_NODES': {

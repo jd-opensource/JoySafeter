@@ -253,7 +253,8 @@ class CopilotService:
                 for action in actions
             ],
         }
-        yield {"type": "done"}
+        # done is NOT yielded here; generate_actions_async publishes it
+        # AFTER persistence completes.
         logger.info(f"[CopilotService] generate_actions_stream success actions_count={len(actions)}")
 
     async def generate_actions(

@@ -10,8 +10,11 @@ import { useEffect, useRef } from 'react'
 
 import { useToast } from '@/hooks/use-toast'
 import { copilotService } from '@/services/copilotService'
+import { computeGraphStateHash } from '@/utils/graphStateHash'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
+import { agentService } from '../services/agentService'
+import { useBuilderStore } from '../stores/builderStore'
 import { hasCurrentMessage } from '../utils/copilotUtils'
 
 interface UseCopilotEffectsOptions {
@@ -26,6 +29,7 @@ export function useCopilotEffects({
   state,
   actions,
   refs,
+  graphId,
   handleSendWithInput,
 }: UseCopilotEffectsOptions) {
   const searchParams = useSearchParams()
@@ -57,6 +61,26 @@ export function useCopilotEffects({
           toast({ title: 'Copilot 任务失败', description: sessionData.error || '执行过程中出现错误，请重试', variant: 'destructive' })
           actions.clearSession()
         } else if (sessionData?.status === 'completed') {
+          if (graphId) {
+            try {
+              const stateData = await agentService.loadGraphState(graphId)
+              if (stateData && refs.isMountedRef.current) {
+                const nodes = stateData.nodes || []
+                const edges = stateData.edges || []
+                const newHash = computeGraphStateHash(nodes, edges)
+                useBuilderStore.setState({
+                  nodes,
+                  edges,
+                  lastSavedStateHash: newHash,
+                  hasPendingChanges: false,
+                })
+                const { syncLastSavedHash } = useBuilderStore.getState()
+                syncLastSavedHash()
+              }
+            } catch (syncError) {
+              console.warn('[useCopilotEffects] Failed to sync graph state on completed session:', syncError)
+            }
+          }
           actions.clearSession()
           actions.clearStreaming()
         }
