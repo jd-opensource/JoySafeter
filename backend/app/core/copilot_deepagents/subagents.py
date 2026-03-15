@@ -15,8 +15,6 @@ DeepAgents Copilot - SubAgent Definitions.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
-
 # ==================== SubAgent Names ====================
 
 SUBAGENT_REQUIREMENTS_ANALYST = "requirements-analyst"
@@ -35,34 +33,3 @@ ALL_SUBAGENTS = [
 ANALYSIS_FILE = "/analysis.json"
 BLUEPRINT_FILE = "/blueprint.json"
 VALIDATION_FILE = "/validation.json"
-
-
-def get_subagent_specs() -> List[Dict[str, Any]]:
-    """
-    返回子代理配置列表。
-
-    注意：这个函数已弃用，实际的 specs 在 manager.py 的 _build_subagents 中定义。
-    保留此函数用于向后兼容。
-    """
-    from .manager import REQUIREMENTS_ANALYST_PROMPT, VALIDATOR_PROMPT, WORKFLOW_ARCHITECT_PROMPT
-
-    return [
-        {
-            "name": SUBAGENT_REQUIREMENTS_ANALYST,
-            "description": "分析用户请求，识别需求复杂度、DeepAgents 适用性",
-            "system_prompt": REQUIREMENTS_ANALYST_PROMPT,
-            "tools": [],
-        },
-        {
-            "name": SUBAGENT_WORKFLOW_ARCHITECT,
-            "description": "设计 ReactFlow 兼容的节点/边结构，生成 blueprint",
-            "system_prompt": WORKFLOW_ARCHITECT_PROMPT,
-            "tools": [],
-        },
-        {
-            "name": SUBAGENT_VALIDATOR,
-            "description": "校验 blueprint 结构，发现问题并给出修复建议",
-            "system_prompt": VALIDATOR_PROMPT,
-            "tools": [],
-        },
-    ]

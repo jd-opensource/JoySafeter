@@ -713,45 +713,13 @@ async def get_copilot_history(
     log.info("copilot.history.get start")
 
     service = CopilotService(user_id=str(current_user.id), db=db)
-    history = await service.get_history(str(graph_id))
+    result = await service.get_history_for_api(str(graph_id))
 
-    if history:
-        log.info(f"copilot.history.get success messages_count={len(history.messages)}")
-        return {
-            "success": True,
-            "data": {
-                "graph_id": history.graph_id,
-                "messages": [
-                    {
-                        "id": msg.id,
-                        "role": msg.role,
-                        "content": msg.content,
-                        "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                        "actions": msg.actions,
-                        "thought_steps": [{"index": s.index, "content": s.content} for s in msg.thought_steps]
-                        if msg.thought_steps
-                        else None,
-                        "tool_calls": [{"tool": tc.tool, "input": tc.input} for tc in msg.tool_calls]
-                        if msg.tool_calls
-                        else None,
-                    }
-                    for msg in history.messages
-                ],
-                "created_at": history.created_at.isoformat() if history.created_at else None,
-                "updated_at": history.updated_at.isoformat() if history.updated_at else None,
-            },
-        }
+    if result["data"]["messages"]:
+        log.info(f"copilot.history.get success messages_count={len(result['data']['messages'])}")
     else:
         log.info("copilot.history.get success no_history")
-        return {
-            "success": True,
-            "data": {
-                "graph_id": str(graph_id),
-                "messages": [],
-                "created_at": None,
-                "updated_at": None,
-            },
-        }
+    return result
 
 
 @router.delete("/{graph_id}/copilot/history")
@@ -1001,10 +969,13 @@ async def get_copilot_session(
 
     # For completed/failed sessions, Redis data is temporary
     # History should be loaded from database via graph_id
-    return {
+    out = {
         "session_id": session_id,
         "status": session_data["status"],
         "content": None,  # Completed sessions are in database
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
+    if session_data["status"] == "failed":
+        out["error"] = session_data.get("error")
+    return out

@@ -80,15 +80,17 @@ export const copilotService = {
   convertConversationHistory,
 
   /**
-   * Create a new Copilot task and return session ID
+   * Create a new Copilot task and return session ID.
+   * @param params.mode - Optional engine mode: 'standard' | 'deepagents'. Omit to use backend default (deepagents).
    */
   async createCopilotTask(params: {
     userPrompt: string
     graphContext: unknown
     conversationHistory: Array<ConversationMessage>
     graphId: string | null
+    mode?: 'standard' | 'deepagents'
   }): Promise<{ session_id: string; status: string; created_at: string }> {
-    const { userPrompt, graphContext, conversationHistory, graphId } = params
+    const { userPrompt, graphContext, conversationHistory, graphId, mode } = params
 
     const response = await apiPost<{ session_id: string; status: string; created_at: string }>(
       'graphs/copilot/actions/create',
@@ -97,6 +99,7 @@ export const copilotService = {
         graph_context: graphContext,
         graph_id: graphId || undefined,
         conversation_history: conversationHistory.length > 0 ? conversationHistory : undefined,
+        ...(mode !== undefined && { mode }),
       }
     )
 

@@ -1,5 +1,12 @@
 'use client'
 
+/**
+ * Copilot WebSocket event types.
+ * Contract: docs/schemas/copilot-contract.json (source: backend app/core/copilot/action_types.py).
+ * Server sends: status | content | thought_step | tool_call | tool_result | result | done | error.
+ * Client-only: pong (server response to ping).
+ */
+
 import { env as runtimeEnv } from 'next-runtime-env'
 import { useEffect, useRef, useCallback, useState } from 'react'
 
@@ -23,6 +30,10 @@ export interface CopilotWebSocketEvent {
     payload: Record<string, unknown>
     reasoning?: string
   }>
+  /** Present on type === 'error'. See contract for codes (e.g. CREDENTIAL_ERROR, UNKNOWN_ERROR). */
+  code?: string
+  /** Present on type === 'result'. Optional batch flag from backend. */
+  batch?: boolean
 }
 
 export interface UseCopilotWebSocketOptions {
@@ -204,44 +215,45 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
               }
               break
             case 'result':
-              if (data.message && data.actions) {
-                cbs.onResult({
-                  message: data.message,
-                  actions: data.actions.map(a => ({
-                    type: a.type as any,
-                    payload: a.payload,
-                    reasoning: a.reasoning || '',
-                  })),
-                })
+              // Contract: backend always sends result with message + actions (actions may be [])
+              cbs.onResult({
+                message: data.message ?? '',
+                actions: (data.actions ?? []).map((a: { type: string; payload: Record<string, unknown>; reasoning?: string }) => ({
+                  type: a.type,
+                  payload: a.payload ?? {},
+                  reasoning: a.reasoning ?? '',
+                })),
+              })
+              break
+            case 'error': {
+              const errorCode = (data as { code?: string }).code
+              const rawMessage = data.message ?? ''
+              // Map backend error codes to user-facing messages (aligned with backend copilot_service error events)
+              const messageByCode: Record<string, string> = {
+                CREDENTIAL_ERROR: 'Authentication error. Please check your API credentials in settings.',
+                AGENT_ERROR: 'Agent initialization failed. Please try again or contact support.',
+                CANCELLED: 'Request was cancelled.',
+                REDIS_UNAVAILABLE: 'Service temporarily unavailable. Please try again later.',
+                UNKNOWN_ERROR: 'An unexpected error occurred. Please try again or contact support.',
+              }
+              const errorMessage = errorCode && messageByCode[errorCode] != null
+                ? messageByCode[errorCode]
+                : `${rawMessage || 'An error occurred.'}`
+
+              if (errorCode === 'CANCELLED') {
+                cleanup()
+                return
+              }
+
+              cbs.onError(errorMessage)
+              setError(errorMessage)
+
+              const criticalCodes = ['CREDENTIAL_ERROR', 'AGENT_ERROR', 'REDIS_UNAVAILABLE']
+              if (errorCode && criticalCodes.includes(errorCode)) {
+                cleanup()
               }
               break
-            case 'error':
-              if (data.message) {
-                // Extract error code if available
-                const errorCode = (data as any).code
-                let errorMessage = data.message
-
-                // Provide user-friendly error messages based on error code
-                if (errorCode === 'CREDENTIAL_ERROR') {
-                  errorMessage = 'Authentication error. Please check your API credentials in settings.'
-                } else if (errorCode === 'AGENT_ERROR') {
-                  errorMessage = 'Agent initialization failed. Please try again or contact support.'
-                } else if (errorCode === 'CANCELLED') {
-                  errorMessage = 'Request was cancelled.'
-                  // Don't treat cancellation as an error that needs reconnection
-                  cleanup()
-                  return
-                }
-
-                cbs.onError(errorMessage)
-                setError(errorMessage)
-
-                // For critical errors, don't attempt to reconnect
-                if (errorCode === 'CREDENTIAL_ERROR' || errorCode === 'AGENT_ERROR') {
-                  cleanup()
-                }
-              }
-              break
+            }
             case 'done':
               // Stream completed, close connection
               cleanup()

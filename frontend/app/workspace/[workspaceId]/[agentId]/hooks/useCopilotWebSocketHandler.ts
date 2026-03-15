@@ -6,7 +6,7 @@
  */
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useMemo, useCallback } from 'react'
+import { useMemo } from 'react'
 
 import type { StageType } from '@/hooks/copilot/useCopilotStreaming'
 import { graphKeys } from '@/hooks/queries/graphs'
@@ -14,23 +14,13 @@ import { useTranslation } from '@/lib/i18n'
 import type { GraphAction } from '@/types/copilot'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
+import { hasCurrentMessage } from '../utils/copilotUtils'
 
 interface UseCopilotWebSocketHandlerOptions {
   state: CopilotState
   actions: CopilotActions
   refs: CopilotRefs
   graphId?: string
-}
-
-/**
- * Helper function to check if there's a current message being streamed
- */
-function hasCurrentMessage(messages: Array<{ role: string; text?: string }>, checkEmptyText = true): boolean {
-  if (messages.length === 0) return false
-  const lastMessage = messages[messages.length - 1]
-  if (lastMessage.role !== 'model') return false
-  if (checkEmptyText && lastMessage.text) return false
-  return true
 }
 
 export function useCopilotWebSocketHandler({
@@ -47,10 +37,9 @@ export function useCopilotWebSocketHandler({
   const callbacks = useMemo(() => ({
     onConnect: () => {
       if (!refs.isMountedRef.current) return
-      // Use current state values
-      const { loading, currentStage } = state
-      if (loading && !currentStage) {
-        actions.setCurrentStage({ stage: 'thinking', message: '已连接，正在思考...' })
+      // Only set thinking status if we are loading and have no stage/content yet
+      if (state.loading && !state.currentStage && !state.streamingContent) {
+        actions.setCurrentStage({ stage: 'thinking', message: '已连接，正在处理...' })
       }
     },
 
@@ -91,63 +80,54 @@ export function useCopilotWebSocketHandler({
     onResult: async (response: { message: string; actions?: GraphAction[] }) => {
       if (!refs.isMountedRef.current) return
 
-      actions.clearStreaming()
+      try {
+        actions.clearStreaming()
+        const normalizedMessage = response.message.replace(/\n{2,}/g, '\n')
+        actions.finalizeCurrentMessage(normalizedMessage, response.actions)
 
-      const normalizedMessage = response.message.replace(/\n{2,}/g, '\n')
-      actions.finalizeCurrentMessage(normalizedMessage, response.actions)
+        if (response.actions && response.actions.length > 0) {
+          await actions.executeActions(response.actions)
+          if (!refs.isMountedRef.current) return
+        }
 
-      // Execute actions if present
-      if (response.actions && response.actions.length > 0) {
-        await actions.executeActions(response.actions)
-        if (!refs.isMountedRef.current) return
-      }
-
-      // Invalidate graph state cache
-      if (graphId && refs.isMountedRef.current) {
-        queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })
-      }
-
-      // Reset session creation flag
-      refs.isCreatingSessionRef.current = false
-
-      // Clear session after completion
-      if (refs.isMountedRef.current) {
-        actions.clearSession()
-        actions.setLoading(false)
+        // Backend is source of truth: refetch graph state and history to sync with persisted state
+        if (graphId && refs.isMountedRef.current) {
+          queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })
+          queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(graphId) })
+        }
+      } catch (error) {
+        console.error('[CopilotHandler] Error in onResult:', error)
+      } finally {
+        if (refs.isMountedRef.current) {
+          refs.isCreatingSessionRef.current = false
+          actions.clearSession()
+          actions.setLoading(false)
+        }
       }
     },
 
     onError: (error: string) => {
       if (!refs.isMountedRef.current) return
 
-      actions.clearStreaming()
+      try {
+        actions.clearStreaming()
 
-      // Provide user-friendly error messages
-      let errorMessage = error
-      if (error.includes('Credential') || error.includes('API key')) {
-        errorMessage = t('workspace.copilot.error.credential', {
-          defaultValue: 'Authentication error. Please check your API credentials in settings.'
-        })
-      } else if (error.includes('Connection') || error.includes('WebSocket')) {
-        errorMessage = t('workspace.copilot.error.connection', {
-          defaultValue: 'Connection error. Please check your network connection and try again.'
-        })
-      } else if (error.includes('Max reconnection')) {
-        errorMessage = t('workspace.copilot.error.reconnect', {
-          defaultValue: 'Connection lost. Please refresh the page and try again.'
-        })
-      } else {
-        errorMessage = `${t('workspace.systemError')}: ${error}`
-      }
+        let errorMessage = error
+        if (error.includes('Credential') || error.includes('API key')) {
+          errorMessage = t('workspace.copilot.error.credential', { defaultValue: 'Authentication error. Please check API credentials.' })
+        } else if (error.includes('Connection') || error.includes('WebSocket')) {
+          errorMessage = t('workspace.copilot.error.connection', { defaultValue: 'Connection error. Please check your network.' })
+        } else {
+          errorMessage = `${t('workspace.systemError')}: ${error}`
+        }
 
-      actions.finalizeCurrentMessage(errorMessage)
-
-      // Reset session creation flag on error
-      refs.isCreatingSessionRef.current = false
-
-      if (refs.isMountedRef.current) {
-        actions.clearSession()
-        actions.setLoading(false)
+        actions.finalizeCurrentMessage(errorMessage)
+      } finally {
+        if (refs.isMountedRef.current) {
+          refs.isCreatingSessionRef.current = false
+          actions.clearSession()
+          actions.setLoading(false)
+        }
       }
     },
   }), [

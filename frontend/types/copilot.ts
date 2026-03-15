@@ -1,8 +1,11 @@
 /**
- * Copilot Type Definitions
+ * Copilot Type Definitions (domain / API contract)
  *
- * Unified type definitions for Copilot-related functionality.
- * These types should match the backend definitions in backend/app/core/copilot/action_types.py
+ * This file holds types aligned with the backend and stream event contract.
+ * Canonical source: backend app/core/copilot/action_types.py
+ * Exported JSON Schema: docs/schemas/copilot-contract.json
+ *
+ * UI presentation types are defined inline where used (e.g. in CopilotStreaming).
  */
 
 export type GraphActionType =

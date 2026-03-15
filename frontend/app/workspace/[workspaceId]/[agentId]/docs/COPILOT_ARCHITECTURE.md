@@ -161,6 +161,31 @@ interface CopilotState {
 
 ---
 
+## 🔄 图状态双写与权威
+
+- **权威来源**：后端持久化后的图状态为权威。前端在 `onResult` 中先乐观执行 actions 以即时更新 UI，随后通过 `queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })` 从服务端重新拉取图状态；该 invalidate 即视为以服务端为准的校正，无需额外二次 refetch。
+- **应用逻辑契约**：前端 [actionProcessor](frontend/utils/copilot/actionProcessor.ts) 与后端 [action_applier](backend/app/core/copilot/action_applier.py) 需保持同一套规则（CREATE_NODE / CONNECT_NODES / DELETE_NODE / UPDATE_CONFIG / UPDATE_POSITION）。修改其一时请同步另一侧，长期可考虑由共享类型或后端生成前端 apply 逻辑。
+- **Apply 契约测试**：用例数据见 `docs/schemas/copilot-apply-fixtures.json`；后端测试 `backend/tests/core/copilot/test_action_applier.py`、前端测试 `frontend/utils/copilot/__tests__/actionProcessor.contract.test.ts` 共用该用例，保证双端 apply 行为一致。
+
+## 类型契约
+
+- **权威定义**：Copilot 流式事件与 GraphAction 的权威定义在后端 `backend/app/core/copilot/action_types.py`（含 `CopilotStatusEvent`、`CopilotContentEvent`、`CopilotResultEvent`、`CopilotErrorEvent` 等及 `GraphAction`）。
+- **导出 Schema**：通过脚本 `backend/scripts/export_copilot_schema.py` 导出 JSON Schema 至 `docs/schemas/copilot-contract.json`，供前端与工具识别事件形态。重新生成：`python backend/scripts/export_copilot_schema.py`。
+- **前端类型来源**：前端 `frontend/types/copilot.ts` 与 `frontend/hooks/use-copilot-websocket.ts` 中的 `CopilotWebSocketEvent` 与契约人工对齐，文件顶注释指向上述 schema；新增/修改事件字段时需同步 schema 与前端类型。
+
+| 事件 type     | 主要字段 |
+|---------------|----------|
+| status        | stage, message |
+| content       | content |
+| thought_step  | step: { index, content } |
+| tool_call     | tool, input |
+| tool_result   | action: { type, payload, reasoning? } |
+| result        | message, actions, batch? |
+| done          | （无额外字段） |
+| error         | message, code |
+
+**新增或修改 GraphAction 类型时**：需 (1) 改 backend `action_types.py` 的 `GraphActionType` 与 payload 模型（若有）、(2) 运行 `export_copilot_schema.py` 更新 schema、(3) 更新前端 `types/copilot.ts` 与 apply 逻辑（ActionProcessor + action_applier）、(4) 补充或更新 `docs/schemas/copilot-apply-fixtures.json` 用例并跑双端测试。
+
 ## 🔄 数据流
 
 ```

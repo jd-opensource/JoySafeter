@@ -6,13 +6,17 @@ graph state (nodes and edges) that can be saved to the database.
 
 This module replicates the logic from frontend ActionProcessor to ensure
 consistency between frontend and backend graph state.
+
+Node defaults: NODE_DEFAULT_CONFIGS and NODE_LABELS must be kept in sync
+with frontend app/workspace/.../services/nodeRegistry.tsx (defaultConfig and
+label per type). See docs/schemas/README.md.
 """
 
 from typing import Any, Dict, List, Tuple
 
 from loguru import logger
 
-# Node type default configurations (matching frontend nodeRegistry)
+# Node type default configurations (must match frontend nodeRegistry)
 NODE_DEFAULT_CONFIGS: Dict[str, Dict[str, Any]] = {
     "agent": {
         "model": "DeepSeek-Chat",

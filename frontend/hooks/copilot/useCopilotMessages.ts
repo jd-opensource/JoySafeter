@@ -53,19 +53,6 @@ export function useCopilotMessages(graphId?: string) {
     setMessages((prev) => [...prev, message])
   }, [])
 
-  const updateCurrentMessage = useCallback((updates: Partial<CopilotMessage>) => {
-    setMessages((prev) => {
-      const newMessages = [...prev]
-      if (currentMessageIndexRef.current !== null && newMessages[currentMessageIndexRef.current]) {
-        newMessages[currentMessageIndexRef.current] = {
-          ...newMessages[currentMessageIndexRef.current],
-          ...updates,
-        }
-      }
-      return newMessages
-    })
-  }, [])
-
   const addThoughtStep = useCallback((step: { index: number; content: string }) => {
     setMessages((prev) => {
       const newMessages = [...prev]
@@ -137,7 +124,6 @@ export function useCopilotMessages(graphId?: string) {
     loadingHistory,
     currentMessageIndexRef,
     addMessage,
-    updateCurrentMessage,
     addThoughtStep,
     clearMessages,
     setThinkingMessage,

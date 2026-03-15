@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CopilotStreamEvent",
+  "description": "Copilot WebSocket/SSE stream event contract. One of status, content, thought_step, tool_call, tool_result, result, done, error.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/CopilotStatusEvent"
+    },
+    {
+      "$ref": "#/$defs/CopilotContentEvent"
+    },
+    {
+      "$ref": "#/$defs/CopilotThoughtStepEvent"
+    },
+    {
+      "$ref": "#/$defs/CopilotToolCallEvent"
+    },
+    {
+      "$ref": "#/$defs/CopilotToolResultEvent"
+    },
+    {
+      "$ref": "#/$defs/CopilotResultEvent"
+    },
+    {
+      "$ref": "#/$defs/CopilotDoneEvent"
+    },
+    {
+      "$ref": "#/$defs/CopilotErrorEvent"
+    }
+  ],
+  "$defs": {
+    "CopilotStatusEvent": {
+      "description": "Stream event: progress status.",
+      "properties": {
+        "type": {
+          "const": "status",
+          "default": "status",
+          "title": "Type",
+          "type": "string"
+        },
+        "stage": {
+          "description": "Stage identifier (e.g. thinking, processing)",
+          "title": "Stage",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable status message",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "message"
+      ],
+      "title": "CopilotStatusEvent",
+      "type": "object"
+    },
+    "CopilotContentEvent": {
+      "description": "Stream event: streaming AI response content.",
+      "properties": {
+        "type": {
+          "const": "content",
+          "default": "content",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "description": "Content chunk",
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "title": "CopilotContentEvent",
+      "type": "object"
+    },
+    "CopilotThoughtStepEvent": {
+      "description": "Stream event: single thought step in AI reasoning.",
+      "properties": {
+        "type": {
+          "const": "thought_step",
+          "default": "thought_step",
+          "title": "Type",
+          "type": "string"
+        },
+        "step": {
+          "additionalProperties": true,
+          "description": "Step with index and content (e.g. {index, content})",
+          "title": "Step",
+          "type": "object"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "CopilotThoughtStepEvent",
+      "type": "object"
+    },
+    "CopilotToolCallEvent": {
+      "description": "Stream event: tool invocation started.",
+      "properties": {
+        "type": {
+          "const": "tool_call",
+          "default": "tool_call",
+          "title": "Type",
+          "type": "string"
+        },
+        "tool": {
+          "description": "Tool name",
+          "title": "Tool",
+          "type": "string"
+        },
+        "input": {
+          "additionalProperties": true,
+          "description": "Tool input parameters",
+          "title": "Input",
+          "type": "object"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "CopilotToolCallEvent",
+      "type": "object"
+    },
+    "CopilotToolResultEvent": {
+      "description": "Stream event: tool execution result (action payload).",
+      "properties": {
+        "type": {
+          "const": "tool_result",
+          "default": "tool_result",
+          "title": "Type",
+          "type": "string"
+        },
+        "action": {
+          "additionalProperties": true,
+          "description": "Action dict: type, payload, reasoning (GraphAction-compatible)",
+          "title": "Action",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "CopilotToolResultEvent",
+      "type": "object"
+    },
+    "CopilotResultEvent": {
+      "description": "Stream event: final result with message and actions.",
+      "properties": {
+        "type": {
+          "const": "result",
+          "default": "result",
+          "title": "Type",
+          "type": "string"
+        },
+        "message": {
+          "description": "Final assistant message",
+          "title": "Message",
+          "type": "string"
+        },
+        "actions": {
+          "description": "List of GraphAction-compatible dicts",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional batch flag for frontend",
+          "title": "Batch"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "CopilotResultEvent",
+      "type": "object"
+    },
+    "CopilotDoneEvent": {
+      "description": "Stream event: stream finished.",
+      "properties": {
+        "type": {
+          "const": "done",
+          "default": "done",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "CopilotDoneEvent",
+      "type": "object"
+    },
+    "CopilotErrorEvent": {
+      "description": "Stream event: error occurred.",
+      "properties": {
+        "type": {
+          "const": "error",
+          "default": "error",
+          "title": "Type",
+          "type": "string"
+        },
+        "message": {
+          "description": "Error message",
+          "title": "Message",
+          "type": "string"
+        },
+        "code": {
+          "description": "Error code for frontend mapping (e.g. CREDENTIAL_ERROR, UNKNOWN_ERROR)",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "code"
+      ],
+      "title": "CopilotErrorEvent",
+      "type": "object"
+    },
+    "GraphAction": {
+      "$defs": {
+        "GraphActionType": {
+          "description": "Graph action types that can be executed by Copilot.",
+          "enum": [
+            "CREATE_NODE",
+            "CONNECT_NODES",
+            "DELETE_NODE",
+            "UPDATE_CONFIG",
+            "UPDATE_POSITION"
+          ],
+          "title": "GraphActionType",
+          "type": "string"
+        }
+      },
+      "description": "Single graph action to be executed.",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/GraphActionType",
+          "description": "Action type"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "description": "Action payload",
+          "title": "Payload",
+          "type": "object"
+        },
+        "reasoning": {
+          "description": "Reasoning for the action",
+          "title": "Reasoning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "payload",
+        "reasoning"
+      ],
+      "title": "GraphAction",
+      "type": "object"
+    },
+    "GraphActionType": {
+      "type": "string",
+      "enum": [
+        "CREATE_NODE",
+        "CONNECT_NODES",
+        "DELETE_NODE",
+        "UPDATE_CONFIG",
+        "UPDATE_POSITION"
+      ],
+      "description": "Graph action type"
+    }
+  }
+}

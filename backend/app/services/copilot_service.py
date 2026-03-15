@@ -5,13 +5,11 @@ Provides both streaming and non-streaming interfaces for generating
 graph actions based on user requests.
 """
 
-import copy
 import uuid as uuid_lib
 from datetime import datetime
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from loguru import logger
-from sqlalchemy import select
 
 from app.core.copilot.action_applier import apply_actions_to_graph_state
 from app.core.copilot.action_types import (
@@ -45,8 +43,8 @@ from app.core.copilot.response_parser import (
 from app.core.copilot.tool_output_parser import parse_tool_output
 from app.core.copilot.tools import reset_node_registry
 from app.core.model.utils.credential_resolver import LLMCredentialResolver
-from app.models.chat import CopilotChat
 from app.repositories.auth_user import AuthUserRepository
+from app.repositories.copilot_chat_repository import CopilotChatRepository
 from app.services.graph_service import GraphService
 
 
@@ -83,6 +81,184 @@ class CopilotService:
         self.llm_model = llm_model  # 不再使用 settings.openai_model
         self.api_key = api_key
         self.base_url = base_url
+
+    async def _get_copilot_stream(
+        self,
+        prompt: str,
+        graph_context: Dict[str, Any],
+        conversation_history: Optional[List[Dict[str, str]]],
+        mode: str,
+        graph_id: Optional[str] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Single engine entry: returns a unified event stream for the given mode.
+        Callers (generate_actions_stream, generate_actions_async) only consume this stream.
+        """
+        reset_node_registry()
+
+        # Resolve credentials once for both engines
+        try:
+            api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
+                db=self.db,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                llm_model=self.llm_model,
+            )
+            if not api_key:
+                raise CopilotCredentialError(
+                    "No API key found. Please configure your LLM credentials in settings.",
+                    data={"has_db": self.db is not None},
+                )
+        except CopilotCredentialError:
+            raise
+        except Exception as e:
+            logger.error(f"[CopilotService] Credential error: {e}")
+            raise CopilotCredentialError("Failed to retrieve credentials", original_error=e)  # type: ignore[call-arg]
+
+        if mode == "deepagents":
+            async for event in self._stream_deepagents(
+                prompt=prompt,
+                graph_context=graph_context,
+                graph_id=graph_id,
+                conversation_history=conversation_history,
+                api_key=api_key,
+                base_url=base_url,
+                final_model_name=final_model_name,
+            ):
+                yield event
+            return
+
+        # Standard engine
+        yield {"type": "status", "stage": "thinking", "message": "正在思考..."}
+        try:
+            agent = await get_copilot_agent(
+                graph_context=graph_context,
+                user_id=self.user_id,
+                llm_model=final_model_name,
+                api_key=api_key,
+                base_url=base_url,
+                db=self.db,
+            )
+        except Exception as e:
+            logger.error(f"[CopilotService] Agent creation error: {e}")
+            yield {"type": "error", "message": f"Failed to create Copilot agent: {str(e)}", "code": "AGENT_ERROR"}
+            return
+
+        messages = self._build_messages(prompt, conversation_history)
+        async for event in self._stream_standard_events(agent, messages, graph_context):
+            yield event
+        logger.info("[CopilotService] generate_actions_stream (standard) finished")
+
+    async def _stream_deepagents(
+        self,
+        prompt: str,
+        graph_context: Dict[str, Any],
+        graph_id: Optional[str],
+        conversation_history: Optional[List[Dict[str, str]]],
+        api_key: str,
+        base_url: Optional[str],
+        final_model_name: Optional[str],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Yield events from the DeepAgents engine."""
+        from app.core.copilot_deepagents.streaming import stream_deepagents_actions
+
+        async for event in stream_deepagents_actions(
+            prompt=prompt,
+            graph_context=graph_context,
+            graph_id=graph_id,
+            user_id=self.user_id,
+            api_key=api_key,
+            base_url=base_url,
+            llm_model=final_model_name,
+            conversation_history=conversation_history,
+        ):
+            yield event
+
+    async def _stream_standard_events(
+        self,
+        agent: Any,
+        messages: List[Any],
+        graph_context: Dict[str, Any],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Yield unified events from the standard Copilot agent stream."""
+        accumulated_content = ""
+        last_streamed_thought: Optional[str] = None
+        last_streamed_steps_count = 0
+        collected_actions: List[Dict[str, Any]] = []
+        final_message = ""
+
+        async for event in agent.astream_events(
+            {"messages": messages}, version="v2", config={"recursion_limit": 300}
+        ):
+            if not isinstance(event, dict):
+                continue
+            current_event_dict: Dict[str, Any] = event
+            event_kind = current_event_dict.get("event", "")
+
+            if event_kind == "on_chat_model_stream":
+                data = current_event_dict.get("data", {})
+                chunk = data.get("chunk") if isinstance(data, dict) else None
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    yield {"type": "content", "content": chunk.content}
+                accumulated_content, last_streamed_thought, last_streamed_steps_count, thought_step_event = (
+                    self._handle_chat_model_stream_event(
+                        current_event_dict,
+                        accumulated_content,
+                        last_streamed_thought,
+                        last_streamed_steps_count,
+                    )
+                )
+                if thought_step_event:
+                    yield thought_step_event
+
+            elif event_kind == "on_tool_start":
+                tool_name = current_event_dict.get("name", "")
+                data = current_event_dict.get("data", {})
+                tool_input = data.get("input", {}) if isinstance(data, dict) else {}
+                logger.info(f"[CopilotService] Tool started: {tool_name}, input: {tool_input}")
+                yield {"type": "tool_call", "tool": tool_name, "input": tool_input}
+
+            elif event_kind == "on_tool_end":
+                tool_name = current_event_dict.get("name", "")
+                data = current_event_dict.get("data", {})
+                tool_output_raw = data.get("output") if isinstance(data, dict) else None
+                logger.info(f"[CopilotService] Tool ended: {tool_name}, output type: {type(tool_output_raw)}")
+                action_data = self._parse_tool_output(tool_output_raw, tool_name)
+                if action_data:
+                    expanded = expand_action_payload(action_data, filter_non_actions=True)
+                    if expanded:
+                        for a in expanded:
+                            logger.info(f"[CopilotService] Extracted action: {a.get('type')}")
+                            collected_actions.append(a)
+                            yield {"type": "tool_result", "action": a}
+                    else:
+                        logger.warning(
+                            f"[CopilotService] Tool output is not an action payload. tool={tool_name} "
+                            f"keys={list(action_data.keys()) if isinstance(action_data, dict) else type(action_data)}"
+                        )
+
+            elif event_kind == "on_chat_model_end":
+                event_data = (
+                    current_event_dict.get("data", {})
+                    if isinstance(current_event_dict.get("data"), dict)
+                    else {}
+                )
+                output = event_data.get("output") if isinstance(event_data, dict) else None
+                if output and hasattr(output, "content"):
+                    final_message = output.content
+
+        yield {"type": "status", "stage": "processing", "message": "处理结果..."}
+        actions = self._convert_and_validate_actions(collected_actions, graph_context)
+        yield {
+            "type": "result",
+            "message": final_message,
+            "actions": [
+                {"type": action.type.value, "payload": action.payload, "reasoning": action.reasoning}
+                for action in actions
+            ],
+        }
+        yield {"type": "done"}
+        logger.info(f"[CopilotService] generate_actions_stream success actions_count={len(actions)}")
 
     async def generate_actions(
         self,
@@ -204,224 +380,20 @@ class CopilotService:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Generate graph actions with streaming (SSE events).
-
-        Yields SSE event dicts with the following types:
-        - status: Progress updates (stage, message)
-        - content: Streaming AI response content
-        - thought_step: Single thinking step
-        - tool_call: Tool invocation event
-        - tool_result: Tool execution result
-        - result: Final result with message and actions
-        - done: Stream finished
-        - error: Error occurred
-
-        Args:
-            prompt: User's request
-            graph_context: Current graph state with nodes and edges
-            conversation_history: Optional previous conversation messages
-
-        Yields:
-            Dict with event type and data
+        Consumes the unified _get_copilot_stream and yields events; handles top-level errors with code.
         """
         logger.info(f"[CopilotService] generate_actions_stream start user_id={self.user_id}")
-
-        # Reset node registry for fresh semantic ID tracking
-        reset_node_registry()
-
         try:
-            # Determine which engine to use
-            if mode == "deepagents":
-                # Resolve credentials for DeepAgents
-                try:
-                    api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
-                        db=self.db,
-                        api_key=self.api_key,
-                        base_url=self.base_url,
-                        llm_model=self.llm_model,
-                    )
-                except Exception as e:
-                    logger.error(f"[CopilotService] Credential error in stream: {e}")
-                    yield {
-                        "type": "error",
-                        "message": f"Credential error: {str(e)}",
-                        "code": "CREDENTIAL_ERROR"
-                    }
-                    return
-
-                from app.core.copilot_deepagents.streaming import stream_deepagents_actions
-                stream = stream_deepagents_actions(
-                    prompt=prompt,
-                    graph_context=graph_context,
-                    graph_id=None,
-                    user_id=self.user_id,
-                    api_key=api_key,
-                    base_url=base_url,
-                    llm_model=final_model_name,
-                    conversation_history=conversation_history,
-                )
-                async for event in stream:
-                    yield event
-                return
-
-            # Standard Engine (Standard Mode)
-            # Single status: Thinking
-            yield {"type": "status", "stage": "thinking", "message": "正在思考..."}
-
-            # Get credentials using unified CredentialManager
-            try:
-                api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
-                    db=self.db,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    llm_model=self.llm_model,
-                )
-                if not api_key:
-                    raise CopilotCredentialError(
-                        "No API key found. Please configure your LLM credentials in settings.",
-                        data={"has_db": self.db is not None},
-                    )
-            except CopilotCredentialError:
-                # Re-raise as error event
-                yield {
-                    "type": "error",
-                    "message": "Credential error: No API key found. Please configure your LLM credentials.",
-                    "code": "CREDENTIAL_ERROR",
-                }
-                return
-            except Exception as e:
-                logger.error(f"[CopilotService] Credential error: {e}")
-                yield {
-                    "type": "error",
-                    "message": f"Failed to retrieve credentials: {str(e)}",
-                    "code": "CREDENTIAL_ERROR",
-                }
-                return
-
-            # Create the Copilot agent (with db for model preloading)
-            try:
-                agent = await get_copilot_agent(
-                    graph_context=graph_context,
-                    user_id=self.user_id,
-                    llm_model=final_model_name,
-                    api_key=api_key,
-                    base_url=base_url,
-                    db=self.db,
-                )
-            except Exception as e:
-                logger.error(f"[CopilotService] Agent creation error: {e}")
-                yield {"type": "error", "message": f"Failed to create Copilot agent: {str(e)}", "code": "AGENT_ERROR"}
-                return
-
-            # Build messages
-            messages = self._build_messages(prompt, conversation_history)
-
-            # Track state for streaming
-            accumulated_content = ""
-            last_streamed_thought = None
-            last_streamed_steps_count = 0
-            collected_actions: List[Dict[str, Any]] = []
-            final_message = ""
-
-            # Stream events from the agent with explicit recursion limit
-            async for event in agent.astream_events(
-                {"messages": messages}, version="v2", config={"recursion_limit": 300}
+            async for event in self._get_copilot_stream(
+                prompt=prompt,
+                graph_context=graph_context,
+                conversation_history=conversation_history,
+                mode=mode,
+                graph_id=None,
             ):
-                if isinstance(event, dict):
-                    current_event_dict: Dict[str, Any] = event  # type: ignore[assignment]
-                else:
-                    current_event_dict = {}
-                event_kind = current_event_dict.get("event", "")
-
-                # Handle different event types
-                if event_kind == "on_chat_model_stream":
-                    # Streaming content from the LLM - use extracted method
-                    data = current_event_dict.get("data", {})
-                    chunk = data.get("chunk") if isinstance(data, dict) else None
-                    if chunk and hasattr(chunk, "content") and chunk.content:
-                        content = chunk.content
-                        yield {"type": "content", "content": content}
-
-                    # Handle thought step extraction
-                    accumulated_content, last_streamed_thought, last_streamed_steps_count, thought_step_event = (
-                        self._handle_chat_model_stream_event(
-                            current_event_dict, accumulated_content, last_streamed_thought, last_streamed_steps_count
-                        )
-                    )
-
-                    # Yield thought step event if extracted
-                    if thought_step_event:
-                        yield thought_step_event
-
-                elif event_kind == "on_tool_start":
-                    # Tool invocation started
-                    tool_name = current_event_dict.get("name", "")
-                    data = current_event_dict.get("data", {})
-                    tool_input = data.get("input", {}) if isinstance(data, dict) else {}
-                    logger.info(f"[CopilotService] Tool started: {tool_name}, input: {tool_input}")
-                    yield {
-                        "type": "tool_call",
-                        "tool": tool_name,
-                        "input": tool_input,
-                    }
-
-                elif event_kind == "on_tool_end":
-                    # Tool execution completed
-                    tool_name = current_event_dict.get("name", "")
-                    data = current_event_dict.get("data", {})
-                    tool_output_raw = data.get("output") if isinstance(data, dict) else None
-                    logger.info(f"[CopilotService] Tool ended: {tool_name}, output type: {type(tool_output_raw)}")
-
-                    # Parse tool output to extract action data
-                    action_data = self._parse_tool_output(tool_output_raw, tool_name)
-
-                    if action_data:
-                        # Extract actions (single or batch) using unified method
-                        expanded = expand_action_payload(action_data, filter_non_actions=True)
-                        if expanded:
-                            for a in expanded:
-                                logger.info(f"[CopilotService] Extracted action: {a.get('type')}")
-                                collected_actions.append(a)
-                                yield {"type": "tool_result", "action": a}
-                        else:
-                            # Not an action payload; still useful for debugging but don't treat as action
-                            logger.warning(
-                                f"[CopilotService] Tool output is not an action payload. tool={tool_name} "
-                                f"keys={list(action_data.keys()) if isinstance(action_data, dict) else type(action_data)}"
-                            )
-
-                elif event_kind == "on_chat_model_end":
-                    # LLM finished generating
-                    event_data = (
-                        current_event_dict.get("data", {}) if isinstance(current_event_dict.get("data"), dict) else {}
-                    )
-                    output = event_data.get("output") if isinstance(event_data, dict) else None
-                    if output and hasattr(output, "content"):
-                        final_message = output.content
-
-            # Stage 6: Processing results
-            yield {"type": "status", "stage": "processing", "message": "处理结果..."}
-
-            # Convert collected actions to GraphAction format and validate
-            actions = self._convert_and_validate_actions(collected_actions, graph_context)
-
-            # Send final result
-            yield {
-                "type": "result",
-                "message": final_message,
-                "actions": [
-                    {
-                        "type": action.type.value,
-                        "payload": action.payload,
-                        "reasoning": action.reasoning,
-                    }
-                    for action in actions
-                ],
-            }
-
-            # Done
-            yield {"type": "done"}
-            logger.info(f"[CopilotService] generate_actions_stream success actions_count={len(actions)}")
-
+                yield event
+        except CopilotCredentialError as e:
+            yield {"type": "error", "message": str(e), "code": "CREDENTIAL_ERROR"}
         except KeyboardInterrupt:
             logger.warning("[CopilotService] Stream interrupted by user")
             yield {"type": "error", "message": "Request cancelled by user", "code": "CANCELLED"}
@@ -594,106 +566,6 @@ class CopilotService:
 
         return ""
 
-    def _process_actions(
-        self, actions: List[Dict[str, Any]], initial_nodes: List[Dict[str, Any]], initial_edges: List[Dict[str, Any]]
-    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """
-        Process graph actions to compute final nodes and edges.
-
-        Similar to frontend ActionProcessor.processActions.
-        This method applies actions to initial graph state and returns the final state.
-
-        Args:
-            actions: List of action dictionaries with 'type' and 'payload' keys
-            initial_nodes: Initial nodes in the graph
-            initial_edges: Initial edges in the graph
-
-        Returns:
-            Tuple of (final_nodes, final_edges) after processing all actions
-        """
-        processed_nodes = [copy.deepcopy(node) for node in initial_nodes]
-        processed_edges = [copy.deepcopy(edge) for edge in initial_edges]
-
-        # Create node index for O(1) lookups when updating/deleting nodes
-        node_index: Dict[str, int] = {
-            str(node.get("id")): i for i, node in enumerate(processed_nodes) if node.get("id") is not None
-        }
-
-        for action in actions:
-            action_type = action.get("type")
-            payload = action.get("payload", {})
-
-            if action_type == "CREATE_NODE":
-                node_id = payload.get("id") or f"ai_{int(datetime.utcnow().timestamp() * 1000)}"
-                new_node = {
-                    "id": node_id,
-                    "type": "custom",
-                    "position": payload.get("position") or {"x": 0, "y": 0},
-                    "data": {
-                        "label": payload.get("label") or "Node",
-                        "type": payload.get("type"),
-                        "config": payload.get("config") or {},
-                    },
-                }
-                processed_nodes.append(new_node)
-                node_index[node_id] = len(processed_nodes) - 1
-
-            elif action_type == "CONNECT_NODES":
-                source = payload.get("source")
-                target = payload.get("target")
-                if source and target:
-                    # Check if edge already exists
-                    if not any(e.get("source") == source and e.get("target") == target for e in processed_edges):
-                        processed_edges.append(
-                            {
-                                "id": f"e-{source}-{target}",
-                                "source": source,
-                                "target": target,
-                            }
-                        )
-
-            elif action_type == "DELETE_NODE":
-                node_id = payload.get("id")
-                if node_id:
-                    processed_nodes = [n for n in processed_nodes if n.get("id") != node_id]
-                    processed_edges = [
-                        e for e in processed_edges if e.get("source") != node_id and e.get("target") != node_id
-                    ]
-                    # Rebuild index after deletion
-                    node_index = {
-                        str(node.get("id")): i for i, node in enumerate(processed_nodes) if node.get("id") is not None
-                    }
-
-            elif action_type == "UPDATE_CONFIG":
-                node_id = payload.get("id")
-                config = payload.get("config", {})
-                if node_id and config:
-                    # Use index for O(1) lookup instead of linear search
-                    if node_id in node_index:
-                        node_idx = node_index[node_id]
-                        node_data = processed_nodes[node_idx].get("data", {})
-                        existing_config = node_data.get("config", {})
-                        node_data["config"] = {**existing_config, **config}
-                    else:
-                        logger.warning(f"[CopilotService] Node {node_id} not found for UPDATE_CONFIG action")
-
-            elif action_type == "UPDATE_POSITION":
-                node_id = payload.get("id")
-                position = payload.get("position")
-                if node_id and position:
-                    # Use index for O(1) lookup instead of linear search
-                    if node_id in node_index:
-                        node_idx = node_index[node_id]
-                        processed_nodes[node_idx]["position"] = position
-                    else:
-                        logger.warning(f"[CopilotService] Node {node_id} not found for UPDATE_POSITION action")
-
-            else:
-                # Unknown action type - log warning but don't fail
-                logger.warning(f"[CopilotService] Unknown action type: {action_type}")
-
-        return processed_nodes, processed_edges
-
     # ==================== History Persistence Methods ====================
 
     async def get_history(self, graph_id: str) -> Optional[CopilotHistoryResponse]:
@@ -711,15 +583,8 @@ class CopilotService:
             return None
 
         try:
-            graph_uuid = uuid_lib.UUID(graph_id)
-
-            # Query for existing CopilotChat by graph_id and user_id
-            stmt = select(CopilotChat).where(
-                CopilotChat.agent_graph_id == graph_uuid,
-                CopilotChat.user_id == self.user_id,
-            )
-            result = await self.db.execute(stmt)
-            chat = result.scalar_one_or_none()
+            repo = CopilotChatRepository(self.db)
+            chat = await repo.get_chat(graph_id=graph_id, user_id=self.user_id)
 
             if not chat:
                 logger.debug(f"[CopilotService] No history found for graph_id={graph_id}")
@@ -784,6 +649,53 @@ class CopilotService:
         except Exception as e:
             logger.error(f"[CopilotService] get_history failed: {e}")
             return None
+
+    async def get_history_for_api(self, graph_id: str) -> Dict[str, Any]:
+        """
+        Get Copilot history as a JSON-serializable dict for API responses.
+
+        Returns the same structure as the GET /graphs/{id}/copilot/history response:
+        {"success": True, "data": {"graph_id", "messages", "created_at", "updated_at"}}
+        """
+        history = await self.get_history(graph_id)
+        if not history:
+            return {
+                "success": True,
+                "data": {
+                    "graph_id": graph_id,
+                    "messages": [],
+                    "created_at": None,
+                    "updated_at": None,
+                },
+            }
+        return {
+            "success": True,
+            "data": {
+                "graph_id": history.graph_id,
+                "messages": [
+                    {
+                        "id": msg.id,
+                        "role": msg.role,
+                        "content": msg.content,
+                        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                        "actions": msg.actions,
+                        "thought_steps": (
+                            [{"index": s.index, "content": s.content} for s in msg.thought_steps]
+                            if msg.thought_steps
+                            else None
+                        ),
+                        "tool_calls": (
+                            [{"tool": tc.tool, "input": tc.input} for tc in msg.tool_calls]
+                            if msg.tool_calls
+                            else None
+                        ),
+                    }
+                    for msg in history.messages
+                ],
+                "created_at": history.created_at.isoformat() if history.created_at else None,
+                "updated_at": history.updated_at.isoformat() if history.updated_at else None,
+            },
+        }
 
     async def save_conversation_from_stream(
         self,
@@ -874,17 +786,6 @@ class CopilotService:
             return False
 
         try:
-            graph_uuid = uuid_lib.UUID(graph_id)
-
-            # Query for existing CopilotChat
-            stmt = select(CopilotChat).where(
-                CopilotChat.agent_graph_id == graph_uuid,
-                CopilotChat.user_id == self.user_id,
-            )
-            result = await self.db.execute(stmt)
-            chat = result.scalar_one_or_none()
-
-            # Serialize messages to dict
             def message_to_dict(msg: CopilotMessage) -> Dict[str, Any]:
                 data: Dict[str, Any] = {
                     "id": msg.id,
@@ -904,29 +805,19 @@ class CopilotService:
 
             user_msg_dict = message_to_dict(user_message)
             assistant_msg_dict = message_to_dict(assistant_message)
+            title = (user_message.content[:100] if user_message.content else None) or "Copilot Chat"
 
-            if chat:
-                # Append to existing messages
-                existing_messages = list(chat.messages or [])
-                existing_messages.append(user_msg_dict)
-                existing_messages.append(assistant_msg_dict)
-                chat.messages = existing_messages
-                chat.updated_at = datetime.utcnow()
-                logger.info(f"[CopilotService] Appended messages to existing chat for graph_id={graph_id}")
-            else:
-                # Create new CopilotChat
-                chat = CopilotChat(
-                    user_id=self.user_id,
-                    agent_graph_id=graph_uuid,
-                    title=user_message.content[:100] if user_message.content else "Copilot Chat",
-                    messages=[user_msg_dict, assistant_msg_dict],
-                    model="default",
-                )
-                self.db.add(chat)
-                logger.info(f"[CopilotService] Created new chat for graph_id={graph_id}")
-
-            await self.db.commit()
-            return True
+            repo = CopilotChatRepository(self.db)
+            ok = await repo.create_or_append_messages(
+                graph_id=graph_id,
+                user_id=self.user_id,
+                user_msg_dict=user_msg_dict,
+                assistant_msg_dict=assistant_msg_dict,
+                title=title,
+            )
+            if ok:
+                await self.db.commit()
+            return ok
 
         except Exception as e:
             logger.error(f"[CopilotService] save_messages failed: {e}")
@@ -948,27 +839,150 @@ class CopilotService:
             return False
 
         try:
-            graph_uuid = uuid_lib.UUID(graph_id)
-
-            # Query and delete
-            stmt = select(CopilotChat).where(
-                CopilotChat.agent_graph_id == graph_uuid,
-                CopilotChat.user_id == self.user_id,
-            )
-            result = await self.db.execute(stmt)
-            chat = result.scalar_one_or_none()
-
-            if chat:
-                await self.db.delete(chat)
-                await self.db.commit()
-                logger.info(f"[CopilotService] Cleared history for graph_id={graph_id}")
-
+            repo = CopilotChatRepository(self.db)
+            await repo.delete_by_graph_and_user(graph_id=graph_id, user_id=self.user_id)
+            await self.db.commit()
+            logger.info(f"[CopilotService] Cleared history for graph_id={graph_id}")
             return True
 
         except Exception as e:
             logger.error(f"[CopilotService] clear_history failed: {e}")
             await self.db.rollback()
             return False
+
+    async def _persist_conversation(
+        self,
+        session_id: str,
+        graph_id: str,
+        prompt: str,
+        final_message: str,
+        collected_thought_steps: List[Dict[str, Any]],
+        collected_tool_calls: List[Dict[str, Any]],
+        final_actions: List[Dict[str, Any]],
+    ) -> bool:
+        """Save conversation from stream to DB in a dedicated transaction. Returns True if saved successfully."""
+        from app.core.database import async_session_factory
+
+        async with async_session_factory() as new_db:
+            try:
+                service_with_db = CopilotService(user_id=self.user_id, db=new_db)
+                saved = await service_with_db.save_conversation_from_stream(
+                    graph_id=graph_id,
+                    prompt=prompt,
+                    final_message=final_message,
+                    collected_thought_steps=collected_thought_steps,
+                    collected_tool_calls=collected_tool_calls,
+                    final_actions=final_actions,
+                )
+                if saved:
+                    logger.info(
+                        f"[CopilotService] Async task saved messages for session_id={session_id}, graph_id={graph_id}"
+                    )
+                else:
+                    logger.warning(
+                        f"[CopilotService] Async task failed to save messages for session_id={session_id}, graph_id={graph_id}"
+                    )
+                return saved
+            except Exception as e:
+                if new_db.in_transaction():
+                    await new_db.rollback()
+                logger.error(
+                    f"[CopilotService] Failed to save conversation for session_id={session_id}, "
+                    f"graph_id={graph_id}: {e}",
+                    exc_info=True,
+                )
+                return False
+
+    async def _persist_graph_from_actions(
+        self, graph_id: str, final_actions: List[Dict[str, Any]]
+    ) -> bool:
+        """Apply actions to graph state and persist in a dedicated transaction. Returns True if saved successfully."""
+        from app.core.database import async_session_factory
+
+        async with async_session_factory() as new_db2:
+            try:
+                current_user = None
+                if self.user_id:
+                    user_repo = AuthUserRepository(new_db2)
+                    current_user = await user_repo.get_by(id=self.user_id)
+
+                graph_service = GraphService(new_db2)
+                graph_uuid = uuid_lib.UUID(graph_id)
+                current_state = await graph_service.load_graph_state(
+                    graph_id=graph_uuid,
+                    current_user=current_user,
+                )
+
+                current_nodes = current_state.get("nodes", [])
+                current_edges = current_state.get("edges", [])
+
+                updated_nodes, updated_edges = apply_actions_to_graph_state(
+                    current_nodes=current_nodes,
+                    current_edges=current_edges,
+                    actions=final_actions,
+                )
+
+                viewport = current_state.get("viewport")
+                variables = current_state.get("variables")
+
+                await graph_service.save_graph_state(
+                    graph_id=graph_uuid,
+                    nodes=updated_nodes,
+                    edges=updated_edges,
+                    viewport=viewport,
+                    variables=variables,
+                    current_user=current_user,
+                )
+
+                await new_db2.commit()
+                logger.info(
+                    f"[CopilotService] Async task saved graph state for graph_id={graph_id}, "
+                    f"nodes={len(updated_nodes)}, edges={len(updated_edges)}"
+                )
+                return True
+            except Exception as e:
+                if new_db2.in_transaction():
+                    await new_db2.rollback()
+                logger.error(
+                    f"[CopilotService] Failed to save graph state for graph_id={graph_id}: {e}",
+                    exc_info=True,
+                )
+                return False
+
+    async def _consume_stream_and_publish_to_redis(
+        self,
+        session_id: str,
+        stream: AsyncGenerator[Dict[str, Any], None],
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], str, List[Dict[str, Any]]]:
+        """
+        Consume the copilot event stream, publish each event to Redis, and return
+        collected data for persistence (thought_steps, tool_calls, final_message, final_actions).
+        """
+        from app.core.redis import RedisClient
+
+        collected_thought_steps: List[Dict[str, Any]] = []
+        collected_tool_calls: List[Dict[str, Any]] = []
+        final_message = ""
+        final_actions: List[Dict[str, Any]] = []
+
+        async for event in stream:
+            await RedisClient.publish_copilot_event(session_id, event)
+            event_type = event.get("type")
+            if event_type == "content":
+                content = event.get("content", "")
+                if content:
+                    await RedisClient.append_copilot_content(session_id, content)
+            if event_type == "thought_step":
+                collected_thought_steps.append(event.get("step", {}))
+            elif event_type == "tool_call":
+                collected_tool_calls.append(
+                    {"tool": event.get("tool", ""), "input": event.get("input", {})}
+                )
+            elif event_type == "result":
+                final_message = event.get("message", "")
+                final_actions = event.get("actions", [])
+
+        return (collected_thought_steps, collected_tool_calls, final_message, final_actions)
 
     # ==================== Async Task Generation ====================
 
@@ -979,7 +993,7 @@ class CopilotService:
         prompt: str,
         graph_context: Dict[str, Any],
         conversation_history: Optional[List[Dict[str, str]]] = None,
-        mode: str = "standard",
+        mode: str = "deepagents",
     ) -> None:
         """
         Generate graph actions asynchronously and store results in Redis.
@@ -1015,7 +1029,10 @@ class CopilotService:
         if not RedisClient.is_available():
             logger.error(f"[CopilotService] Redis not available for async task session_id={session_id}")
             await RedisClient.set_copilot_status(session_id, "failed")
-            await RedisClient.publish_copilot_event(session_id, {"type": "error", "message": "Redis not available"})
+            await RedisClient.publish_copilot_event(
+                session_id,
+                {"type": "error", "message": "Redis not available", "code": "REDIS_UNAVAILABLE"},
+            )
             return
 
         try:
@@ -1025,83 +1042,31 @@ class CopilotService:
                 session_id, {"type": "status", "stage": "thinking", "message": "正在思考..."}
             )
 
-            # Collect data for persistence
-            collected_thought_steps: List[Dict[str, Any]] = []
-            collected_tool_calls: List[Dict[str, Any]] = []
-            final_message = ""
-            final_actions: List[Dict[str, Any]] = []
+            # Single stream source: _get_copilot_stream resolves credentials and chooses engine
+            stream = self._get_copilot_stream(
+                prompt=prompt,
+                graph_context=graph_context,
+                conversation_history=conversation_history,
+                mode=mode,
+                graph_id=graph_id,
+            )
 
-            # Get credentials using unified CredentialManager
-            # We must do this before starting the stream to pass them to DeepAgents
             try:
-                # Use a fresh DB session if needed, but here we try to use self.db first
-                # If self.db fails (closed), we'll catch it.
-                api_key, base_url, final_model_name = await LLMCredentialResolver.get_credentials(
-                    db=self.db,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    llm_model=self.llm_model,
-                )
-            except Exception as e:
+                (
+                    collected_thought_steps,
+                    collected_tool_calls,
+                    final_message,
+                    final_actions,
+                ) = await self._consume_stream_and_publish_to_redis(session_id, stream)
+            except CopilotCredentialError as e:
                 logger.error(f"[CopilotService] Credential error in async task: {e}")
-                error_msg = f"Credential error: {str(e)}"
                 await RedisClient.set_copilot_status(session_id, "failed")
-                await RedisClient.set_copilot_error(session_id, error_msg)
-                await RedisClient.publish_copilot_event(session_id, {
-                    "type": "error", 
-                    "message": error_msg,
-                    "code": "CREDENTIAL_ERROR"
-                })
+                await RedisClient.set_copilot_error(session_id, str(e))
+                await RedisClient.publish_copilot_event(
+                    session_id,
+                    {"type": "error", "message": str(e), "code": "CREDENTIAL_ERROR"},
+                )
                 return
-
-            # Determine which stream to use
-            if mode == "deepagents":
-                from app.core.copilot_deepagents.streaming import stream_deepagents_actions
-
-                stream = stream_deepagents_actions(
-                    prompt=prompt,
-                    graph_context=graph_context,
-                    graph_id=graph_id,
-                    user_id=self.user_id,
-                    api_key=api_key,
-                    base_url=base_url,
-                    llm_model=final_model_name,
-                    conversation_history=conversation_history,
-                )
-            else:
-                stream = self.generate_actions_stream(
-                    prompt=prompt,
-                    graph_context=graph_context,
-                    conversation_history=conversation_history,
-                )
-
-            # Stream events and publish to Redis
-            async for event in stream:
-                event_type = event.get("type")
-
-                # Publish event to Pub/Sub
-                await RedisClient.publish_copilot_event(session_id, event)
-
-                # Accumulate content for Redis storage
-                if event_type == "content":
-                    content = event.get("content", "")
-                    if content:
-                        await RedisClient.append_copilot_content(session_id, content)
-
-                # Collect data for database persistence
-                if event_type == "thought_step":
-                    step = event.get("step", {})
-                    collected_thought_steps.append(step)
-                elif event_type == "tool_call":
-                    collected_tool_calls.append(
-                        {
-                            "tool": event.get("tool", ""),
-                            "input": event.get("input", {}),
-                        }
-                    )
-                elif event_type == "result":
-                    final_message = event.get("message", "")
-                    final_actions = event.get("actions", [])
 
             # Save to database if graph_id is provided
             logger.info(
@@ -1109,101 +1074,17 @@ class CopilotService:
             )
 
             if graph_id:
-                # Create new database session for background task (original session may be closed)
-                from app.core.database import async_session_factory
-
-                logger.info("[CopilotService] Entering graph_id save block, creating new DB session")
-
-                # 事务 1: 保存对话历史（独立事务）
-                async with async_session_factory() as new_db:
-                    try:
-                        # Save conversation history
-                        service_with_db = CopilotService(user_id=self.user_id, db=new_db)
-                        saved = await service_with_db.save_conversation_from_stream(
-                            graph_id=graph_id,
-                            prompt=prompt,
-                            final_message=final_message,
-                            collected_thought_steps=collected_thought_steps,
-                            collected_tool_calls=collected_tool_calls,
-                            final_actions=final_actions,
-                        )
-                        if saved:
-                            logger.info(
-                                f"[CopilotService] Async task saved messages for session_id={session_id}, graph_id={graph_id}"
-                            )
-                        else:
-                            logger.warning(
-                                f"[CopilotService] Async task failed to save messages for session_id={session_id}, graph_id={graph_id}"
-                            )
-                        # save_messages 内部会调用 commit()，事务自动结束
-                    except Exception as e:
-                        # 如果 save_messages 内部已 commit，这里可能不在事务中
-                        if new_db.in_transaction():
-                            await new_db.rollback()
-                        logger.error(
-                            f"[CopilotService] Failed to save conversation for session_id={session_id}, "
-                            f"graph_id={graph_id}: {e}",
-                            exc_info=True,
-                        )
-
-                # 事务 2: 保存图状态（独立事务，使用新的 session）
-                if final_actions and len(final_actions) > 0:
-                    async with async_session_factory() as new_db2:
-                        try:
-                            # Load current user for permission check
-                            current_user = None
-                            if self.user_id:
-                                user_repo = AuthUserRepository(new_db2)
-                                current_user = await user_repo.get_by(id=self.user_id)
-
-                            # Load current graph state
-                            graph_service = GraphService(new_db2)
-                            graph_uuid = uuid_lib.UUID(graph_id)
-                            current_state = await graph_service.load_graph_state(
-                                graph_id=graph_uuid,
-                                current_user=current_user,
-                            )
-
-                            current_nodes = current_state.get("nodes", [])
-                            current_edges = current_state.get("edges", [])
-
-                            # Apply actions to graph state
-                            updated_nodes, updated_edges = apply_actions_to_graph_state(
-                                current_nodes=current_nodes,
-                                current_edges=current_edges,
-                                actions=final_actions,
-                            )
-
-                            # Save updated graph state
-                            viewport = current_state.get("viewport")
-                            variables = current_state.get("variables")
-
-                            await graph_service.save_graph_state(
-                                graph_id=graph_uuid,
-                                nodes=updated_nodes,
-                                edges=updated_edges,
-                                viewport=viewport,
-                                variables=variables,
-                                current_user=current_user,
-                            )
-
-                            # 显式提交事务，确保 graph state 保存到数据库
-                            await new_db2.commit()
-
-                            logger.info(
-                                f"[CopilotService] Async task saved graph state for session_id={session_id}, "
-                                f"graph_id={graph_id}, nodes={len(updated_nodes)}, edges={len(updated_edges)}"
-                            )
-                        except Exception as e:
-                            # 异常时回滚事务
-                            if new_db2.in_transaction():
-                                await new_db2.rollback()
-                            # Log error but don't fail the entire task
-                            logger.error(
-                                f"[CopilotService] Failed to save graph state for session_id={session_id}, "
-                                f"graph_id={graph_id}: {e}",
-                                exc_info=True,
-                            )
+                await self._persist_conversation(
+                    session_id=session_id,
+                    graph_id=graph_id,
+                    prompt=prompt,
+                    final_message=final_message,
+                    collected_thought_steps=collected_thought_steps,
+                    collected_tool_calls=collected_tool_calls,
+                    final_actions=final_actions,
+                )
+                if final_actions:
+                    await self._persist_graph_from_actions(graph_id=graph_id, final_actions=final_actions)
             # logger.info(f"[CopilotService] Async task completed successfully for session_id={session_id}, graph_id={graph_id}， actions={json.dumps(final_actions) if final_actions else 0}")
 
             # Calculate execution time
@@ -1240,4 +1121,7 @@ class CopilotService:
             )
             await RedisClient.set_copilot_status(session_id, "failed")
             await RedisClient.set_copilot_error(session_id, str(e))
-            await RedisClient.publish_copilot_event(session_id, {"type": "error", "message": str(e)})
+            await RedisClient.publish_copilot_event(
+                session_id,
+                {"type": "error", "message": str(e), "code": "UNKNOWN_ERROR"},
+            )

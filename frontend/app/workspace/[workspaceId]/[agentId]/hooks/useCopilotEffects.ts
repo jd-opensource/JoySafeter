@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast'
 import { copilotService } from '@/services/copilotService'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
+import { hasCurrentMessage } from '../utils/copilotUtils'
 
 interface UseCopilotEffectsOptions {
   state: CopilotState
@@ -19,14 +20,6 @@ interface UseCopilotEffectsOptions {
   refs: CopilotRefs
   graphId?: string
   handleSendWithInput: (input: string) => Promise<void>
-}
-
-function hasCurrentMessage(messages: Array<{ role: string; text?: string }>, checkEmptyText = true): boolean {
-  if (messages.length === 0) return false
-  const lastMessage = messages[messages.length - 1]
-  if (lastMessage.role !== 'model') return false
-  if (checkEmptyText && lastMessage.text) return false
-  return true
 }
 
 export function useCopilotEffects({

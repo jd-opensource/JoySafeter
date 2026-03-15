@@ -4,9 +4,11 @@
  * Handles all user interactions: send, stop, reset, AI decision, etc.
  */
 
+import { useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
 import { useCallback } from 'react'
 
+import { graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import { copilotService } from '@/services/copilotService'
 
@@ -28,6 +30,7 @@ export function useCopilotActions({
   graphId,
 }: UseCopilotActionsOptions) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const params = useParams()
   const currentGraphId = params.agentId as string | undefined
   const { getGraphContext } = useBuilderStore()
@@ -142,10 +145,19 @@ export function useCopilotActions({
   const handleReset = useCallback(async () => {
     actions.clearSession()
 
-    const currentGraphId = graphId
-    if (currentGraphId) {
-      await copilotService.clearHistory(currentGraphId)
+    const idToClear = graphId ?? currentGraphId
+    let serverCleared = true
+    if (idToClear) {
+      serverCleared = await copilotService.clearHistory(idToClear)
       if (!refs.isMountedRef.current) return
+      if (serverCleared && idToClear) {
+        queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(idToClear) })
+      }
+    }
+
+    if (!serverCleared) {
+      console.warn('[Copilot] Clear history failed on server, keeping local list')
+      return
     }
 
     if (!refs.isMountedRef.current) return
@@ -155,7 +167,7 @@ export function useCopilotActions({
     actions.clearStreaming()
     actions.clearExpandedItems()
     refs.hasProcessedUrlInputRef.current = false
-  }, [actions, refs, graphId])
+  }, [actions, refs, graphId, currentGraphId, queryClient])
 
   const handleAIDecision = useCallback(() => {
     if (!state.loading) {

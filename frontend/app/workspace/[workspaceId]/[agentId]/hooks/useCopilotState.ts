@@ -1,8 +1,15 @@
 /**
  * useCopilotState - Unified state management hook for Copilot
  *
- * This hook provides a single source of truth for all Copilot-related state,
- * encapsulating the complexity of managing multiple state domains.
+ * Aggregates four sub-hooks (messages, streaming, actionExecutor, session) into:
+ * - state: readonly snapshot (messages, streaming, session, local UI)
+ * - actions: stable object of handler functions (sub-hook methods + local setters)
+ * - refs: refs for lifecycle, scroll, and URL input handling
+ *
+ * Note: The `actions` useMemo depends on each sub-hook's method references.
+ * If a sub-hook returns new function references on every render, this useMemo
+ * will re-run and may cause downstream re-renders. Prefer stable callbacks
+ * in sub-hooks (useCallback with minimal deps) to avoid unnecessary churn.
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'

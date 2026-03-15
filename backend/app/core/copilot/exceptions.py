@@ -81,24 +81,6 @@ class CopilotSessionError(CopilotException):
         )
 
 
-class CopilotStreamError(CopilotException):
-    """Streaming errors (connection issues, timeouts, etc.)."""
-
-    def __init__(
-        self,
-        message: str = "Streaming error",
-        *,
-        code: int | None = 5104,
-        data: Any = None,
-    ):
-        super().__init__(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=message,
-            code=code,
-            data=data,
-        )
-
-
 class CopilotCredentialError(CopilotException):
     """Credential-related errors (missing API key, invalid credentials, etc.)."""
 

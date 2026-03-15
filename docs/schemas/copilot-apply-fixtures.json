@@ -1,0 +1,116 @@
+[
+  {
+    "name": "CREATE_NODE_single",
+    "initial_nodes": [],
+    "initial_edges": [],
+    "actions": [
+      {
+        "type": "CREATE_NODE",
+        "payload": {
+          "id": "n1",
+          "type": "agent",
+          "label": "My Agent",
+          "position": { "x": 100, "y": 200 },
+          "config": { "systemPrompt": "Hello" }
+        },
+        "reasoning": ""
+      }
+    ],
+    "expected_nodes": [
+      {
+        "id": "n1",
+        "type": "custom",
+        "position": { "x": 100, "y": 200 },
+        "data": {
+          "label": "My Agent",
+          "type": "agent",
+          "config": { "systemPrompt": "Hello" }
+        }
+      }
+    ],
+    "expected_edges": []
+  },
+  {
+    "name": "CONNECT_NODES",
+    "initial_nodes": [
+      { "id": "a", "type": "custom", "position": { "x": 0, "y": 0 }, "data": { "label": "A", "type": "agent", "config": {} } },
+      { "id": "b", "type": "custom", "position": { "x": 100, "y": 0 }, "data": { "label": "B", "type": "agent", "config": {} } }
+    ],
+    "initial_edges": [],
+    "actions": [
+      { "type": "CONNECT_NODES", "payload": { "source": "a", "target": "b" }, "reasoning": "" }
+    ],
+    "expected_nodes": [
+      { "id": "a", "type": "custom", "position": { "x": 0, "y": 0 }, "data": { "label": "A", "type": "agent", "config": {} } },
+      { "id": "b", "type": "custom", "position": { "x": 100, "y": 0 }, "data": { "label": "B", "type": "agent", "config": {} } }
+    ],
+    "expected_edges": [
+      { "id": "e-a-b", "source": "a", "target": "b" }
+    ]
+  },
+  {
+    "name": "CONNECT_NODES_idempotent",
+    "initial_nodes": [
+      { "id": "a", "type": "custom", "position": { "x": 0, "y": 0 }, "data": { "label": "A", "type": "agent", "config": {} } },
+      { "id": "b", "type": "custom", "position": { "x": 100, "y": 0 }, "data": { "label": "B", "type": "agent", "config": {} } }
+    ],
+    "initial_edges": [
+      { "id": "e-a-b", "source": "a", "target": "b" }
+    ],
+    "actions": [
+      { "type": "CONNECT_NODES", "payload": { "source": "a", "target": "b" }, "reasoning": "" }
+    ],
+    "expected_nodes": [
+      { "id": "a", "type": "custom", "position": { "x": 0, "y": 0 }, "data": { "label": "A", "type": "agent", "config": {} } },
+      { "id": "b", "type": "custom", "position": { "x": 100, "y": 0 }, "data": { "label": "B", "type": "agent", "config": {} } }
+    ],
+    "expected_edges": [
+      { "id": "e-a-b", "source": "a", "target": "b" }
+    ]
+  },
+  {
+    "name": "DELETE_NODE",
+    "initial_nodes": [
+      { "id": "n1", "type": "custom", "position": { "x": 0, "y": 0 }, "data": { "label": "N1", "type": "agent", "config": {} } },
+      { "id": "n2", "type": "custom", "position": { "x": 100, "y": 0 }, "data": { "label": "N2", "type": "agent", "config": {} } }
+    ],
+    "initial_edges": [
+      { "id": "e-n1-n2", "source": "n1", "target": "n2" }
+    ],
+    "actions": [
+      { "type": "DELETE_NODE", "payload": { "id": "n1" }, "reasoning": "" }
+    ],
+    "expected_nodes": [
+      { "id": "n2", "type": "custom", "position": { "x": 100, "y": 0 }, "data": { "label": "N2", "type": "agent", "config": {} } }
+    ],
+    "expected_edges": []
+  },
+  {
+    "name": "UPDATE_CONFIG",
+    "initial_nodes": [
+      { "id": "n1", "type": "custom", "position": { "x": 0, "y": 0 }, "data": { "label": "N1", "type": "agent", "config": { "systemPrompt": "Old" } } }
+    ],
+    "initial_edges": [],
+    "actions": [
+      { "type": "UPDATE_CONFIG", "payload": { "id": "n1", "config": { "systemPrompt": "New" } }, "reasoning": "" }
+    ],
+    "expected_nodes": [
+      { "id": "n1", "type": "custom", "position": { "x": 0, "y": 0 }, "data": { "label": "N1", "type": "agent", "config": { "systemPrompt": "New" } } }
+    ],
+    "expected_edges": []
+  },
+  {
+    "name": "UPDATE_POSITION",
+    "initial_nodes": [
+      { "id": "n1", "type": "custom", "position": { "x": 0, "y": 0 }, "data": { "label": "N1", "type": "agent", "config": {} } }
+    ],
+    "initial_edges": [],
+    "actions": [
+      { "type": "UPDATE_POSITION", "payload": { "id": "n1", "position": { "x": 50, "y": 100 } }, "reasoning": "" }
+    ],
+    "expected_nodes": [
+      { "id": "n1", "type": "custom", "position": { "x": 50, "y": 100 }, "data": { "label": "N1", "type": "agent", "config": {} } }
+    ],
+    "expected_edges": []
+  }
+]

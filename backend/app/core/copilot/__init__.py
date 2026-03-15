@@ -15,12 +15,21 @@ Submodules:
 
 from app.core.copilot.action_types import (
     ConnectNodesPayload,
+    CopilotContentEvent,
+    CopilotDoneEvent,
+    CopilotErrorEvent,
     CopilotHistoryResponse,
     CopilotMessage,
     CopilotRequest,
     CopilotResponse,
+    CopilotResultEvent,
+    CopilotStatusEvent,
+    CopilotStreamEvent,
     CopilotThoughtStep,
+    CopilotThoughtStepEvent,
     CopilotToolCall,
+    CopilotToolCallEvent,
+    CopilotToolResultEvent,
     CreateNodePayload,
     DeleteNodePayload,
     GraphAction,
@@ -28,31 +37,20 @@ from app.core.copilot.action_types import (
     UpdateConfigPayload,
 )
 from app.core.copilot.action_validator import (
-    ActionValidationResult,
     extract_existing_node_ids,
     filter_invalid_actions,
     validate_actions,
 )
 from app.core.copilot.agent import get_copilot_agent
-from app.core.copilot.graph_analyzer import (
-    analyze_graph_topology,
-    generate_topology_description,
-    normalize_node,
-)
 from app.core.copilot.message_builder import build_langchain_messages
-from app.core.copilot.prompt_builder import (
-    build_copilot_system_prompt,
-    build_llm_messages,
-)
 from app.core.copilot.response_parser import (
     expand_action_payload,
     extract_actions_from_agent_result,
-    parse_copilot_response,
     parse_thought_to_steps,
     try_extract_thought_field,
 )
 from app.core.copilot.tool_output_parser import parse_tool_output
-from app.core.copilot.tools import get_copilot_tools, get_node_registry, reset_node_registry
+from app.core.copilot.tools import reset_node_registry
 
 __all__ = [
     # Action types
@@ -64,6 +62,16 @@ __all__ = [
     "ConnectNodesPayload",
     "DeleteNodePayload",
     "UpdateConfigPayload",
+    # Stream event types (contract for WebSocket/SSE)
+    "CopilotStatusEvent",
+    "CopilotContentEvent",
+    "CopilotThoughtStepEvent",
+    "CopilotToolCallEvent",
+    "CopilotToolResultEvent",
+    "CopilotResultEvent",
+    "CopilotDoneEvent",
+    "CopilotErrorEvent",
+    "CopilotStreamEvent",
     # Message persistence types
     "CopilotMessage",
     "CopilotThoughtStep",
@@ -71,17 +79,9 @@ __all__ = [
     "CopilotHistoryResponse",
     # Agent
     "get_copilot_agent",
-    # Prompt builder
-    "build_copilot_system_prompt",
-    "build_llm_messages",
-    # Graph analyzer
-    "normalize_node",
-    "analyze_graph_topology",
-    "generate_topology_description",
     # Response parser
     "try_extract_thought_field",
     "parse_thought_to_steps",
-    "parse_copilot_response",
     "extract_actions_from_agent_result",
     "expand_action_payload",
     # Tool output parser
@@ -89,12 +89,9 @@ __all__ = [
     # Message builder
     "build_langchain_messages",
     # Tools
-    "get_copilot_tools",
     "reset_node_registry",
-    "get_node_registry",
     # Validator
     "validate_actions",
     "extract_existing_node_ids",
     "filter_invalid_actions",
-    "ActionValidationResult",
 ]

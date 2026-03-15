@@ -8,7 +8,7 @@ including graph actions (CREATE_NODE, CONNECT_NODES, etc.).
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -78,9 +78,10 @@ class CopilotRequest(BaseModel):
     prompt: str = Field(..., description="User prompt")
     graph_context: Dict[str, Any] = Field(default_factory=dict, description="Current graph state (nodes, edges)")
     graph_id: Optional[str] = Field(default=None, description="Graph ID for history persistence")
-    conversation_history: Optional[List[Dict[str, str]]] = Field(
+    conversation_history: Optional[List[Dict[str, Any]]] = Field(
         default=None,
-        description="Previous conversation messages for context. Format: [{'role': 'user'|'assistant', 'content': '...'}, ...]",
+        description="Previous conversation messages. Only 'role' and 'content' are used for context. "
+        "Format: [{'role': 'user'|'assistant', 'content': '...', 'actions'?: ...}, ...]",
     )
     mode: str = Field(default="deepagents", description="Copilot engine mode: 'standard' or 'deepagents'")
 
@@ -123,3 +124,79 @@ class UpdateConfigPayload(BaseModel):
 
     id: str = Field(..., description="Node ID to update")
     config: Dict[str, Any] = Field(..., description="Configuration to merge")
+
+
+# ==================== Stream Event Types (WebSocket / SSE contract) ====================
+
+
+class CopilotStatusEvent(BaseModel):
+    """Stream event: progress status."""
+
+    type: Literal["status"] = "status"
+    stage: str = Field(..., description="Stage identifier (e.g. thinking, processing)")
+    message: str = Field(..., description="Human-readable status message")
+
+
+class CopilotContentEvent(BaseModel):
+    """Stream event: streaming AI response content."""
+
+    type: Literal["content"] = "content"
+    content: str = Field(..., description="Content chunk")
+
+
+class CopilotThoughtStepEvent(BaseModel):
+    """Stream event: single thought step in AI reasoning."""
+
+    type: Literal["thought_step"] = "thought_step"
+    step: Dict[str, Any] = Field(..., description="Step with index and content (e.g. {index, content})")
+
+
+class CopilotToolCallEvent(BaseModel):
+    """Stream event: tool invocation started."""
+
+    type: Literal["tool_call"] = "tool_call"
+    tool: str = Field(..., description="Tool name")
+    input: Dict[str, Any] = Field(default_factory=dict, description="Tool input parameters")
+
+
+class CopilotToolResultEvent(BaseModel):
+    """Stream event: tool execution result (action payload)."""
+
+    type: Literal["tool_result"] = "tool_result"
+    action: Dict[str, Any] = Field(..., description="Action dict: type, payload, reasoning (GraphAction-compatible)")
+
+
+class CopilotResultEvent(BaseModel):
+    """Stream event: final result with message and actions."""
+
+    type: Literal["result"] = "result"
+    message: str = Field(..., description="Final assistant message")
+    actions: List[Dict[str, Any]] = Field(default_factory=list, description="List of GraphAction-compatible dicts")
+    batch: Optional[bool] = Field(default=None, description="Optional batch flag for frontend")
+
+
+class CopilotDoneEvent(BaseModel):
+    """Stream event: stream finished."""
+
+    type: Literal["done"] = "done"
+
+
+class CopilotErrorEvent(BaseModel):
+    """Stream event: error occurred."""
+
+    type: Literal["error"] = "error"
+    message: str = Field(..., description="Error message")
+    code: str = Field(..., description="Error code for frontend mapping (e.g. CREDENTIAL_ERROR, UNKNOWN_ERROR)")
+
+
+# Union of all stream events (for schema export and optional validation)
+CopilotStreamEvent = Union[
+    CopilotStatusEvent,
+    CopilotContentEvent,
+    CopilotThoughtStepEvent,
+    CopilotToolCallEvent,
+    CopilotToolResultEvent,
+    CopilotResultEvent,
+    CopilotDoneEvent,
+    CopilotErrorEvent,
+]

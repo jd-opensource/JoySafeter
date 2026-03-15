@@ -69,10 +69,6 @@ export function useCopilotStreaming() {
     setCopiedStreaming(copied)
   }, [])
 
-  const setToolResultsStable = useCallback((results: Array<{ type: string; payload: Record<string, unknown>; reasoning?: string }>) => {
-    setToolResults(results)
-  }, [])
-
   return {
     streamingContent,
     currentStage,
@@ -89,6 +85,5 @@ export function useCopilotStreaming() {
     clearStreaming,
     toggleToolType,
     setCopiedStreaming: setCopiedStreamingStable,
-    setToolResults: setToolResultsStable,
   }
 }

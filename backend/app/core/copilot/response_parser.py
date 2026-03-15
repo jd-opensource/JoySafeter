@@ -9,11 +9,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from app.core.copilot.action_types import (
-    CopilotResponse,
-    GraphAction,
-    GraphActionType,
-)
+from app.core.copilot.action_types import GraphAction, GraphActionType
 
 
 def try_extract_thought_field(json_content: str) -> Optional[str]:
@@ -130,87 +126,6 @@ def parse_thought_to_steps(thought: str) -> List[Dict[str, Any]]:
         steps.append({"index": 1, "content": thought.strip()})
 
     return steps
-
-
-def parse_copilot_response(response_text: str) -> CopilotResponse:
-    """
-    Parse a complete Copilot response from JSON text.
-
-    Args:
-        response_text: Complete JSON response string
-
-    Returns:
-        Parsed CopilotResponse object
-
-    Raises:
-        json.JSONDecodeError: If response is not valid JSON
-        ValueError: If response structure is invalid
-    """
-    if not response_text:
-        raise ValueError("Empty response text")
-
-    result = json.loads(response_text)
-
-    if not isinstance(result, dict):
-        raise ValueError("Response must be a JSON object")
-
-    actions = []
-    for action in result.get("actions", []):
-        if isinstance(action, dict):
-            action_type = action.get("type")
-            if action_type and hasattr(GraphActionType, action_type):
-                actions.append(
-                    GraphAction(
-                        type=GraphActionType(action_type),
-                        payload=action.get("payload", {}),
-                        reasoning=action.get("reasoning", ""),
-                    )
-                )
-
-    return CopilotResponse(
-        message=result.get("message", ""),
-        actions=actions,
-    )
-
-
-def extract_actions_from_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[GraphAction]:
-    """
-    Extract GraphAction objects from agent tool call results.
-
-    When using the Agent with tools mode, each tool call returns
-    an action dict that needs to be collected.
-
-    Args:
-        tool_calls: List of tool call result dictionaries
-
-    Returns:
-        List of GraphAction objects
-    """
-    actions = []
-
-    for tool_call in tool_calls:
-        if not isinstance(tool_call, dict):
-            continue
-
-        action_type = tool_call.get("type")
-        if not action_type:
-            continue
-
-        # Validate action type
-        try:
-            action_type_enum = GraphActionType(action_type)
-        except ValueError:
-            continue
-
-        actions.append(
-            GraphAction(
-                type=action_type_enum,
-                payload=tool_call.get("payload", {}),
-                reasoning=tool_call.get("reasoning", ""),
-            )
-        )
-
-    return actions
 
 
 def extract_actions_from_agent_result(
