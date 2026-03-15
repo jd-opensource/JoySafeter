@@ -13,11 +13,7 @@ import pytest
 
 # Import only action_applier to avoid pulling in langchain/copilot agent dependencies
 _action_applier_path = (
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "app"
-    / "core"
-    / "copilot"
-    / "action_applier.py"
+    Path(__file__).resolve().parent.parent.parent.parent / "app" / "core" / "copilot" / "action_applier.py"
 )
 _spec = importlib.util.spec_from_file_location("action_applier", _action_applier_path)
 _action_applier = importlib.util.module_from_spec(_spec)
@@ -25,10 +21,7 @@ _spec.loader.exec_module(_action_applier)
 apply_actions_to_graph_state = _action_applier.apply_actions_to_graph_state
 
 FIXTURES_PATH = (
-    Path(__file__).resolve().parent.parent.parent.parent.parent
-    / "docs"
-    / "schemas"
-    / "copilot-apply-fixtures.json"
+    Path(__file__).resolve().parent.parent.parent.parent.parent / "docs" / "schemas" / "copilot-apply-fixtures.json"
 )
 
 

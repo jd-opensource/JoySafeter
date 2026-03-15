@@ -11,6 +11,7 @@ import { env as runtimeEnv } from 'next-runtime-env'
 import { useEffect, useRef, useCallback, useState } from 'react'
 
 import type { StreamGraphActionsCallbacks } from '@/services/copilotService'
+import type { GraphActionType } from '@/types/copilot'
 
 export interface CopilotWebSocketEvent {
   type: 'status' | 'content' | 'thought_step' | 'tool_call' | 'tool_result' | 'result' | 'error' | 'done' | 'pong'
@@ -41,6 +42,7 @@ export interface UseCopilotWebSocketOptions {
   callbacks: StreamGraphActionsCallbacks & {
     onConnect?: () => void
     onDisconnect?: () => void
+    onDone?: () => void
   }
   autoReconnect?: boolean
   reconnectInterval?: number
@@ -219,7 +221,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
               cbs.onResult({
                 message: data.message ?? '',
                 actions: (data.actions ?? []).map((a: { type: string; payload: Record<string, unknown>; reasoning?: string }) => ({
-                  type: a.type,
+                  type: a.type as GraphActionType,
                   payload: a.payload ?? {},
                   reasoning: a.reasoning ?? '',
                 })),
@@ -255,7 +257,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
               break
             }
             case 'done':
-              // Stream completed, close connection
+              cbs.onDone?.()
               cleanup()
               break
           }

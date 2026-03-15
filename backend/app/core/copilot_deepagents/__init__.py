@@ -21,7 +21,8 @@ DeepAgents Copilot - 用 DeepAgents 模式生成任意类型的 Agent 工作流�
         print(event)
 """
 
-from .manager import DEEPAGENTS_AVAILABLE, run_copilot_manager
+from .manager import DEEPAGENTS_AVAILABLE
+from .runner import run_copilot_manager
 from .streaming import stream_deepagents_actions
 
 __all__ = [

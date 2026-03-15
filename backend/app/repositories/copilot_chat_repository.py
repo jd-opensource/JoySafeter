@@ -6,7 +6,6 @@ import uuid as uuid_lib
 from typing import Any, Dict, Optional
 
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat import CopilotChat
@@ -20,9 +19,7 @@ class CopilotChatRepository(BaseRepository[CopilotChat]):
     def __init__(self, db: AsyncSession):
         super().__init__(CopilotChat, db)
 
-    async def get_chat(
-        self, graph_id: str, user_id: Optional[str]
-    ) -> Optional[CopilotChat]:
+    async def get_chat(self, graph_id: str, user_id: Optional[str]) -> Optional[CopilotChat]:
         """Get CopilotChat by graph_id and user_id."""
         if not user_id:
             return None

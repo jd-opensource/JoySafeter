@@ -40,7 +40,7 @@ async def stream_deepagents_actions(
         - done: {type}
         - error: {type, message}
     """
-    from .manager import stream_copilot_manager
+    from .runner import stream_copilot_manager
 
     logger.info(f"[DeepAgentsStreaming] Starting stream graph_id={graph_id} user_id={user_id}")
 

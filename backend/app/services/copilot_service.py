@@ -187,9 +187,7 @@ class CopilotService:
         collected_actions: List[Dict[str, Any]] = []
         final_message = ""
 
-        async for event in agent.astream_events(
-            {"messages": messages}, version="v2", config={"recursion_limit": 300}
-        ):
+        async for event in agent.astream_events({"messages": messages}, version="v2", config={"recursion_limit": 300}):
             if not isinstance(event, dict):
                 continue
             current_event_dict: Dict[str, Any] = event
@@ -239,9 +237,7 @@ class CopilotService:
 
             elif event_kind == "on_chat_model_end":
                 event_data = (
-                    current_event_dict.get("data", {})
-                    if isinstance(current_event_dict.get("data"), dict)
-                    else {}
+                    current_event_dict.get("data", {}) if isinstance(current_event_dict.get("data"), dict) else {}
                 )
                 output = event_data.get("output") if isinstance(event_data, dict) else None
                 if output and hasattr(output, "content"):
@@ -309,10 +305,11 @@ class CopilotService:
             # Determine which engine to use
             if mode == "deepagents":
                 from app.core.copilot_deepagents.manager import run_copilot_manager
+
                 result_data = await run_copilot_manager(
                     user_prompt=prompt,
                     graph_context=graph_context,
-                    graph_id=None, # Non-streaming doesn't usually need graph_id for persistence here
+                    graph_id=None,  # Non-streaming doesn't usually need graph_id for persistence here
                     user_id=self.user_id,
                     api_key=api_key,
                     base_url=base_url,
@@ -685,9 +682,7 @@ class CopilotService:
                             else None
                         ),
                         "tool_calls": (
-                            [{"tool": tc.tool, "input": tc.input} for tc in msg.tool_calls]
-                            if msg.tool_calls
-                            else None
+                            [{"tool": tc.tool, "input": tc.input} for tc in msg.tool_calls] if msg.tool_calls else None
                         ),
                     }
                     for msg in history.messages
@@ -786,6 +781,7 @@ class CopilotService:
             return False
 
         try:
+
             def message_to_dict(msg: CopilotMessage) -> Dict[str, Any]:
                 data: Dict[str, Any] = {
                     "id": msg.id,
@@ -893,9 +889,7 @@ class CopilotService:
                 )
                 return False
 
-    async def _persist_graph_from_actions(
-        self, graph_id: str, final_actions: List[Dict[str, Any]]
-    ) -> bool:
+    async def _persist_graph_from_actions(self, graph_id: str, final_actions: List[Dict[str, Any]]) -> bool:
         """Apply actions to graph state and persist in a dedicated transaction. Returns True if saved successfully."""
         from app.core.database import async_session_factory
 
@@ -975,9 +969,7 @@ class CopilotService:
             if event_type == "thought_step":
                 collected_thought_steps.append(event.get("step", {}))
             elif event_type == "tool_call":
-                collected_tool_calls.append(
-                    {"tool": event.get("tool", ""), "input": event.get("input", {})}
-                )
+                collected_tool_calls.append({"tool": event.get("tool", ""), "input": event.get("input", {})})
             elif event_type == "result":
                 final_message = event.get("message", "")
                 final_actions = event.get("actions", [])

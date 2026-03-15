@@ -130,6 +130,14 @@ export function useCopilotWebSocketHandler({
         }
       }
     },
+
+    onDone: () => {
+      if (!refs.isMountedRef.current) return
+      refs.isCreatingSessionRef.current = false
+      actions.clearStreaming()
+      actions.clearSession()
+      actions.setLoading(false)
+    },
   }), [
     // Dependencies - using state and actions from props
     state.loading,

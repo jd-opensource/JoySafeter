@@ -56,6 +56,9 @@ export function useCopilotEffects({
         } else if (sessionData?.status === 'failed') {
           toast({ title: 'Copilot 任务失败', description: sessionData.error || '执行过程中出现错误，请重试', variant: 'destructive' })
           actions.clearSession()
+        } else if (sessionData?.status === 'completed') {
+          actions.clearSession()
+          actions.clearStreaming()
         }
       } catch (error) {
         console.warn('[CopilotPanel] Failed to restore session:', error)
@@ -70,8 +73,8 @@ export function useCopilotEffects({
   // Update page title to show loading status
   useEffect(() => {
     const baseTitle = 'Agent Platform'
-    document.title = state.loading && state.currentStage 
-      ? `⏳ ${state.currentStage.message} - ${baseTitle}` 
+    document.title = state.loading && state.currentStage
+      ? `⏳ ${state.currentStage.message} - ${baseTitle}`
       : baseTitle
   }, [state.loading, state.currentStage])
 

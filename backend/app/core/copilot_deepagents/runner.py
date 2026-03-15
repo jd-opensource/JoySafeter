@@ -12,12 +12,14 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from loguru import logger
 
 from .manager import (
+    create_copilot_manager,
+)
+from .utils import (
     _apply_layout_to_actions,
     _extract_actions_from_result,
     _extract_final_message,
     _fix_edge_node_ids,
     _parse_tool_output_to_action,
-    create_copilot_manager,
     safe_read_validation,
 )
 
