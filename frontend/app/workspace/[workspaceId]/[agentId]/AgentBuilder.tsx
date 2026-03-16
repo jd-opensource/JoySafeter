@@ -188,7 +188,7 @@ const AgentBuilderContent = () => {
       // Important: DO NOT clear the canvas yet.
       // Wait until we have the new data to avoid triggering auto-save on an empty state.
       useBuilderStore.setState({ isInitializing: true })
-      
+
       // If we don't have data yet, we must stop here and wait for the next run
       if (!isGraphStateLoaded || !graphStateData) {
         return
@@ -237,7 +237,7 @@ const AgentBuilderContent = () => {
       future: [],
       selectedNodeId: null,
       hasPendingChanges: false,
-      lastSavedStateHash: initialHash, 
+      lastSavedStateHash: initialHash,
       saveRetryCount: 0,
       lastSaveError: null,
       isInitializing: false, // FINALLY mark as non-initializing
