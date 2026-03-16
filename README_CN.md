@@ -6,7 +6,7 @@
 <h1 align="center">JoySafeter</h1>
 
 <p align="center">
-  <strong>3分钟生成生产级 Agent 的平台 | 信息安全 SOTA 效果的数字员工</strong>
+  <strong>一句话生成生产级 Agent 的平台 | 信息安全 SOTA 效果的数字员工</strong>
 </p>
 
 <p align="center">
