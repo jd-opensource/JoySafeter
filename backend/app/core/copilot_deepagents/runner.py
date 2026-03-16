@@ -249,7 +249,7 @@ async def stream_copilot_manager(
     except Exception as e:
         error_msg = str(e)
         logger.error(f"[DeepAgentsCopilot] Error: {error_msg}")
-        
+
         # Determine error code and potentially simplify message
         error_code = "AGENT_ERROR"
         if "api_key" in error_msg.lower() or "credential" in error_msg.lower():
@@ -257,6 +257,7 @@ async def stream_copilot_manager(
         elif "RateLimitReached" in error_msg:
             # Try to extract a more readable message for rate limits
             import re
+
             match = re.search(r"retry after (\d+) milliseconds", error_msg)
             if match:
                 seconds = int(match.group(1)) // 1000
