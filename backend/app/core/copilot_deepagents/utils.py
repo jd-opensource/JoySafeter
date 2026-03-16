@@ -263,4 +263,5 @@ def _parse_tool_output_to_action(tool_output: Any) -> Optional[Dict[str, Any]]:
         解析后的 action dict，如果解析失败则返回 None
     """
     from app.core.copilot.tool_output_parser import parse_tool_output
+
     return parse_tool_output(tool_output, tool_name=None)

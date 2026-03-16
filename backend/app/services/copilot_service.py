@@ -305,7 +305,7 @@ class CopilotService:
 
             # Determine which engine to use
             if mode == "deepagents":
-                from app.core.copilot_deepagents.manager import run_copilot_manager
+                from app.core.copilot_deepagents.runner import run_copilot_manager
 
                 result_data = await run_copilot_manager(
                     user_prompt=prompt,

@@ -258,7 +258,7 @@ class RedisClient:
         if data is None:
             return None
         try:
-            return json.loads(data)
+            return cast(Dict[str, Any], json.loads(data))
         except (TypeError, ValueError):
             return None
 

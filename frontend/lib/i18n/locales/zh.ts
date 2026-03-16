@@ -547,6 +547,8 @@ export default {
       copilotBlueprintPipelineDesc: '抓取网页、结构化数据、保存到数据库。',
       copilotBlueprintPipelinePrompt: '设计一个管道：定时触发 -> 抓取网页工具 -> 智能体提取 JSON -> 数据库保存结果。',
       copilotChipAddAgent: '添加智能体',
+      copilotModeSingleAgent: '单Agent 模式',
+      copilotModeDeepAgents: 'DeepAgents 模式',
       copilotStatusMode: '模式：生产级图构建',
       copilotStatusModelPlaceholder: '—',
       loadingHistory: '加载对话历史...',

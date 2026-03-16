@@ -14,7 +14,7 @@
 
 import { Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
 import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
@@ -34,10 +34,14 @@ import { CopilotStreaming } from './copilot/CopilotStreaming'
 // Export types
 export type { GraphAction } from '@/types/copilot'
 
+export type CopilotMode = import('./copilot/CopilotInput').CopilotMode
+
 export const CopilotPanel: React.FC = () => {
   const { t } = useTranslation()
   const params = useParams()
   const graphId = params.agentId as string | undefined
+
+  const [copilotMode, setCopilotMode] = useState<CopilotMode>('deepagents')
 
   // Default model label from settings (for status bar)
   const { data: models = [] } = useModels()
@@ -71,6 +75,7 @@ export const CopilotPanel: React.FC = () => {
     actions,
     refs,
     graphId,
+    copilotMode,
   })
 
   // Side effects (session recovery, auto-scroll, URL params, etc.)
@@ -170,6 +175,8 @@ export const CopilotPanel: React.FC = () => {
           onReset={handleReset}
           onAIDecision={handleAIDecision}
           onSendWithText={handleSendWithInput}
+          copilotMode={copilotMode}
+          onModeChange={setCopilotMode}
           modelLabel={defaultModelLabel || undefined}
         />
       </div>

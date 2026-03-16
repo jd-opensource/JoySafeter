@@ -2,10 +2,17 @@
  * CopilotInput - Input area and toolbar component
  */
 
-import { Send, Sparkles, Square, RotateCcw, PlusCircle, LayoutGrid } from 'lucide-react'
+import { Send, Sparkles, Square, RotateCcw, LayoutGrid } from 'lucide-react'
 import React from 'react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
@@ -14,7 +21,7 @@ import {
 } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
 
-const SUGGESTION_CHIP_KEYS = ['workspace.copilotChipAddAgent'] as const
+export type CopilotMode = 'standard' | 'deepagents'
 
 interface CopilotInputProps {
   input: string
@@ -28,6 +35,9 @@ interface CopilotInputProps {
   onAIDecision: () => void
   /** Send a message directly (e.g. when clicking a suggestion chip) */
   onSendWithText?: (text: string) => void
+  /** Build mode: single agent vs DeepAgents */
+  copilotMode: CopilotMode
+  onModeChange: (mode: CopilotMode) => void
   /** Default model label from settings for status bar */
   modelLabel?: string
 }
@@ -43,41 +53,48 @@ export function CopilotInput({
   onReset,
   onAIDecision,
   onSendWithText,
+  copilotMode,
+  onModeChange,
   modelLabel,
 }: CopilotInputProps) {
   const { t } = useTranslation()
-  const canSendChip = !loading && !executingActions && !!onSendWithText
 
   const chipBase =
     'flex-shrink-0 text-[11px] px-2.5 py-1 rounded-full transition flex items-center gap-1 whitespace-nowrap'
 
   return (
     <div className="flex-shrink-0 px-1 py-0 bg-white/90 backdrop-blur border-t border-gray-100">
-      {/* Suggestion chips + AI 自动完善 in one row */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1.5 mb-0.5 no-scrollbar items-center min-h-0">
-        {/* AI 自动完善 - same chip container, purple accent */}
+      {/* AI 自动完善 + Mode selection in one row */}
+      <div className="flex gap-1 overflow-x-auto pb-0.5 mb-0.25 no-scrollbar items-center min-h-0">
         <button
           type="button"
           onClick={onAIDecision}
           disabled={loading || executingActions || messagesCount <= 1}
-          className={`${chipBase} border border-purple-200 bg-purple-50/50 text-purple-700 hover:bg-purple-100 hover:border-purple-300 disabled:opacity-50 disabled:cursor-not-allowed`}
+          className={`${chipBase} border border-purple-200 bg-purple-50/50 text-purple-600 hover:bg-purple-100 hover:border-purple-300 disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           <Sparkles size={10} className="text-purple-500 shrink-0" />
           {t('workspace.aiDecision')}
         </button>
-        {canSendChip &&
-          SUGGESTION_CHIP_KEYS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onSendWithText?.(t(key))}
-              className={`${chipBase} bg-gray-100 hover:bg-gray-200 border border-gray-200 text-gray-700`}
-            >
-              <PlusCircle size={10} className="text-purple-500 shrink-0" />
-              {t(key)}
-            </button>
-          ))}
-        {/* Reset at end of row when there is history */}
+        <div className="flex-shrink-0">
+          <Select
+            value={copilotMode}
+            onValueChange={(value) => onModeChange(value as CopilotMode)}
+            disabled={loading || executingActions}
+          >
+            <SelectTrigger className="h-6 min-w-[5rem] max-w-[5.5rem] text-[10px] px-2 py-0.5 border-gray-200 text-gray-700">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="standard" className="text-xs">
+                {t('workspace.copilotModeSingleAgent')}
+              </SelectItem>
+              <SelectItem value="deepagents" className="text-xs">
+                {t('workspace.copilotModeDeepAgents')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {/* Reset 放置在最右侧 */}
         {messagesCount > 1 && (
           <span className="ml-auto flex-shrink-0">
             <TooltipProvider>

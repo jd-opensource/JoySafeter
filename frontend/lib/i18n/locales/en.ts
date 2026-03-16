@@ -547,6 +547,8 @@ export default {
       copilotBlueprintPipelineDesc: 'Scrape web, structure data, save to DB.',
       copilotBlueprintPipelinePrompt: 'Design a pipeline: Trigger on schedule -> Tool to scrape website -> Agent to extract JSON -> Database to save results.',
       copilotChipAddAgent: 'Add a new Agent node',
+      copilotModeSingleAgent: 'Single Agent',
+      copilotModeDeepAgents: 'DeepAgents',
       copilotStatusMode: 'Mode: Production Graph Builder',
       copilotStatusModelPlaceholder: '—',
       loadingHistory: 'Loading conversation history...',

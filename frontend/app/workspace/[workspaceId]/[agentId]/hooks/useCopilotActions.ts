@@ -16,11 +16,14 @@ import { useBuilderStore } from '../stores/builderStore'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
+export type CopilotMode = 'standard' | 'deepagents'
+
 interface UseCopilotActionsOptions {
   state: CopilotState
   actions: CopilotActions
   refs: CopilotRefs
   graphId?: string
+  copilotMode?: CopilotMode
 }
 
 export function useCopilotActions({
@@ -28,6 +31,7 @@ export function useCopilotActions({
   actions,
   refs,
   graphId,
+  copilotMode = 'deepagents',
 }: UseCopilotActionsOptions) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -71,6 +75,7 @@ export function useCopilotActions({
         graphContext,
         conversationHistory: historyMessages,
         graphId: graphId || null,
+        mode: copilotMode,
       })
 
       // Check if component is still mounted
@@ -121,6 +126,7 @@ export function useCopilotActions({
     actions,
     refs,
     graphId,
+    copilotMode,
     getGraphContext,
     t,
   ])

@@ -7,7 +7,7 @@ stream_copilot_manager: 流式产出事件供前端消费。
 
 from __future__ import annotations
 
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, cast
 
 from loguru import logger
 
@@ -167,7 +167,7 @@ async def stream_copilot_manager(
             config={"recursion_limit": 300},
         ):
             event_dict_raw = event if isinstance(event, dict) else {}
-            event_dict: Dict[str, Any] = event_dict_raw
+            event_dict: Dict[str, Any] = cast(Dict[str, Any], event_dict_raw)
             event_kind = event_dict.get("event", "")
 
             if event_kind == "on_chat_model_stream":
