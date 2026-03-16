@@ -93,13 +93,14 @@ interface CopilotState {
 - `onThoughtStep` - 思考步骤
 - `onToolCall` - 工具调用
 - `onToolResult` - 工具结果
-- `onResult` - 最终结果
+- `onResult` - 最终结果（仅乐观渲染，不清理 session）
+- `onDone` - 后端持久化完成后：invalidate 缓存 + 清理 session/loading
 - `onError` - 错误处理
 
 **优势**：
 - ✅ 所有 WebSocket 逻辑集中管理
 - ✅ 统一的错误处理策略
-- ✅ 性能优化（useMemo）
+- ✅ 性能优化（useMemo + stateRef 减少依赖）
 
 ---
 
@@ -111,10 +112,12 @@ interface CopilotState {
 
 **功能**：
 - `handleSend` - 发送消息
-- `handleSendWithInput` - 使用指定输入发送
+- `handleSendWithInput` - 使用指定输入发送（携带当前 `copilotMode` 调用 `createCopilotTask`）
 - `handleStop` - 停止生成
 - `handleReset` - 重置对话
 - `handleAIDecision` - AI 决策提示
+
+**模式**：`useCopilotActions` 接收 `copilotMode`（`'standard'` | `'deepagents'`），提交任务时传给后端 `mode` 参数。
 
 **优势**：
 - ✅ 业务逻辑与 UI 分离
@@ -130,7 +133,12 @@ interface CopilotState {
 **位置**：`hooks/useCopilotEffects.ts`
 
 **功能**：
-- Session 恢复（断点续传）
+- **Session 恢复**：根据 `getSession` 结果分支处理
+  - `sessionData == null` 或 `status == null`：清理 localStorage/session，避免死循环
+  - `generating` 且存在缓存的 `result`：先应用 `executeActions` + `finalizeCurrentMessage`，再由 WebSocket 重连继续
+  - `generating` 无 result：恢复 content/thinking UI，WebSocket 重连
+  - `completed`：清理 session，图数据由 AgentBuilder 的 `refetchOnMount: 'always'` 从 DB 加载
+  - `failed`：toast 提示并清理 session
 - 自动滚动优化
 - 页面标题更新
 - 离开页面警告
@@ -161,11 +169,27 @@ interface CopilotState {
 
 ---
 
-## 🔄 图状态双写与权威
+## 🔄 图状态架构（后端唯一写入 + 前端乐观渲染）
 
-- **权威来源**：后端持久化后的图状态为权威。前端在 `onResult` 中先乐观执行 actions 以即时更新 UI，随后通过 `queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })` 从服务端重新拉取图状态；该 invalidate 即视为以服务端为准的校正，无需额外二次 refetch。
-- **应用逻辑契约**：前端 [actionProcessor](frontend/utils/copilot/actionProcessor.ts) 与后端 [action_applier](backend/app/core/copilot/action_applier.py) 需保持同一套规则（CREATE_NODE / CONNECT_NODES / DELETE_NODE / UPDATE_CONFIG / UPDATE_POSITION）。修改其一时请同步另一侧，长期可考虑由共享类型或后端生成前端 apply 逻辑。
-- **Apply 契约测试**：用例数据见 `docs/schemas/copilot-apply-fixtures.json`；后端测试 `backend/tests/core/copilot/test_action_applier.py`、前端测试 `frontend/utils/copilot/__tests__/actionProcessor.contract.test.ts` 共用该用例，保证双端 apply 行为一致。
+### 原则
+
+- **后端是图状态的唯一写入方**：仅由 `_persist_graph_from_actions` 在生成完成后写 DB；前端不再在 `applyAIChanges` 中调用 `immediateSave()`，避免双写竞争。
+- **前端只做乐观渲染**：`onResult` 中执行 `executeActions` → `applyAIChanges`，仅更新 builderStore 的 nodes/edges，不触发保存。
+- **顺序消息队列**：`use-copilot-websocket` 内消息入队并顺序处理，保证 async 的 `onResult` 完全执行后再处理 `onDone`，避免乱序。
+- **Result 可恢复**：后端在产出 `result` 后写入 Redis（`set_copilot_result`），会话恢复或刷新时可通过 `getSession` 的 `result` 字段应用未持久化的结果。
+- **done 语义**：后端在 `_persist_graph_from_actions` 完成后才发布 `done`。前端 `onDone` 中做：`invalidateQueries`（graph state + copilot history）、清理 session/loading，便于下次进入或刷新从 DB 拉取最新数据。
+
+### 事件流简述
+
+1. 用户提交 → `createCopilotTask`（带 `mode`）→ 获得 `session_id`，建立 WebSocket。
+2. 后端流式推送：status / content / thought_step / tool_call / tool_result → **result**（后端同时缓存 result 到 Redis）→ 前端 `onResult` 乐观渲染。
+3. 后端持久化图 → 设置 status=completed → 推送 **done** → 前端 `onDone` invalidate + 清理。
+4. WebSocket 连接时：若会话已 completed，先发缓存的 result + done 再关闭；若 failed 则发 error 再关闭；若 generating 且已有 result 则先发 result 再订阅 Pub/Sub。
+
+### 应用逻辑契约
+
+- 前端 [actionProcessor](frontend/utils/copilot/actionProcessor.ts) 与后端 [action_applier](backend/app/core/copilot/action_applier.py) 需保持同一套规则（CREATE_NODE / CONNECT_NODES / DELETE_NODE / UPDATE_CONFIG / UPDATE_POSITION），含节点 ID 去重等幂。
+- 用例数据：`docs/schemas/copilot-apply-fixtures.json`；后端测试 `backend/tests/core/copilot/test_action_applier.py`、前端测试 `frontend/utils/copilot/__tests__/actionProcessor.contract.test.ts` 共用该用例，保证双端 apply 行为一致。
 
 ## 类型契约
 
@@ -189,33 +213,32 @@ interface CopilotState {
 ## 🔄 数据流
 
 ```
-User Interaction
+User Interaction (含模式选择 copilotMode)
       │
       ▼
-CopilotPanel (UI)
+CopilotPanel (UI) ── copilotMode state ──► CopilotInput 下拉框（单Agent / DeepAgents）
       │
       ▼
-useCopilotActions (Business Logic)
+useCopilotActions (Business Logic, 携带 copilotMode)
       │
-      ├─► API Call (copilotService)
+      ├─► createCopilotTask({ ..., mode: copilotMode })
       │       │
       │       ▼
-      │   Backend Response
+      │   Backend 返回 session_id
       │       │
       │       ▼
-      └─► useCopilotState (State Update)
+      └─► setSession(sessionId) → useCopilotWebSocket 连接
               │
               ▼
-      WebSocket Connection
+      use-copilot-websocket：消息入队，顺序执行 handleMessage（await onResult / onDone）
               │
               ▼
-useCopilotWebSocketHandler (Event Handling)
+useCopilotWebSocketHandler
+  · onResult → 乐观渲染（executeActions → applyAIChanges），不写 DB、不清理 session
+  · onDone   → invalidateQueries + clearSession / setLoading(false)
               │
               ▼
-      useCopilotState (State Update)
-              │
-              ▼
-      CopilotPanel (UI Re-render)
+      useCopilotState (State Update) → CopilotPanel (UI Re-render)
 ```
 
 ## 🎯 设计原则
@@ -237,10 +260,11 @@ useCopilotWebSocketHandler (Event Handling)
 所有 hooks 通过参数接收依赖，而不是直接导入：
 ```typescript
 useCopilotActions({
-  state,      // 从 useCopilotState 获取
-  actions,    // 从 useCopilotState 获取
-  refs,       // 从 useCopilotState 获取
-  graphId,    // 从组件 props 获取
+  state,       // 从 useCopilotState 获取
+  actions,     // 从 useCopilotState 获取
+  refs,        // 从 useCopilotState 获取
+  graphId,     // 从路由/组件获取
+  copilotMode, // 从 CopilotPanel 的 useState 获取，用于提交任务时传 mode
 })
 ```
 
@@ -273,54 +297,52 @@ useCopilotActions({
 ## 📝 使用示例
 
 ```typescript
-// CopilotPanel 组件现在非常简洁
+// CopilotPanel 组件
 export const CopilotPanel: React.FC = () => {
-  // 1. 获取统一状态
+  const [copilotMode, setCopilotMode] = useState<CopilotMode>('deepagents')
+
   const { state, actions, refs } = useCopilotState(graphId)
 
-  // 2. 获取 WebSocket 处理器
   const webSocketCallbacks = useCopilotWebSocketHandler({
     state, actions, refs, graphId
   })
 
-  // 3. 获取业务逻辑处理器
-  const {
-    handleSend,
-    handleStop,
-    handleReset,
-  } = useCopilotActions({
-    state, actions, refs, graphId
-  })
+  const { handleSend, handleSendWithInput, handleStop, handleReset, handleAIDecision } =
+    useCopilotActions({
+      state, actions, refs, graphId,
+      copilotMode,  // 提交时传给 createCopilotTask 的 mode
+    })
 
-  // 4. 设置副作用
   useCopilotEffects({
     state, actions, refs, graphId, handleSendWithInput
   })
 
-  // 5. 连接 WebSocket
   useCopilotWebSocket({
     sessionId: state.currentSessionId,
     callbacks: webSocketCallbacks,
+    autoReconnect: true,
   })
 
-  // 6. 渲染 UI
-  return <div>...</div>
+  return (
+    <>
+      <CopilotChat ... />
+      <CopilotInput
+        ...
+        copilotMode={copilotMode}
+        onModeChange={setCopilotMode}
+      />
+    </>
+  )
 }
 ```
 
-## 🔍 对比：重构前后
+## 🖥️ UI：模式选择
 
-### 重构前
-- ❌ 684 行巨型组件
-- ❌ 业务逻辑和 UI 混在一起
-- ❌ 难以测试和维护
-- ❌ 状态管理分散
+- **位置**：`components/copilot/CopilotInput.tsx` 顶部工具栏一行。
+- **交互**：二选一下拉框（单Agent 模式 / DeepAgents 模式），位于「AI 自动完善」右侧，Reset 按钮位于该行最右侧。
+- **状态**：`CopilotPanel` 内 `useState<CopilotMode>('deepagents')`，通过 `copilotMode` / `onModeChange` 传入 `CopilotInput` 与 `useCopilotActions`。
+- **文案**：i18n 键 `workspace.copilotModeSingleAgent`、`workspace.copilotModeDeepAgents`。
 
-### 重构后
-- ✅ 约 100 行简洁组件
-- ✅ 清晰的职责分离
-- ✅ 易于测试和维护
-- ✅ 统一的状态管理
 
 ## 🎓 最佳实践
 
@@ -332,15 +354,29 @@ export const CopilotPanel: React.FC = () => {
 
 ## 📚 相关文件
 
-- `components/CopilotPanel.tsx` - 主组件（UI 层）
+**前端（本 workspace）**
+- `components/CopilotPanel.tsx` - 主组件（UI 层，含 copilotMode state）
+- `components/copilot/CopilotInput.tsx` - 输入区与模式下拉框
 - `hooks/useCopilotState.ts` - 状态管理
-- `hooks/useCopilotWebSocketHandler.ts` - WebSocket 处理
-- `hooks/useCopilotActions.ts` - 业务逻辑
-- `hooks/useCopilotEffects.ts` - 副作用管理
+- `hooks/useCopilotWebSocketHandler.ts` - WebSocket 事件回调（onResult 乐观渲染 / onDone 清理）
+- `hooks/useCopilotActions.ts` - 业务逻辑（含 copilotMode 传参）
+- `hooks/useCopilotEffects.ts` - 副作用与 session 恢复
 - `utils/copilotUtils.ts` - 工具函数
+
+**前端（全局）**
+- `hooks/use-copilot-websocket.ts` - WebSocket 连接与消息队列（顺序处理 async 回调）
+- `utils/copilot/actionProcessor.ts` - GraphAction 应用逻辑
+- `services/copilotService.ts` - createCopilotTask / getSession（含 result 字段）
+- `types/copilot.ts` - GraphAction / CopilotResponse 等类型
+
+**后端**
+- `app/services/copilot_service.py` - 生成流、Redis 发布、result 缓存、_persist_graph_from_actions
+- `app/websocket/copilot_handler.py` - 连接时检查会话状态，completed/failed 立即回送
+- `app/core/redis.py` - set_copilot_result / get_copilot_result / get_copilot_session
+- `app/core/copilot/action_applier.py` - apply_actions_to_graph_state
 
 ---
 
-**架构设计者**：AI Assistant
-**最后更新**：2026-01-19
-**版本**：2.0.0
+**架构设计者**：AI Assistant  
+**最后更新**：2026-03-15  
+**版本**：3.0.0
