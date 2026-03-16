@@ -967,7 +967,7 @@ class CopilotService:
                 content = event.get("content", "")
                 if content:
                     await RedisClient.append_copilot_content(session_id, content)
-            if event_type == "thought_step":
+            elif event_type == "thought_step":
                 collected_thought_steps.append(event.get("step", {}))
             elif event_type == "tool_call":
                 collected_tool_calls.append({"tool": event.get("tool", ""), "input": event.get("input", {})})
@@ -975,6 +975,12 @@ class CopilotService:
                 final_message = event.get("message", "")
                 final_actions = event.get("actions", [])
                 await RedisClient.set_copilot_result(session_id, event)
+            elif event_type == "error":
+                # Capture error message as final_message so it can be saved to DB
+                final_message = event.get("message", "")
+                # Set status as failed in Redis
+                await RedisClient.set_copilot_status(session_id, "failed")
+                await RedisClient.set_copilot_error(session_id, final_message)
 
         return (collected_thought_steps, collected_tool_calls, final_message, final_actions)
 
@@ -1028,6 +1034,12 @@ class CopilotService:
                 {"type": "error", "message": "Redis not available", "code": "REDIS_UNAVAILABLE"},
             )
             return
+
+        # Initialize collection variables to ensure they are available in the except block
+        collected_thought_steps: List[Dict[str, Any]] = []
+        collected_tool_calls: List[Dict[str, Any]] = []
+        final_message = ""
+        final_actions: List[Dict[str, Any]] = []
 
         try:
             # Set initial status
@@ -1119,3 +1131,18 @@ class CopilotService:
                 session_id,
                 {"type": "error", "message": str(e), "code": "UNKNOWN_ERROR"},
             )
+
+            # Persistent error to database if graph_id is provided
+            if graph_id:
+                try:
+                    await self._persist_conversation(
+                        session_id=session_id,
+                        graph_id=graph_id,
+                        prompt=prompt,
+                        final_message=str(e),
+                        collected_thought_steps=collected_thought_steps,
+                        collected_tool_calls=collected_tool_calls,
+                        final_actions=final_actions,
+                    )
+                except Exception as persist_error:
+                    logger.error(f"[CopilotService] Failed to persist error message: {persist_error}")

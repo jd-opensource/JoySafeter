@@ -247,13 +247,25 @@ async def stream_copilot_manager(
         logger.info(f"[DeepAgentsCopilot] Completed run_id={store.run_id} actions={len(collected_actions)}")
 
     except Exception as e:
-        logger.error(f"[DeepAgentsCopilot] Error: {e}")
+        error_msg = str(e)
+        logger.error(f"[DeepAgentsCopilot] Error: {error_msg}")
+        
+        # Determine error code and potentially simplify message
         error_code = "AGENT_ERROR"
-        if "api_key" in str(e).lower() or "credential" in str(e).lower():
+        if "api_key" in error_msg.lower() or "credential" in error_msg.lower():
             error_code = "CREDENTIAL_ERROR"
+        elif "RateLimitReached" in error_msg:
+            # Try to extract a more readable message for rate limits
+            import re
+            match = re.search(r"retry after (\d+) milliseconds", error_msg)
+            if match:
+                seconds = int(match.group(1)) // 1000
+                error_msg = f"Rate limit reached. Please retry after {seconds} seconds."
+            else:
+                error_msg = "Rate limit reached. Please try again later."
 
         yield {
             "type": "error",
-            "message": str(e),
+            "message": error_msg,
             "code": error_code,
         }
