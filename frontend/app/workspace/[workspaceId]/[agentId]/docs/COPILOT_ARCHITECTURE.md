@@ -377,6 +377,6 @@ export const CopilotPanel: React.FC = () => {
 
 ---
 
-**架构设计者**：AI Assistant  
-**最后更新**：2026-03-15  
+**架构设计者**：AI Assistant
+**最后更新**：2026-03-15
 **版本**：3.0.0
