@@ -95,7 +95,7 @@ export function useCopilotState(graphId?: string) {
   const streamingHook = useCopilotStreaming()
 
   // Action execution state
-  const actionExecutorHook = useActionExecutor()
+  const actionExecutorHook = useActionExecutor(graphId)
 
   // Session state
   const sessionHook = useCopilotSession(graphId)

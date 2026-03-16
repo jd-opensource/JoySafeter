@@ -31,15 +31,9 @@ import { DefaultEdge } from './DefaultEdge'
 
 import { EdgeData } from '../types/graph'
 import { EDGE_COLORS } from '../utils/edgeStyles'
+import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
 
-const nodeTypes = {
-  custom: BuilderNode,
-}
 
-const edgeTypes = {
-  default: DefaultEdge,
-  loop_back: LoopBackEdge,
-}
 
 // Custom Controls Component
 interface CustomControlsProps {
@@ -139,6 +133,7 @@ const CustomControls: React.FC<CustomControlsProps> = ({
 }
 
 export const BuilderCanvas: React.FC = () => {
+
   const { t } = useTranslation()
   const params = useParams()
   const workspaceId = params.workspaceId as string
@@ -409,6 +404,27 @@ export const BuilderCanvas: React.FC = () => {
     [addNode, userPermissions.canEdit, toast, t, workspaceId]
   )
 
+  // Process edges for React Flow with unique types and styling
+  const processedEdges = useMemo(() => {
+    return uniqueEdges.map((edge) => {
+      const edgeData = (edge.data || {}) as EdgeData
+      // Set edge type based on edge_type in data
+      // LoopBackEdge component handles custom path calculation with offset
+      if (edgeData.edge_type === 'loop_back') {
+        return {
+          ...edge,
+          type: 'loop_back',
+        }
+      }
+      // Use DefaultEdge for normal and conditional edges (handles label display)
+      return {
+        ...edge,
+        type: 'default',
+      }
+    })
+  }, [uniqueEdges])
+
+
   return (
     <div
       className="flex-1 h-full relative overflow-hidden bg-gray-50"
@@ -439,22 +455,7 @@ export const BuilderCanvas: React.FC = () => {
 
       <ReactFlow
         nodes={nodes}
-        edges={uniqueEdges.map((edge) => {
-          const edgeData = (edge.data || {}) as EdgeData
-          // Set edge type based on edge_type in data
-          // LoopBackEdge component handles custom path calculation with offset
-          if (edgeData.edge_type === 'loop_back') {
-            return {
-              ...edge,
-              type: 'loop_back',
-            }
-          }
-          // Use DefaultEdge for normal and conditional edges (handles label display)
-          return {
-            ...edge,
-            type: 'default',
-          }
-        })}
+        edges={processedEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}

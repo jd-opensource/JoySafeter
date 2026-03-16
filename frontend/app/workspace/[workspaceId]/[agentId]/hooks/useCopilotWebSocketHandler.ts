@@ -117,6 +117,7 @@ export function useCopilotWebSocketHandler({
       if (!refs.isMountedRef.current) return
       refs.isCreatingSessionRef.current = false
       if (graphId) {
+        // Invalidate to allow AgentBuilder/useGraphState to refetch authoritative backend state
         queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })
         queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(graphId) })
       }

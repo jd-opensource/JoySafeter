@@ -132,32 +132,34 @@ const AgentBuilderContent = () => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const { hasPendingChanges, autoSaveDebounceTimer, nodes, edges, rfInstance, graphId } = useBuilderStore.getState()
 
+      if (!graphId || graphId !== agentId) {
+        return
+      }
+
       if (hasPendingChanges || autoSaveDebounceTimer) {
         if (autoSaveDebounceTimer) {
           clearTimeout(autoSaveDebounceTimer)
         }
 
-        if (graphId) {
-          try {
-            const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
-            const payload = JSON.stringify({
-              nodes,
-              edges,
-              viewport,
-            })
+        try {
+          const viewport = rfInstance?.getViewport() || { x: 0, y: 0, zoom: 1 }
+          const payload = JSON.stringify({
+            nodes,
+            edges,
+            viewport,
+          })
 
-            const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || ''
-            const url = `${apiBaseUrl}/v1/graphs/${graphId}/state`
-            const blob = new Blob([payload], { type: 'application/json' })
-            navigator.sendBeacon(url, blob)
-          } catch (error) {
-            // Silent fail for sendBeacon
-          }
-
-          e.preventDefault()
-          e.returnValue = ''
-          return ''
+          const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || ''
+          const url = `${apiBaseUrl}/v1/graphs/${graphId}/state`
+          const blob = new Blob([payload], { type: 'application/json' })
+          navigator.sendBeacon(url, blob)
+        } catch (error) {
+          // Silent fail for sendBeacon
         }
+
+        e.preventDefault()
+        e.returnValue = ''
+        return ''
       }
     }
 
@@ -165,7 +167,7 @@ const AgentBuilderContent = () => {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
     }
-  }, [])
+  }, [agentId])
 
   // Use ref to track loaded graphId, avoiding duplicate initialization
   const loadedGraphIdRef = React.useRef<string | null>(null)
@@ -181,26 +183,37 @@ const AgentBuilderContent = () => {
       return
     }
 
+    // When switching to a different agent
+    if (loadedGraphIdRef.current !== agentId) {
+      // Important: DO NOT clear the canvas yet.
+      // Wait until we have the new data to avoid triggering auto-save on an empty state.
+      useBuilderStore.setState({ isInitializing: true })
+      
+      // If we don't have data yet, we must stop here and wait for the next run
+      if (!isGraphStateLoaded || !graphStateData) {
+        return
+      }
+    }
+
     // Wait for graph state data to load
     if (!isGraphStateLoaded || !graphStateData) {
-      // Data is still loading, set initialization state
       useBuilderStore.setState({ isInitializing: true })
       return
     }
 
     // Avoid duplicate initialization for the same graphId
-    if (loadedGraphIdRef.current === agentId) {
+    if (loadedGraphIdRef.current === agentId && !useBuilderStore.getState().isInitializing) {
       return
     }
-    loadedGraphIdRef.current = agentId
 
     // Use React Query cached state data
     const state = graphStateData
 
+    // CRITICAL: Ensure we are applying data for the CORRECT agentId
     agentService.setCachedGraphId(agentId)
     setGraphId(agentId)
 
-    // Use React Query cached graphs data to get name and other info
+    // Sync other metadata...
     const currentGraph = graphsData?.find(g => g.id === agentId)
     if (currentGraph) {
       if (currentGraph.name) {
@@ -211,89 +224,67 @@ const AgentBuilderContent = () => {
         const updatedAtTime = new Date(currentGraph.updatedAt).getTime()
         useBuilderStore.setState({ lastAutoSaveTime: updatedAtTime })
       }
-    } else {
-      // If graphsData is not loaded yet or graph not found, set a default name
-      // This ensures save operations can proceed even if graphName is not yet available
-      const defaultName = '(not set)'
-      if (!useBuilderStore.getState().graphName) {
-        agentService.setCachedGraphName(defaultName)
-        setGraphName(defaultName)
-      }
     }
 
-    // Calculate hash of initial state to determine if there are changes during auto-save
-    // This is key to solving the "POST immediately after page load" issue
+    // Calculate hash of initial state
     const initialHash = computeGraphStateHash(state.nodes || [], state.edges || [])
 
+    // Apply multiple state changes in one batch to ensure consistency
     useBuilderStore.setState({
       nodes: state.nodes || [],
       edges: state.edges || [],
       past: [],
       future: [],
       selectedNodeId: null,
-      isInitializing: false,
       hasPendingChanges: false,
-      lastSavedStateHash: initialHash, // 设置初始 hash，避免立即触发保存
+      lastSavedStateHash: initialHash, 
       saveRetryCount: 0,
       lastSaveError: null,
+      isInitializing: false, // FINALLY mark as non-initializing
     })
 
-    // 同步 SaveManager 的 hash，确保在启动自动保存前 hash 已同步
-    // 使用 setTimeout 确保状态更新已完成
+    // Now we are officially initialized for this agentId
+    loadedGraphIdRef.current = agentId
+
+    // Sync SaveManager's hash
     const syncTimer = setTimeout(() => {
       const { syncLastSavedHash } = useBuilderStore.getState()
       syncLastSavedHash()
     }, 0)
     viewportTimersRef.current.push(syncTimer)
 
-    // Wait for ReactFlow instance to be ready and nodes to be rendered before setting viewport
-    // This ensures viewport is set correctly whether it's a new creation or a refresh
+    // Wait for ReactFlow instance to be ready
     let retryCount = 0
-    const maxRetries = 40 // Maximum 2 seconds (40 * 50ms) to wait for nodes to render
+    const maxRetries = 40
     const setViewportWhenReady = () => {
       const currentRfInstance = useBuilderStore.getState().rfInstance
       const currentNodes = useBuilderStore.getState().nodes
 
-      // Check if ReactFlow instance is ready and nodes are loaded
       if (currentRfInstance && currentNodes.length > 0) {
-        // Wait a bit more for nodes to be fully rendered in the DOM
         const finalTimer = setTimeout(() => {
           if (state.viewport) {
             currentRfInstance.setViewport(state.viewport, { duration: 0 })
           } else {
-            // If no viewport, fit view to show all nodes
             currentRfInstance.fitView({ padding: 0.2, duration: 0 })
           }
         }, 150)
         viewportTimersRef.current.push(finalTimer)
       } else if (retryCount < maxRetries) {
-        // ReactFlow instance or nodes not ready yet, retry after a short delay
         retryCount++
         const retryTimer = setTimeout(setViewportWhenReady, 50)
         viewportTimersRef.current.push(retryTimer)
       }
     }
 
-    // Start trying to set viewport
     setViewportWhenReady()
 
-    // Cleanup function to clear all timers
     return () => {
       viewportTimersRef.current.forEach(timer => {
-        if (timer) {
-          clearTimeout(timer)
-        }
+        if (timer) clearTimeout(timer)
       })
       viewportTimersRef.current = []
     }
   }, [agentId, isGraphStateLoaded, graphStateData, graphsData, loadGraph, setGraphId, setGraphName])
-
-  // Reset loadedGraphIdRef when agentId changes
-  useEffect(() => {
-    if (agentId !== loadedGraphIdRef.current) {
-      loadedGraphIdRef.current = null
-    }
-  }, [agentId])
 
   // Sync deployment status from React Query to builderStore
   // Deployment status is fetched via useDeploymentStatus hook, automatically sharing cache with other components
@@ -612,7 +603,7 @@ const AgentBuilderContent = () => {
       {/* Main Content Area - Canvas takes full space, panels overlay on top */}
       <div className="flex-1 min-h-0 relative">
         <ErrorBoundary>
-          <BuilderCanvas />
+          <BuilderCanvas key={agentId} />
         </ErrorBoundary>
       </div>
 

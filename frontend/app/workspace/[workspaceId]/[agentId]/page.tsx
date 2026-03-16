@@ -1,5 +1,7 @@
 'use client'
 
+import { useParams } from 'next/navigation'
+
 import AgentBuilder from './AgentBuilder'
 
 /**
@@ -10,5 +12,8 @@ import AgentBuilder from './AgentBuilder'
  * 路由: /workspace/[workspaceId]/[agentId]
  */
 export default function AgentPage() {
-  return <AgentBuilder />
+  const params = useParams()
+  const agentId = params.agentId as string
+
+  return <AgentBuilder key={agentId} />
 }

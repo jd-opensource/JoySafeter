@@ -9,23 +9,35 @@ import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/
 import type { GraphAction } from '@/types/copilot'
 import { ActionProcessor } from '@/utils/copilot/actionProcessor'
 
-export function useActionExecutor() {
+export function useActionExecutor(expectedGraphId?: string) {
   const [executingActions, setExecutingActions] = useState(false)
   const { applyAIChanges } = useBuilderStore()
 
   const executeActions = useCallback(async (actions: GraphAction[]) => {
+    const currentState = useBuilderStore.getState()
+    const currentGraphId = currentState.graphId
+
+    if (expectedGraphId && currentGraphId !== expectedGraphId) {
+      console.warn('[useActionExecutor] graphId mismatch, skipping actions', {
+        expectedGraphId,
+        currentGraphId,
+        actionsCount: actions.length,
+      })
+      return
+    }
+
     console.log('[useActionExecutor] executeActions called', {
       actionsCount: actions.length,
       actions: actions,
-      currentNodesCount: useBuilderStore.getState().nodes.length,
-      currentEdgesCount: useBuilderStore.getState().edges.length,
+      currentNodesCount: currentState.nodes.length,
+      currentEdgesCount: currentState.edges.length,
     })
 
     setExecutingActions(true)
 
     // Use ActionProcessor to process actions
-    const currentNodes: Node[] = [...useBuilderStore.getState().nodes]
-    const currentEdges: Edge[] = [...useBuilderStore.getState().edges]
+    const currentNodes: Node[] = [...currentState.nodes]
+    const currentEdges: Edge[] = [...currentState.edges]
 
     const { nodes: processedNodes, edges: processedEdges } = ActionProcessor.processActions(
       actions,

@@ -129,14 +129,14 @@ export const agentService = {
     let graphId = getCachedGraphId()
 
     if (!graphId) {
-      const createResponse = await apiPost<{ data: { id: string } }>('graphs', {
+      const createResponse = await apiPost<{ id: string }>('graphs', {
         name: params.name,
         description: params.description || '',
         color: params.color || '',
         variables: params.variables || {},
         workspaceId: params.workspaceId,
       })
-      graphId = createResponse.data.id
+      graphId = createResponse.id
       setCachedGraphId(graphId)
       setCachedGraphName(params.name)
     }
@@ -198,16 +198,14 @@ export const agentService = {
     variables?: { context?: Record<string, unknown> }
   }> {
     const response = await apiGet<{
-      data: {
-        nodes: Node[]
-        edges: Edge[]
-        viewport?: { x: number; y: number; zoom: number }
-        variables?: { context?: Record<string, unknown> }
-      }
+      nodes: Node[]
+      edges: Edge[]
+      viewport?: { x: number; y: number; zoom: number }
+      variables?: { context?: Record<string, unknown> }
     }>(`graphs/${graphId}/state`)
     setCachedGraphId(graphId)
 
-    let data = response.data || { nodes: [], edges: [] }
+    let data = response || { nodes: [], edges: [] }
 
     if (data.edges && data.edges.length > 0) {
       const seenEdges = new Set<string>()
@@ -251,7 +249,7 @@ export const agentService = {
     clearCachedGraphId()
     clearCachedGraphName()
 
-    const response = await apiPost<{ data: AgentGraph }>('graphs', {
+    const response = await apiPost<AgentGraph>('graphs', {
       name: params.name,
       description: params.description || '',
       color: params.color || '',
@@ -259,7 +257,7 @@ export const agentService = {
       workspaceId: params.workspaceId,
     })
 
-    return response.data
+    return response
   },
 
   /**
@@ -306,7 +304,7 @@ export const agentService = {
     clearCachedGraphName()
 
     // Create new graph
-    const createResponse = await apiPost<{ data: { id: string } }>('graphs', {
+    const createResponse = await apiPost<{ id: string }>('graphs', {
       name: options?.newName || `${originalGraph.name} (copy)`,
       description: originalGraph.description || '',
       color: originalGraph.color || '',
@@ -314,7 +312,7 @@ export const agentService = {
       workspaceId: options?.workspaceId || originalGraph.workspaceId || null,
     })
 
-    const newGraphId = createResponse.data.id
+    const newGraphId = createResponse.id
 
     // Copy state
     await apiPost(`graphs/${newGraphId}/state`, {

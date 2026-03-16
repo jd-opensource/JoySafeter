@@ -311,8 +311,8 @@ export function useCreateGraph() {
       workspaceId?: string | null
       variables?: Record<string, unknown>
     }) => {
-      const response = await apiPost<{ data: AgentGraph }>('graphs', params)
-      return response.data
+      const response = await apiPost<AgentGraph>('graphs', params)
+      return response
     },
     onSuccess: (newGraph, variables) => {
       // Refresh graph list for corresponding workspace
