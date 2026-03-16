@@ -974,6 +974,7 @@ class CopilotService:
             elif event_type == "result":
                 final_message = event.get("message", "")
                 final_actions = event.get("actions", [])
+                await RedisClient.set_copilot_result(session_id, event)
 
         return (collected_thought_steps, collected_tool_calls, final_message, final_actions)
 

@@ -47,18 +47,26 @@ export function useCopilotEffects({
         const sessionData = await copilotService.getSession(currentSessionId)
         if (!refs.isMountedRef.current) return
 
-        if (sessionData?.status === 'generating') {
-          if (sessionData.content) {
+        if (!sessionData || sessionData.status == null) {
+          actions.clearSession()
+          return
+        }
+
+        if (sessionData.status === 'generating') {
+          if (sessionData.result?.actions?.length) {
+            await actions.executeActions(sessionData.result.actions)
+            actions.finalizeCurrentMessage(sessionData.result.message ?? '', sessionData.result.actions)
+          } else if (sessionData.content) {
             actions.setStreamingContent(sessionData.content)
             actions.setCurrentStage({ stage: 'processing', message: '继续处理中...' })
             if (!hasCurrentMessage(state.messages, false)) actions.setThinkingMessage()
           }
-        } else if (sessionData?.status === 'failed') {
-          toast({ title: 'Copilot 任务失败', description: sessionData.error || '执行过程中出现错误，请重试', variant: 'destructive' })
-          actions.clearSession()
-        } else if (sessionData?.status === 'completed') {
+        } else if (sessionData.status === 'completed') {
           actions.clearSession()
           actions.clearStreaming()
+        } else if (sessionData.status === 'failed') {
+          toast({ title: 'Copilot 任务失败', description: sessionData.error || '执行过程中出现错误，请重试', variant: 'destructive' })
+          actions.clearSession()
         }
       } catch (error) {
         console.warn('[CopilotPanel] Failed to restore session:', error)

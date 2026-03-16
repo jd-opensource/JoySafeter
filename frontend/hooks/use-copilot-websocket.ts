@@ -87,6 +87,8 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastPongRef = useRef<number>(Date.now())
   const callbacksRef = useRef(callbacks)
+  const queueRef = useRef<CopilotWebSocketEvent[]>([])
+  const processingRef = useRef(false)
 
   // Update callbacks ref when it changes
   useEffect(() => {
@@ -179,88 +181,104 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
         }, 30000)
       }
 
+      const handleMessage = async (data: CopilotWebSocketEvent) => {
+        const cbs = callbacksRef.current
+        switch (data.type) {
+          case 'status':
+            if (data.stage && data.message) {
+              cbs.onStatus(data.stage, data.message)
+            }
+            break
+          case 'content':
+            if (data.content) {
+              cbs.onContent(data.content)
+            }
+            break
+          case 'thought_step':
+            if (data.step) {
+              cbs.onThoughtStep?.(data.step)
+            }
+            break
+          case 'tool_call':
+            if (data.tool && data.input) {
+              cbs.onToolCall(data.tool, data.input)
+            }
+            break
+          case 'tool_result':
+            if (data.action) {
+              cbs.onToolResult(data.action)
+            }
+            break
+          case 'result':
+            await cbs.onResult?.({
+              message: data.message ?? '',
+              actions: (data.actions ?? []).map((a: { type: string; payload: Record<string, unknown>; reasoning?: string }) => ({
+                type: a.type as GraphActionType,
+                payload: a.payload ?? {},
+                reasoning: a.reasoning ?? '',
+              })),
+            })
+            break
+          case 'error': {
+            const errorCode = (data as { code?: string }).code
+            const rawMessage = data.message ?? ''
+            const messageByCode: Record<string, string> = {
+              CREDENTIAL_ERROR: 'Authentication error. Please check your API credentials in settings.',
+              AGENT_ERROR: 'Agent initialization failed. Please try again or contact support.',
+              CANCELLED: 'Request was cancelled.',
+              REDIS_UNAVAILABLE: 'Service temporarily unavailable. Please try again later.',
+              UNKNOWN_ERROR: 'An unexpected error occurred. Please try again or contact support.',
+            }
+            const errorMessage = errorCode && messageByCode[errorCode] != null
+              ? messageByCode[errorCode]
+              : `${rawMessage || 'An error occurred.'}`
+
+            if (errorCode === 'CANCELLED') {
+              cleanup()
+              return
+            }
+
+            cbs.onError(errorMessage)
+            setError(errorMessage)
+
+            const criticalCodes = ['CREDENTIAL_ERROR', 'AGENT_ERROR', 'REDIS_UNAVAILABLE']
+            if (errorCode && criticalCodes.includes(errorCode)) {
+              cleanup()
+            }
+            break
+          }
+          case 'done':
+            await cbs.onDone?.()
+            cleanup()
+            break
+        }
+      }
+
+      const processQueue = async () => {
+        if (processingRef.current) return
+        processingRef.current = true
+        while (queueRef.current.length > 0) {
+          const msg = queueRef.current.shift()!
+          try {
+            await handleMessage(msg)
+          } catch (e) {
+            console.error('[WebSocket] Error processing message:', e)
+          }
+        }
+        processingRef.current = false
+      }
+
       ws.onmessage = (event) => {
         try {
           const data: CopilotWebSocketEvent = JSON.parse(event.data)
-          const cbs = callbacksRef.current
 
-          // Handle ping/pong for heartbeat
           if (data.type === 'pong') {
             lastPongRef.current = Date.now()
             return
           }
 
-          switch (data.type) {
-            case 'status':
-              if (data.stage && data.message) {
-                cbs.onStatus(data.stage, data.message)
-              }
-              break
-            case 'content':
-              if (data.content) {
-                cbs.onContent(data.content)
-              }
-              break
-            case 'thought_step':
-              if (data.step) {
-                cbs.onThoughtStep?.(data.step)
-              }
-              break
-            case 'tool_call':
-              if (data.tool && data.input) {
-                cbs.onToolCall(data.tool, data.input)
-              }
-              break
-            case 'tool_result':
-              if (data.action) {
-                cbs.onToolResult(data.action)
-              }
-              break
-            case 'result':
-              // Contract: backend always sends result with message + actions (actions may be [])
-              cbs.onResult({
-                message: data.message ?? '',
-                actions: (data.actions ?? []).map((a: { type: string; payload: Record<string, unknown>; reasoning?: string }) => ({
-                  type: a.type as GraphActionType,
-                  payload: a.payload ?? {},
-                  reasoning: a.reasoning ?? '',
-                })),
-              })
-              break
-            case 'error': {
-              const errorCode = (data as { code?: string }).code
-              const rawMessage = data.message ?? ''
-              // Map backend error codes to user-facing messages (aligned with backend copilot_service error events)
-              const messageByCode: Record<string, string> = {
-                CREDENTIAL_ERROR: 'Authentication error. Please check your API credentials in settings.',
-                AGENT_ERROR: 'Agent initialization failed. Please try again or contact support.',
-                CANCELLED: 'Request was cancelled.',
-                REDIS_UNAVAILABLE: 'Service temporarily unavailable. Please try again later.',
-                UNKNOWN_ERROR: 'An unexpected error occurred. Please try again or contact support.',
-              }
-              const errorMessage = errorCode && messageByCode[errorCode] != null
-                ? messageByCode[errorCode]
-                : `${rawMessage || 'An error occurred.'}`
-
-              if (errorCode === 'CANCELLED') {
-                cleanup()
-                return
-              }
-
-              cbs.onError(errorMessage)
-              setError(errorMessage)
-
-              const criticalCodes = ['CREDENTIAL_ERROR', 'AGENT_ERROR', 'REDIS_UNAVAILABLE']
-              if (errorCode && criticalCodes.includes(errorCode)) {
-                cleanup()
-              }
-              break
-            }
-            case 'done':
-              cbs.onDone?.()
-              cleanup()
-              break
-          }
+          queueRef.current.push(data)
+          void processQueue()
         } catch (e) {
           console.error('Failed to parse WebSocket message:', e)
         }

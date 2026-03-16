@@ -97,8 +97,33 @@ class CopilotWebSocketHandler:
         channel = f"copilot:session:{session_id}:pubsub"
 
         try:
-            # Subscribe to Redis Pub/Sub channel
-            # Create Redis pubsub subscriber
+            # Check session status before subscribing: if already completed/failed, send and close
+            status = await RedisClient.get_copilot_status(session_id)
+            if status == "completed":
+                result = await RedisClient.get_copilot_result(session_id)
+                if result:
+                    result_json = json.dumps(result, ensure_ascii=False)
+                    await self._safe_send_text(websocket, result_json, session_id)
+                done_json = json.dumps({"type": "done"}, ensure_ascii=False)
+                await self._safe_send_text(websocket, done_json, session_id)
+                logger.info(f"Copilot session already completed, sent cached result+done: session_id={session_id}")
+                try:
+                    await websocket.close(code=1000, reason="Session completed")
+                except Exception:
+                    pass
+                return
+            if status == "failed":
+                error_msg = await RedisClient.get_copilot_error(session_id) or "Unknown error"
+                error_event = {"type": "error", "message": error_msg, "code": "UNKNOWN_ERROR"}
+                error_json = json.dumps(error_event, ensure_ascii=False)
+                await self._safe_send_text(websocket, error_json, session_id)
+                logger.info(f"Copilot session failed, sent error: session_id={session_id}")
+                try:
+                    await websocket.close(code=1011, reason=f"Error: {error_msg}")
+                except Exception:
+                    pass
+                return
+
             redis_client = RedisClient.get_client()
             if not redis_client:
                 try:
@@ -108,12 +133,15 @@ class CopilotWebSocketHandler:
                     pass
                 return
 
+            # If generating and we have a cached result (e.g. client reconnected after result), send it once
+            if status == "generating":
+                result = await RedisClient.get_copilot_result(session_id)
+                if result:
+                    result_json = json.dumps(result, ensure_ascii=False)
+                    await self._safe_send_text(websocket, result_json, session_id)
+
             pubsub = redis_client.pubsub()
             await pubsub.subscribe(channel)
-
-            # Note: We do NOT send existing content here to avoid duplicates.
-            # The streaming process will send all content events through Pub/Sub,
-            # and if users need historical content, they should load it from the database.
 
             # Start listening for Redis messages and handling client messages
             while self._is_websocket_connected(websocket):

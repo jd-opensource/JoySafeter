@@ -953,16 +953,18 @@ async def get_copilot_session(
             "session_id": session_id,
             "status": None,
             "content": None,
+            "result": None,
             "created_at": None,
             "updated_at": None,
         }
 
-    # For generating sessions, return Redis content
+    # For generating sessions, return Redis content and cached result if any
     if session_data["status"] == "generating":
         return {
             "session_id": session_id,
             "status": session_data["status"],
             "content": session_data.get("content", ""),
+            "result": session_data.get("result"),
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
         }
@@ -973,6 +975,7 @@ async def get_copilot_session(
         "session_id": session_id,
         "status": session_data["status"],
         "content": None,  # Completed sessions are in database
+        "result": session_data.get("result"),
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }

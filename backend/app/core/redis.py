@@ -240,8 +240,31 @@ class RedisClient:
         return str(result) if result is not None else None
 
     @classmethod
+    async def set_copilot_result(cls, session_id: str, result: Dict[str, Any], ttl: int = 86400) -> bool:
+        """Cache Copilot result event (message + actions) for session recovery."""
+        if not cls._client:
+            return False
+        key = f"copilot:session:{session_id}:result"
+        await cls._client.set(key, json.dumps(result, ensure_ascii=False), ex=ttl)
+        return True
+
+    @classmethod
+    async def get_copilot_result(cls, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get cached Copilot result for session recovery."""
+        if not cls._client:
+            return None
+        key = f"copilot:session:{session_id}:result"
+        data = await cls._client.get(key)
+        if data is None:
+            return None
+        try:
+            return json.loads(data)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
     async def get_copilot_session(cls, session_id: str) -> Optional[Dict[str, Any]]:
-        """Get Copilot session data (status, content, error)"""
+        """Get Copilot session data (status, content, error, result)."""
         if not cls._client:
             return None
         status = await cls.get_copilot_status(session_id)
@@ -249,11 +272,13 @@ class RedisClient:
             return None
         content = await cls.get_copilot_content(session_id) or ""
         error = await cls.get_copilot_error(session_id)
+        result = await cls.get_copilot_result(session_id)
         return {
             "session_id": session_id,
             "status": status,
             "content": content,
             "error": error,
+            "result": result,
         }
 
     @classmethod
@@ -265,6 +290,7 @@ class RedisClient:
             f"copilot:session:{session_id}:status",
             f"copilot:session:{session_id}:content",
             f"copilot:session:{session_id}:error",
+            f"copilot:session:{session_id}:result",
         ]
         if keys:
             await cls._client.delete(*keys)

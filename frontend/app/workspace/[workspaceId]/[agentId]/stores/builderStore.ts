@@ -1029,16 +1029,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         newEdgesCount: get().edges.length,
       })
 
-      // Save immediately so canvas state is persisted right away.
-      // Backend _persist_graph_from_actions also persists (with node ID
-      // dedup) as a safety net, but frontend save is the primary path.
-      const { graphId } = get()
-      if (graphId) {
-        saveManager.immediateSave().catch((error) => {
-          console.error('[BuilderStore] Immediate save failed after applyAIChanges:', error)
-          get().triggerAutoSave()
-        })
-      }
+      // Optimistic update only. Graph state is persisted by the backend after
+      // Copilot generation; no frontend save here to avoid dual-write races.
     },
 
     getGraphContext: () => {

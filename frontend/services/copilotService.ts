@@ -107,12 +107,13 @@ export const copilotService = {
   },
 
   /**
-   * Get Copilot session status and content
+   * Get Copilot session status, content, and cached result (for recovery).
    */
   async getSession(sessionId: string): Promise<{
     session_id: string
     status: string | null
     content: string | null
+    result?: CopilotResponse | null
     error?: string | null
     created_at: string | null
     updated_at: string | null
@@ -121,6 +122,7 @@ export const copilotService = {
       session_id: string
       status: string | null
       content: string | null
+      result?: CopilotResponse | null
       error?: string | null
       created_at: string | null
       updated_at: string | null

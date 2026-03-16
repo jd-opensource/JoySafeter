@@ -1,13 +1,14 @@
 /**
  * useCopilotWebSocketHandler - WebSocket event handler hook for Copilot
  *
- * Architecture: Frontend applies actions + saves on "result" (short path).
- * Backend _persist_graph_from_actions also persists with node ID dedup as
- * a safety net. "done" event is just backup cleanup.
+ * Architecture: Backend is the single writer for graph state. On "result" we only
+ * do optimistic render (applyAIChanges, no save). On "done" we invalidate caches
+ * and clear session. Message queue in use-copilot-websocket ensures onResult
+ * completes before onDone runs.
  */
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import type { StageType } from '@/hooks/copilot/useCopilotStreaming'
 import { graphKeys } from '@/hooks/queries/graphs'
@@ -32,28 +33,26 @@ export function useCopilotWebSocketHandler({
 }: UseCopilotWebSocketHandlerOptions) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
 
-  // Memoize callbacks to prevent unnecessary re-renders
-  // Using refs to access latest values without adding to dependencies
   const callbacks = useMemo(() => ({
     onConnect: () => {
       if (!refs.isMountedRef.current) return
-      // Only set thinking status if we are loading and have no stage/content yet
-      if (state.loading && !state.currentStage && !state.streamingContent) {
+      const s = stateRef.current
+      if (s.loading && !s.currentStage && !s.streamingContent) {
         actions.setCurrentStage({ stage: 'thinking', message: '已连接，正在处理...' })
       }
     },
 
-    onDisconnect: () => {
-      // WebSocket disconnected - no action needed as cleanup handles this
-    },
+    onDisconnect: () => {},
 
     onStatus: (stage: string, message: string) => {
       if (!refs.isMountedRef.current) return
       actions.setCurrentStage({ stage: stage as StageType, message })
-
-      // Create message placeholder on first status event
-      if (!hasCurrentMessage(state.messages, true)) {
+      if (!hasCurrentMessage(stateRef.current.messages, true)) {
         actions.setThinkingMessage()
       }
     },
@@ -80,39 +79,22 @@ export function useCopilotWebSocketHandler({
 
     onResult: async (response: { message: string; actions?: GraphAction[] }) => {
       if (!refs.isMountedRef.current) return
-
       try {
         actions.clearStreaming()
         const normalizedMessage = response.message.replace(/\n{2,}/g, '\n')
         actions.finalizeCurrentMessage(normalizedMessage, response.actions)
-
         if (response.actions && response.actions.length > 0) {
           await actions.executeActions(response.actions)
-          if (!refs.isMountedRef.current) return
-        }
-
-        // Invalidate caches so subsequent navigations pick up the latest data
-        if (graphId && refs.isMountedRef.current) {
-          queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })
-          queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(graphId) })
         }
       } catch (error) {
         console.error('[CopilotHandler] Error in onResult:', error)
-      } finally {
-        if (refs.isMountedRef.current) {
-          refs.isCreatingSessionRef.current = false
-          actions.clearSession()
-          actions.setLoading(false)
-        }
       }
     },
 
     onError: (error: string) => {
       if (!refs.isMountedRef.current) return
-
       try {
         actions.clearStreaming()
-
         let errorMessage = error
         if (error.includes('Credential') || error.includes('API key')) {
           errorMessage = t('workspace.copilot.error.credential', { defaultValue: 'Authentication error. Please check API credentials.' })
@@ -121,7 +103,6 @@ export function useCopilotWebSocketHandler({
         } else {
           errorMessage = `${t('workspace.systemError')}: ${error}`
         }
-
         actions.finalizeCurrentMessage(errorMessage)
       } finally {
         if (refs.isMountedRef.current) {
@@ -132,27 +113,18 @@ export function useCopilotWebSocketHandler({
       }
     },
 
-    onDone: () => {
-      // Backup cleanup - onResult already handles the primary flow.
-      // This fires after backend persistence completes and catches
-      // edge cases where onResult cleanup didn't run.
+    onDone: async () => {
       if (!refs.isMountedRef.current) return
       refs.isCreatingSessionRef.current = false
+      if (graphId) {
+        queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })
+        queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(graphId) })
+      }
       actions.clearStreaming()
       actions.clearSession()
       actions.setLoading(false)
     },
-  }), [
-    // Dependencies - using state and actions from props
-    state.loading,
-    state.currentStage,
-    state.messages,
-    actions,
-    refs,
-    graphId,
-    queryClient,
-    t,
-  ])
+  }), [actions, refs, graphId, queryClient, t])
 
   return callbacks
 }
