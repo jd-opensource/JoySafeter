@@ -192,7 +192,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
   return (
     <>
       <TooltipProvider delayDuration={300}>
-        <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200/60">
+        <div className="flex items-center justify-between px-3 py-1 border-b border-gray-200/60">
           {/* Left: Menu and Controls */}
           <div className="flex items-center gap-1">
             <input

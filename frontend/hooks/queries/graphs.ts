@@ -28,6 +28,11 @@ export type { AgentGraph, DeploymentVersion, DeploymentStatus }
 
 const logger = createLogger('GraphsQueries')
 
+const isValidUUID = (str: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  return uuidRegex.test(str)
+}
+
 // GraphState is a type specific to this module
 export interface GraphState {
   nodes: Node[]
@@ -278,6 +283,11 @@ export function useSaveGraphState() {
       viewport?: { x: number; y: number; zoom: number }
       variables?: { context?: Record<string, unknown> }
     }) => {
+      if (!params.graphId || !isValidUUID(params.graphId)) {
+        logger.warn('useSaveGraphState called with invalid graphId, skip request', { graphId: params.graphId })
+        return
+      }
+
       await apiPost(`graphs/${params.graphId}/state`, {
         nodes: params.nodes,
         edges: params.edges,

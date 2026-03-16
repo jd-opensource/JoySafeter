@@ -33,13 +33,17 @@ import { agentService, AgentGraph } from './services/agentService'
 import { useBuilderStore } from './stores/builderStore'
 import { useExecutionStore } from './stores/executionStore'
 
-
+const isValidUUID = (str: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  return uuidRegex.test(str)
+}
 
 const AgentBuilderContent = () => {
   const { t } = useTranslation()
   const params = useParams()
   const workspaceId = params.workspaceId as string
-  const agentId = params.agentId as string
+  const rawAgentId = params.agentId as string | undefined
+  const agentId = rawAgentId && isValidUUID(rawAgentId) ? rawAgentId : null
 
   const {
     isInitializing,
@@ -70,12 +74,12 @@ const AgentBuilderContent = () => {
   // Use React Query hooks to fetch data (automatic caching and deduplication)
   // These hooks automatically share cache with other components like sidebar
   const { data: graphsData, isSuccess: isGraphsLoaded } = useGraphs(workspaceId)
-  const { data: deploymentStatus } = useDeploymentStatus(agentId)
+  const { data: deploymentStatus } = useDeploymentStatus(agentId ?? undefined)
 
   // Use React Query to fetch graph state uniformly, avoiding duplicate requests
   // refetchOnMount: 'always' ensures latest data is fetched when switching graphs
-  const { data: graphStateData, isSuccess: isGraphStateLoaded } = useGraphState(agentId, {
-    refetchOnMount: 'always'
+  const { data: graphStateData, isSuccess: isGraphStateLoaded } = useGraphState(agentId ?? undefined, {
+    refetchOnMount: 'always',
   })
 
   const { toast } = useToast()
@@ -132,7 +136,7 @@ const AgentBuilderContent = () => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const { hasPendingChanges, autoSaveDebounceTimer, nodes, edges, rfInstance, graphId } = useBuilderStore.getState()
 
-      if (!graphId || graphId !== agentId) {
+      if (!graphId || graphId !== agentId || !isValidUUID(graphId)) {
         return
       }
 
@@ -210,8 +214,10 @@ const AgentBuilderContent = () => {
     const state = graphStateData
 
     // CRITICAL: Ensure we are applying data for the CORRECT agentId
-    agentService.setCachedGraphId(agentId)
-    setGraphId(agentId)
+    if (agentId) {
+      agentService.setCachedGraphId(agentId)
+      setGraphId(agentId)
+    }
 
     // Sync other metadata...
     const currentGraph = graphsData?.find(g => g.id === agentId)
@@ -603,7 +609,7 @@ const AgentBuilderContent = () => {
       {/* Main Content Area - Canvas takes full space, panels overlay on top */}
       <div className="flex-1 min-h-0 relative">
         <ErrorBoundary>
-          <BuilderCanvas key={agentId} />
+          <BuilderCanvas key={agentId || 'empty'} />
         </ErrorBoundary>
       </div>
 
@@ -615,7 +621,7 @@ const AgentBuilderContent = () => {
             onImport={handleImport}
             onExport={exportGraph}
             onRunClick={handleRunClick}
-            agentId={agentId}
+            agentId={agentId || ''}
             nodesCount={nodes.length}
           />
         </div>

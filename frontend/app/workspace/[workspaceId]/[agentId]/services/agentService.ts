@@ -54,12 +54,20 @@ export interface SkillOption {
   tags: string[]
 }
 
+const isValidUUID = (str: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  return uuidRegex.test(str)
+}
 
 const GRAPH_ID_CACHE_KEY = 'current_graph_id'
 const GRAPH_NAME_CACHE_KEY = 'current_graph_name'
 const getCachedGraphId = (): string | null => {
   try {
-    return localStorage.getItem(GRAPH_ID_CACHE_KEY)
+    const id = localStorage.getItem(GRAPH_ID_CACHE_KEY)
+    if (id && !isValidUUID(id)) {
+      return null
+    }
+    return id
   } catch {
     return null
   }
@@ -67,6 +75,10 @@ const getCachedGraphId = (): string | null => {
 
 const setCachedGraphId = (graphId: string): void => {
   try {
+    if (!isValidUUID(graphId)) {
+      console.warn('[agentService] Invalid graphId passed to setCachedGraphId, ignored:', graphId)
+      return
+    }
     localStorage.setItem(GRAPH_ID_CACHE_KEY, graphId)
   } catch {
     // Silent fail
@@ -171,6 +183,11 @@ export const agentService = {
       [key: string]: unknown
     }
   }): Promise<void> {
+    if (!params.graphId || !isValidUUID(params.graphId)) {
+      console.warn('[agentService] saveGraphState called with invalid graphId, skip request:', params.graphId)
+      return
+    }
+
     const seenEdges = new Set<string>()
     const deduplicatedEdges = params.edges.filter(edge => {
       const key = `${edge.source}-${edge.target}`
@@ -197,6 +214,11 @@ export const agentService = {
     viewport?: { x: number; y: number; zoom: number }
     variables?: { context?: Record<string, unknown> }
   }> {
+    if (!graphId || !isValidUUID(graphId)) {
+      console.warn('[agentService] loadGraphState called with invalid graphId, return empty state:', graphId)
+      return { nodes: [], edges: [] }
+    }
+
     const response = await apiGet<{
       nodes: Node[]
       edges: Edge[]
