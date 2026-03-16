@@ -1,13 +1,9 @@
 /**
  * useCopilotWebSocketHandler - WebSocket event handler hook for Copilot
  *
- * Encapsulates all WebSocket event handling logic with proper mount checks
- * and error handling.
- *
- * Architecture: Backend is the authoritative writer for Copilot-generated
- * graph changes. Frontend applies actions optimistically on "result" for
- * immediate visual feedback, then syncs the authoritative state from the
- * backend on "done" (which fires only after backend persistence completes).
+ * Architecture: Frontend applies actions + saves on "result" (short path).
+ * Backend _persist_graph_from_actions also persists with node ID dedup as
+ * a safety net. "done" event is just backup cleanup.
  */
 
 import { useQueryClient } from '@tanstack/react-query'
@@ -17,11 +13,8 @@ import type { StageType } from '@/hooks/copilot/useCopilotStreaming'
 import { graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import type { GraphAction } from '@/types/copilot'
-import { computeGraphStateHash } from '@/utils/graphStateHash'
 
 import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
-import { agentService } from '../services/agentService'
-import { useBuilderStore } from '../stores/builderStore'
 import { hasCurrentMessage } from '../utils/copilotUtils'
 
 interface UseCopilotWebSocketHandlerOptions {
@@ -95,11 +88,22 @@ export function useCopilotWebSocketHandler({
 
         if (response.actions && response.actions.length > 0) {
           await actions.executeActions(response.actions)
+          if (!refs.isMountedRef.current) return
         }
-        // No cleanup here - "done" arrives after backend persistence
-        // and triggers the authoritative sync + cleanup.
+
+        // Invalidate caches so subsequent navigations pick up the latest data
+        if (graphId && refs.isMountedRef.current) {
+          queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })
+          queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(graphId) })
+        }
       } catch (error) {
         console.error('[CopilotHandler] Error in onResult:', error)
+      } finally {
+        if (refs.isMountedRef.current) {
+          refs.isCreatingSessionRef.current = false
+          actions.clearSession()
+          actions.setLoading(false)
+        }
       }
     },
 
@@ -128,44 +132,15 @@ export function useCopilotWebSocketHandler({
       }
     },
 
-    onDone: async () => {
+    onDone: () => {
+      // Backup cleanup - onResult already handles the primary flow.
+      // This fires after backend persistence completes and catches
+      // edge cases where onResult cleanup didn't run.
       if (!refs.isMountedRef.current) return
-      try {
-        if (graphId) {
-          // Invalidate cache first so fetchQuery always hits the network.
-          // Without this, fetchQuery returns stale pre-Copilot data (within
-          // 30s staleTime) and overwrites the optimistically rendered nodes.
-          await queryClient.invalidateQueries({ queryKey: graphKeys.state(graphId) })
-
-          const stateData = await queryClient.fetchQuery({
-            queryKey: graphKeys.state(graphId),
-            queryFn: () => agentService.loadGraphState(graphId),
-          })
-          if (stateData && refs.isMountedRef.current) {
-            const nodes = stateData.nodes || []
-            const edges = stateData.edges || []
-            const newHash = computeGraphStateHash(nodes, edges)
-            useBuilderStore.setState({
-              nodes,
-              edges,
-              lastSavedStateHash: newHash,
-              hasPendingChanges: false,
-            })
-            const { syncLastSavedHash } = useBuilderStore.getState()
-            syncLastSavedHash()
-          }
-          queryClient.invalidateQueries({ queryKey: graphKeys.copilotHistory(graphId) })
-        }
-      } catch (error) {
-        console.error('[CopilotHandler] Error syncing state in onDone:', error)
-      } finally {
-        if (refs.isMountedRef.current) {
-          refs.isCreatingSessionRef.current = false
-          actions.clearStreaming()
-          actions.clearSession()
-          actions.setLoading(false)
-        }
-      }
+      refs.isCreatingSessionRef.current = false
+      actions.clearStreaming()
+      actions.clearSession()
+      actions.setLoading(false)
     },
   }), [
     // Dependencies - using state and actions from props
