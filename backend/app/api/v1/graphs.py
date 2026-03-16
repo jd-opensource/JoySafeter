@@ -184,7 +184,7 @@ async def list_graphs(
         )
         if parent_id is not None:
             query = query.where(AgentGraph.parent_id == parent_id)
-        query = query.order_by(AgentGraph.updated_at.desc(), AgentGraph.id.desc())
+        query = query.order_by(AgentGraph.created_at.desc(), AgentGraph.id.desc())
         result = await db.execute(query)
         graphs = list(result.scalars().all())
     else:
@@ -256,7 +256,7 @@ async def list_deployed_graphs(
 
     conditions.append(graph_condition)  # type: ignore[arg-type]
 
-    query = select(AgentGraph).where(*conditions).order_by(AgentGraph.updated_at.desc())
+    query = select(AgentGraph).where(*conditions).order_by(AgentGraph.created_at.desc())
     result = await db.execute(query)
     all_graphs = list(result.scalars().all())
 

@@ -69,7 +69,7 @@ class GraphRepository(BaseRepository[AgentGraph]):
             query = query.where(AgentGraph.parent_id == parent_id)
         if workspace_id is not None:
             query = query.where(AgentGraph.workspace_id == workspace_id)
-        query = query.order_by(AgentGraph.updated_at.desc(), AgentGraph.id.desc())
+        query = query.order_by(AgentGraph.created_at.desc(), AgentGraph.id.desc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
 

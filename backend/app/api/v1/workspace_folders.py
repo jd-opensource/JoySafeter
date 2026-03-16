@@ -206,7 +206,7 @@ async def list_folder_graphs(
     stmt = (
         select(AgentGraph)
         .where(AgentGraph.folder_id == folder_id, AgentGraph.user_id == current_user.id)
-        .order_by(AgentGraph.updated_at.desc())
+        .order_by(AgentGraph.created_at.desc())
     )
 
     result = await db.execute(stmt)
