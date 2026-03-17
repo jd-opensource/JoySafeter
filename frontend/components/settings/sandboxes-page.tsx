@@ -14,7 +14,9 @@ import {
     Box,
     Loader2,
     User,
-    Activity
+    Activity,
+    Check,
+    X,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -43,9 +45,24 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { sandboxService, Sandbox } from '@/services/sandbox-service';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+
+const IMAGE_PRESETS = [
+    'python:3.12-slim',
+    'python:3.11-slim',
+    'node:20-slim',
+] as const;
+const CUSTOM_IMAGE_VALUE = '__custom__';
 
 export const SandboxesPage = () => {
     const { t } = useTranslation();
@@ -58,6 +75,13 @@ export const SandboxesPage = () => {
         sandboxId: string;
         open: boolean;
     }>({ type: 'stop', sandboxId: '', open: false });
+    const [inlineEdit, setInlineEdit] = useState<{
+        sandboxId: string;
+        image: string;
+        useCustom: boolean;
+    } | null>(null);
+    const [inlineSaving, setInlineSaving] = useState(false);
+    const [needsRebuild, setNeedsRebuild] = useState<Set<string>>(new Set());
 
     const fetchSandboxes = async () => {
         try {
@@ -102,6 +126,13 @@ export const SandboxesPage = () => {
             toast({
                 title: t('settings.sandboxes.operationSuccess'),
             });
+            if (confirmDialog.type === 'rebuild') {
+                setNeedsRebuild(prev => {
+                    const next = new Set(prev);
+                    next.delete(confirmDialog.sandboxId);
+                    return next;
+                });
+            }
             fetchSandboxes();
         } catch (error) {
             toast({
@@ -112,6 +143,44 @@ export const SandboxesPage = () => {
         } finally {
             setActionLoading(null);
             setConfirmDialog(prev => ({ ...prev, open: false }));
+        }
+    };
+
+    const openInlineEdit = (sandbox: Sandbox) => {
+        const isPreset = IMAGE_PRESETS.includes(sandbox.image as (typeof IMAGE_PRESETS)[number]);
+        setInlineEdit({
+            sandboxId: sandbox.id,
+            image: sandbox.image,
+            useCustom: !isPreset,
+        });
+    };
+
+    const handleInlineSave = async () => {
+        if (!inlineEdit) return;
+        const imageToSave = inlineEdit.useCustom ? inlineEdit.image.trim() : inlineEdit.image;
+        if (!imageToSave) {
+            toast({
+                title: t('settings.sandboxes.operationFailed'),
+                description: t('settings.sandboxes.imageRequired'),
+                variant: 'destructive',
+            });
+            return;
+        }
+        setInlineSaving(true);
+        try {
+            await sandboxService.updateSandbox(inlineEdit.sandboxId, { image: imageToSave });
+            setNeedsRebuild(prev => new Set(prev).add(inlineEdit.sandboxId));
+            setInlineEdit(null);
+            toast({ title: t('settings.sandboxes.operationSuccess') });
+            fetchSandboxes();
+        } catch (error) {
+            toast({
+                title: t('settings.sandboxes.operationFailed'),
+                description: String(error),
+                variant: 'destructive',
+            });
+        } finally {
+            setInlineSaving(false);
         }
     };
 
@@ -215,13 +284,13 @@ export const SandboxesPage = () => {
                                         {t('settings.sandboxes.status')}
                                     </TableHead>
                                     <TableHead className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider py-3">
+                                        {t('settings.sandboxes.image')}
+                                    </TableHead>
+                                    <TableHead className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider py-3">
                                         {t('settings.sandboxes.resources')}
                                     </TableHead>
                                     <TableHead className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider py-3">
                                         {t('settings.sandboxes.runtime')}
-                                    </TableHead>
-                                    <TableHead className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider py-3">
-                                        {t('settings.sandboxes.lastActive')}
                                     </TableHead>
                                     <TableHead className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider py-3 text-right">
                                         {t('settings.sandboxes.actions')}
@@ -282,6 +351,85 @@ export const SandboxesPage = () => {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell className="py-3">
+                                                    {inlineEdit?.sandboxId === sandbox.id ? (
+                                                        <div className="flex flex-col gap-2 min-w-[200px]">
+                                                            <Select
+                                                                value={inlineEdit.useCustom ? CUSTOM_IMAGE_VALUE : inlineEdit.image}
+                                                                onValueChange={(v) => {
+                                                                    if (v === CUSTOM_IMAGE_VALUE) {
+                                                                        setInlineEdit(prev => prev ? { ...prev, useCustom: true } : null);
+                                                                    } else {
+                                                                        setInlineEdit(prev => prev ? { ...prev, image: v, useCustom: false } : null);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <SelectTrigger className="h-8 text-xs">
+                                                                    <SelectValue placeholder={t('settings.sandboxes.selectImage')} />
+                                                                </SelectTrigger>
+                                                                <SelectContent className="z-[10000001]">
+                                                                    {IMAGE_PRESETS.map((img) => (
+                                                                        <SelectItem key={img} value={img}>
+                                                                            {img}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                    <SelectItem value={CUSTOM_IMAGE_VALUE}>
+                                                                        {t('settings.sandboxes.customImage')}
+                                                                    </SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                            {inlineEdit.useCustom && (
+                                                                <Input
+                                                                    className="h-8 font-mono text-xs"
+                                                                    placeholder="e.g. python:3.10-slim"
+                                                                    value={inlineEdit.image}
+                                                                    onChange={(e) => setInlineEdit(prev => prev ? { ...prev, image: e.target.value } : null)}
+                                                                    maxLength={255}
+                                                                />
+                                                            )}
+                                                            <div className="flex items-center gap-1">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-7 px-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                                                    onClick={handleInlineSave}
+                                                                    disabled={inlineSaving}
+                                                                >
+                                                                    {inlineSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                                                                    onClick={() => setInlineEdit(null)}
+                                                                    disabled={inlineSaving}
+                                                                >
+                                                                    <X className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <button
+                                                                type="button"
+                                                                className="text-xs font-mono text-gray-700 max-w-[140px] truncate text-left hover:text-violet-600 hover:underline cursor-pointer"
+                                                                title={sandbox.image}
+                                                                onClick={() => openInlineEdit(sandbox)}
+                                                                disabled={actionLoading === sandbox.id}
+                                                            >
+                                                                {sandbox.image}
+                                                            </button>
+                                                            {needsRebuild.has(sandbox.id) && (
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className="shrink-0 text-[10px] font-medium rounded-md bg-amber-50 text-amber-700 border-amber-200"
+                                                                >
+                                                                    {t('settings.sandboxes.needsRebuild')}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="py-3">
                                                     <div className="flex items-center gap-3">
                                                         <div className="flex items-center gap-1.5 text-xs text-gray-600">
                                                             <Cpu className="h-3.5 w-3.5 text-gray-400" />
@@ -305,13 +453,6 @@ export const SandboxesPage = () => {
                                                     ) : (
                                                         <span className="text-xs text-gray-400">—</span>
                                                     )}
-                                                </TableCell>
-                                                <TableCell className="py-3">
-                                                    <span className="text-xs text-gray-500">
-                                                        {sandbox.last_active_at
-                                                            ? formatDistanceToNow(new Date(sandbox.last_active_at), { addSuffix: true })
-                                                            : '—'}
-                                                    </span>
                                                 </TableCell>
                                                 <TableCell className="py-3">
                                                     <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">

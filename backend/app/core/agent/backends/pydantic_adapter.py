@@ -267,6 +267,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         if self._saved_container_id and upstream_container is None:
             try:
                 import docker
+
                 client = docker.from_env()
                 container = client.containers.get(self._saved_container_id)
                 container.start()
@@ -759,6 +760,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 logger.info(f"Sandbox {self._id} container removed")
             elif self._saved_container_id:
                 import docker
+
                 client = docker.from_env()
                 client.containers.get(self._saved_container_id).remove(force=True)
                 logger.info(f"Sandbox {self._id} container removed")

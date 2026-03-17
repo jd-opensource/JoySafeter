@@ -209,6 +209,22 @@ class SandboxManagerService:
             logger.error(f"Failed to rebuild sandbox {sandbox_id}: {e}")
             return False
 
+    async def update_sandbox_config(self, sandbox_id: str, image: Optional[str] = None) -> bool:
+        """更新沙箱配置（如 image）；新镜像在下次 rebuild 或新建容器时生效"""
+        values: Dict[str, Any] = {}
+        if image is not None:
+            image_str = image.strip()
+            if not image_str:
+                return False
+            if len(image_str) > 255:
+                return False
+            values["image"] = image_str
+        if not values:
+            return True
+        result = await self.db.execute(update(UserSandbox).where(UserSandbox.id == sandbox_id).values(**values))
+        await self.db.commit()
+        return bool(cast(CursorResult, result).rowcount > 0)
+
     async def delete_sandbox(self, sandbox_id: str) -> bool:
         """彻底删除沙箱记录和容器"""
         await _sandbox_pool.remove(sandbox_id)  # stop + remove container

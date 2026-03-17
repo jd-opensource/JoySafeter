@@ -68,6 +68,12 @@ class SandboxListResponse(BaseModel):
     size: int
 
 
+class SandboxUpdateBody(BaseModel):
+    """Body for PATCH /sandboxes/{id}: update sandbox config. New image takes effect on next rebuild."""
+
+    image: Optional[str] = None
+
+
 # Endpoints
 
 
@@ -169,6 +175,30 @@ async def get_sandbox(
         user_name=sb.user.name if sb.user else "Unknown",
         user_email=sb.user.email if sb.user else "Unknown",
     )
+
+
+@router.patch("/{sandbox_id}", response_model=None)
+async def update_sandbox(
+    sandbox_id: str,
+    body: SandboxUpdateBody,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update sandbox config (e.g. image). New image takes effect on next rebuild or container create."""
+    await _verify_sandbox_ownership(sandbox_id, current_user, db)
+    image_value = None
+    if body.image is not None:
+        s = body.image.strip()
+        if not s:
+            raise HTTPException(status_code=400, detail="image cannot be empty")
+        if len(s) > 255:
+            raise HTTPException(status_code=400, detail="image must be at most 255 characters")
+        image_value = s
+    service = SandboxManagerService(db)
+    success = await service.update_sandbox_config(sandbox_id, image=image_value)
+    if not success:
+        raise HTTPException(status_code=404, detail="Sandbox not found")
+    return success_response(message="Sandbox config updated")
 
 
 @router.post("/{sandbox_id}/stop")

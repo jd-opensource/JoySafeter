@@ -139,6 +139,23 @@ def test_rebuild_sandbox_not_found(mock_service_cls, client):
 
 
 @patch("app.api.v1.sandboxes.SandboxManagerService")
+def test_update_sandbox(mock_service_cls, client):
+    mock_service = mock_service_cls.return_value
+    mock_service.update_sandbox_config = AsyncMock(return_value=True)
+    response = client.patch("/v1/sandboxes/sb-1", json={"image": "python:3.11-slim"})
+    assert response.status_code == 200
+    mock_service.update_sandbox_config.assert_called_once_with("sb-1", image="python:3.11-slim")
+
+
+@patch("app.api.v1.sandboxes.SandboxManagerService")
+def test_update_sandbox_not_found(mock_service_cls, client):
+    mock_service = mock_service_cls.return_value
+    mock_service.update_sandbox_config = AsyncMock(return_value=False)
+    response = client.patch("/v1/sandboxes/sb-unknown", json={"image": "python:3.11-slim"})
+    assert response.status_code == 404
+
+
+@patch("app.api.v1.sandboxes.SandboxManagerService")
 def test_delete_sandbox(mock_service_cls, client):
     # Setup
     mock_service = mock_service_cls.return_value

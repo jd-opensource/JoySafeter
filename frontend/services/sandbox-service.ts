@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiDelete } from '@/lib/api-client'
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api-client'
 
 export interface Sandbox {
     id: string
@@ -29,10 +29,10 @@ export interface SandboxListResponse {
 }
 
 export const sandboxService = {
-    async listSandboxes(page = 1, limit = 20, status?: string): Promise<SandboxListResponse> {
+    async listSandboxes(page = 1, size = 20, status?: string): Promise<SandboxListResponse> {
         const params = new URLSearchParams({
             page: page.toString(),
-            limit: limit.toString(),
+            size: size.toString(),
         })
         if (status && status !== 'all') {
             params.append('status', status)
@@ -55,5 +55,9 @@ export const sandboxService = {
 
     async deleteSandbox(id: string): Promise<void> {
         await apiDelete(`sandboxes/${id}`)
+    },
+
+    async updateSandbox(id: string, payload: { image?: string }): Promise<void> {
+        await apiPatch(`sandboxes/${id}`, payload)
     },
 }
