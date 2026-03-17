@@ -3,17 +3,13 @@
 @tailwind utilities;
 
 /**
- * CSS-based layout dimensions
+ * Layout dimensions
  */
 :root {
-  --sidebar-width: 256px;
+  --topnav-height: 56px;
   --panel-width: 280px;
   --terminal-height: 200px;
   --toolbar-triggers-height: 300px;
-}
-
-.sidebar-container {
-  width: var(--sidebar-width);
 }
 
 .panel-container {
@@ -50,158 +46,109 @@
 }
 
 /**
- * Color tokens
+ * Design tokens — deep space + violet/indigo glassmorphism
+ * Single dark theme only
  */
 @layer base {
   :root,
-  .light {
-    /* Surfaces - 整体灰白色背景 */
-    --bg: #f4f5f7;
-    --surface-1: #f4f5f7;
-    --surface-2: #fafbfc;
-    --surface-3: #eef0f2;
-    --surface-4: #e8eaed;
-    --surface-5: #e2e4e8;
-    --surface-6: #eef0f2;
-    --surface-9: #e8eaed;
-    --surface-11: #d5d8dc;
-    --surface-12: #c4c8ce;
-    --surface-elevated: #fafbfc;
-
-    /* Text */
-    --text-primary: #1c1917;
-    --text-secondary: #292524;
-    --text-tertiary: #57534e;
-    --text-muted: #78716c;
-    --text-subtle: #a8a29e;
-    --text-inverse: #fafaf9;
-    --text-error: #dc2626;
-
-    /* Borders - 柔和的边框颜色 */
-    --border: #e5e7eb;
-    --border-strong: #d1d5db;
-    --divider: #f3f4f6;
-    --border-muted: #f3f4f6;
-
-    /* Brand */
-    --brand-400: #8e4cfb;
-    --brand-500: #6f3dfa;
-    --brand-secondary: #33b4ff;
-    --brand-tertiary: #22c55e;
-    --warning: #ea580c;
-
-    /* Severity */
-    --severity-critical: #dc2626;
-    --severity-high: #ea580c;
-    --severity-medium: #f59e0b;
-    --severity-low: #22c55e;
-    --severity-info: #3b82f6;
-
-    /* Functional */
-    --status-healthy: #22c55e;
-    --status-degraded: #f59e0b;
-    --status-offline: #dc2626;
-    --status-pending: #a78bfa;
-    --status-running: #3b82f6;
-
-    /* Utility */
-    --white: #ffffff;
-    --radius: 0.5rem;
-
-    /* Tailwind compatibility - 灰白色背景 */
-    --background: 220 16% 96%;
-    --foreground: 20 14.3% 4.1%;
-    --card: 220 16% 97%;
-    --card-foreground: 20 14.3% 4.1%;
-    --popover: 220 16% 97%;
-    --popover-foreground: 20 14.3% 4.1%;
-    --primary: 262 83% 58%;
-    --primary-foreground: 60 9.1% 97.8%;
-    --secondary: 220 13% 91%;
-    --secondary-foreground: 24 9.8% 10%;
-    --muted: 220 13% 91%;
-    --muted-foreground: 25 5.3% 44.7%;
-    --accent: 220 13% 91%;
-    --accent-foreground: 24 9.8% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 60 9.1% 97.8%;
-    --input: 220 13% 91%;
-    --ring: 262 83% 58%;
-    --border-tw: 220 13% 91%;
-  }
-
   .dark {
-    /* Surfaces - 科技感深蓝 */
-    --bg: #0f1419;
-    --surface-1: #141a21;
-    --surface-2: #1a222b;
-    --surface-3: #212b36;
-    --surface-4: #212b36;
-    --surface-5: #283341;
-    --surface-6: #212b36;
-    --surface-9: #283341;
-    --surface-11: #354252;
-    --surface-12: #445566;
-    --surface-elevated: #1a222b;
+    /* ── Background ── */
+    --bg: #0a0a0f;
+    --bg-secondary: #0d0d14;
 
-    /* Text */
-    --text-primary: #e8eef4;
-    --text-secondary: #c4cdd8;
-    --text-tertiary: #8a98a8;
-    --text-muted: #6b7a8a;
-    --text-subtle: #4a5868;
-    --text-inverse: #0f1419;
-    --text-error: #f87171;
+    /* ── Glass surfaces ── */
+    --surface-glass: rgba(255, 255, 255, 0.04);
+    --surface-glass-hover: rgba(255, 255, 255, 0.07);
+    --surface-glass-active: rgba(255, 255, 255, 0.10);
+    --surface-1: rgba(255, 255, 255, 0.04);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --surface-3: rgba(255, 255, 255, 0.08);
+    --surface-4: rgba(255, 255, 255, 0.10);
+    --surface-5: rgba(255, 255, 255, 0.12);
+    --surface-6: rgba(255, 255, 255, 0.07);
+    --surface-9: rgba(255, 255, 255, 0.09);
+    --surface-11: rgba(255, 255, 255, 0.15);
+    --surface-12: rgba(255, 255, 255, 0.20);
+    --surface-elevated: rgba(255, 255, 255, 0.06);
+    --surface-nav: rgba(10, 10, 15, 0.75);
 
-    /* Borders - 柔和的边框颜色 */
-    --border: #1e2938;
-    --border-strong: #2d3a4a;
-    --divider: #1a222b;
-    --border-muted: #1a222b;
+    /* ── Text hierarchy ── */
+    --text-primary: rgba(255, 255, 255, 0.95);
+    --text-secondary: rgba(255, 255, 255, 0.75);
+    --text-tertiary: rgba(255, 255, 255, 0.50);
+    --text-muted: rgba(255, 255, 255, 0.35);
+    --text-subtle: rgba(255, 255, 255, 0.20);
+    --text-inverse: #0a0a0f;
+    --text-error: #fb7185;
 
-    /* Brand - 青色系科技感 */
-    --brand-400: #38bdf8;
-    --brand-500: #0ea5e9;
-    --brand-secondary: #06b6d4;
-    --brand-tertiary: #10b981;
-    --warning: #f59e0b;
+    /* ── Glass borders ── */
+    --border: rgba(139, 92, 246, 0.15);
+    --border-strong: rgba(139, 92, 246, 0.30);
+    --border-hover: rgba(139, 92, 246, 0.45);
+    --border-white: rgba(255, 255, 255, 0.08);
+    --border-white-strong: rgba(255, 255, 255, 0.14);
+    --divider: rgba(255, 255, 255, 0.06);
+    --border-muted: rgba(255, 255, 255, 0.05);
 
-    /* Severity */
-    --severity-critical: #f87171;
-    --severity-high: #fb923c;
-    --severity-medium: #fbbf24;
-    --severity-low: #4ade80;
-    --severity-info: #60a5fa;
+    /* ── Brand — violet → indigo ── */
+    --brand: #8B5CF6;
+    --brand-400: #a78bfa;
+    --brand-500: #8B5CF6;
+    --brand-600: #7C3AED;
+    --brand-700: #6D28D9;
+    --brand-indigo: #4F46E5;
+    --brand-glow: rgba(139, 92, 246, 0.30);
+    --brand-glow-strong: rgba(139, 92, 246, 0.50);
+    --brand-secondary: #22D3EE;
+    --brand-tertiary: #34D399;
+    --warning: #FBBF24;
 
-    /* Functional */
-    --status-healthy: #4ade80;
-    --status-degraded: #fbbf24;
-    --status-offline: #f87171;
-    --status-pending: #c4b5fd;
-    --status-running: #60a5fa;
+    /* ── Severity ── */
+    --severity-critical: #F43F5E;
+    --severity-high: #FB923C;
+    --severity-medium: #FBBF24;
+    --severity-low: #34D399;
+    --severity-info: #60A5FA;
 
-    /* Utility */
+    /* ── Status ── */
+    --status-healthy: #34D399;
+    --status-degraded: #FBBF24;
+    --status-offline: #F43F5E;
+    --status-pending: #A78BFA;
+    --status-running: #60A5FA;
+
+    /* ── Utility ── */
     --white: #ffffff;
+    --radius: 0.75rem;
 
-    /* Tailwind compatibility */
-    --background: 210 25% 8%;
-    --foreground: 210 20% 92%;
-    --card: 210 22% 12%;
-    --card-foreground: 210 20% 92%;
-    --popover: 210 22% 12%;
-    --popover-foreground: 210 20% 92%;
-    --primary: 199 89% 48%;
-    --primary-foreground: 210 25% 8%;
-    --secondary: 210 18% 18%;
-    --secondary-foreground: 210 20% 92%;
-    --muted: 210 18% 18%;
-    --muted-foreground: 210 12% 55%;
-    --accent: 187 85% 43%;
-    --accent-foreground: 210 25% 8%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 20% 98%;
-    --input: 210 18% 18%;
-    --ring: 199 89% 48%;
+    /* ── Tailwind shadcn compatibility ── */
+    --background: 240 14% 4%;
+    --foreground: 0 0% 95%;
+    --card: 240 12% 6%;
+    --card-foreground: 0 0% 95%;
+    --popover: 240 14% 5%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 263 70% 62%;
+    --primary-foreground: 240 14% 4%;
+    --secondary: 240 10% 10%;
+    --secondary-foreground: 0 0% 75%;
+    --muted: 240 10% 10%;
+    --muted-foreground: 240 5% 45%;
+    --accent: 263 70% 62%;
+    --accent-foreground: 240 14% 4%;
+    --destructive: 347 77% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 263 40% 20%;
+    --input: 240 10% 10%;
+    --ring: 263 70% 62%;
+    --border-tw: 240 10% 14%;
+
+    /* Chart palette */
+    --chart-1: 263 70% 62%;
+    --chart-2: 187 85% 53%;
+    --chart-3: 160 64% 52%;
+    --chart-4: 45 93% 58%;
+    --chart-5: 347 77% 60%;
   }
 }
 
@@ -209,24 +156,211 @@
   * {
     @apply border-border;
   }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    @apply bg-background text-foreground;
     background-color: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Fixed deep-space background with nebula */
+    background-image:
+      radial-gradient(ellipse 80vw 60vh at 85% -10%, rgba(139, 92, 246, 0.28) 0%, transparent 60%),
+      radial-gradient(ellipse 50vw 40vh at 10% 90%, rgba(79, 70, 229, 0.15) 0%, transparent 55%);
+    background-attachment: fixed;
   }
 }
 
-/* ReactFlow customizations */
+/**
+ * ── Glassmorphism utility classes ──
+ */
+@layer utilities {
+  .glass {
+    background: var(--surface-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+  }
+
+  .glass-hover {
+    background: var(--surface-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    transition: background 300ms cubic-bezier(0.32, 0.72, 0, 1),
+                border-color 300ms cubic-bezier(0.32, 0.72, 0, 1),
+                box-shadow 300ms cubic-bezier(0.32, 0.72, 0, 1),
+                transform 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .glass-hover:hover {
+    background: var(--surface-glass-hover);
+    border-color: var(--border-hover);
+    box-shadow: 0 0 24px var(--brand-glow), 0 8px 32px rgba(0, 0, 0, 0.4);
+    transform: translateY(-2px);
+  }
+
+  .glass-card {
+    background: var(--surface-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 4px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-card-hover {
+    background: var(--surface-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 4px 24px rgba(0, 0, 0, 0.3);
+    transition:
+      border-color 300ms cubic-bezier(0.32, 0.72, 0, 1),
+      box-shadow 300ms cubic-bezier(0.32, 0.72, 0, 1),
+      transform 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .glass-card-hover:hover {
+    border-color: var(--border-hover);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 0 32px var(--brand-glow),
+      0 12px 48px rgba(0, 0, 0, 0.5);
+    transform: translateY(-3px);
+  }
+
+  .gradient-border {
+    position: relative;
+    border-radius: 1rem;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.5), rgba(79, 70, 229, 0.3), transparent);
+    z-index: -1;
+  }
+
+  .brand-gradient {
+    background: linear-gradient(135deg, var(--brand-500), var(--brand-indigo));
+  }
+
+  .brand-text {
+    background: linear-gradient(135deg, var(--brand-400), var(--brand-indigo));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-violet {
+    box-shadow: 0 0 20px var(--brand-glow), 0 0 60px rgba(139, 92, 246, 0.15);
+  }
+
+  .noise-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-size: 200px;
+  }
+}
+
+/**
+ * ── Nebula animations ──
+ */
+@keyframes nebulaPulse {
+  0%, 100% { opacity: 0.28; transform: scale(1); }
+  50%       { opacity: 0.38; transform: scale(1.08); }
+}
+
+@keyframes nebulaShift {
+  0%, 100% { opacity: 0.15; transform: scale(1) translateY(0); }
+  50%       { opacity: 0.22; transform: scale(1.05) translateY(-20px); }
+}
+
+.nebula-primary {
+  animation: nebulaPulse 8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.nebula-secondary {
+  animation: nebulaShift 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/**
+ * ── Button animations ──
+ */
+@keyframes buttonGlow {
+  0%, 100% { box-shadow: 0 0 12px var(--brand-glow); }
+  50%       { box-shadow: 0 0 24px var(--brand-glow-strong); }
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand-500), var(--brand-indigo));
+  color: white;
+  border: none;
+  border-radius: 9999px;
+  padding: 0.5rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition:
+    opacity 200ms cubic-bezier(0.32, 0.72, 0, 1),
+    transform 200ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 0 0 12px var(--brand-glow);
+}
+
+.btn-primary:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 0 24px var(--brand-glow-strong), 0 4px 16px rgba(139, 92, 246, 0.3);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+  box-shadow: 0 0 8px var(--brand-glow);
+}
+
+/**
+ * ── Status badge pulse ──
+ */
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.status-pulse {
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+/**
+ * ── ReactFlow customizations ──
+ */
 .react-flow__node {
   cursor: pointer;
 }
 
 .react-flow__handle {
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color 0.15s cubic-bezier(0.32, 0.72, 0, 1),
+              box-shadow 0.15s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .react-flow__handle:hover {
-  /* Use box-shadow instead of scale to avoid jumping */
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 
 .react-flow__edge-path {
@@ -235,32 +369,36 @@
 
 .react-flow__controls {
   box-shadow: none !important;
-  background: var(--surface-2) !important;
+  background: var(--surface-glass) !important;
+  backdrop-filter: blur(16px) !important;
   border: 1px solid var(--border) !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
 }
 
 .react-flow__controls button {
-  background: var(--surface-2) !important;
+  background: transparent !important;
   border-color: var(--border) !important;
   color: var(--text-secondary) !important;
 }
 
 .react-flow__controls button:hover {
-  background: var(--surface-3) !important;
+  background: var(--surface-glass-hover) !important;
 }
 
 .react-flow__minimap {
   box-shadow: none !important;
-  background: var(--surface-2) !important;
+  background: var(--surface-glass) !important;
+  backdrop-filter: blur(16px) !important;
   border: 1px solid var(--border) !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
 }
 
-/* Scrollbar styling */
+/**
+ * ── Scrollbar ──
+ */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -268,24 +406,23 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-11);
-  border-radius: 4px;
+  background: rgba(139, 92, 246, 0.25);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--surface-12);
+  background: rgba(139, 92, 246, 0.45);
 }
 
-/* Selection highlight */
+/* Selection */
 ::selection {
-  background: hsl(var(--primary) / 0.2);
+  background: rgba(139, 92, 246, 0.30);
+  color: white;
 }
 
 /**
- * Drag and Drop Enhancements
+ * ── Drag and Drop ──
  */
-
-/* Toolbar item dragging state */
 .toolbar-item {
   user-select: none;
   -webkit-user-select: none;
@@ -299,15 +436,12 @@
 .toolbar-item-dragging {
   opacity: 0.5 !important;
   transform: scale(0.95) !important;
-  background: var(--surface-9) !important;
 }
 
-/* Workflow canvas drag over state */
 .workflow-drag-over .react-flow__pane {
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* Global dragging cursor state */
 body.dragging-block {
   cursor: grabbing !important;
 }
@@ -316,70 +450,48 @@ body.dragging-block * {
   cursor: grabbing !important;
 }
 
-/* Drag ghost image enhancement */
 .drag-preview-element {
-  animation: dragPreviewEnter 0.15s ease-out;
+  animation: dragPreviewEnter 0.15s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @keyframes dragPreviewEnter {
-  from {
-    opacity: 0;
-    transform: rotate(-1deg) scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: rotate(-1deg) scale(1.02);
-  }
+  from { opacity: 0; transform: rotate(-1deg) scale(0.9); }
+  to   { opacity: 1; transform: rotate(-1deg) scale(1.02); }
 }
 
-/* Drop zone pulse animation */
 @keyframes dropZonePulse {
-  0%, 100% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 1;
-  }
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
 }
 
 .workflow-drag-over .drop-indicator {
   animation: dropZonePulse 1.5s ease-in-out infinite;
 }
 
-/* Node appear animation when dropped - using opacity only to avoid transform issues with Handle positioning */
 .react-flow__node {
-  animation: nodeAppear 0.2s ease-out;
+  animation: nodeAppear 0.2s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @keyframes nodeAppear {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-/* Node hover lift effect */
 .react-flow__node:hover {
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
+  filter: drop-shadow(0 4px 16px rgba(139, 92, 246, 0.3));
 }
 
-/* Connection line animation */
 .react-flow__connection-line {
   stroke-dasharray: 5;
   animation: connectionLineDash 0.5s linear infinite;
 }
 
 @keyframes connectionLineDash {
-  to {
-    stroke-dashoffset: -10;
-  }
+  to { stroke-dashoffset: -10; }
 }
 
 /**
- * SyntaxHighlighter code wrapping
- * Force code tags inside SyntaxHighlighter to wrap text
+ * ── SyntaxHighlighter code wrapping ──
  */
 pre[class*="language-"] code,
 div[class*="language-"] code {
@@ -387,3 +499,30 @@ div[class*="language-"] code {
   word-break: break-word !important;
   overflow-wrap: break-word !important;
 }
+
+/**
+ * ── Page transition stagger ──
+ */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.5s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.10s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.20s; }
+.stagger-5 { animation-delay: 0.25s; }
+.stagger-6 { animation-delay: 0.30s; }
