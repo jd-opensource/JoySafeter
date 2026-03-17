@@ -1,17 +1,13 @@
 'use client'
 
-import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, Sparkles } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { client } from '@/lib/auth/auth-client'
+import { cn } from '@/lib/core/utils/cn'
 import { toastError } from '@/lib/utils/toast'
-import { inter } from '@/styles/fonts/inter/inter'
-import { soehne } from '@/styles/fonts/soehne/soehne'
 
 export default function LoginPage() {
   const { t } = useTranslation()
@@ -20,7 +16,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState('demo@joysafeter.com')
   const [password, setPassword] = useState('demo123')
-  const [isButtonHovered, setIsButtonHovered] = useState(false)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -42,89 +37,112 @@ export default function LoginPage() {
     }
   }
 
+  const inputClass = cn(
+    'w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-[14px] text-white/90',
+    'placeholder:text-white/25 outline-none',
+    'transition-all duration-200',
+    'focus:border-violet-500/50 focus:bg-white/[0.07] focus:ring-2 focus:ring-violet-500/15',
+  )
+
   return (
-    <>
-      <div className="space-y-1 text-center">
-        <h1 className={`${soehne.className} font-medium text-[32px] text-black tracking-tight`}>
+    <div className="space-y-6">
+      {/* Heading */}
+      <div className="space-y-1">
+        <h1 className="text-[26px] font-bold tracking-tight text-white/90">
           {t('auth.signIn')}
         </h1>
-        <p className={`${inter.className} font-[380] text-[16px] text-muted-foreground`}>
+        <p className="text-[14px] text-white/40">
           {t('auth.enterYourDetails')}
         </p>
       </div>
 
       {/* Prototype hint */}
-      <div className="mt-4 rounded-lg border border-dashed border-[var(--brand-500)]/40 bg-[var(--brand-500)]/5 px-4 py-3 text-center">
-        <p className="text-[12px] text-[var(--brand-500)] font-medium">
+      <div className="flex items-center gap-2 rounded-xl border border-violet-500/25 bg-violet-500/8 px-4 py-2.5">
+        <Sparkles className="h-3.5 w-3.5 text-violet-400 flex-shrink-0" />
+        <p className="text-[12px] text-violet-300 font-medium">
           原型演示 · 任意邮箱 + 任意密码均可登录
         </p>
       </div>
 
-      <form onSubmit={onSubmit} className={`${inter.className} mt-8 space-y-8`}>
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="email">{t('auth.email')}</Label>
-            <Input
+      <form onSubmit={onSubmit} className="space-y-5">
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="email" className="block text-[12px] font-medium text-white/50">
+              {t('auth.email')}
+            </label>
+            <input
               id="email"
               name="email"
+              type="email"
               placeholder={t('auth.enterYourEmail')}
               required
               autoCapitalize="none"
               autoComplete="email"
-              autoCorrect="off"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100"
+              className={inputClass}
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="password">{t('auth.password')}</Label>
+          <div className="space-y-1.5">
+            <label htmlFor="password" className="block text-[12px] font-medium text-white/50">
+              {t('auth.password')}
+            </label>
             <div className="relative">
-              <Input
+              <input
                 id="password"
                 name="password"
                 required
                 type={showPassword ? 'text' : 'password'}
                 autoCapitalize="none"
                 autoComplete="current-password"
-                autoCorrect="off"
                 placeholder={t('auth.enterYourPassword')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="rounded-[10px] pr-10 shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100"
+                className={cn(inputClass, 'pr-10')}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="-translate-y-1/2 absolute top-1/2 right-3 text-gray-500 transition hover:text-gray-700"
+                className="absolute top-1/2 right-3 -translate-y-1/2 text-white/30 transition hover:text-white/60"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
         </div>
 
-        <Button
+        <button
           type="submit"
-          onMouseEnter={() => setIsButtonHovered(true)}
-          onMouseLeave={() => setIsButtonHovered(false)}
-          className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pr-[10px] pl-[12px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all"
           disabled={isLoading}
+          className={cn(
+            'group relative w-full overflow-hidden rounded-xl px-4 py-3 text-[14px] font-semibold text-white',
+            'bg-gradient-to-r from-violet-600 to-indigo-600',
+            'shadow-[0_0_16px_rgba(139,92,246,0.4)]',
+            'transition-all duration-300',
+            'hover:shadow-[0_0_28px_rgba(139,92,246,0.6)] hover:-translate-y-0.5',
+            'active:scale-[0.98]',
+            'disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0',
+          )}
         >
-          <span className="flex items-center gap-1">
-            {isLoading ? t('auth.signingIn') : t('auth.signIn')}
-            <span className="inline-flex transition-transform duration-200 group-hover:translate-x-0.5">
-              {isButtonHovered ? (
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
-              ) : (
-                <ChevronRight className="h-4 w-4" aria-hidden="true" />
-              )}
-            </span>
+          <span className="flex items-center justify-center gap-2">
+            {isLoading ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                {t('auth.signingIn')}
+              </span>
+            ) : (
+              <>
+                {t('auth.signIn')}
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/15 transition-transform duration-200 group-hover:translate-x-0.5">
+                  <ArrowRight className="h-3 w-3" />
+                </span>
+              </>
+            )}
           </span>
-        </Button>
+        </button>
       </form>
-    </>
+    </div>
   )
 }
