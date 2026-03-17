@@ -135,8 +135,6 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         session_id: str | None = None,
         idle_timeout: int = DEFAULT_IDLE_TIMEOUT,
         volumes: dict[str, str] | None = None,
-        cpu_limit: float | None = None,
-        memory_limit_mb: int | None = None,
     ):
         """Initialize PydanticSandboxAdapter.
 
@@ -195,8 +193,6 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         self.session_id = session_id
         self.idle_timeout = idle_timeout
         self.volumes = volumes or {}
-        self.cpu_limit = cpu_limit
-        self.memory_limit_mb = memory_limit_mb
 
         # Resolve runtime to get effective image and config
         effective_image, self._runtime_config = resolve_runtime(image, runtime)
@@ -234,11 +230,6 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 "idle_timeout": self.idle_timeout,
                 "volumes": self.volumes if self.volumes else None,
             }
-            # Pass resource limits if the upstream DockerSandbox supports them
-            if self.cpu_limit is not None:
-                sandbox_kwargs["cpu_limit"] = self.cpu_limit
-            if self.memory_limit_mb is not None:
-                sandbox_kwargs["memory_limit"] = f"{self.memory_limit_mb}m"
             self._sandbox = DockerSandbox(**sandbox_kwargs)
             logger.info(f"DockerSandbox created: id={self._id}, image={self.image}")
         except Exception as e:
@@ -326,8 +317,6 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         adapter.session_id = session_id
         adapter.idle_timeout = idle_timeout
         adapter.volumes = {}
-        adapter.cpu_limit = None
-        adapter.memory_limit_mb = None
         adapter._runtime_config = None
         adapter._id = session_id
         adapter.image = image

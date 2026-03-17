@@ -171,8 +171,6 @@ class SandboxManagerService:
                 idle_timeout=sandbox_record.idle_timeout,
                 volumes=volumes,
                 auto_remove=DEFAULT_USER_SANDBOX_AUTO_REMOVE,
-                cpu_limit=sandbox_record.cpu_limit,
-                memory_limit_mb=sandbox_record.memory_limit,
             )
 
             # 注册到池中 (put 会设 active_count=1)

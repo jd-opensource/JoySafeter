@@ -69,7 +69,9 @@ export const artifactService = {
    */
   async listRuns(threadId: string): Promise<RunInfo[]> {
     const url = `${API_BASE}/${artifactsPath(threadId)}/runs`
-    const json = await apiFetch<ArtifactsRunsResponse>(url)
+    const json = await apiFetch<RunInfo[] | ArtifactsRunsResponse>(url)
+    // apiFetch auto-unwraps { success, data } → data (the array itself)
+    if (Array.isArray(json)) return json
     return json.runs ?? json.data ?? []
   },
 
@@ -78,7 +80,9 @@ export const artifactService = {
    */
   async listRunFiles(threadId: string, runId: string): Promise<FileInfo[]> {
     const url = `${API_BASE}/${artifactsPath(threadId, runId)}/files`
-    const json = await apiFetch<ArtifactsFilesResponse>(url)
+    const json = await apiFetch<FileInfo[] | ArtifactsFilesResponse>(url)
+    // apiFetch auto-unwraps { success, data } → data (the array itself)
+    if (Array.isArray(json)) return json
     return json.files ?? json.data ?? []
   },
 
