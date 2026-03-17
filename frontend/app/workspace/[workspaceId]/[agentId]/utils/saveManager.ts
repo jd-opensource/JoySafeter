@@ -27,7 +27,7 @@ export interface GraphState {
 }
 
 export interface SaveManagerCallbacks {
-  onSaveSuccess: (hash: string) => void
+  onSaveSuccess: (hash: string, savedGraphId: string) => void
   onSaveError: (error: string) => void
 }
 
@@ -113,10 +113,10 @@ export class SaveManager {
         },
       })
 
-      // Update state on success
+      // Update state on success (pass graphId so consumer can guard against cross-graph overwrite)
       this.lastSavedHash = currentHash
       this.saveRetryCount = 0
-      this.callbacks.onSaveSuccess(currentHash)
+      this.callbacks.onSaveSuccess(currentHash, state.graphId)
     } catch (error) {
       this.handleSaveError(error, source)
     }

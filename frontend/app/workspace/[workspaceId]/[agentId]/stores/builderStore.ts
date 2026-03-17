@@ -235,7 +235,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       lastSavedStateHash: get().lastSavedStateHash,
     }),
     {
-      onSaveSuccess: (hash) => {
+      onSaveSuccess: (hash, savedGraphId) => {
+        const currentGraphId = get().graphId
+        if (savedGraphId && savedGraphId !== currentGraphId) return
         set({
           lastSavedStateHash: hash,
           lastAutoSaveTime: Date.now(),

@@ -108,14 +108,14 @@ const AgentBuilderContent = () => {
   const graphName = useBuilderStore((state) => state.graphName)
 
   useEffect(() => {
-    if (graphId && graphName && !isInitializing) {
+    if (graphId && graphId === agentId && graphName && !isInitializing) {
       startAutoSave()
     }
 
     return () => {
       stopAutoSave()
     }
-  }, [graphId, graphName, isInitializing, startAutoSave, stopAutoSave])
+  }, [graphId, graphName, isInitializing, agentId, startAutoSave, stopAutoSave])
 
   useEffect(() => {
     const handleOnline = () => {
@@ -192,6 +192,8 @@ const AgentBuilderContent = () => {
       // Important: DO NOT clear the canvas yet.
       // Wait until we have the new data to avoid triggering auto-save on an empty state.
       useBuilderStore.setState({ isInitializing: true })
+      // Clear stale rfInstance so setViewportWhenReady waits for the new ReactFlow instance
+      useBuilderStore.setState({ rfInstance: null })
 
       // If we don't have data yet, we must stop here and wait for the next run
       if (!isGraphStateLoaded || !graphStateData) {
@@ -232,8 +234,14 @@ const AgentBuilderContent = () => {
       }
     }
 
-    // Calculate hash of initial state
-    const initialHash = computeGraphStateHash(state.nodes || [], state.edges || [])
+    // Calculate hash of initial state (same 4 params as SaveManager for consistency)
+    const storeState = useBuilderStore.getState()
+    const initialHash = computeGraphStateHash(
+      state.nodes || [],
+      state.edges || [],
+      storeState.graphStateFields,
+      storeState.fallbackNodeId
+    )
 
     // Apply multiple state changes in one batch to ensure consistency
     useBuilderStore.setState({
