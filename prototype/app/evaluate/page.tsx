@@ -34,12 +34,12 @@ import { datasets } from '@/mocks/datasets'
 // ==================== Status config ====================
 
 const STATUS_CONFIG: Record<EvalStatus, { label: string; icon: React.ComponentType<{ className?: string }>; pill: string }> = {
-  pending: { label: 'Pending', icon: Clock, pill: 'text-yellow-700 bg-yellow-50 dark:text-yellow-300 dark:bg-yellow-950/30' },
-  running: { label: 'Running', icon: Play, pill: 'text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/30' },
-  paused: { label: 'Paused', icon: Pause, pill: 'text-orange-700 bg-orange-50 dark:text-orange-300 dark:bg-orange-950/30' },
-  completed: { label: 'Completed', icon: CheckCircle2, pill: 'text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/30' },
-  failed: { label: 'Failed', icon: XCircle, pill: 'text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/30' },
-  cancelled: { label: 'Cancelled', icon: Ban, pill: 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-800/50' },
+  pending:   { label: 'Pending',   icon: Clock,        pill: 'text-amber-300 bg-amber-500/10 border border-amber-500/20' },
+  running:   { label: 'Running',   icon: Play,         pill: 'text-sky-300 bg-sky-500/10 border border-sky-500/20' },
+  paused:    { label: 'Paused',    icon: Pause,        pill: 'text-orange-300 bg-orange-500/10 border border-orange-500/20' },
+  completed: { label: 'Completed', icon: CheckCircle2, pill: 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20' },
+  failed:    { label: 'Failed',    icon: XCircle,      pill: 'text-rose-300 bg-rose-500/10 border border-rose-500/20' },
+  cancelled: { label: 'Cancelled', icon: Ban,          pill: 'text-white/40 bg-white/5 border border-white/10' },
 }
 
 const FILTER_TABS: Array<{ value: '' | EvalStatus; label: string }> = [
@@ -92,25 +92,25 @@ function ConfirmDialog({
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="relative z-10 w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] p-6 shadow-xl"
+            className="relative z-10 w-full max-w-sm rounded-2xl border border-violet-500/25 bg-[#0d0d14]/95 backdrop-blur-2xl p-6 shadow-[0_0_60px_rgba(0,0,0,0.8)]"
           >
-            <div className={cn('mb-4 flex h-10 w-10 items-center justify-center rounded-full', variant === 'danger' ? 'bg-red-100 dark:bg-red-950/30' : 'bg-orange-100 dark:bg-orange-950/30')}>
-              <AlertCircle className={cn('h-5 w-5', variant === 'danger' ? 'text-red-600' : 'text-orange-600')} />
+            <div className={cn('mb-4 flex h-10 w-10 items-center justify-center rounded-full', variant === 'danger' ? 'bg-rose-500/15 border border-rose-500/20' : 'bg-orange-500/15 border border-orange-500/20')}>
+              <AlertCircle className={cn('h-5 w-5', variant === 'danger' ? 'text-rose-400' : 'text-orange-400')} />
             </div>
-            <h3 className="mb-1 text-base font-semibold text-[var(--text-primary)]">{title}</h3>
-            <p className="mb-6 text-sm text-[var(--text-muted)]">{description}</p>
+            <h3 className="mb-1 text-base font-semibold text-white/90">{title}</h3>
+            <p className="mb-6 text-sm text-white/45">{description}</p>
             <div className="flex gap-3">
               <button
                 onClick={onCancel}
-                className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-3)]"
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 transition-all hover:bg-white/8 hover:text-white/90"
               >
                 Cancel
               </button>
               <button
                 onClick={onConfirm}
                 className={cn(
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors',
-                  variant === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-500 hover:bg-orange-600'
+                  'flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all',
+                  variant === 'danger' ? 'bg-rose-600/80 hover:bg-rose-600 border border-rose-500/30' : 'bg-orange-500/80 hover:bg-orange-500 border border-orange-400/30'
                 )}
               >
                 {confirmLabel}
@@ -180,7 +180,7 @@ function CreateDrawer({ open, onClose, onCreate }: {
             onClick={onClose}
           />
           <motion.div
-            className="fixed right-0 top-0 z-50 h-full w-[480px] border-l border-[var(--border)] bg-[var(--surface-1)] shadow-2xl"
+            className="fixed right-0 top-0 z-50 h-full w-[480px] border-l border-violet-500/20 bg-[#0d0d14]/95 backdrop-blur-2xl shadow-[−20px_0_60px_rgba(0,0,0,0.6)] flex flex-col"
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -403,53 +403,53 @@ function TaskActions({
   onDelete: () => void
   onDownload: () => void
 }) {
-  const btnBase = 'rounded-md p-1.5 transition-colors'
+  const btnBase = 'rounded-lg p-1.5 transition-all duration-150'
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-0.5">
       {task.status === 'pending' && (
         <>
-          <button onClick={onStart} title="Start" className={cn(btnBase, 'text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30')}>
+          <button onClick={onStart} title="Start" className={cn(btnBase, 'text-sky-400 hover:bg-sky-500/15 hover:text-sky-300')}>
             <Play className="h-3.5 w-3.5" />
           </button>
-          <button onClick={onDelete} title="Delete" className={cn(btnBase, 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30')}>
+          <button onClick={onDelete} title="Delete" className={cn(btnBase, 'text-white/30 hover:bg-rose-500/15 hover:text-rose-400')}>
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </>
       )}
       {task.status === 'running' && (
         <>
-          <button onClick={onPause} title="Pause" className={cn(btnBase, 'text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/30')}>
+          <button onClick={onPause} title="Pause" className={cn(btnBase, 'text-amber-400 hover:bg-amber-500/15 hover:text-amber-300')}>
             <Pause className="h-3.5 w-3.5" />
           </button>
-          <button onClick={onCancel} title="Cancel" className={cn(btnBase, 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30')}>
+          <button onClick={onCancel} title="Cancel" className={cn(btnBase, 'text-white/30 hover:bg-rose-500/15 hover:text-rose-400')}>
             <Square className="h-3.5 w-3.5" />
           </button>
         </>
       )}
       {task.status === 'paused' && (
         <>
-          <button onClick={onResume} title="Resume" className={cn(btnBase, 'text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30')}>
+          <button onClick={onResume} title="Resume" className={cn(btnBase, 'text-sky-400 hover:bg-sky-500/15 hover:text-sky-300')}>
             <Play className="h-3.5 w-3.5" />
           </button>
-          <button onClick={onCancel} title="Cancel" className={cn(btnBase, 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30')}>
+          <button onClick={onCancel} title="Cancel" className={cn(btnBase, 'text-white/30 hover:bg-rose-500/15 hover:text-rose-400')}>
             <Square className="h-3.5 w-3.5" />
           </button>
-          <button onClick={onDelete} title="Delete" className={cn(btnBase, 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30')}>
+          <button onClick={onDelete} title="Delete" className={cn(btnBase, 'text-white/30 hover:bg-rose-500/15 hover:text-rose-400')}>
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </>
       )}
       {(task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') && (
         <>
-          <Link href={`/evaluate/${task.id}`} title="View Details" className={cn(btnBase, 'text-[var(--brand-500)] hover:bg-[var(--brand-500)]/10')}>
+          <Link href={`/evaluate/${task.id}`} title="View Details" className={cn(btnBase, 'text-violet-400 hover:bg-violet-500/15 hover:text-violet-300')}>
             <Eye className="h-3.5 w-3.5" />
           </Link>
           {task.status === 'completed' && (
-            <button onClick={onDownload} title="Download Results" className={cn(btnBase, 'text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30')}>
+            <button onClick={onDownload} title="Download Results" className={cn(btnBase, 'text-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-300')}>
               <Download className="h-3.5 w-3.5" />
             </button>
           )}
-          <button onClick={onDelete} title="Delete" className={cn(btnBase, 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30')}>
+          <button onClick={onDelete} title="Delete" className={cn(btnBase, 'text-white/30 hover:bg-rose-500/15 hover:text-rose-400')}>
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </>
@@ -567,7 +567,7 @@ export default function EvaluatePage() {
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 rounded-lg bg-[var(--brand-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
+          className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_0_12px_rgba(139,92,246,0.3)] transition-all duration-300 hover:shadow-[0_0_24px_rgba(139,92,246,0.5)] hover:-translate-y-0.5"
         >
           <Plus className="h-4 w-4" />
           {t('evaluate.newEvaluation')}
@@ -577,12 +577,12 @@ export default function EvaluatePage() {
       {/* Stat Cards */}
       <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-6">
         {([
-          { key: 'pending', color: 'text-yellow-600', icon: Clock },
-          { key: 'running', color: 'text-blue-600', icon: Play },
-          { key: 'paused', color: 'text-orange-600', icon: Pause },
-          { key: 'completed', color: 'text-green-600', icon: CheckCircle2 },
-          { key: 'failed', color: 'text-red-600', icon: XCircle },
-          { key: 'cancelled', color: 'text-gray-500', icon: Ban },
+          { key: 'pending',   color: 'text-amber-400',   icon: Clock },
+          { key: 'running',   color: 'text-sky-400',     icon: Play },
+          { key: 'paused',    color: 'text-orange-400',  icon: Pause },
+          { key: 'completed', color: 'text-emerald-400', icon: CheckCircle2 },
+          { key: 'failed',    color: 'text-rose-400',    icon: XCircle },
+          { key: 'cancelled', color: 'text-white/35',    icon: Ban },
         ] as const).map((s, i) => {
           const Icon = s.icon
           return (

@@ -14,9 +14,9 @@ import { toastSuccess, toastError, toastInfo } from '@/lib/utils/toast'
 import { datasets as initialDatasets, type Dataset } from '@/mocks/datasets'
 
 const STATUS_CONFIG = {
-  ready: { label: 'Ready', pill: 'text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/30', dot: 'bg-[var(--status-healthy)]' },
-  indexing: { label: 'Indexing', pill: 'text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/30 animate-pulse', dot: 'bg-[var(--status-running)]' },
-  error: { label: 'Error', pill: 'text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/30', dot: 'bg-[var(--status-offline)]' },
+  ready:    { label: 'Ready',    pill: 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20', dot: 'bg-emerald-400' },
+  indexing: { label: 'Indexing', pill: 'text-sky-300 bg-sky-500/10 border border-sky-500/20 animate-pulse', dot: 'bg-sky-400 animate-pulse' },
+  error:    { label: 'Error',    pill: 'text-rose-300 bg-rose-500/10 border border-rose-500/20', dot: 'bg-rose-400' },
 } as const
 
 function formatDate(ts: string): string {
@@ -79,7 +79,7 @@ function CreateDatasetModal({ open, onClose, onCreate }: {
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 8 }}
             transition={{ duration: 0.18 }}
-            className="relative z-10 w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] shadow-2xl"
+            className="relative z-10 w-full max-w-lg rounded-2xl border border-violet-500/25 bg-[#0d0d14]/95 backdrop-blur-2xl shadow-[0_0_60px_rgba(0,0,0,0.8)]"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
@@ -203,7 +203,7 @@ export default function DatasetsPage() {
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 rounded-lg bg-[var(--brand-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
+          className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_0_12px_rgba(139,92,246,0.3)] transition-all duration-300 hover:shadow-[0_0_24px_rgba(139,92,246,0.5)] hover:-translate-y-0.5"
         >
           <Plus className="h-4 w-4" />
           New Knowledge Base

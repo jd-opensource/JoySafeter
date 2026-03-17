@@ -135,7 +135,7 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
                 <DropdownMenuSubContent
                   sideOffset={4}
                   alignOffset={-5}
-                  className="min-w-[110px] bg-white"
+                  className="min-w-[110px] bg-[#0d0d14] border-violet-500/20"
                 >
                   {languages.map((lang) => (
                     <DropdownMenuItem
