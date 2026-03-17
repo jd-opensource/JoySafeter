@@ -12,6 +12,7 @@ from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent.backends.constants import (
+    DEFAULT_USER_SANDBOX_AUTO_REMOVE,
     DEFAULT_USER_SANDBOX_CPU_LIMIT,
     DEFAULT_USER_SANDBOX_IDLE_TIMEOUT,
     DEFAULT_USER_SANDBOX_IMAGE,
@@ -82,13 +83,16 @@ class SandboxManagerService:
         # 2. 尝试从池中获取
         adapter = await _sandbox_pool.get(sandbox_record.id)
         if adapter:
-            # 检查容器是否真的还活着
             if adapter.is_started():
-                # 更新活跃时间
                 await self._update_last_active(sandbox_record.id)
                 return adapter
-            else:
-                # 容器已死，从池中移除
+            # 已停止但未移除：尝试重启同一容器
+            try:
+                adapter.start()
+                await self._update_status(sandbox_record.id, "running", error_message=None)
+                return adapter
+            except Exception as e:
+                logger.warning(f"Failed to start existing sandbox {sandbox_record.id}, will recreate: {e}")
                 await _sandbox_pool.remove(sandbox_record.id)
 
         # 3. 启动新容器
@@ -110,6 +114,7 @@ class SandboxManagerService:
                 session_id=sandbox_record.id,  # 使用沙箱ID作为 session_id
                 idle_timeout=sandbox_record.idle_timeout,
                 volumes=volumes,
+                auto_remove=DEFAULT_USER_SANDBOX_AUTO_REMOVE,  # stop/restart 不删容器，仅 rebuild 删
                 # 注意：目前 PydanticSandboxAdapter 不直接支持 cpu/memory limit 参数
                 # 如果需要支持，需修改 PydanticSandboxAdapter 的 __init__ 和底层 DockerSandbox 调用
             )
@@ -159,11 +164,8 @@ class SandboxManagerService:
         await self.db.commit()
 
     async def stop_sandbox(self, sandbox_id: str) -> bool:
-        """停止沙箱"""
-        # 1. 从池中移除并关闭 (会触发 Docker stop)
-        await _sandbox_pool.remove(sandbox_id)
-
-        # 2. 更新数据库状态
+        """停止沙箱（仅停止容器，不删除、不移出池）"""
+        await _sandbox_pool.stop(sandbox_id)
         result = await self.db.execute(
             update(UserSandbox)
             .where(UserSandbox.id == sandbox_id)
@@ -173,30 +175,43 @@ class SandboxManagerService:
         return bool(cast(CursorResult, result).rowcount > 0)
 
     async def restart_sandbox(self, sandbox_id: str) -> bool:
-        """重启沙箱"""
-        await self.stop_sandbox(sandbox_id)
-
-        # 获取记录以确认 user_id
+        """重启沙箱（启动同一容器，不删不新建）"""
         result = await self.db.execute(select(UserSandbox).where(UserSandbox.id == sandbox_id))
         record = result.scalar_one_or_none()
         if not record:
             return False
-
-        # 重新启动
+        adapter = await _sandbox_pool.get(sandbox_id)
+        if adapter and not adapter.is_started():
+            try:
+                adapter.start()
+                await self._update_status(sandbox_id, "running", error_message=None)
+                return True
+            except Exception as e:
+                logger.warning(f"Failed to start sandbox {sandbox_id}, will recreate: {e}")
         try:
             await self.ensure_sandbox_running(record.user_id)
+            return True
         except Exception as e:
             logger.error(f"Failed to restart sandbox {sandbox_id}: {e}")
             return False
 
-        return True
+    async def rebuild_sandbox(self, sandbox_id: str) -> bool:
+        """重建沙箱：删除旧容器并启动新容器"""
+        result = await self.db.execute(select(UserSandbox).where(UserSandbox.id == sandbox_id))
+        record = result.scalar_one_or_none()
+        if not record:
+            return False
+        await _sandbox_pool.remove(sandbox_id)  # stop + remove container
+        try:
+            await self.ensure_sandbox_running(record.user_id)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to rebuild sandbox {sandbox_id}: {e}")
+            return False
 
     async def delete_sandbox(self, sandbox_id: str) -> bool:
         """彻底删除沙箱记录和容器"""
-        # 1. 停止容器
-        await self.stop_sandbox(sandbox_id)
-
-        # 2. 删除数据库记录
+        await _sandbox_pool.remove(sandbox_id)  # stop + remove container
         result = await self.db.execute(delete(UserSandbox).where(UserSandbox.id == sandbox_id))
         await self.db.commit()
         return bool(cast(CursorResult, result).rowcount > 0)

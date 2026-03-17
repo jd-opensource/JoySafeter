@@ -86,10 +86,10 @@ async def test_ensure_sandbox_running_new():
         expected_dir = f"/tmp/sandboxes/{user_id}"
         mock_makedirs.assert_called_once_with(expected_dir, exist_ok=True)
 
-        # Verify adapter called with volumes
-        # args[0] is image, kwargs['volumes'] should be our map
+        # Verify adapter called with volumes and auto_remove=False for user sandbox
         call_args = mock_adapter_cls.call_args
         assert call_args.kwargs["volumes"] == {expected_dir: "/workspace"}
+        assert call_args.kwargs.get("auto_remove") is False
 
         # DB updates should happen
         assert mock_db_session.execute.call_count >= 1
@@ -106,7 +106,7 @@ async def test_stop_sandbox():
     mock_db_session.commit = AsyncMock()
 
     with patch("app.services.sandbox_manager._sandbox_pool") as mock_pool:
-        mock_pool.remove = AsyncMock()
+        mock_pool.stop = AsyncMock()
 
         service = SandboxManagerService(mock_db_session)
         sandbox_id = str(uuid.uuid4())
@@ -114,9 +114,9 @@ async def test_stop_sandbox():
         # Run
         success = await service.stop_sandbox(sandbox_id)
 
-        # Validations
+        # Validations: stop_sandbox only stops container, does not remove from pool
         assert success is True
-        mock_pool.remove.assert_called_once_with(sandbox_id)
+        mock_pool.stop.assert_called_once_with(sandbox_id)
         mock_db_session.execute.assert_called()
         mock_db_session.commit.assert_awaited()
 

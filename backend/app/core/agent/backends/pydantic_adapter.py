@@ -62,10 +62,10 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
     with deepAgents' FilesystemMiddleware.
 
     **Lifecycle Management:**
-    This adapter follows the pydantic-ai-backend standard lifecycle pattern:
     - `start()` is called automatically in `__init__` to start the container
-    - `cleanup()` (or `stop()`) should be called when done to stop the container
-    - Both methods are idempotent - safe to call multiple times
+    - `stop()`: stop the container only (no remove); use for stop/restart semantics
+    - `cleanup()`: stop and remove the container; use for rebuild/teardown only
+    - With auto_remove=False, stop() keeps the container so start() can restart it
 
     **Features:**
     - Full SandboxBackendProtocol compatibility
@@ -711,21 +711,35 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 responses.append(FileUploadResponse(path=path, error="permission_denied"))
         return responses
 
-    def cleanup(self) -> None:
-        """Stop and remove the Docker container. Idempotent - safe to call multiple times."""
+    def stop(self) -> None:
+        """Stop the Docker container without removing it. Idempotent. Use for stop/restart semantics."""
         if not self._started:
             return
-
         try:
             if hasattr(self._sandbox, "stop"):
                 self._sandbox.stop()
             elif hasattr(self._sandbox, "cleanup"):
                 self._sandbox.cleanup()
-            logger.info(f"Sandbox {self._id} stopped")
+            logger.info(f"Sandbox {self._id} stopped (container kept)")
         except Exception as e:
             logger.warning(f"Failed to stop sandbox {self._id}: {e}")
         finally:
             self._started = False
+
+    def cleanup(self) -> None:
+        """Stop and remove the Docker container. Idempotent. Use for rebuild/teardown only."""
+        self.stop()
+        if not self._started and getattr(self, "_sandbox", None) is not None:
+            try:
+                container = getattr(self._sandbox, "container", None) or getattr(self._sandbox, "_container", None)
+                if container is not None and hasattr(container, "remove"):
+                    container.remove(force=True)
+                    logger.info(f"Sandbox {self._id} container removed")
+                elif hasattr(self._sandbox, "remove"):
+                    self._sandbox.remove()
+                    logger.info(f"Sandbox {self._id} container removed")
+            except Exception as e:
+                logger.warning(f"Failed to remove sandbox container {self._id}: {e}")
 
     def __del__(self):
         """Cleanup on garbage collection."""

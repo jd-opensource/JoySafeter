@@ -122,6 +122,23 @@ def test_stop_sandbox_not_found(mock_service_cls, client):
 
 
 @patch("app.api.v1.sandboxes.SandboxManagerService")
+def test_rebuild_sandbox(mock_service_cls, client):
+    mock_service = mock_service_cls.return_value
+    mock_service.rebuild_sandbox = AsyncMock(return_value=True)
+    response = client.post("/v1/sandboxes/sb-1/rebuild")
+    assert response.status_code == 200
+    mock_service.rebuild_sandbox.assert_called_once_with("sb-1")
+
+
+@patch("app.api.v1.sandboxes.SandboxManagerService")
+def test_rebuild_sandbox_not_found(mock_service_cls, client):
+    mock_service = mock_service_cls.return_value
+    mock_service.rebuild_sandbox = AsyncMock(return_value=False)
+    response = client.post("/v1/sandboxes/sb-unknown/rebuild")
+    assert response.status_code == 404
+
+
+@patch("app.api.v1.sandboxes.SandboxManagerService")
 def test_delete_sandbox(mock_service_cls, client):
     # Setup
     mock_service = mock_service_cls.return_value

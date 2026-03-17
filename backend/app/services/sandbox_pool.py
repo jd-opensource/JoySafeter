@@ -78,8 +78,20 @@ class SandboxPool:
                 entry.active_count = max(0, entry.active_count - 1)
                 entry.last_used = time.time()
 
+    async def stop(self, sandbox_id: str) -> None:
+        """仅停止容器，不从池中移除，不删除容器（用于 stop/restart 语义）"""
+        async with self._lock:
+            entry = self._pool.get(sandbox_id)
+            if entry:
+                try:
+                    if hasattr(entry.adapter, "stop"):
+                        entry.adapter.stop()
+                    logger.debug(f"Stopped sandbox {sandbox_id} (kept in pool)")
+                except Exception as e:
+                    logger.warning(f"Error stopping adapter {sandbox_id}: {e}")
+
     async def remove(self, sandbox_id: str) -> None:
-        """从池中移除并关闭沙箱"""
+        """从池中移除并彻底清理沙箱（stop + remove container）"""
         adapter = None
         async with self._lock:
             if sandbox_id in self._pool:
@@ -128,13 +140,10 @@ class SandboxPool:
             await self._close_adapter(adapter)
 
     async def _close_adapter(self, adapter: PydanticSandboxAdapter):
-        """关闭适配器资源"""
+        """从池中移除时彻底清理：停止并删除容器（cleanup）"""
         try:
-            # Stop the underlying container
             if hasattr(adapter, "cleanup"):
                 adapter.cleanup()
-            elif hasattr(adapter, "stop"):
-                adapter.stop()
         except Exception as e:
             logger.warning(f"Error closing adapter: {e}")
 
