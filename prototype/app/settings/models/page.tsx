@@ -66,38 +66,38 @@ export default function ModelsPage() {
   if (providersLoading || credentialsLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <Loader2 className="w-6 h-6 animate-spin text-white/30" />
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white">
+    <div className="flex flex-col h-full">
+      <div className="p-6 border-b border-white/[0.06] flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">{t('settings.modelsTitle')}</h2>
-          <p className="text-xs text-gray-500 mt-1">{t('settings.modelsDescription')}</p>
+          <h2 className="text-lg font-bold text-white/90">{t('settings.modelsTitle')}</h2>
+          <p className="text-xs text-white/45 mt-1">{t('settings.modelsDescription')}</p>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className={`flex items-center justify-between mb-4 h-8 ${noValidCredential && 'px-3 bg-[#FFFAEB] rounded-lg border border-[#FEF0C7]'}`}>
+        <div className={`flex items-center justify-between mb-4 h-8 ${noValidCredential && 'px-3 bg-amber-500/8 rounded-lg border border-amber-500/20'}`}>
           {noValidCredential ? (
-            <div className="flex items-center text-xs font-medium text-gray-700">
-              <AlertTriangle className="mr-1 w-3 h-3 text-[#F79009]" />
+            <div className="flex items-center text-xs font-medium text-amber-300">
+              <AlertTriangle className="mr-1 w-3 h-3 text-amber-400" />
               {t('settings.noValidCredential')}
             </div>
           ) : (
-            <div className="text-sm font-medium text-gray-800">{t('settings.models')}</div>
+            <div className="text-sm font-medium text-white/70">{t('settings.models')}</div>
           )}
         </div>
 
         {/* 系统内置供应商：已配置的 */}
         {builtinConfigured.length > 0 && (
           <div className="mb-6">
-            <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
+            <div className="flex items-center mb-3 text-xs font-semibold text-white/35">
               {t('settings.builtinProviders', { defaultValue: '系统内置供应商' })}
-              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
+              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-white/10" />
             </div>
             <div className="space-y-3">
               {builtinConfigured.map(provider => {
@@ -117,9 +117,9 @@ export default function ModelsPage() {
         {/* 自定义模型：已配置的（含 custom 模板与 custom-{ts}） */}
         {customConfigured.length > 0 && (
           <div className="mb-6">
-            <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
+            <div className="flex items-center mb-3 text-xs font-semibold text-white/35">
               {t('settings.customModels', { defaultValue: '自定义模型' })}
-              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
+              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-white/10" />
             </div>
             <div className="space-y-3">
               {customConfigured.map(provider => {
@@ -139,9 +139,9 @@ export default function ModelsPage() {
         {/* 内置供应商（未配置的） */}
         {builtinNotConfigured.length > 0 && (
           <div className="mb-6">
-            <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
+            <div className="flex items-center mb-3 text-xs font-semibold text-white/35">
               {t('settings.builtinProvidersNotConfigured')}
-              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
+              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-white/10" />
             </div>
             <div className="grid grid-cols-3 gap-3">
               {builtinNotConfigured.map(provider => (
@@ -154,15 +154,15 @@ export default function ModelsPage() {
         {/* 自定义模型：未配置时一步添加入口 */}
         {customNotConfigured && customProvider && (
           <div className="mb-6">
-            <div className="flex items-center mb-3 text-xs font-semibold text-gray-500">
+            <div className="flex items-center mb-3 text-xs font-semibold text-white/35">
               {t('settings.customModels', { defaultValue: '自定义模型' })}
-              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-[#f3f4f6]" />
+              <span className="grow ml-3 h-[1px] bg-gradient-to-r from-white/10" />
             </div>
             <div className="flex">
               <Button
                 type="button"
                 variant="outline"
-                className="border-violet-200 text-violet-700 hover:bg-violet-50 hover:border-violet-300"
+                className="border-violet-500/30 text-violet-300 hover:bg-violet-500/10 hover:border-violet-500/50"
                 onClick={() => setShowAddCustomModel(true)}
               >
                 <Plus className="mr-2 h-4 w-4" />
@@ -178,7 +178,7 @@ export default function ModelsPage() {
         )}
 
         {providers.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+          <div className="flex flex-col items-center justify-center h-64 text-white/30">
             <p className="text-sm">{t('settings.noModelProviders')}</p>
           </div>
         )}

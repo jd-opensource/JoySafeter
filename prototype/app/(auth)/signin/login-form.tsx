@@ -1,7 +1,6 @@
 'use client'
 
 import { ArrowRight, Eye, EyeOff, Sparkles } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -11,7 +10,6 @@ import { toastError } from '@/lib/utils/toast'
 
 export default function LoginPage() {
   const { t } = useTranslation()
-  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState('demo@joysafeter.com')

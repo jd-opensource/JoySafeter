@@ -1,20 +1,5 @@
 'use client'
 
-import { useCallback, useState, useRef } from 'react'
-import ReactFlow, {
-  addEdge,
-  Background,
-  BackgroundVariant,
-  Controls,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  type Connection,
-  type Node,
-  Handle,
-  Position,
-} from 'reactflow'
-import 'reactflow/dist/style.css'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Play,
@@ -35,7 +20,22 @@ import {
   Clock,
   Zap,
 } from 'lucide-react'
+import { useCallback, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import ReactFlow, {
+  addEdge,
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  useNodesState,
+  useEdgesState,
+  type Connection,
+  type Node,
+  Handle,
+  Position,
+} from 'reactflow'
+import 'reactflow/dist/style.css'
 
 import { cn } from '@/lib/core/utils/cn'
 import {
@@ -47,7 +47,10 @@ import {
 
 const EASE = [0.32, 0.72, 0, 1] as [number, number, number, number]
 
-const nodeTypeIcons: Record<WorkflowNodeType, React.ComponentType<{ className?: string }>> = {
+const nodeTypeIcons: Record<
+  WorkflowNodeType,
+  React.ComponentType<{ className?: string; style?: React.CSSProperties }>
+> = {
   start: CircleDot,
   end: Square,
   llm: Sparkles,
@@ -749,7 +752,7 @@ function PaletteItem({
   colors,
 }: {
   node: { type: WorkflowNodeType; label: string; description: string }
-  Icon: React.ComponentType<{ className?: string }>
+  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   colors: { color: string; glow: string; bg: string; border: string }
 }) {
   return (
