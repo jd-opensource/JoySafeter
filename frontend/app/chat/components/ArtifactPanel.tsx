@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import {
   artifactService,
   type FileInfo,
-  type RunInfo,
 } from '@/services/artifactService'
 import { cn } from '@/lib/core/utils/cn'
 
@@ -36,55 +35,29 @@ interface ArtifactPanelProps {
 
 export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   threadId,
-  runId: initialRunId,
+  runId,
   className,
 }) => {
-  const [runs, setRuns] = useState<RunInfo[]>([])
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId ?? null)
   const [files, setFiles] = useState<FileNode[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [previewContent, setPreviewContent] = useState<string | null>(null)
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null)
-  const [loadingRuns, setLoadingRuns] = useState(true)
   const [loadingFiles, setLoadingFiles] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadRuns = useCallback(async () => {
-    if (!threadId) return
-    setLoadingRuns(true)
-    setError(null)
-    try {
-      const list = await artifactService.listRuns(threadId)
-      setRuns(list)
-      if (list.length && !selectedRunId) setSelectedRunId(list[0].run_id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load runs')
-    } finally {
-      setLoadingRuns(false)
-    }
-  }, [threadId, selectedRunId])
-
   useEffect(() => {
-    loadRuns()
-  }, [loadRuns])
-
-  useEffect(() => {
-    if (initialRunId) setSelectedRunId(initialRunId)
-  }, [initialRunId])
-
-  useEffect(() => {
-    if (!threadId || !selectedRunId) {
+    if (!threadId || !runId) {
       setFiles([])
       return
     }
     setLoadingFiles(true)
     setError(null)
     artifactService
-      .listRunFiles(threadId, selectedRunId)
+      .listRunFiles(threadId, runId)
       .then((list) => setFiles(list.map(fileInfoToNode)))
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load files'))
       .finally(() => setLoadingFiles(false))
-  }, [threadId, selectedRunId])
+  }, [threadId, runId])
 
   const handleSelectFile = useCallback(
     async (path: string) => {
@@ -94,13 +67,13 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
         URL.revokeObjectURL(previewBlobUrl)
         setPreviewBlobUrl(null)
       }
-      if (!threadId || !selectedRunId) return
+      if (!threadId || !runId) return
       const node = flattenNodes(files).find((n) => n.path === path)
       if (!node || node.type === 'directory') return
       const ext = (node.extension ?? '').toLowerCase()
       const textLike = ['txt', 'md', 'json', 'py', 'js', 'ts', 'tsx', 'jsx', 'html', 'css', 'yaml', 'yml', 'sh', 'sql', 'xml'].includes(ext)
       try {
-        const blob = await artifactService.downloadFile(threadId, selectedRunId, path)
+        const blob = await artifactService.downloadFile(threadId, runId, path)
         if (textLike) {
           const text = await blob.text()
           setPreviewContent(text)
@@ -112,13 +85,13 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
         setPreviewContent('(Failed to load preview)')
       }
     },
-    [threadId, selectedRunId, files, previewBlobUrl]
+    [threadId, runId, files, previewBlobUrl]
   )
 
   const handleDownload = useCallback(async () => {
-    if (!selectedPath || !threadId || !selectedRunId) return
+    if (!selectedPath || !threadId || !runId) return
     try {
-      const blob = await artifactService.downloadFile(threadId, selectedRunId, selectedPath)
+      const blob = await artifactService.downloadFile(threadId, runId, selectedPath)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -128,46 +101,23 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
     } catch {
       setError('Download failed')
     }
-  }, [threadId, selectedRunId, selectedPath])
+  }, [threadId, runId, selectedPath])
 
   const selectedFile = selectedPath ? flattenNodes(files).find((n) => n.path === selectedPath) : null
   const ext = selectedFile?.extension?.toLowerCase() ?? ''
 
   return (
-    <div className={cn('flex flex-col border rounded-lg bg-background', className)}>
-      <div className="flex items-center justify-between gap-2 p-2 border-b">
-        <span className="text-sm font-medium">Run artifacts</span>
-        <div className="flex items-center gap-2">
-          <select
-            className="text-sm border rounded px-2 py-1 bg-background"
-            value={selectedRunId ?? ''}
-            onChange={(e) => setSelectedRunId(e.target.value || null)}
-            disabled={loadingRuns}
-          >
-            {loadingRuns && (
-              <option value="">Loading…</option>
-            )}
-            {!loadingRuns && runs.length === 0 && (
-              <option value="">No runs</option>
-            )}
-            {runs.map((r) => (
-              <option key={r.run_id} value={r.run_id}>
-                {r.run_id.slice(0, 8)}… ({r.file_count} files)
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+    <div className={cn('flex flex-col bg-white text-gray-900', className)}>
       {error && (
-        <div className="px-2 py-1 text-sm text-destructive">
+        <div className="px-3 py-2 text-sm text-red-600 border-b border-gray-100">
           {error}
         </div>
       )}
       <div className="flex flex-1 min-h-0">
-        <div className="w-56 border-r overflow-y-auto flex-shrink-0">
+        <div className="w-[168px] border-r border-gray-200 overflow-y-auto flex-shrink-0 custom-scrollbar">
           {loadingFiles ? (
             <div className="flex items-center justify-center p-4">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
             </div>
           ) : (
             <FileBrowser
@@ -179,7 +129,7 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
         </div>
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {selectedPath && (
-            <div className="flex items-center gap-2 p-2 border-b">
+            <div className="flex items-center gap-2 p-3 border-b border-gray-100 bg-white shrink-0">
               <span className="text-sm truncate flex-1">{selectedPath}</span>
               <Button variant="outline" size="sm" onClick={handleDownload}>
                 <Download className="h-4 w-4 mr-1" />
@@ -187,7 +137,7 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
               </Button>
             </div>
           )}
-          <div className="flex-1 overflow-auto p-2">
+          <div className="flex-1 overflow-auto p-3 custom-scrollbar">
             {previewContent !== null && (
               <CodeViewer
                 code={previewContent}
@@ -206,7 +156,7 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
               </div>
             )}
             {!selectedPath && !loadingFiles && (
-              <div className="flex flex-col items-center justify-center text-muted-foreground text-sm py-8">
+              <div className="flex flex-col items-center justify-center text-gray-400 text-sm py-8">
                 <FolderOpen className="h-10 w-10 mb-2 opacity-50" />
                 Select a file to preview or download
               </div>

@@ -32,7 +32,7 @@ import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
 import { conversationService } from '@/services/conversationService'
 
-import ArtifactPanel from './components/ArtifactPanel'
+import ArtifactsDrawer from './components/ArtifactsDrawer'
 import ChatHome from './components/ChatHome'
 import ChatInput from './components/ChatInput'
 import ChatSidebar from './components/ChatSidebar'
@@ -119,13 +119,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   // Last run that produced artifacts (set when SSE sends artifacts_ready)
   const [artifactRunId, setArtifactRunId] = useState<string | null>(null)
-  const [artifactPanelOpen, setArtifactPanelOpen] = useState(false)
+  const [artifactDrawerOpen, setArtifactDrawerOpen] = useState(false)
 
   // Hook to handle real backend streaming via /chat/stream (SSE) - must be before derived state
   const { sendMessage, stopMessage, isProcessing } = useBackendChatStream(setMessages, {
     onArtifactsReady: (threadId, runId) => {
       setArtifactRunId(runId)
-      setArtifactPanelOpen(true)
+      setToolPanelOpen(false)
+      setArtifactDrawerOpen(true)
     },
   })
 
@@ -237,7 +238,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setMessages([])
     setSelectedTool(null)
     setArtifactRunId(null)
-    setArtifactPanelOpen(false)
+    setArtifactDrawerOpen(false)
 
     try {
       const backendMessages = await conversationService.getConversationHistory(threadId, {
@@ -286,7 +287,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setLocalChatId(null)
     setSelectedTool(null)
     setArtifactRunId(null)
-    setArtifactPanelOpen(false)
+    setArtifactDrawerOpen(false)
     setCurrentMode(undefined)
     setHasShownApkPrompt(false)
     setCurrentGraphId(null)
@@ -295,6 +296,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Handle tool click
   const handleToolClick = useCallback((toolCall: ToolCall) => {
     setSelectedTool(toolCall)
+    setArtifactDrawerOpen(false)
+    setToolPanelOpen(true)
   }, [])
 
   // Auto-update localChatId when messages are added to a new conversation
@@ -476,6 +479,30 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       <p>{t('chat.newChat')}</p>
                     </TooltipContent>
                   </Tooltip>
+                  {localChatId && artifactRunId && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setToolPanelOpen(false)
+                            setArtifactDrawerOpen((v: boolean) => !v)
+                          }}
+                          className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+                        >
+                          <FolderOpen size={18} className="text-gray-600" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>
+                          {artifactDrawerOpen
+                            ? t('chat.closeArtifacts', { defaultValue: 'Close artifacts' })
+                            : t('chat.openArtifacts', { defaultValue: 'Open artifacts' })}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </TooltipProvider>
               </div>
               <ChatHome
@@ -490,7 +517,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               {/* Header */}
               <div className={cn(
                 "h-12 flex items-center gap-2 px-6 bg-gray-50 z-10 flex-shrink-0 transition-all duration-200",
-                toolPanelOpen && hasToolCalls && "pr-[632px]"
+                (toolPanelOpen && hasToolCalls || artifactDrawerOpen) && "pr-[632px]"
               )}>
                 <TooltipProvider>
                   <Tooltip>
@@ -523,13 +550,37 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       <p>{t('chat.newChat')}</p>
                     </TooltipContent>
                   </Tooltip>
+                  {localChatId && artifactRunId && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setToolPanelOpen(false)
+                            setArtifactDrawerOpen((v: boolean) => !v)
+                          }}
+                          className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+                        >
+                          <FolderOpen size={18} className="text-gray-600" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>
+                          {artifactDrawerOpen
+                            ? t('chat.closeArtifacts', { defaultValue: 'Close artifacts' })
+                            : t('chat.openArtifacts', { defaultValue: 'Open artifacts' })}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </TooltipProvider>
               </div>
 
               {/* Messages - Scrollable area */}
               <div className={cn(
                 "flex-1 min-h-0 overflow-hidden transition-all duration-200 flex flex-col",
-                toolPanelOpen && hasToolCalls && "mr-[616px]"
+                (toolPanelOpen && hasToolCalls || artifactDrawerOpen) && "mr-[616px]"
               )}>
                 <div className="flex-1 min-h-0 overflow-hidden">
                   <ThreadContent
@@ -541,37 +592,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     scrollContainerRef={scrollRef}
                   />
                 </div>
-                {/* Artifacts panel (run outputs) - show when artifacts_ready received */}
-                {localChatId && artifactRunId && (
-                  <div className="flex-shrink-0 border-t bg-background">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start gap-2 rounded-none h-9"
-                      onClick={() => setArtifactPanelOpen((v) => !v)}
-                    >
-                      <FolderOpen className="h-4 w-4" />
-                      <span className="text-sm">
-                        {artifactPanelOpen ? t('chat.hideArtifacts', { defaultValue: 'Hide run artifacts' }) : t('chat.showArtifacts', { defaultValue: 'Show run artifacts' })}
-                      </span>
-                    </Button>
-                    {artifactPanelOpen && (
-                      <div className="h-64 min-h-0 border-t">
-                        <ArtifactPanel
-                          threadId={localChatId}
-                          runId={artifactRunId}
-                          className="h-full rounded-none border-0"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Artifacts are shown in a right drawer (see below) */}
               </div>
 
               {/* Input Area - Fixed at bottom */}
               <div className={cn(
                 "flex-shrink-0 px-6 pb-6 pt-2 relative transition-all duration-200 bg-gray-50",
-                toolPanelOpen && hasToolCalls && "pr-[632px]"
+                (toolPanelOpen && hasToolCalls || artifactDrawerOpen) && "pr-[632px]"
               )}>
                 <ChatInput
                   input={input}
@@ -585,7 +612,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     !toolPanelOpen && hasToolCalls ? (
                       <CompactToolStatus
                         toolCalls={allToolCalls}
-                        onClick={() => setToolPanelOpen(true)}
+                        onClick={() => {
+                          setArtifactDrawerOpen(false)
+                          setToolPanelOpen(true)
+                        }}
                       />
                     ) : null
                   }
@@ -612,6 +642,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     toolCall={selectedTool}
                     messages={messages}
                     agentStatus={agentStatus}
+                  />
+                </div>
+              )}
+
+              {/* Right Side Floating Panel - Artifacts Drawer (mutually exclusive with tool panel) */}
+              {localChatId && artifactRunId && (
+                <div
+                  className={cn(
+                    'absolute top-4 right-4 bottom-4 bg-white border border-gray-200 shadow-2xl z-20 rounded-2xl overflow-hidden w-[600px]',
+                    'transition-all duration-200',
+                    artifactDrawerOpen
+                      ? 'translate-x-0 translate-y-0 opacity-100 scale-100'
+                      : 'translate-x-[-80%] translate-y-[30%] opacity-0 scale-[0.2] pointer-events-none'
+                  )}
+                  style={{
+                    transitionTimingFunction: artifactDrawerOpen ? 'cubic-bezier(0, 0, 0.2, 1)' : 'cubic-bezier(0.4, 0, 1, 1)'
+                  }}
+                >
+                  <ArtifactsDrawer
+                    isOpen={artifactDrawerOpen}
+                    onClose={() => setArtifactDrawerOpen(false)}
+                    threadId={localChatId}
+                    runId={artifactRunId}
                   />
                 </div>
               )}

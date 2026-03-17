@@ -983,6 +983,11 @@ export default {
       expand: '展开',
       hideHistory: '隐藏历史',
       showHistory: '显示历史',
+      artifacts: '运行产物',
+      openArtifacts: '打开运行产物',
+      closeArtifacts: '关闭运行产物',
+      showArtifacts: '显示运行产物',
+      hideArtifacts: '隐藏运行产物',
       // ThreadContent
       startConversation: '开始对话以查看消息',
       thinking: '思考中...',
