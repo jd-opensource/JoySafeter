@@ -202,6 +202,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         self.max_output_size = max_output_size
         self.command_timeout = command_timeout
         self._started = False  # Track sandbox start state
+        self._saved_container_id: str | None = None  # For restart: reuse same container after stop
 
         # Log initialization
         runtime_info = f", runtime={self._runtime_config.name}" if self._runtime_config else ""
@@ -258,9 +259,25 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         return self._runtime_config
 
     def start(self) -> None:
-        """Start the Docker sandbox container. Idempotent - safe to call multiple times."""
+        """Start the Docker sandbox container. Idempotent. Restart reuses same container if available."""
         if self._started:
             return
+
+        upstream_container = getattr(self._sandbox, "_container", None)
+        if self._saved_container_id and upstream_container is None:
+            try:
+                import docker
+                client = docker.from_env()
+                container = client.containers.get(self._saved_container_id)
+                container.start()
+                self._sandbox._container = container
+                self._started = True
+                self._saved_container_id = None
+                logger.info(f"Sandbox {self._id} restarted (same container)")
+                return
+            except Exception as e:
+                logger.warning(f"Failed to restart existing container {self._id}, will create new: {e}")
+                self._saved_container_id = None
 
         try:
             if hasattr(self._sandbox, "start"):
@@ -715,6 +732,9 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         """Stop the Docker container without removing it. Idempotent. Use for stop/restart semantics."""
         if not self._started:
             return
+        upstream_container = getattr(self._sandbox, "_container", None)
+        if upstream_container is not None:
+            self._saved_container_id = getattr(upstream_container, "id", None)
         try:
             if hasattr(self._sandbox, "stop"):
                 self._sandbox.stop()
@@ -729,17 +749,26 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
     def cleanup(self) -> None:
         """Stop and remove the Docker container. Idempotent. Use for rebuild/teardown only."""
         self.stop()
-        if not self._started and getattr(self, "_sandbox", None) is not None:
-            try:
-                container = getattr(self._sandbox, "container", None) or getattr(self._sandbox, "_container", None)
-                if container is not None and hasattr(container, "remove"):
-                    container.remove(force=True)
-                    logger.info(f"Sandbox {self._id} container removed")
-                elif hasattr(self._sandbox, "remove"):
-                    self._sandbox.remove()
-                    logger.info(f"Sandbox {self._id} container removed")
-            except Exception as e:
-                logger.warning(f"Failed to remove sandbox container {self._id}: {e}")
+        if getattr(self, "_sandbox", None) is None:
+            self._saved_container_id = None
+            return
+        try:
+            container = getattr(self._sandbox, "container", None) or getattr(self._sandbox, "_container", None)
+            if container is not None and hasattr(container, "remove"):
+                container.remove(force=True)
+                logger.info(f"Sandbox {self._id} container removed")
+            elif self._saved_container_id:
+                import docker
+                client = docker.from_env()
+                client.containers.get(self._saved_container_id).remove(force=True)
+                logger.info(f"Sandbox {self._id} container removed")
+            elif hasattr(self._sandbox, "remove"):
+                self._sandbox.remove()
+                logger.info(f"Sandbox {self._id} container removed")
+        except Exception as e:
+            logger.warning(f"Failed to remove sandbox container {self._id}: {e}")
+        finally:
+            self._saved_container_id = None
 
     def __del__(self):
         """Cleanup on garbage collection."""
