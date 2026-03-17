@@ -36,6 +36,7 @@ import ArtifactsDrawer from './components/ArtifactsDrawer'
 import ChatHome from './components/ChatHome'
 import ChatInput from './components/ChatInput'
 import ChatSidebar from './components/ChatSidebar'
+import CompactArtifactStatus from './components/CompactArtifactStatus'
 import CompactToolStatus from './components/CompactToolStatus'
 import ThreadContent from './components/ThreadContent'
 import ToolExecutionPanel from './components/ToolExecutionPanel'
@@ -584,6 +585,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         onClick={() => {
                           setArtifactDrawerOpen(false)
                           setToolPanelOpen(true)
+                        }}
+                      />
+                    ) : null
+                  }
+                  compactArtifactStatus={
+                    !artifactDrawerOpen && localChatId && artifactRunId ? (
+                      <CompactArtifactStatus
+                        onClick={() => {
+                          setToolPanelOpen(false)
+                          setArtifactDrawerOpen(true)
                         }}
                       />
                     ) : null

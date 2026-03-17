@@ -15,6 +15,7 @@ import {
   type RouteDecisionEventData,
 } from '@/services/chatBackend'
 
+import { toastSuccess, toastError } from '@/lib/utils/toast'
 import { generateId, Message, ToolCall } from '../types'
 
 function now() {
@@ -232,6 +233,8 @@ export const useBackendChatStream = (
                     : m
                 )
               )
+              // Surface error as toast notification
+              toastError(errorMsg)
               return
             }
 

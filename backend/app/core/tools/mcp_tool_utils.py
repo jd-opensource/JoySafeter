@@ -113,17 +113,14 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
         server = await service.repo.get_by_name(user_id, server_name)
 
         if not server:
-            logger.warning(
-                f"[resolve_mcp_server_instance] MCP server not found by name: "
-                f"server_name={server_name}, user_id={user_id}"
-            )
-            return None
+            error_msg = f"MCP server not found by name: server_name={server_name}, user_id={user_id}"
+            logger.error(f"[resolve_mcp_server_instance] {error_msg}")
+            raise RuntimeError(f"MCP server '{server_name}' not found.")
 
         if server.deleted_at:
-            logger.debug(
-                f"[resolve_mcp_server_instance] MCP server is deleted: server_name={server_name}, user_id={user_id}"
-            )
-            return None
+            error_msg = f"MCP server is deleted: server_name={server_name}, user_id={user_id}"
+            logger.error(f"[resolve_mcp_server_instance] {error_msg}")
+            raise RuntimeError(f"MCP server '{server_name}' has been deleted.")
 
         logger.debug(
             f"[resolve_mcp_server_instance] Found server: "
@@ -131,9 +128,11 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
         )
         return server
 
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.error(f"[resolve_mcp_server_instance] Error resolving MCP server instance: {e}", exc_info=True)
-        return None
+        raise RuntimeError(f"Error resolving MCP server '{server_name}': {str(e)}")
 
 
 async def validate_mcp_server_for_tool(server: McpServer, user_id: str) -> bool:
@@ -145,20 +144,25 @@ async def validate_mcp_server_for_tool(server: McpServer, user_id: str) -> bool:
         user_id: 用户 ID
 
     Returns:
-        True 如果服务器可用，False 否则
+        True 如果服务器可用，否则抛出 RuntimeError
+
+    Raises:
+        RuntimeError: 如果验证失败
     """
     if not server:
-        return False
+        raise RuntimeError("MCP server instance is None.")
 
     # 验证用户权限
     if server.user_id != user_id:
-        logger.warning(f"[validate_mcp_server_for_tool] User {user_id} does not own server {server.name}")
-        return False
+        error_msg = f"User {user_id} does not own server {server.name}"
+        logger.error(f"[validate_mcp_server_for_tool] {error_msg}")
+        raise RuntimeError(f"Permission denied: You do not own MCP server '{server.name}'.")
 
     # 验证服务器已启用
     if not server.enabled:
-        logger.warning(f"[validate_mcp_server_for_tool] Server {server.name} is disabled")
-        return False
+        error_msg = f"Server {server.name} is disabled"
+        logger.warning(f"[validate_mcp_server_for_tool] {error_msg}")
+        raise RuntimeError(f"MCP server '{server.name}' is disabled.")
 
     return True
 
@@ -181,32 +185,29 @@ async def get_mcp_tool_with_instance(
         db: 数据库会话
 
     Returns:
-        EnhancedTool 实例，如果验证失败则返回 None
+        EnhancedTool 实例
+
+    Raises:
+        RuntimeError: 如果任何验证步骤失败
     """
     # 1. 查找 MCP server instance
     server = await resolve_mcp_server_instance(server_name, user_id, db)
     if not server:
-        logger.warning(
-            f"[get_mcp_tool_with_instance] MCP server not found: server_name={server_name}, user_id={user_id}"
-        )
-        return None
+        # resolve_mcp_server_instance now raises RuntimeError, so this branch might be unreachable
+        # but kept for robustness if resolve_mcp_server_instance returns None
+        raise RuntimeError(f"MCP server '{server_name}' not found.")
 
     # 2. 验证 server instance
-    if not await validate_mcp_server_for_tool(server, user_id):
-        logger.warning(
-            f"[get_mcp_tool_with_instance] MCP server validation failed: server_name={server_name}, user_id={user_id}"
-        )
-        return None
+    await validate_mcp_server_for_tool(server, user_id)
 
     # 3. 从 registry 获取工具（使用 server.name）
     registry = get_global_registry()
     tool = registry.get_mcp_tool(server.name, tool_name)
 
     if not tool:
-        logger.warning(
-            f"[get_mcp_tool_with_instance] Tool not found in registry: server_name={server_name}, tool_name={tool_name}"
-        )
-        return None
+        error_msg = f"Tool not found in registry: server_name={server_name}, tool_name={tool_name}"
+        logger.error(f"[get_mcp_tool_with_instance] {error_msg}")
+        raise RuntimeError(f"MCP tool '{tool_name}' not found on server '{server_name}'.")
 
     logger.debug(
         f"[get_mcp_tool_with_instance] Successfully retrieved tool: server_name={server_name}, tool_name={tool_name}"

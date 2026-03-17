@@ -20,6 +20,7 @@ interface ChatInputProps {
   currentMode?: string
   currentGraphId?: string | null
   compactToolStatus?: React.ReactNode
+  compactArtifactStatus?: React.ReactNode
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -31,6 +32,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   currentMode,
   currentGraphId,
   compactToolStatus,
+  compactArtifactStatus,
 }) => {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -111,6 +113,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
       {compactToolStatus && (
         <div className="mb-3">
           {compactToolStatus}
+        </div>
+      )}
+
+      {/* Compact Artifact Status - Above Input, Full Width */}
+      {compactArtifactStatus && (
+        <div className="mb-3">
+          {compactArtifactStatus}
         </div>
       )}
 
