@@ -9,7 +9,7 @@ import mimetypes
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from app.core.agent.artifacts.collector import (
     MANIFEST_FILENAME,
@@ -117,7 +117,7 @@ class ArtifactResolver:
             return None
         try:
             with manifest_path.open("r", encoding="utf-8") as f:
-                return json.load(f)
+                return cast(dict[str, Any], json.load(f))
         except (json.JSONDecodeError, OSError):
             return None
 

@@ -6,6 +6,7 @@ All paths are scoped by current user (user_id from CurrentUser).
 
 import mimetypes
 from functools import lru_cache
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -38,7 +39,7 @@ def _run_info_to_dict(r: RunInfo) -> dict:
 
 
 def _file_info_to_dict(f: FileInfo) -> dict:
-    d = {
+    d: dict[str, Any] = {
         "name": f.name,
         "path": f.path,
         "type": f.type,
