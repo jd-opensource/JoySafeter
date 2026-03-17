@@ -150,6 +150,7 @@ services:
       - ../frontend/.env
     environment:
       - NEXT_PUBLIC_API_URL=${BACKEND_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_OPENCLAW_ENABLED=${OPENCLAW_ENABLED:-false}
     ports:
       - "${FRONTEND_PORT_HOST:-3000}:3000"
     depends_on:

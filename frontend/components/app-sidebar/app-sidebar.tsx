@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { env as runtimeEnv } from 'next-runtime-env'
 import { useTranslation } from 'react-i18next'
 
 import { NotificationCenter } from '@/components/notification-center/notification-center'
@@ -76,6 +77,15 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
   const pathname = usePathname()
   const { t } = useTranslation()
 
+  // NEXT_PUBLIC_OPENCLAW_ENABLED controls OpenClaw visibility at deployment level
+  // Defaults to hidden (false) when env var is not set; set to "true" to show
+  const openclawEnv = runtimeEnv('NEXT_PUBLIC_OPENCLAW_ENABLED') || process.env.NEXT_PUBLIC_OPENCLAW_ENABLED
+  const openclawEnabled = openclawEnv?.toLowerCase() === 'true' || openclawEnv === '1'
+
+  const visibleMenuItems = openclawEnabled
+    ? menuItems
+    : menuItems.filter((item) => item.id !== 'openclaw')
+
   const { data: pendingData } = useQuery<{ invitations: any[] }>({
     queryKey: ['workspace-invitations', 'pending'],
     queryFn: () => workspaceService.getPendingInvitations(),
@@ -93,7 +103,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
 
           <nav className="flex-1 py-2 px-2">
             <ul className="space-y-1">
-              {menuItems.map((item) => {
+              {visibleMenuItems.map((item) => {
                 const Icon = item.icon
                 const isActive = pathname?.startsWith(item.href)
                 const label = t(item.labelKey)
