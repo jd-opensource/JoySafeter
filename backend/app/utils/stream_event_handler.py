@@ -119,6 +119,9 @@ class StreamState:
         self.stopped = False
         self.has_error = False
 
+        # 用于 Agent 运行产物目录（artifacts API）
+        self.artifact_run_id: str = str(uuid.uuid4())
+
         # 中断状态
         self.interrupted = False
         self.interrupt_node: str | None = None

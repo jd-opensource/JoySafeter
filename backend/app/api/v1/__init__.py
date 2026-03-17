@@ -7,6 +7,7 @@ Each sub-router is expected to declare its own `prefix` and `tags`.
 from fastapi import APIRouter
 
 from .api_keys import router as api_keys_router
+from .artifacts import router as artifacts_router
 from .auth import router as auth_router
 from .chat import router as chat_router
 from .custom_tools import router as custom_tools_router
@@ -38,6 +39,7 @@ from .workspaces import router as workspaces_router
 ROUTERS = [
     sandboxes_router,
     auth_router,
+    artifacts_router,
     oauth_router,
     organizations_router,
     workspaces_router,

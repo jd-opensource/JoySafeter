@@ -61,7 +61,7 @@ export interface StateUpdateEventData {
  * Consistent with backend format in backend/app/api/v1/chat.py
  */
 export interface StreamEventEnvelope {
-  type: 'content' | 'tool_start' | 'tool_end' | 'node_start' | 'node_end' | 'status' | 'error' | 'done' | 'thread_id' | 'model_input' | 'model_output' | 'interrupt' | 'command' | 'route_decision' | 'loop_iteration' | 'parallel_task' | 'state_update' | 'code_agent_thought' | 'code_agent_code' | 'code_agent_observation' | 'code_agent_final_answer' | 'code_agent_planning' | 'code_agent_error';
+  type: 'content' | 'tool_start' | 'tool_end' | 'node_start' | 'node_end' | 'status' | 'error' | 'done' | 'thread_id' | 'model_input' | 'model_output' | 'interrupt' | 'command' | 'route_decision' | 'loop_iteration' | 'parallel_task' | 'state_update' | 'code_agent_thought' | 'code_agent_code' | 'code_agent_observation' | 'code_agent_final_answer' | 'code_agent_planning' | 'code_agent_error' | 'artifacts_ready';
   node_name: string;
   run_id: string;
   timestamp: number;

@@ -1,6 +1,6 @@
 'use client'
 
-import { List, Plus } from 'lucide-react'
+import { FolderOpen, List, Plus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 
@@ -32,6 +32,7 @@ import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
 import { conversationService } from '@/services/conversationService'
 
+import ArtifactPanel from './components/ArtifactPanel'
 import ChatHome from './components/ChatHome'
 import ChatInput from './components/ChatInput'
 import ChatSidebar from './components/ChatSidebar'
@@ -116,8 +117,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Optimistic "thinking" state: true from submit until hook sets isProcessing (avoids flash)
   const [submitting, setSubmitting] = useState(false)
 
+  // Last run that produced artifacts (set when SSE sends artifacts_ready)
+  const [artifactRunId, setArtifactRunId] = useState<string | null>(null)
+  const [artifactPanelOpen, setArtifactPanelOpen] = useState(false)
+
   // Hook to handle real backend streaming via /chat/stream (SSE) - must be before derived state
-  const { sendMessage, stopMessage, isProcessing } = useBackendChatStream(setMessages)
+  const { sendMessage, stopMessage, isProcessing } = useBackendChatStream(setMessages, {
+    onArtifactsReady: (threadId, runId) => {
+      setArtifactRunId(runId)
+      setArtifactPanelOpen(true)
+    },
+  })
 
   // Clear submitting once hook has taken over (isProcessing true)
   useEffect(() => {
@@ -226,6 +236,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setLocalChatId(threadId)
     setMessages([])
     setSelectedTool(null)
+    setArtifactRunId(null)
+    setArtifactPanelOpen(false)
 
     try {
       const backendMessages = await conversationService.getConversationHistory(threadId, {
@@ -273,6 +285,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setMessages([])
     setLocalChatId(null)
     setSelectedTool(null)
+    setArtifactRunId(null)
+    setArtifactPanelOpen(false)
     setCurrentMode(undefined)
     setHasShownApkPrompt(false)
     setCurrentGraphId(null)
@@ -514,17 +528,44 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
               {/* Messages - Scrollable area */}
               <div className={cn(
-                "flex-1 min-h-0 overflow-hidden transition-all duration-200",
+                "flex-1 min-h-0 overflow-hidden transition-all duration-200 flex flex-col",
                 toolPanelOpen && hasToolCalls && "mr-[616px]"
               )}>
-                <ThreadContent
-                  messages={messages}
-                  streamingText={streamingText}
-                  agentStatus={agentStatus}
-                  currentNodeLabel={currentNodeLabel}
-                  onToolClick={handleToolClick}
-                  scrollContainerRef={scrollRef}
-                />
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <ThreadContent
+                    messages={messages}
+                    streamingText={streamingText}
+                    agentStatus={agentStatus}
+                    currentNodeLabel={currentNodeLabel}
+                    onToolClick={handleToolClick}
+                    scrollContainerRef={scrollRef}
+                  />
+                </div>
+                {/* Artifacts panel (run outputs) - show when artifacts_ready received */}
+                {localChatId && artifactRunId && (
+                  <div className="flex-shrink-0 border-t bg-background">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start gap-2 rounded-none h-9"
+                      onClick={() => setArtifactPanelOpen((v) => !v)}
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      <span className="text-sm">
+                        {artifactPanelOpen ? t('chat.hideArtifacts', { defaultValue: 'Hide run artifacts' }) : t('chat.showArtifacts', { defaultValue: 'Show run artifacts' })}
+                      </span>
+                    </Button>
+                    {artifactPanelOpen && (
+                      <div className="h-64 min-h-0 border-t">
+                        <ArtifactPanel
+                          threadId={localChatId}
+                          runId={artifactRunId}
+                          className="h-full rounded-none border-0"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Input Area - Fixed at bottom */}

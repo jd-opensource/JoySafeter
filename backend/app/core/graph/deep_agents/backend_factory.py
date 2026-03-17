@@ -2,15 +2,19 @@
 
 This module provides filesystem backend creation only.
 Docker backends are managed centrally by DeepAgentsGraphBuilder.
+
+When thread_id and run_id are provided, root_dir is set to the unified agent
+artifacts directory (AGENT_ARTIFACTS_ROOT/{user_id}/{thread_id}/{run_id}/)
+so that run outputs are persisted and exposed via the artifacts API.
 """
 
 import os
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 
+from app.core.agent.artifacts.collector import resolve_artifacts_root
 from app.utils.path_utils import sanitize_path_component
 
 if TYPE_CHECKING:
@@ -42,23 +46,29 @@ class BackendFactory:
         node_label: str,
         user_id: Optional[str] = None,
         workspace_subdir: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> Any:
         """Create Filesystem backend using deepAgents FilesystemBackend.
 
-        目录结构: /tmp/deepagents_workspaces/{sanitized_user_id}/{sanitized_workspace_subdir}/{node_id}
+        When thread_id and run_id are provided, uses artifact storage:
+          AGENT_ARTIFACTS_ROOT/{user_id}/{thread_id}/{run_id}/
+
+        Otherwise uses legacy path (no per-run isolation):
+          DEEPAGENTS_WORKSPACE_ROOT/{user_id}/{workspace_subdir}/
+
+        No directory is deleted; each run gets a new path when run_id is set.
 
         Args:
             node: GraphNode to extract node ID from
             node_label: Node label for logging
             user_id: User ID for workspace directory isolation (will be sanitized)
             workspace_subdir: Custom subdirectory name (will be sanitized, defaults to "default")
+            thread_id: Thread/conversation ID for artifact path (optional)
+            run_id: Run ID for artifact path (optional)
 
         Returns:
             FilesystemBackend instance
-
-        Raises:
-            ImportError: If deepagents.backends.filesystem is not available
-            RuntimeError: If backend creation fails
         """
         try:
             from deepagents.backends.filesystem import FilesystemBackend
@@ -68,22 +78,21 @@ class BackendFactory:
                 f"Install deepagents: pip install deepagents. Error: {e}"
             ) from e
 
-        # 获取基础路径
-        workspace_root = os.getenv("DEEPAGENTS_WORKSPACE_ROOT", "/tmp/deepagents_workspaces")
-
-        # 安全清理所有路径组件
         user_dir = sanitize_path_component(user_id, default="default")
-        subdir = sanitize_path_component(workspace_subdir, default="default")
 
-        # 构建完整路径: {workspace_root}/{user_id}/{workspace_subdir}/
-        workspace_dir = Path(workspace_root) / user_dir / subdir
+        if thread_id is not None and run_id is not None:
+            # Unified artifact storage: each run gets its own directory
+            artifacts_root = resolve_artifacts_root()
+            tid = sanitize_path_component(thread_id, default="default")
+            rid = sanitize_path_component(run_id, default="default")
+            workspace_dir = artifacts_root / user_dir / tid / rid
+        else:
+            # Legacy path
+            workspace_root = os.getenv("DEEPAGENTS_WORKSPACE_ROOT", "/tmp/deepagents_workspaces")
+            subdir = sanitize_path_component(workspace_subdir, default="default")
+            workspace_dir = Path(workspace_root) / user_dir / subdir
 
         try:
-            # 先删除目录（如果存在），然后重新创建
-            if workspace_dir.exists():
-                shutil.rmtree(workspace_dir)
-                logger.debug(f"{LOG_PREFIX} Removed existing workspace directory: {workspace_dir}")
-
             workspace_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             raise RuntimeError(
@@ -93,11 +102,11 @@ class BackendFactory:
         try:
             backend = FilesystemBackend(
                 root_dir=str(workspace_dir),
-                virtual_mode=False,  # Disable path mapping, use relative paths within root_dir
+                virtual_mode=False,
             )
             logger.info(
                 f"{LOG_PREFIX} Created FilesystemBackend for node "
-                f"'{node_label}': root_dir={workspace_dir} (user_id={user_dir}, subdir={subdir}"
+                f"'{node_label}': root_dir={workspace_dir}"
             )
             return backend
         except Exception as e:

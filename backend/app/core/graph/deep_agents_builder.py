@@ -205,13 +205,22 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         elif isinstance(agent, dict):
             raise ValueError("Received dict instead of Runnable - DeepAgents build failed")
 
-        # Attach cleanup if shared backend exists
+        # Attach cleanup and optional artifact export if shared backend exists
         if agent and self._shared_backend:
 
             async def cleanup():
                 await self._cleanup_backend()
 
             agent._cleanup_backend = cleanup
+
+            # Allow chat to export Docker working dir to artifact run dir before cleanup
+            try:
+                from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+
+                if isinstance(self._shared_backend, PydanticSandboxAdapter):
+                    agent._export_artifacts_to = self._shared_backend.export_working_dir_to
+            except Exception:
+                pass
 
         return agent
 

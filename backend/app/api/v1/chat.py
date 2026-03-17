@@ -51,6 +51,7 @@ from app.models import Conversation, Message
 from app.schemas import BaseResponse, ChatRequest, ChatResponse
 from app.services.graph_service import GraphService
 from app.utils.datetime import utc_now
+from app.core.agent.artifacts import ArtifactCollector
 from app.utils.stream_event_handler import StreamEventHandler, StreamState
 from app.utils.task_manager import task_manager
 
@@ -678,6 +679,10 @@ async def chat_stream(
         state = StreamState(thread_id)
         handler = StreamEventHandler()
 
+        # 确保本 run 的 artifact 目录存在，供后端写入产物
+        artifact_collector = ArtifactCollector()
+        artifact_collector.ensure_run_dir(str(current_user.id), thread_id, state.artifact_run_id)
+
         # 发送初始状态
         yield handler.format_sse("status", {"status": "connected", "_meta": {"node_name": "system"}}, thread_id)
 
@@ -859,11 +864,29 @@ async def chat_stream(
                 pass
             elif state.stopped:
                 yield handler.format_sse(
+                    "artifacts_ready",
+                    {
+                        "thread_id": thread_id,
+                        "run_id": state.artifact_run_id,
+                        "_meta": {"node_name": "system"},
+                    },
+                    thread_id,
+                )
+                yield handler.format_sse(
                     "error",
                     {"message": "Stopped by user", "code": "stopped", "_meta": {"node_name": "system"}},
                     thread_id,
                 )
             else:
+                yield handler.format_sse(
+                    "artifacts_ready",
+                    {
+                        "thread_id": thread_id,
+                        "run_id": state.artifact_run_id,
+                        "_meta": {"node_name": "system"},
+                    },
+                    thread_id,
+                )
                 yield handler.format_sse("done", {"_meta": {"node_name": "system"}}, thread_id)
 
         except asyncio.CancelledError:
@@ -878,6 +901,15 @@ async def chat_stream(
             else:
                 log.error(f"Stream error: {e}, traceback: {traceback.format_exc()}")
                 state.has_error = True
+            yield handler.format_sse(
+                "artifacts_ready",
+                {
+                    "thread_id": thread_id,
+                    "run_id": state.artifact_run_id,
+                    "_meta": {"node_name": "system"},
+                },
+                thread_id,
+            )
             yield handler.format_sse("error", {"message": str(e), "_meta": {"node_name": "system"}}, thread_id)
         finally:
             # 7. 清理与持久化 (关键：使用 finally 确保即使报错/断连也执行)
@@ -912,6 +944,40 @@ async def chat_stream(
                     log.debug(f"Backend cleanup cancelled for thread {thread_id}")
                 except Exception as e:
                     log.warning(f"[Chat API Stream] Failed to cleanup backend: {e}")
+
+            # 写入本 run 的 artifact manifest，供前端列表/下载
+            try:
+                run_dir = artifact_collector.ensure_run_dir(
+                    str(current_user.id), thread_id, state.artifact_run_id
+                )
+                # 若图使用 Docker 沙箱，将容器工作目录导出到 artifact 目录
+                if "graph" in locals() and hasattr(graph, "_export_artifacts_to"):
+                    try:
+                        n = graph._export_artifacts_to(run_dir)
+                        if n:
+                            log.info(f"[Chat API Stream] Exported {n} files from sandbox to artifacts")
+                    except Exception as ex:
+                        log.warning(f"[Chat API Stream] Sandbox export failed: {ex}")
+                status = "completed"
+                if state.stopped:
+                    status = "stopped"
+                elif state.has_error:
+                    status = "failed"
+                elif state.interrupted:
+                    status = "interrupted"
+                artifact_collector.write_manifest(
+                    run_dir,
+                    {
+                        "run_id": state.artifact_run_id,
+                        "thread_id": thread_id,
+                        "user_id": str(current_user.id),
+                        "agent_type": "langgraph",
+                        "graph_id": str(payload.graph_id) if payload.graph_id else None,
+                        "status": status,
+                    },
+                )
+            except Exception as e:
+                log.warning(f"[Chat API Stream] Failed to write artifact manifest: {e}")
 
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:

@@ -23,9 +23,15 @@ function now() {
   return Date.now()
 }
 
+export interface UseBackendChatStreamOptions {
+  onArtifactsReady?: (threadId: string, runId: string) => void
+}
+
 export const useBackendChatStream = (
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  options?: UseBackendChatStreamOptions
 ) => {
+  const { onArtifactsReady } = options ?? {}
   const [isProcessing, setIsProcessing] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const currentThreadIdRef = useRef<string | null>(null)
@@ -236,6 +242,16 @@ export const useBackendChatStream = (
               safeSetMessages((prev) =>
                 prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
               )
+              return
+            }
+
+            // Handle artifacts_ready: run artifacts are available for this thread/run
+            if (type === 'artifacts_ready') {
+              const runId = (data as { run_id?: string })?.run_id
+              const tid = thread_id || latestThreadId
+              if (runId && tid && onArtifactsReady) {
+                onArtifactsReady(tid, runId)
+              }
               return
             }
 

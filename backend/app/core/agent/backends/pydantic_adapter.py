@@ -12,6 +12,8 @@ Supports advanced features from pydantic-ai-backend 0.1.5+:
 
 import uuid
 from datetime import datetime
+from pathlib import Path
+from typing import List
 
 from deepagents.backends.protocol import (
     EditResult,
@@ -703,6 +705,55 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 logger.error(f"Failed to download file {path}: {e}")
                 responses.append(FileDownloadResponse(path=path, content=None, error="permission_denied"))
         return responses
+
+    def _collect_file_paths(self, dir_path: str, base: str, out: List[str]) -> None:
+        """Recursively collect all file paths under dir_path (relative to base)."""
+        infos = self.ls_info(dir_path)
+        for info in infos:
+            path = (info.get("path") or "").rstrip("/")
+            if not path:
+                continue
+            is_dir = info.get("is_dir", False)
+            if is_dir:
+                self._collect_file_paths(path, base, out)
+            else:
+                if path.startswith(base):
+                    rel = path[len(base) :].lstrip("/")
+                    if rel:
+                        out.append(path)
+
+    def export_working_dir_to(self, target_dir: Path) -> int:
+        """Export all files from the container working directory to target_dir.
+
+        Preserves directory structure. Returns the number of files written.
+        """
+        target_dir = Path(target_dir).resolve()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        base = self.working_dir.rstrip("/")
+        if not base:
+            base = "/"
+        paths: List[str] = []
+        self._collect_file_paths(base, base, paths)
+        if not paths:
+            return 0
+        responses = self.download_files(paths)
+        written = 0
+        for resp in responses:
+            if resp.error or resp.content is None:
+                continue
+            path = resp.path
+            if path.startswith(base):
+                rel = path[len(base) :].lstrip("/")
+            else:
+                rel = Path(path).name
+            dest = target_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                dest.write_bytes(resp.content)
+                written += 1
+            except Exception as e:
+                logger.warning(f"[PydanticSandboxAdapter] Failed to write {dest}: {e}")
+        return written
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         """Upload multiple files to the Docker sandbox using base64 encoding.
