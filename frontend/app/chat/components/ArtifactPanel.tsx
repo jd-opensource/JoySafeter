@@ -41,7 +41,7 @@ const TEXT_MIME_EXACT = new Set([
 ])
 
 function isTextPreviewable(node: FileNode): boolean {
-  const ct = (node as any).contentType as string | undefined
+  const ct = node.contentType
   if (ct) {
     if (TEXT_MIME_PREFIXES.some((p) => ct.startsWith(p))) return true
     if (TEXT_MIME_EXACT.has(ct)) return true

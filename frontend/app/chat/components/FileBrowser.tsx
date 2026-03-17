@@ -21,6 +21,8 @@ export interface FileNode {
   type: 'file' | 'directory'
   children?: FileNode[]
   extension?: string
+  /** MIME content_type propagated from backend (e.g. "text/plain", "image/png") */
+  contentType?: string
 }
 
 interface FileBrowserProps {
