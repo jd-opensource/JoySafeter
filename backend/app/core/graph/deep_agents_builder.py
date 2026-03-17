@@ -114,13 +114,12 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         """
         if self._shared_backend:
             sandbox_id = getattr(self._shared_backend, "id", None)
-            logger.debug(
-                f"{LOG_PREFIX} Releasing reference to user sandbox: id={sandbox_id or 'unknown'}"
-            )
+            logger.debug(f"{LOG_PREFIX} Releasing reference to user sandbox: id={sandbox_id or 'unknown'}")
             # Release pool reference count so idle cleanup can work
             if sandbox_id:
                 try:
                     from app.services.sandbox_manager import _sandbox_pool
+
                     await _sandbox_pool.release(sandbox_id)
                 except Exception as e:
                     logger.warning(f"{LOG_PREFIX} Failed to release pool ref for {sandbox_id}: {e}")

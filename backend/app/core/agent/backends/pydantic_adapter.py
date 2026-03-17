@@ -878,8 +878,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             else:
                 # No stop method available; just mark as stopped
                 logger.warning(
-                    f"Sandbox {self._id}: no stop() method available, "
-                    f"marking as stopped but container may still run"
+                    f"Sandbox {self._id}: no stop() method available, marking as stopped but container may still run"
                 )
             logger.info(f"Sandbox {self._id} stopped (container kept, id={self._saved_container_id})")
         except Exception as e:

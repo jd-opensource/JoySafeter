@@ -12,7 +12,7 @@ import mimetypes
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -76,11 +76,13 @@ class ArtifactCollector:
                     continue
                 size = path.stat().st_size
                 guess_type, _ = mimetypes.guess_type(str(path))
-                entries.append({
-                    "path": rel_str,
-                    "size": size,
-                    "type": guess_type or "application/octet-stream",
-                })
+                entries.append(
+                    {
+                        "path": rel_str,
+                        "size": size,
+                        "type": guess_type or "application/octet-stream",
+                    }
+                )
             except (ValueError, OSError) as e:
                 logger.warning(f"[ArtifactCollector] Skip file {path}: {e}")
         return entries

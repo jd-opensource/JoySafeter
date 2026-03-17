@@ -104,10 +104,7 @@ class BackendFactory:
                 root_dir=str(workspace_dir),
                 virtual_mode=False,
             )
-            logger.info(
-                f"{LOG_PREFIX} Created FilesystemBackend for node "
-                f"'{node_label}': root_dir={workspace_dir}"
-            )
+            logger.info(f"{LOG_PREFIX} Created FilesystemBackend for node '{node_label}': root_dir={workspace_dir}")
             return backend
         except Exception as e:
             raise RuntimeError(f"{LOG_PREFIX} Failed to create FilesystemBackend for node '{node_label}': {e}") from e

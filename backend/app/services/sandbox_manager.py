@@ -117,7 +117,8 @@ class SandboxManagerService:
                 # 保存 container_id 到 DB
                 container_id = adapter.get_container_id()
                 await self._update_status(
-                    sandbox_record.id, "running",
+                    sandbox_record.id,
+                    "running",
                     container_id=container_id,
                     error_message=None,
                 )
@@ -136,20 +137,15 @@ class SandboxManagerService:
                     await _sandbox_pool.put(sandbox_record.id, adapter)
                     container_id = adapter.get_container_id()
                     await self._update_status(
-                        sandbox_record.id, "running",
+                        sandbox_record.id,
+                        "running",
                         container_id=container_id,
                         error_message=None,
                     )
-                    logger.info(
-                        f"Reconnected existing container {sandbox_record.container_id} "
-                        f"for user {user_id}"
-                    )
+                    logger.info(f"Reconnected existing container {sandbox_record.container_id} for user {user_id}")
                     return adapter
             except Exception as e:
-                logger.warning(
-                    f"Failed to reconnect container {sandbox_record.container_id} "
-                    f"for user {user_id}: {e}"
-                )
+                logger.warning(f"Failed to reconnect container {sandbox_record.container_id} for user {user_id}: {e}")
 
         # 4. 启动新容器
         try:
@@ -211,9 +207,7 @@ class SandboxManagerService:
             if container_status in ("exited", "created"):
                 container.start()
             elif container_status != "running":
-                logger.warning(
-                    f"Container {sandbox_record.container_id} in unexpected state: {container_status}"
-                )
+                logger.warning(f"Container {sandbox_record.container_id} in unexpected state: {container_status}")
                 return None
 
             # Create adapter that wraps the existing container

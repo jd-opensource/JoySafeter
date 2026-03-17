@@ -45,13 +45,13 @@ from app.common.exceptions import (
     raise_internal_error,
     raise_not_found_error,
 )
+from app.core.agent.artifacts import ArtifactCollector
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.settings import settings
 from app.models import Conversation, Message
 from app.schemas import BaseResponse, ChatRequest, ChatResponse
 from app.services.graph_service import GraphService
 from app.utils.datetime import utc_now
-from app.core.agent.artifacts import ArtifactCollector
 from app.utils.stream_event_handler import StreamEventHandler, StreamState
 from app.utils.task_manager import task_manager
 
@@ -925,9 +925,7 @@ async def chat_stream(
 
             # 写入本 run 的 artifact manifest，供前端列表/下载
             try:
-                run_dir = artifact_collector.ensure_run_dir(
-                    str(current_user.id), thread_id, state.artifact_run_id
-                )
+                run_dir = artifact_collector.ensure_run_dir(str(current_user.id), thread_id, state.artifact_run_id)
                 # 若图使用 Docker 沙箱，将容器工作目录导出到 artifact 目录
                 if built_graph is not None and hasattr(built_graph, "_export_artifacts_to"):
                     try:

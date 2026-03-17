@@ -121,4 +121,3 @@ const ArtifactsDrawer: React.FC<ArtifactsDrawerProps> = ({ isOpen, onClose, thre
 }
 
 export default ArtifactsDrawer
-

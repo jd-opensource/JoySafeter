@@ -123,9 +123,21 @@ class DockerPythonExecutor(PythonExecutor):
         logger.info(f"Installing packages in container: {packages}")
 
         result = self._get_backend().execute(f"pip install -q {packages}")
-        exit_code = result.exit_code if hasattr(result, "exit_code") else result.get("exit_code", -1) if isinstance(result, dict) else -1
+        exit_code = (
+            result.exit_code
+            if hasattr(result, "exit_code")
+            else result.get("exit_code", -1)
+            if isinstance(result, dict)
+            else -1
+        )
         if exit_code != 0:
-            output = result.output if hasattr(result, "output") else result.get("output", "") if isinstance(result, dict) else str(result)
+            output = (
+                result.output
+                if hasattr(result, "output")
+                else result.get("output", "")
+                if isinstance(result, dict)
+                else str(result)
+            )
             logger.warning(f"Failed to install packages: {output}")
 
     def send_tools(self, tools: dict[str, Callable]) -> None:

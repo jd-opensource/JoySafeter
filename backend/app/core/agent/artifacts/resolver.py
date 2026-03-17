@@ -75,28 +75,32 @@ class ArtifactResolver:
             run_id = run_path.name
             manifest = self.read_manifest(user_id, thread_id, run_id)
             if manifest:
-                runs.append(RunInfo(
-                    run_id=run_id,
-                    thread_id=thread_id,
-                    user_id=user_id,
-                    path=f"{uid}/{tid}/{run_id}",
-                    started_at=manifest.get("started_at"),
-                    completed_at=manifest.get("completed_at"),
-                    status=manifest.get("status"),
-                    agent_type=manifest.get("agent_type"),
-                    graph_id=manifest.get("graph_id"),
-                    file_count=len(manifest.get("files") or []),
-                ))
+                runs.append(
+                    RunInfo(
+                        run_id=run_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        path=f"{uid}/{tid}/{run_id}",
+                        started_at=manifest.get("started_at"),
+                        completed_at=manifest.get("completed_at"),
+                        status=manifest.get("status"),
+                        agent_type=manifest.get("agent_type"),
+                        graph_id=manifest.get("graph_id"),
+                        file_count=len(manifest.get("files") or []),
+                    )
+                )
             else:
                 # No manifest: still list the run, scan file count
                 file_count = sum(1 for _ in run_path.rglob("*") if _.is_file() and _.name != MANIFEST_FILENAME)
-                runs.append(RunInfo(
-                    run_id=run_id,
-                    thread_id=thread_id,
-                    user_id=user_id,
-                    path=f"{uid}/{tid}/{run_id}",
-                    file_count=file_count,
-                ))
+                runs.append(
+                    RunInfo(
+                        run_id=run_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        path=f"{uid}/{tid}/{run_id}",
+                        file_count=file_count,
+                    )
+                )
 
         # Sort by completed_at or path, newest first
         def sort_key(r: RunInfo) -> tuple:
@@ -124,32 +128,35 @@ class ArtifactResolver:
             return []
 
         result: list[FileInfo] = []
-        seen: set[Path] = set()
         for path in sorted(run_dir.iterdir()):
             if path.name == MANIFEST_FILENAME:
                 continue
             rel = path.relative_to(run_dir)
             rel_str = rel.as_posix()
             if path.is_dir():
-                result.append(FileInfo(
-                    name=path.name,
-                    path=rel_str,
-                    type="directory",
-                    children=None,
-                ))
+                result.append(
+                    FileInfo(
+                        name=path.name,
+                        path=rel_str,
+                        type="directory",
+                        children=None,
+                    )
+                )
             else:
                 try:
                     size = path.stat().st_size
                 except OSError:
                     size = None
                 ct, _ = mimetypes.guess_type(str(path))
-                result.append(FileInfo(
-                    name=path.name,
-                    path=rel_str,
-                    type="file",
-                    size=size,
-                    content_type=ct,
-                ))
+                result.append(
+                    FileInfo(
+                        name=path.name,
+                        path=rel_str,
+                        type="file",
+                        size=size,
+                        content_type=ct,
+                    )
+                )
         return result
 
     def list_files_tree(self, user_id: str, thread_id: str, run_id: str) -> list[FileInfo]:
