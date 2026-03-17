@@ -32,15 +32,15 @@ import { cn } from '@/lib/core/utils/cn'
 import { toastSuccess, toastInfo, toastError } from '@/lib/utils/toast'
 import { evaluationTasks, evalTaskDetails, type EvalStatus, type EvaluationTask } from '@/mocks/evaluations'
 
-const CHART_COLORS = ['#22c55e', '#ef4444']
+const CHART_COLORS = ['#34d399', '#f43f5e']
 
 const STATUS_CONFIG: Record<EvalStatus, { label: string; icon: React.ComponentType<{ className?: string }>; pill: string }> = {
-  pending: { label: 'Pending', icon: Clock, pill: 'text-yellow-700 bg-yellow-50' },
-  running: { label: 'Running', icon: Play, pill: 'text-blue-700 bg-blue-50' },
-  paused: { label: 'Paused', icon: Pause, pill: 'text-orange-700 bg-orange-50' },
-  completed: { label: 'Completed', icon: CheckCircle2, pill: 'text-green-700 bg-green-50' },
-  failed: { label: 'Failed', icon: XCircle, pill: 'text-red-700 bg-red-50' },
-  cancelled: { label: 'Cancelled', icon: Ban, pill: 'text-gray-600 bg-gray-100' },
+  pending:   { label: 'Pending',   icon: Clock,        pill: 'text-amber-300 bg-amber-500/10 border border-amber-500/20' },
+  running:   { label: 'Running',   icon: Play,         pill: 'text-sky-300 bg-sky-500/10 border border-sky-500/20' },
+  paused:    { label: 'Paused',    icon: Pause,        pill: 'text-orange-300 bg-orange-500/10 border border-orange-500/20' },
+  completed: { label: 'Completed', icon: CheckCircle2, pill: 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20' },
+  failed:    { label: 'Failed',    icon: XCircle,      pill: 'text-rose-300 bg-rose-500/10 border border-rose-500/20' },
+  cancelled: { label: 'Cancelled', icon: Ban,          pill: 'text-white/40 bg-white/5 border border-white/10' },
 }
 
 function formatDate(ts: string | null) {
@@ -61,15 +61,15 @@ function ConfirmDialog({ open, title, description, confirmLabel, variant, onConf
         <motion.div className="fixed inset-0 z-50 flex items-center justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
           <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} transition={{ duration: 0.15 }}
-            className="relative z-10 w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] p-6 shadow-xl">
-            <div className={cn('mb-4 flex h-10 w-10 items-center justify-center rounded-full', variant === 'danger' ? 'bg-red-100' : 'bg-orange-100')}>
-              <AlertCircle className={cn('h-5 w-5', variant === 'danger' ? 'text-red-600' : 'text-orange-600')} />
+            className="relative z-10 w-full max-w-sm rounded-2xl border border-violet-500/25 bg-[#0d0d14]/95 backdrop-blur-2xl p-6 shadow-[0_0_60px_rgba(0,0,0,0.8)]">
+            <div className={cn('mb-4 flex h-10 w-10 items-center justify-center rounded-full border', variant === 'danger' ? 'bg-rose-500/15 border-rose-500/25' : 'bg-orange-500/15 border-orange-500/25')}>
+              <AlertCircle className={cn('h-5 w-5', variant === 'danger' ? 'text-rose-400' : 'text-orange-400')} />
             </div>
-            <h3 className="mb-1 text-base font-semibold text-[var(--text-primary)]">{title}</h3>
-            <p className="mb-6 text-sm text-[var(--text-muted)]">{description}</p>
+            <h3 className="mb-1 text-base font-semibold text-white/90">{title}</h3>
+            <p className="mb-6 text-sm text-white/45">{description}</p>
             <div className="flex gap-3">
-              <button onClick={onCancel} className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-3)]">Cancel</button>
-              <button onClick={onConfirm} className={cn('flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white', variant === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-500 hover:bg-orange-600')}>
+              <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 transition-all hover:bg-white/8 hover:text-white/90">Cancel</button>
+              <button onClick={onConfirm} className={cn('flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all border', variant === 'danger' ? 'bg-rose-600/80 hover:bg-rose-600 border-rose-500/30' : 'bg-orange-500/80 hover:bg-orange-500 border-orange-400/30')}>
                 {confirmLabel}
               </button>
             </div>
@@ -192,26 +192,26 @@ export default function EvalDetailPage() {
         <div className="flex items-center gap-2">
           {task.status === 'running' && (
             <>
-              <button onClick={handlePause} className="flex items-center gap-1.5 rounded-lg border border-orange-300 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-100">
+              <button onClick={handlePause} className="flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 transition-all hover:bg-amber-500/20">
                 <Pause className="h-3.5 w-3.5" /> Pause
               </button>
-              <button onClick={handleCancel} className="flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100">
+              <button onClick={handleCancel} className="flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 transition-all hover:bg-rose-500/20">
                 <Square className="h-3.5 w-3.5" /> Cancel
               </button>
             </>
           )}
           {task.status === 'paused' && (
             <>
-              <button onClick={handleResume} className="flex items-center gap-1.5 rounded-lg border border-[var(--brand-500)] bg-[var(--brand-500)]/10 px-3 py-1.5 text-xs font-medium text-[var(--brand-500)] transition-colors hover:bg-[var(--brand-500)]/20">
+              <button onClick={handleResume} className="flex items-center gap-1.5 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-300 transition-all hover:bg-violet-500/20">
                 <Play className="h-3.5 w-3.5" /> Resume
               </button>
-              <button onClick={handleCancel} className="flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100">
+              <button onClick={handleCancel} className="flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 transition-all hover:bg-rose-500/20">
                 <Square className="h-3.5 w-3.5" /> Cancel
               </button>
             </>
           )}
           {task.status === 'completed' && (
-            <button onClick={handleDownload} className="flex items-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100">
+            <button onClick={handleDownload} className="flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition-all hover:bg-emerald-500/20">
               <Download className="h-3.5 w-3.5" /> Download
             </button>
           )}
@@ -268,12 +268,12 @@ export default function EvalDetailPage() {
             {metrics ? (
               <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 {[
-                  { key: 'accuracy', value: metrics.accuracy, suffix: '%', icon: Target, color: 'text-green-600' },
-                  { key: 'precision', value: metrics.precision, suffix: '%', icon: Target, color: 'text-blue-600' },
-                  { key: 'recall', value: metrics.recall, suffix: '%', icon: Target, color: 'text-purple-600' },
-                  { key: 'f1Score', value: metrics.f1Score, suffix: '%', icon: BarChart3, color: 'text-indigo-600' },
-                  { key: 'avgLatency', value: metrics.avgLatencyMs, suffix: 'ms', icon: Timer, color: 'text-orange-600' },
-                  { key: 'p95Latency', value: metrics.p95LatencyMs, suffix: 'ms', icon: Zap, color: 'text-yellow-600' },
+                  { key: 'accuracy',   value: metrics.accuracy,    suffix: '%',  icon: Target,   color: 'text-emerald-400' },
+                  { key: 'precision',  value: metrics.precision,   suffix: '%',  icon: Target,   color: 'text-sky-400' },
+                  { key: 'recall',     value: metrics.recall,      suffix: '%',  icon: Target,   color: 'text-violet-400' },
+                  { key: 'f1Score',    value: metrics.f1Score,     suffix: '%',  icon: BarChart3,color: 'text-indigo-400' },
+                  { key: 'avgLatency', value: metrics.avgLatencyMs,suffix: 'ms', icon: Timer,    color: 'text-amber-400' },
+                  { key: 'p95Latency', value: metrics.p95LatencyMs,suffix: 'ms', icon: Zap,      color: 'text-rose-400' },
                 ].map((m, i) => {
                   const Icon = m.icon
                   return (
