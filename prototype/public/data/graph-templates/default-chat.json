@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "nodes": [
+    {
+      "id": "default-chat-root-001",
+      "type": "custom",
+      "position": { "x": 200, "y": 100 },
+      "positionAbsolute": { "x": 200, "y": 100 },
+      "width": 180,
+      "height": 80,
+      "data": {
+        "type": "agent",
+        "label": "Default Chat",
+        "config": {
+          "temp": 0.7,
+          "description": "Default chat agent with all available skills, Docker backend.",
+          "systemPrompt": "You are a helpful assistant with access to all skills available to the user. Use them when appropriate to accomplish the user's goals.",
+          "useDeepAgents": true,
+          "skills": ["*"]
+        }
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [],
+  "viewport": { "x": 0, "y": 0, "zoom": 1 }
+}

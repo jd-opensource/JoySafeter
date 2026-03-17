@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6f3dfa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0ea5e9;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="32" height="32" rx="7" fill="url(#grad)"/>
+
+  <!-- Central AI symbol - stylized "A" or neural node -->
+  <g transform="translate(16, 16)">
+    <!-- Main node -->
+    <circle r="6" fill="white" opacity="0.95"/>
+
+    <!-- Inner AI symbol - abstract "A" shape -->
+    <path d="M -2,-4 L 0,4 L 2,-4 M -1.5,0 L 1.5,0"
+          stroke="url(#grad)"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          fill="none"/>
+  </g>
+
+  <!-- Two accent nodes -->
+  <circle cx="8" cy="8" r="2.5" fill="white" opacity="0.8"/>
+  <circle cx="24" cy="24" r="2.5" fill="white" opacity="0.8"/>
+
+  <!-- Connection line -->
+  <path d="M 10.5,8 Q 16,16 21.5,24"
+        stroke="white"
+        stroke-width="1.5"
+        opacity="0.6"
+        fill="none"
+        stroke-linecap="round"/>
+</svg>
