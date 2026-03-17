@@ -135,6 +135,8 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         session_id: str | None = None,
         idle_timeout: int = DEFAULT_IDLE_TIMEOUT,
         volumes: dict[str, str] | None = None,
+        cpu_limit: float | None = None,
+        memory_limit_mb: int | None = None,
     ):
         """Initialize PydanticSandboxAdapter.
 
@@ -193,6 +195,8 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         self.session_id = session_id
         self.idle_timeout = idle_timeout
         self.volumes = volumes or {}
+        self.cpu_limit = cpu_limit
+        self.memory_limit_mb = memory_limit_mb
 
         # Resolve runtime to get effective image and config
         effective_image, self._runtime_config = resolve_runtime(image, runtime)
@@ -221,15 +225,21 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
 
         # Create DockerSandbox with pydantic-ai-backend API
         try:
-            self._sandbox = DockerSandbox(
-                image=self.image,
-                work_dir=working_dir,
-                auto_remove=auto_remove,
-                runtime=pydantic_runtime,
-                session_id=self.session_id,
-                idle_timeout=self.idle_timeout,
-                volumes=self.volumes if self.volumes else None,
-            )
+            sandbox_kwargs: dict = {
+                "image": self.image,
+                "work_dir": working_dir,
+                "auto_remove": auto_remove,
+                "runtime": pydantic_runtime,
+                "session_id": self.session_id,
+                "idle_timeout": self.idle_timeout,
+                "volumes": self.volumes if self.volumes else None,
+            }
+            # Pass resource limits if the upstream DockerSandbox supports them
+            if self.cpu_limit is not None:
+                sandbox_kwargs["cpu_limit"] = self.cpu_limit
+            if self.memory_limit_mb is not None:
+                sandbox_kwargs["memory_limit"] = f"{self.memory_limit_mb}m"
+            self._sandbox = DockerSandbox(**sandbox_kwargs)
             logger.info(f"DockerSandbox created: id={self._id}, image={self.image}")
         except Exception as e:
             logger.error(f"Failed to create DockerSandbox for adapter {self._id}: {e}", exc_info=True)
@@ -288,8 +298,8 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             self._started = True
             logger.info(f"Sandbox {self._id} started (image={self.image})")
         except Exception as e:
-            logger.warning(f"Failed to start sandbox {self._id}: {e}")
-            self._started = True  # Mark as started to allow cleanup
+            logger.error(f"Failed to start sandbox {self._id}: {e}")
+            raise RuntimeError(f"Failed to start sandbox {self._id}: {e}") from e
 
     def _exec_command(self, command: str) -> tuple[str, int]:
         """Execute command in sandbox.

@@ -105,7 +105,7 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
             raise RuntimeError(f"{LOG_PREFIX} Failed to get user sandbox: {e}") from e
 
     async def _cleanup_backend(self) -> None:
-        """Release shared backend reference.
+        """Release shared backend reference and decrement pool active_count.
 
         Note: We do NOT cleanup/destroy the sandbox container here because
         the sandbox is managed by SandboxManagerService and shared across
@@ -113,10 +113,18 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         the actual lifecycle management (idle timeout, etc.).
         """
         if self._shared_backend:
+            sandbox_id = getattr(self._shared_backend, "id", None)
             logger.debug(
-                f"{LOG_PREFIX} Releasing reference to user sandbox: id={getattr(self._shared_backend, 'id', 'unknown')}"
+                f"{LOG_PREFIX} Releasing reference to user sandbox: id={sandbox_id or 'unknown'}"
             )
-            # Just release the reference, don't destroy the container
+            # Release pool reference count so idle cleanup can work
+            if sandbox_id:
+                try:
+                    from app.services.sandbox_manager import _sandbox_pool
+                    await _sandbox_pool.release(sandbox_id)
+                except Exception as e:
+                    logger.warning(f"{LOG_PREFIX} Failed to release pool ref for {sandbox_id}: {e}")
+            # Release the Python reference, don't destroy the container
             self._shared_backend = None
 
     def _select_and_validate_root(self) -> GraphNode:

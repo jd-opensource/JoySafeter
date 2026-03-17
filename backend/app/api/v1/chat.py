@@ -1065,6 +1065,7 @@ async def chat_resume(
     except Exception as e:
         log.warning(f"Failed to load graph metadata for trace persistence | graph_id={graph_id} | error={e}")
 
+    built_graph = None
     try:
         graph_service = GraphService(db)
         graph = await graph_service.create_graph_by_graph_id(
@@ -1076,6 +1077,7 @@ async def chat_resume(
             user_id=current_user.id,
             current_user=current_user,
         )
+        built_graph = graph
         log.info(f"Graph rebuilt for resume | thread_id={thread_id} | graph_id={graph_id}")
     except Exception as e:
         log.error(f"Failed to rebuild graph | thread_id={thread_id} | error={e}")
@@ -1274,9 +1276,9 @@ async def chat_resume(
                 graph_name=graph_display_name,
             )
             # Cleanup shared backend if exists
-            if "graph" in locals() and hasattr(graph, "_cleanup_backend"):
+            if built_graph is not None and hasattr(built_graph, "_cleanup_backend"):
                 try:
-                    await graph._cleanup_backend()
+                    await built_graph._cleanup_backend()
                 except Exception as e:
                     log.warning(f"[Chat API Resume] Failed to cleanup backend: {e}")
             # 如果执行完成（非中断），清理 conversation 中的中断标记

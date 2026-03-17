@@ -105,27 +105,26 @@ class SandboxPool:
     async def cleanup_idle(self) -> list[str]:
         """清理空闲超时的沙箱，返回被清理的沙箱ID列表"""
         now = time.time()
-        to_remove = []
+        to_close: list[tuple[str, PydanticSandboxAdapter]] = []
 
         async with self._lock:
-            # First pass: identify
+            to_remove_ids = []
             for sid, entry in self._pool.items():
-                # Check if idle (active_count == 0) and timed out
                 if entry.active_count == 0 and (now - entry.last_used) > self._idle_timeout:
-                    to_remove.append(sid)
+                    to_remove_ids.append(sid)
 
-            # Second pass: remove
-            for sid in to_remove:
+            for sid in to_remove_ids:
                 entry = self._pool.pop(sid)
-                # Cleanup in background or await here?
-                # Awaiting here might block the lock if cleanup is slow.
-                # ideally we should move cleanup outside the lock, but we need the entry.
-                # For safety/simplicity in this iteration, we await inside.
-                await self._close_adapter(entry.adapter)
+                to_close.append((sid, entry.adapter))
 
-        if to_remove:
-            logger.info(f"Cleaned up {len(to_remove)} idle sandboxes: {to_remove}")
-        return to_remove
+        # Close adapters OUTSIDE the lock to avoid blocking the pool
+        for sid, adapter in to_close:
+            await self._close_adapter(adapter)
+
+        evicted_ids = [sid for sid, _ in to_close]
+        if evicted_ids:
+            logger.info(f"Cleaned up {len(evicted_ids)} idle sandboxes: {evicted_ids}")
+        return evicted_ids
 
     async def shutdown(self):
         """关闭连接池"""

@@ -103,7 +103,10 @@ class SandboxManagerService:
             # 准备持久化存储
             import os
 
-            host_sandbox_dir = f"/tmp/sandboxes/{user_id}"
+            from app.utils.path_utils import sanitize_path_component
+
+            safe_uid = sanitize_path_component(user_id, default="default")
+            host_sandbox_dir = f"/tmp/sandboxes/{safe_uid}"
             os.makedirs(host_sandbox_dir, exist_ok=True)
             volumes = {host_sandbox_dir: "/workspace"}
 
@@ -111,12 +114,12 @@ class SandboxManagerService:
             logger.info(f"Starting sandbox for user {user_id} (id={sandbox_record.id})")
             adapter = PydanticSandboxAdapter(
                 image=sandbox_record.image,
-                session_id=sandbox_record.id,  # 使用沙箱ID作为 session_id
+                session_id=sandbox_record.id,
                 idle_timeout=sandbox_record.idle_timeout,
                 volumes=volumes,
-                auto_remove=DEFAULT_USER_SANDBOX_AUTO_REMOVE,  # stop/restart 不删容器，仅 rebuild 删
-                # 注意：目前 PydanticSandboxAdapter 不直接支持 cpu/memory limit 参数
-                # 如果需要支持，需修改 PydanticSandboxAdapter 的 __init__ 和底层 DockerSandbox 调用
+                auto_remove=DEFAULT_USER_SANDBOX_AUTO_REMOVE,
+                cpu_limit=sandbox_record.cpu_limit,
+                memory_limit_mb=sandbox_record.memory_limit,
             )
 
             # 4. 注册到池中

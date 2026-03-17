@@ -123,8 +123,10 @@ class DockerPythonExecutor(PythonExecutor):
         logger.info(f"Installing packages in container: {packages}")
 
         result = self._get_backend().execute(f"pip install -q {packages}")
-        if result["exit_code"] != 0:
-            logger.warning(f"Failed to install packages: {result['output']}")
+        exit_code = result.exit_code if hasattr(result, "exit_code") else result.get("exit_code", -1) if isinstance(result, dict) else -1
+        if exit_code != 0:
+            output = result.output if hasattr(result, "output") else result.get("output", "") if isinstance(result, dict) else str(result)
+            logger.warning(f"Failed to install packages: {output}")
 
     def send_tools(self, tools: dict[str, Callable]) -> None:
         """
@@ -200,22 +202,42 @@ class DockerPythonExecutor(PythonExecutor):
             code_path = f"{self.working_dir}/code_{int(time.time())}.py"
             write_result = backend.write(code_path, prepared_code)
 
-            if write_result.get("error"):
+            # Unified WriteResult error checking (supports both dict and object formats)
+            def _get_write_error(wr) -> str | None:
+                if not wr:
+                    return None
+                if isinstance(wr, dict):
+                    error = wr.get("error")
+                    return str(error) if error is not None else None
+                if hasattr(wr, "error"):
+                    error = wr.error
+                    return str(error) if error is not None else None
+                return None
+
+            if _get_write_error(write_result):
                 # File might exist, try a new name
                 code_path = f"{self.working_dir}/code_{int(time.time() * 1000)}.py"
                 backend.execute(f"rm -f {code_path}")  # Force cleanup
                 write_result = backend.write(code_path, prepared_code)
-                if write_result.get("error"):
+                if _get_write_error(write_result):
                     return CodeOutput(
-                        error=f"Failed to write code: {write_result.get('error')}",
+                        error=f"Failed to write code: {_get_write_error(write_result)}",
                         execution_time=time.time() - start_time,
                     )
 
             # Execute code
             result = backend.execute(f"python {code_path}")
 
-            output = result.get("output", "")
-            exit_code = result.get("exit_code", -1)
+            # Handle different result formats (ExecuteResponse, dict, or object)
+            if isinstance(result, dict):
+                output = result.get("output", "")
+                exit_code = result.get("exit_code", -1)
+            elif hasattr(result, "output") and hasattr(result, "exit_code"):
+                output = result.output if result.output else ""
+                exit_code = result.exit_code if result.exit_code is not None else -1
+            else:
+                output = str(result) if result else ""
+                exit_code = 0
 
             # Check for final answer marker
             is_final_answer = False
