@@ -42,13 +42,13 @@ const ArtifactsDrawer: React.FC<ArtifactsDrawerProps> = ({ isOpen, onClose, thre
     try {
       const list = await artifactService.listRuns(threadId)
       setRuns(list)
-      if (!selectedRunId && list.length) setSelectedRunId(list[0].run_id)
+      if (list.length && !selectedRunId) setSelectedRunId(list[0].run_id)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load runs')
     } finally {
       setLoadingRuns(false)
     }
-  }, [threadId, selectedRunId])
+  }, [threadId])
 
   useEffect(() => {
     loadRuns()

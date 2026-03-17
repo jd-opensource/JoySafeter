@@ -4,6 +4,9 @@ Agent run artifacts API: list runs, list files, download, delete.
 All paths are scoped by current user (user_id from CurrentUser).
 """
 
+import mimetypes
+from functools import lru_cache
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
@@ -13,14 +16,10 @@ from app.core.agent.artifacts import ArtifactResolver, FileInfo, RunInfo
 
 router = APIRouter(prefix="/v1/artifacts", tags=["Artifacts"])
 
-_resolver: ArtifactResolver | None = None
 
-
+@lru_cache
 def get_resolver() -> ArtifactResolver:
-    global _resolver
-    if _resolver is None:
-        _resolver = ArtifactResolver()
-    return _resolver
+    return ArtifactResolver()
 
 
 def _run_info_to_dict(r: RunInfo) -> dict:
@@ -89,10 +88,7 @@ async def download_artifact_file(
     if path is None:
         raise HTTPException(status_code=404, detail="File not found or path invalid")
     filename = path.name
-    media_type = None
-    if path.suffix:
-        import mimetypes
-        media_type, _ = mimetypes.guess_type(str(path))
+    media_type, _ = mimetypes.guess_type(str(path))
     return FileResponse(
         path=path,
         media_type=media_type or "application/octet-stream",

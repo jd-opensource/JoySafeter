@@ -1,7 +1,7 @@
 'use client'
 
 import { Download, FolderOpen, Loader2 } from 'lucide-react'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import CodeViewer from '@/app/chat/components/CodeViewer'
 import FileBrowser, { FileNode } from '@/app/chat/components/FileBrowser'
@@ -12,6 +12,8 @@ import {
 } from '@/services/artifactService'
 import { cn } from '@/lib/core/utils/cn'
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
 function fileInfoToNode(f: FileInfo): FileNode {
   const ext = f.name.includes('.') ? f.name.split('.').pop() ?? '' : ''
   return {
@@ -20,12 +22,36 @@ function fileInfoToNode(f: FileInfo): FileNode {
     type: f.type as 'file' | 'directory',
     children: f.children?.map(fileInfoToNode),
     extension: ext,
+    // Propagate content_type from backend for smarter preview detection
+    contentType: f.content_type,
   }
 }
 
-function flattenNodes(nodes: FileNode[]): FileNode[] {
-  return nodes.flatMap((n) => (n.children?.length ? [n, ...flattenNodes(n.children)] : [n]))
+/** MIME types treated as previewable text */
+const TEXT_MIME_PREFIXES = ['text/']
+const TEXT_MIME_EXACT = new Set([
+  'application/json',
+  'application/xml',
+  'application/javascript',
+  'application/typescript',
+  'application/x-yaml',
+  'application/x-sh',
+  'application/sql',
+  'application/x-python',
+])
+
+function isTextPreviewable(node: FileNode): boolean {
+  const ct = (node as any).contentType as string | undefined
+  if (ct) {
+    if (TEXT_MIME_PREFIXES.some((p) => ct.startsWith(p))) return true
+    if (TEXT_MIME_EXACT.has(ct)) return true
+  }
+  // Fallback: check extension for files whose backend didn't return content_type
+  const ext = (node.extension ?? '').toLowerCase()
+  return ['txt', 'md', 'json', 'py', 'js', 'ts', 'tsx', 'jsx', 'html', 'css', 'yaml', 'yml', 'sh', 'sql', 'xml', 'log', 'csv', 'toml', 'ini', 'cfg', 'env', 'rs', 'go', 'java', 'c', 'h', 'cpp'].includes(ext)
 }
+
+// ─── Component ──────────────────────────────────────────────────────────────
 
 interface ArtifactPanelProps {
   threadId: string
@@ -45,6 +71,31 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   const [loadingFiles, setLoadingFiles] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Keep a ref to the latest blob URL so cleanup on unmount works
+  const blobUrlRef = useRef<string | null>(null)
+
+  // Build path→node map once when files change (O(1) lookup instead of O(n))
+  const nodeMap = useMemo(() => {
+    const map = new Map<string, FileNode>()
+    const walk = (nodes: FileNode[]) => {
+      for (const n of nodes) {
+        map.set(n.path, n)
+        if (n.children) walk(n.children)
+      }
+    }
+    walk(files)
+    return map
+  }, [files])
+
+  // Cleanup blob URL on unmount to prevent memory leak
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     if (!threadId || !runId) {
       setFiles([])
@@ -63,29 +114,30 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
     async (path: string) => {
       setSelectedPath(path)
       setPreviewContent(null)
-      if (previewBlobUrl) {
-        URL.revokeObjectURL(previewBlobUrl)
+      // Revoke previous blob URL
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
         setPreviewBlobUrl(null)
       }
       if (!threadId || !runId) return
-      const node = flattenNodes(files).find((n) => n.path === path)
+      const node = nodeMap.get(path)
       if (!node || node.type === 'directory') return
-      const ext = (node.extension ?? '').toLowerCase()
-      const textLike = ['txt', 'md', 'json', 'py', 'js', 'ts', 'tsx', 'jsx', 'html', 'css', 'yaml', 'yml', 'sh', 'sql', 'xml'].includes(ext)
       try {
         const blob = await artifactService.downloadFile(threadId, runId, path)
-        if (textLike) {
+        if (isTextPreviewable(node)) {
           const text = await blob.text()
           setPreviewContent(text)
         } else {
           const url = URL.createObjectURL(blob)
+          blobUrlRef.current = url
           setPreviewBlobUrl(url)
         }
       } catch {
         setPreviewContent('(Failed to load preview)')
       }
     },
-    [threadId, runId, files, previewBlobUrl]
+    [threadId, runId, nodeMap]
   )
 
   const handleDownload = useCallback(async () => {
@@ -103,7 +155,7 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
     }
   }, [threadId, runId, selectedPath])
 
-  const selectedFile = selectedPath ? flattenNodes(files).find((n) => n.path === selectedPath) : null
+  const selectedFile = selectedPath ? nodeMap.get(selectedPath) : null
   const ext = selectedFile?.extension?.toLowerCase() ?? ''
 
   return (

@@ -5,7 +5,6 @@
  * Creates or reuses a "Default Chat" graph from the default-chat template.
  */
 
-import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { graphTemplateService } from '@/app/workspace/[workspaceId]/[agentId]/services/graphTemplateService'
 import { graphKeys } from '@/hooks/queries/graphs'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
@@ -13,6 +12,7 @@ import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { MessageSquare } from 'lucide-react'
 
 import { getModeConfig } from '../../config/modeConfig'
+import { findGraphByName, refreshAndFindGraph } from '../utils/graphLookup'
 
 import type {
   ModeHandler,
@@ -53,31 +53,12 @@ export const defaultChatModeHandler: ModeHandler = {
           }
         }
 
-        let workspaceGraphs: Array<{ id: string; name: string }> | undefined
-        if (context.queryClient.getQueryData) {
-          workspaceGraphs = context.queryClient.getQueryData<Array<{ id: string; name: string }>>(
-            [...graphKeys.list(context.personalWorkspaceId)]
-          )
-        }
-
-        if (!workspaceGraphs) {
-          try {
-            workspaceGraphs = await agentService.listGraphs(context.personalWorkspaceId)
-          } catch (error) {
-            console.error('Failed to fetch workspace graphs:', error)
-            workspaceGraphs = []
-          }
-        }
-
-        const defaultChatGraph = workspaceGraphs?.find((g) => g.name === TEMPLATE_GRAPH_NAME)
-
-        if (defaultChatGraph) {
+        // Check if graph already exists
+        const existing = await findGraphByName(TEMPLATE_GRAPH_NAME, context)
+        if (existing) {
           return {
             success: true,
-            stateUpdates: {
-              mode: 'default-chat',
-              graphId: defaultChatGraph.id,
-            },
+            stateUpdates: { mode: 'default-chat', graphId: existing.id },
           }
         }
 
@@ -89,34 +70,19 @@ export const defaultChatModeHandler: ModeHandler = {
           }
         }
 
-        const templateName = modeConfig.templateName
-        const templateGraphName = modeConfig.templateGraphName
-
-        if (context.queryClient.refetchQueries) {
-          await context.queryClient.refetchQueries({
-            queryKey: [...graphKeys.list(context.personalWorkspaceId!)],
-          })
-        }
-
-        if (context.queryClient.getQueryData) {
-          const queryData = context.queryClient.getQueryData<Array<{ id: string; name: string }>>(
-            [...graphKeys.list(context.personalWorkspaceId!)]
-          )
-          const existing = queryData?.find((g) => g.name === TEMPLATE_GRAPH_NAME)
-          if (existing) {
-            return {
-              success: true,
-              stateUpdates: {
-                mode: 'default-chat',
-                graphId: existing.id,
-              },
-            }
+        // Double-check after refresh (prevent race)
+        const freshExisting = await refreshAndFindGraph(TEMPLATE_GRAPH_NAME, context)
+        if (freshExisting) {
+          return {
+            success: true,
+            stateUpdates: { mode: 'default-chat', graphId: freshExisting.id },
           }
         }
 
+        // Create from template
         const createdGraph = await graphTemplateService.createGraphFromTemplate(
-          templateName,
-          templateGraphName,
+          modeConfig.templateName,
+          modeConfig.templateGraphName,
           context.personalWorkspaceId!
         )
 
@@ -130,18 +96,12 @@ export const defaultChatModeHandler: ModeHandler = {
 
         return {
           success: true,
-          stateUpdates: {
-            mode: 'default-chat',
-            graphId: createdGraph.id,
-          },
+          stateUpdates: { mode: 'default-chat', graphId: createdGraph.id },
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to create Default Chat graph'
         toastError(message, 'Graph Creation Failed')
-        return {
-          success: false,
-          error: message,
-        }
+        return { success: false, error: message }
       } finally {
         initPromise = null
       }
@@ -155,10 +115,7 @@ export const defaultChatModeHandler: ModeHandler = {
     files: UploadedFile[],
     context: ModeContext
   ): Promise<SubmitResult> {
-    return {
-      success: true,
-      processedInput: input,
-    }
+    return { success: true, processedInput: input }
   },
 
   validate(input: string, files: UploadedFile[]): ValidationResult {
@@ -166,27 +123,7 @@ export const defaultChatModeHandler: ModeHandler = {
   },
 
   async getGraphId(context: ModeContext): Promise<string | null> {
-    if (!context.personalWorkspaceId) {
-      return null
-    }
-
-    let workspaceGraphs: Array<{ id: string; name: string }> | undefined
-    if (context.queryClient.getQueryData) {
-      workspaceGraphs = context.queryClient.getQueryData<Array<{ id: string; name: string }>>(
-        [...graphKeys.list(context.personalWorkspaceId)]
-      )
-    }
-
-    if (!workspaceGraphs) {
-      try {
-        workspaceGraphs = await agentService.listGraphs(context.personalWorkspaceId)
-      } catch (error) {
-        console.error('Failed to fetch workspace graphs:', error)
-        return null
-      }
-    }
-
-    const defaultChatGraph = workspaceGraphs?.find((g) => g.name === TEMPLATE_GRAPH_NAME)
-    return defaultChatGraph?.id ?? null
+    const graph = await findGraphByName(TEMPLATE_GRAPH_NAME, context)
+    return graph?.id ?? null
   },
 }

@@ -683,6 +683,9 @@ async def chat_stream(
         artifact_collector = ArtifactCollector()
         artifact_collector.ensure_run_dir(str(current_user.id), thread_id, state.artifact_run_id)
 
+        # Reference to graph object, set after build so finally can access it
+        built_graph = None
+
         # 发送初始状态
         yield handler.format_sse("status", {"status": "connected", "_meta": {"node_name": "system"}}, thread_id)
 
@@ -708,6 +711,8 @@ async def chat_stream(
                     user_id=current_user.id,
                     current_user=current_user,
                 )
+
+            built_graph = graph
 
             # 5. 从 metadata 中提取文件信息并添加到消息中
             files = payload.metadata.get("files", [])
@@ -864,29 +869,11 @@ async def chat_stream(
                 pass
             elif state.stopped:
                 yield handler.format_sse(
-                    "artifacts_ready",
-                    {
-                        "thread_id": thread_id,
-                        "run_id": state.artifact_run_id,
-                        "_meta": {"node_name": "system"},
-                    },
-                    thread_id,
-                )
-                yield handler.format_sse(
                     "error",
                     {"message": "Stopped by user", "code": "stopped", "_meta": {"node_name": "system"}},
                     thread_id,
                 )
             else:
-                yield handler.format_sse(
-                    "artifacts_ready",
-                    {
-                        "thread_id": thread_id,
-                        "run_id": state.artifact_run_id,
-                        "_meta": {"node_name": "system"},
-                    },
-                    thread_id,
-                )
                 yield handler.format_sse("done", {"_meta": {"node_name": "system"}}, thread_id)
 
         except asyncio.CancelledError:
@@ -901,15 +888,6 @@ async def chat_stream(
             else:
                 log.error(f"Stream error: {e}, traceback: {traceback.format_exc()}")
                 state.has_error = True
-            yield handler.format_sse(
-                "artifacts_ready",
-                {
-                    "thread_id": thread_id,
-                    "run_id": state.artifact_run_id,
-                    "_meta": {"node_name": "system"},
-                },
-                thread_id,
-            )
             yield handler.format_sse("error", {"message": str(e), "_meta": {"node_name": "system"}}, thread_id)
         finally:
             # 7. 清理与持久化 (关键：使用 finally 确保即使报错/断连也执行)
@@ -937,9 +915,9 @@ async def chat_stream(
                 log.warning(f"Failed to save run result in finally for thread {thread_id}: {e}")
 
             # Cleanup shared backend if exists
-            if "graph" in locals() and hasattr(graph, "_cleanup_backend"):
+            if built_graph is not None and hasattr(built_graph, "_cleanup_backend"):
                 try:
-                    await graph._cleanup_backend()
+                    await built_graph._cleanup_backend()
                 except asyncio.CancelledError:
                     log.debug(f"Backend cleanup cancelled for thread {thread_id}")
                 except Exception as e:
@@ -951,9 +929,9 @@ async def chat_stream(
                     str(current_user.id), thread_id, state.artifact_run_id
                 )
                 # 若图使用 Docker 沙箱，将容器工作目录导出到 artifact 目录
-                if "graph" in locals() and hasattr(graph, "_export_artifacts_to"):
+                if built_graph is not None and hasattr(built_graph, "_export_artifacts_to"):
                     try:
-                        n = graph._export_artifacts_to(run_dir)
+                        n = built_graph._export_artifacts_to(run_dir)
                         if n:
                             log.info(f"[Chat API Stream] Exported {n} files from sandbox to artifacts")
                     except Exception as ex:
@@ -978,6 +956,22 @@ async def chat_stream(
                 )
             except Exception as e:
                 log.warning(f"[Chat API Stream] Failed to write artifact manifest: {e}")
+
+            # Send artifacts_ready ONCE, AFTER manifest is written and files are exported
+            # This ensures the frontend won't see an empty file list
+            if not state.interrupted:
+                try:
+                    yield handler.format_sse(
+                        "artifacts_ready",
+                        {
+                            "thread_id": thread_id,
+                            "run_id": state.artifact_run_id,
+                            "_meta": {"node_name": "system"},
+                        },
+                        thread_id,
+                    )
+                except Exception:
+                    pass  # Client may have disconnected; best-effort
 
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:

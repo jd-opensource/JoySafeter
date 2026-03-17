@@ -1,26 +1,20 @@
 'use client'
 
 import { ArrowRight, Square, Paperclip, X, Loader2 } from 'lucide-react'
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { API_BASE, apiUpload } from '@/lib/api-client'
-import { isAllowedFile, ALLOWED_EXTENSIONS_STRING, UPLOAD_LIMITS } from '@/lib/constants/upload-limits'
+import { ALLOWED_EXTENSIONS_STRING } from '@/lib/constants/upload-limits'
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
 
-interface UploadedFile {
-  id: string
-  filename: string
-  path: string
-  size: number
-}
+import { useFileUpload } from '../hooks/useFileUpload'
+import type { UploadedFile } from '../services/modeHandlers/types'
 
 interface ChatInputProps {
   input: string
   setInput: (value: string) => void
-  onSubmit: (text: string, mode?: string, graphId?: string | null, files?: Array<{ id: string; filename: string; path: string; size: number }>) => void
+  onSubmit: (text: string, mode?: string, graphId?: string | null, files?: UploadedFile[]) => void
   isProcessing: boolean
   onStop?: () => void
   currentMode?: string
@@ -40,10 +34,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [files, setFiles] = useState<UploadedFile[]>([])
-  const [isUploading, setIsUploading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
+
+  const handleApkAutoSubmit = useCallback((uploadedFile: UploadedFile, rawFile: File) => {
+    if (currentMode === 'apk-vulnerability' && rawFile.name.toLowerCase().endsWith('.apk')) {
+      const taskText = t('chat.apkVulnerabilityTaskWithPath', {
+        defaultValue: '任务APK IntentBridge漏洞挖掘  apk路径为 {{path}}',
+        path: uploadedFile.path,
+      })
+      onSubmit(taskText, currentMode, currentGraphId || undefined, [uploadedFile])
+      clearFiles()
+    }
+  }, [currentMode, currentGraphId, onSubmit, t])
+
+  const {
+    files,
+    isUploading,
+    fileInputRef,
+    uploadFile,
+    handleFileSelect,
+    removeFile,
+    clearFiles,
+  } = useFileUpload({ onFileUploaded: handleApkAutoSubmit })
 
   // Auto-resize textarea
   useEffect(() => {
@@ -62,118 +74,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleSubmit = () => {
     if (isProcessing) return
-    // Allow submit even if input is empty if there are files (for APK auto-submit)
     const text = input.trim() || (currentMode === 'apk-vulnerability' && files.length > 0
       ? t('chat.apkVulnerabilityTaskStart', { defaultValue: '开启任务：APK IntentBridge 漏洞挖掘' })
       : '')
     if (!text && files.length === 0) return
 
     onSubmit(text, currentMode, null, files.length > 0 ? files : undefined)
-    // Clear files after submit
-    setFiles([])
-  }
-
-  // File upload handling
-  const handleFileUpload = async (file: File) => {
-    const validation = isAllowedFile(file)
-    if (!validation.allowed) {
-      toastError(
-        validation.reason || t('chat.fileNotAllowed', { defaultValue: '文件不符合要求' }),
-        t('chat.fileUploadFailed')
-      )
-      return
-    }
-
-    setIsUploading(true)
-    try {
-      // Wait for upload to complete and get response
-      const fileData = await apiUpload<{ filename: string; path: string; size: number; message: string }>(
-        `${API_BASE}/files/upload`,
-        file
-      )
-
-      // Verify upload success: check all required fields are present
-      if (!fileData || !fileData.filename || !fileData.path) {
-        toastError(
-          t('chat.uploadFailed', { defaultValue: '上传失败，响应格式异常' }),
-          t('chat.fileUploadFailed')
-        )
-        setIsUploading(false)
-        return
-      }
-
-      // Upload successful - create uploaded file object
-      const uploadedFile: UploadedFile = {
-        id: Date.now().toString(),
-        filename: fileData.filename,
-        path: fileData.path,
-        size: fileData.size,
-      }
-      const newFiles = [...files, uploadedFile]
-      setFiles(newFiles)
-      toastSuccess(fileData.filename, t('chat.fileUploaded'))
-
-      // Only after upload is completely successful, auto-submit if APK file and apk-vulnerability mode
-      if (currentMode === 'apk-vulnerability' && file.name.toLowerCase().endsWith('.apk')) {
-        // Ensure we have the path from the successful upload response
-        const apkPath = fileData.path
-        if (!apkPath) {
-          toastError(
-            t('chat.uploadFailed', { defaultValue: '上传成功但无法获取文件路径' }),
-            t('chat.fileUploadFailed')
-          )
-          setIsUploading(false)
-          return
-        }
-
-        // Upload is completely successful, now submit the task
-        const taskText = `任务APK IntentBridge漏洞挖掘  apk路径为 ${apkPath}`
-        // Use currentGraphId if available, otherwise pass undefined to let handleSubmit resolve it
-        onSubmit(taskText, currentMode, currentGraphId || undefined, newFiles)
-        // Clear files after submit
-        setFiles([])
-      }
-    } catch (error) {
-      // Upload failed - do not submit task
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : typeof error === 'string'
-          ? error
-          : t('chat.retry', { defaultValue: '请重试' })
-      toastError(errorMessage, t('chat.fileUploadFailed'))
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = e.target.files
-    if (selectedFiles && selectedFiles.length > 0) {
-      if (selectedFiles.length > UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD) {
-        toastError(
-          t('chat.tooManyFiles', {
-            defaultValue: '最多只能同时上传 {{maxFiles}} 个文件',
-            maxFiles: UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD,
-          }),
-          t('chat.fileUploadFailed')
-        )
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-        return
-      }
-      Array.from(selectedFiles).forEach((file) => {
-        handleFileUpload(file)
-      })
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-  }
-
-  const handleRemoveFile = (fileId: string) => {
-    setFiles((prev) => prev.filter((f) => f.id !== fileId))
+    clearFiles()
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -192,7 +99,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
     const droppedFiles = Array.from(e.dataTransfer.files)
     droppedFiles.forEach((file) => {
-      handleFileUpload(file)
+      uploadFile(file)
     })
   }
 
@@ -218,7 +125,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               <Paperclip size={14} className="text-gray-500" />
               <span className="max-w-[200px] truncate">{file.filename}</span>
               <button
-                onClick={() => handleRemoveFile(file.id)}
+                onClick={() => removeFile(file.id)}
                 className="ml-1 hover:bg-gray-200 rounded-full p-0.5 transition-colors"
                 aria-label="Remove file"
                 disabled={isProcessing || isUploading}

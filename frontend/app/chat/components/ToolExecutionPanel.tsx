@@ -10,11 +10,8 @@ import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 import { cn } from '@/lib/core/utils/cn'
 import { useTranslation } from '@/lib/i18n'
-import { useToolPanelStore } from '@/lib/stores/tool-panel-store'
 
 import { ToolCall } from '../types'
-
-import ToolNavigation from './ToolNavigation'
 
 interface ToolExecutionPanelProps {
   isOpen: boolean
@@ -25,6 +22,10 @@ interface ToolExecutionPanelProps {
   agentStatus?: 'idle' | 'running' | 'connecting' | 'error'
 }
 
+/** Format tool_name → Title Case */
+const formatToolName = (name: string): string =>
+  name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
+
 const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
   isOpen,
   onClose,
@@ -34,16 +35,13 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
   agentStatus = 'idle',
 }) => {
   const { t } = useTranslation()
-  const {
-    selectedToolIndex,
-    setSelectedToolIndex,
-  } = useToolPanelStore()
 
   const [copiedInput, setCopiedInput] = useState(false)
   const [copiedOutput, setCopiedOutput] = useState(false)
 
   // Use provided toolCalls or extract from messages
-  const allToolCalls = toolCalls.length > 0 ? toolCalls : (() => {
+  const allToolCalls = useMemo(() => {
+    if (toolCalls.length > 0) return toolCalls
     const extracted: ToolCall[] = []
     messages.forEach((msg) => {
       if (msg.tool_calls) {
@@ -51,22 +49,10 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
       }
     })
     return extracted
-  })()
+  }, [toolCalls, messages])
 
   // If a specific tool call is selected, show it; otherwise show the latest
-  const displayToolCall = toolCall || allToolCalls[selectedToolIndex] || allToolCalls[allToolCalls.length - 1]
-
-  // Get tool names for navigation
-  const toolNames = useMemo(() => {
-    return allToolCalls.map(tc =>
-      tc.name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
-    )
-  }, [allToolCalls])
-
-  // Format tool name for display
-  const formatToolName = (name: string): string => {
-    return name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
-  }
+  const displayToolCall = toolCall || allToolCalls[allToolCalls.length - 1]
 
   if (!isOpen) return null
 

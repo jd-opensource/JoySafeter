@@ -187,22 +187,18 @@ class ArtifactResolver:
     ) -> Optional[Path]:
         """
         Resolve a relative file path to an absolute path under the run directory.
-        Returns None if the path escapes the run dir (security).
+        Returns None if the path escapes the run dir (security) or doesn't exist.
         """
         run_dir = self._run_dir(user_id, thread_id, run_id)
         if not run_dir.exists() or not run_dir.is_dir():
             return None
 
-        # Normalize: no leading slash, no ..
-        parts = file_path.replace("\\", "/").strip("/").split("/")
-        safe_parts: list[str] = []
-        for part in parts:
-            if not part or part in (".", ".."):
-                continue
-            safe_parts.append(sanitize_path_component(part, default=""))
-        if any(p == "" for p in safe_parts):
+        # Normalize and resolve — the single resolve().relative_to() check
+        # is sufficient to prevent all path traversal attacks
+        cleaned = file_path.replace("\\", "/").strip("/")
+        if not cleaned:
             return None
-        resolved = (run_dir / "/".join(safe_parts)).resolve()
+        resolved = (run_dir / cleaned).resolve()
         run_dir_resolved = run_dir.resolve()
         try:
             resolved.relative_to(run_dir_resolved)

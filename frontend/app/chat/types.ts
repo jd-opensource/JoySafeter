@@ -1,3 +1,6 @@
+/** Generate a short random ID for messages and temporary entities */
+export const generateId = () => Math.random().toString(36).substring(2, 11)
+
 export interface Position {
   x: number
   y: number

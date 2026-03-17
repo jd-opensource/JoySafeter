@@ -7,7 +7,7 @@
  * produced during an agent run.
  */
 
-import { API_BASE, apiGet, apiDelete } from '@/lib/api-client'
+import { API_BASE, apiFetch, apiDelete } from '@/lib/api-client'
 
 // ==================== Types ====================
 
@@ -69,9 +69,7 @@ export const artifactService = {
    */
   async listRuns(threadId: string): Promise<RunInfo[]> {
     const url = `${API_BASE}/${artifactsPath(threadId)}/runs`
-    const res = await fetch(url, { credentials: 'include' })
-    if (!res.ok) throw new Error(`Failed to list runs: ${res.statusText}`)
-    const json = (await res.json()) as ArtifactsRunsResponse
+    const json = await apiFetch<ArtifactsRunsResponse>(url)
     return json.runs ?? json.data ?? []
   },
 
@@ -80,14 +78,13 @@ export const artifactService = {
    */
   async listRunFiles(threadId: string, runId: string): Promise<FileInfo[]> {
     const url = `${API_BASE}/${artifactsPath(threadId, runId)}/files`
-    const res = await fetch(url, { credentials: 'include' })
-    if (!res.ok) throw new Error(`Failed to list files: ${res.statusText}`)
-    const json = (await res.json()) as ArtifactsFilesResponse
+    const json = await apiFetch<ArtifactsFilesResponse>(url)
     return json.files ?? json.data ?? []
   },
 
   /**
    * Download a file as blob (for preview or save).
+   * Uses raw fetch since apiFetch parses JSON; downloads need blob response.
    */
   async downloadFile(threadId: string, runId: string, filePath: string): Promise<Blob> {
     const url = getArtifactDownloadUrl(threadId, runId, filePath)

@@ -41,15 +41,19 @@ import ThreadContent from './components/ThreadContent'
 import ToolExecutionPanel from './components/ToolExecutionPanel'
 import { useBackendChatStream } from './hooks/useBackendChatStream'
 import { graphResolutionService } from './services/graphResolutionService'
-import { Message, ToolCall } from './types'
+import { generateId, Message, ToolCall } from './types'
+
+// ─── Layout constants ───────────────────────────────────────────────────────
+const SIDE_PANEL_WIDTH = 600      // w-[600px]
+const SIDE_PANEL_GAP = 16         // right-4 = 16px
+const CONTENT_PR = SIDE_PANEL_WIDTH + SIDE_PANEL_GAP * 2  // 632
+const CONTENT_MR = SIDE_PANEL_WIDTH + SIDE_PANEL_GAP      // 616
 
 interface ChatInterfaceProps {
   chatId?: string | null
   onChatCreated?: (id: string) => void
   initialMessages?: Message[]
 }
-
-const generateId = () => Math.random().toString(36).substring(2, 11)
 
 const MODEL_SETUP_DISMISSED_KEY = 'modelSetupPromptDismissed'
 
@@ -413,6 +417,93 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }
 
+  // Whether the right side panel is visible (either tool or artifacts)
+  const sidePanelVisible = (toolPanelOpen && hasToolCalls) || artifactDrawerOpen
+
+  // ─── Shared sub-component: Header ─────────────────────────────────────────
+  const renderHeader = (shrinkForPanel: boolean) => (
+    <div
+      className="h-12 flex items-center gap-2 px-6 bg-gray-50 z-10 flex-shrink-0 transition-all duration-200"
+      style={shrinkForPanel && sidePanelVisible ? { paddingRight: CONTENT_PR } : undefined}
+    >
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSidebarVisible(prev => !prev)}
+              className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+            >
+              <List size={18} className="text-gray-600" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{sidebarVisible ? t('chat.hideHistory') : t('chat.showHistory')}</p>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleNewChat}
+              className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+            >
+              <Plus size={18} className="text-gray-600" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('chat.newChat')}</p>
+          </TooltipContent>
+        </Tooltip>
+        {localChatId && artifactRunId && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setToolPanelOpen(false)
+                  setArtifactDrawerOpen((v: boolean) => !v)
+                }}
+                className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+              >
+                <FolderOpen size={18} className="text-gray-600" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>
+                {artifactDrawerOpen
+                  ? t('chat.closeArtifacts', { defaultValue: 'Close artifacts' })
+                  : t('chat.openArtifacts', { defaultValue: 'Open artifacts' })}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </TooltipProvider>
+    </div>
+  )
+
+  // ─── Shared wrapper: Floating Side Panel ──────────────────────────────────
+  const renderFloatingPanel = (isOpen: boolean, children: React.ReactNode) => (
+    <div
+      className={cn(
+        'absolute top-4 right-4 bottom-4 bg-white border border-gray-200 shadow-2xl z-20 rounded-2xl overflow-hidden',
+        'transition-all duration-200',
+        isOpen
+          ? 'translate-x-0 translate-y-0 opacity-100 scale-100'
+          : 'translate-x-[-80%] translate-y-[30%] opacity-0 scale-[0.2] pointer-events-none'
+      )}
+      style={{
+        width: SIDE_PANEL_WIDTH,
+        transitionTimingFunction: isOpen ? 'cubic-bezier(0, 0, 0.2, 1)' : 'cubic-bezier(0.4, 0, 1, 1)',
+      }}
+    >
+      {children}
+    </div>
+  )
+
   return (
     <div className="flex flex-col h-full w-full bg-gray-50 relative overflow-hidden">
       {/* Two-panel layout */}
@@ -444,67 +535,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           {/* If new chat and no messages, show ChatHome */}
           {messages.length === 0 && !localChatId && !propChatId ? (
             <div className="relative h-full flex flex-col overflow-hidden">
-              {/* Header with Toggle Sidebar Button */}
-              <div className={cn(
-                "h-12 flex items-center gap-2 px-6 bg-gray-50 z-10 flex-shrink-0 transition-all duration-200"
-              )}>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSidebarVisible(prev => !prev)}
-                        className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
-                      >
-                        <List size={18} className="text-gray-600" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{sidebarVisible ? t('chat.hideHistory') : t('chat.showHistory')}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleNewChat}
-                        className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
-                      >
-                        <Plus size={18} className="text-gray-600" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{t('chat.newChat')}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  {localChatId && artifactRunId && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setToolPanelOpen(false)
-                            setArtifactDrawerOpen((v: boolean) => !v)
-                          }}
-                          className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
-                        >
-                          <FolderOpen size={18} className="text-gray-600" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>
-                          {artifactDrawerOpen
-                            ? t('chat.closeArtifacts', { defaultValue: 'Close artifacts' })
-                            : t('chat.openArtifacts', { defaultValue: 'Open artifacts' })}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </TooltipProvider>
-              </div>
+              {renderHeader(false)}
               <ChatHome
                 onStartChat={handleSubmit}
                 onSelectConversation={handleSelectConversation}
@@ -514,74 +545,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
           ) : (
             <div className="relative h-full flex flex-col overflow-hidden">
-              {/* Header */}
-              <div className={cn(
-                "h-12 flex items-center gap-2 px-6 bg-gray-50 z-10 flex-shrink-0 transition-all duration-200",
-                (toolPanelOpen && hasToolCalls || artifactDrawerOpen) && "pr-[632px]"
-              )}>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSidebarVisible(prev => !prev)}
-                        className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
-                      >
-                        <List size={18} className="text-gray-600" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{sidebarVisible ? t('chat.hideHistory') : t('chat.showHistory')}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleNewChat}
-                        className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
-                      >
-                        <Plus size={18} className="text-gray-600" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{t('chat.newChat')}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  {localChatId && artifactRunId && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setToolPanelOpen(false)
-                            setArtifactDrawerOpen((v: boolean) => !v)
-                          }}
-                          className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
-                        >
-                          <FolderOpen size={18} className="text-gray-600" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>
-                          {artifactDrawerOpen
-                            ? t('chat.closeArtifacts', { defaultValue: 'Close artifacts' })
-                            : t('chat.openArtifacts', { defaultValue: 'Open artifacts' })}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </TooltipProvider>
-              </div>
+              {renderHeader(true)}
 
               {/* Messages - Scrollable area */}
-              <div className={cn(
-                "flex-1 min-h-0 overflow-hidden transition-all duration-200 flex flex-col",
-                (toolPanelOpen && hasToolCalls || artifactDrawerOpen) && "mr-[616px]"
-              )}>
+              <div
+                className="flex-1 min-h-0 overflow-hidden transition-all duration-200 flex flex-col"
+                style={sidePanelVisible ? { marginRight: CONTENT_MR } : undefined}
+              >
                 <div className="flex-1 min-h-0 overflow-hidden">
                   <ThreadContent
                     messages={messages}
@@ -592,14 +562,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     scrollContainerRef={scrollRef}
                   />
                 </div>
-                {/* Artifacts are shown in a right drawer (see below) */}
               </div>
 
               {/* Input Area - Fixed at bottom */}
-              <div className={cn(
-                "flex-shrink-0 px-6 pb-6 pt-2 relative transition-all duration-200 bg-gray-50",
-                (toolPanelOpen && hasToolCalls || artifactDrawerOpen) && "pr-[632px]"
-              )}>
+              <div
+                className="flex-shrink-0 px-6 pb-6 pt-2 relative transition-all duration-200 bg-gray-50"
+                style={sidePanelVisible ? { paddingRight: CONTENT_PR } : undefined}
+              >
                 <ChatInput
                   input={input}
                   setInput={setInput}
@@ -623,50 +592,26 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               </div>
 
               {/* Right Side Floating Panel - Tool Execution Panel */}
-              {hasToolCalls && (
-                <div
-                  className={cn(
-                    'absolute top-4 right-4 bottom-4 bg-white border border-gray-200 shadow-2xl z-20 rounded-2xl overflow-hidden w-[600px]',
-                    'transition-all duration-200',
-                    toolPanelOpen
-                      ? 'translate-x-0 translate-y-0 opacity-100 scale-100'
-                      : 'translate-x-[-80%] translate-y-[30%] opacity-0 scale-[0.2] pointer-events-none'
-                  )}
-                  style={{
-                    transitionTimingFunction: toolPanelOpen ? 'cubic-bezier(0, 0, 0.2, 1)' : 'cubic-bezier(0.4, 0, 1, 1)'
-                  }}
-                >
-                  <ToolExecutionPanel
-                    isOpen={toolPanelOpen}
-                    onClose={() => setToolPanelOpen(false)}
-                    toolCall={selectedTool}
-                    messages={messages}
-                    agentStatus={agentStatus}
-                  />
-                </div>
+              {hasToolCalls && renderFloatingPanel(
+                toolPanelOpen,
+                <ToolExecutionPanel
+                  isOpen={toolPanelOpen}
+                  onClose={() => setToolPanelOpen(false)}
+                  toolCall={selectedTool}
+                  messages={messages}
+                  agentStatus={agentStatus}
+                />
               )}
 
-              {/* Right Side Floating Panel - Artifacts Drawer (mutually exclusive with tool panel) */}
-              {localChatId && artifactRunId && (
-                <div
-                  className={cn(
-                    'absolute top-4 right-4 bottom-4 bg-white border border-gray-200 shadow-2xl z-20 rounded-2xl overflow-hidden w-[600px]',
-                    'transition-all duration-200',
-                    artifactDrawerOpen
-                      ? 'translate-x-0 translate-y-0 opacity-100 scale-100'
-                      : 'translate-x-[-80%] translate-y-[30%] opacity-0 scale-[0.2] pointer-events-none'
-                  )}
-                  style={{
-                    transitionTimingFunction: artifactDrawerOpen ? 'cubic-bezier(0, 0, 0.2, 1)' : 'cubic-bezier(0.4, 0, 1, 1)'
-                  }}
-                >
-                  <ArtifactsDrawer
-                    isOpen={artifactDrawerOpen}
-                    onClose={() => setArtifactDrawerOpen(false)}
-                    threadId={localChatId}
-                    runId={artifactRunId}
-                  />
-                </div>
+              {/* Right Side Floating Panel - Artifacts Drawer */}
+              {localChatId && artifactRunId && renderFloatingPanel(
+                artifactDrawerOpen,
+                <ArtifactsDrawer
+                  isOpen={artifactDrawerOpen}
+                  onClose={() => setArtifactDrawerOpen(false)}
+                  threadId={localChatId}
+                  runId={artifactRunId}
+                />
               )}
             </div>
           )}

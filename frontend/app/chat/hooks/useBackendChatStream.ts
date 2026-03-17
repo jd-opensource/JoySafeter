@@ -15,9 +15,7 @@ import {
   type RouteDecisionEventData,
 } from '@/services/chatBackend'
 
-import { Message, ToolCall } from '../types'
-
-const generateId = () => Math.random().toString(36).substr(2, 9)
+import { generateId, Message, ToolCall } from '../types'
 
 function now() {
   return Date.now()
