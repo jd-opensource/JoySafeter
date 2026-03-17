@@ -369,7 +369,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                   const selectedAgent = deployedAgents.find((a: AgentGraph) => a.id === state.selectedAgentId)
                   return selectedAgent ? (
                     <div className="flex items-center gap-2 px-3 pt-2">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-sm font-medium text-gray-700">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/8 rounded-full text-sm font-medium text-white/70">
                         <MessageSquare size={14} />
                         <span className="max-w-[120px] truncate">{selectedAgent.name}</span>
                         <button
@@ -400,7 +400,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                         {state.files.map((file) => (
                           <div
                             key={file.id}
-                            className="flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded-md text-xs text-gray-700"
+                            className="flex items-center gap-1.5 px-2 py-1 bg-white/8 rounded-md text-xs text-white/70"
                           >
                             <Paperclip size={12} className="text-gray-500" />
                             <span className="max-w-[150px] truncate">{file.filename}</span>
@@ -435,7 +435,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                           'h-9 px-3 bg-transparent border-[1.5px] rounded-full transition-all duration-200 flex items-center gap-2',
                           state.autoRedirect
                             ? 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300'
-                            : 'border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-50 hover:border-gray-300'
+                            : 'border-gray-200 text-gray-500 hover:text-white/70 hover:bg-gray-50 hover:border-gray-300'
                         )}
                       >
                         <Zap size={16} />
@@ -448,7 +448,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-9 px-3 bg-transparent border-[1.5px] border-gray-200 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 flex items-center gap-2"
+                            className="h-9 px-3 bg-transparent border-[1.5px] border-gray-200 rounded-full text-gray-500 hover:text-white/70 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 flex items-center gap-2"
                             disabled={isLoadingAgents}
                           >
                             <Bot size={16} />
@@ -468,7 +468,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                                   onClick={() => handleAgentSelect(agent.id)}
                                   className={cn(
                                     'flex items-center gap-2',
-                                    state.selectedAgentId === agent.id && 'bg-gray-100'
+                                    state.selectedAgentId === agent.id && 'bg-white/8'
                                   )}
                                 >
                                   <MessageSquare size={14} className="text-gray-400" />
@@ -495,7 +495,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isProcessing || state.isUploading}
                             className={cn(
-                              'h-10 w-10 p-0 bg-transparent border-[1.5px] border-gray-200 rounded-2xl text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-all duration-200 flex items-center justify-center',
+                              'h-10 w-10 p-0 bg-transparent border-[1.5px] border-gray-200 rounded-2xl text-gray-500 hover:text-white/70 hover:bg-gray-50 transition-all duration-200 flex items-center justify-center',
                               state.isUploading && 'opacity-50 cursor-not-allowed'
                             )}
                           >
@@ -529,7 +529,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                           'w-10 h-10 rounded-full transition-all flex-shrink-0 flex items-center justify-center p-0',
                           state.input.trim() && !isProcessing && !state.isRedirecting
                             ? 'bg-gray-900 hover:bg-gray-800'
-                            : 'bg-gray-100 cursor-not-allowed'
+                            : 'bg-white/5 cursor-not-allowed opacity-40'
                         )}
                       >
                         {state.isRedirecting ? (
@@ -555,7 +555,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
           <div className="w-full mt-4">
             <button
               onClick={() => setShowCases(!state.showCases)}
-              className="flex items-center justify-between w-full p-2 text-gray-500 hover:text-gray-700 text-sm font-medium transition-colors"
+              className="flex items-center justify-between w-full p-2 text-gray-500 hover:text-white/70 text-sm font-medium transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Sparkles size={14} />
@@ -583,14 +583,14 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                     className={cn(
                       'group p-4 border rounded-xl cursor-pointer transition-all flex items-start gap-4',
                       isSelected
-                        ? 'bg-blue-50 border-blue-500 shadow-md'
+                        ? 'bg-violet-500/10 border-violet-500 shadow-[0_0_20px_rgba(139,92,246,0.2)]'
                         : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md'
                     )}
                   >
                     <div
                       className={cn(
                         'p-2 rounded-lg transition-colors',
-                        isSelected ? 'bg-blue-100' : 'bg-gray-50 group-hover:bg-blue-50'
+                        isSelected ? 'bg-violet-500/15' : 'bg-white/4 group-hover:bg-violet-500/8'
                       )}
                     >
                       <Icon size={20} className={cn(isSelected ? 'text-blue-600' : 'text-gray-600')} />

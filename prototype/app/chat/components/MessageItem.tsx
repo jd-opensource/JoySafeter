@@ -35,8 +35,8 @@ const ToolCallItem = ({ tool, onClick }: { tool: ToolCall; onClick?: () => void 
         className={cn(
           'flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg border w-fit transition-all',
           isCompleted
-            ? 'bg-gray-50 border-gray-200 text-gray-600'
-            : 'bg-blue-50 border-blue-100 text-blue-700',
+            ? 'bg-white/5 border-white/10 text-white/50'
+            : 'bg-sky-500/10 border-sky-500/20 text-sky-300',
           onClick && 'cursor-pointer hover:shadow-sm'
         )}
       >
@@ -51,11 +51,11 @@ const ToolCallItem = ({ tool, onClick }: { tool: ToolCall; onClick?: () => void 
         <span className="font-medium capitalize">{tool.name.replace(/_/g, ' ')}</span>
 
         {/* Args Preview */}
-        <span className="text-gray-400 hidden group-hover:inline max-w-[200px] truncate ml-1 font-mono">
+        <span className="text-white/35 hidden group-hover:inline max-w-[200px] truncate ml-1 font-mono">
           {argsDisplay}
         </span>
 
-        <div className="ml-2 pl-2 border-l border-gray-300/50">
+        <div className="ml-2 pl-2 border-l border-white/10">
           {isCompleted ? (
             <Check size={12} className="text-green-500" />
           ) : (
@@ -73,14 +73,14 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
   if (isUser) {
     return (
       <div className="flex justify-end mb-6 animate-in fade-in duration-200">
-        <div className="max-w-[80%] bg-gray-100 text-gray-900 px-5 py-3.5 rounded-2xl rounded-tr-sm shadow-sm">
+        <div className="max-w-[80%] bg-white/8 text-white/85 px-5 py-3.5 rounded-2xl rounded-tr-sm shadow-sm">
           <p className="whitespace-pre-wrap text-[15px] leading-relaxed font-normal">
             {message.content}
           </p>
         </div>
         {/* Optional Avatar */}
-        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center ml-3 flex-shrink-0 mt-1">
-          <User size={14} className="text-gray-500" />
+        <div className="w-8 h-8 rounded-full bg-white/8 flex items-center justify-center ml-3 flex-shrink-0 mt-1">
+          <User size={14} className="text-white/40" />
         </div>
       </div>
     )
@@ -94,7 +94,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
       </div>
       <div className="max-w-[85%] min-w-[50%]">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 rounded border border-gray-200">
+          <span className="text-[10px] text-white/35 px-1.5 py-0.5 bg-white/5 rounded border border-white/10">
             AI
           </span>
         </div>
@@ -140,7 +140,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
                   ) : (
                     <code
                       {...props}
-                      className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-800 font-mono text-xs border border-gray-200"
+                      className="bg-white/8 px-1.5 py-0.5 rounded text-white/75 font-mono text-xs border border-gray-200"
                     >
                       {children}
                     </code>
@@ -170,7 +170,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
           ) : (
             // Streaming indicator if no content yet but active
             message.isStreaming && (
-              <span className="inline-block w-1.5 h-4 bg-blue-500 animate-pulse rounded-full align-middle" />
+              <span className="inline-block w-1.5 h-4 bg-violet-400 animate-pulse rounded-full align-middle" />
             )
           )}
         </div>

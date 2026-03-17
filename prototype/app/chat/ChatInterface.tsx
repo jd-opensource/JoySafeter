@@ -438,7 +438,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={() => setSidebarVisible(prev => !prev)}
-                        className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+                        className="h-9 w-9 p-0 hover:bg-white/8 transition-colors"
                       >
                         <List size={18} className="text-gray-600" />
                       </Button>
@@ -453,7 +453,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={handleNewChat}
-                        className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+                        className="h-9 w-9 p-0 hover:bg-white/8 transition-colors"
                       >
                         <Plus size={18} className="text-gray-600" />
                       </Button>
@@ -485,7 +485,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={() => setSidebarVisible(prev => !prev)}
-                        className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+                        className="h-9 w-9 p-0 hover:bg-white/8 transition-colors"
                       >
                         <List size={18} className="text-gray-600" />
                       </Button>
@@ -500,7 +500,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={handleNewChat}
-                        className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+                        className="h-9 w-9 p-0 hover:bg-white/8 transition-colors"
                       >
                         <Plus size={18} className="text-gray-600" />
                       </Button>

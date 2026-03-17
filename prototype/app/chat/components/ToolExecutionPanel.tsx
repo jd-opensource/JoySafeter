@@ -99,13 +99,13 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
   const getStatusColor = (status?: string) => {
     switch (status) {
       case 'completed':
-        return 'bg-green-50 border-green-200 text-green-800'
+        return 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
       case 'failed':
-        return 'bg-red-50 border-red-200 text-red-800'
+        return 'bg-rose-500/10 border-rose-500/20 text-rose-300'
       case 'running':
-        return 'bg-blue-50 border-blue-200 text-blue-800'
+        return 'bg-sky-500/10 border-sky-500/20 text-sky-300'
       default:
-        return 'bg-gray-50 border-gray-200 text-gray-800'
+        return 'bg-white/5 border-white/10 text-white/60'
     }
   }
 
@@ -181,7 +181,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                   console.error('Failed to copy:', err)
                 }
               }}
-              className="text-gray-500 hover:text-gray-700 transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100"
+              className="text-white/35 hover:text-white/70 transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-white/8"
               title={t('chat.copyToClipboard')}
             >
               {copiedInput ? (
@@ -233,7 +233,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                     console.error('Failed to copy:', err)
                   }
                 }}
-                className="text-gray-500 hover:text-gray-700 transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100"
+                className="text-white/35 hover:text-white/70 transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-white/8"
                 title={t('chat.copyToClipboard')}
               >
                 {copiedOutput ? (
@@ -299,7 +299,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                             <li className="text-xs text-gray-700">{children}</li>
                           ),
                           code: ({ children }) => (
-                            <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono text-gray-800">{children}</code>
+                            <code className="bg-white/8 px-1 py-0.5 rounded text-xs font-mono text-white/75">{children}</code>
                           ),
                         }}
                       >

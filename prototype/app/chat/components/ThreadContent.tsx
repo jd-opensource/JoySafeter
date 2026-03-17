@@ -67,12 +67,12 @@ const ThreadContent: React.FC<ThreadContentProps> = ({
               </div>
               <div className="max-w-[85%] min-w-[50%]">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 rounded border border-gray-200">
+                  <span className="text-[10px] text-white/35 px-1.5 py-0.5 bg-white/5 rounded border border-white/10">
                     AI
                   </span>
                 </div>
                 <div className="prose prose-sm prose-gray max-w-none text-gray-800 leading-7">
-                  <span className="inline-block w-1.5 h-4 bg-blue-500 animate-pulse rounded-full align-middle mr-1" />
+                  <span className="inline-block w-1.5 h-4 bg-violet-400 animate-pulse rounded-full align-middle mr-1" />
                   {streamingText}
                 </div>
               </div>

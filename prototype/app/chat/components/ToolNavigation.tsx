@@ -84,7 +84,7 @@ const ToolNavigation: React.FC<ToolNavigationProps> = ({
                 onClick={() => onSelect(index)}
                 className={cn(
                   'font-mono text-sm cursor-pointer',
-                  index === currentIndex && 'bg-gray-100'
+                  index === currentIndex && 'bg-white/8'
                 )}
               >
                 <span className="flex-1 truncate">
