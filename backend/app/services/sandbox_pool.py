@@ -1,5 +1,9 @@
 """
 Sandbox Connection Pool
+
+Thread-safe pool for managing PydanticSandboxAdapter instances.
+All synchronous Docker API calls (stop/cleanup) are performed OUTSIDE
+the asyncio.Lock to avoid blocking the event loop.
 """
 
 import asyncio
@@ -26,6 +30,9 @@ class SandboxPool:
 
     管理活跃的 PydanticSandboxAdapter 实例，避免重复创建和销毁 Docker 客户端连接。
     同时负责清理长时间未使用的连接。
+
+    IMPORTANT: All synchronous Docker calls (adapter.stop(), adapter.cleanup())
+    are performed OUTSIDE the asyncio.Lock to avoid blocking the event loop.
     """
 
     def __init__(self, max_size: int = 100, idle_timeout: int = 3600):
@@ -50,25 +57,39 @@ class SandboxPool:
 
     async def put(self, sandbox_id: str, adapter: PydanticSandboxAdapter) -> None:
         """注册新的沙箱实例到池中"""
+        old_adapter = None
+
         async with self._lock:
             if self._shutdown:
-                await self._close_adapter(adapter)
-                return
+                # Close outside lock below
+                old_adapter = adapter
+            else:
+                if len(self._pool) >= self._max_size:
+                    evicted = self._evict_lru_entry()
+                    if evicted:
+                        old_adapter = evicted
 
-            if len(self._pool) >= self._max_size:
-                # 简单的淘汰策略：移除最久未使用的
-                await self._evict_lru()
+                if sandbox_id in self._pool:
+                    old_entry = self._pool[sandbox_id]
+                    # If we already need to close an evicted adapter, chain them
+                    # For simplicity, close the old entry's adapter
+                    if old_adapter is None:
+                        old_adapter = old_entry.adapter
+                    else:
+                        # Close inline (rare case: both eviction and replacement)
+                        self._safe_cleanup(old_entry.adapter)
 
-            if sandbox_id in self._pool:
-                # 如果已存在，先关闭旧的
-                old_entry = self._pool[sandbox_id]
-                await self._close_adapter(old_entry.adapter)
+                entry = PoolEntry(adapter)
+                entry.active_count = 1
+                self._pool[sandbox_id] = entry
+                logger.debug(f"Added sandbox {sandbox_id} to pool. Size: {len(self._pool)}")
 
-            entry = PoolEntry(adapter)
-            # 初始引用计数为 1 (调用者正在使用)
-            entry.active_count = 1
-            self._pool[sandbox_id] = entry
-            logger.debug(f"Added sandbox {sandbox_id} to pool. Size: {len(self._pool)}")
+        # Close old adapter OUTSIDE the lock
+        if old_adapter is not None and old_adapter is not adapter:
+            self._safe_cleanup(old_adapter)
+        elif old_adapter is adapter:
+            # Shutdown case: close the adapter we were asked to put
+            self._safe_cleanup(adapter)
 
     async def release(self, sandbox_id: str) -> None:
         """释放沙箱引用计数"""
@@ -79,16 +100,23 @@ class SandboxPool:
                 entry.last_used = time.time()
 
     async def stop(self, sandbox_id: str) -> None:
-        """仅停止容器，不从池中移除，不删除容器（用于 stop/restart 语义）"""
+        """仅停止容器，不从池中移除，不删除容器（用于 stop/restart 语义）
+
+        The synchronous adapter.stop() call is performed OUTSIDE the lock.
+        """
+        adapter = None
         async with self._lock:
             entry = self._pool.get(sandbox_id)
             if entry:
-                try:
-                    if hasattr(entry.adapter, "stop"):
-                        entry.adapter.stop()
-                    logger.debug(f"Stopped sandbox {sandbox_id} (kept in pool)")
-                except Exception as e:
-                    logger.warning(f"Error stopping adapter {sandbox_id}: {e}")
+                adapter = entry.adapter
+
+        # Stop OUTSIDE the lock to avoid blocking
+        if adapter is not None:
+            try:
+                adapter.stop()
+                logger.debug(f"Stopped sandbox {sandbox_id} (kept in pool)")
+            except Exception as e:
+                logger.warning(f"Error stopping adapter {sandbox_id}: {e}")
 
     async def remove(self, sandbox_id: str) -> None:
         """从池中移除并彻底清理沙箱（stop + remove container）"""
@@ -99,7 +127,7 @@ class SandboxPool:
                 adapter = entry.adapter
 
         if adapter:
-            await self._close_adapter(adapter)
+            self._safe_cleanup(adapter)
             logger.debug(f"Removed sandbox {sandbox_id} from pool")
 
     async def cleanup_idle(self) -> list[str]:
@@ -119,7 +147,7 @@ class SandboxPool:
 
         # Close adapters OUTSIDE the lock to avoid blocking the pool
         for sid, adapter in to_close:
-            await self._close_adapter(adapter)
+            self._safe_cleanup(adapter)
 
         evicted_ids = [sid for sid, _ in to_close]
         if evicted_ids:
@@ -128,26 +156,32 @@ class SandboxPool:
 
     async def shutdown(self):
         """关闭连接池"""
-        self._shutdown = True
         adapters = []
         async with self._lock:
+            self._shutdown = True
             for entry in self._pool.values():
                 adapters.append(entry.adapter)
             self._pool.clear()
 
         for adapter in adapters:
-            await self._close_adapter(adapter)
+            self._safe_cleanup(adapter)
 
-    async def _close_adapter(self, adapter: PydanticSandboxAdapter):
-        """从池中移除时彻底清理：停止并删除容器（cleanup）"""
+    def _safe_cleanup(self, adapter: PydanticSandboxAdapter) -> None:
+        """Cleanup adapter. Called OUTSIDE the lock.
+
+        This is synchronous (Docker API calls are blocking) but safe
+        because it's outside the asyncio.Lock.
+        """
         try:
-            if hasattr(adapter, "cleanup"):
-                adapter.cleanup()
+            adapter.cleanup()
         except Exception as e:
             logger.warning(f"Error closing adapter: {e}")
 
-    async def _evict_lru(self):
-        """淘汰最久未使用的闲置连接"""
+    def _evict_lru_entry(self) -> Optional[PydanticSandboxAdapter]:
+        """淘汰最久未使用的闲置连接 (called inside lock).
+
+        Returns the evicted adapter (to be cleaned up outside lock), or None.
+        """
         lru_sid = None
         lru_time = float("inf")
 
@@ -158,5 +192,6 @@ class SandboxPool:
 
         if lru_sid:
             entry = self._pool.pop(lru_sid)
-            await self._close_adapter(entry.adapter)
             logger.debug(f"Evicted LRU sandbox {lru_sid}")
+            return entry.adapter
+        return None

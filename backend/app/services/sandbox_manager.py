@@ -2,6 +2,7 @@
 Sandbox Manager Service
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, cast
@@ -23,11 +24,20 @@ from app.models.user_sandbox import UserSandbox
 from app.services.sandbox_pool import SandboxPool
 
 # Global Sandbox Pool
-# In a real production environment with multiple workers,
-# this pool might need to be managed differently or be per-worker.
-# Since containers are external resources, per-worker pools are generally fine
-# as long as they don't exceed total system capacity.
 _sandbox_pool = SandboxPool()
+
+# Per-user locks to prevent concurrent container creation for the same user.
+# Key: user_id -> asyncio.Lock
+_user_locks: Dict[str, asyncio.Lock] = {}
+_user_locks_guard = asyncio.Lock()  # Protects _user_locks dict itself
+
+
+async def _get_user_lock(user_id: str) -> asyncio.Lock:
+    """Get or create a per-user asyncio.Lock."""
+    async with _user_locks_guard:
+        if user_id not in _user_locks:
+            _user_locks[user_id] = asyncio.Lock()
+        return _user_locks[user_id]
 
 
 class SandboxManagerService:
@@ -39,6 +49,10 @@ class SandboxManagerService:
     2. 协调 Docker 容器的生命周期 (通过 PydanticSandboxAdapter)
     3. 维护沙箱连接池
     4. 监控沙箱状态
+
+    并发安全：
+    - ensure_sandbox_running 使用 per-user lock 防止同一用户并发创建多个容器
+    - SandboxPool 使用 asyncio.Lock 保护内部状态
     """
 
     def __init__(self, db: AsyncSession):
@@ -74,7 +88,18 @@ class SandboxManagerService:
         """
         确保用户的沙箱正在运行，并返回可用的适配器。
         如果沙箱不存在则创建，如果已停止则启动。
+
+        使用 per-user lock 防止并发创建多个容器。
+        返回的 adapter 已在 pool 中 active_count += 1, 调用方结束后
+        必须通过 _sandbox_pool.release(sandbox_id) 释放引用。
         """
+        # Per-user lock: 同一用户的并发请求串行化，避免创建多个容器
+        user_lock = await _get_user_lock(user_id)
+        async with user_lock:
+            return await self._ensure_sandbox_running_locked(user_id)
+
+    async def _ensure_sandbox_running_locked(self, user_id: str) -> PydanticSandboxAdapter:
+        """ensure_sandbox_running 的内部实现（已持有 per-user lock）"""
         # 1. 获取或创建记录
         sandbox_record = await self.get_user_sandbox_record(user_id)
         if not sandbox_record:
@@ -89,18 +114,47 @@ class SandboxManagerService:
             # 已停止但未移除：尝试重启同一容器
             try:
                 adapter.start()
-                await self._update_status(sandbox_record.id, "running", error_message=None)
+                # 保存 container_id 到 DB
+                container_id = adapter.get_container_id()
+                await self._update_status(
+                    sandbox_record.id, "running",
+                    container_id=container_id,
+                    error_message=None,
+                )
                 return adapter
             except Exception as e:
                 logger.warning(f"Failed to start existing sandbox {sandbox_record.id}, will recreate: {e}")
+                # Release the active_count from pool.get() before removing
+                await _sandbox_pool.release(sandbox_record.id)
                 await _sandbox_pool.remove(sandbox_record.id)
 
-        # 3. 启动新容器
+        # 3. App 重启恢复：尝试重连已有容器
+        if sandbox_record.container_id:
+            try:
+                adapter = self._reconnect_container(sandbox_record)
+                if adapter:
+                    await _sandbox_pool.put(sandbox_record.id, adapter)
+                    container_id = adapter.get_container_id()
+                    await self._update_status(
+                        sandbox_record.id, "running",
+                        container_id=container_id,
+                        error_message=None,
+                    )
+                    logger.info(
+                        f"Reconnected existing container {sandbox_record.container_id} "
+                        f"for user {user_id}"
+                    )
+                    return adapter
+            except Exception as e:
+                logger.warning(
+                    f"Failed to reconnect container {sandbox_record.container_id} "
+                    f"for user {user_id}: {e}"
+                )
+
+        # 4. 启动新容器
         try:
-            # 更新状态为 creating
             await self._update_status(sandbox_record.id, "creating")
 
-            # 准备持久化存储
             import os
 
             from app.utils.path_utils import sanitize_path_component
@@ -110,7 +164,6 @@ class SandboxManagerService:
             os.makedirs(host_sandbox_dir, exist_ok=True)
             volumes = {host_sandbox_dir: "/workspace"}
 
-            # 创建适配器（会自动启动容器）
             logger.info(f"Starting sandbox for user {user_id} (id={sandbox_record.id})")
             adapter = PydanticSandboxAdapter(
                 image=sandbox_record.image,
@@ -122,16 +175,15 @@ class SandboxManagerService:
                 memory_limit_mb=sandbox_record.memory_limit,
             )
 
-            # 4. 注册到池中
+            # 注册到池中 (put 会设 active_count=1)
             await _sandbox_pool.put(sandbox_record.id, adapter)
 
-            # 5. 更新数据库状态
-            # 我们无法轻易获取 container_id，除非 adapter 暴露它
-            # PydanticSandboxAdapter 目前没有暴露 container_id，但有 id (session_id)
+            # 保存 container_id 到 DB（支持 app 重启后恢复）
+            container_id = adapter.get_container_id()
             await self._update_status(
                 sandbox_record.id,
                 "running",
-                container_id=None,  # Adapter 暂未暴露 container_id
+                container_id=container_id,
                 error_message=None,
             )
 
@@ -143,6 +195,40 @@ class SandboxManagerService:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Failed to start sandbox: {str(e)}"
             )
+
+    @staticmethod
+    def _reconnect_container(sandbox_record: UserSandbox) -> Optional[PydanticSandboxAdapter]:
+        """尝试重连已存在的 Docker 容器（app 重启恢复场景）。
+
+        Returns:
+            成功时返回 PydanticSandboxAdapter, 失败返回 None
+        """
+        try:
+            import docker
+
+            client = docker.from_env()
+            container = client.containers.get(sandbox_record.container_id)
+            container_status = container.status  # "running", "exited", "created", etc.
+
+            if container_status in ("exited", "created"):
+                container.start()
+            elif container_status != "running":
+                logger.warning(
+                    f"Container {sandbox_record.container_id} in unexpected state: {container_status}"
+                )
+                return None
+
+            # Create adapter that wraps the existing container
+            adapter = PydanticSandboxAdapter.from_existing_container(
+                container=container,
+                session_id=sandbox_record.id,
+                image=sandbox_record.image,
+                idle_timeout=sandbox_record.idle_timeout,
+            )
+            return adapter
+        except Exception as e:
+            logger.warning(f"Cannot reconnect container {sandbox_record.container_id}: {e}")
+            return None
 
     async def _update_status(
         self, sandbox_id: str, status: str, container_id: Optional[str] = None, error_message: Optional[str] = None
@@ -183,16 +269,28 @@ class SandboxManagerService:
         record = result.scalar_one_or_none()
         if not record:
             return False
+
         adapter = await _sandbox_pool.get(sandbox_id)
-        if adapter and not adapter.is_started():
+        if adapter:
             try:
-                adapter.start()
-                await self._update_status(sandbox_id, "running", error_message=None)
+                if not adapter.is_started():
+                    adapter.start()
+                    container_id = adapter.get_container_id()
+                    await self._update_status(sandbox_id, "running", container_id=container_id, error_message=None)
+                # Always release the active_count from pool.get()
+                await _sandbox_pool.release(sandbox_id)
                 return True
             except Exception as e:
                 logger.warning(f"Failed to start sandbox {sandbox_id}, will recreate: {e}")
+                await _sandbox_pool.release(sandbox_id)
+
+        # Fallback: recreate via ensure_sandbox_running (which also releases properly)
         try:
-            await self.ensure_sandbox_running(record.user_id)
+            new_adapter = await self.ensure_sandbox_running(record.user_id)
+            # ensure_sandbox_running returns with active_count=1, release it since
+            # this is an admin action, not an active usage session
+            sandbox_id_for_release = getattr(new_adapter, "id", sandbox_id)
+            await _sandbox_pool.release(sandbox_id_for_release)
             return True
         except Exception as e:
             logger.error(f"Failed to restart sandbox {sandbox_id}: {e}")
@@ -206,7 +304,10 @@ class SandboxManagerService:
             return False
         await _sandbox_pool.remove(sandbox_id)  # stop + remove container
         try:
-            await self.ensure_sandbox_running(record.user_id)
+            new_adapter = await self.ensure_sandbox_running(record.user_id)
+            # Release the active_count since this is an admin action
+            sandbox_id_for_release = getattr(new_adapter, "id", sandbox_id)
+            await _sandbox_pool.release(sandbox_id_for_release)
             return True
         except Exception as e:
             logger.error(f"Failed to rebuild sandbox {sandbox_id}: {e}")
@@ -237,11 +338,9 @@ class SandboxManagerService:
 
     async def cleanup_idle_sandboxes(self) -> int:
         """清理所有闲置沙箱（后台任务）"""
-        # 1. 清理池中的闲置连接，并获取被清理的ID列表
         evicted_ids = await _sandbox_pool.cleanup_idle()
 
         if evicted_ids:
-            # 2. 更新数据库状态为 stopped
             logger.info(f"Syncing status for evicted sandboxes: {evicted_ids}")
             await self.db.execute(update(UserSandbox).where(UserSandbox.id.in_(evicted_ids)).values(status="stopped"))
             await self.db.commit()

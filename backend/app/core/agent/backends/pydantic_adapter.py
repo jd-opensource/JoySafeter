@@ -270,6 +270,81 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         """
         return self._runtime_config
 
+    def get_container_id(self) -> str | None:
+        """Get the Docker container ID for persistence/reconnection.
+
+        Returns:
+            Docker container ID string, or None if not available.
+        """
+        container = getattr(self._sandbox, "_container", None)
+        if container is not None:
+            return getattr(container, "id", None)
+        return self._saved_container_id
+
+    @classmethod
+    def from_existing_container(
+        cls,
+        container,
+        session_id: str,
+        image: str = DEFAULT_DOCKER_IMAGE,
+        idle_timeout: int = DEFAULT_IDLE_TIMEOUT,
+        working_dir: str = DEFAULT_WORKING_DIR,
+        max_output_size: int = DEFAULT_MAX_OUTPUT_SIZE,
+        command_timeout: int = DEFAULT_COMMAND_TIMEOUT,
+    ) -> "PydanticSandboxAdapter":
+        """Create an adapter that wraps an already-running Docker container.
+
+        Used for app-restart recovery: reconnect to a container that was
+        created in a previous process lifetime.
+
+        Args:
+            container: A docker.models.containers.Container instance (already running).
+            session_id: Session/sandbox ID.
+            image: Image name (for metadata only).
+            idle_timeout: Idle timeout in seconds.
+            working_dir: Working directory inside the container.
+            max_output_size: Max command output size.
+            command_timeout: Command timeout in seconds.
+
+        Returns:
+            PydanticSandboxAdapter wrapping the existing container.
+        """
+        # Create a minimal DockerSandbox and inject the container
+        sandbox = DockerSandbox(
+            image=image,
+            work_dir=working_dir,
+            auto_remove=False,
+            session_id=session_id,
+            idle_timeout=idle_timeout,
+        )
+        # Inject the existing container so DockerSandbox uses it
+        sandbox._container = container
+
+        # Build adapter without calling __init__ (which would start a new container)
+        adapter = cls.__new__(cls)
+        adapter.runtime = None
+        adapter.session_id = session_id
+        adapter.idle_timeout = idle_timeout
+        adapter.volumes = {}
+        adapter.cpu_limit = None
+        adapter.memory_limit_mb = None
+        adapter._runtime_config = None
+        adapter._id = session_id
+        adapter.image = image
+        adapter.working_dir = working_dir
+        adapter.auto_remove = False
+        adapter.max_output_size = max_output_size
+        adapter.command_timeout = command_timeout
+        adapter._started = True
+        adapter._saved_container_id = None
+        adapter._sandbox = sandbox
+
+        logger.info(
+            f"PydanticSandboxAdapter.from_existing_container: "
+            f"id={session_id}, container={getattr(container, 'short_id', 'unknown')}"
+        )
+        return adapter
+
     def start(self) -> None:
         """Start the Docker sandbox container. Idempotent. Restart reuses same container if available."""
         if self._started:
@@ -791,54 +866,87 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         return responses
 
     def stop(self) -> None:
-        """Stop the Docker container without removing it. Idempotent. Use for stop/restart semantics."""
+        """Stop the Docker container without removing it. Idempotent.
+
+        IMPORTANT: This only stops the container. It does NOT remove it.
+        After stop(), start() can restart the same container via _saved_container_id.
+        Never falls back to cleanup() which would destroy the container.
+        """
         if not self._started:
             return
+
+        # Save container_id BEFORE stopping so we can restart later
         upstream_container = getattr(self._sandbox, "_container", None)
         if upstream_container is not None:
             self._saved_container_id = getattr(upstream_container, "id", None)
+
         try:
             if hasattr(self._sandbox, "stop"):
                 self._sandbox.stop()
-            elif hasattr(self._sandbox, "cleanup"):
-                self._sandbox.cleanup()
-            logger.info(f"Sandbox {self._id} stopped (container kept)")
+            elif upstream_container is not None and hasattr(upstream_container, "stop"):
+                # Direct Docker API: stop container without removing
+                upstream_container.stop()
+            else:
+                # No stop method available; just mark as stopped
+                logger.warning(
+                    f"Sandbox {self._id}: no stop() method available, "
+                    f"marking as stopped but container may still run"
+                )
+            logger.info(f"Sandbox {self._id} stopped (container kept, id={self._saved_container_id})")
         except Exception as e:
             logger.warning(f"Failed to stop sandbox {self._id}: {e}")
         finally:
             self._started = False
 
     def cleanup(self) -> None:
-        """Stop and remove the Docker container. Idempotent. Use for rebuild/teardown only."""
+        """Stop and remove the Docker container. Idempotent. Use for rebuild/teardown only.
+
+        Sequence:
+        1. Save container_id from live container reference
+        2. Stop the container (sets _started=False, saves _saved_container_id)
+        3. Remove the container using saved references
+        """
+        # Save container reference BEFORE stop() clears it
+        pre_stop_container = getattr(self._sandbox, "_container", None) if getattr(self, "_sandbox", None) else None
+        pre_stop_container_id = getattr(pre_stop_container, "id", None) if pre_stop_container else None
+
         self.stop()
+
         if getattr(self, "_sandbox", None) is None:
             self._saved_container_id = None
             return
+
+        # Determine which container ID to remove
+        container_id_to_remove = self._saved_container_id or pre_stop_container_id
+
         try:
+            # Try direct container reference first (may still be on _sandbox after stop)
             container = getattr(self._sandbox, "container", None) or getattr(self._sandbox, "_container", None)
             if container is not None and hasattr(container, "remove"):
                 container.remove(force=True)
-                logger.info(f"Sandbox {self._id} container removed")
-            elif self._saved_container_id:
+                logger.info(f"Sandbox {self._id} container removed (direct ref)")
+            elif container_id_to_remove:
                 import docker
 
                 client = docker.from_env()
-                client.containers.get(self._saved_container_id).remove(force=True)
-                logger.info(f"Sandbox {self._id} container removed")
+                client.containers.get(container_id_to_remove).remove(force=True)
+                logger.info(f"Sandbox {self._id} container removed (by id={container_id_to_remove[:12]})")
             elif hasattr(self._sandbox, "remove"):
                 self._sandbox.remove()
-                logger.info(f"Sandbox {self._id} container removed")
+                logger.info(f"Sandbox {self._id} container removed (sandbox.remove)")
+            else:
+                logger.warning(f"Sandbox {self._id}: no way to remove container")
         except Exception as e:
             logger.warning(f"Failed to remove sandbox container {self._id}: {e}")
         finally:
             self._saved_container_id = None
 
-    def __del__(self):
-        """Cleanup on garbage collection."""
-        try:
-            self.cleanup()
-        except Exception:
-            pass
+    # NOTE: __del__ is intentionally NOT implemented.
+    # GC-time cleanup of Docker containers causes unpredictable behavior:
+    # - May delete containers still tracked by the pool
+    # - May run after event loop is closed
+    # - Interferes with the pool-based lifecycle management
+    # All cleanup must be explicit via cleanup() or the SandboxPool.
 
     def __enter__(self):
         """Context manager entry."""
