@@ -58,16 +58,19 @@ class AgentConfig:
         node_id_to_name[node.id] = name
         # Note: _get_node_name is from BaseGraphBuilder, acceptable to use
 
-        # Tools resolution
-        raw_tools = await resolve_tools_for_node(node, user_id=builder.user_id)
+        # Backend resolution - all nodes use shared backend
+        backend = builder.get_backend()
+
+        # Tools resolution (pass backend so preview_skill can read from container)
+        raw_tools = await resolve_tools_for_node(node, user_id=builder.user_id, backend=backend)
         tools = await builder._resolve_tools_from_registry(raw_tools, user_id=builder.user_id)
 
         # Skills resolution
         skill_ids_raw = config.get("skills")
         has_skills = builder.has_valid_skills_config(skill_ids_raw)
 
-        # Backend resolution - all nodes use shared backend
-        backend = builder.get_backend()
+
+
 
         # Preload skills if needed
         if backend and has_skills:

@@ -12,6 +12,7 @@ Backend also has a dedicated `GraphNode.tools` JSONB field; we support both.
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
@@ -92,12 +93,16 @@ def _alias_tool(*, name: str, description: str, callable_func: Any) -> EnhancedT
     )
 
 
-def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: str) -> List[Any]:
+def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: str, backend: Any = None) -> List[Any]:
     """
     Resolve builtin tool IDs into LangChain tools.
 
     Resolve builtin tool IDs (e.g. ``tavily_search``, ``preview_skill``)
     into concrete LangChain tool implementations.
+
+    Args:
+        backend: Optional sandbox backend adapter (PydanticSandboxAdapter).
+                 When provided, preview_skill reads files from inside the container.
     """
     # Try to get tools from registry first
     from app.core.tools.tool_registry import get_global_registry
@@ -109,7 +114,6 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
     from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
 
     # Bind preview_skill with the user's sandbox root path
-    # Sandbox volumes are mounted at /tmp/sandboxes/{user_id} on the host
     # NOTE: We use a real wrapper function instead of functools.partial because
     # langchain's create_schema_from_function cannot introspect partial objects.
     _sandbox_root = str(Path(f"/tmp/sandboxes/{user_id}"))
@@ -117,13 +121,19 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
     def bound_preview_skill(skill_name: str, skills_subdir: str = "skills") -> str:
         """Preview a skill's files and validate its metadata."""
         # The Agent sees paths inside the container (e.g. /workspace/skills/...)
-        # but preview_skill reads from the host volume mount.
-        # Strip leading /workspace or workspace prefix so the path resolves correctly.
+        # Normalize the subdir by stripping /workspace prefix.
         normalized_subdir = skills_subdir.strip("/")
         if normalized_subdir.startswith("workspace/"):
             normalized_subdir = normalized_subdir[len("workspace/"):]
         if not normalized_subdir:
             normalized_subdir = "skills"
+
+        # If a backend is available, read files directly from inside the container.
+        # This avoids relying on Docker volume mount sync (unreliable on macOS).
+        if backend is not None:
+            return _preview_skill_from_backend(backend, skill_name, normalized_subdir)
+
+        # Fallback: read from host filesystem
         return preview_skill_in_sandbox(
             skill_name=skill_name,
             sandbox_root=_sandbox_root,
@@ -160,6 +170,154 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
             continue
         resolved.append(t)
     return resolved
+
+
+def _preview_skill_from_backend(backend: Any, skill_name: str, skills_subdir: str = "skills") -> str:
+    """Preview a skill by reading files from inside the Docker container via backend.
+
+    This uses the backend adapter's ls_info() and read() methods to access
+    files directly inside the container, avoiding host filesystem sync issues.
+    """
+    import json as _json
+
+    from app.core.skill.validators import validate_skill_description, validate_skill_name
+    from app.core.skill.yaml_parser import is_system_file, parse_skill_md
+
+    skill_dir = f"/workspace/{skills_subdir}/{skill_name}"
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    # Check if skill directory exists via ls_info
+    try:
+        dir_listing = backend.ls_info(skill_dir)
+    except Exception as e:
+        logger.warning(f"[preview_skill] Failed to list {skill_dir}: {e}")
+        dir_listing = []
+
+    if not dir_listing:
+        return _json.dumps({
+            "skill_name": skill_name,
+            "files": [],
+            "validation": {
+                "valid": False,
+                "errors": [f"Skill directory not found: {skills_subdir}/{skill_name}"],
+                "warnings": [],
+            },
+        })
+
+    # Recursively collect all files from the skill directory
+    files = []
+    _collect_files_from_backend(backend, skill_dir, skill_dir, files)
+
+    # Locate and validate SKILL.md
+    skill_md_entry = next((f for f in files if f["path"] == "SKILL.md"), None)
+    if skill_md_entry is None:
+        errors.append("SKILL.md not found in skill directory")
+    else:
+        frontmatter, body = parse_skill_md(skill_md_entry["content"])
+        fm_name = frontmatter.get("name", "")
+        if not fm_name:
+            errors.append("Missing required field 'name' in SKILL.md frontmatter")
+        else:
+            name_valid, name_err = validate_skill_name(fm_name)
+            if not name_valid:
+                errors.append(f"Invalid skill name: {name_err}")
+
+        fm_desc = frontmatter.get("description", "")
+        if not fm_desc:
+            errors.append("Missing required field 'description' in SKILL.md frontmatter")
+        else:
+            desc_valid, desc_err = validate_skill_description(str(fm_desc))
+            if not desc_valid:
+                errors.append(f"Invalid skill description: {desc_err}")
+
+        if not body or not body.strip():
+            warnings.append("SKILL.md body is empty; consider adding usage documentation")
+
+    valid = len(errors) == 0
+    return _json.dumps({
+        "skill_name": skill_name,
+        "files": files,
+        "validation": {
+            "valid": valid,
+            "errors": errors,
+            "warnings": warnings,
+        },
+    })
+
+
+def _collect_files_from_backend(backend: Any, dir_path: str, base_dir: str, files: List[Dict[str, Any]]) -> None:
+    """Recursively collect files from inside the container via backend."""
+    import os
+
+    _EXCLUDED_DIRS = {"__pycache__", ".git", "node_modules", ".mypy_cache", ".pytest_cache"}
+
+    try:
+        entries = backend.ls_info(dir_path)
+    except Exception:
+        return
+
+    for entry in entries:
+        path = entry.get("path", "").rstrip("/")
+        is_dir = entry.get("is_dir", False)
+
+        if not path:
+            continue
+
+        basename = os.path.basename(path)
+
+        if is_dir:
+            if basename in _EXCLUDED_DIRS:
+                continue
+            _collect_files_from_backend(backend, path, base_dir, files)
+        else:
+            # Get relative path
+            rel_path = path
+            if path.startswith(base_dir):
+                rel_path = path[len(base_dir):].lstrip("/")
+
+            if not rel_path:
+                continue
+
+            # Read file content
+            try:
+                raw_content = backend.read(path, offset=0, limit=100000)
+                content = raw_content if isinstance(raw_content, str) else str(raw_content)
+                # Strip line numbers added by format_read_response
+                # format_content_with_line_numbers outputs: "{line_num}\t{content}"
+                # e.g. "     1\t---" or "     2\tname: foo"
+                # Also handle legacy " | " format for safety.
+                stripped_lines = []
+                for line in content.splitlines():
+                    # Try tab-separated format first: "  N\tcontent"
+                    m = re.match(r"^\s*\d+(?:\.\d+)?\t", line)
+                    if m:
+                        stripped_lines.append(line[m.end():])
+                    # Fallback: pipe-separated format "  N | content"
+                    elif " | " in line[:12]:
+                        stripped_lines.append(line.split(" | ", 1)[1])
+                    else:
+                        stripped_lines.append(line)
+                content = "\n".join(stripped_lines)
+            except Exception:
+                continue
+
+            # Detect file type
+            ext = os.path.splitext(rel_path)[1].lower()
+            _EXT_MAP = {
+                ".py": "python", ".md": "markdown", ".json": "json",
+                ".yaml": "yaml", ".yml": "yaml", ".txt": "text",
+                ".sh": "shell", ".js": "javascript", ".ts": "typescript",
+                ".html": "html", ".css": "css",
+            }
+            file_type = _EXT_MAP.get(ext, "other")
+
+            files.append({
+                "path": rel_path,
+                "content": content,
+                "file_type": file_type,
+                "size": entry.get("size", len(content)),
+            })
 
 
 def _safe_tool_name(tool: Any) -> str:
@@ -257,7 +415,7 @@ async def _validate_mcp_servers(
         return valid_servers
 
 
-async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None) -> Optional[List[Any]]:
+async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None, backend: Any = None) -> Optional[List[Any]]:
     """
     Resolve tools list for a node.
 
@@ -305,7 +463,7 @@ async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None)
     if builtin_ids_list:
         logger.debug(f"[resolve_tools_for_node] Resolving {len(builtin_ids_list)} builtin tools")
         builtin_tools = _resolve_builtin_tools(
-            builtin_ids=builtin_ids_list, root_dir=root_dir, user_id=normalized_user_id
+            builtin_ids=builtin_ids_list, root_dir=root_dir, user_id=normalized_user_id, backend=backend
         )
         logger.debug(f"[resolve_tools_for_node] Resolved {len(builtin_tools)} builtin tools")
         tools.extend(builtin_tools)
