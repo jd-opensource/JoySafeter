@@ -454,30 +454,10 @@ class GraphDeploymentVersionService(BaseService):
             # 深拷贝 data，确保数据完整性
             restored_data = copy.deepcopy(node_data.get("data", {}))
 
-            # 从 data.config 中提取配置，用于填充数据库字段
-            config = restored_data.get("config", {}) if isinstance(restored_data, dict) else {}
-
-            # 优先使用 config 中的值，否则使用顶层的值
-            prompt = ""
-            if isinstance(config, dict) and config.get("systemPrompt"):
-                prompt = config["systemPrompt"]
-            elif node_data.get("prompt"):
-                prompt = node_data["prompt"]
-
-            # tools: 优先使用 config 中的，否则使用顶层的
-            tools = {}
-            if isinstance(config, dict) and config.get("tools"):
-                tools = copy.deepcopy(config["tools"])
-            elif node_data.get("tools"):
-                tools = copy.deepcopy(node_data["tools"])
-
             node = GraphNode(
                 id=uuid.UUID(node_id),  # 使用原始 ID
                 graph_id=graph_id,
                 type=node_data["type"],
-                tools=tools,
-                memory=copy.deepcopy(node_data.get("memory", {})),
-                prompt=prompt,
                 position_x=position.get("x", 0) if position else 0,
                 position_y=position.get("y", 0) if position else 0,
                 position_absolute_x=position_absolute.get("x") if position_absolute else None,
