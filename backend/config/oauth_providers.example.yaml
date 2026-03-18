@@ -79,7 +79,7 @@ providers:
   # JD SSA (non-standard OAuth2)
   # Note: callback domain must be under *.jd.com or JD-allowed domains
   jd:
-    enabled: false
+    enabled: true
     display_name: "JD SSO"
     icon: "building"
     protocol: "jd_sso"

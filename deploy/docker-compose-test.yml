@@ -1,0 +1,5 @@
+services:
+  test:
+    image: alpine
+    environment:
+      - CORS_ORIGINS=${CORS_ORIGINS:-["$FRONTEND_URL"]}
