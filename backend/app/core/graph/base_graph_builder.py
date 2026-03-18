@@ -279,7 +279,7 @@ class BaseGraphBuilder(ABC):
             f"llm_model={llm_model} | api_key={'***' if api_key else None} | base_url={base_url}"
         )
 
-        from app.core.agent.checkpointer.memory_checkpointer import get_checkpointer
+        from app.core.agent.checkpointer.checkpointer import get_checkpointer
 
         return executor_class(
             node,
