@@ -96,14 +96,8 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
     """
     Resolve builtin tool IDs into LangChain tools.
 
-    Current frontend IDs are mocked (`web_search`, `code_interpreter`), so we map them
-    to concrete tool implementations:
-    - web_search -> TavilyTools.web_search_using_tavily
-    - code_interpreter -> PythonTools.run_python_code
-    - deploy_local_skill -> SkillManagementTools.deploy_local_skill
-
-    For tools registered in tool_registry (like tavily_search, think_tool),
-    we first try to get them from the registry.
+    Resolve builtin tool IDs (e.g. ``tavily_search``, ``preview_skill``)
+    into concrete LangChain tool implementations.
     """
     # Try to get tools from registry first
     from app.core.tools.tool_registry import get_global_registry
@@ -112,20 +106,29 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
 
     # Lazy imports to avoid import-time failures when optional dependencies
     # (e.g. `tavily-python`) are not installed.
-    from functools import partial
-
-    from app.core.tools.buildin.skill_management import SkillManagementTools
     from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
-
-    skill_mgmt = SkillManagementTools(user_id=user_id)
 
     # Bind preview_skill with the user's sandbox root path
     # Sandbox volumes are mounted at /tmp/sandboxes/{user_id} on the host
-    sandbox_root = Path(f"/tmp/sandboxes/{user_id}")
-    bound_preview_skill = partial(
-        preview_skill_in_sandbox,
-        sandbox_root=str(sandbox_root),
-    )
+    # NOTE: We use a real wrapper function instead of functools.partial because
+    # langchain's create_schema_from_function cannot introspect partial objects.
+    _sandbox_root = str(Path(f"/tmp/sandboxes/{user_id}"))
+
+    def bound_preview_skill(skill_name: str, skills_subdir: str = "skills") -> str:
+        """Preview a skill's files and validate its metadata."""
+        # The Agent sees paths inside the container (e.g. /workspace/skills/...)
+        # but preview_skill reads from the host volume mount.
+        # Strip leading /workspace or workspace prefix so the path resolves correctly.
+        normalized_subdir = skills_subdir.strip("/")
+        if normalized_subdir.startswith("workspace/"):
+            normalized_subdir = normalized_subdir[len("workspace/"):]
+        if not normalized_subdir:
+            normalized_subdir = "skills"
+        return preview_skill_in_sandbox(
+            skill_name=skill_name,
+            sandbox_root=_sandbox_root,
+            skills_subdir=normalized_subdir,
+        )
 
     # Research tools - get from registry only
     research_tools = {}
@@ -139,11 +142,6 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
 
     # Canonical mapping for UI-friendly IDs -> tool implementations.
     aliases: Dict[str, Any] = {
-        "deploy_local_skill": _alias_tool(
-            name="deploy_local_skill",
-            description="Deploy a local skill from the sandbox to the system (private).",
-            callable_func=skill_mgmt.deploy_local_skill,
-        ),
         "preview_skill": _alias_tool(
             name="preview_skill",
             description="Preview a skill generated in the sandbox. Reads all files and returns JSON with contents and validation.",

@@ -155,7 +155,7 @@ class BaseGraphBuilder(ABC):
         """Extract system prompt from node configuration (data.config only)."""
         data = node.data or {}
         config: Dict[str, Any] = data.get("config", {})
-        return config.get("systemPrompt", "") or config.get("prompt", "") or None
+        return config.get("systemPrompt", "") or config.get("system_prompt", "") or config.get("prompt", "") or None
 
     def _get_direct_children(self, node: GraphNode) -> List[GraphNode]:
         """Get direct child nodes (nodes connected via outgoing edges)."""

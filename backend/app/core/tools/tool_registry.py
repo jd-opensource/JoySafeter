@@ -612,7 +612,6 @@ def _initialize_builtin_tools(registry: ToolRegistry):
     """Initialize builtin tools in the registry."""
     try:
         from app.core.tools.buildin.research_tools import tavily_search, think_tool
-        from app.core.tools.buildin.skill_management import SkillManagementTools
 
         # 1. Register research tools (LangChain tools created with @tool decorator)
         registry.register_langchain_tool(
@@ -629,22 +628,9 @@ def _initialize_builtin_tools(registry: ToolRegistry):
             source_type=ToolSourceType.BUILTIN,
         )
 
-        # 2. Register execution tools (FileTools, PythonTools, SkillManagement)
+        # 2. Register execution tools
         # We instantiate them with dummy paths because we only need their metadata (name, description, args)
         # for frontend display. The actual execution uses instances created in node_tools.py with real user context.
-        #
-        # NOTE: We use the SAME names as in node_tools.py -> aliases map
-
-        # --- Skill Management ---
-        # We use a dummy user_id for registration purposes
-        skill_tools = SkillManagementTools(user_id="system_registration")
-        registry.register_builtin(
-            callable_func=skill_tools.deploy_local_skill,
-            name="deploy_local_skill",
-            description="Deploy a local skill from the sandbox to the system (private).",
-            category="system",
-            tags={"skill", "deployment"},
-        )
 
         # --- Skill Preview ---
         from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox

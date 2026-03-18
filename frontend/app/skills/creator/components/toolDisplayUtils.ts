@@ -84,14 +84,6 @@ export function formatToolDisplay(
   if (toolName === 'preview_skill') {
     const skillName = toolInput?.skill_name || ''
     return {
-      label: `Previewing skill${skillName ? ': ' + skillName : ''}`,
-      detail: '',
-    }
-  }
-
-  if (toolName === 'deploy_local_skill') {
-    const skillName = toolInput?.skill_name || ''
-    return {
       label: `Deploying skill${skillName ? ': ' + skillName : ''}`,
       detail: '',
     }
