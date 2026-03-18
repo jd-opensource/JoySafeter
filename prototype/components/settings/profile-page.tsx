@@ -259,14 +259,14 @@ export function ProfilePage() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-2xl mx-auto space-y-8">
+      <div className="mx-auto max-w-3xl space-y-8">
         {/* User Profile Section */}
-        <div className="space-y-6">
+        <div className="surface-panel space-y-6 px-6 py-7">
           {/* User Avatar and Info */}
           <div className="flex items-center gap-4">
             <Avatar className="h-16 w-16 flex-shrink-0">
               {user?.image && <AvatarImage src={user.image} alt={user?.name || t('user.user')} />}
-              <AvatarFallback className="bg-pink-500 text-white text-lg font-medium">
+              <AvatarFallback className="bg-[var(--brand-500)] text-lg font-medium text-white">
                 {getInitials(user?.name, user?.email)}
               </AvatarFallback>
             </Avatar>
@@ -288,34 +288,34 @@ export function ProfilePage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <span className="text-lg font-medium text-foreground">{displayName || user?.name || t('user.user')}</span>
+                  <span className="text-lg font-semibold text-[var(--text-primary)]">{displayName || user?.name || t('user.user')}</span>
                   <button
                     onClick={() => setIsEditingName(true)}
-                    className="p-1 hover:bg-muted rounded transition-colors"
+                    className="rounded-full p-1 transition-colors hover:bg-[var(--surface-2)]"
                     aria-label="Edit name"
                   >
-                    <Pencil size={14} className="text-muted-foreground" />
+                    <Pencil size={14} className="text-[var(--text-muted)]" />
                   </button>
                 </div>
               )}
-              <p className="text-sm text-muted-foreground">{user?.email}</p>
+              <p className="text-sm text-[var(--text-secondary)]">{user?.email}</p>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2 pt-6 border-t border-border">
+        <div className="surface-panel flex flex-wrap items-center gap-2 px-6 py-5">
           <Button
             variant="outline"
             onClick={handleLogout}
-            className="gap-2"
+            className="gap-2 rounded-full bg-white/80"
           >
             <LogOut size={16} />
             {t('user.logout')}
           </Button>
           <Button
             onClick={handleResetPasswordClick}
-            className="gap-2"
+            className="btn-primary gap-2 rounded-full px-5"
           >
             <KeyRound size={16} />
             {t('auth.resetPassword')}
@@ -325,22 +325,22 @@ export function ProfilePage() {
 
       {/* Reset Password Dialog */}
       <Dialog open={isResetDialogOpen} onOpenChange={handleCloseDialog}>
-        <DialogContent className="sm:max-w-[425px] p-0 gap-0 overflow-hidden bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
-          <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 flex flex-row items-center gap-3">
-            <div className="p-1.5 rounded-lg border border-gray-50 shadow-sm shrink-0 bg-violet-50 text-violet-600">
+        <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-[0_28px_70px_rgba(15,23,42,0.16)] sm:max-w-[425px]">
+          <DialogHeader className="flex shrink-0 flex-row items-center gap-3 border-b border-[var(--divider)] px-6 py-5">
+            <div className="shrink-0 rounded-2xl border border-[var(--divider)] bg-[var(--surface-2)] p-2 text-[var(--brand-500)]">
               <KeyRound size={14} />
             </div>
             <div className="flex flex-col min-w-0">
-              <DialogTitle className="font-bold text-sm leading-tight">
+              <DialogTitle className="text-sm font-semibold leading-tight text-[var(--text-primary)]">
                 {t('auth.resetPassword')}
               </DialogTitle>
-              <DialogDescription className="text-muted-foreground text-xs mt-0.5">
+              <DialogDescription className="mt-0.5 text-xs text-[var(--text-secondary)]">
                 {t('auth.enterNewPassword')}
               </DialogDescription>
             </div>
           </DialogHeader>
           <form onSubmit={handleSubmitNewPassword} className="flex flex-col flex-1 min-h-0">
-            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto bg-[var(--surface-2)] p-6">
               <div className="space-y-2">
                 <Label htmlFor="new-password" className="text-sm font-medium">
                   {t('auth.newPassword')}
@@ -404,7 +404,7 @@ export function ProfilePage() {
               </div>
             </div>
 
-            <div className="border-t border-gray-100 px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <div className="flex flex-col-reverse gap-2 border-t border-[var(--divider)] bg-white/80 px-6 py-4 sm:flex-row sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
@@ -416,6 +416,7 @@ export function ProfilePage() {
               <Button
                 type="submit"
                 disabled={isSubmitting || !newPassword || !confirmPassword}
+                className="btn-primary rounded-full px-5"
               >
                 {isSubmitting ? t('common.saving') : t('auth.resetPassword')}
               </Button>

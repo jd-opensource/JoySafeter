@@ -22,7 +22,7 @@ const DialogOverlay = React.forwardRef<
     <DialogPrimitive.Overlay
       ref={ref}
       className={cn(
-        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[10000000] bg-white/50 data-[state=closed]:animate-out data-[state=open]:animate-in dark:bg-black/50',
+        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[10000000] bg-[rgba(31,42,54,0.22)] data-[state=closed]:animate-out data-[state=open]:animate-in',
         className
       )}
       style={{ backdropFilter: 'blur(1.5px)', ...style }}
@@ -52,7 +52,7 @@ const DialogContent = React.forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-[10000000] grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[8px] border border-[var(--border-muted)] bg-[var(--surface-3)] p-6 shadow-lg duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in dark:bg-[var(--surface-3)]',
+          'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-[10000000] grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[20px] border border-[var(--border)] bg-[var(--surface-elevated)] p-6 shadow-[0_24px_60px_rgba(15,23,42,0.12)] duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in',
           className
         )}
         onEscapeKeyDown={(e) => {
@@ -73,7 +73,7 @@ const DialogContent = React.forwardRef<
         {children}
         {!hideCloseButton && (
           <DialogPrimitive.Close
-            className='absolute top-2 right-2 h-4 w-4 p-0 text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground focus:outline-none disabled:pointer-events-none'
+            className='absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0 text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] focus:outline-none disabled:pointer-events-none'
             disabled={!isInteractionReady}
             tabIndex={-1}
           >
@@ -94,7 +94,7 @@ DialogHeader.displayName = 'DialogHeader'
 
 const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
+    className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
     {...props}
   />
 )
@@ -106,7 +106,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn('font-medium text-lg leading-none tracking-tight', className)}
+    className={cn('font-semibold text-[1.15rem] leading-none tracking-tight text-[var(--text-primary)]', className)}
     {...props}
   />
 ))
@@ -118,7 +118,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn('text-muted-foreground text-sm', className)}
+    className={cn('text-sm leading-relaxed text-[var(--text-secondary)]', className)}
     {...props}
   />
 ))

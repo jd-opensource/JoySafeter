@@ -397,7 +397,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-gray-50 relative overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-transparent relative overflow-hidden">
       {/* Two-panel layout */}
       <ResizablePanelGroup direction="horizontal" className="flex-1">
         {/* Left Sidebar - History (show/hide based on state) */}
@@ -418,7 +418,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               />
             </ResizablePanel>
 
-            <ResizableHandle className="w-px bg-gray-200" />
+            <ResizableHandle className="w-px bg-[var(--divider)]" />
           </>
         )}
 
@@ -429,7 +429,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <div className="relative h-full flex flex-col overflow-hidden">
               {/* Header with Toggle Sidebar Button */}
               <div className={cn(
-                "h-12 flex items-center gap-2 px-6 bg-gray-50 z-10 flex-shrink-0 transition-all duration-200"
+                'h-14 flex items-center gap-2 px-6 z-10 flex-shrink-0 transition-all duration-200 border-b border-[var(--divider)] bg-[rgba(255,253,248,0.72)] backdrop-blur-xl'
               )}>
                 <TooltipProvider>
                   <Tooltip>
@@ -438,9 +438,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={() => setSidebarVisible(prev => !prev)}
-                        className="h-9 w-9 p-0 hover:bg-white/8 transition-colors"
+                        className="h-9 w-9 p-0"
                       >
-                        <List size={18} className="text-gray-600" />
+                        <List size={18} className="text-[var(--text-secondary)]" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -453,9 +453,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={handleNewChat}
-                        className="h-9 w-9 p-0 hover:bg-white/8 transition-colors"
+                        className="h-9 w-9 p-0"
                       >
-                        <Plus size={18} className="text-gray-600" />
+                        <Plus size={18} className="text-[var(--text-secondary)]" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -475,7 +475,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <div className="relative h-full flex flex-col overflow-hidden">
               {/* Header */}
               <div className={cn(
-                "h-12 flex items-center gap-2 px-6 bg-gray-50 z-10 flex-shrink-0 transition-all duration-200",
+                'h-14 flex items-center gap-2 px-6 z-10 flex-shrink-0 transition-all duration-200 border-b border-[var(--divider)] bg-[rgba(255,253,248,0.72)] backdrop-blur-xl',
                 toolPanelOpen && hasToolCalls && "pr-[632px]"
               )}>
                 <TooltipProvider>
@@ -485,9 +485,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={() => setSidebarVisible(prev => !prev)}
-                        className="h-9 w-9 p-0 hover:bg-white/8 transition-colors"
+                        className="h-9 w-9 p-0"
                       >
-                        <List size={18} className="text-gray-600" />
+                        <List size={18} className="text-[var(--text-secondary)]" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -500,9 +500,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={handleNewChat}
-                        className="h-9 w-9 p-0 hover:bg-white/8 transition-colors"
+                        className="h-9 w-9 p-0"
                       >
-                        <Plus size={18} className="text-gray-600" />
+                        <Plus size={18} className="text-[var(--text-secondary)]" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -529,7 +529,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
               {/* Input Area - Fixed at bottom */}
               <div className={cn(
-                "flex-shrink-0 px-6 pb-6 pt-2 relative transition-all duration-200 bg-gray-50",
+                "flex-shrink-0 px-6 pb-6 pt-3 relative transition-all duration-200 bg-[rgba(255,253,248,0.72)] backdrop-blur-xl",
                 toolPanelOpen && hasToolCalls && "pr-[632px]"
               )}>
                 <ChatInput
@@ -555,7 +555,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               {hasToolCalls && (
                 <div
                   className={cn(
-                    'absolute top-4 right-4 bottom-4 bg-white border border-gray-200 shadow-2xl z-20 rounded-2xl overflow-hidden w-[600px]',
+                    'absolute top-4 right-4 bottom-4 bg-[var(--surface-elevated)] border border-[var(--border)] shadow-[0_26px_60px_rgba(15,23,42,0.14)] z-20 rounded-[24px] overflow-hidden w-[600px]',
                     'transition-all duration-200',
                     toolPanelOpen
                       ? 'translate-x-0 translate-y-0 opacity-100 scale-100'
@@ -604,7 +604,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 }
                 setShowNoDefaultModelNotice(false)
               }}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-[var(--brand-500)] hover:bg-[var(--brand-600)]"
             >
               {t('chat.goToModelSettings')}
             </AlertDialogAction>

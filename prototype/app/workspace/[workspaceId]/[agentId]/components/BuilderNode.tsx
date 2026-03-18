@@ -312,7 +312,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   return (
     <div
       className={cn(
-        'group min-w-[140px] rounded-xl border bg-white/95 backdrop-blur-sm shadow-sm transition-all duration-500 relative',
+        'group min-w-[140px] rounded-xl border bg-white shadow-sm transition-all duration-500 relative',
         selected
           ? 'border-blue-500 ring-2 ring-blue-500/10'
           : 'border-gray-200 hover:border-gray-300',

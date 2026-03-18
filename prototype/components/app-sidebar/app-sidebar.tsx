@@ -6,7 +6,6 @@ import {
   MessageSquare,
   Blocks,
   Database,
-  BarChart3,
   ShieldCheck,
   Terminal,
   Settings,
@@ -69,19 +68,12 @@ export const menuItems: MenuItem[] = [
     id: 'knowledge',
     labelKey: 'sidebar.knowledge',
     icon: Database,
-    href: '/knowledge',
+    href: '/knowledge/datasets',
     matchPaths: ['/knowledge', '/memory'],
     subItems: [
       { id: 'knowledge-datasets', labelKey: 'sidebar.knowledgeDatasets', href: '/knowledge/datasets' },
       { id: 'knowledge-memory', labelKey: 'sidebar.knowledgeMemory', href: '/knowledge/memory' },
     ],
-  },
-  {
-    id: 'evaluate',
-    labelKey: 'sidebar.evaluate',
-    icon: BarChart3,
-    href: '/evaluate',
-    matchPaths: ['/evaluate'],
   },
   {
     id: 'skills',
@@ -136,11 +128,16 @@ export function AppSidebar({ isCollapsed = false, onMenuSelect }: AppSidebarProp
 
   return (
     <TooltipProvider>
-      <aside className="flex h-screen w-full flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface-elevated)]">
+      <aside className="flex h-screen w-full flex-shrink-0 flex-col border-r border-[var(--divider)] bg-[color:rgba(247,249,252,0.88)] backdrop-blur-xl">
         <div className="flex h-full flex-col">
           <AppLogo isCollapsed={isCollapsed} />
 
-          <nav className="flex-1 py-2 px-2 overflow-y-auto">
+          <nav className="flex-1 overflow-y-auto px-3 pb-3 pt-1">
+            {!isCollapsed && (
+              <div className="px-2 pb-3">
+                <div className="section-label">Navigation</div>
+              </div>
+            )}
             <ul className="space-y-0.5">
               {menuItems.map((item) => {
                 const Icon = item.icon
@@ -152,15 +149,27 @@ export function AppSidebar({ isCollapsed = false, onMenuSelect }: AppSidebarProp
                     href={item.href}
                     onClick={() => onMenuSelect?.(item)}
                     className={cn(
-                      'flex items-center gap-2 rounded-lg px-2 py-2 text-[13px] font-medium transition-colors',
+                      'relative flex items-center gap-3 rounded-[14px] px-3 py-3 text-[13px] font-medium transition-[background,color,border-color,box-shadow]',
                       isCollapsed ? 'justify-center' : '',
                       isActive
-                        ? 'bg-[var(--surface-5)] text-[var(--text-primary)]'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]'
+                        ? 'border border-[var(--border)] bg-[rgba(255,255,255,0.9)] text-[var(--text-primary)] shadow-[0_10px_22px_rgba(24,35,50,0.05)]'
+                        : 'border border-transparent text-[var(--text-secondary)] hover:border-[var(--border)] hover:bg-[var(--surface-1)] hover:text-[var(--text-primary)]'
                     )}
                   >
-                    <Icon className="h-[16px] w-[16px] flex-shrink-0" />
+                    <span
+                      className={cn(
+                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border',
+                        isActive
+                          ? 'border-[rgba(36,56,77,0.16)] bg-[rgba(36,56,77,0.08)] text-[var(--brand-500)]'
+                          : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)]'
+                      )}
+                    >
+                      <Icon className="h-[16px] w-[16px] flex-shrink-0" />
+                    </span>
                     {!isCollapsed && <span className="truncate">{label}</span>}
+                    {isActive && !isCollapsed && (
+                      <span className="absolute inset-y-3 left-1 w-px rounded-full bg-[rgba(36,56,77,0.3)]" />
+                    )}
                   </Link>
                 )
 
@@ -184,14 +193,14 @@ export function AppSidebar({ isCollapsed = false, onMenuSelect }: AppSidebarProp
             </ul>
           </nav>
 
-          <div className="px-2 pb-2">
+          <div className="px-3 pb-3">
             {!isCollapsed && pendingCount > 0 && (
-              <div className="mb-2 px-3 py-1.5 rounded-md bg-blue-50 dark:bg-blue-950/20">
+              <div className="mb-3 surface-panel-flat px-3 py-2">
                 <div className="flex items-center gap-2">
                   <div className="flex-shrink-0">
-                    <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                    <div className="h-2 w-2 rounded-full bg-[var(--status-running)] animate-pulse" />
                   </div>
-                  <span className="text-[10px] font-medium text-blue-700 dark:text-blue-300 truncate">
+                  <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--text-secondary)] truncate">
                     {pendingCount} {pendingCount === 1 ? t('notifications.pendingItem') : t('notifications.pendingItems')}
                   </span>
                 </div>
@@ -204,17 +213,17 @@ export function AppSidebar({ isCollapsed = false, onMenuSelect }: AppSidebarProp
                   <NotificationCenter>
                     <button
                       className={cn(
-                        'flex items-center justify-center rounded-lg px-2 py-2 text-[13px] font-medium transition-colors w-full relative',
+                        'surface-panel-flat flex items-center justify-center rounded-[14px] px-2 py-2.5 text-[13px] font-medium transition-colors w-full relative',
                         pendingCount > 0
-                          ? 'text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/20'
-                          : 'text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]'
+                          ? 'text-[var(--brand-500)] hover:bg-[var(--surface-2)]'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]'
                       )}
                     >
                       <div className="relative">
                         <svg
                           className={cn(
                             "h-[16px] w-[16px] flex-shrink-0",
-                            pendingCount > 0 && "text-blue-600 dark:text-blue-400"
+                            pendingCount > 0 && "text-[var(--brand-500)]"
                           )}
                           fill="none"
                           stroke="currentColor"
@@ -228,7 +237,7 @@ export function AppSidebar({ isCollapsed = false, onMenuSelect }: AppSidebarProp
                           />
                         </svg>
                         {pendingCount > 0 && (
-                          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-md ring-2 ring-white dark:ring-gray-800">
+                          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-md ring-2 ring-white">
                             {pendingCount > 9 ? '9+' : pendingCount}
                           </span>
                         )}
@@ -244,17 +253,17 @@ export function AppSidebar({ isCollapsed = false, onMenuSelect }: AppSidebarProp
               <NotificationCenter>
                 <button
                   className={cn(
-                    'flex items-center gap-2 rounded-lg px-2 py-2 text-[13px] font-medium transition-colors w-full relative',
+                    'surface-panel-flat flex items-center gap-2 rounded-[14px] px-3 py-2.5 text-[13px] font-medium transition-colors w-full relative',
                     pendingCount > 0
-                      ? 'text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/20'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]'
+                      ? 'text-[var(--brand-500)] hover:bg-[var(--surface-2)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]'
                   )}
                 >
                   <div className="relative">
                     <svg
                       className={cn(
                         "h-[16px] w-[16px] flex-shrink-0",
-                        pendingCount > 0 && "text-blue-600 dark:text-blue-400"
+                        pendingCount > 0 && "text-[var(--brand-500)]"
                       )}
                       fill="none"
                       stroke="currentColor"
@@ -268,7 +277,7 @@ export function AppSidebar({ isCollapsed = false, onMenuSelect }: AppSidebarProp
                       />
                     </svg>
                     {pendingCount > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-md ring-2 ring-white dark:ring-gray-800">
+                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-md ring-2 ring-white">
                         {pendingCount > 9 ? '9+' : pendingCount}
                       </span>
                     )}

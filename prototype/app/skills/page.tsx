@@ -19,25 +19,35 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="executive-page">
+      <div className="executive-page-content flex h-full w-full flex-col">
       <Tabs
         value={activeTab}
         onValueChange={setActiveTab}
         className="flex flex-col h-full"
       >
-        {/* Tab navigation header */}
-        <div className="flex-shrink-0 border-b border-white/[0.06] px-6 py-3">
-          <TabsList className="h-10 bg-white/[0.05] border border-white/[0.06] p-1 rounded-xl">
+        <div className="mb-4 space-y-3">
+          <div className="executive-kicker">Skills and tooling</div>
+          <div>
+            <h1 className="font-display text-[2.4rem] leading-none text-[var(--text-primary)]">{t('skills.marketplace')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
+              Review marketplace capabilities, curate internal skills, and standardize execution knowledge across teams.
+            </p>
+          </div>
+        </div>
+
+        <div className="surface-panel flex-shrink-0 px-4 py-4">
+          <TabsList className="h-11 rounded-[14px]">
             <TabsTrigger
               value="store"
-              className="gap-2 px-4 text-white/50 data-[state=active]:bg-white/[0.08] data-[state=active]:text-violet-300 data-[state=active]:shadow-none"
+              className="gap-2 px-4"
             >
               <Store className="w-4 h-4" />
               {t('skills.marketplace')}
             </TabsTrigger>
             <TabsTrigger
               value="my"
-              className="gap-2 px-4 text-white/50 data-[state=active]:bg-white/[0.08] data-[state=active]:text-violet-300 data-[state=active]:shadow-none"
+              className="gap-2 px-4"
             >
               <FolderOpen className="w-4 h-4" />
               {t('skills.mySkills')}
@@ -54,6 +64,7 @@ export default function SkillsPage() {
           <SkillsManager />
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   )
 }

@@ -37,9 +37,9 @@ export const ExecutionModal: React.FC<ExecutionModalProps> = ({ onClose }) => {
 
   return (
     <div className="absolute bottom-4 left-4 z-[100] w-[380px] flex flex-col pointer-events-none">
-      <div className="bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[500px] pointer-events-auto animate-in slide-in-from-left-4 duration-300">
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[500px] pointer-events-auto animate-in slide-in-from-left-4 duration-300">
         {/* Compact Header */}
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white/50">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50">
           <div className="flex items-center gap-2">
             <div
               className={cn(
@@ -102,12 +102,12 @@ export const ExecutionModal: React.FC<ExecutionModalProps> = ({ onClose }) => {
               </div>
             </div>
           ) : (
-            <div className="flex-1 bg-gray-900 rounded-xl flex flex-col overflow-hidden shadow-inner border border-gray-800">
+            <div className="flex-1 bg-gray-50 rounded-xl flex flex-col overflow-hidden shadow-inner border border-gray-200">
               {/* Log Stream */}
               <div className="flex-1 overflow-y-auto p-3 space-y-2 font-mono text-[9px] custom-scrollbar scroll-smooth">
                 {executionLogs.map((log, i) => (
-                  <div key={i} className="flex gap-2 border-b border-white/5 pb-1 last:border-0">
-                    <span className="text-gray-600 shrink-0">
+                  <div key={i} className="flex gap-2 border-b border-gray-100 pb-1 last:border-0">
+                    <span className="text-gray-500 shrink-0">
                       [
                       {new Date(log.timestamp).toLocaleTimeString([], {
                         hour: '2-digit',
@@ -120,34 +120,34 @@ export const ExecutionModal: React.FC<ExecutionModalProps> = ({ onClose }) => {
                       className={cn(
                         'font-bold shrink-0 uppercase w-16 truncate',
                         log.status === 'success'
-                          ? 'text-green-500'
+                          ? 'text-green-600'
                           : log.status === 'error'
-                            ? 'text-red-500'
-                            : 'text-blue-400'
+                            ? 'text-red-600'
+                            : 'text-blue-600'
                       )}
                     >
                       {log.nodeLabel}
                     </span>
-                    <span className="text-gray-300 italic">{log.message}</span>
+                    <span className="text-gray-600 italic">{log.message}</span>
                   </div>
                 ))}
                 <div ref={logEndRef} />
               </div>
 
               {/* Status Bottom Bar */}
-              <div className="px-3 py-2 bg-black/40 flex items-center justify-between border-t border-white/5">
+              <div className="px-3 py-2 bg-gray-100 flex items-center justify-between border-t border-gray-200">
                 <div className="flex items-center gap-2">
                   {isExecuting ? (
                     <div className="flex items-center gap-1.5">
-                      <Loader2 size={10} className="text-blue-400 animate-spin" />
-                      <span className="text-[9px] font-bold text-blue-400 tracking-tighter">
+                      <Loader2 size={10} className="text-blue-600 animate-spin" />
+                      <span className="text-[9px] font-bold text-blue-600 tracking-tighter">
                         {t('workspace.agentActive')}
                       </span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5">
-                      <CheckCircle2 size={10} className="text-green-500" />
-                      <span className="text-[9px] font-bold text-green-500 tracking-tighter">
+                      <CheckCircle2 size={10} className="text-green-600" />
+                      <span className="text-[9px] font-bold text-green-600 tracking-tighter">
                         {t('workspace.flowFinished')}
                       </span>
                     </div>
@@ -157,7 +157,7 @@ export const ExecutionModal: React.FC<ExecutionModalProps> = ({ onClose }) => {
                   {isExecuting && (
                     <button
                       onClick={stopExecution}
-                      className="text-[9px] font-bold text-red-400 hover:text-red-300 underline underline-offset-2"
+                      className="text-[9px] font-bold text-red-600 hover:text-red-700 underline underline-offset-2"
                     >
                       {t('workspace.terminate')}
                     </button>
@@ -168,7 +168,7 @@ export const ExecutionModal: React.FC<ExecutionModalProps> = ({ onClose }) => {
                         setInput('')
                         useBuilderStore.setState({ executionLogs: [] })
                       }}
-                      className="text-[9px] font-bold text-gray-400 hover:text-white"
+                      className="text-[9px] font-bold text-gray-500 hover:text-gray-900"
                     >
                       {t('workspace.clearLogs')}
                     </button>

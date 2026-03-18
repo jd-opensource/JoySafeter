@@ -157,15 +157,15 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
   const getScopeColor = (scope: string) => {
     switch (scope) {
       case 'global':
-        return 'bg-blue-50/80 text-blue-700 border-blue-200/60 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800/40'
+        return 'bg-blue-50/80 text-blue-700 border-blue-200/60'
       case 'loop':
-        return 'bg-cyan-50/80 text-cyan-700 border-cyan-200/60 dark:bg-cyan-950/30 dark:text-cyan-400 dark:border-cyan-800/40'
+        return 'bg-cyan-50/80 text-cyan-700 border-cyan-200/60'
       case 'task':
-        return 'bg-purple-50/80 text-purple-700 border-purple-200/60 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-800/40'
+        return 'bg-purple-50/80 text-purple-700 border-purple-200/60'
       case 'node':
-        return 'bg-emerald-50/80 text-emerald-700 border-emerald-200/60 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/40'
+        return 'bg-emerald-50/80 text-emerald-700 border-emerald-200/60'
       default:
-        return 'bg-gray-50/80 text-gray-700 border-gray-200/60 dark:bg-gray-950/30 dark:text-gray-400 dark:border-gray-800/40'
+        return 'bg-gray-50/80 text-gray-700 border-gray-200/60'
     }
   }
 
@@ -206,10 +206,10 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
         className="w-[420px] sm:max-w-[420px] p-0 flex flex-col bg-[var(--surface-2)] border-r border-[var(--border)]"
       >
         {/* Header */}
-        <div className="px-4 py-3.5 border-b border-[var(--border)] shrink-0 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 backdrop-blur-sm">
+        <div className="px-4 py-3.5 border-b border-[var(--divider)] shrink-0 bg-[rgba(255,255,255,0.58)]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-sm">
+              <div className="w-8 h-8 rounded-lg bg-[linear-gradient(180deg,var(--brand-400),var(--brand-500))] flex items-center justify-center shadow-sm">
                 <Database size={16} className="text-white" />
               </div>
               <div className="flex flex-col">
@@ -284,13 +284,13 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 {groupedVariables.global.length > 0 && (
                   <div className="space-y-2.5">
                     <div className="flex items-center gap-2 mb-2 px-1">
-                      <div className="w-5 h-5 rounded-md bg-blue-100 dark:bg-blue-950/40 flex items-center justify-center">
-                        <Database size={11} className="text-blue-600 dark:text-blue-400" />
+                      <div className="w-5 h-5 rounded-md bg-blue-100 flex items-center justify-center">
+                        <Database size={11} className="text-blue-600" />
                       </div>
                       <Label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                         Global Variables
                       </Label>
-                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-0">
+                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-blue-50 text-blue-700 border-0">
                         {groupedVariables.global.length}
                       </Badge>
                     </div>
@@ -313,13 +313,13 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 {groupedVariables.loop.length > 0 && (
                   <div className="space-y-2.5">
                     <div className="flex items-center gap-2 mb-2 px-1">
-                      <div className="w-5 h-5 rounded-md bg-cyan-100 dark:bg-cyan-950/40 flex items-center justify-center">
-                        <GitBranch size={11} className="text-cyan-600 dark:text-cyan-400" />
+                      <div className="w-5 h-5 rounded-md bg-cyan-100 flex items-center justify-center">
+                        <GitBranch size={11} className="text-cyan-600" />
                       </div>
                       <Label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                         Loop Variables
                       </Label>
-                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-cyan-50 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-400 border-0">
+                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-cyan-50 text-cyan-700 border-0">
                         {groupedVariables.loop.length}
                       </Badge>
                     </div>
@@ -342,13 +342,13 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 {groupedVariables.task.length > 0 && (
                   <div className="space-y-2.5">
                     <div className="flex items-center gap-2 mb-2 px-1">
-                      <div className="w-5 h-5 rounded-md bg-purple-100 dark:bg-purple-950/40 flex items-center justify-center">
-                        <Layers size={11} className="text-purple-600 dark:text-purple-400" />
+                      <div className="w-5 h-5 rounded-md bg-purple-100 flex items-center justify-center">
+                        <Layers size={11} className="text-purple-600" />
                       </div>
                       <Label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                         Task Variables
                       </Label>
-                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-0">
+                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-purple-50 text-purple-700 border-0">
                         {groupedVariables.task.length}
                       </Badge>
                     </div>
@@ -371,13 +371,13 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 {groupedVariables.node.length > 0 && (
                   <div className="space-y-2.5">
                     <div className="flex items-center gap-2 mb-2 px-1">
-                      <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center">
-                        <Info size={11} className="text-emerald-600 dark:text-emerald-400" />
+                      <div className="w-5 h-5 rounded-md bg-emerald-100 flex items-center justify-center">
+                        <Info size={11} className="text-emerald-600" />
                       </div>
                       <Label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                         Node Variables
                       </Label>
-                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-0">
+                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-emerald-50 text-emerald-700 border-0">
                         {groupedVariables.node.length}
                       </Badge>
                     </div>
@@ -506,7 +506,7 @@ const VariableItem: React.FC<VariableItemProps> = ({
           title="Copy path"
         >
           {copiedPath === variable.path ? (
-            <Check size={13} className="text-emerald-600 dark:text-emerald-400" />
+            <Check size={13} className="text-emerald-600" />
           ) : (
             <Copy size={13} />
           )}

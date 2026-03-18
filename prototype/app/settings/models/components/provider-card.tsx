@@ -48,22 +48,22 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className={cn(
-          'group relative flex flex-col p-4 min-h-[160px] rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden',
+          'group relative flex min-h-[160px] cursor-pointer flex-col overflow-hidden rounded-[1.4rem] border p-4 transition-all duration-300',
           isCustom
-            ? 'bg-gradient-to-br from-violet-50/50 via-indigo-50/30 to-blue-50/20 border-violet-200/60 hover:border-violet-400 hover:shadow-xl hover:shadow-violet-200/40'
-            : 'bg-white border-gray-100 hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50 shadow-sm'
+            ? 'border-[rgba(36,56,77,0.16)] bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(111,129,148,0.08))] hover:border-[var(--border-hover)] hover:shadow-[0_22px_46px_rgba(15,23,42,0.08)]'
+            : 'border-[var(--border)] bg-[var(--surface-elevated)] shadow-sm hover:border-[var(--border-hover)] hover:shadow-[0_22px_46px_rgba(15,23,42,0.08)]'
         )}
         onClick={() => setShowCredentialDialog(true)}
       >
         {/* Background Decorative Element */}
         <div className={cn(
-          "absolute -right-4 -bottom-4 w-24 h-24 rounded-full blur-2xl opacity-20 transition-opacity group-hover:opacity-40",
-          isCustom ? "bg-violet-400" : "bg-blue-400"
+          "absolute -right-4 -bottom-4 h-24 w-24 rounded-full blur-2xl opacity-20 transition-opacity group-hover:opacity-35",
+          isCustom ? "bg-[rgba(36,56,77,0.45)]" : "bg-[rgba(111,129,148,0.4)]"
         )} />
 
         {isCustom && (
           <div className="absolute top-0 right-0 p-3">
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase bg-violet-100/80 text-violet-700 backdrop-blur-sm border border-violet-200">
+            <span className="inline-flex items-center rounded-full border border-[rgba(36,56,77,0.16)] bg-white/80 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-500)] backdrop-blur-sm">
               {isTemplate ? t('settings.template', { defaultValue: 'TEMPLATE' }) : t('settings.custom', { defaultValue: 'CUSTOM' })}
             </span>
           </div>
@@ -71,13 +71,13 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
 
         {/* Header */}
         <div className="flex items-start gap-3 mb-3">
-          <ProviderIcon provider={provider} className="shadow-sm border border-gray-50 mt-1" />
+          <ProviderIcon provider={provider} className="mt-1 border border-[var(--divider)] shadow-sm" />
           <div className="grow">
-            <h3 className="font-bold text-sm text-gray-900 leading-tight">
+            <h3 className="text-sm font-semibold leading-tight text-[var(--text-primary)]">
               {provider.display_name}
             </h3>
-            <div className="flex items-center gap-1 text-[10px] text-gray-400 mt-1">
-              <Sparkles size={10} className={isCustom ? "text-violet-400" : "text-blue-400"} />
+            <div className="mt-1 flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
+              <Sparkles size={10} className={isCustom ? "text-[var(--brand-500)]" : "text-[var(--status-running)]"} />
               <span>{modelCount} {t('settings.modelsLabel')}</span>
             </div>
           </div>
@@ -85,7 +85,7 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
 
         {/* Description & Action Group */}
         <div className="relative flex-1 mb-2">
-          <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed h-[32px] pr-8 group-hover:text-gray-600 transition-colors">
+          <p className="h-[32px] pr-8 text-xs leading-relaxed text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)] line-clamp-2">
             {provider.description || t('settings.providerDescriptionPlaceholder')}
           </p>
 
@@ -94,7 +94,7 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="h-8 w-8 rounded-full p-0 text-[var(--status-offline)] opacity-0 transition-opacity hover:bg-[rgba(156,68,56,0.08)] hover:text-[var(--status-offline)] group-hover:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation()
                   setShowDeleteDialog(true)
@@ -108,8 +108,10 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
               variant="ghost"
               size="sm"
               className={cn(
-                "h-8 w-8 p-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity",
-                isTemplate ? "text-violet-600 hover:bg-violet-100" : "text-blue-600 hover:bg-blue-100"
+                "h-8 w-8 rounded-full p-0 opacity-0 transition-opacity group-hover:opacity-100",
+                isTemplate
+                  ? "text-[var(--brand-500)] hover:bg-[rgba(36,56,77,0.08)]"
+                  : "text-[var(--status-running)] hover:bg-[rgba(54,93,130,0.08)]"
               )}
               onClick={(e) => {
                 e.stopPropagation()
@@ -126,7 +128,7 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
           {supportedTypes.map(modelType => (
             <span
               key={modelType}
-              className="px-1.5 py-0.5 text-[9px] font-bold text-gray-500 bg-gray-50 border border-gray-100 rounded-md"
+              className="rounded-full border border-[var(--divider)] bg-white/80 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]"
             >
               {t(`settings.modelTypes.${modelType}` as any, { defaultValue: modelType.toUpperCase() })}
             </span>

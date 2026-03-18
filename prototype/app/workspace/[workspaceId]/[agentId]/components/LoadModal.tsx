@@ -66,7 +66,7 @@ export const LoadModal: React.FC<LoadModalProps> = ({ onClose, onLoad }) => {
         <ToastAction
           altText="Delete"
           onClick={() => performDelete(id)}
-          className="border-white/20 hover:bg-white/20 text-white"
+          className="border-red-300 hover:bg-red-50 text-red-700"
         >
           {t('workspace.deleteNow')}
         </ToastAction>

@@ -76,15 +76,15 @@ export function ModelProviderAddedCard({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className={cn(
-          'relative rounded-2xl border transition-all duration-300 overflow-hidden shadow-sm',
+          'relative overflow-hidden rounded-[1.4rem] border transition-all duration-300',
           isCustom
-            ? 'bg-gradient-to-br from-violet-50/40 via-indigo-50/20 to-violet-50/40 border-violet-200'
-            : 'bg-white border-gray-100'
+            ? 'border-[rgba(36,56,77,0.16)] bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(111,129,148,0.08))]'
+            : 'border-[var(--border)] bg-[var(--surface-elevated)]'
         )}
       >
         {isCustom && (
           <div className="absolute top-0 right-0 p-3 pt-4">
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase bg-violet-100/80 text-violet-700 backdrop-blur-sm border border-violet-200 z-10">
+            <span className="z-10 inline-flex items-center rounded-full border border-[rgba(36,56,77,0.16)] bg-white/80 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-500)] backdrop-blur-sm">
               CUSTOM
             </span>
           </div>
@@ -92,11 +92,11 @@ export function ModelProviderAddedCard({
 
         <div className="relative pl-5 py-5 pr-5">
           <div className="flex items-start gap-4">
-            <ProviderIcon provider={provider} className="shadow-sm border border-gray-100/50 mt-1" />
+            <ProviderIcon provider={provider} className="mt-1 border border-[var(--divider)] shadow-sm" />
 
             <div className="grow">
               <div className="flex items-baseline gap-2 mb-1">
-                <h3 className="font-bold text-base text-gray-900">
+                <h3 className="text-base font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
                   {provider.display_name}
                 </h3>
                 {provider.credential_schema && (
@@ -112,7 +112,7 @@ export function ModelProviderAddedCard({
                 {supportedTypes.map(modelType => (
                   <span
                     key={modelType}
-                    className="px-1.5 py-0.5 text-[10px] font-bold text-gray-500 bg-gray-50 border border-gray-100 rounded"
+                    className="rounded-full border border-[var(--divider)] bg-white/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]"
                   >
                     {t(`settings.modelTypes.${modelType}` as any, { defaultValue: modelType.toUpperCase() })}
                   </span>
@@ -126,7 +126,7 @@ export function ModelProviderAddedCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 p-0 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  className="h-8 w-8 rounded-full p-0 text-[var(--status-offline)] transition-colors hover:bg-[rgba(156,68,56,0.08)] hover:text-[var(--status-offline)]"
                   onClick={(e) => {
                     e.stopPropagation()
                     setShowDeleteDialog(true)
@@ -142,7 +142,7 @@ export function ModelProviderAddedCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  className="h-8 w-8 rounded-full p-0 text-[var(--text-muted)] transition-colors hover:bg-[rgba(156,68,56,0.08)] hover:text-[var(--status-offline)]"
                   onClick={(e) => {
                     e.stopPropagation()
                     setShowClearConfirm(true)
@@ -157,7 +157,7 @@ export function ModelProviderAddedCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                className="h-8 w-8 rounded-full p-0 text-[var(--text-muted)] transition-colors hover:bg-white hover:text-[var(--text-primary)]"
                 onClick={(e) => {
                   e.stopPropagation()
                   setShowCredentialDialog(true)
@@ -173,25 +173,25 @@ export function ModelProviderAddedCard({
         {/* Models Bar */}
         <div
           className={cn(
-            "flex items-center justify-between px-5 py-3 border-t border-gray-100/60 bg-gray-50/30 cursor-pointer hover:bg-gray-50 transition-colors",
-            !collapsed && "bg-gray-50"
+            "flex cursor-pointer items-center justify-between border-t border-[var(--divider)] bg-[var(--surface-2)] px-5 py-3 transition-colors hover:bg-white/70",
+            !collapsed && "bg-white/85"
           )}
           onClick={() => setCollapsed(!collapsed)}
         >
-          <div className="flex items-center gap-2.5 text-xs font-semibold text-gray-500">
-            <Sparkles size={14} className={cn("transition-colors", hasModels ? "text-blue-500" : "text-gray-400")} />
+          <div className="flex items-center gap-2.5 text-xs font-semibold text-[var(--text-secondary)]">
+            <Sparkles size={14} className={cn("transition-colors", hasModels ? "text-[var(--status-running)]" : "text-[var(--text-muted)]")} />
             <span>
               {hasModels
                 ? t('settings.showModelsNum', { num: providerModels.length })
                 : t('settings.showModels')}
             </span>
-            {modelsLoading && <Loader2 className="animate-spin w-3 h-3 text-gray-400" />}
+            {modelsLoading && <Loader2 className="h-3 w-3 animate-spin text-[var(--text-muted)]" />}
           </div>
           <motion.div
             animate={{ rotate: collapsed ? 0 : 180 }}
             transition={{ duration: 0.3 }}
           >
-            <ChevronDown className="w-4 h-4 text-gray-400" />
+            <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
           </motion.div>
         </div>
 

@@ -58,8 +58,10 @@ export function ModelsPage() {
     return (
       <div className="flex items-center justify-center h-full min-h-[400px]">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-          <p className="text-sm font-medium text-gray-500 animate-pulse">{t('common.loading', { defaultValue: 'Loading models...' })}</p>
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--brand-500)]" />
+          <p className="animate-pulse text-sm font-medium text-[var(--text-secondary)]">
+            {t('common.loading', { defaultValue: 'Loading models...' })}
+          </p>
         </div>
       </div>
     )
@@ -78,17 +80,18 @@ export function ModelsPage() {
       initial="hidden"
       animate="visible"
       variants={containerVariants}
-      className="flex flex-col h-full max-w-6xl mx-auto"
+      className="mx-auto flex h-full max-w-6xl flex-col"
     >
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-3 text-gray-900 tracking-tight">
-            <div className="p-2 bg-blue-50 rounded-xl">
-              <Brain className="text-blue-600" size={24} />
+      <header className="surface-panel mb-8 px-6 py-6 sm:px-7">
+        <div className="space-y-4">
+          <div className="executive-kicker">Model Registry</div>
+          <h2 className="flex items-center gap-3 text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--divider)] bg-[var(--surface-2)]">
+              <Brain className="text-[var(--brand-500)]" size={22} />
             </div>
             {t('settings.models')}
           </h2>
-          <p className="text-sm text-gray-500 mt-1 ml-12">
+          <p className="max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
             Manage your AI model providers and API configurations
           </p>
         </div>
@@ -98,14 +101,14 @@ export function ModelsPage() {
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex items-center px-5 py-4 mb-8 bg-amber-50/50 rounded-2xl border border-amber-200/60 backdrop-blur-sm"
+          className="mb-8 flex items-center rounded-[1.25rem] border border-[rgba(155,106,45,0.18)] bg-[rgba(155,106,45,0.08)] px-5 py-4"
         >
-          <div className="p-2 bg-amber-100 rounded-full mr-4">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+          <div className="mr-4 rounded-full bg-[rgba(155,106,45,0.14)] p-2">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-[var(--warning)]" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-amber-900">{t('settings.noValidCredentialHeader', { defaultValue: 'Action Required' })}</h4>
-            <p className="text-xs font-medium text-amber-700/80 mt-0.5">
+            <h4 className="text-sm font-semibold text-[var(--text-primary)]">{t('settings.noValidCredentialHeader', { defaultValue: 'Action Required' })}</h4>
+            <p className="mt-0.5 text-xs font-medium text-[var(--text-secondary)]">
               {t('settings.noValidCredential')}
             </p>
           </div>
@@ -116,14 +119,14 @@ export function ModelsPage() {
         {/* 系统内置供应商：已配置的 */}
         {builtinConfigured.length > 0 && (
           <section>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-1 px-2 bg-green-50 rounded-md">
-                <CheckCircle2 size={14} className="text-green-600" />
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-full border border-[rgba(53,111,97,0.18)] bg-[rgba(53,111,97,0.08)] p-1.5 px-2.5">
+                <CheckCircle2 size={14} className="text-[var(--status-healthy)]" />
               </div>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
                 {t('settings.builtinProviders', { defaultValue: '系统内置供应商' })}
               </h3>
-              <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="grid grid-cols-1 gap-4">
               {builtinConfigured.map(provider => {
@@ -143,14 +146,14 @@ export function ModelsPage() {
         {/* 自定义模型：已配置的（含 custom-{ts}） */}
         {customConfigured.length > 0 && (
           <section>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-1 px-2 bg-violet-50 rounded-md">
-                <CheckCircle2 size={14} className="text-violet-600" />
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-full border border-[rgba(36,56,77,0.18)] bg-[rgba(36,56,77,0.08)] p-1.5 px-2.5">
+                <CheckCircle2 size={14} className="text-[var(--brand-500)]" />
               </div>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
                 {t('settings.customModels')}
               </h3>
-              <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="grid grid-cols-1 gap-4">
               {customConfigured.map(provider => {
@@ -170,14 +173,14 @@ export function ModelsPage() {
         {/* 内置供应商（未配置的） */}
         {notConfiguredSystemProviders.length > 0 && (
           <section>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-1 px-2 bg-blue-50 rounded-md">
-                <LayoutGrid size={14} className="text-blue-600" />
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-full border border-[rgba(54,93,130,0.18)] bg-[rgba(54,93,130,0.08)] p-1.5 px-2.5">
+                <LayoutGrid size={14} className="text-[var(--status-running)]" />
               </div>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
                 {t('settings.builtinProvidersNotConfigured')}
               </h3>
-              <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {notConfiguredSystemProviders.map(provider => (
@@ -190,14 +193,14 @@ export function ModelsPage() {
         {/* 自定义供应商（已添加未配置的） */}
         {customNotConfigured.length > 0 && (
           <section>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-1 px-2 bg-violet-50 rounded-md">
-                <LayoutGrid size={14} className="text-violet-600" />
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-full border border-[rgba(111,129,148,0.22)] bg-[rgba(111,129,148,0.08)] p-1.5 px-2.5">
+                <LayoutGrid size={14} className="text-[var(--brand-indigo)]" />
               </div>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
                 {t('settings.addedCustomProviders', { defaultValue: '已添加的自定义供应商' })}
               </h3>
-              <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {customNotConfigured.map(provider => (
@@ -210,21 +213,21 @@ export function ModelsPage() {
         {/* 自定义模型：一步添加入口（协议 + 模型名），不展示 custom 卡片 */}
         {templateProviders.length > 0 && (
           <section>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-1 px-2 bg-violet-50 rounded-md">
-                <Plus size={14} className="text-violet-600" />
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-full border border-[rgba(36,56,77,0.18)] bg-[rgba(36,56,77,0.08)] p-1.5 px-2.5">
+                <Plus size={14} className="text-[var(--brand-500)]" />
               </div>
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
                 {t('settings.customModels')}
               </h3>
-              <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="flex flex-col gap-5">
               {templateProviders.some(p => p.provider_name === 'custom') && (
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-fit border-violet-200 text-violet-700 hover:bg-violet-50 hover:border-violet-300"
+                  className="w-fit rounded-full border-[var(--border)] bg-white/80 px-5 text-[var(--brand-500)] hover:border-[var(--border-hover)] hover:bg-white"
                   onClick={() => setShowAddCustomModel(true)}
                 >
                   <Plus className="mr-2 h-4 w-4" />
@@ -252,12 +255,12 @@ export function ModelsPage() {
         )}
 
         {providers.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 bg-gray-50/50 rounded-3xl border border-dashed border-gray-200">
-            <div className="p-8 rounded-full bg-white shadow-sm mb-6 border border-gray-100">
-              <Brain size={48} className="text-gray-200" />
+          <div className="surface-panel-flat flex flex-col items-center justify-center rounded-[1.5rem] border-dashed py-20">
+            <div className="mb-6 rounded-full border border-[var(--divider)] bg-white/80 p-8 shadow-sm">
+              <Brain size={48} className="text-[var(--text-subtle)]" />
             </div>
-            <h3 className="text-lg font-bold text-gray-900 mb-2">No Providers Found</h3>
-            <p className="text-sm font-medium text-gray-500 max-w-xs text-center leading-relaxed">
+            <h3 className="mb-2 text-lg font-semibold text-[var(--text-primary)]">No Providers Found</h3>
+            <p className="max-w-xs text-center text-sm font-medium leading-relaxed text-[var(--text-secondary)]">
               {t('settings.noModelProviders')}
             </p>
           </div>

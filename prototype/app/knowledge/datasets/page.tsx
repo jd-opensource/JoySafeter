@@ -14,9 +14,9 @@ import { toastSuccess, toastError, toastInfo } from '@/lib/utils/toast'
 import { datasets as initialDatasets, type Dataset } from '@/mocks/datasets'
 
 const STATUS_CONFIG = {
-  ready:    { label: 'Ready',    pill: 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20', dot: 'bg-emerald-400' },
-  indexing: { label: 'Indexing', pill: 'text-sky-300 bg-sky-500/10 border border-sky-500/20 animate-pulse', dot: 'bg-sky-400 animate-pulse' },
-  error:    { label: 'Error',    pill: 'text-rose-300 bg-rose-500/10 border border-rose-500/20', dot: 'bg-rose-400' },
+  ready:    { label: 'Ready',    pill: 'text-emerald-700 bg-emerald-50 border border-emerald-200', dot: 'bg-emerald-500' },
+  indexing: { label: 'Indexing', pill: 'text-sky-700 bg-sky-50 border border-sky-200 animate-pulse', dot: 'bg-sky-500 animate-pulse' },
+  error:    { label: 'Error',    pill: 'text-rose-700 bg-rose-50 border border-rose-200', dot: 'bg-rose-500' },
 } as const
 
 function formatDate(ts: string): string {
@@ -79,7 +79,7 @@ function CreateDatasetModal({ open, onClose, onCreate }: {
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 8 }}
             transition={{ duration: 0.18 }}
-            className="relative z-10 w-full max-w-lg rounded-2xl border border-violet-500/25 bg-[#0d0d14]/95 backdrop-blur-2xl shadow-[0_0_60px_rgba(0,0,0,0.8)]"
+            className="relative z-10 w-full max-w-lg rounded-2xl border border-gray-200 bg-white shadow-lg"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
@@ -194,24 +194,26 @@ export default function DatasetsPage() {
     })
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">{t('knowledge.title')}</h1>
-          <p className="mt-1 text-sm text-[var(--text-tertiary)]">{t('knowledge.subtitle')}</p>
+    <div className="executive-page">
+      <div className="executive-page-content !max-w-[1220px]">
+        <div className="executive-header">
+          <div className="space-y-3">
+            <div className="executive-kicker">Knowledge systems</div>
+            <div>
+              <h1 className="font-display text-[2.6rem] leading-none text-[var(--text-primary)]">{t('knowledge.title')}</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">{t('knowledge.subtitle')}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="btn-primary inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold"
+          >
+            <Plus className="h-4 w-4" />
+            New Knowledge Base
+          </button>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_0_12px_rgba(139,92,246,0.3)] transition-all duration-300 hover:shadow-[0_0_24px_rgba(139,92,246,0.5)] hover:-translate-y-0.5"
-        >
-          <Plus className="h-4 w-4" />
-          New Knowledge Base
-        </button>
-      </div>
 
-      {/* Toolbar */}
-      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <div className="surface-panel mb-5 flex flex-wrap items-center gap-3 px-5 py-4">
         {/* Search */}
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-subtle)]" />
@@ -237,7 +239,7 @@ export default function DatasetsPage() {
               onClick={() => setStatusFilter(f.v)}
               className={cn(
                 'rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                statusFilter === f.v ? 'bg-[var(--brand-500)] text-white' : 'bg-[var(--surface-3)] text-[var(--text-muted)] hover:bg-[var(--surface-5)]'
+                statusFilter === f.v ? 'bg-[var(--brand-500)] text-white' : 'bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]'
               )}
             >
               {f.l}
@@ -267,7 +269,7 @@ export default function DatasetsPage() {
             </button>
           </div>
         </div>
-      </div>
+        </div>
 
       {/* Results info */}
       {search && (
@@ -385,11 +387,12 @@ export default function DatasetsPage() {
         </motion.div>
       )}
 
-      <CreateDatasetModal
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreate={(ds) => setDatasets((prev) => [ds, ...prev])}
-      />
+        <CreateDatasetModal
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+          onCreate={(ds) => setDatasets((prev) => [ds, ...prev])}
+        />
+      </div>
     </div>
   )
 }

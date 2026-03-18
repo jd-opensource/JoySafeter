@@ -99,13 +99,13 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
   const getStatusColor = (status?: string) => {
     switch (status) {
       case 'completed':
-        return 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+        return 'bg-emerald-50 border-emerald-200 text-emerald-600'
       case 'failed':
-        return 'bg-rose-500/10 border-rose-500/20 text-rose-300'
+        return 'bg-rose-50 border-rose-200 text-rose-600'
       case 'running':
-        return 'bg-sky-500/10 border-sky-500/20 text-sky-300'
+        return 'bg-sky-50 border-sky-200 text-sky-600'
       default:
-        return 'bg-white/5 border-white/10 text-white/60'
+        return 'bg-[var(--surface-2)] border-[var(--border)] text-[var(--text-secondary)]'
     }
   }
 
@@ -137,10 +137,10 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
   return (
     <div className="h-full bg-white flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--divider)] bg-[rgba(255,255,255,0.58)] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Wrench size={18} className="text-gray-700 flex-shrink-0" />
-          <span className="text-sm font-medium text-gray-900 truncate">
+          <Wrench size={18} className="text-[var(--text-primary)] flex-shrink-0" />
+          <span className="text-sm font-medium text-[var(--text-primary)] truncate">
             {displayToolCall.name ? formatToolName(displayToolCall.name) : t('chat.initializingTools')}
           </span>
         </div>
@@ -156,10 +156,10 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
           )}
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-200 transition-colors flex-shrink-0"
+            className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] transition-colors flex-shrink-0"
             aria-label="Close panel"
           >
-            <X size={16} className="text-gray-500" />
+            <X size={16} className="text-[var(--text-secondary)]" />
           </button>
         </div>
       </div>
@@ -181,7 +181,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                   console.error('Failed to copy:', err)
                 }
               }}
-              className="text-white/35 hover:text-white/70 transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-white/8"
+              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--surface-2)]"
               title={t('chat.copyToClipboard')}
             >
               {copiedInput ? (
@@ -198,9 +198,9 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
               customStyle={{
                 margin: 0,
                 padding: '0.75rem',
-                background: '#f9fafb',
-                borderRadius: '0.5rem',
-                border: '1px solid #e5e7eb',
+                background: '#f8f5ef',
+                borderRadius: '0.75rem',
+                border: '1px solid rgba(35, 48, 66, 0.12)',
                 fontSize: '11px',
                 lineHeight: '1.5',
                 fontFamily: 'JetBrains Mono, monospace',
@@ -233,7 +233,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                     console.error('Failed to copy:', err)
                   }
                 }}
-                className="text-white/35 hover:text-white/70 transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-white/8"
+                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--surface-2)]"
                 title={t('chat.copyToClipboard')}
               >
                 {copiedOutput ? (
@@ -263,9 +263,9 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                       customStyle={{
                         margin: 0,
                         padding: '0.75rem',
-                        background: '#f9fafb',
-                        borderRadius: '0.5rem',
-                        border: '1px solid #e5e7eb',
+                        background: '#f8f5ef',
+                        borderRadius: '0.75rem',
+                        border: '1px solid rgba(35, 48, 66, 0.12)',
                         fontSize: '11px',
                         lineHeight: '1.5',
                         fontFamily: 'JetBrains Mono, monospace',
@@ -280,7 +280,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                 // If it contains markdown headers, render as markdown
                 if (formatted.includes('##') || formatted.includes('###')) {
                   return (
-                    <div className="bg-gray-50 border border-gray-200 rounded-md p-3 prose prose-sm max-w-none">
+                    <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-3 prose prose-sm max-w-none">
                       <ReactMarkdown
                         components={{
                           h2: ({ children }) => (
@@ -299,7 +299,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                             <li className="text-xs text-gray-700">{children}</li>
                           ),
                           code: ({ children }) => (
-                            <code className="bg-white/8 px-1 py-0.5 rounded text-xs font-mono text-white/75">{children}</code>
+                            <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono text-gray-700">{children}</code>
                           ),
                         }}
                       >
@@ -323,7 +323,7 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
 
                 // Default: plain text with monospace font
                 return (
-                  <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
+                  <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-3">
                     <pre className="whitespace-pre-wrap break-words font-mono text-xs text-gray-800 leading-relaxed">
                       {formatted}
                     </pre>
@@ -336,8 +336,8 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50 flex-shrink-0">
-        <button className="text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors">
+      <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--divider)] bg-[rgba(255,255,255,0.58)] flex-shrink-0">
+        <button className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
           {t('chat.tool')}
         </button>
         {displayToolCall.startTime && (

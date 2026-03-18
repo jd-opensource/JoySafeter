@@ -1,6 +1,6 @@
 'use client'
 
-import { PanelRight, Settings2 } from 'lucide-react'
+import { PanelRight } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -14,15 +14,14 @@ export default function OpenClawPage() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true)
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
-      {/* Main Content Area */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden p-3 gap-2 transition-all duration-300 relative">
+    <div className="flex h-full w-full overflow-hidden executive-shell">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden p-4 gap-3 transition-all duration-300 relative">
         {!isRightSidebarOpen && (
           <div className="absolute top-4 right-4 z-10">
             <Button
               variant="outline"
               size="icon"
-              className="h-9 w-9 bg-[var(--surface-1)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] shadow-sm border border-[var(--border)] rounded-md backdrop-blur"
+              className="h-9 w-9 bg-[var(--surface-1)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] shadow-sm border border-[var(--border)] rounded-md"
               onClick={() => setIsRightSidebarOpen(true)}
               title={t('openclaw.manageInstancesAndDevices')}
             >
@@ -31,15 +30,14 @@ export default function OpenClawPage() {
           </div>
         )}
 
-        <div className="min-h-0 flex-1">
+        <div className="surface-panel min-h-0 flex-1 overflow-hidden">
           <OpenClawWebUI />
         </div>
       </div>
 
-      {/* Right Sidebar */}
       <div
         className={cn(
-          'flex flex-col border-l border-[var(--border)] bg-[#fafafa] dark:bg-[var(--surface-1)] transition-all duration-300 ease-in-out shrink-0 relative',
+          'flex flex-col border-l border-[var(--divider)] bg-[rgba(250,248,243,0.88)] backdrop-blur-xl transition-all duration-300 ease-in-out shrink-0 relative',
           isRightSidebarOpen ? 'w-[320px] sm:w-[380px]' : 'w-0 overflow-hidden border-l-0 opacity-0'
         )}
       >

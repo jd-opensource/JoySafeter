@@ -420,11 +420,11 @@ export function WorkspaceHeader({
                 </Tooltip>
               </TooltipProvider>
               {activeWorkspace?.type === 'personal' ? (
-                <span className='shrink-0 w-[32px] text-center rounded-[4px] bg-blue-100 dark:bg-blue-900/30 px-[3px] py-[1px] text-[9px] font-medium text-blue-600 dark:text-blue-400'>
+                <span className='shrink-0 w-[32px] text-center rounded-[4px] bg-blue-100 px-[3px] py-[1px] text-[9px] font-medium text-blue-600'>
                   {t('workspace.personal')}
                 </span>
               ) : activeWorkspace?.type === 'team' ? (
-                <span className='shrink-0 w-[32px] text-center rounded-[4px] bg-purple-100 dark:bg-purple-900/30 px-[3px] py-[1px] text-[9px] font-medium text-purple-600 dark:text-purple-400'>
+                <span className='shrink-0 w-[32px] text-center rounded-[4px] bg-purple-100 px-[3px] py-[1px] text-[9px] font-medium text-purple-600'>
                   {t('workspace.team')}
                 </span>
               ) : null}
@@ -665,11 +665,11 @@ export function WorkspaceHeader({
 
                             <div className='shrink-0 w-[44px] flex justify-center'>
                               {workspace.type === 'personal' ? (
-                                <span className='w-[36px] text-center rounded-[4px] bg-blue-100 dark:bg-blue-900/30 px-[4px] py-[1px] text-[10px] font-medium text-blue-600 dark:text-blue-400'>
+                                <span className='w-[36px] text-center rounded-[4px] bg-blue-100 px-[4px] py-[1px] text-[10px] font-medium text-blue-600'>
                                   {t('workspace.personal')}
                                 </span>
                               ) : workspace.type === 'team' ? (
-                                <span className='w-[36px] text-center rounded-[4px] bg-purple-100 dark:bg-purple-900/30 px-[4px] py-[1px] text-[10px] font-medium text-purple-600 dark:text-purple-400'>
+                                <span className='w-[36px] text-center rounded-[4px] bg-purple-100 px-[4px] py-[1px] text-[10px] font-medium text-purple-600'>
                                   {t('workspace.team')}
                                 </span>
                               ) : null}

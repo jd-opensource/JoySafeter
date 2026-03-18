@@ -34,7 +34,7 @@ const AlertDialogOverlay = React.forwardRef<
   return (
     <AlertDialogPrimitive.Overlay
       className={cn(
-        'fixed inset-0 z-[10000150] bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+        'fixed inset-0 z-[10000150] bg-[rgba(31,42,54,0.22)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         className
       )}
       style={{ backdropFilter: 'blur(4px)', ...style }}
@@ -90,15 +90,13 @@ const AlertDialogContent = React.forwardRef<
           ref={ref}
           className={cn(
             // Base styles
-            'fixed top-[50%] left-[50%] z-[10000151] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl bg-white px-6 py-6 shadow-2xl duration-200 overflow-hidden',
+            'fixed top-[50%] left-[50%] z-[10000151] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.14)] duration-200',
             // Animation
             'data-[state=open]:animate-in data-[state=closed]:animate-out',
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
             'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
             'data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]',
             'data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]',
-            // Dark mode
-            'dark:bg-[#1a222b] dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)]',
             className
           )}
           onPointerDown={(e) => {
@@ -114,18 +112,18 @@ const AlertDialogContent = React.forwardRef<
           {/* Top accent gradient bar */}
           <div
             className={cn(
-              'absolute top-0 left-0 right-0 h-1',
+              'absolute top-0 left-0 right-0 h-px',
               variant === 'destructive'
                 ? 'bg-gradient-to-r from-red-500 via-rose-500 to-red-400'
-                : 'bg-gradient-to-r from-[#8e4cfb] via-[#6f3dfa] to-[#33b4ff] dark:from-[#38bdf8] dark:via-[#0ea5e9] dark:to-[#06b6d4]'
+                : 'bg-gradient-to-r from-[var(--brand-500)] via-[var(--brand-indigo)] to-transparent'
             )}
           />
           {children}
           {!hideCloseButton && (
-            <AlertDialogPrimitive.Cancel
-              className='absolute top-5 right-5 h-6 w-6 flex items-center justify-center rounded-full border-0 bg-gray-100 p-0 text-gray-400 transition-all hover:bg-gray-200 hover:text-gray-600 focus:outline-none disabled:pointer-events-none dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-gray-200'
-              disabled={!isInteractionReady}
-              tabIndex={-1}
+          <AlertDialogPrimitive.Cancel
+            className='absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0 text-[var(--text-secondary)] transition-all hover:text-[var(--text-primary)] focus:outline-none disabled:pointer-events-none'
+            disabled={!isInteractionReady}
+            tabIndex={-1}
             >
               <X className='h-3.5 w-3.5' />
               <span className='sr-only'>Close</span>
@@ -164,7 +162,7 @@ const AlertDialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Title
     ref={ref}
-    className={cn('font-semibold text-lg tracking-tight text-gray-900 dark:text-gray-100', className)}
+    className={cn('font-semibold text-lg tracking-tight text-[var(--text-primary)]', className)}
     {...props}
   />
 ))
@@ -176,7 +174,7 @@ const AlertDialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Description
     ref={ref}
-    className={cn('text-sm text-gray-500 dark:text-gray-400 leading-relaxed', className)}
+    className={cn('text-sm leading-relaxed text-[var(--text-secondary)]', className)}
     {...props}
   />
 ))
@@ -206,7 +204,7 @@ const AlertDialogCancel = React.forwardRef<
     ref={ref}
     className={cn(
       buttonVariants({ variant: 'outline' }),
-      'min-w-[80px] font-medium border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-600 dark:bg-transparent dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-gray-100',
+      'min-w-[80px] font-medium',
       className
     )}
     {...props}

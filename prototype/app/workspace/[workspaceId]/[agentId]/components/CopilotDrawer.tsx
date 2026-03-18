@@ -1,6 +1,6 @@
 'use client'
 
-import { Sparkles, X, Minimize2 } from 'lucide-react'
+import { Sparkles, Minimize2 } from 'lucide-react'
 import React, { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -25,11 +25,11 @@ export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({ className }) => {
         <Button
           onClick={() => setIsOpen(true)}
           className={cn(
-            'h-9 gap-2 px-3 rounded-lg shadow-md',
-            'bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-600 hover:to-purple-600',
+            'h-10 gap-2 px-4 rounded-full shadow-md',
+            'bg-[linear-gradient(180deg,var(--brand-400),var(--brand-500))] hover:bg-[linear-gradient(180deg,var(--brand-400),var(--brand-600))]',
             'text-white font-medium text-xs',
             'transition-all duration-200 hover:shadow-lg',
-            'border border-violet-400/30',
+            'border border-[var(--border-strong)]',
             isOpen && 'opacity-0 pointer-events-none'
           )}
         >
@@ -42,8 +42,8 @@ export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({ className }) => {
       <div
         className={cn(
           'fixed top-2 bottom-2 z-40 w-[380px] flex flex-col',
-          'bg-white rounded-xl overflow-hidden',
-          'border border-gray-200/80 shadow-2xl shadow-black/10',
+          'bg-[var(--surface-elevated)] rounded-[22px] overflow-hidden',
+          'border border-[var(--border)] shadow-[0_24px_60px_rgba(15,23,42,0.12)]',
           'transition-all duration-300 ease-out',
           isOpen
             ? 'right-[290px] opacity-100 translate-x-0'
@@ -51,16 +51,16 @@ export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({ className }) => {
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-violet-50/80 to-purple-50/80 backdrop-blur-sm">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--divider)] bg-[rgba(255,255,255,0.58)]">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center shadow-sm">
+            <div className="w-7 h-7 rounded-lg bg-[linear-gradient(180deg,var(--brand-400),var(--brand-500))] flex items-center justify-center shadow-sm">
               <Sparkles size={14} className="text-white" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 leading-tight">
+              <h3 className="text-sm font-semibold text-[var(--text-primary)] leading-tight">
                 {t('workspace.copilot', { defaultValue: 'Copilot' })}
               </h3>
-              <p className="text-[10px] text-gray-500 leading-tight">
+              <p className="text-[10px] text-[var(--text-secondary)] leading-tight">
                 {t('workspace.copilotSubtitle')}
               </p>
             </div>
@@ -69,14 +69,14 @@ export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({ className }) => {
             variant="ghost"
             size="icon"
             onClick={() => setIsOpen(false)}
-            className="h-7 w-7 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+            className="h-7 w-7 rounded-md hover:bg-[var(--surface-2)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
             <Minimize2 size={14} />
           </Button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden bg-gray-50/30">
+        <div className="flex-1 overflow-hidden bg-[rgba(255,255,255,0.32)]">
           <CopilotPanel />
         </div>
       </div>

@@ -459,7 +459,7 @@ function SignupFormContent() {
             type='submit'
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
-            className='group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pr-[10px] pl-[12px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all'
+            className={`${buttonClass} group inline-flex h-12 w-full items-center justify-center gap-2 rounded-[12px] px-4 text-[15px] text-white transition-all`}
             disabled={isLoading}
             suppressHydrationWarning
           >
@@ -489,7 +489,7 @@ function SignupFormContent() {
         </span>
         <Link
           href={isInviteFlow ? `/signin?invite_flow=true&callbackUrl=${redirectUrl}` : '/signin'}
-          className='font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline'
+          className='auth-link font-medium'
         >
           {mounted ? t('auth.signIn') : 'Sign In'}
         </Link>

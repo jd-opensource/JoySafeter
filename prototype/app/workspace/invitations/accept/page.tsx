@@ -12,7 +12,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, CheckCircle, XCircle, Loader2, Mail, Shield, Crown, Eye, Edit } from 'lucide-react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useState, Suspense } from 'react'
+import { useState, Suspense, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
@@ -28,6 +28,51 @@ const ROLE_ICONS = {
   admin: Shield,
   member: Edit,
   viewer: Eye,
+}
+
+function InviteShell({
+  icon: Icon,
+  title,
+  description,
+  children,
+  tone = 'brand',
+}: {
+  icon: typeof Mail
+  title: string
+  description: string
+  children: ReactNode
+  tone?: 'brand' | 'success' | 'danger'
+}) {
+  const toneClass =
+    tone === 'success'
+      ? 'text-[var(--status-healthy)] bg-[rgba(53,111,97,0.08)] border-[rgba(53,111,97,0.16)]'
+      : tone === 'danger'
+        ? 'text-[var(--status-offline)] bg-[rgba(156,68,56,0.08)] border-[rgba(156,68,56,0.16)]'
+        : 'text-[var(--brand-500)] bg-[rgba(36,56,77,0.08)] border-[rgba(36,56,77,0.16)]'
+
+  return (
+    <div className="executive-shell flex min-h-screen items-center justify-center p-4">
+      <div className="surface-panel w-full max-w-xl px-8 py-8">
+        <div className="space-y-6">
+          <div className="space-y-4 text-center">
+            <div className="executive-kicker mx-auto">Workspace Invitation</div>
+            <div className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full border ${toneClass}`}>
+              <Icon className="h-6 w-6" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-3xl font-semibold tracking-[-0.05em] text-[var(--text-primary)]">
+                {title}
+              </h1>
+              <p className="text-sm leading-6 text-[var(--text-secondary)]">
+                {description}
+              </p>
+            </div>
+          </div>
+          {children}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function AcceptInvitationContent() {
@@ -104,66 +149,58 @@ function AcceptInvitationContent() {
   // If not logged in, show prompt
   if (!isSessionLoading && !session?.user) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-        <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8 shadow-lg">
-          <div className="text-center">
-            <Mail className="mx-auto h-12 w-12 text-blue-600 mb-4" />
-            <h1 className="text-2xl font-semibold text-gray-900 mb-2">
-              {t('workspace.invitationRequiresLogin')}
-            </h1>
-            <p className="text-sm text-gray-500 mb-6">
-              {t('workspace.invitationRequiresLoginDescription')}
-            </p>
-            <Button
-              onClick={() => {
-                router.push(`/auth/signin?callbackUrl=${encodeURIComponent(`/workspace/invitations/accept?token=${token}`)}`)
-              }}
-              className="w-full"
-            >
-              {t('auth.signIn')}
-            </Button>
-          </div>
-        </div>
-      </div>
+      <InviteShell
+        icon={Mail}
+        title={t('workspace.invitationRequiresLogin')}
+        description={t('workspace.invitationRequiresLoginDescription')}
+      >
+        <Button
+          onClick={() => {
+            router.push(`/auth/signin?callbackUrl=${encodeURIComponent(`/workspace/invitations/accept?token=${token}`)}`)
+          }}
+          className="btn-primary w-full rounded-full"
+        >
+          {t('auth.signIn')}
+        </Button>
+      </InviteShell>
     )
   }
 
   // Loading
   if (isLoadingInvitation || isSessionLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="mx-auto h-12 w-12 animate-spin text-blue-600 mb-4" />
-          <p className="text-sm text-gray-500">{t('workspace.loadingInvitation')}</p>
+      <InviteShell
+        icon={Loader2}
+        title={t('workspace.loadingInvitation')}
+        description={t('workspace.invitationDescription')}
+      >
+        <div className="text-center text-sm text-[var(--text-secondary)]">
+          <Loader2 className="mx-auto mb-3 h-10 w-10 animate-spin text-[var(--brand-500)]" />
+          {t('workspace.loadingInvitation')}
         </div>
-      </div>
+      </InviteShell>
     )
   }
 
   // Error state
   if (invitationError || !invitation) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-        <div className="w-full max-w-md rounded-lg border border-red-200 bg-white p-8 shadow-lg">
-          <div className="text-center">
-            <XCircle className="mx-auto h-12 w-12 text-red-600 mb-4" />
-            <h1 className="text-2xl font-semibold text-gray-900 mb-2">
-              {t('workspace.invitationInvalid')}
-            </h1>
-            <p className="text-sm text-gray-500 mb-6">
-              {invitationError instanceof Error
-                ? invitationError.message
-                : t('workspace.invitationInvalidDescription')}
-            </p>
-            <Button
-              variant="outline"
-              onClick={() => router.push('/workspace')}
-            >
-              {t('workspace.backToWorkspace')}
-            </Button>
-          </div>
-        </div>
-      </div>
+      <InviteShell
+        icon={XCircle}
+        title={t('workspace.invitationInvalid')}
+        description={invitationError instanceof Error
+          ? invitationError.message
+          : t('workspace.invitationInvalidDescription')}
+        tone="danger"
+      >
+        <Button
+          variant="outline"
+          onClick={() => router.push('/workspace')}
+          className="w-full rounded-full"
+        >
+          {t('workspace.backToWorkspace')}
+        </Button>
+      </InviteShell>
     )
   }
 
@@ -171,82 +208,72 @@ function AcceptInvitationContent() {
   const emailMatches = session?.user?.email?.toLowerCase() === invitation.email.toLowerCase()
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8 shadow-lg">
-        <div className="text-center mb-6">
-          <CheckCircle className="mx-auto h-12 w-12 text-green-600 mb-4" />
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">
-            {t('workspace.workspaceInvitation')}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {t('workspace.invitationDescription')}
-          </p>
-        </div>
-
-        {/* Invitation Information */}
-        <div className="space-y-4 mb-6">
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
-                <Users className="h-5 w-5 text-blue-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 truncate">{invitation.workspaceName}</p>
-                <p className="text-xs text-gray-500">{t('workspace.workspace')}</p>
-              </div>
+    <InviteShell
+      icon={CheckCircle}
+      title={t('workspace.workspaceInvitation')}
+      description={t('workspace.invitationDescription')}
+      tone="success"
+    >
+      <div className="space-y-4">
+        <div className="surface-panel-flat p-4">
+          <div className="mb-3 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full border border-[rgba(54,93,130,0.16)] bg-[rgba(54,93,130,0.08)]">
+              <Users className="h-5 w-5 text-[var(--status-running)]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold text-[var(--text-primary)]">{invitation.workspaceName}</p>
+              <p className="text-xs text-[var(--text-secondary)]">{t('workspace.workspace')}</p>
             </div>
           </div>
+        </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">{t('workspace.invitedBy')}</span>
-              <span className="font-medium text-gray-900">
-                {invitation.inviterName || invitation.inviterEmail || t('workspace.unknown')}
+        <div className="surface-panel-flat space-y-3 p-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-[var(--text-secondary)]">{t('workspace.invitedBy')}</span>
+            <span className="font-medium text-[var(--text-primary)]">
+              {invitation.inviterName || invitation.inviterEmail || t('workspace.unknown')}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-[var(--text-secondary)]">{t('workspace.role')}</span>
+            <div className="flex items-center gap-2">
+              <RoleIcon className="h-4 w-4 text-[var(--text-muted)]" />
+              <span className="font-medium text-[var(--text-primary)]">
+                {t(`workspace.roles.${invitation.role}`)}
               </span>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">{t('workspace.role')}</span>
-              <div className="flex items-center gap-2">
-                <RoleIcon className="h-4 w-4 text-gray-400" />
-                <span className="font-medium text-gray-900">
-                  {t(`workspace.roles.${invitation.role}`)}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">{t('workspace.email')}</span>
-              <span className="font-medium text-gray-900">{invitation.email}</span>
-            </div>
           </div>
-
-          {/* Email Match Check */}
-          {!emailMatches && (
-            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
-              <p className="text-sm text-yellow-800">
-                {t('workspace.emailMismatch', {
-                  invitationEmail: invitation.email,
-                  currentEmail: session?.user?.email || ''
-                })}
-              </p>
-            </div>
-          )}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-[var(--text-secondary)]">{t('workspace.email')}</span>
+            <span className="font-medium text-[var(--text-primary)]">{invitation.email}</span>
+          </div>
         </div>
 
-        {/* Action Buttons */}
+        {!emailMatches && (
+          <div className="rounded-[1rem] border border-[rgba(155,106,45,0.16)] bg-[rgba(155,106,45,0.08)] p-3">
+            <p className="text-sm leading-6 text-[var(--warning)]">
+              {t('workspace.emailMismatch', {
+                invitationEmail: invitation.email,
+                currentEmail: session?.user?.email || ''
+              })}
+            </p>
+          </div>
+        )}
+
         <div className="space-y-2">
           <Button
             onClick={handleAccept}
             disabled={isAccepting || !emailMatches}
-            className="w-full"
+            className="btn-primary w-full rounded-full"
           >
             {isAccepting ? (
               <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 {t('workspace.accepting')}
               </>
             ) : (
               <>
-                <CheckCircle className="h-4 w-4 mr-2" />
+                <CheckCircle className="mr-2 h-4 w-4" />
                 {t('workspace.acceptInvitation')}
               </>
             )}
@@ -254,25 +281,29 @@ function AcceptInvitationContent() {
           <Button
             variant="outline"
             onClick={() => router.push('/workspace')}
-            className="w-full"
+            className="w-full rounded-full"
           >
             {t('workspace.cancel')}
           </Button>
         </div>
       </div>
-    </div>
+    </InviteShell>
   )
 }
 
 export default function AcceptInvitationPage() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="mx-auto h-12 w-12 animate-spin text-blue-600 mb-4" />
-          <p className="text-sm text-gray-500">Loading...</p>
+      <InviteShell
+        icon={Loader2}
+        title="Loading..."
+        description="Preparing invitation details."
+      >
+        <div className="text-center text-sm text-[var(--text-secondary)]">
+          <Loader2 className="mx-auto mb-3 h-10 w-10 animate-spin text-[var(--brand-500)]" />
+          Loading...
         </div>
-      </div>
+      </InviteShell>
     }>
       <AcceptInvitationContent />
     </Suspense>

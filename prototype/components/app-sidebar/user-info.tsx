@@ -86,28 +86,31 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
 
   return (
     <>
-      <div className="border-t border-[var(--border)] p-2 relative">
+      <div className="border-t border-[var(--divider)] p-3 pt-4 relative">
         <div className="flex flex-col gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 className={cn(
-                  "flex w-full items-center rounded-lg px-2 py-2 transition-colors hover:bg-[var(--surface-3)]",
+                  "surface-panel-flat flex w-full items-center rounded-[16px] px-2.5 py-2.5 transition-colors hover:bg-[var(--surface-2)]",
                   showContent ? "gap-2" : "justify-center"
                 )}
               >
-                <Avatar className="h-8 w-8 flex-shrink-0">
+                <Avatar className="h-9 w-9 flex-shrink-0 border border-[var(--border)]">
                   {user?.image && <AvatarImage src={user.image} alt={user.name || t('user.user')} />}
-                  <AvatarFallback className="bg-[var(--brand-500)] text-[10px] text-white border border-[var(--brand-400)]">
+                  <AvatarFallback className="bg-[linear-gradient(180deg,var(--brand-400),var(--brand-500))] text-[10px] text-white">
                     {getInitials(user?.name, user?.email)}
                   </AvatarFallback>
                 </Avatar>
                 {showContent && (
                   <>
                     <div className="flex flex-1 flex-col items-start overflow-hidden min-w-0">
-                      <span className="truncate text-[12px] font-medium text-[var(--text-primary)]">
+                      <span className="truncate text-[12px] font-semibold text-[var(--text-primary)]">
                         {user?.name || user?.email || t('user.user')}
+                      </span>
+                      <span className="truncate text-[10px] uppercase tracking-[0.14em] text-[var(--text-secondary)]">
+                        Workspace Profile
                       </span>
                     </div>
                     <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
@@ -122,8 +125,8 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
               className="w-[180px] z-[10000200] border-[var(--border)]"
             >
               <div className="px-2 py-1.5">
-                <p className="truncate text-[13px] font-medium">{user?.name || t('user.user')}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{user?.email}</p>
+                <p className="truncate text-[13px] font-medium text-[var(--text-primary)]">{user?.name || t('user.user')}</p>
+                <p className="truncate text-[11px] text-[var(--text-secondary)]">{user?.email}</p>
               </div>
               <DropdownMenuSeparator />
 
@@ -135,7 +138,7 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
                 <DropdownMenuSubContent
                   sideOffset={4}
                   alignOffset={-5}
-                  className="min-w-[110px] bg-[#0d0d14] border-violet-500/20"
+                  className="min-w-[110px] bg-[var(--surface-elevated)] border-[var(--border)]"
                 >
                   {languages.map((lang) => (
                     <DropdownMenuItem
@@ -143,9 +146,9 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
                       onClick={() => handleLanguageChange(lang.code)}
                       className="flex items-center justify-between gap-2 cursor-pointer text-[13px]"
                     >
-                      <span>{lang.label}</span>
+                        <span>{lang.label}</span>
                       {i18n.language === lang.code && (
-                        <Check className="h-3.5 w-3.5 text-blue-600" />
+                        <Check className="h-3.5 w-3.5 text-[var(--brand-500)]" />
                       )}
                     </DropdownMenuItem>
                   ))}

@@ -476,7 +476,7 @@ export default function SkillsManager() {
                                 >
                                     <div className="flex justify-between items-start mb-1 gap-2 min-w-0">
                                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                                            <ShieldCheck size={12} className="text-emerald-400 shrink-0" />
+                                            <ShieldCheck size={12} className="text-emerald-600 shrink-0" />
                                             <TooltipProvider delayDuration={300}>
                                                 <Tooltip>
                                                     <TooltipTrigger className="text-sm font-semibold text-gray-800 truncate min-w-0 text-left">

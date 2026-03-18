@@ -63,17 +63,17 @@ const LanguageBadge: React.FC<{ language: string }> = ({ language }) => {
     python: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     typescript: 'bg-blue-100 text-blue-700 border-blue-200',
     javascript: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    json: 'bg-purple-100 text-purple-700 border-purple-200',
-    markdown: 'bg-white/8 text-white/60 border-white/10',
-    bash: 'bg-rose-500/10 text-rose-300 border-rose-500/20',
-    shell: 'bg-rose-500/10 text-rose-300 border-rose-500/20',
+    json: 'bg-[rgba(36,56,77,0.08)] text-[var(--brand-500)] border-[rgba(36,56,77,0.16)]',
+    markdown: 'bg-gray-100 text-gray-600 border-gray-200',
+    bash: 'bg-rose-50 text-rose-600 border-rose-200',
+    shell: 'bg-rose-50 text-rose-600 border-rose-200',
     yaml: 'bg-pink-100 text-pink-700 border-pink-200',
-    html: 'bg-amber-500/10 text-amber-300 border-amber-500/20',
-    css: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+    html: 'bg-amber-50 text-amber-600 border-amber-200',
+    css: 'bg-[rgba(111,129,148,0.14)] text-[var(--brand-500)] border-[rgba(111,129,148,0.24)]',
     sql: 'bg-cyan-100 text-cyan-700 border-cyan-200',
   }
 
-  const colorClass = colors[language.toLowerCase()] || 'bg-white/8 text-white/60 border-white/10'
+  const colorClass = colors[language.toLowerCase()] || 'bg-[var(--surface-2)] text-[var(--text-secondary)] border-[var(--border)]'
 
   return (
     <span className={cn('px-2 py-0.5 rounded text-[10px] font-medium border', colorClass)}>
@@ -112,9 +112,9 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
   const lineCount = lines.length
 
   return (
-    <div className={cn('flex flex-col bg-white rounded-lg border border-gray-200 overflow-hidden', className)}>
+    <div className={cn('flex flex-col bg-[var(--surface-elevated)] rounded-[18px] border border-[var(--border)] overflow-hidden', className)}>
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50/80">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--divider)] bg-[rgba(255,255,255,0.58)]">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {collapsible && (
             <button
@@ -122,18 +122,18 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
               className="p-0.5 hover:bg-gray-200 rounded transition-colors"
             >
               {isCollapsed ? (
-                <ChevronRight size={14} className="text-gray-500" />
+                <ChevronRight size={14} className="text-[var(--text-secondary)]" />
               ) : (
-                <ChevronDown size={14} className="text-gray-500" />
+                <ChevronDown size={14} className="text-[var(--text-secondary)]" />
               )}
             </button>
           )}
-          <FileCode size={14} className="text-gray-400 flex-shrink-0" />
-          <span className="text-xs font-medium text-gray-700 truncate">
+          <FileCode size={14} className="text-[var(--text-muted)] flex-shrink-0" />
+          <span className="text-xs font-medium text-[var(--text-primary)] truncate">
             {filename || 'untitled'}
           </span>
           <LanguageBadge language={prismLanguage} />
-          <span className="text-[10px] text-gray-400">
+          <span className="text-[10px] text-[var(--text-secondary)]">
             {lineCount} lines
           </span>
         </div>
@@ -141,7 +141,7 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
           variant="ghost"
           size="sm"
           onClick={handleCopy}
-          className="h-7 px-2 gap-1.5 text-gray-500 hover:text-gray-700"
+          className="h-7 px-2 gap-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
         >
           {copied ? (
             <>
@@ -178,7 +178,7 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
             customStyle={{
               margin: 0,
               padding: '0.75rem 1rem',
-              background: '#ffffff',
+              background: '#fffdf8',
               fontSize: '12px',
               lineHeight: '1.6',
               fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
@@ -196,10 +196,10 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
 
       {/* Collapsed preview */}
       {isCollapsed && (
-        <div className="px-3 py-2 bg-gray-50 text-xs text-gray-500">
+        <div className="px-3 py-2 bg-[var(--surface-2)] text-xs text-[var(--text-secondary)]">
           <span className="font-mono">{lines[0]?.slice(0, 60)}{lines[0]?.length > 60 ? '...' : ''}</span>
           {lineCount > 1 && (
-            <span className="ml-2 text-gray-400">+{lineCount - 1} more lines</span>
+            <span className="ml-2 text-[var(--text-muted)]">+{lineCount - 1} more lines</span>
           )}
         </div>
       )}

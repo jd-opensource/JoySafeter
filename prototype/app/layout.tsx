@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
 import { PublicEnvScript } from 'next-runtime-env'
 
 import { AppShell } from '@/components/app-shell'
@@ -9,18 +8,10 @@ import { I18nProvider } from '@/providers/i18n-provider'
 import { NotificationProvider } from '@/providers/notification-provider'
 import { QueryProvider } from '@/providers/query-provider'
 import { ThemeProvider } from '@/providers/theme-provider'
+import { season } from '@/styles/fonts/season/season'
+import { soehne } from '@/styles/fonts/soehne/soehne'
 import '@/styles/globals.css'
 import { ZoomPrevention } from '@/providers/zoom-prevention'
-
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-})
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-})
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -28,14 +19,14 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#cad1e6ff' },
+    { media: '(prefers-color-scheme: light)', color: '#f4f1ea' },
+    { media: '(prefers-color-scheme: dark)', color: '#f4f1ea' },
   ],
 }
 
 export const metadata: Metadata = {
-  title: 'JoySafeter - Multi-Agent Platform',
-  description: 'A multi-agent workflow platform powered by AI',
+  title: 'JoySafeter | Executive Security Intelligence',
+  description: 'Executive-grade multi-agent security operations platform',
 }
 
 export default function RootLayout({
@@ -44,12 +35,12 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="zh" suppressHydrationWarning>
       <head>
         <PublicEnvScript />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
+        className={`${soehne.variable} ${season.variable} font-sans antialiased bg-[var(--bg)] text-[var(--text-primary)]`}
         suppressHydrationWarning
       >
         <ThemeProvider>

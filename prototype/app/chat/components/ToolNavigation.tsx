@@ -34,7 +34,7 @@ const ToolNavigation: React.FC<ToolNavigationProps> = ({
   const currentToolName = toolNames[currentIndex] || 'Tool'
 
   return (
-    <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
+    <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--divider)] bg-[rgba(255,255,255,0.58)]">
       {/* Navigation Buttons */}
       <div className="flex items-center gap-1">
         <Button
@@ -68,11 +68,11 @@ const ToolNavigation: React.FC<ToolNavigationProps> = ({
               size="sm"
               className={cn(
                 'h-8 px-3 gap-2 font-mono text-sm',
-                'hover:bg-gray-200 transition-colors'
+                'hover:bg-[var(--surface-2)] transition-colors'
               )}
             >
-              <List size={14} className="text-gray-500" />
-              <span className="text-gray-700">
+              <List size={14} className="text-[var(--text-secondary)]" />
+              <span className="text-[var(--text-primary)]">
                 Tool <span className="font-semibold">{currentIndex + 1}</span> of {totalTools}
               </span>
             </Button>
@@ -84,7 +84,7 @@ const ToolNavigation: React.FC<ToolNavigationProps> = ({
                 onClick={() => onSelect(index)}
                 className={cn(
                   'font-mono text-sm cursor-pointer',
-                  index === currentIndex && 'bg-white/8'
+                  index === currentIndex && 'bg-[var(--surface-2)]'
                 )}
               >
                 <span className="flex-1 truncate">
@@ -98,7 +98,7 @@ const ToolNavigation: React.FC<ToolNavigationProps> = ({
 
       {/* Current Tool Name */}
       <div className="w-24 text-right">
-        <span className="text-xs text-gray-500 truncate block" title={currentToolName}>
+        <span className="text-xs text-[var(--text-secondary)] truncate block" title={currentToolName}>
           {currentToolName}
         </span>
       </div>

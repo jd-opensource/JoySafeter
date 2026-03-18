@@ -1,7 +1,6 @@
 export const dashboardStats = {
   totalAgents: 24,
   knowledgeBases: 8,
-  evaluationCompletionRate: 87.5,
   activeContainers: 3,
 }
 
@@ -83,6 +82,5 @@ export const systemStatus = {
 export const quickActions = [
   { id: 'create-agent', label: 'Create Agent', href: '/build', icon: 'bot' as const },
   { id: 'import-dataset', label: 'Import Dataset', href: '/knowledge/datasets', icon: 'database' as const },
-  { id: 'run-evaluation', label: 'Run Evaluation', href: '/evaluate', icon: 'chart' as const },
   { id: 'start-openclaw', label: 'Start OpenClaw', href: '/openclaw', icon: 'terminal' as const },
 ]

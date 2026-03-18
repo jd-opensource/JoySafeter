@@ -3,14 +3,13 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { usePathname } from 'next/navigation'
 
+import { AppSidebar } from '@/components/app-sidebar/app-sidebar'
 import { InvitationNotification } from '@/components/invitation-notification/invitation-notification'
-import { TopNav } from '@/components/top-nav/top-nav'
 import { isPublicRoute } from '@/lib/core/constants/routes'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
-  // Canvas-heavy pages: hide topnav so the canvas fills the entire viewport
   const isCanvasPage =
     pathname?.startsWith('/build/workspace') ||
     pathname?.startsWith('/workspace') ||
@@ -22,9 +21,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (isCanvasPage) {
     return (
-      <div className="flex h-screen flex-col">
-        <TopNav />
-        <main className="flex-1 overflow-hidden">
+      <div className="flex h-screen executive-shell">
+        <div className="w-[72px] flex-shrink-0">
+          <AppSidebar isCollapsed />
+        </div>
+        <main className="flex-1 overflow-hidden bg-transparent">
           {children}
         </main>
         <InvitationNotification />
@@ -33,17 +34,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <TopNav />
+    <div className="flex h-screen executive-shell">
+      <div className="w-[var(--sidebar-width)] flex-shrink-0">
+        <AppSidebar />
+      </div>
 
-      <main className="flex-1">
+      <main className="flex-1 overflow-y-auto bg-transparent">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={pathname}
-            initial={{ opacity: 0, y: 10, filter: 'blur(4px)' }}
+            initial={{ opacity: 0, y: 10, filter: 'blur(3px)' }}
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
             exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
-            transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            className="min-h-full"
           >
             {children}
           </motion.div>

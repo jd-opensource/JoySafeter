@@ -97,7 +97,7 @@ function ResetPasswordContent() {
       <div className={`${inter.className} pt-6 text-center font-light text-[14px]`}>
         <Link
           href='/signin'
-          className='font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline'
+          className='auth-link font-medium'
         >
           Back to signin
         </Link>

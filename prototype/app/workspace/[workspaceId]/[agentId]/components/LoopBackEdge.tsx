@@ -266,7 +266,7 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
     strokeDasharray: '6,3', // Finer dashed pattern
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
-    filter: isSelected ? 'drop-shadow(0 0 2px rgba(139, 92, 246, 0.3))' : 'none',
+    filter: isSelected ? 'drop-shadow(0 0 2px rgba(124, 58, 237, 0.15))' : 'none',
   }), [style, isSelected])
 
   return (
@@ -319,7 +319,7 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
                 : "border-violet-300 hover:bg-violet-50 hover:border-violet-400 active:scale-95"
             )}>
               <GripHorizontal size={14} className={cn(
-                draggingHandle === 'vertical' ? "text-violet-600" : "text-violet-400 group-hover:text-violet-500"
+                draggingHandle === 'vertical' ? "text-violet-700" : "text-violet-600 group-hover:text-violet-700"
               )} />
             </div>
           </div>
@@ -343,7 +343,7 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
                 : "border-violet-300 hover:bg-violet-50 hover:border-violet-400 active:scale-95"
             )}>
               <GripVertical size={14} className={cn(
-                draggingHandle === 'left' ? "text-violet-600" : "text-violet-400 group-hover:text-violet-500"
+                draggingHandle === 'left' ? "text-violet-700" : "text-violet-600 group-hover:text-violet-700"
               )} />
             </div>
           </div>
@@ -367,7 +367,7 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
                 : "border-violet-300 hover:bg-violet-50 hover:border-violet-400 active:scale-95"
             )}>
               <GripVertical size={14} className={cn(
-                draggingHandle === 'right' ? "text-violet-600" : "text-violet-400 group-hover:text-violet-500"
+                draggingHandle === 'right' ? "text-violet-700" : "text-violet-600 group-hover:text-violet-700"
               )} />
             </div>
           </div>

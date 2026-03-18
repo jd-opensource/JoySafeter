@@ -132,7 +132,7 @@ function ExecutionPanelContent() {
         <Panel defaultSize={35} minSize={25} maxSize={60}>
           <div className="h-full flex flex-col border-r border-gray-200 bg-white">
             {/* Panel Header */}
-            <div className="h-9 border-b border-gray-200 flex items-center justify-between px-3 bg-gray-50/80 select-none shrink-0 backdrop-blur-sm">
+            <div className="h-9 border-b border-gray-200 flex items-center justify-between px-3 bg-gray-50 select-none shrink-0">
               <div className="flex items-center gap-2">
                 <Activity size={13} className="text-blue-600" />
                 <span className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">

@@ -352,266 +352,279 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
     clearMode()
   }
 
+  const helperText = t('chat.describeHelpNeeded').replace(/\.\.\.$/, '')
+
   return (
-    <div className="flex h-full w-full bg-gray-50">
-      <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
-        <div className="w-full max-w-3xl flex flex-col gap-8">
-          <div className="text-center">
-            <h1 className="text-4xl font-light text-gray-900 tracking-tight mb-2">
+    <div className="flex h-full w-full bg-transparent">
+      <div className="mx-auto flex w-full max-w-[1024px] flex-col justify-center px-8 py-10 sm:px-10 lg:px-12">
+        <div className="mb-8 space-y-3">
+          <div className="section-label">Copilot Desk</div>
+          <div className="space-y-2">
+            <h1 className="font-display text-[clamp(2rem,4.6vw,3rem)] leading-[1.02] tracking-[-0.05em] text-[var(--text-primary)]">
               {t('chat.createSomethingAwesome')}
             </h1>
+            <p className="max-w-xl text-sm leading-6 text-[var(--text-secondary)]">
+              {helperText}
+            </p>
           </div>
+        </div>
 
-          <div className="relative w-full max-w-4xl mx-auto">
-            <div className="bg-white border border-gray-200 rounded-[24px] shadow-sm transition-all">
-              <div className="w-full flex flex-col gap-2 p-2 pb-3">
-                {state.selectedAgentId && (() => {
-                  const selectedAgent = deployedAgents.find((a: AgentGraph) => a.id === state.selectedAgentId)
-                  return selectedAgent ? (
-                    <div className="flex items-center gap-2 px-3 pt-2">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/8 rounded-full text-sm font-medium text-white/70">
-                        <MessageSquare size={14} />
-                        <span className="max-w-[120px] truncate">{selectedAgent.name}</span>
-                        <button
-                          onClick={() => setSelectedAgentId(null)}
-                          className="ml-1 hover:bg-gray-200 rounded-full p-0.5 transition-colors"
-                          aria-label={t('chat.clearAgent')}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
+        <div className="surface-panel relative overflow-hidden rounded-[30px]">
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--brand-indigo)] to-transparent" />
+          <div className="flex flex-col gap-4 p-5 sm:p-6">
+            {state.selectedAgentId && (() => {
+              const selectedAgent = deployedAgents.find((a: AgentGraph) => a.id === state.selectedAgentId)
+              return selectedAgent ? (
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(54,93,130,0.14)] bg-[rgba(54,93,130,0.08)] px-3 py-1.5 text-sm font-medium text-[var(--status-running)]">
+                    <MessageSquare size={14} />
+                    <span className="max-w-[160px] truncate">{selectedAgent.name}</span>
+                    <button
+                      onClick={() => setSelectedAgentId(null)}
+                      className="ml-1 rounded-full p-0.5 transition-colors hover:bg-[rgba(54,93,130,0.12)]"
+                      aria-label={t('chat.clearAgent')}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+              ) : null
+            })()}
+
+            <div className="relative flex flex-col gap-4">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                multiple
+                accept={ALLOWED_EXTENSIONS_STRING}
+                className="hidden"
+                disabled={isProcessing || state.isUploading}
+              />
+
+              {state.files.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {state.files.map((file) => (
+                    <div
+                      key={file.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--divider)] bg-[var(--surface-2)] px-3 py-1.5 text-xs text-[var(--text-secondary)]"
+                    >
+                      <Paperclip size={12} className="text-[var(--text-muted)]" />
+                      <span className="max-w-[170px] truncate">{file.filename}</span>
+                      <button
+                        onClick={() => removeFile(file.id)}
+                        className="ml-1 rounded-full p-0.5 transition-colors hover:bg-[var(--surface-3)]"
+                        aria-label="Remove file"
+                      >
+                        <X size={10} />
+                      </button>
                     </div>
-                  ) : null
-                })()}
+                  ))}
+                </div>
+              )}
 
-                <div className="flex items-end gap-3 px-3">
-                  <div className="flex-1 flex flex-col gap-1 relative">
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileSelect}
-                      multiple
-                      accept={ALLOWED_EXTENSIONS_STRING}
-                      className="hidden"
-                      disabled={isProcessing || state.isUploading}
-                    />
-                    {state.files.length > 0 && (
-                      <div className="flex flex-wrap gap-2 px-1 pt-2 pb-1">
-                        {state.files.map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center gap-1.5 px-2 py-1 bg-white/8 rounded-md text-xs text-white/70"
-                          >
-                            <Paperclip size={12} className="text-gray-500" />
-                            <span className="max-w-[150px] truncate">{file.filename}</span>
-                            <button
-                              onClick={() => removeFile(file.id)}
-                              className="ml-1 hover:bg-gray-200 rounded-full p-0.5 transition-colors"
-                              aria-label="Remove file"
-                            >
-                              <X size={10} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+              <textarea
+                ref={textareaRef}
+                value={state.input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={t('chat.describeHelpNeeded')}
+                className="min-h-[112px] w-full resize-none overflow-y-auto border-none bg-transparent px-0 pt-1 text-[15px] leading-7 text-[var(--text-primary)] shadow-none transition-all duration-200 placeholder:text-[var(--text-muted)] focus:outline-none focus-visible:ring-0"
+                rows={1}
+                disabled={isProcessing}
+              />
+
+              <div className="flex flex-wrap items-end justify-between gap-3 border-t border-[var(--divider)] pt-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => !state.isRedirecting && setAutoRedirect(!state.autoRedirect)}
+                    disabled={state.isRedirecting}
+                    className={cn(
+                      'h-10 rounded-full border px-4 text-sm transition-all duration-200',
+                      state.autoRedirect
+                        ? 'border-[rgba(36,56,77,0.16)] bg-[rgba(36,56,77,0.08)] text-[var(--brand-500)] hover:bg-[rgba(36,56,77,0.12)]'
+                        : 'border-[var(--border)] bg-white/70 text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:bg-white hover:text-[var(--text-primary)]'
                     )}
-                    <textarea
-                      ref={textareaRef}
-                      value={state.input}
-                      onChange={handleInputChange}
-                      onKeyDown={handleKeyDown}
-                      placeholder={t('chat.describeHelpNeeded')}
-                      className="w-full bg-transparent border-none shadow-none focus-visible:ring-0 focus:outline-none px-1 pb-14 pt-5 min-h-[120px] max-h-[240px] overflow-y-auto resize-none text-base placeholder:text-gray-400 transition-all duration-200"
-                      rows={1}
-                      disabled={isProcessing}
-                    />
-                    <div className="absolute bottom-2 left-1 flex items-center gap-2">
+                  >
+                    <Zap size={15} className="mr-2" />
+                    <span className="font-medium">{t('chat.agentModeOn')}</span>
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => !state.isRedirecting && setAutoRedirect(!state.autoRedirect)}
-                        disabled={state.isRedirecting}
-                        className={cn(
-                          'h-9 px-3 bg-transparent border-[1.5px] rounded-full transition-all duration-200 flex items-center gap-2',
-                          state.autoRedirect
-                            ? 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300'
-                            : 'border-gray-200 text-gray-500 hover:text-white/70 hover:bg-gray-50 hover:border-gray-300'
-                        )}
+                        className="h-10 rounded-full border-[var(--border)] bg-white/70 px-4 text-[var(--text-secondary)] transition-all duration-200 hover:border-[var(--border-hover)] hover:bg-white hover:text-[var(--text-primary)]"
+                        disabled={isLoadingAgents}
                       >
-                        <Zap size={16} />
-                        <span className="text-sm font-medium">
-                          {state.autoRedirect ? t('chat.agentModeOn') : t('chat.agentModeOff')}
-                        </span>
+                        <Bot size={15} className="mr-2" />
+                        <span className="font-medium">{t('chat.selectAgent')}</span>
                       </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-9 px-3 bg-transparent border-[1.5px] border-gray-200 rounded-full text-gray-500 hover:text-white/70 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 flex items-center gap-2"
-                            disabled={isLoadingAgents}
-                          >
-                            <Bot size={16} />
-                            <span className="text-sm font-medium">{t('chat.selectAgent')}</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-56 max-h-[300px] overflow-y-auto">
-                          {isLoadingAgents ? (
-                            <DropdownMenuItem disabled>{t('chat.loading')}...</DropdownMenuItem>
-                          ) : deployedAgents.length === 0 ? (
-                            <DropdownMenuItem disabled>{t('chat.noDeployedAgents')}</DropdownMenuItem>
-                          ) : (
-                            <>
-                              {deployedAgents.map((agent: AgentGraph) => (
-                                <DropdownMenuItem
-                                  key={agent.id}
-                                  onClick={() => handleAgentSelect(agent.id)}
-                                  className={cn(
-                                    'flex items-center gap-2',
-                                    state.selectedAgentId === agent.id && 'bg-white/8'
-                                  )}
-                                >
-                                  <MessageSquare size={14} className="text-gray-400" />
-                                  <span className="flex-1 truncate">{agent.name}</span>
-                                  {state.selectedAgentId === agent.id && (
-                                    <span className="text-xs text-gray-400">✓</span>
-                                  )}
-                                </DropdownMenuItem>
-                              ))}
-                            </>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="max-h-[300px] w-56 overflow-y-auto">
+                      {isLoadingAgents ? (
+                        <DropdownMenuItem disabled>{t('chat.loading')}...</DropdownMenuItem>
+                      ) : deployedAgents.length === 0 ? (
+                        <DropdownMenuItem disabled>{t('chat.noDeployedAgents')}</DropdownMenuItem>
+                      ) : (
+                        <>
+                          {deployedAgents.map((agent: AgentGraph) => (
+                            <DropdownMenuItem
+                              key={agent.id}
+                              onClick={() => handleAgentSelect(agent.id)}
+                              className={cn(
+                                'flex items-center gap-2',
+                                state.selectedAgentId === agent.id && 'bg-[var(--surface-2)]'
+                              )}
+                            >
+                              <MessageSquare size={14} className="text-[var(--text-muted)]" />
+                              <span className="flex-1 truncate">{agent.name}</span>
+                              {state.selectedAgentId === agent.id && (
+                                <span className="text-xs text-[var(--text-muted)]">✓</span>
+                              )}
+                            </DropdownMenuItem>
+                          ))}
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isProcessing || state.isUploading}
+                          className={cn(
+                            'h-10 w-10 rounded-full border-[var(--border)] bg-white/70 p-0 text-[var(--text-secondary)] transition-all duration-200 hover:border-[var(--border-hover)] hover:bg-white hover:text-[var(--text-primary)]',
+                            state.isUploading && 'cursor-not-allowed opacity-50'
                           )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={isProcessing || state.isUploading}
-                            className={cn(
-                              'h-10 w-10 p-0 bg-transparent border-[1.5px] border-gray-200 rounded-2xl text-gray-500 hover:text-white/70 hover:bg-gray-50 transition-all duration-200 flex items-center justify-center',
-                              state.isUploading && 'opacity-50 cursor-not-allowed'
-                            )}
-                          >
-                            {state.isUploading ? (
-                              <Loader2 size={18} className="animate-spin" />
-                            ) : (
-                              <Paperclip size={18} />
-                            )}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
-                          {t('chat.uploadFile')}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    {isProcessing && onStop ? (
-                      <Button
-                        onClick={onStop}
-                        size="sm"
-                        className="w-10 h-10 rounded-full transition-all flex-shrink-0 flex items-center justify-center p-0 bg-red-500 hover:bg-red-600"
-                        title={t('chat.stop')}
-                      >
-                        <Square size={14} className="text-white fill-white" />
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={handleSubmit}
-                        disabled={!state.input.trim() || isProcessing || state.isRedirecting}
-                        size="sm"
-                        className={cn(
-                          'w-10 h-10 rounded-full transition-all flex-shrink-0 flex items-center justify-center p-0',
-                          state.input.trim() && !isProcessing && !state.isRedirecting
-                            ? 'bg-gray-900 hover:bg-gray-800'
-                            : 'bg-white/5 cursor-not-allowed opacity-40'
-                        )}
-                      >
-                        {state.isRedirecting ? (
-                          <Loader2 size={18} className="text-gray-400 animate-spin" />
-                        ) : (
-                          <ArrowRight
-                            size={18}
-                            className={
-                              state.input.trim() && !isProcessing && !state.isRedirecting
-                                ? 'text-white'
-                                : 'text-gray-300'
-                            }
-                          />
-                        )}
-                      </Button>
-                    )}
-                  </div>
+                        >
+                          {state.isUploading ? (
+                            <Loader2 size={18} className="animate-spin" />
+                          ) : (
+                            <Paperclip size={18} />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {t('chat.uploadFile')}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+                  {isProcessing && onStop ? (
+                    <Button
+                      onClick={onStop}
+                      size="sm"
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
+                      title={t('chat.stop')}
+                    >
+                      <Square size={14} className="fill-white text-white" />
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={handleSubmit}
+                      disabled={!state.input.trim() || isProcessing || state.isRedirecting}
+                      size="sm"
+                      className={cn(
+                        'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
+                        state.input.trim() && !isProcessing && !state.isRedirecting
+                          ? 'bg-[var(--brand-500)] hover:bg-[var(--brand-600)]'
+                          : 'bg-[var(--surface-3)] opacity-60'
+                      )}
+                    >
+                      {state.isRedirecting ? (
+                        <Loader2 size={18} className="animate-spin text-[var(--text-secondary)]" />
+                      ) : (
+                        <ArrowRight
+                          size={18}
+                          className={
+                            state.input.trim() && !isProcessing && !state.isRedirecting
+                              ? 'text-white'
+                              : 'text-[var(--text-muted)]'
+                          }
+                        />
+                      )}
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
           </div>
+        </div>
 
-          <div className="w-full mt-4">
-            <button
-              onClick={() => setShowCases(!state.showCases)}
-              className="flex items-center justify-between w-full p-2 text-gray-500 hover:text-white/70 text-sm font-medium transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Sparkles size={14} />
-                <span>{t('chat.exploreAgentModeCases')}</span>
-              </div>
-              <ChevronDown
-                size={14}
-                className={cn('transition-transform duration-300', state.showCases && 'rotate-180')}
-              />
-            </button>
+        <div className="mt-7">
+          <button
+            onClick={() => setShowCases(!state.showCases)}
+            className="flex w-full items-center justify-between rounded-full px-1 py-1 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles size={14} />
+              <span>{t('chat.exploreAgentModeCases')}</span>
+            </div>
+            <ChevronDown
+              size={14}
+              className={cn('transition-transform duration-300', state.showCases && 'rotate-180')}
+            />
+          </button>
 
-            <div
-              className={cn(
-                'grid grid-cols-2 gap-3 overflow-hidden transition-all duration-500 ease-in-out',
-                state.showCases ? 'max-h-[500px] opacity-100 mt-4' : 'max-h-0 opacity-0'
-              )}
-            >
-              {modeOptions.map((mode) => {
-                const isSelected = state.mode.type === mode.id
-                const Icon = mode.icon
-                return (
-                  <div
-                    key={mode.id}
-                    onClick={() => handleCaseClick(mode.id, isSelected)}
-                    className={cn(
-                      'group p-4 border rounded-xl cursor-pointer transition-all flex items-start gap-4',
-                      isSelected
-                        ? 'bg-violet-500/10 border-violet-500 shadow-[0_0_20px_rgba(139,92,246,0.2)]'
-                        : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md'
-                    )}
-                  >
+          <div
+            className={cn(
+              'grid gap-3 overflow-hidden transition-all duration-500 ease-in-out md:grid-cols-2 xl:grid-cols-3',
+              state.showCases ? 'mt-4 max-h-[520px] opacity-100' : 'max-h-0 opacity-0'
+            )}
+          >
+            {modeOptions.map((mode) => {
+              const isSelected = state.mode.type === mode.id
+              const Icon = mode.icon
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => handleCaseClick(mode.id, isSelected)}
+                  className={cn(
+                    'surface-panel-flat group min-h-[108px] rounded-[20px] px-4 py-4 text-left transition-all',
+                    isSelected
+                      ? 'border-[rgba(36,56,77,0.2)] bg-[rgba(36,56,77,0.08)]'
+                      : 'hover:border-[var(--border-hover)] hover:bg-white'
+                  )}
+                >
+                  <div className="mb-3 flex items-center gap-3">
                     <div
                       className={cn(
-                        'p-2 rounded-lg transition-colors',
-                        isSelected ? 'bg-violet-500/15' : 'bg-white/4 group-hover:bg-violet-500/8'
+                        'flex h-9 w-9 items-center justify-center rounded-[12px] border transition-colors',
+                        isSelected
+                          ? 'border-[rgba(36,56,77,0.16)] bg-[rgba(36,56,77,0.08)] text-[var(--brand-500)]'
+                          : 'border-[var(--divider)] bg-white/80 text-[var(--text-secondary)] group-hover:text-[var(--brand-500)]'
                       )}
                     >
-                      <Icon size={20} className={cn(isSelected ? 'text-blue-600' : 'text-gray-600')} />
-                    </div>
-                    <div>
-                      <h3
-                        className={cn(
-                          'text-sm font-medium',
-                          isSelected
-                            ? 'text-blue-700'
-                            : 'text-gray-800 group-hover:text-blue-700'
-                        )}
-                      >
-                        {mode.label}
-                      </h3>
-                      <p className="text-xs text-gray-500 mt-1">{mode.description}</p>
+                      <Icon size={17} />
                     </div>
                   </div>
-                )
-              })}
-            </div>
+                  <div>
+                    <h3
+                      className={cn(
+                        'text-sm font-semibold tracking-[-0.01em]',
+                        isSelected ? 'text-[var(--brand-600)]' : 'text-[var(--text-primary)]'
+                      )}
+                    >
+                      {mode.label}
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
+                      {mode.description}
+                    </p>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>

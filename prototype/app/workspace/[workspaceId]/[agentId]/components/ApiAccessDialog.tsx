@@ -157,7 +157,7 @@ export function ApiAccessDialog({
                       </Tooltip>
                     </TooltipProvider>
                   </div>
-                  <pre className="p-4 bg-[#0d1117] text-gray-300 text-xs font-mono overflow-x-auto">
+                  <pre className="p-4 bg-gray-50 text-gray-800 text-xs font-mono overflow-x-auto border border-gray-200 rounded-md">
                     <code>{curlExample}</code>
                   </pre>
                 </div>

@@ -105,6 +105,8 @@ export default function KnowledgePage() {
 
   const memories = memoriesData?.data || []
   const pagination = memoriesData?.meta
+  const totalMemories = pagination?.total_count ?? memories.length
+  const hasFilters = Boolean(searchQuery.trim() || selectedTopic)
 
   // Handlers
   const handleCreate = async () => {
@@ -195,30 +197,31 @@ export default function KnowledgePage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
-      {/* Header */}
-      <div className="flex-shrink-0 border-b border-gray-100 bg-white p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center border bg-emerald-50 border-emerald-100 text-emerald-600">
-              <Brain size={18} />
+    <div className="executive-page executive-shell">
+      <div className="executive-page-content space-y-6">
+        <header className="executive-header">
+          <div className="space-y-4">
+            <div className="executive-kicker">
+              <Brain className="h-3.5 w-3.5" />
+              Knowledge Ledger
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">
+            <div className="space-y-3">
+              <h1 className="text-4xl font-semibold tracking-[-0.05em] text-[var(--text-primary)]">
                 {t('memory.title', { defaultValue: 'Knowledge & Memory' })}
-              </h2>
-              <p className="text-xs text-gray-500 mt-1">
+              </h1>
+              <p className="max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
                 {t('memory.subtitle', { defaultValue: 'Long-term memories stored across conversations' })}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="quiet-badge">{totalMemories} stored memories</div>
             <Button
               variant="outline"
               size="sm"
               onClick={handleOptimize}
               disabled={optimizeMutation.isPending || memories.length === 0}
-              className="gap-1.5 text-xs h-9"
+              className="h-10 gap-1.5 rounded-full border-[var(--border)] bg-white/80 px-4 text-xs hover:border-[var(--border-hover)] hover:bg-white"
             >
               {optimizeMutation.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -230,193 +233,232 @@ export default function KnowledgePage() {
             <Button
               size="sm"
               onClick={openCreate}
-              className="gap-1.5 text-xs h-9 bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100 shadow-lg"
+              className="btn-primary h-10 gap-1.5 rounded-full px-5 text-xs"
             >
               <Plus className="h-3.5 w-3.5" />
               {t('memory.addMemory', { defaultValue: 'Add Memory' })}
             </Button>
           </div>
-        </div>
+        </header>
 
-        {/* Filters - using SearchInput component */}
-        <div className="flex items-center gap-3 mt-4">
-          <SearchInput
-            value={searchQuery}
-            onValueChange={(v) => {
-              setSearchQuery(v)
-              setPage(1)
-            }}
-            placeholder={t('memory.searchPlaceholder', { defaultValue: 'Search memories...' })}
-            className="flex-1 max-w-md h-9"
-          />
-          <Select
-            value={selectedTopic || 'all'}
-            onValueChange={(v) => {
-              setSelectedTopic(v === 'all' ? '' : v)
-              setPage(1)
-            }}
-          >
-            <SelectTrigger className="w-40 h-9 text-sm">
-              <SelectValue placeholder={t('memory.allTopics', { defaultValue: 'All Topics' })} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('memory.allTopics', { defaultValue: 'All Topics' })}</SelectItem>
-              {topics.map((topic) => (
-                <SelectItem key={topic} value={topic}>
-                  {topic}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-            className="h-9 text-xs"
-          >
-            {sortOrder === 'desc' ? t('memory.newest', { defaultValue: 'Newest' }) : t('memory.oldest', { defaultValue: 'Oldest' })}
-          </Button>
-        </div>
-      </div>
+        <section className="grid gap-4 lg:grid-cols-[1.4fr_0.9fr]">
+          <div className="surface-panel px-6 py-6 sm:px-7">
+            <div className="space-y-5">
+              <div className="space-y-3">
+                <div className="section-label">Retrieval Controls</div>
+                <div className="executive-rule" />
+              </div>
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_176px_132px]">
+                <SearchInput
+                  value={searchQuery}
+                  onValueChange={(v) => {
+                    setSearchQuery(v)
+                    setPage(1)
+                  }}
+                  placeholder={t('memory.searchPlaceholder', { defaultValue: 'Search memories...' })}
+                  className="h-11"
+                />
+                <Select
+                  value={selectedTopic || 'all'}
+                  onValueChange={(v) => {
+                    setSelectedTopic(v === 'all' ? '' : v)
+                    setPage(1)
+                  }}
+                >
+                  <SelectTrigger className="h-11 bg-white">
+                    <SelectValue placeholder={t('memory.allTopics', { defaultValue: 'All Topics' })} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('memory.allTopics', { defaultValue: 'All Topics' })}</SelectItem>
+                    {topics.map((topic) => (
+                      <SelectItem key={topic} value={topic}>
+                        {topic}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                  className="h-11 rounded-full border-[var(--border)] bg-white/80 text-xs hover:border-[var(--border-hover)] hover:bg-white"
+                >
+                  {sortOrder === 'desc' ? t('memory.newest', { defaultValue: 'Newest' }) : t('memory.oldest', { defaultValue: 'Oldest' })}
+                </Button>
+              </div>
+            </div>
+          </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50 space-y-6">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-          </div>
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-            <AlertCircle className="h-10 w-10 mb-3 text-red-400" />
-            <p>{t('memory.loadError', { defaultValue: 'Failed to load memories' })}</p>
-          </div>
-        ) : memories.length === 0 ? (
-          // Empty state - distinguish between filtered empty and truly empty
-          (() => {
-            const hasFilters = searchQuery.trim() || selectedTopic
-            return (
+          <aside className="surface-panel px-6 py-6">
+            <div className="space-y-4">
+              <div className="section-label">Archive Summary</div>
+              <div className="executive-rule" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="surface-panel-flat px-4 py-4">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                    Topics
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+                    {topics.length}
+                  </div>
+                </div>
+                <div className="surface-panel-flat px-4 py-4">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                    Page
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+                    {page}
+                  </div>
+                </div>
+              </div>
+              <p className="text-sm leading-6 text-[var(--text-secondary)]">
+                Memory is presented as institutional knowledge rather than chat residue,
+                so teams can audit what the system retains and why it matters.
+              </p>
+            </div>
+          </aside>
+        </section>
+
+        <section className="surface-panel min-h-[420px] px-6 py-6 sm:px-7">
+          <div className="space-y-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-2">
+                <div className="section-label">Memory Archive</div>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Showing {memories.length} of {totalMemories} stored entries.
+                </p>
+              </div>
+              {selectedTopic && <div className="quiet-badge">{selectedTopic}</div>}
+            </div>
+
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-[var(--brand-500)]" />
+              </div>
+            ) : error ? (
+              <div className="surface-panel-flat flex flex-col items-center justify-center gap-3 py-16 text-center">
+                <AlertCircle className="h-10 w-10 text-[var(--status-offline)]" />
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {t('memory.loadError', { defaultValue: 'Failed to load memories' })}
+                </p>
+              </div>
+            ) : memories.length === 0 ? (
               <div
-                className={`p-4 rounded-xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-center gap-2 bg-gray-50 ${hasFilters ? '' : 'hover:bg-white hover:border-gray-400 transition-colors cursor-pointer'} py-12`}
+                className={cn(
+                  'surface-panel-flat flex min-h-[280px] flex-col items-center justify-center gap-3 px-6 py-12 text-center',
+                  !hasFilters && 'cursor-pointer transition duration-200 hover:border-[var(--border-hover)] hover:bg-white'
+                )}
                 onClick={hasFilters ? undefined : openCreate}
               >
-                <div className="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm text-gray-400">
-                  {hasFilters ? (
-                    <AlertCircle size={20} />
-                  ) : (
-                    <Plus size={20} />
-                  )}
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--divider)] bg-white/80 text-[var(--brand-500)]">
+                  {hasFilters ? <AlertCircle size={20} /> : <Plus size={20} />}
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900">
+                  <h4 className="text-base font-semibold text-[var(--text-primary)]">
                     {hasFilters
                       ? t('memory.noMemoriesFiltered', { defaultValue: 'No memories found' })
-                      : t('memory.noMemories', { defaultValue: 'No memories yet' })
-                    }
+                      : t('memory.noMemories', { defaultValue: 'No memories yet' })}
                   </h4>
-                  <p className="text-xs text-gray-500 mt-1 max-w-md">
+                  <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-secondary)]">
                     {hasFilters
                       ? t('memory.noMemoriesFilteredDescription', {
                           defaultValue: 'Try adjusting your search or filter criteria'
                         })
-                      : t('memory.noMemoriesDescription', { defaultValue: 'Click to add your first memory' })
-                    }
+                      : t('memory.noMemoriesDescription', { defaultValue: 'Click to add your first memory' })}
                   </p>
                 </div>
               </div>
-            )
-          })()
-        ) : (
-          // Memory list - using Card component, style consistent with McpServerCard
-          <div className="space-y-3">
-            {memories.map((memory) => (
-              <Card
-                key={memory.memory_id}
-                className="group flex items-start justify-between p-4 bg-white border-gray-200 hover:shadow-md transition-all hover:border-emerald-200"
-              >
-                <div className="flex items-start gap-4 flex-1 min-w-0">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center border bg-emerald-50 border-emerald-100 text-emerald-600 flex-shrink-0">
-                    <Brain size={18} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap line-clamp-3">
-                      {memory.memory}
-                    </p>
-                    <div className="flex items-center gap-3 mt-2 flex-wrap">
-                      {memory.topics && memory.topics.length > 0 && (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <Tag className="h-3 w-3 text-gray-400" />
-                          {memory.topics.map((topic) => (
-                            <Badge
-                              key={topic}
-                              variant="outline"
-                              className="text-[9px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-100"
-                            >
-                              {topic}
-                            </Badge>
-                          ))}
+            ) : (
+              <div className="space-y-3">
+                {memories.map((memory) => (
+                  <Card
+                    key={memory.memory_id}
+                    className="surface-panel-flat group flex items-start justify-between gap-4 p-5 transition duration-200 hover:border-[var(--border-hover)] hover:bg-white"
+                  >
+                    <div className="flex min-w-0 flex-1 items-start gap-4">
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-[var(--divider)] bg-white/80 text-[var(--brand-500)]">
+                        <Brain size={18} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-7 text-[var(--text-primary)]">
+                          {memory.memory}
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                          {memory.topics && memory.topics.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Tag className="h-3 w-3 text-[var(--text-muted)]" />
+                              {memory.topics.map((topic) => (
+                                <Badge
+                                  key={topic}
+                                  variant="outline"
+                                  className="border-[rgba(54,93,130,0.16)] bg-[rgba(54,93,130,0.08)] px-2 py-0 text-[9px] uppercase tracking-[0.16em] text-[var(--status-running)]"
+                                >
+                                  {topic}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          {memory.updated_at && (
+                            <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                              <Calendar className="h-3 w-3" />
+                              {formatDate(memory.updated_at)}
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {memory.updated_at && (
-                        <div className="flex items-center gap-1 text-[10px] text-gray-400">
-                          <Calendar className="h-3 w-3" />
-                          {formatDate(memory.updated_at)}
-                        </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* Actions - consistent with McpServerCard */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-gray-400 hover:text-gray-900 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <MoreHorizontal size={16} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => openEdit(memory)}>
-                      <Edit3 size={14} className="mr-2" />
-                      {t('memory.edit', { defaultValue: 'Edit' })}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => setDeleteConfirmMemory(memory)}
-                      className="text-red-600 focus:text-red-600"
-                    >
-                      <Trash2 size={14} className="mr-2" />
-                      {t('memory.delete', { defaultValue: 'Delete' })}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </Card>
-            ))}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-full text-[var(--text-muted)] opacity-0 transition duration-200 hover:bg-white hover:text-[var(--text-primary)] group-hover:opacity-100"
+                        >
+                          <MoreHorizontal size={16} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openEdit(memory)}>
+                          <Edit3 size={14} className="mr-2" />
+                          {t('memory.edit', { defaultValue: 'Edit' })}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => setDeleteConfirmMemory(memory)}
+                          className="text-red-600 focus:text-red-600"
+                        >
+                          <Trash2 size={14} className="mr-2" />
+                          {t('memory.delete', { defaultValue: 'Delete' })}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {pagination && pagination.total_pages > 1 && (
+              <Pagination
+                page={page}
+                totalPages={pagination.total_pages}
+                total={pagination.total_count}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                isLoading={isLoading}
+                className="pt-4"
+              />
+            )}
           </div>
-        )}
-
-        {/* Pagination - using Pagination component */}
-        {pagination && pagination.total_pages > 1 && (
-          <Pagination
-            page={page}
-            totalPages={pagination.total_pages}
-            total={pagination.total_count}
-            pageSize={pageSize}
-            onPageChange={setPage}
-            isLoading={isLoading}
-            className="pt-4"
-          />
-        )}
+        </section>
       </div>
 
       {/* Create Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="border border-[var(--border)] bg-[var(--surface-elevated)] shadow-[0_28px_70px_rgba(15,23,42,0.16)] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Brain className="h-5 w-5 text-emerald-600" />
+              <Brain className="h-5 w-5 text-[var(--brand-500)]" />
               {t('memory.createMemory', { defaultValue: 'Create Memory' })}
             </DialogTitle>
             <DialogDescription>
@@ -451,7 +493,7 @@ export default function KnowledgePage() {
             <Button
               onClick={handleCreate}
               disabled={createMutation.isPending}
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+              className="btn-primary gap-1.5 rounded-full px-5"
             >
               {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('memory.create', { defaultValue: 'Create' })}
@@ -462,10 +504,10 @@ export default function KnowledgePage() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingMemory} onOpenChange={(open) => !open && setEditingMemory(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="border border-[var(--border)] bg-[var(--surface-elevated)] shadow-[0_28px_70px_rgba(15,23,42,0.16)] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Edit3 className="h-5 w-5 text-emerald-600" />
+              <Edit3 className="h-5 w-5 text-[var(--brand-500)]" />
               {t('memory.editMemory', { defaultValue: 'Edit Memory' })}
             </DialogTitle>
           </DialogHeader>
@@ -496,7 +538,7 @@ export default function KnowledgePage() {
             <Button
               onClick={handleUpdate}
               disabled={updateMutation.isPending}
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+              className="btn-primary gap-1.5 rounded-full px-5"
             >
               {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('memory.save', { defaultValue: 'Save' })}

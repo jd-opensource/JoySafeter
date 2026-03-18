@@ -15,13 +15,13 @@ import { toastSuccess, toastError, toastInfo } from '@/lib/utils/toast'
 import { datasets, datasetDocuments, mockSearchResults, type Document } from '@/mocks/datasets'
 
 const FILE_TYPE_STYLES: Record<string, string> = {
-  pdf:  'text-rose-400 bg-rose-500/10 border border-rose-500/20',
-  md:   'text-sky-400 bg-sky-500/10 border border-sky-500/20',
-  txt:  'text-white/50 bg-white/5 border border-white/10',
-  html: 'text-amber-400 bg-amber-500/10 border border-amber-500/20',
-  json: 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20',
-  docx: 'text-indigo-400 bg-indigo-500/10 border border-indigo-500/20',
-  csv:  'text-teal-400 bg-teal-500/10 border border-teal-500/20',
+  pdf:  'text-rose-600 bg-rose-50 border border-rose-200',
+  md:   'text-sky-600 bg-sky-50 border border-sky-200',
+  txt:  'text-gray-500 bg-gray-50 border border-gray-200',
+  html: 'text-amber-600 bg-amber-50 border border-amber-200',
+  json: 'text-emerald-600 bg-emerald-50 border border-emerald-200',
+  docx: 'text-[var(--brand-500)] bg-[rgba(36,56,77,0.08)] border border-[rgba(36,56,77,0.16)]',
+  csv:  'text-teal-600 bg-teal-50 border border-teal-200',
 }
 
 const MOCK_UPLOAD_FILES = [
@@ -42,15 +42,15 @@ function ConfirmDialog({ open, title, description, onConfirm, onCancel }: {
         <motion.div className="fixed inset-0 z-50 flex items-center justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
           <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-            className="relative z-10 w-full max-w-sm rounded-2xl border border-violet-500/25 bg-[#0d0d14]/95 backdrop-blur-2xl p-6 shadow-[0_0_60px_rgba(0,0,0,0.8)]">
-            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-rose-500/15 border border-rose-500/25">
-              <AlertCircle className="h-5 w-5 text-rose-400" />
+            className="relative z-10 w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-lg">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-rose-50 border border-rose-200">
+              <AlertCircle className="h-5 w-5 text-rose-600" />
             </div>
-            <h3 className="mb-1 text-base font-semibold text-white/90">{title}</h3>
-            <p className="mb-6 text-sm text-white/45">{description}</p>
+            <h3 className="mb-1 text-base font-semibold text-gray-900">{title}</h3>
+            <p className="mb-6 text-sm text-gray-500">{description}</p>
             <div className="flex gap-3">
-              <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 transition-all hover:bg-white/8 hover:text-white/90">Cancel</button>
-              <button onClick={onConfirm} className="flex-1 rounded-xl border border-rose-500/30 bg-rose-600/80 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-rose-600">Delete</button>
+              <button onClick={onCancel} className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-600 transition-all hover:bg-gray-100 hover:text-gray-900">Cancel</button>
+              <button onClick={onConfirm} className="flex-1 rounded-xl border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-rose-700">Delete</button>
             </div>
           </motion.div>
         </motion.div>
@@ -99,7 +99,7 @@ function UploadModal({ open, onClose, onUploaded }: {
         <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
           <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} transition={{ duration: 0.18 }}
-            className="relative z-10 w-full max-w-md rounded-2xl border border-violet-500/25 bg-[#0d0d14]/95 backdrop-blur-2xl shadow-[0_0_60px_rgba(0,0,0,0.8)]">
+            className="relative z-10 w-full max-w-md rounded-2xl border border-gray-200 bg-white shadow-lg">
             <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
               <h2 className="text-base font-semibold text-[var(--text-primary)]">Add Documents</h2>
               <button onClick={onClose} className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--surface-3)]"><X className="h-4 w-4" /></button>
@@ -135,12 +135,12 @@ function UploadModal({ open, onClose, onUploaded }: {
             </div>
 
             <div className="flex gap-3 border-t border-[var(--border)] px-6 py-4">
-              <button onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 transition-all hover:bg-white/8 hover:text-white/90">Cancel</button>
+              <button onClick={onClose} className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-600 transition-all hover:bg-gray-100 hover:text-gray-900">Cancel</button>
               <button
                 onClick={handleUpload}
                 disabled={!selectedFile || processing}
                 className={cn('flex-1 flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all',
-                  selectedFile && !processing ? 'bg-gradient-to-r from-violet-600 to-indigo-600 shadow-[0_0_12px_rgba(139,92,246,0.3)] hover:shadow-[0_0_20px_rgba(139,92,246,0.5)]' : 'bg-white/5 cursor-not-allowed text-white/30'
+                  selectedFile && !processing ? 'bg-[linear-gradient(180deg,var(--brand-400),var(--brand-500))] shadow-md hover:opacity-95' : 'bg-gray-100 cursor-not-allowed text-gray-400'
                 )}
               >
                 {processing && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
@@ -182,10 +182,10 @@ function SettingsTab({ dataset }: { dataset: ReturnType<typeof datasets.find> })
           <span className="flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" />{dataset.chunkCount} chunks</span>
         </div>
       </div>
-      <div className="rounded-xl border border-rose-500/25 bg-rose-500/5 p-5">
-        <h3 className="mb-1 text-sm font-semibold text-rose-400">Danger Zone</h3>
-        <p className="mb-3 text-xs text-rose-400/60">Permanently delete this knowledge base and all its data.</p>
-        <button className="rounded-xl border border-rose-500/30 bg-rose-600/10 px-4 py-1.5 text-xs font-medium text-rose-400 transition-all hover:bg-rose-600/80 hover:text-white">
+      <div className="rounded-xl border border-rose-200 bg-rose-50 p-5">
+        <h3 className="mb-1 text-sm font-semibold text-rose-600">Danger Zone</h3>
+        <p className="mb-3 text-xs text-rose-500">Permanently delete this knowledge base and all its data.</p>
+        <button className="rounded-xl border border-rose-200 bg-rose-100 px-4 py-1.5 text-xs font-medium text-rose-600 transition-all hover:bg-rose-600 hover:text-white">
           Delete Knowledge Base
         </button>
       </div>
@@ -227,7 +227,8 @@ export default function DatasetDetailPage() {
   ]
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="executive-page">
+      <div className="executive-page-content !max-w-[1220px]">
       {/* Back */}
       <Link href="/knowledge/datasets" className="mb-4 inline-flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
         <ArrowLeft className="h-3 w-3" /> Back to datasets
@@ -246,7 +247,7 @@ export default function DatasetDetailPage() {
         </div>
         <button
           onClick={() => setShowUpload(true)}
-          className="flex shrink-0 items-center gap-2 rounded-lg bg-[var(--brand-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
+          className="btn-primary flex shrink-0 items-center gap-2 rounded-full px-5 py-3 text-sm font-medium"
         >
           <Plus className="h-4 w-4" /> Add Documents
         </button>
@@ -437,6 +438,7 @@ export default function DatasetDetailPage() {
         onConfirm={() => handleDeleteDoc(confirmDelete.docId)}
         onCancel={() => setConfirmDelete({ open: false, docId: '', docName: '' })}
       />
+      </div>
     </div>
   )
 }

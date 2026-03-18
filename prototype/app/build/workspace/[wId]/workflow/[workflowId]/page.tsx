@@ -66,15 +66,15 @@ const nodeTypeColors: Record<
   WorkflowNodeType,
   { color: string; glow: string; bg: string; border: string }
 > = {
-  start:               { color: '#34d399', glow: 'rgba(52,211,153,0.25)',  bg: 'rgba(52,211,153,0.08)',  border: 'rgba(52,211,153,0.3)' },
-  end:                 { color: '#f87171', glow: 'rgba(248,113,113,0.25)', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.3)' },
-  llm:                 { color: '#a78bfa', glow: 'rgba(167,139,250,0.25)', bg: 'rgba(167,139,250,0.08)', border: 'rgba(167,139,250,0.3)' },
-  code:                { color: '#fbbf24', glow: 'rgba(251,191,36,0.25)',  bg: 'rgba(251,191,36,0.08)',  border: 'rgba(251,191,36,0.3)' },
-  http:                { color: '#60a5fa', glow: 'rgba(96,165,250,0.25)',  bg: 'rgba(96,165,250,0.08)',  border: 'rgba(96,165,250,0.3)' },
-  knowledge_retrieval: { color: '#22d3ee', glow: 'rgba(34,211,238,0.25)',  bg: 'rgba(34,211,238,0.08)',  border: 'rgba(34,211,238,0.3)' },
-  condition:           { color: '#f472b6', glow: 'rgba(244,114,182,0.25)', bg: 'rgba(244,114,182,0.08)', border: 'rgba(244,114,182,0.3)' },
-  variable:            { color: '#94a3b8', glow: 'rgba(148,163,184,0.25)', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.3)' },
-  iterator:            { color: '#fb923c', glow: 'rgba(251,146,60,0.25)',  bg: 'rgba(251,146,60,0.08)',  border: 'rgba(251,146,60,0.3)' },
+  start:               { color: '#34d399', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#ecfdf5',  border: '#d1fae5' },
+  end:                 { color: '#f87171', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#fef2f2',  border: '#fecaca' },
+  llm:                 { color: '#a78bfa', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#f5f3ff',  border: '#ddd6fe' },
+  code:                { color: '#fbbf24', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#fffbeb',  border: '#fde68a' },
+  http:                { color: '#60a5fa', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#eff6ff',  border: '#bfdbfe' },
+  knowledge_retrieval: { color: '#22d3ee', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#ecfeff',  border: '#a5f3fc' },
+  condition:           { color: '#f472b6', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#fdf2f8',  border: '#fbcfe8' },
+  variable:            { color: '#94a3b8', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#f8fafc',  border: '#e2e8f0' },
+  iterator:            { color: '#fb923c', glow: '0 1px 2px rgba(0,0,0,0.05)',  bg: '#fff7ed',  border: '#fed7aa' },
 }
 
 function WorkflowNode({
@@ -91,12 +91,11 @@ function WorkflowNode({
     <div
       className="relative rounded-xl min-w-[172px]"
       style={{
-        background: 'rgba(13,13,20,0.9)',
+        background: '#FFFFFF',
         border: `1px solid ${selected ? color : border}`,
         boxShadow: selected
-          ? `0 0 0 2px ${color}30, 0 0 24px ${glow}, 0 4px 24px rgba(0,0,0,0.5)`
-          : `0 0 14px ${glow}, 0 4px 16px rgba(0,0,0,0.4)`,
-        backdropFilter: 'blur(12px)',
+          ? `0 0 0 2px ${color}30, 0 4px 12px rgba(0,0,0,0.08)`
+          : `0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)`,
       }}
     >
       <Handle
@@ -106,8 +105,8 @@ function WorkflowNode({
           width: 10,
           height: 10,
           background: color,
-          border: '2px solid rgba(13,13,20,0.9)',
-          boxShadow: `0 0 6px ${glow}`,
+          border: '2px solid #FFFFFF',
+          boxShadow: `0 1px 3px rgba(0,0,0,0.15)`,
         }}
       />
 
@@ -122,13 +121,13 @@ function WorkflowNode({
         >
           <Icon className="h-3.5 w-3.5" style={{ color }} />
         </div>
-        <span className="text-xs font-semibold text-white/90 truncate">{data.label}</span>
+        <span className="text-xs font-semibold text-gray-900 truncate">{data.label}</span>
       </div>
 
       {/* Body */}
       {data.description && (
         <div className="px-3 py-2">
-          <p className="text-[10px] text-white/40 leading-relaxed">{data.description}</p>
+          <p className="text-[10px] text-gray-400 leading-relaxed">{data.description}</p>
         </div>
       )}
 
@@ -139,8 +138,8 @@ function WorkflowNode({
           width: 10,
           height: 10,
           background: color,
-          border: '2px solid rgba(13,13,20,0.9)',
-          boxShadow: `0 0 6px ${glow}`,
+          border: '2px solid #FFFFFF',
+          boxShadow: `0 1px 3px rgba(0,0,0,0.15)`,
         }}
       />
     </div>
@@ -150,8 +149,8 @@ function WorkflowNode({
 const nodeTypes = { workflowNode: WorkflowNode }
 
 const inputCls =
-  'w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80 placeholder:text-white/25 outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all'
-const labelCls = 'block text-[10px] font-medium text-white/40 mb-1 uppercase tracking-wider'
+  'w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-xs text-gray-900 placeholder:text-gray-300 outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all'
+const labelCls = 'block text-[10px] font-medium text-gray-400 mb-1 uppercase tracking-wider'
 
 function NodeConfigFields({ node }: { node: Node }) {
   const type = node.data.type as WorkflowNodeType
@@ -184,7 +183,7 @@ function NodeConfigFields({ node }: { node: Node }) {
             defaultValue="0.7"
             className="w-full accent-violet-500"
           />
-          <div className="flex justify-between text-[9px] text-white/25 mt-0.5">
+          <div className="flex justify-between text-[9px] text-gray-300 mt-0.5">
             <span>0</span><span>0.7</span><span>2</span>
           </div>
         </div>
@@ -350,7 +349,7 @@ export default function WorkflowBuilderPage() {
           {
             ...params,
             animated: false,
-            style: { stroke: 'rgba(139,92,246,0.5)', strokeWidth: 1.5 },
+            style: { stroke: '#8b5cf6', strokeWidth: 1.5 },
           },
           eds,
         ),
@@ -416,17 +415,13 @@ export default function WorkflowBuilderPage() {
   const selectedColors = selectedType ? nodeTypeColors[selectedType] : null
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: '#0a0a0f' }}>
+    <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* ── Left: Node Palette ── */}
       <div
-        className="w-[220px] flex-shrink-0 overflow-y-auto"
-        style={{
-          borderRight: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(255,255,255,0.015)',
-        }}
+        className="w-[220px] flex-shrink-0 overflow-y-auto bg-white border-r border-gray-200"
       >
         <div className="p-3 pt-4">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/30 mb-3 px-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-400 mb-3 px-1">
             {t('workflow.nodePanel')}
           </p>
           <div className="space-y-1">
@@ -450,25 +445,20 @@ export default function WorkflowBuilderPage() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Toolbar */}
         <div
-          className="flex items-center justify-between px-4 py-2.5 flex-shrink-0"
-          style={{
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
-            background: 'rgba(10,10,15,0.8)',
-            backdropFilter: 'blur(12px)',
-          }}
+          className="flex items-center justify-between px-4 py-2.5 flex-shrink-0 bg-white border-b border-gray-200"
         >
           <div className="flex items-center gap-1.5 text-[12px]">
-            <span className="text-white/30">Build</span>
-            <ChevronRight className="h-3 w-3 text-white/20" />
-            <span className="text-white/30">Threat Analysis</span>
-            <ChevronRight className="h-3 w-3 text-white/20" />
-            <span className="text-white/70 font-medium">Threat Analysis Pipeline</span>
+            <span className="text-gray-400">Build</span>
+            <ChevronRight className="h-3 w-3 text-gray-300" />
+            <span className="text-gray-400">Threat Analysis</span>
+            <ChevronRight className="h-3 w-3 text-gray-300" />
+            <span className="text-gray-600 font-medium">Threat Analysis Pipeline</span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={handleClear}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] text-white/40 transition-all duration-200 hover:text-white/70 hover:bg-white/5"
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] text-gray-400 transition-all duration-200 hover:text-gray-600 hover:bg-gray-50"
             >
               <Trash2 className="h-3 w-3" />
               {t('workflow.clear')}
@@ -479,7 +469,7 @@ export default function WorkflowBuilderPage() {
               className="group flex items-center gap-2 rounded-full px-4 py-1.5 text-[11px] font-semibold text-white transition-all duration-300 disabled:opacity-60 hover:-translate-y-px"
               style={{
                 background: 'linear-gradient(to right, #7c3aed, #4f46e5)',
-                boxShadow: '0 0 14px rgba(139,92,246,0.35)',
+                boxShadow: '0 2px 8px rgba(139,92,246,0.25)',
               }}
             >
               {isRunning ? (
@@ -510,32 +500,32 @@ export default function WorkflowBuilderPage() {
             nodeTypes={nodeTypes}
             fitView
             proOptions={{ hideAttribution: true }}
-            style={{ background: '#0a0a0f' }}
+            style={{ background: '#f9fafb' }}
             defaultEdgeOptions={{
-              style: { stroke: 'rgba(139,92,246,0.4)', strokeWidth: 1.5 },
+              style: { stroke: '#8b5cf6', strokeWidth: 1.5 },
               animated: false,
             }}
           >
             <Background
               gap={24}
               size={1}
-              color="rgba(255,255,255,0.04)"
+              color="#e5e7eb"
               variant={BackgroundVariant.Dots}
             />
             <Controls
               style={{
-                background: 'rgba(13,13,20,0.9)',
-                border: '1px solid rgba(255,255,255,0.08)',
+                background: '#FFFFFF',
+                border: '1px solid #e5e7eb',
                 borderRadius: 12,
               }}
             />
             <MiniMap
               style={{
-                background: 'rgba(13,13,20,0.9)',
-                border: '1px solid rgba(255,255,255,0.08)',
+                background: '#FFFFFF',
+                border: '1px solid #e5e7eb',
                 borderRadius: 12,
               }}
-              maskColor="rgba(10,10,15,0.7)"
+              maskColor="rgba(249,250,251,0.7)"
             />
           </ReactFlow>
         </div>
@@ -548,39 +538,34 @@ export default function WorkflowBuilderPage() {
               animate={{ height: 224, opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.3, ease: EASE }}
-              className="flex-shrink-0 overflow-hidden"
-              style={{
-                borderTop: '1px solid rgba(139,92,246,0.2)',
-                background: 'rgba(13,13,20,0.95)',
-                backdropFilter: 'blur(20px)',
-              }}
+              className="flex-shrink-0 overflow-hidden bg-white border-t border-gray-200 shadow-lg"
             >
               <div className="p-4 h-full overflow-auto">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <div
                       className="flex h-5 w-5 items-center justify-center rounded-full"
-                      style={{ background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.3)' }}
+                      style={{ background: '#ecfdf5', border: '1px solid #d1fae5' }}
                     >
-                      <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                      <CheckCircle2 className="h-3 w-3 text-emerald-600" />
                     </div>
-                    <span className="text-[11px] font-semibold text-white/70">
+                    <span className="text-[11px] font-semibold text-gray-600">
                       {t('workflow.runResults')}
                     </span>
                     <span
-                      className="text-[10px] text-emerald-400 font-medium px-1.5 py-0.5 rounded-full"
-                      style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)' }}
+                      className="text-[10px] text-emerald-600 font-medium px-1.5 py-0.5 rounded-full"
+                      style={{ background: '#ecfdf5', border: '1px solid #d1fae5' }}
                     >
                       Completed
                     </span>
-                    <span className="flex items-center gap-1 text-[10px] text-white/30">
+                    <span className="flex items-center gap-1 text-[10px] text-gray-400">
                       <Clock className="h-2.5 w-2.5" />
                       2.3s
                     </span>
                   </div>
                   <button
                     onClick={() => setShowResults(false)}
-                    className="text-white/20 hover:text-white/50 transition-colors"
+                    className="text-gray-300 hover:text-gray-500 transition-colors"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -592,15 +577,15 @@ export default function WorkflowBuilderPage() {
                       key={step.node}
                       className="rounded-lg px-2.5 py-2 text-center"
                       style={{
-                        background: 'rgba(52,211,153,0.05)',
-                        border: '1px solid rgba(52,211,153,0.15)',
+                        background: '#ecfdf5',
+                        border: '1px solid #d1fae5',
                       }}
                     >
                       <div className="flex items-center justify-center mb-1">
-                        <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
                       </div>
-                      <p className="text-[9px] font-medium text-white/60 truncate">{step.node}</p>
-                      <p className="text-[8px] text-white/25 mt-0.5">{step.time}</p>
+                      <p className="text-[9px] font-medium text-gray-500 truncate">{step.node}</p>
+                      <p className="text-[8px] text-gray-300 mt-0.5">{step.time}</p>
                     </div>
                   ))}
                 </div>
@@ -608,15 +593,15 @@ export default function WorkflowBuilderPage() {
                 <div
                   className="rounded-lg p-3"
                   style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.06)',
+                    background: '#f9fafb',
+                    border: '1px solid #e5e7eb',
                   }}
                 >
                   <div className="flex items-center gap-1.5 mb-1.5">
-                    <Zap className="h-3 w-3 text-violet-400" />
-                    <span className="text-[10px] font-medium text-white/40">Output</span>
+                    <Zap className="h-3 w-3 text-violet-600" />
+                    <span className="text-[10px] font-medium text-gray-400">Output</span>
                   </div>
-                  <p className="text-[11px] text-white/65 font-mono">
+                  <p className="text-[11px] text-gray-600 font-mono">
                     Detected SQL injection vulnerability (CVE-2025-1234) — Severity: HIGH — CVSS: 9.1
                   </p>
                 </div>
@@ -628,14 +613,10 @@ export default function WorkflowBuilderPage() {
 
       {/* ── Right: Config Panel ── */}
       <div
-        className="w-[280px] flex-shrink-0 overflow-y-auto"
-        style={{
-          borderLeft: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(255,255,255,0.015)',
-        }}
+        className="w-[280px] flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
       >
         <div className="p-3 pt-4">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/30 mb-3 px-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-400 mb-3 px-1">
             {t('workflow.configuration')}
           </p>
 
@@ -653,8 +634,8 @@ export default function WorkflowBuilderPage() {
                 <div
                   className="rounded-xl p-3"
                   style={{
-                    background: selectedColors ? selectedColors.bg : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${selectedColors ? selectedColors.border : 'rgba(255,255,255,0.06)'}`,
+                    background: selectedColors ? selectedColors.bg : '#f9fafb',
+                    border: `1px solid ${selectedColors ? selectedColors.border : '#e5e7eb'}`,
                   }}
                 >
                   <div className="flex items-center gap-2.5">
@@ -673,10 +654,10 @@ export default function WorkflowBuilderPage() {
                       )
                     })()}
                     <div>
-                      <p className="text-[12px] font-semibold text-white/85">
+                      <p className="text-[12px] font-semibold text-gray-900">
                         {selectedNode.data.label}
                       </p>
-                      <p className="text-[10px] text-white/35 capitalize">
+                      <p className="text-[10px] text-gray-400 capitalize">
                         {selectedNode.data.type?.replace(/_/g, ' ')}
                       </p>
                     </div>
@@ -707,8 +688,8 @@ export default function WorkflowBuilderPage() {
                     )
                     setSelectedNode(null)
                   }}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11px] text-rose-400/70 transition-all duration-200 hover:text-rose-400 hover:bg-rose-500/8"
-                  style={{ border: '1px solid rgba(244,63,94,0.15)' }}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11px] text-rose-600/70 transition-all duration-200 hover:text-rose-600 hover:bg-rose-50"
+                  style={{ border: '1px solid #fecdd3' }}
                 >
                   <Trash2 className="h-3 w-3" />
                   Delete Node
@@ -726,14 +707,14 @@ export default function WorkflowBuilderPage() {
                 <div
                   className="flex h-10 w-10 items-center justify-center rounded-2xl mb-3"
                   style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.06)',
+                    background: '#f9fafb',
+                    border: '1px solid #e5e7eb',
                   }}
                 >
-                  <Sparkles className="h-5 w-5 text-white/20" />
+                  <Sparkles className="h-5 w-5 text-gray-300" />
                 </div>
-                <p className="text-[12px] font-medium text-white/30">Select a node</p>
-                <p className="text-[10px] text-white/18 mt-1">
+                <p className="text-[12px] font-medium text-gray-400">Select a node</p>
+                <p className="text-[10px] text-gray-300 mt-1">
                   Click any node to configure its settings
                 </p>
               </motion.div>
@@ -765,20 +746,20 @@ function PaletteItem({
       }}
       className="group flex items-center gap-2.5 rounded-xl px-2.5 py-2 cursor-grab active:cursor-grabbing"
       style={{
-        border: '1px solid rgba(255,255,255,0.06)',
-        background: 'rgba(255,255,255,0.025)',
+        border: '1px solid #e5e7eb',
+        background: '#ffffff',
         transition: 'border 0.15s, background 0.15s, box-shadow 0.15s',
       }}
       onMouseEnter={(e) => {
         const el = e.currentTarget
         el.style.border = `1px solid ${colors.border}`
         el.style.background = colors.bg
-        el.style.boxShadow = `0 0 10px ${colors.glow}`
+        el.style.boxShadow = colors.glow
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget
-        el.style.border = '1px solid rgba(255,255,255,0.06)'
-        el.style.background = 'rgba(255,255,255,0.025)'
+        el.style.border = '1px solid #e5e7eb'
+        el.style.background = '#ffffff'
         el.style.boxShadow = ''
       }}
     >
@@ -789,10 +770,10 @@ function PaletteItem({
         <Icon className="h-3.5 w-3.5" style={{ color: colors.color }} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-medium text-white/75 leading-none mb-0.5">{node.label}</p>
-        <p className="text-[9px] text-white/30 truncate">{node.description}</p>
+        <p className="text-[11px] font-medium text-gray-700 leading-none mb-0.5">{node.label}</p>
+        <p className="text-[9px] text-gray-400 truncate">{node.description}</p>
       </div>
-      <GripVertical className="h-3 w-3 text-white/20 group-hover:text-white/40 transition-colors" />
+      <GripVertical className="h-3 w-3 text-gray-300 group-hover:text-gray-400 transition-colors" />
     </div>
   )
 }

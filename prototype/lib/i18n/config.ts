@@ -22,7 +22,7 @@ if (typeof window !== 'undefined' && !i18n.isInitialized) {
         },
       },
       defaultNS: 'translation',
-      fallbackLng: 'en',
+      fallbackLng: 'zh',
       interpolation: {
         escapeValue: false,
       },

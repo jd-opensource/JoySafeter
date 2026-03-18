@@ -67,14 +67,14 @@ export function CopilotChat({
   if (messages.length === 0) {
     return (
       <div className="flex flex-col items-center text-center pt-4 pb-2">
-        <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 mb-3 bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 border border-purple-100">
+        <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 mb-3 bg-[rgba(36,56,77,0.08)] text-[var(--brand-500)] border border-[rgba(36,56,77,0.12)]">
           <Sparkles size={24} />
         </div>
-        <p className="text-sm font-medium text-gray-700 mb-6 px-2">
+        <p className="text-sm font-medium text-[var(--text-primary)] mb-6 px-2">
           {t('workspace.copilotEmptyHeading')}
         </p>
 
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 w-full text-left px-1">
+        <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-3 w-full text-left px-1">
           {t('workspace.copilotStartWithBlueprint')}
         </p>
         <div className="space-y-3 w-full">
@@ -86,13 +86,13 @@ export function CopilotChat({
                 key={i}
                 type="button"
                 onClick={() => onBlueprintSelect?.(prompt)}
-                className="w-full text-left p-3 rounded-xl border border-gray-200 bg-gray-50/80 hover:bg-gray-100 hover:border-purple-200 transition-all group"
+                className="w-full text-left p-3 rounded-xl border border-[var(--border)] bg-[rgba(255,255,255,0.68)] hover:bg-[var(--surface-elevated)] hover:border-[var(--border-strong)] transition-all group"
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <Icon size={16} className="text-purple-500 group-hover:text-purple-600 shrink-0" />
-                  <span className="text-sm font-semibold text-gray-800">{t(bp.titleKey)}</span>
+                  <Icon size={16} className="text-[var(--brand-500)] group-hover:text-[var(--brand-600)] shrink-0" />
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">{t(bp.titleKey)}</span>
                 </div>
-                <p className="text-xs text-gray-500 line-clamp-2">{t(bp.descKey)}</p>
+                <p className="text-xs text-[var(--text-secondary)] line-clamp-2">{t(bp.descKey)}</p>
               </button>
             )
           })}
@@ -111,7 +111,7 @@ export function CopilotChat({
           <div
             className={`
               w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm
-              ${m.role === 'model' ? 'bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 border border-purple-100' : 'bg-gray-100 text-gray-600'}
+              ${m.role === 'model' ? 'bg-[rgba(36,56,77,0.08)] text-[var(--brand-500)] border border-[rgba(36,56,77,0.12)]' : 'bg-[var(--surface-2)] text-[var(--text-secondary)]'}
             `}
           >
             {m.role === 'model' ? (
@@ -127,8 +127,8 @@ export function CopilotChat({
               className={`
                 relative group rounded-2xl text-xs leading-relaxed shadow-sm
                 ${m.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-br-none'
-                  : 'bg-white border border-gray-100 text-gray-800 rounded-bl-none'
+                  ? 'bg-[linear-gradient(180deg,var(--brand-400),var(--brand-500))] text-white rounded-br-none'
+                  : 'bg-[var(--surface-elevated)] border border-[var(--border)] text-[var(--text-primary)] rounded-bl-none'
                 }
               `}
             >
@@ -149,11 +149,11 @@ export function CopilotChat({
                 title="复制"
               >
                 {copiedMessageId === i ? (
-                  <Check size={12} className={m.role === 'user' ? 'text-green-300' : 'text-green-600'} />
-                ) : (
-                  <Copy size={12} className={m.role === 'user' ? 'text-white/80' : 'text-gray-500'} />
-                )}
-              </button>
+                    <Check size={12} className={m.role === 'user' ? 'text-green-200' : 'text-[var(--status-healthy)]'} />
+                  ) : (
+                    <Copy size={12} className={m.role === 'user' ? 'text-white/80' : 'text-[var(--text-secondary)]'} />
+                  )}
+                </button>
               {/* Scrollable content */}
               <div className="p-3 pr-5 max-h-64 overflow-y-auto custom-scrollbar">
                 <div className="whitespace-pre-wrap break-words">
@@ -164,20 +164,20 @@ export function CopilotChat({
 
             {/* Thought steps */}
             {m.thoughtSteps && m.thoughtSteps.length > 0 && (
-              <div className="bg-indigo-50 rounded-xl border border-indigo-100 p-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">
+              <div className="bg-[rgba(111,129,148,0.12)] rounded-xl border border-[rgba(111,129,148,0.18)] p-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--brand-500)] uppercase tracking-wider">
                   <Sparkles size={10} className="fill-current" /> {t('workspace.thinkingProcess')}
                 </div>
                 <div className="space-y-1.5">
                   {m.thoughtSteps.map((step, idx) => (
                     <div
                       key={idx}
-                      className="flex gap-2 bg-white/80 p-2 rounded-lg border border-indigo-100/50"
+                      className="flex gap-2 bg-[rgba(255,255,255,0.8)] p-2 rounded-lg border border-[var(--border)]"
                     >
-                      <div className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-bold">
+                      <div className="flex-shrink-0 w-5 h-5 rounded-full bg-[rgba(36,56,77,0.08)] text-[var(--brand-500)] flex items-center justify-center text-[10px] font-bold">
                         {step.index}
                       </div>
-                      <p className="text-[10px] text-gray-700 leading-relaxed flex-1">
+                      <p className="text-[10px] text-[var(--text-primary)] leading-relaxed flex-1">
                         {step.content}
                       </p>
                     </div>
@@ -188,12 +188,12 @@ export function CopilotChat({
 
             {/* Actions */}
             {m.actions && m.actions.length > 0 && (
-              <div className="bg-purple-50 rounded-xl border border-purple-100 p-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="bg-[rgba(36,56,77,0.08)] rounded-xl border border-[rgba(36,56,77,0.12)] p-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-purple-700 uppercase tracking-wider">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--brand-500)] uppercase tracking-wider">
                     <Zap size={10} className="fill-current" /> {t('workspace.actionsExecuted')}
                     {m.actions.length > 0 && (
-                      <span className="text-[9px] text-purple-600 font-normal normal-case bg-purple-100/50 px-1.5 py-0.5 rounded">
+                      <span className="text-[9px] text-[var(--brand-500)] font-normal normal-case bg-[rgba(255,255,255,0.6)] px-1.5 py-0.5 rounded">
                         {m.actions.length} 项
                       </span>
                     )}
@@ -207,11 +207,11 @@ export function CopilotChat({
                   defaultVisibleCount={2}
                   getKey={(action, idx) => `action-${i}-${idx}`}
                   renderItem={(action, idx) => (
-                    <div className="flex gap-2 bg-white/80 p-2 rounded-lg border border-purple-100/50">
-                      <div className="flex-shrink-0 w-5 h-5 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[10px] font-bold">
+                    <div className="flex gap-2 bg-[rgba(255,255,255,0.8)] p-2 rounded-lg border border-[var(--border)]">
+                      <div className="flex-shrink-0 w-5 h-5 rounded-full bg-[rgba(36,56,77,0.08)] text-[var(--brand-500)] flex items-center justify-center text-[10px] font-bold">
                         {idx + 1}
                       </div>
-                      <p className="text-[10px] text-gray-700 leading-relaxed flex-1">
+                      <p className="text-[10px] text-[var(--text-primary)] leading-relaxed flex-1">
                         {formatActionContent(action)}
                       </p>
                     </div>

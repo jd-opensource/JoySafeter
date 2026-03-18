@@ -11,8 +11,9 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['var(--font-geist-sans)'],
-        mono: ['var(--font-geist-mono)'],
+        sans: ['var(--font-soehne)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['var(--font-season)', 'var(--font-soehne)', 'ui-serif', 'serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       fontSize: {
         xs: '11px',
@@ -50,9 +51,9 @@ export default {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
         },
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
+        border: 'hsl(var(--border-tw))',
+        input: 'hsl(var(--input-tw))',
+        ring: 'hsl(var(--ring-tw))',
         chart: {
           '1': 'hsl(var(--chart-1))',
           '2': 'hsl(var(--chart-2))',

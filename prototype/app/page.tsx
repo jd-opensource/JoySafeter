@@ -2,33 +2,25 @@
 
 import { motion } from 'framer-motion'
 import {
-  Bot,
-  Database,
-  BarChart3,
-  Terminal,
-  ArrowRight,
-  Zap,
-  ShieldCheck,
-  TrendingUp,
-  Clock,
   Activity,
-  Sparkles,
+  ArrowRight,
+  BarChart3,
+  Bot,
+  Clock3,
+  Database,
   ExternalLink,
+  ShieldCheck,
+  Terminal,
+  TrendingUp,
+  Zap,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useTranslation } from 'react-i18next'
 import CountUp from 'react-countup'
 
 import { cn } from '@/lib/core/utils/cn'
-import {
-  dashboardStats,
-  recentActivities,
-  systemStatus,
-  quickActions,
-  type ActivityItem,
-} from '@/mocks/dashboard'
+import { dashboardStats, quickActions, recentActivities, systemStatus } from '@/mocks/dashboard'
 
-/* ── helpers ── */
 function formatTime(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime()
   const hours = Math.floor(diff / 3600000)
@@ -36,6 +28,12 @@ function formatTime(ts: string): string {
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
 }
+
+const fadeUp = (delay = 0) => ({
+  initial: { opacity: 0, y: 24, filter: 'blur(8px)' },
+  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
+  transition: { duration: 0.55, delay, ease: [0.22, 1, 0.36, 1] as const },
+})
 
 const activityIconMap = {
   bot: Bot,
@@ -45,320 +43,241 @@ const activityIconMap = {
   terminal: Terminal,
 } as const
 
-const activityColorMap = {
-  bot: 'text-violet-400 bg-violet-500/15',
-  chart: 'text-emerald-400 bg-emerald-500/15',
-  database: 'text-cyan-400 bg-cyan-500/15',
-  rocket: 'text-amber-400 bg-amber-500/15',
-  terminal: 'text-rose-400 bg-rose-500/15',
+const actionIconMap = {
+  bot: Bot,
+  database: Database,
+  terminal: Terminal,
 } as const
 
 const statusConfig = {
-  healthy: { label: 'Operational', color: 'text-emerald-400', dot: 'bg-emerald-400' },
-  degraded: { label: 'Degraded', color: 'text-amber-400', dot: 'bg-amber-400 animate-pulse' },
-  offline: { label: 'Offline', color: 'text-rose-400', dot: 'bg-rose-400' },
+  healthy: { label: 'Operational', tone: 'bg-[rgba(53,111,97,0.08)] text-[var(--status-healthy)]', dot: 'bg-[var(--status-healthy)]' },
+  degraded: { label: 'Monitoring', tone: 'bg-[rgba(155,106,45,0.1)] text-[var(--status-degraded)]', dot: 'bg-[var(--status-degraded)] status-pulse' },
+  offline: { label: 'Offline', tone: 'bg-[rgba(156,68,56,0.1)] text-[var(--status-offline)]', dot: 'bg-[var(--status-offline)]' },
 } as const
 
-const EASE = [0.32, 0.72, 0, 1] as [number, number, number, number]
+const summaryStats = [
+  {
+    label: 'Deployed agents',
+    value: dashboardStats.totalAgents,
+    icon: Bot,
+    copy: 'Production-ready orchestrations under governance',
+  },
+  {
+    label: 'Knowledge systems',
+    value: dashboardStats.knowledgeBases,
+    icon: Database,
+    copy: 'Indexed intelligence domains available to every workflow',
+  },
+  {
+    label: 'Operational uptime',
+    value: 99.3,
+    suffix: '%',
+    icon: ShieldCheck,
+    copy: 'Platform availability across the last reporting window',
+  },
+  {
+    label: 'Active sandboxes',
+    value: dashboardStats.activeContainers,
+    icon: Terminal,
+    copy: 'Running analysis environments with live supervision',
+  },
+]
 
-/* ── fade-up variant ── */
-const fadeUp = (delay = 0) => ({
-  initial: { opacity: 0, y: 20, filter: 'blur(6px)' },
-  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-  transition: { duration: 0.5, delay, ease: EASE },
-})
-
-/* ── Components ── */
-
-function HeroCard() {
+function ExecutiveSummary() {
   const { t } = useTranslation()
+
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-violet-500/20 p-6 flex flex-col justify-between min-h-[200px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-      {/* Background glow orb */}
-      <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-violet-600/20 blur-3xl pointer-events-none" />
-      <div className="absolute -left-8 bottom-0 h-32 w-32 rounded-full bg-indigo-600/15 blur-3xl pointer-events-none" />
-
-      <div className="relative">
-        {/* Eyebrow */}
-        <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1">
-          <Sparkles className="h-3 w-3 text-violet-400" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-violet-300">
-            AI Security Platform
-          </span>
+    <motion.section {...fadeUp(0)} className="surface-panel relative overflow-hidden px-7 py-7">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--brand-indigo)] to-transparent" />
+      <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+        <div className="max-w-2xl space-y-5">
+          <div className="executive-kicker">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--brand-500)]" />
+            <span>Executive security overview</span>
+          </div>
+          <div className="space-y-4">
+            <h1 className="font-display text-[clamp(2.5rem,5vw,4.6rem)] leading-[0.92] tracking-[-0.05em] text-[var(--text-primary)]">
+              {t('dashboard.title')}
+            </h1>
+            <p className="max-w-xl text-[15px] leading-7 text-[var(--text-secondary)]">
+              {t('dashboard.subtitle')}
+            </p>
+          </div>
         </div>
 
-        <h1 className="text-[22px] font-bold leading-tight text-white/90">
-          {t('dashboard.title')}
-        </h1>
-        <p className="mt-1.5 text-[13px] text-white/45 leading-relaxed max-w-[280px]">
-          {t('dashboard.subtitle')}
-        </p>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/build" className="btn-primary inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold">
+            Build an Agent
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link
+            href="/evaluate"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[rgba(255,255,255,0.54)] px-5 py-3 text-sm font-semibold text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-elevated)]"
+          >
+            Review Evaluations
+          </Link>
+        </div>
       </div>
 
-      <div className="relative flex items-center gap-3 mt-4">
-        <Link
-          href="/build"
-          className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-[13px] font-semibold text-white shadow-[0_0_16px_rgba(139,92,246,0.35)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:shadow-[0_0_28px_rgba(139,92,246,0.5)] hover:-translate-y-0.5"
-        >
-          Build an Agent
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/15 transition-transform duration-200 group-hover:translate-x-0.5">
-            <ArrowRight className="h-3 w-3" />
-          </span>
-        </Link>
-        <Link
-          href="/evaluate"
-          className="inline-flex items-center gap-1.5 rounded-full border border-white/12 px-4 py-2 text-[13px] font-medium text-white/60 transition-all duration-200 hover:border-white/25 hover:text-white/80"
-        >
-          Run Evaluation
-        </Link>
+      <div className="mt-8 grid gap-4 lg:grid-cols-4">
+        {summaryStats.map(({ icon: Icon, label, value, suffix, copy }, index) => (
+          <motion.div
+            key={label}
+            {...fadeUp(0.06 + index * 0.06)}
+            className="surface-panel-flat px-5 py-5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="section-label">{label}</div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--brand-500)]">
+                <Icon className="h-4 w-4" />
+              </div>
+            </div>
+            <div className="mt-5 metric-value">
+              <CountUp end={value} duration={1.6} decimals={suffix ? 1 : 0} />
+              {suffix && <span className="ml-1 text-[1.2rem] text-[var(--text-secondary)]">{suffix}</span>}
+            </div>
+            <p className="mt-3 text-[13px] leading-6 text-[var(--text-secondary)]">{copy}</p>
+          </motion.div>
+        ))}
       </div>
-    </div>
-  )
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  suffix,
-  trend,
-  color,
-  delay,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  value: number
-  suffix?: string
-  trend?: string
-  color: string
-  delay: number
-}) {
-  return (
-    <motion.div {...fadeUp(delay)} className="group relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.07] p-5 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-violet-500/35 hover:-translate-y-1 hover:shadow-[0_0_32px_rgba(139,92,246,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-      <div className="flex items-start justify-between">
-        <div className={cn('flex h-9 w-9 items-center justify-center rounded-xl', color)}>
-          <Icon className="h-4.5 w-4.5" />
-        </div>
-        {trend && (
-          <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
-            <TrendingUp className="h-3 w-3" />
-            {trend}
-          </span>
-        )}
-      </div>
-      <div className="mt-4">
-        <div className="text-[28px] font-bold tabular-nums text-white/90 leading-none">
-          <CountUp end={value} duration={1.8} decimals={suffix === '%' ? 1 : 0} />
-          {suffix && <span className="text-[18px] text-white/50 ml-0.5">{suffix}</span>}
-        </div>
-        <p className="mt-1.5 text-[12px] text-white/40">{label}</p>
-      </div>
-    </motion.div>
+    </motion.section>
   )
 }
 
 function ActivityFeed() {
   return (
-    <div className="rounded-2xl bg-white/[0.04] border border-white/[0.07] overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-      <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-violet-400" />
-          <span className="text-[13px] font-semibold text-white/80">Recent Activity</span>
+    <motion.section {...fadeUp(0.08)} className="surface-panel overflow-hidden">
+      <div className="flex items-center justify-between border-b border-[var(--divider)] px-6 py-5">
+        <div>
+          <div className="section-label">Recent activity</div>
+          <h2 className="mt-2 text-[1.1rem] font-semibold text-[var(--text-primary)]">Operational narrative</h2>
         </div>
-        <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300">
+        <div className="quiet-badge">
+          <Activity className="h-3.5 w-3.5" />
           {recentActivities.length} events
-        </span>
+        </div>
       </div>
 
-      <div className="divide-y divide-white/[0.05]">
-        {recentActivities.map((activity, i) => {
+      <div className="divide-y divide-[var(--divider)]">
+        {recentActivities.map((activity, index) => {
           const Icon = activityIconMap[activity.icon]
-          const colorClass = activityColorMap[activity.icon]
+
           return (
             <motion.div
               key={activity.id}
-              initial={{ opacity: 0, x: -12 }}
+              initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.1 + i * 0.04, duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
-              className="group flex items-start gap-3 px-5 py-3.5 transition-colors duration-200 hover:bg-white/[0.03] cursor-default"
+              transition={{ duration: 0.35, delay: 0.08 + index * 0.04, ease: [0.22, 1, 0.36, 1] }}
+              className="flex items-start gap-4 px-6 py-4 transition-colors hover:bg-[rgba(255,255,255,0.36)]"
             >
-              <div className={cn('mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg', colorClass)}>
-                <Icon className="h-3.5 w-3.5" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--brand-500)]">
+                <Icon className="h-4 w-4" />
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-white/80 leading-snug">{activity.title}</p>
-                <p className="mt-0.5 text-[12px] text-white/35 truncate">{activity.description}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px] font-semibold leading-6 text-[var(--text-primary)]">{activity.title}</p>
+                <p className="mt-1 text-[13px] leading-6 text-[var(--text-secondary)]">{activity.description}</p>
               </div>
-              <div className="flex-shrink-0 flex items-center gap-1 text-[11px] text-white/25">
-                <Clock className="h-3 w-3" />
+              <div className="flex shrink-0 items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+                <Clock3 className="h-3.5 w-3.5" />
                 {formatTime(activity.timestamp)}
               </div>
             </motion.div>
           )
         })}
       </div>
-    </div>
+    </motion.section>
   )
 }
 
-function SystemHealthCard() {
+function StatusPanel() {
   return (
-    <div className="rounded-2xl bg-white/[0.04] border border-white/[0.07] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-      <div className="flex items-center gap-2 mb-4">
-        <ShieldCheck className="h-4 w-4 text-emerald-400" />
-        <span className="text-[13px] font-semibold text-white/80">System Health</span>
+    <motion.section {...fadeUp(0.12)} className="surface-panel px-6 py-6">
+      <div className="section-label">System posture</div>
+      <div className="mt-2 flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-[var(--brand-500)]" />
+        <h2 className="text-[1.05rem] font-semibold text-[var(--text-primary)]">Platform status summary</h2>
       </div>
 
-      <div className="space-y-3">
+      <div className="mt-6 space-y-3">
         {Object.entries(systemStatus).map(([key, status]) => {
-          const cfg = statusConfig[status]
+          const config = statusConfig[status]
           return (
-            <div key={key} className="flex items-center justify-between">
-              <span className="text-[13px] capitalize text-white/50">{key}</span>
-              <div className="flex items-center gap-2">
-                <span className={cn('h-1.5 w-1.5 rounded-full', cfg.dot)} />
-                <span className={cn('text-[12px] font-medium', cfg.color)}>{cfg.label}</span>
+            <div key={key} className="flex items-center justify-between rounded-[14px] border border-[var(--divider)] bg-[rgba(255,255,255,0.4)] px-4 py-3">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">{key}</div>
+                <div className="mt-1 text-[13px] text-[var(--text-primary)]">Core service supervision</div>
+              </div>
+              <div className={cn('inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em]', config.tone)}>
+                <span className={cn('h-2 w-2 rounded-full', config.dot)} />
+                {config.label}
               </div>
             </div>
           )
         })}
       </div>
 
-      {/* Mini uptime bar */}
-      <div className="mt-5 pt-4 border-t border-white/[0.06]">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] text-white/35">Overall uptime</span>
-          <span className="text-[12px] font-semibold text-emerald-400">99.3%</span>
+      <div className="mt-6 rounded-[16px] border border-[var(--divider)] bg-[var(--surface-2)] p-4">
+        <div className="flex items-center justify-between">
+          <div className="section-label">Momentum</div>
+          <div className="quiet-badge">
+            <TrendingUp className="h-3.5 w-3.5" />
+            Weekly gain
+          </div>
         </div>
-        <div className="flex gap-0.5">
-          {Array.from({ length: 28 }).map((_, i) => (
-            <div
-              key={i}
-              className={cn(
-                'h-4 flex-1 rounded-[2px]',
-                i === 14 || i === 22 ? 'bg-amber-400/60' : 'bg-emerald-400/50'
-              )}
-            />
-          ))}
-        </div>
-        <p className="mt-1 text-[10px] text-white/25">Last 28 days</p>
+        <div className="mt-4 text-[28px] font-semibold tracking-[-0.05em] text-[var(--text-primary)]">+14%</div>
+        <p className="mt-2 text-[13px] leading-6 text-[var(--text-secondary)]">
+          Agent utilization and workflow throughput both improved against the previous reporting period.
+        </p>
       </div>
-    </div>
+    </motion.section>
   )
 }
 
-function QuickActionsCard() {
-  const quickActionConfigs = [
-    { href: '/build', label: 'New Agent', icon: Bot, color: 'from-violet-600/20 to-indigo-600/20 border-violet-500/25', iconColor: 'text-violet-400' },
-    { href: '/knowledge/datasets', label: 'Import Data', icon: Database, color: 'from-cyan-600/20 to-sky-600/20 border-cyan-500/25', iconColor: 'text-cyan-400' },
-    { href: '/evaluate', label: 'Evaluate', icon: BarChart3, color: 'from-emerald-600/20 to-teal-600/20 border-emerald-500/25', iconColor: 'text-emerald-400' },
-    { href: '/openclaw', label: 'OpenClaw', icon: Terminal, color: 'from-rose-600/20 to-orange-600/20 border-rose-500/25', iconColor: 'text-rose-400' },
-  ]
-
+function QuickActionsPanel() {
   return (
-    <div className="rounded-2xl bg-white/[0.04] border border-white/[0.07] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-      <div className="flex items-center gap-2 mb-4">
-        <Zap className="h-4 w-4 text-amber-400" />
-        <span className="text-[13px] font-semibold text-white/80">Quick Start</span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        {quickActionConfigs.map(({ href, label, icon: Icon, color, iconColor }) => (
-          <Link key={href} href={href}>
-            <motion.div
-              whileHover={{ y: -2, scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
-              transition={{ duration: 0.15, ease: [0.32, 0.72, 0, 1] }}
-              className={cn(
-                'flex flex-col items-start gap-2 rounded-xl bg-gradient-to-br p-3 border transition-all duration-200',
-                'hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]',
-                color
-              )}
+    <motion.section {...fadeUp(0.16)} className="surface-panel px-6 py-6">
+      <div className="section-label">Next actions</div>
+      <h2 className="mt-2 text-[1.05rem] font-semibold text-[var(--text-primary)]">Move execution forward</h2>
+      <div className="mt-5 grid gap-3">
+        {quickActions.map((action) => {
+          const Icon = actionIconMap[action.icon]
+          return (
+            <Link
+              key={action.id}
+              href={action.href}
+              className="group flex items-center justify-between rounded-[16px] border border-[var(--divider)] bg-[rgba(255,255,255,0.45)] px-4 py-4 transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-elevated)]"
             >
-              <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg bg-white/10', iconColor)}>
-                <Icon className="h-3.5 w-3.5" />
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--brand-500)]">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-[13px] font-semibold text-[var(--text-primary)]">{action.label}</div>
+                  <div className="mt-1 text-[12px] text-[var(--text-secondary)]">Open workspace surface</div>
+                </div>
               </div>
-              <div className="flex items-center justify-between w-full">
-                <span className="text-[12px] font-semibold text-white/70">{label}</span>
-                <ExternalLink className="h-3 w-3 text-white/25" />
-              </div>
-            </motion.div>
-          </Link>
-        ))}
+              <ExternalLink className="h-4 w-4 text-[var(--text-secondary)] transition-transform group-hover:translate-x-0.5" />
+            </Link>
+          )
+        })}
       </div>
-    </div>
+    </motion.section>
   )
 }
 
-/* ── Main Page ── */
 export default function DashboardPage() {
-  const { t } = useTranslation()
-
-  const stats = [
-    {
-      icon: Bot,
-      label: t('dashboard.totalAgents'),
-      value: dashboardStats.totalAgents,
-      trend: '+3 this week',
-      color: 'bg-violet-500/15 text-violet-400',
-      delay: 0.05,
-    },
-    {
-      icon: Database,
-      label: t('dashboard.knowledgeBases'),
-      value: dashboardStats.knowledgeBases,
-      trend: '+1 today',
-      color: 'bg-cyan-500/15 text-cyan-400',
-      delay: 0.10,
-    },
-    {
-      icon: BarChart3,
-      label: t('dashboard.evalCompletionRate'),
-      value: dashboardStats.evaluationCompletionRate,
-      suffix: '%',
-      color: 'bg-emerald-500/15 text-emerald-400',
-      delay: 0.15,
-    },
-    {
-      icon: Terminal,
-      label: t('dashboard.activeContainers'),
-      value: dashboardStats.activeContainers,
-      color: 'bg-rose-500/15 text-rose-400',
-      delay: 0.20,
-    },
-  ]
-
   return (
-    <div className="mx-auto max-w-7xl px-6 py-8">
-      {/* ── Bento grid ── */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:grid-rows-[auto_auto_auto]">
+    <div className="executive-page">
+      <div className="executive-page-content space-y-6">
+        <ExecutiveSummary />
 
-        {/* Row 1: Hero (col 1-7) + Activity (col 8-12, spans rows 1-3) */}
-        <motion.div {...fadeUp(0)} className="lg:col-span-7">
-          <HeroCard />
-        </motion.div>
-
-        {/* Activity feed — tall, spans 3 rows */}
-        <motion.div {...fadeUp(0.08)} className="lg:col-span-5 lg:row-span-3">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(360px,0.7fr)]">
           <ActivityFeed />
-        </motion.div>
-
-        {/* Stat cards row — 4 across the first 7 columns */}
-        <div className="lg:col-span-7 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {stats.map((s) => (
-            <StatCard key={s.label} {...s} />
-          ))}
+          <div className="grid gap-6">
+            <StatusPanel />
+            <QuickActionsPanel />
+          </div>
         </div>
-
-        {/* Row 3: System health (col 1-4) + Quick actions (col 5-7) */}
-        <motion.div {...fadeUp(0.18)} className="lg:col-span-4">
-          <SystemHealthCard />
-        </motion.div>
-
-        <motion.div {...fadeUp(0.22)} className="lg:col-span-3">
-          <QuickActionsCard />
-        </motion.div>
-
       </div>
     </div>
   )

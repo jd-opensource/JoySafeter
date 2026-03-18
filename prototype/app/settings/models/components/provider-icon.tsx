@@ -17,7 +17,7 @@ export function ProviderIcon({ provider, className = '' }: ProviderIconProps) {
 
   if (provider.icon) {
     return (
-      <div className={cn('relative w-8 h-8 flex items-center justify-center bg-gray-50 rounded-lg overflow-hidden border border-gray-100 shadow-sm', className)}>
+      <div className={cn('relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl border border-[var(--divider)] bg-white/80 shadow-sm', className)}>
         <img
           alt={t('settings.providerIconAlt', { provider: provider.display_name, defaultValue: `${provider.display_name} icon` })}
           src={provider.icon}
@@ -33,17 +33,19 @@ export function ProviderIcon({ provider, className = '' }: ProviderIconProps) {
   // Fallback icon based on display name
   const firstLetter = provider.display_name?.charAt(0).toUpperCase() || '?'
   const bgColors = [
-    'bg-blue-100 text-blue-600 border-blue-200',
-    'bg-indigo-100 text-indigo-600 border-indigo-200',
-    'bg-violet-100 text-violet-600 border-violet-200',
-    'bg-purple-100 text-purple-600 border-purple-200',
-    'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200',
+    'bg-[rgba(54,93,130,0.1)] text-[var(--status-running)] border-[rgba(54,93,130,0.16)]',
+    'bg-[rgba(111,129,148,0.1)] text-[var(--brand-indigo)] border-[rgba(111,129,148,0.16)]',
+    'bg-[rgba(36,56,77,0.1)] text-[var(--brand-500)] border-[rgba(36,56,77,0.16)]',
+    'bg-[rgba(53,111,97,0.1)] text-[var(--status-healthy)] border-[rgba(53,111,97,0.16)]',
+    'bg-[rgba(155,106,45,0.1)] text-[var(--warning)] border-[rgba(155,106,45,0.16)]',
   ]
   const colorIndex = (provider.display_name?.length || 0) % bgColors.length
-  const colorClass = isCustom ? 'bg-violet-100 text-violet-600 border-violet-200' : bgColors[colorIndex]
+  const colorClass = isCustom
+    ? 'bg-[rgba(36,56,77,0.1)] text-[var(--brand-500)] border-[rgba(36,56,77,0.16)]'
+    : bgColors[colorIndex]
 
   return (
-    <div className={cn('relative w-8 h-8 flex items-center justify-center rounded-lg border shadow-sm font-bold text-sm', colorClass, className)}>
+    <div className={cn('relative flex h-8 w-8 items-center justify-center rounded-xl border text-sm font-bold shadow-sm', colorClass, className)}>
       {firstLetter}
     </div>
   )

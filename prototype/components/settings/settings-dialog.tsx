@@ -37,13 +37,13 @@ const MenuItem = ({
     <button
         onClick={onClick}
         className={cn(
-            "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200",
+            "w-full flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all duration-200",
             isActive
-                ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-200"
-                : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                ? "border border-[var(--border)] bg-white text-[var(--text-primary)] shadow-[0_10px_24px_rgba(15,23,42,0.05)]"
+                : "text-[var(--text-secondary)] hover:bg-white/70 hover:text-[var(--text-primary)]"
         )}
     >
-        <Icon size={16} className={cn(isActive ? "text-blue-600" : "text-gray-400")} />
+        <Icon size={16} className={cn(isActive ? "text-[var(--brand-500)]" : "text-[var(--text-muted)]")} />
         {label}
     </button>
 );
@@ -56,23 +56,27 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChan
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-5xl h-[700px] p-0 gap-0 overflow-hidden bg-white border-0 shadow-2xl flex flex-row">
+            <DialogContent className="flex h-[720px] max-w-5xl flex-row gap-0 overflow-hidden border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-[0_28px_80px_rgba(15,23,42,0.16)]">
                 <DialogTitle className="sr-only">{t('settings.title')}</DialogTitle>
                 <DialogDescription className="sr-only">
                     {t('settings.description')}
                 </DialogDescription>
 
                 {/* Sidebar Navigation */}
-                <div className="w-60 bg-gray-50/80 backdrop-blur-sm border-r border-gray-200 flex flex-col p-4 flex-shrink-0">
-                    <div className="mb-6 px-2">
-                        <h2 className="text-lg font-bold text-gray-900 tracking-tight">{t('settings.title')}</h2>
+                <div className="flex w-64 flex-shrink-0 flex-col border-r border-[var(--divider)] bg-[linear-gradient(180deg,rgba(255,255,255,0.54),rgba(255,255,255,0.18))] p-5">
+                    <div className="mb-6 space-y-3 px-2">
+                        <div className="executive-kicker">Control Room</div>
+                        <h2 className="text-xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">{t('settings.title')}</h2>
+                        <p className="text-xs leading-5 text-[var(--text-secondary)]">
+                            Account, model, and sandbox governance presented in one restrained workspace.
+                        </p>
                     </div>
 
                     <div className="space-y-1 flex-1">
-                        <div className="px-3 mb-2 mt-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">{t('settings.account')}</div>
+                        <div className="px-3 mb-2 mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">{t('settings.account')}</div>
                         <MenuItem icon={User} label={t('settings.profile')} isActive={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
 
-                        <div className="px-3 mb-2 mt-6 text-[10px] font-bold text-gray-400 uppercase tracking-wider">{t('settings.workspace')}</div>
+                        <div className="px-3 mb-2 mt-6 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">{t('settings.workspace')}</div>
                         <MenuItem icon={Brain} label={t('settings.models')} isActive={activeTab === 'models'} onClick={() => setActiveTab('models')} />
 
                         <MenuItem icon={Box} label={t('settings.sandboxes.title')} isActive={activeTab === 'sandboxes'} onClick={() => setActiveTab('sandboxes')} />
@@ -80,7 +84,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChan
                 </div>
 
                 {/* Main Content Area */}
-                <div className="flex-1 flex flex-col bg-white min-w-0 overflow-hidden">
+                <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
                     {activeTab === 'models' && (
                         <div className="flex-1 overflow-hidden p-6">
                             <ModelsPage />

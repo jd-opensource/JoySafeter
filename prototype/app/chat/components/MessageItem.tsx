@@ -35,8 +35,8 @@ const ToolCallItem = ({ tool, onClick }: { tool: ToolCall; onClick?: () => void 
         className={cn(
           'flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg border w-fit transition-all',
           isCompleted
-            ? 'bg-white/5 border-white/10 text-white/50'
-            : 'bg-sky-500/10 border-sky-500/20 text-sky-300',
+            ? 'bg-[var(--surface-2)] border-[var(--border)] text-[var(--text-secondary)]'
+            : 'bg-[rgba(54,93,130,0.08)] border-[rgba(54,93,130,0.16)] text-[var(--status-running)]',
           onClick && 'cursor-pointer hover:shadow-sm'
         )}
       >
@@ -51,15 +51,15 @@ const ToolCallItem = ({ tool, onClick }: { tool: ToolCall; onClick?: () => void 
         <span className="font-medium capitalize">{tool.name.replace(/_/g, ' ')}</span>
 
         {/* Args Preview */}
-        <span className="text-white/35 hidden group-hover:inline max-w-[200px] truncate ml-1 font-mono">
+        <span className="text-[var(--text-muted)] hidden group-hover:inline max-w-[200px] truncate ml-1 font-mono">
           {argsDisplay}
         </span>
 
-        <div className="ml-2 pl-2 border-l border-white/10">
+        <div className="ml-2 pl-2 border-l border-[var(--divider)]">
           {isCompleted ? (
-            <Check size={12} className="text-green-500" />
+            <Check size={12} className="text-[var(--status-healthy)]" />
           ) : (
-            <Loader2 size={12} className="animate-spin text-blue-500" />
+            <Loader2 size={12} className="animate-spin text-[var(--status-running)]" />
           )}
         </div>
       </div>
@@ -73,14 +73,13 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
   if (isUser) {
     return (
       <div className="flex justify-end mb-6 animate-in fade-in duration-200">
-        <div className="max-w-[80%] bg-white/8 text-white/85 px-5 py-3.5 rounded-2xl rounded-tr-sm shadow-sm">
+        <div className="max-w-[80%] border border-[var(--border)] bg-[rgba(255,255,255,0.78)] text-[var(--text-primary)] px-5 py-3.5 rounded-[22px] rounded-tr-md shadow-[0_14px_28px_rgba(15,23,42,0.05)]">
           <p className="whitespace-pre-wrap text-[15px] leading-relaxed font-normal">
             {message.content}
           </p>
         </div>
-        {/* Optional Avatar */}
-        <div className="w-8 h-8 rounded-full bg-white/8 flex items-center justify-center ml-3 flex-shrink-0 mt-1">
-          <User size={14} className="text-white/40" />
+        <div className="w-8 h-8 rounded-full bg-[var(--surface-2)] border border-[var(--border)] flex items-center justify-center ml-3 flex-shrink-0 mt-1">
+          <User size={14} className="text-[var(--text-secondary)]" />
         </div>
       </div>
     )
@@ -89,12 +88,12 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
   // Assistant Message
   return (
     <div className="flex justify-start mb-8 group animate-in slide-in-from-bottom-2 fade-in duration-300">
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center mr-4 flex-shrink-0 shadow-md mt-0.5">
-        <Bot size={16} className="text-white" />
+      <div className="w-8 h-8 rounded-full bg-[linear-gradient(180deg,var(--brand-400),var(--brand-500))] flex items-center justify-center mr-4 flex-shrink-0 shadow-md mt-0.5">
+        <Bot size={16} className="text-[var(--text-inverse)]" />
       </div>
       <div className="max-w-[85%] min-w-[50%]">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] text-white/35 px-1.5 py-0.5 bg-white/5 rounded border border-white/10">
+          <span className="text-[10px] text-[var(--text-secondary)] px-1.5 py-0.5 bg-[var(--surface-2)] rounded border border-[var(--border)]">
             AI
           </span>
         </div>
@@ -113,7 +112,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
         )}
 
         {/* Main Content */}
-        <div className="prose prose-sm prose-gray max-w-none text-gray-800 leading-7">
+        <div className="prose prose-sm prose-gray max-w-none text-[var(--text-primary)] leading-7">
           {message.content ? (
             <ReactMarkdown
               components={{
@@ -128,8 +127,8 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
                       language={match[1]}
                       PreTag="div"
                       customStyle={{
-                        background: '#f9fafb',
-                        border: '1px solid #e5e7eb',
+                        background: '#f8f5ef',
+                        border: '1px solid rgba(35, 48, 66, 0.12)',
                         borderRadius: '0.5rem',
                         fontSize: '13px',
                         margin: '1em 0',
@@ -140,7 +139,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
                   ) : (
                     <code
                       {...props}
-                      className="bg-white/8 px-1.5 py-0.5 rounded text-white/75 font-mono text-xs border border-gray-200"
+                      className="bg-[var(--surface-2)] px-1.5 py-0.5 rounded text-[var(--text-primary)] font-mono text-xs border border-[var(--border)]"
                     >
                       {children}
                     </code>
@@ -170,7 +169,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
           ) : (
             // Streaming indicator if no content yet but active
             message.isStreaming && (
-              <span className="inline-block w-1.5 h-4 bg-violet-400 animate-pulse rounded-full align-middle" />
+              <span className="inline-block w-1.5 h-4 bg-[var(--brand-500)] animate-pulse rounded-full align-middle" />
             )
           )}
         </div>

@@ -34,9 +34,9 @@ export const RunInputModal: React.FC<RunInputModalProps> = ({
 
   return (
     <div className="fixed right-[12px] top-[68px] z-[100] w-[380px] pointer-events-none">
-      <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200 overflow-hidden pointer-events-auto animate-in slide-in-from-top-4 duration-300">
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden pointer-events-auto animate-in slide-in-from-top-4 duration-300">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white/50">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50">
           <div className="flex items-center gap-2">
             <div className="p-1 rounded-md bg-blue-600 text-white">
               <Activity size={14} />

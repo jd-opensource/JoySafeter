@@ -18,15 +18,15 @@ interface ModelListItemProps {
 // Radio style component
 function RadioIndicator({ selected, disabled }: { selected: boolean; disabled?: boolean }) {
   if (disabled) {
-    return <Circle className="w-4 h-4 text-gray-200" />
+    return <Circle className="h-4 w-4 text-[var(--text-subtle)]" />
   }
 
   return (
     <div className={`
       w-4 h-4 rounded-full border-2 flex items-center justify-center
       ${selected
-        ? 'border-blue-500 bg-blue-500'
-        : 'border-gray-300 bg-white group-hover:border-blue-300'
+        ? 'border-[var(--brand-500)] bg-[var(--brand-500)]'
+        : 'border-[var(--border)] bg-white group-hover:border-[var(--brand-indigo)]'
       }
       transition-colors
     `}>
@@ -77,10 +77,10 @@ export function ModelListItem({ model, provider, isLast }: ModelListItemProps) {
   return (
     <div
       className={`
-        flex items-center justify-between px-4 py-2.5
-        hover:bg-blue-50/50 group transition-colors
-        ${!isLast ? 'border-b border-gray-50' : ''}
-        ${model.is_default ? 'bg-blue-50/30' : 'bg-white'}
+        group flex items-center justify-between px-4 py-2.5 transition-colors
+        hover:bg-[rgba(255,255,255,0.64)]
+        ${!isLast ? 'border-b border-[var(--divider)]' : ''}
+        ${model.is_default ? 'bg-[rgba(54,93,130,0.08)]' : 'bg-transparent'}
         ${model.is_available && !model.is_default ? 'cursor-pointer' : ''}
       `}
       onClick={model.is_available && !model.is_default ? handleSetDefault : undefined}
@@ -98,12 +98,12 @@ export function ModelListItem({ model, provider, isLast }: ModelListItemProps) {
         {/* Model info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`text-[13px] font-medium truncate ${model.is_available ? 'text-gray-800' : 'text-gray-400'}`}>
+            <span className={`truncate text-[13px] font-medium ${model.is_available ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
               {model.display_name || model.name}
             </span>
           </div>
           {model.description && (
-            <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-1">{model.description}</p>
+            <p className="mt-0.5 line-clamp-1 text-[11px] text-[var(--text-muted)]">{model.description}</p>
           )}
         </div>
       </div>
@@ -111,20 +111,20 @@ export function ModelListItem({ model, provider, isLast }: ModelListItemProps) {
       {/* Right: Status label */}
       <div className="shrink-0 ml-3 flex items-center gap-2">
         {updateDefault.isPending && (
-          <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+          <Loader2 className="h-3 w-3 animate-spin text-[var(--brand-500)]" />
         )}
         {model.is_default && (
-          <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-medium text-blue-600 bg-blue-100 rounded">
+          <span className="inline-flex items-center rounded-full bg-[rgba(54,93,130,0.12)] px-2 py-0.5 text-[10px] font-medium text-[var(--status-running)]">
             {t('settings.systemDefault')}
           </span>
         )}
         {model.is_available && !model.is_default && !updateDefault.isPending && (
-          <span className="text-[10px] text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-[10px] text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100">
             {t('settings.clickToSetDefault')}
           </span>
         )}
         {!model.is_available && (
-          <span className="text-[10px] text-gray-300">
+          <span className="text-[10px] text-[var(--text-subtle)]">
             {t('settings.unavailable')}
           </span>
         )}

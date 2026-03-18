@@ -211,7 +211,7 @@ function VerificationForm({
                   </span>
                 ) : (
                   <button
-                    className='font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline'
+                    className='auth-link font-medium'
                     onClick={handleResend}
                     disabled={isLoading || isResendDisabled}
                   >
@@ -232,7 +232,7 @@ function VerificationForm({
                 }
                 router.push('/signup')
               }}
-              className='font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline'
+              className='auth-link font-medium'
             >
               Back to signup
             </button>

@@ -68,11 +68,11 @@ interface DeviceResponse {
 }
 
 const instanceStatusStyles: Record<string, string> = {
-  running: 'bg-green-500/15 text-green-700 border-green-200',
-  starting: 'bg-blue-500/15 text-blue-700 border-blue-200',
-  pending: 'bg-gray-500/15 text-gray-600 border-gray-200',
-  stopped: 'bg-gray-500/15 text-gray-600 border-gray-200',
-  failed: 'bg-red-500/15 text-red-700 border-red-200',
+  running: 'bg-[rgba(53,111,97,0.12)] text-[var(--status-healthy)] border-[rgba(53,111,97,0.18)]',
+  starting: 'bg-[rgba(54,93,130,0.12)] text-[var(--status-running)] border-[rgba(54,93,130,0.18)]',
+  pending: 'bg-[rgba(107,93,79,0.12)] text-[var(--status-pending)] border-[rgba(107,93,79,0.18)]',
+  stopped: 'bg-[rgba(107,93,79,0.12)] text-[var(--status-pending)] border-[rgba(107,93,79,0.18)]',
+  failed: 'bg-[rgba(156,68,56,0.12)] text-[var(--status-offline)] border-[rgba(156,68,56,0.18)]',
 }
 
 export function OpenClawManagement() {
@@ -227,8 +227,8 @@ export function OpenClawManagement() {
         <div className="p-4 sm:p-5 relative">
           <div className="flex flex-col gap-4">
             <div className="flex items-start gap-3.5 min-w-0">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-500/10 border border-blue-500/20">
-                <Server className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[rgba(36,56,77,0.16)] bg-[rgba(36,56,77,0.08)]">
+                <Server className="h-6 w-6 text-[var(--brand-500)]" />
               </div>
               <div className="flex flex-col gap-1.5 min-w-0">
                 <h3 className="text-base font-semibold text-[var(--text-primary)] leading-none tracking-tight truncate">
@@ -243,7 +243,7 @@ export function OpenClawManagement() {
                       <span
                         className={cn(
                           'inline-block h-2 w-2 rounded-full shrink-0',
-                          instance.alive ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]' : 'bg-red-500',
+                          instance.alive ? 'bg-[var(--status-healthy)] shadow-[0_0_6px_rgba(53,111,97,0.35)]' : 'bg-[var(--status-offline)]',
                         )}
                       />
                       <span className="truncate">{instance.alive ? t('openclaw.online') : t('openclaw.offline')}</span>
@@ -261,7 +261,7 @@ export function OpenClawManagement() {
                 </Button>
               )}
               {status === 'running' && (
-                <Button size="sm" variant="outline" onClick={() => stopMutation.mutate()} disabled={isInstanceBusy} className="h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20 shadow-sm transition-colors">
+                <Button size="sm" variant="outline" onClick={() => stopMutation.mutate()} disabled={isInstanceBusy} className="h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 shadow-sm transition-colors">
                   {stopMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Power className="mr-1.5 h-3.5 w-3.5" />}
                   <span className="truncate">{t('openclaw.stop')}</span>
                 </Button>
@@ -277,7 +277,7 @@ export function OpenClawManagement() {
                     size="sm"
                     variant="outline"
                     disabled={isInstanceBusy}
-                    className="h-8 text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:border-red-900/50 transition-colors shadow-sm"
+                    className="h-8 text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors shadow-sm"
                     title={t('openclaw.deleteInstanceTitle')}
                   >
                     {deleteMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}
@@ -290,8 +290,8 @@ export function OpenClawManagement() {
                     <AlertDialogDescription>
                       {t('openclaw.confirmDeleteInstanceDesc', 'Are you sure you want to delete this OpenClaw instance?')}
                     </AlertDialogDescription>
-                    <div className="mt-2 rounded-md bg-amber-50 p-3 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-900/30">
-                      <p className="text-sm text-amber-800 dark:text-amber-500 font-medium">
+                    <div className="mt-2 rounded-md bg-amber-50 p-3 border border-amber-200">
+                      <p className="text-sm text-amber-800 font-medium">
                         {t('openclaw.deleteInstanceWarning', 'Warning: Deleting the instance will clear all of its execution history.')}
                       </p>
                     </div>
@@ -348,7 +348,7 @@ export function OpenClawManagement() {
           </div>
 
           {instance.errorMessage && (
-            <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/30 dark:bg-red-900/10">
+            <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">
               <span className="font-semibold block mb-1">{t('openclaw.errorMessage')}</span>
               {instance.errorMessage}
             </div>
@@ -381,7 +381,7 @@ export function OpenClawManagement() {
                 size="sm"
                 onClick={() => syncSkillsMutation.mutate()}
                 disabled={isInstanceBusy || syncSkillsMutation.isPending}
-                className="h-8 w-full sm:w-auto shrink-0 shadow-sm border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20"
+                className="h-8 w-full sm:w-auto shrink-0 shadow-sm border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
               >
                 {syncSkillsMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
                 {t('openclaw.syncSkills')}
@@ -437,7 +437,7 @@ export function OpenClawManagement() {
               {pending.map((d) => (
                 <li key={d.deviceId} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 sm:px-4 hover:bg-[var(--muted)]/30 transition-colors">
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 mt-0.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 mt-0.5">
                       <Smartphone className="h-4 w-4" />
                     </div>
                     <div className="flex flex-col min-w-0">
@@ -459,7 +459,7 @@ export function OpenClawManagement() {
               {paired.map((d) => (
                 <li key={d.deviceId} className="flex items-center justify-between p-3 sm:px-4 hover:bg-[var(--muted)]/30 transition-colors">
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-green-500/10 text-green-600 dark:bg-green-500/20 dark:text-green-400 mt-0.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-green-500/10 text-green-600 mt-0.5">
                       <CheckCheck className="h-4 w-4" />
                     </div>
                     <div className="flex flex-col min-w-0">

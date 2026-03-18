@@ -63,7 +63,7 @@ export function CopilotInput({
     'flex-shrink-0 text-[11px] px-2.5 py-1 rounded-full transition flex items-center gap-1 whitespace-nowrap'
 
   return (
-    <div className="flex-shrink-0 px-1 py-0 bg-white/90 backdrop-blur border-t border-gray-100">
+    <div className="flex-shrink-0 px-1 py-0 bg-white border-t border-gray-100">
       {/* AI 自动完善 + Mode selection in one row */}
       <div className="flex gap-1 overflow-x-auto pb-0.5 mb-0.25 no-scrollbar items-center min-h-0">
         <button

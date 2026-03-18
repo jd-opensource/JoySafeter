@@ -996,8 +996,8 @@ export default {
       goToModelSettings: 'Go to Model Settings',
       later: 'Later',
       // ChatHome
-      createSomethingAwesome: 'Create something awesome together',
-      describeHelpNeeded: 'Describe what help you need...',
+      createSomethingAwesome: 'Start a new task',
+      describeHelpNeeded: 'Describe the work to be done...',
       // Mode options
       chat: 'Chat',
       defaultChat: 'Default Chat',
@@ -1007,7 +1007,7 @@ export default {
       apkVulnerability: 'APK Detecter',
       apkVulnerabilityDescription: 'Android application security analysis',
       examplePrompts: 'Example Prompts',
-      exploreAgentModeCases: 'Explore agent mode cases',
+      exploreAgentModeCases: 'Templates',
       deepResearch: 'Deep Research',
       deepResearchDesc: 'Analyze market trends deeply',
       deepResearchPrompt: 'Conduct deep research on current market trends for AI startups.',
@@ -1030,8 +1030,8 @@ export default {
       defaultAgent: 'Default Agent',
       noDeployedAgents: 'No deployed agents available',
       autoRedirectToCopilot: 'Auto build agent',
-      agentModeOn: 'AGENT BUILDER',
-      agentModeOff: 'AGENT BUILDER',
+      agentModeOn: 'Auto Routing',
+      agentModeOff: 'Auto Routing',
       deepThinking: 'Deep Thinking',
       webSearch: 'Web Search',
       // File upload

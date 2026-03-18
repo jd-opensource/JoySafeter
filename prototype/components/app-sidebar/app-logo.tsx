@@ -11,32 +11,20 @@ interface AppLogoProps {
  */
 export function AppLogo({ isCollapsed = false }: AppLogoProps) {
   return (
-    <div className="flex h-[60px] items-center pl-2 pr-4 min-w-0">
-      <Link href="/chat" className="flex items-center gap-1.5 min-w-0 flex-1">
-        <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center">
-          <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[#6f3dfa] to-[#0ea5e9] opacity-100" />
-
-          <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[#6f3dfa] to-[#0ea5e9] opacity-20 blur-md" />
-
+    <div className="flex h-[86px] items-center px-3 pt-3 min-w-0">
+      <Link href="/chat" className="surface-panel-flat flex w-full items-center gap-3 px-3 py-3 min-w-0 bg-[rgba(255,255,255,0.84)]">
+        <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[12px] border border-[rgba(36,56,77,0.16)] bg-[linear-gradient(180deg,var(--brand-400),var(--brand-600))] shadow-[0_10px_18px_rgba(36,56,77,0.14)]">
           <svg
-            className="relative z-10 h-5 w-5 text-white"
+            className="relative z-10 h-5 w-5 text-[var(--text-inverse)]"
             viewBox="0 0 24 24"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            <defs>
-              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#6f3dfa" />
-                <stop offset="100%" stopColor="#0ea5e9" />
-              </linearGradient>
-            </defs>
-
-            {/* Central AI symbol - white circle with "A" */}
             <g transform="translate(12, 12)">
-              <circle r="4.5" fill="white" opacity="0.95" />
+              <circle r="4.5" fill="currentColor" opacity="0.94" />
               <path
                 d="M -1.5,-3 L 0,3 L 1.5,-3 M -1,0 L 1,0"
-                stroke="url(#logoGrad)"
+                stroke="#21374d"
                 strokeWidth="1.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -44,14 +32,11 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
               />
             </g>
 
-            {/* Two accent nodes */}
-            <circle cx="6" cy="6" r="2" fill="white" opacity="0.8" />
-            <circle cx="18" cy="18" r="2" fill="white" opacity="0.8" />
-
-            {/* Connection curve */}
+            <circle cx="6" cy="6" r="2" fill="currentColor" opacity="0.76" />
+            <circle cx="18" cy="18" r="2" fill="currentColor" opacity="0.76" />
             <path
               d="M 8,6 Q 12,12 16,18"
-              stroke="white"
+              stroke="currentColor"
               strokeWidth="1.2"
               opacity="0.6"
               fill="none"
@@ -61,9 +46,14 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
         </div>
 
         {!isCollapsed && (
-          <span className="bg-gradient-to-r from-[#6f3dfa] to-[#0ea5e9] bg-clip-text text-[17px] font-bold tracking-tight text-transparent whitespace-nowrap">
-            JoySafeter
-          </span>
+          <div className="min-w-0">
+            <div className="text-[15px] font-semibold tracking-tight text-[var(--text-primary)] whitespace-nowrap">
+              JoySafeter
+            </div>
+            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--text-secondary)] whitespace-nowrap">
+              Security Intelligence
+            </div>
+          </div>
         )}
       </Link>
     </div>
