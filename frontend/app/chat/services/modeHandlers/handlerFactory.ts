@@ -9,6 +9,7 @@ import type { ModeConfig } from '../../config/modeConfig'
 import { agentModeHandler } from './agentModeHandler'
 import { apkVulnerabilityHandler } from './apkVulnerabilityHandler'
 import { defaultChatModeHandler } from './defaultChatModeHandler'
+import { skillCreatorHandler } from './skillCreatorHandler'
 import { createSimpleModeHandler } from './simpleModeHandler'
 import type { ModeHandler, ModeMetadata } from './types'
 
@@ -26,6 +27,10 @@ export function createHandlerFromConfig(config: ModeConfig): ModeHandler | null 
 
   if (config.id === 'apk-vulnerability') {
     return apkVulnerabilityHandler
+  }
+
+  if (config.id === 'skill-creator') {
+    return skillCreatorHandler
   }
 
   if (config.id === 'agent') {

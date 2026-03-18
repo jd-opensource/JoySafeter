@@ -1,4 +1,4 @@
-"""Unit tests for ChatRequest schema — mode and edit_skill_id fields."""
+"""Unit tests for ChatRequest schema."""
 
 from __future__ import annotations
 
@@ -39,122 +39,79 @@ class TestChatRequestBaseline:
 
 
 # ---------------------------------------------------------------------------
-# New field: mode
+# mode and edit_skill_id removed — verify they are no longer accepted
 # ---------------------------------------------------------------------------
 
 
-class TestChatRequestMode:
-    """Tests for the `mode` field (Literal["skill_creator"] | None)."""
+class TestChatRequestRemovedFields:
+    """Verify that removed fields (mode, edit_skill_id) are no longer on the schema.
 
-    def test_mode_defaults_to_none(self):
+    These fields were removed as part of the unification to graph_id-based routing.
+    They should not be accepted as top-level fields anymore.
+    """
+
+    def test_mode_field_not_present(self):
         req = ChatRequest(message="hello")
-        assert req.mode is None
+        assert not hasattr(req, "mode")
 
-    def test_mode_accepts_skill_creator(self):
-        req = ChatRequest(message="hello", mode="skill_creator")
-        assert req.mode == "skill_creator"
-
-    def test_mode_accepts_none_explicitly(self):
-        req = ChatRequest(message="hello", mode=None)
-        assert req.mode is None
-
-    def test_mode_rejects_invalid_value(self):
-        with pytest.raises(ValidationError) as exc_info:
-            ChatRequest(message="hello", mode="invalid_mode")
-        # Pydantic should mention the allowed literal
-        assert "skill_creator" in str(exc_info.value).lower() or "literal" in str(exc_info.value).lower()
-
-    def test_mode_rejects_empty_string(self):
-        with pytest.raises(ValidationError):
-            ChatRequest(message="hello", mode="")
-
-    def test_mode_rejects_numeric_value(self):
-        with pytest.raises(ValidationError):
-            ChatRequest(message="hello", mode=123)  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# New field: edit_skill_id
-# ---------------------------------------------------------------------------
-
-
-class TestChatRequestEditSkillId:
-    """Tests for the `edit_skill_id` field (str | None)."""
-
-    def test_edit_skill_id_defaults_to_none(self):
+    def test_edit_skill_id_field_not_present(self):
         req = ChatRequest(message="hello")
-        assert req.edit_skill_id is None
-
-    def test_edit_skill_id_accepts_string(self):
-        req = ChatRequest(message="hello", edit_skill_id="skill-abc-123")
-        assert req.edit_skill_id == "skill-abc-123"
-
-    def test_edit_skill_id_accepts_none_explicitly(self):
-        req = ChatRequest(message="hello", edit_skill_id=None)
-        assert req.edit_skill_id is None
+        assert not hasattr(req, "edit_skill_id")
 
 
 # ---------------------------------------------------------------------------
-# Combined usage
+# metadata can carry arbitrary data (edit_skill_id, files, etc.)
 # ---------------------------------------------------------------------------
 
 
-class TestChatRequestCombined:
-    """Tests for using both new fields together."""
+class TestChatRequestMetadata:
+    """Verify metadata can carry skill editing info and files."""
 
-    def test_skill_creator_with_edit_skill_id(self):
+    def test_metadata_with_edit_skill_id(self):
         req = ChatRequest(
             message="update the skill",
-            mode="skill_creator",
-            edit_skill_id="skill-42",
+            metadata={"edit_skill_id": "skill-42"},
         )
-        assert req.mode == "skill_creator"
-        assert req.edit_skill_id == "skill-42"
+        assert req.metadata["edit_skill_id"] == "skill-42"
 
-    def test_skill_creator_without_edit_skill_id(self):
-        """Creating a new skill — mode set but no edit_skill_id."""
-        req = ChatRequest(message="create a new skill", mode="skill_creator")
-        assert req.mode == "skill_creator"
-        assert req.edit_skill_id is None
-
-    def test_default_mode_with_all_other_fields(self):
-        """New fields coexist peacefully with all existing fields."""
-        gid = uuid.uuid4()
+    def test_metadata_with_files(self):
         req = ChatRequest(
-            message="hi",
-            thread_id="t-1",
-            graph_id=gid,
-            metadata={"foo": "bar"},
-            mode="skill_creator",
-            edit_skill_id="skill-99",
+            message="analyze this",
+            metadata={"files": [{"filename": "app.apk", "path": "/tmp/app.apk", "size": 1024}]},
         )
-        assert req.message == "hi"
-        assert req.thread_id == "t-1"
-        assert req.graph_id == gid
-        assert req.metadata == {"foo": "bar"}
-        assert req.mode == "skill_creator"
-        assert req.edit_skill_id == "skill-99"
+        assert len(req.metadata["files"]) == 1
+
+    def test_metadata_with_both(self):
+        req = ChatRequest(
+            message="edit skill with file",
+            metadata={
+                "edit_skill_id": "skill-99",
+                "files": [{"filename": "f.txt", "path": "/tmp/f.txt", "size": 10}],
+            },
+        )
+        assert req.metadata["edit_skill_id"] == "skill-99"
+        assert len(req.metadata["files"]) == 1
 
     def test_serialization_roundtrip(self):
-        """model_dump → model_validate preserves new fields."""
+        """model_dump -> model_validate preserves metadata."""
         req = ChatRequest(
             message="test",
-            mode="skill_creator",
-            edit_skill_id="sk-1",
+            metadata={"edit_skill_id": "sk-1", "custom": "value"},
         )
         data = req.model_dump()
         restored = ChatRequest.model_validate(data)
-        assert restored.mode == "skill_creator"
-        assert restored.edit_skill_id == "sk-1"
+        assert restored.metadata["edit_skill_id"] == "sk-1"
+        assert restored.metadata["custom"] == "value"
 
     def test_json_roundtrip(self):
-        """JSON serialization preserves new fields."""
+        """JSON serialization preserves metadata."""
+        gid = uuid.uuid4()
         req = ChatRequest(
             message="test",
-            mode="skill_creator",
-            edit_skill_id="sk-1",
+            graph_id=gid,
+            metadata={"edit_skill_id": "sk-1"},
         )
         json_str = req.model_dump_json()
         restored = ChatRequest.model_validate_json(json_str)
-        assert restored.mode == "skill_creator"
-        assert restored.edit_skill_id == "sk-1"
+        assert restored.graph_id == gid
+        assert restored.metadata["edit_skill_id"] == "sk-1"

@@ -386,7 +386,7 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession):
 
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id, "user_id": str(user_id)},
-        "recursion_limit": 150,
+        "recursion_limit": 300,
         "callbacks": get_langfuse_callbacks(enabled=settings.langfuse_enabled),
     }
 
@@ -552,17 +552,7 @@ async def chat(
 
         # Create graph: use default DeepAgents single-node if graph_id is None, otherwise use graph from database
         graph_service = GraphService(db)
-        if payload.mode == "skill_creator":
-            log.info("[Chat API] Using Skill Creator graph")
-            graph = await graph_service.create_skill_creator_graph(
-                llm_model=llm_params["llm_model"],
-                api_key=llm_params["api_key"],
-                base_url=llm_params["base_url"],
-                max_tokens=llm_params["max_tokens"],
-                user_id=str(current_user.id),
-                edit_skill_id=payload.edit_skill_id,
-            )
-        elif payload.graph_id is None:
+        if payload.graph_id is None:
             log.info("[Chat API] Using default DeepAgents single-node (graph_id is None)")
             graph = await graph_service.create_default_deep_agents_graph(
                 llm_model=llm_params["llm_model"],
@@ -582,16 +572,24 @@ async def chat(
                 current_user=current_user,
             )
 
-        # 从 metadata 中提取文件信息并添加到消息中
+        # 从 metadata 中提取附加信息并添加到消息中
+        enriched_message = payload.message
+
+        edit_skill_id = payload.metadata.get("edit_skill_id")
+        if edit_skill_id:
+            log.info(f"[Chat API] 🔧 编辑技能模式: edit_skill_id={edit_skill_id}")
+            enriched_message += (
+                f"\n\n[Editing Mode] The user wants to modify an existing skill (ID: {edit_skill_id}). "
+                f"The skill files have been pre-loaded into the sandbox. "
+                f"Read the existing files first, then apply the user's requested changes."
+            )
+
         files = payload.metadata.get("files", [])
         if files:
             log.info(f"[Chat API] 📎 发现 {len(files)} 个文件: {files}")
             file_info = "\n\nAttached files:\n" + "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
-            enriched_message = payload.message + file_info
+            enriched_message += file_info
             log.info(f"[Chat API] ✅ 消息已包含文件路径，长度: {len(enriched_message)}")
-        else:
-            log.debug("[Chat API] ℹ️  没有发现文件附件")
-            enriched_message = payload.message
 
         # 注册任务以支持非流式取消
         invoke_task = asyncio.create_task(
@@ -702,17 +700,7 @@ async def chat_stream(
         try:
             # 3. 创建图: 如果 graph_id 为 None，使用默认 DeepAgents 单节点，否则从数据库加载图
             graph_service = GraphService(db)
-            if payload.mode == "skill_creator":
-                log.info("[Chat API Stream] Using Skill Creator graph")
-                graph = await graph_service.create_skill_creator_graph(
-                    llm_model=llm_params["llm_model"],
-                    api_key=llm_params["api_key"],
-                    base_url=llm_params["base_url"],
-                    max_tokens=llm_params["max_tokens"],
-                    user_id=str(current_user.id),
-                    edit_skill_id=payload.edit_skill_id,
-                )
-            elif payload.graph_id is None:
+            if payload.graph_id is None:
                 log.info("[Chat API Stream] Using default DeepAgents single-node (graph_id is None)")
                 graph = await graph_service.create_default_deep_agents_graph(
                     llm_model=llm_params["llm_model"],
@@ -734,16 +722,24 @@ async def chat_stream(
 
             built_graph = graph
 
-            # 5. 从 metadata 中提取文件信息并添加到消息中
+            # 5. 从 metadata 中提取附加信息并添加到消息中
+            enriched_message = payload.message
+
+            edit_skill_id = payload.metadata.get("edit_skill_id")
+            if edit_skill_id:
+                log.info(f"[Chat API Stream] 🔧 编辑技能模式: edit_skill_id={edit_skill_id}")
+                enriched_message += (
+                    f"\n\n[Editing Mode] The user wants to modify an existing skill (ID: {edit_skill_id}). "
+                    f"The skill files have been pre-loaded into the sandbox. "
+                    f"Read the existing files first, then apply the user's requested changes."
+                )
+
             files = payload.metadata.get("files", [])
             if files:
                 log.info(f"[Chat API Stream] 📎 发现 {len(files)} 个文件: {files}")
                 file_info = "\n\nAttached files:\n" + "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
-                enriched_message = payload.message + file_info
+                enriched_message += file_info
                 log.info(f"[Chat API Stream] ✅ 消息已包含文件路径，长度: {len(enriched_message)}")
-            else:
-                log.debug("[Chat API Stream] ℹ️  没有发现文件附件")
-                enriched_message = payload.message
 
             # 6. 事件循环
             async for event in graph.astream_events(

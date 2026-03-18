@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "nodes": [
+    {
+      "id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890",
+      "type": "custom",
+      "position": {
+        "x": 300,
+        "y": 100
+      },
+      "positionAbsolute": {
+        "x": 300,
+        "y": 100
+      },
+      "width": 171,
+      "height": 93,
+      "data": {
+        "type": "agent",
+        "label": "Skill Creator Agent",
+        "config": {
+          "description": "A specialized agent for creating and editing Skills",
+          "useDeepAgents": true,
+          "skills": ["*"],
+          "systemPrompt": "You are a Skill Creator Agent. Your job is to help users create and modify Skills (reusable capability packages) through conversation.\n\n## Workflow\n1. Understand the user's requirements through conversation\n2. Use init_skill.py to initialize the skill directory structure\n3. Write SKILL.md with proper YAML frontmatter (name, description) + markdown body\n4. Create supporting files in scripts/, references/, assets/ as needed\n5. Run quick_validate.py to validate the skill\n6. Call the preview_skill tool to output the final result for user review\n\n## Rules\n- Skill names must match: ^[a-z0-9]+(-[a-z0-9]+)*$ (max 64 chars)\n- SKILL.md is required with YAML frontmatter containing 'name' and 'description'\n- Always validate before previewing\n- The skill-creator skill is pre-loaded at /workspace/skills/skill-creator/ - use its scripts (init_skill.py, quick_validate.py) and references for guidance",
+          "tools": {
+            "builtin": [
+              "preview_skill",
+              "tavily_search",
+              "think_tool"
+            ]
+          }
+        }
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [],
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  },
+  "exportedAt": "2026-03-18T00:00:00.000Z"
+}

@@ -14,6 +14,9 @@ import {
 } from '@/services/chatBackend'
 
 import { generateId, type Message, type ToolCall } from '@/app/chat/types'
+import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
+import { graphTemplateService } from '@/app/workspace/[workspaceId]/[agentId]/services/graphTemplateService'
+import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
 
 import { formatToolDisplay } from './components/toolDisplayUtils'
 import SkillCreatorChat from './components/SkillCreatorChat'
@@ -60,6 +63,9 @@ export default function SkillCreatorPage() {
   // Save dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
 
+  // Resolved graph ID for skill creator
+  const graphIdRef = useRef<string | null>(null)
+
   // Track mounted state
   const isMountedRef = useRef(true)
   useEffect(() => {
@@ -68,6 +74,41 @@ export default function SkillCreatorPage() {
       isMountedRef.current = false
       abortRef.current?.abort()
     }
+  }, [])
+
+  // Resolve skill-creator graph ID on mount
+  useEffect(() => {
+    const SKILL_CREATOR_GRAPH_NAME = 'Skill Creator'
+    const TEMPLATE_NAME = 'skill-creator'
+
+    async function resolveGraphId() {
+      try {
+        // Find personal workspace
+        const response = await apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(API_ENDPOINTS.workspaces)
+        const personal = (response.workspaces || []).find((w) => w.type === 'personal')
+        if (!personal) return
+
+        // Look for existing Skill Creator graph
+        const graphs = await agentService.listGraphs(personal.id)
+        const existing = graphs.find((g: any) => g.name === SKILL_CREATOR_GRAPH_NAME)
+        if (existing) {
+          graphIdRef.current = existing.id
+          return
+        }
+
+        // Create from template
+        const created = await graphTemplateService.createGraphFromTemplate(
+          TEMPLATE_NAME,
+          SKILL_CREATOR_GRAPH_NAME,
+          personal.id
+        )
+        graphIdRef.current = created.id
+      } catch (error) {
+        console.error('Failed to resolve skill-creator graph:', error)
+      }
+    }
+
+    resolveGraphId()
   }, [])
 
   // ---- Safe state updater ----
@@ -115,8 +156,8 @@ export default function SkillCreatorPage() {
         const result = await streamChat({
           message: userPrompt,
           threadId: threadIdRef.current,
+          graphId: graphIdRef.current,
           metadata: {
-            mode: 'skill_creator',
             ...(editSkillId ? { edit_skill_id: editSkillId } : {}),
           },
           signal: ac.signal,

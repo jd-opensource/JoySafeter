@@ -59,7 +59,9 @@ export const modeConfigs: ModeConfig[] = [
     labelKey: 'chat.skillCreator',
     descriptionKey: 'chat.skillCreatorDescription',
     icon: Wand2,
-    type: 'simple',
+    type: 'template',
+    templateName: 'skill-creator',
+    templateGraphName: 'Skill Creator',
   },
 ]
 
