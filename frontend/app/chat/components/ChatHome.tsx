@@ -319,6 +319,12 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
     const mode = modeOptions.find((m) => m.id === modeId)
     if (!mode) return
 
+    // Special handling for Skill Creator mode - navigate to dedicated page
+    if (modeId === 'skill-creator') {
+      router.push('/skills/creator')
+      return
+    }
+
     // Special handling for APK vulnerability mode - initialize graph first
     if (modeId === 'apk-vulnerability') {
       // Use handleModeSelect to initialize graph if needed

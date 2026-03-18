@@ -4,7 +4,7 @@
  * Mode configuration, defines all available chat modes and their metadata
  */
 
-import { Server, MessageSquare } from 'lucide-react'
+import { Server, MessageSquare, Wand2 } from 'lucide-react'
 
 import { AndroidIcon } from '../components/icons/AndroidIcon'
 
@@ -53,6 +53,13 @@ export const modeConfigs: ModeConfig[] = [
     type: 'template',
     templateName: 'apk-detector',
     templateGraphName: 'APK Detector',
+  },
+  {
+    id: 'skill-creator',
+    labelKey: 'chat.skillCreator',
+    descriptionKey: 'chat.skillCreatorDescription',
+    icon: Wand2,
+    type: 'simple',
   },
 ]
 

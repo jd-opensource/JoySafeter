@@ -1,6 +1,7 @@
 'use client'
 
-import { Store, FolderOpen } from 'lucide-react'
+import { Store, FolderOpen, Wand2 } from 'lucide-react'
+import Link from 'next/link'
 import { useState } from 'react'
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -27,22 +28,30 @@ export default function SkillsPage() {
       >
         {/* Tab navigation header */}
         <div className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-3">
-          <TabsList className="h-10 bg-gray-100/80 p-1 rounded-lg">
-            <TabsTrigger
-              value="store"
-              className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm"
-            >
-              <Store className="w-4 h-4" />
-              {t('skills.marketplace')}
-            </TabsTrigger>
-            <TabsTrigger
-              value="my"
-              className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm"
-            >
-              <FolderOpen className="w-4 h-4" />
-              {t('skills.mySkills')}
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex items-center justify-between">
+            <TabsList className="h-10 bg-gray-100/80 p-1 rounded-lg">
+              <TabsTrigger
+                value="store"
+                className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm"
+              >
+                <Store className="w-4 h-4" />
+                {t('skills.marketplace')}
+              </TabsTrigger>
+              <TabsTrigger
+                value="my"
+                className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm"
+              >
+                <FolderOpen className="w-4 h-4" />
+                {t('skills.mySkills')}
+              </TabsTrigger>
+            </TabsList>
+            <Link href="/skills/creator">
+              <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors">
+                <Wand2 className="w-4 h-4" />
+                {t('skills.aiCreate')}
+              </button>
+            </Link>
+          </div>
         </div>
 
         {/* Tab content */}

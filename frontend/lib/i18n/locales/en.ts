@@ -906,6 +906,7 @@ export default {
       noDescription: 'No description',
       yours: 'Yours',
       selectFileToPreview: 'Select a file to preview',
+      aiCreate: 'AI Create',
     },
     chat: {
       // Important notice (no default model)
@@ -924,6 +925,8 @@ export default {
       mcpScanDescription: 'MCP protocol security detection',
       apkVulnerability: 'APK Detecter',
       apkVulnerabilityDescription: 'Android application security analysis',
+      skillCreator: 'Skill Creator',
+      skillCreatorDescription: 'AI-powered skill creation assistant',
       examplePrompts: 'Example Prompts',
       exploreAgentModeCases: 'Explore agent mode cases',
       deepResearch: 'Deep Research',

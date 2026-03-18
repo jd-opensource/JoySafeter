@@ -906,6 +906,7 @@ export default {
       noDescription: '暂无描述',
       yours: '我的',
       selectFileToPreview: '点击左侧文件查看内容',
+      aiCreate: 'AI 创建',
     },
     chat: {
       // Important notice (no default model)
@@ -924,6 +925,8 @@ export default {
       mcpScanDescription: 'MCP协议安全检测',
       apkVulnerability: 'APK Detecter',
       apkVulnerabilityDescription: 'Android应用安全分析',
+      skillCreator: 'Skill Creator',
+      skillCreatorDescription: 'AI 驱动的技能创建助手',
       examplePrompts: '示例提示',
       exploreAgentModeCases: '探索智能体模式案例',
       deepResearch: '深度研究',
