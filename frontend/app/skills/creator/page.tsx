@@ -15,6 +15,7 @@ import {
 
 import { generateId, type Message, type ToolCall } from '@/app/chat/types'
 
+import { formatToolDisplay } from './components/toolDisplayUtils'
 import SkillCreatorChat from './components/SkillCreatorChat'
 import SkillPreviewPanel from './components/SkillPreviewPanel'
 import SkillSaveDialog from './components/SkillSaveDialog'
@@ -145,13 +146,16 @@ export default function SkillCreatorPage() {
             if (type === 'tool_start') {
               const toolData = data as { tool_name?: string; tool_input?: any }
               const toolName = toolData?.tool_name || 'tool'
+              const toolInput = toolData?.tool_input || {}
               const toolId = generateId()
               lastRunningToolIdByName[toolName] = toolId
 
+              const { label, detail } = formatToolDisplay(toolName, toolInput)
+
               const tool: ToolCall = {
                 id: toolId,
-                name: toolName,
-                args: toolData?.tool_input || {},
+                name: label,
+                args: { ...toolInput, _detail: detail, _rawName: toolName },
                 status: 'running',
                 startTime: timestamp || Date.now(),
               }

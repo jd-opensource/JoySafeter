@@ -60,23 +60,27 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
         {/* Tool calls indicator */}
         {message.tool_calls && message.tool_calls.length > 0 && (
           <div className="mt-2 space-y-1">
-            {message.tool_calls.map((tc) => (
-              <div
-                key={tc.id}
-                className={cn(
-                  'text-[10px] px-2 py-1 rounded-md flex items-center gap-1.5',
-                  tc.status === 'running'
-                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                    : tc.status === 'completed'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : 'bg-red-50 text-red-600 border border-red-200'
-                )}
-              >
-                {tc.status === 'running' && <Loader2 size={10} className="animate-spin" />}
-                <span className="font-medium">{tc.name}</span>
-                {tc.status === 'completed' && <span className="text-emerald-500">done</span>}
-              </div>
-            ))}
+            {message.tool_calls.map((tc) => {
+              const detail = tc.args?._detail as string | undefined
+              return (
+                <div
+                  key={tc.id}
+                  className={cn(
+                    'text-[10px] px-2 py-1 rounded-md flex items-center gap-1.5',
+                    tc.status === 'running'
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                      : tc.status === 'completed'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'bg-red-50 text-red-600 border border-red-200'
+                  )}
+                >
+                  {tc.status === 'running' && <Loader2 size={10} className="animate-spin" />}
+                  <span className="font-medium">{tc.name}</span>
+                  {detail && <span className="text-gray-400 font-mono truncate max-w-[180px]">{detail}</span>}
+                  {tc.status === 'completed' && <span className="text-emerald-500 ml-auto">done</span>}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
