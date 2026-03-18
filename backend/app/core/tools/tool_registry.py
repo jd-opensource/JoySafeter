@@ -646,6 +646,17 @@ def _initialize_builtin_tools(registry: ToolRegistry):
             tags={"skill", "deployment"},
         )
 
+        # --- Skill Preview ---
+        from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
+
+        registry.register_builtin(
+            callable_func=preview_skill_in_sandbox,
+            name="preview_skill",
+            description="Preview a skill generated in the sandbox. Reads all files from the skill directory and returns structured JSON with file contents and validation results.",
+            category="skill",
+            tags={"skill", "preview", "sandbox"},
+        )
+
         logger.info("Builtin tools (research + execution) registered successfully")
 
     except Exception as e:
