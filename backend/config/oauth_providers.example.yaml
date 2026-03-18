@@ -86,7 +86,7 @@ providers:
     client_id: ${JD_CLIENT_ID}
     client_secret: ${JD_CLIENT_SECRET}
     authorize_url: ${JD_AUTHORIZE_URL}
-    token_url: ""
+    token_url: ${JD_TOKEN_URL}
     userinfo_url: ${JD_USERINFO_URL}
     scope: "openid email"
     user_mapping:
