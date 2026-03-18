@@ -112,9 +112,20 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
 
     # Lazy imports to avoid import-time failures when optional dependencies
     # (e.g. `tavily-python`) are not installed.
+    from functools import partial
+
     from app.core.tools.buildin.skill_management import SkillManagementTools
+    from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
 
     skill_mgmt = SkillManagementTools(user_id=user_id)
+
+    # Bind preview_skill with the user's sandbox root path
+    # Sandbox volumes are mounted at /tmp/sandboxes/{user_id} on the host
+    sandbox_root = Path(f"/tmp/sandboxes/{user_id}")
+    bound_preview_skill = partial(
+        preview_skill_in_sandbox,
+        sandbox_root=str(sandbox_root),
+    )
 
     # Research tools - get from registry only
     research_tools = {}
@@ -132,6 +143,11 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
             name="deploy_local_skill",
             description="Deploy a local skill from the sandbox to the system (private).",
             callable_func=skill_mgmt.deploy_local_skill,
+        ),
+        "preview_skill": _alias_tool(
+            name="preview_skill",
+            description="Preview a skill generated in the sandbox. Reads all files and returns JSON with contents and validation.",
+            callable_func=bound_preview_skill,
         ),
         **research_tools,  # Add research tools to aliases
     }

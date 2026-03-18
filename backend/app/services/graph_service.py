@@ -816,6 +816,14 @@ class GraphService(BaseService):
                     "skills": ["*"],
                     "mode": "skill_creator",
                     "system_prompt": skill_creator_system_prompt,
+                    "tools": {
+                        "builtin": [
+                            "deploy_local_skill",
+                            "preview_skill",
+                            "tavily_search",
+                            "think_tool",
+                        ],
+                    },
                 },
             },
             position_x=0,
