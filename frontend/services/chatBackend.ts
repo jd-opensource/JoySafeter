@@ -276,6 +276,13 @@ export async function streamChat(params: StreamChatParams): Promise<{ threadId?:
   }
 
   try {
+    // Extract top-level fields from metadata if present
+    const mode = metadata?.mode || null
+    const editSkillId = metadata?.edit_skill_id || null
+    const cleanMetadata = metadata ? { ...metadata } : {}
+    delete cleanMetadata.mode
+    delete cleanMetadata.edit_skill_id
+
     // Use unified apiStream method, automatically handles CSRF token and authentication
     const resp = await apiStream(
       'chat/stream',
@@ -283,7 +290,9 @@ export async function streamChat(params: StreamChatParams): Promise<{ threadId?:
         message,
         thread_id: threadId || null,
         graph_id: graphId || null,
-        metadata: metadata || {},
+        metadata: cleanMetadata,
+        ...(mode && { mode }),
+        ...(editSkillId && { edit_skill_id: editSkillId }),
       },
       {
         signal,
