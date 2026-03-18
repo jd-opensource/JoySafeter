@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 from app.schemas.chat import ChatRequest
 
-
 # ---------------------------------------------------------------------------
 # Baseline: existing fields still work
 # ---------------------------------------------------------------------------
@@ -63,9 +62,7 @@ class TestChatRequestMode:
         with pytest.raises(ValidationError) as exc_info:
             ChatRequest(message="hello", mode="invalid_mode")
         # Pydantic should mention the allowed literal
-        assert "skill_creator" in str(exc_info.value).lower() or "literal" in str(
-            exc_info.value
-        ).lower()
+        assert "skill_creator" in str(exc_info.value).lower() or "literal" in str(exc_info.value).lower()
 
     def test_mode_rejects_empty_string(self):
         with pytest.raises(ValidationError):

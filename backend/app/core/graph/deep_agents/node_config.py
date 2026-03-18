@@ -69,9 +69,6 @@ class AgentConfig:
         skill_ids_raw = config.get("skills")
         has_skills = builder.has_valid_skills_config(skill_ids_raw)
 
-
-
-
         # Preload skills if needed
         if backend and has_skills:
             await builder.preload_skills_to_backend(node, backend)

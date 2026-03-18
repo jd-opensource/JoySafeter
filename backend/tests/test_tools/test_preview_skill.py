@@ -1,7 +1,6 @@
 """Tests for preview_skill_in_sandbox builtin tool."""
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -43,18 +42,16 @@ def _make_skill(sandbox_root: str, skill_name: str, files: dict[str, str], skill
 def test_valid_skill_returns_correct_structure(sandbox_root: str):
     """A well-formed skill with SKILL.md should pass validation."""
     skill_md = (
-        "---\n"
-        "name: hello-world\n"
-        "description: A simple greeting skill\n"
-        "---\n"
-        "\n"
-        "# Hello World\n"
-        "This skill says hello.\n"
+        "---\nname: hello-world\ndescription: A simple greeting skill\n---\n\n# Hello World\nThis skill says hello.\n"
     )
-    _make_skill(sandbox_root, "hello-world", {
-        "SKILL.md": skill_md,
-        "main.py": "print('hello')\n",
-    })
+    _make_skill(
+        sandbox_root,
+        "hello-world",
+        {
+            "SKILL.md": skill_md,
+            "main.py": "print('hello')\n",
+        },
+    )
 
     result_str = preview_skill_in_sandbox("hello-world", sandbox_root)
     result = json.loads(result_str)
@@ -80,19 +77,16 @@ def test_valid_skill_returns_correct_structure(sandbox_root: str):
 
 def test_valid_skill_with_nested_files(sandbox_root: str):
     """Nested subdirectory files should be included with relative paths."""
-    skill_md = (
-        "---\n"
-        "name: nested-skill\n"
-        "description: Skill with nested files\n"
-        "---\n"
-        "\n"
-        "Body text.\n"
+    skill_md = "---\nname: nested-skill\ndescription: Skill with nested files\n---\n\nBody text.\n"
+    _make_skill(
+        sandbox_root,
+        "nested-skill",
+        {
+            "SKILL.md": skill_md,
+            "src/utils.py": "def helper(): pass\n",
+            "src/data/config.json": '{"key": "value"}\n',
+        },
     )
-    _make_skill(sandbox_root, "nested-skill", {
-        "SKILL.md": skill_md,
-        "src/utils.py": "def helper(): pass\n",
-        "src/data/config.json": '{"key": "value"}\n',
-    })
 
     result = json.loads(preview_skill_in_sandbox("nested-skill", sandbox_root))
 
@@ -124,20 +118,24 @@ def test_custom_skills_subdir(sandbox_root: str):
 def test_file_type_detection(sandbox_root: str):
     """Various file extensions should map to correct file_type values."""
     skill_md = "---\nname: types-test\ndescription: test types\n---\nBody.\n"
-    _make_skill(sandbox_root, "types-test", {
-        "SKILL.md": skill_md,
-        "script.py": "pass",
-        "config.yaml": "key: val",
-        "config.yml": "key: val",
-        "data.json": "{}",
-        "readme.txt": "hello",
-        "run.sh": "#!/bin/bash",
-        "style.css": "body {}",
-        "page.html": "<html></html>",
-        "app.js": "console.log(1)",
-        "app.ts": "const x = 1",
-        "unknown.xyz": "stuff",
-    })
+    _make_skill(
+        sandbox_root,
+        "types-test",
+        {
+            "SKILL.md": skill_md,
+            "script.py": "pass",
+            "config.yaml": "key: val",
+            "config.yml": "key: val",
+            "data.json": "{}",
+            "readme.txt": "hello",
+            "run.sh": "#!/bin/bash",
+            "style.css": "body {}",
+            "page.html": "<html></html>",
+            "app.js": "console.log(1)",
+            "app.ts": "const x = 1",
+            "unknown.xyz": "stuff",
+        },
+    )
 
     result = json.loads(preview_skill_in_sandbox("types-test", sandbox_root))
     type_map = {f["path"]: f["file_type"] for f in result["files"]}
@@ -172,9 +170,13 @@ def test_skill_directory_not_found(sandbox_root: str):
 
 def test_missing_skill_md(sandbox_root: str):
     """A skill directory without SKILL.md should produce valid=False."""
-    _make_skill(sandbox_root, "no-readme", {
-        "main.py": "print('hi')\n",
-    })
+    _make_skill(
+        sandbox_root,
+        "no-readme",
+        {
+            "main.py": "print('hi')\n",
+        },
+    )
 
     result = json.loads(preview_skill_in_sandbox("no-readme", sandbox_root))
 
@@ -265,11 +267,15 @@ def test_empty_body_produces_warning(sandbox_root: str):
 def test_system_files_are_excluded(sandbox_root: str):
     """System files like .DS_Store should be excluded from file list."""
     skill_md = "---\nname: sys-files\ndescription: test system files\n---\nBody.\n"
-    _make_skill(sandbox_root, "sys-files", {
-        "SKILL.md": skill_md,
-        ".DS_Store": "binary garbage",
-        "__pycache__/module.pyc": "bytecode",
-    })
+    _make_skill(
+        sandbox_root,
+        "sys-files",
+        {
+            "SKILL.md": skill_md,
+            ".DS_Store": "binary garbage",
+            "__pycache__/module.pyc": "bytecode",
+        },
+    )
 
     result = json.loads(preview_skill_in_sandbox("sys-files", sandbox_root))
     file_paths = [f["path"] for f in result["files"]]

@@ -124,7 +124,7 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
         # Normalize the subdir by stripping /workspace prefix.
         normalized_subdir = skills_subdir.strip("/")
         if normalized_subdir.startswith("workspace/"):
-            normalized_subdir = normalized_subdir[len("workspace/"):]
+            normalized_subdir = normalized_subdir[len("workspace/") :]
         if not normalized_subdir:
             normalized_subdir = "skills"
 
@@ -181,7 +181,7 @@ def _preview_skill_from_backend(backend: Any, skill_name: str, skills_subdir: st
     import json as _json
 
     from app.core.skill.validators import validate_skill_description, validate_skill_name
-    from app.core.skill.yaml_parser import is_system_file, parse_skill_md
+    from app.core.skill.yaml_parser import parse_skill_md
 
     skill_dir = f"/workspace/{skills_subdir}/{skill_name}"
     errors: List[str] = []
@@ -195,18 +195,20 @@ def _preview_skill_from_backend(backend: Any, skill_name: str, skills_subdir: st
         dir_listing = []
 
     if not dir_listing:
-        return _json.dumps({
-            "skill_name": skill_name,
-            "files": [],
-            "validation": {
-                "valid": False,
-                "errors": [f"Skill directory not found: {skills_subdir}/{skill_name}"],
-                "warnings": [],
-            },
-        })
+        return _json.dumps(
+            {
+                "skill_name": skill_name,
+                "files": [],
+                "validation": {
+                    "valid": False,
+                    "errors": [f"Skill directory not found: {skills_subdir}/{skill_name}"],
+                    "warnings": [],
+                },
+            }
+        )
 
     # Recursively collect all files from the skill directory
-    files = []
+    files: List[Dict[str, Any]] = []
     _collect_files_from_backend(backend, skill_dir, skill_dir, files)
 
     # Locate and validate SKILL.md
@@ -235,15 +237,17 @@ def _preview_skill_from_backend(backend: Any, skill_name: str, skills_subdir: st
             warnings.append("SKILL.md body is empty; consider adding usage documentation")
 
     valid = len(errors) == 0
-    return _json.dumps({
-        "skill_name": skill_name,
-        "files": files,
-        "validation": {
-            "valid": valid,
-            "errors": errors,
-            "warnings": warnings,
-        },
-    })
+    return _json.dumps(
+        {
+            "skill_name": skill_name,
+            "files": files,
+            "validation": {
+                "valid": valid,
+                "errors": errors,
+                "warnings": warnings,
+            },
+        }
+    )
 
 
 def _collect_files_from_backend(backend: Any, dir_path: str, base_dir: str, files: List[Dict[str, Any]]) -> None:
@@ -274,7 +278,7 @@ def _collect_files_from_backend(backend: Any, dir_path: str, base_dir: str, file
             # Get relative path
             rel_path = path
             if path.startswith(base_dir):
-                rel_path = path[len(base_dir):].lstrip("/")
+                rel_path = path[len(base_dir) :].lstrip("/")
 
             if not rel_path:
                 continue
@@ -292,7 +296,7 @@ def _collect_files_from_backend(backend: Any, dir_path: str, base_dir: str, file
                     # Try tab-separated format first: "  N\tcontent"
                     m = re.match(r"^\s*\d+(?:\.\d+)?\t", line)
                     if m:
-                        stripped_lines.append(line[m.end():])
+                        stripped_lines.append(line[m.end() :])
                     # Fallback: pipe-separated format "  N | content"
                     elif " | " in line[:12]:
                         stripped_lines.append(line.split(" | ", 1)[1])
@@ -305,19 +309,28 @@ def _collect_files_from_backend(backend: Any, dir_path: str, base_dir: str, file
             # Detect file type
             ext = os.path.splitext(rel_path)[1].lower()
             _EXT_MAP = {
-                ".py": "python", ".md": "markdown", ".json": "json",
-                ".yaml": "yaml", ".yml": "yaml", ".txt": "text",
-                ".sh": "shell", ".js": "javascript", ".ts": "typescript",
-                ".html": "html", ".css": "css",
+                ".py": "python",
+                ".md": "markdown",
+                ".json": "json",
+                ".yaml": "yaml",
+                ".yml": "yaml",
+                ".txt": "text",
+                ".sh": "shell",
+                ".js": "javascript",
+                ".ts": "typescript",
+                ".html": "html",
+                ".css": "css",
             }
             file_type = _EXT_MAP.get(ext, "other")
 
-            files.append({
-                "path": rel_path,
-                "content": content,
-                "file_type": file_type,
-                "size": entry.get("size", len(content)),
-            })
+            files.append(
+                {
+                    "path": rel_path,
+                    "content": content,
+                    "file_type": file_type,
+                    "size": entry.get("size", len(content)),
+                }
+            )
 
 
 def _safe_tool_name(tool: Any) -> str:
@@ -415,7 +428,9 @@ async def _validate_mcp_servers(
         return valid_servers
 
 
-async def resolve_tools_for_node(node: GraphNode, *, user_id: str | None = None, backend: Any = None) -> Optional[List[Any]]:
+async def resolve_tools_for_node(
+    node: GraphNode, *, user_id: str | None = None, backend: Any = None
+) -> Optional[List[Any]]:
     """
     Resolve tools list for a node.
 

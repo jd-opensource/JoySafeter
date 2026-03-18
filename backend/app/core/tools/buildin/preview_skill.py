@@ -128,12 +128,14 @@ def _collect_files(skill_dir: Path) -> List[Dict[str, Any]]:
                 # Skip binary / unreadable files silently
                 continue
 
-            files.append({
-                "path": rel_path,
-                "content": content,
-                "file_type": _detect_file_type(rel_path),
-                "size": abs_path.stat().st_size,
-            })
+            files.append(
+                {
+                    "path": rel_path,
+                    "content": content,
+                    "file_type": _detect_file_type(rel_path),
+                    "size": abs_path.stat().st_size,
+                }
+            )
 
     return files
 
@@ -181,15 +183,17 @@ def preview_skill_in_sandbox(
 
     # --- 1. Check skill directory exists ---
     if not skill_dir.is_dir():
-        return json.dumps({
-            "skill_name": skill_name,
-            "files": [],
-            "validation": {
-                "valid": False,
-                "errors": [f"Skill directory not found: {skills_subdir}/{skill_name}"],
-                "warnings": [],
-            },
-        })
+        return json.dumps(
+            {
+                "skill_name": skill_name,
+                "files": [],
+                "validation": {
+                    "valid": False,
+                    "errors": [f"Skill directory not found: {skills_subdir}/{skill_name}"],
+                    "warnings": [],
+                },
+            }
+        )
 
     # --- 2. Collect files ---
     files = _collect_files(skill_dir)
@@ -226,12 +230,14 @@ def preview_skill_in_sandbox(
 
     valid = len(errors) == 0
 
-    return json.dumps({
-        "skill_name": skill_name,
-        "files": files,
-        "validation": {
-            "valid": valid,
-            "errors": errors,
-            "warnings": warnings,
-        },
-    })
+    return json.dumps(
+        {
+            "skill_name": skill_name,
+            "files": files,
+            "validation": {
+                "valid": valid,
+                "errors": errors,
+                "warnings": warnings,
+            },
+        }
+    )

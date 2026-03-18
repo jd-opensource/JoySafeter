@@ -1,12 +1,13 @@
 """Integration smoke tests for the Skill Creator feature."""
+
 import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from app.schemas.chat import ChatRequest
 from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
+from app.schemas.chat import ChatRequest
 
 
 class TestSkillCreatorIntegration:
@@ -41,9 +42,7 @@ class TestSkillCreatorIntegration:
             # Simulate agent writing a script
             scripts_dir = skill_dir / "scripts"
             scripts_dir.mkdir()
-            (scripts_dir / "scan.py").write_text(
-                "import subprocess\ndef run_scan(target): pass"
-            )
+            (scripts_dir / "scan.py").write_text("import subprocess\ndef run_scan(target): pass")
 
             # Call preview_skill (same as agent would)
             result_json = preview_skill_in_sandbox("test-scan", sandbox_root)
