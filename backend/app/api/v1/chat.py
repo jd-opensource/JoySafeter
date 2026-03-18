@@ -552,7 +552,17 @@ async def chat(
 
         # Create graph: use default DeepAgents single-node if graph_id is None, otherwise use graph from database
         graph_service = GraphService(db)
-        if payload.graph_id is None:
+        if payload.mode == "skill_creator":
+            log.info("[Chat API] Using Skill Creator graph")
+            graph = await graph_service.create_skill_creator_graph(
+                llm_model=llm_params["llm_model"],
+                api_key=llm_params["api_key"],
+                base_url=llm_params["base_url"],
+                max_tokens=llm_params["max_tokens"],
+                user_id=str(current_user.id),
+                edit_skill_id=payload.edit_skill_id,
+            )
+        elif payload.graph_id is None:
             log.info("[Chat API] Using default DeepAgents single-node (graph_id is None)")
             graph = await graph_service.create_default_deep_agents_graph(
                 llm_model=llm_params["llm_model"],
@@ -692,7 +702,17 @@ async def chat_stream(
         try:
             # 3. 创建图: 如果 graph_id 为 None，使用默认 DeepAgents 单节点，否则从数据库加载图
             graph_service = GraphService(db)
-            if payload.graph_id is None:
+            if payload.mode == "skill_creator":
+                log.info("[Chat API Stream] Using Skill Creator graph")
+                graph = await graph_service.create_skill_creator_graph(
+                    llm_model=llm_params["llm_model"],
+                    api_key=llm_params["api_key"],
+                    base_url=llm_params["base_url"],
+                    max_tokens=llm_params["max_tokens"],
+                    user_id=str(current_user.id),
+                    edit_skill_id=payload.edit_skill_id,
+                )
+            elif payload.graph_id is None:
                 log.info("[Chat API Stream] Using default DeepAgents single-node (graph_id is None)")
                 graph = await graph_service.create_default_deep_agents_graph(
                     llm_model=llm_params["llm_model"],
