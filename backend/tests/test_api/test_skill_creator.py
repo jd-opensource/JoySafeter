@@ -9,8 +9,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
 from app.schemas.chat import ChatRequest
 

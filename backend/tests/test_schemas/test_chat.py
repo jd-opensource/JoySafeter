@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-from pydantic import ValidationError
-
 from app.schemas.chat import ChatRequest
 
 # ---------------------------------------------------------------------------
