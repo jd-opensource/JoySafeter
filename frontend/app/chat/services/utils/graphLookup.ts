@@ -7,6 +7,7 @@
 import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { graphTemplateService } from '@/app/workspace/[workspaceId]/[agentId]/services/graphTemplateService'
 import { graphKeys } from '@/hooks/queries/graphs'
+import { generateUUID } from '@/lib/utils/uuid'
 
 import type { ModeContext } from '../modeHandlers/types'
 
@@ -117,13 +118,13 @@ export async function findOrCreateGraphByTemplate(
         const template = await graphTemplateService.loadTemplate(templateName)
         const nodeIdMap = new Map<string, string>()
         const newNodes = template.nodes.map((node) => {
-          const newId = crypto.randomUUID()
+          const newId = generateUUID()
           nodeIdMap.set(node.id, newId)
           return { ...node, id: newId }
         })
         const newEdges = template.edges.map((edge) => ({
           ...edge,
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           source: nodeIdMap.get(edge.source) || edge.source,
           target: nodeIdMap.get(edge.target) || edge.target,
         }))

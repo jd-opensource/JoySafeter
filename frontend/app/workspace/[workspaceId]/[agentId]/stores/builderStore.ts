@@ -34,6 +34,7 @@ import {
 import { create } from 'zustand'
 
 import { i18n } from '@/lib/i18n'
+import { generateUUID } from '@/lib/utils/uuid'
 import { useSidebarStore } from '@/stores/sidebar/store'
 import type { GraphAction } from '@/types/copilot'
 import { ActionProcessor } from '@/utils/copilot/actionProcessor'
@@ -49,19 +50,6 @@ import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/
 import { getEdgeStyleByType, processEdgesForReactFlow } from '../utils/edgeStyles'
 import { determineEdgeTypeAndRouteKey, autoWireConnection } from '../utils/connectionUtils'
 import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExport'
-
-/**
- * Generate a unique ID (fallback for crypto.randomUUID in strict SSR environments)
- */
-function generateId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID()
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8)
-    return v.toString(16)
-  })
-}
 
 /**
  * Migrate legacy context variables to state fields.
@@ -583,7 +571,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         Object.assign(defaultConfig, configOverride)
       }
       const newNode: Node = {
-        id: generateId(),
+        id: generateUUID(),
         type: 'custom',
         position,
         data: {
@@ -667,7 +655,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
       const newNode: Node = {
         ...nodeToDuplicate,
-        id: generateId(),
+        id: generateUUID(),
         position: { x: newX, y: newY },
         selected: false,
       }
