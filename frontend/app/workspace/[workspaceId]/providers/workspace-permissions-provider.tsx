@@ -77,6 +77,8 @@ const WorkspacePermissionsContext = createContext<WorkspacePermissionsContextTyp
     canRead: false,
     canEdit: false,
     canAdmin: false,
+    isOwner: false,
+    role: null,
     userPermissions: 'read',
     isLoading: false,
     error: null,

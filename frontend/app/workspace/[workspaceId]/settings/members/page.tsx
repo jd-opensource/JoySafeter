@@ -88,8 +88,7 @@ export default function WorkspaceMembersPage() {
   const queryClient = useQueryClient()
 
   const { permissions, loading: permissionsLoading, refetch } = useWorkspacePermissions(
-    workspaceId,
-    { useFullList: true } // 明确需要完整列表
+    workspaceId
   )
   const userPermissions = useUserPermissions(permissions, permissionsLoading, null)
 
@@ -363,12 +362,14 @@ export default function WorkspaceMembersPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="z-[10000001] rounded-lg border border-gray-200 shadow-xl bg-white py-1.5 min-w-[8rem] [&_span[data-radix-select-item-indicator]]:bg-blue-50 [&_span[data-radix-select-item-indicator]]:rounded-full [&_span[data-radix-select-item-indicator]]:w-5 [&_span[data-radix-select-item-indicator]]:h-5 [&_span[data-radix-select-item-indicator]]:flex [&_span[data-radix-select-item-indicator]]:items-center [&_span[data-radix-select-item-indicator]]:justify-center [&_span[data-radix-select-item-indicator]]:shadow-sm [&_span[data-radix-select-item-indicator]]:left-2 [&_svg]:text-blue-600 [&_svg]:w-3.5 [&_svg]:h-3.5 [&_svg]:stroke-[2.5]">
-                        <SelectItem
-                          value="admin"
-                          className="cursor-pointer hover:bg-blue-50 active:bg-blue-100 py-2.5 pl-10 pr-3 rounded-md mx-1 transition-colors focus:bg-blue-50"
-                        >
-                          {t('workspace.roles.admin')}
-                        </SelectItem>
+                        {userPermissions.role === 'owner' && (
+                          <SelectItem
+                            value="admin"
+                            className="cursor-pointer hover:bg-blue-50 active:bg-blue-100 py-2.5 pl-10 pr-3 rounded-md mx-1 transition-colors focus:bg-blue-50"
+                          >
+                            {t('workspace.roles.admin')}
+                          </SelectItem>
+                        )}
                         <SelectItem
                           value="member"
                           className="cursor-pointer hover:bg-blue-50 active:bg-blue-100 py-2.5 pl-10 pr-3 rounded-md mx-1 transition-colors focus:bg-blue-50"
@@ -447,7 +448,13 @@ export default function WorkspaceMembersPage() {
                 <TableBody>
                   {members.map((member) => {
                     const RoleIcon = ROLE_ICONS[member.role]
-                    const canModify = userPermissions.canAdmin && !member.isOwner
+                    const currentRole = userPermissions.role
+                    const canModify = (() => {
+                      if (member.isOwner) return false
+                      if (currentRole === 'owner') return true
+                      if (currentRole === 'admin' && (member.role === 'member' || member.role === 'viewer')) return true
+                      return false
+                    })()
                     const initials = (member.name || member.email)
                       .split(' ')
                       .map(n => n[0])
@@ -492,9 +499,11 @@ export default function WorkspaceMembersPage() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="admin">
-                                    {t('workspace.roles.admin')}
-                                  </SelectItem>
+                                  {userPermissions.role === 'owner' && (
+                                    <SelectItem value="admin">
+                                      {t('workspace.roles.admin')}
+                                    </SelectItem>
+                                  )}
                                   <SelectItem value="member">
                                     {t('workspace.roles.member')}
                                   </SelectItem>

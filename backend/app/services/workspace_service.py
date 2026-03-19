@@ -23,6 +23,14 @@ from app.services.email_service import EmailService
 from .base import BaseService
 
 
+ROLE_RANK = {
+    WorkspaceMemberRole.viewer: 0,
+    WorkspaceMemberRole.member: 1,
+    WorkspaceMemberRole.admin: 2,
+    WorkspaceMemberRole.owner: 3,
+}
+
+
 class WorkspaceService(BaseService[Workspace]):
     """工作空间业务逻辑"""
 
@@ -279,6 +287,12 @@ class WorkspaceService(BaseService[Workspace]):
 
         if role not in WorkspaceMemberRole._value2member_map_:
             raise BadRequestException("Invalid role")
+
+        # 角色层级保护：非 owner 不能邀请 >= 自己等级的角色
+        invited_role = WorkspaceMemberRole(role)
+        if member_role != WorkspaceMemberRole.owner:
+            if ROLE_RANK.get(invited_role, 0) >= ROLE_RANK.get(member_role, 0):
+                raise ForbiddenException("Cannot invite a member with a role equal to or higher than your own")
 
         from app.repositories.auth_user import AuthUserRepository
 
@@ -857,6 +871,13 @@ class WorkspaceService(BaseService[Workspace]):
         if workspace.owner_id == target_user_id:
             raise BadRequestException("Cannot change owner role")
 
+        # 角色层级保护：非 owner 不能修改 >= 自己等级的成员
+        if current_role != WorkspaceMemberRole.owner:
+            if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
+                raise ForbiddenException("Cannot modify a member with equal or higher role")
+            if ROLE_RANK.get(new_role, 0) >= ROLE_RANK.get(current_role, 0):
+                raise ForbiddenException("Cannot assign a role equal to or higher than your own")
+
         # 如果修改的是 admin，检查是否是最后一个 admin
         if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
@@ -922,6 +943,11 @@ class WorkspaceService(BaseService[Workspace]):
 
         if not is_admin and not is_self:
             raise ForbiddenException("Insufficient permissions")
+
+        # 角色层级保护：非 owner 不能移除 >= 自己等级的成员
+        if is_admin and not is_self and current_role != WorkspaceMemberRole.owner:
+            if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
+                raise ForbiddenException("Cannot remove a member with equal or higher role")
 
         # 如果移除自己且是 admin，检查是否是最后一个 admin
         if is_self and target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:

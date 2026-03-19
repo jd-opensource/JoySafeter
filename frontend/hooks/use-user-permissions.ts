@@ -2,13 +2,17 @@ import { useMemo } from 'react'
 
 import type { WorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useSession } from '@/lib/auth/auth-client'
-import type { PermissionType } from '@/lib/workspaces/permissions/types'
+import type { PermissionType, WorkspaceMemberRole } from '@/lib/workspaces/permissions/types'
 
 export interface WorkspaceUserPermissions {
   // Core permission checks
   canRead: boolean
   canEdit: boolean
   canAdmin: boolean
+
+  // Role identity
+  isOwner: boolean
+  role: WorkspaceMemberRole | null
 
   // Utility properties
   userPermissions: PermissionType
@@ -39,6 +43,8 @@ export function useUserPermissions(
         canRead: false,
         canEdit: false,
         canAdmin: false,
+        isOwner: false,
+        role: null,
         userPermissions: 'read',
         isLoading: permissionsLoading,
         error: permissionsError,
@@ -54,6 +60,8 @@ export function useUserPermissions(
         canRead: false,
         canEdit: false,
         canAdmin: false,
+        isOwner: false,
+        role: null,
         userPermissions: 'read',
         isLoading: false,
         error: permissionsError || 'User not found in workspace',
@@ -70,6 +78,8 @@ export function useUserPermissions(
       canRead,
       canEdit,
       canAdmin,
+      isOwner: currentUser.isOwner,
+      role: currentUser.role,
       userPermissions: userPerms,
       isLoading: false,
       error: permissionsError,
