@@ -124,8 +124,8 @@ export const agentService = {
 
   async listGraphs(workspaceId?: string): Promise<AgentGraph[]> {
     const url = workspaceId ? `graphs?workspaceId=${workspaceId}` : 'graphs'
-    const response = await apiGet<{ data: AgentGraph[] }>(url)
-    return response.data || []
+    const response = await apiGet<AgentGraph[]>(url)
+    return response || []
   },
 
   async saveGraph(params: {
@@ -141,14 +141,14 @@ export const agentService = {
     let graphId = getCachedGraphId()
 
     if (!graphId) {
-      const createResponse = await apiPost<{ data: { id: string } }>('graphs', {
+      const createResponse = await apiPost<{ id: string }>('graphs', {
         name: params.name,
         description: params.description || '',
         color: params.color || '',
         variables: params.variables || {},
         workspaceId: params.workspaceId,
       })
-      graphId = createResponse.data.id
+      graphId = createResponse.id
       setCachedGraphId(graphId)
       setCachedGraphName(params.name)
     }
@@ -271,7 +271,7 @@ export const agentService = {
     clearCachedGraphId()
     clearCachedGraphName()
 
-    const response = await apiPost<{ data: AgentGraph }>('graphs', {
+    const response = await apiPost<AgentGraph>('graphs', {
       name: params.name,
       description: params.description || '',
       color: params.color || '',
@@ -279,7 +279,7 @@ export const agentService = {
       workspaceId: params.workspaceId,
     })
 
-    return response.data
+    return response
   },
 
   /**
@@ -326,7 +326,7 @@ export const agentService = {
     clearCachedGraphName()
 
     // Create new graph
-    const createResponse = await apiPost<{ data: { id: string } }>('graphs', {
+    const createResponse = await apiPost<{ id: string }>('graphs', {
       name: options?.newName || `${originalGraph.name} (copy)`,
       description: originalGraph.description || '',
       color: originalGraph.color || '',
@@ -334,7 +334,7 @@ export const agentService = {
       workspaceId: options?.workspaceId || originalGraph.workspaceId || null,
     })
 
-    const newGraphId = createResponse.data.id
+    const newGraphId = createResponse.id
 
     // Copy state
     await apiPost(`graphs/${newGraphId}/state`, {
@@ -442,16 +442,13 @@ export const agentService = {
    */
   async getAvailableSkills(): Promise<SkillOption[]> {
     try {
-      const response = await apiGet<{
-        data: Array<{
-          id: string
-          name: string
-          description: string
-          tags?: string[]
-        }>
-      }>('skills?include_public=true')
-      const skills = response.data || []
-      return skills.map((skill) => ({
+      const skills = await apiGet<Array<{
+        id: string
+        name: string
+        description: string
+        tags?: string[]
+      }>>('skills?include_public=true')
+      return (skills || []).map((skill) => ({
         id: skill.id,
         name: skill.name,
         description: skill.description,

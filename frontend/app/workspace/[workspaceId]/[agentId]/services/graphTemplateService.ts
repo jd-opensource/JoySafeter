@@ -2,6 +2,8 @@
 
 import { Node, Edge } from 'reactflow'
 
+import { generateUUID } from '@/lib/utils/uuid'
+
 import { agentService, type AgentGraph } from './agentService'
 
 export interface GraphTemplate {
@@ -73,7 +75,7 @@ class GraphTemplateService {
     // 2. Regenerate node IDs and create mapping (UUID for backend consistency)
     const nodeIdMap = new Map<string, string>()
     const newNodes = template.nodes.map((node) => {
-      const newId = crypto.randomUUID()
+      const newId = generateUUID()
       nodeIdMap.set(node.id, newId)
       return {
         ...node,
@@ -84,7 +86,7 @@ class GraphTemplateService {
     // 3. Update edges with new source and target IDs
     const newEdges = template.edges.map((edge) => ({
       ...edge,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       source: nodeIdMap.get(edge.source) || edge.source,
       target: nodeIdMap.get(edge.target) || edge.target,
     }))

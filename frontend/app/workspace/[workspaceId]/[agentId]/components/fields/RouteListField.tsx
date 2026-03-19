@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/core/utils/cn'
+import { generateUUID } from '@/lib/utils/uuid'
 
 import { RouteRule, EdgeData } from '../../types/graph'
 
@@ -425,17 +426,8 @@ export const RouteListField: React.FC<RouteListFieldProps> = ({
   }
 
   const handleAddRule = () => {
-    // Fallback for crypto.randomUUID in Next.js environments
-    const generateId = () => {
-      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8)
-        return v.toString(16)
-      })
-    }
-
     const newRule: RouteRule = {
-      id: generateId(),
+      id: generateUUID(),
       condition: '',
       targetEdgeKey: '',
       label: `Route ${rules.length + 1}`,

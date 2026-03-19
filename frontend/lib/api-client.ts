@@ -113,9 +113,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
   try {
     const json = JSON.parse(text)
 
-    // Standard API response format
-    if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
-      if (!json.success) {
+    // Standard API response format: { success?, data }
+    // Auto-unwrap `data` whether or not `success` is present,
+    // so callers always receive the inner payload directly.
+    if (json && typeof json === 'object' && 'data' in json) {
+      if ('success' in json && !json.success) {
         throw new ApiError(response.status, response.statusText, json.message || 'API request failed', json.code)
       }
       return json.data

@@ -78,13 +78,13 @@ export const graphKeys = {
 
 async function fetchGraphs(workspaceId?: string): Promise<AgentGraph[]> {
   const url = workspaceId ? `graphs?workspaceId=${workspaceId}` : 'graphs'
-  const response = await apiGet<{ data: AgentGraph[] }>(url)
-  return response.data || []
+  const response = await apiGet<AgentGraph[]>(url)
+  return response || []
 }
 
 async function fetchDeployedGraphs(): Promise<AgentGraph[]> {
-  const response = await apiGet<{ data: AgentGraph[] }>('graphs/deployed')
-  return response.data || []
+  const response = await apiGet<AgentGraph[]>('graphs/deployed')
+  return response || []
 }
 
 async function fetchGraphState(graphId: string): Promise<GraphState> {

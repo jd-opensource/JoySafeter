@@ -9,6 +9,8 @@
 
 import { Node, Edge } from 'reactflow'
 
+import { generateUUID } from '@/lib/utils/uuid'
+
 import { EdgeData, RouteRule } from '../types/graph'
 
 /**
@@ -85,7 +87,7 @@ export function migrateRouterNodeConfig(node: Node): Node {
   // Migrate routes
   const migratedRoutes: RouteRule[] = routes.map((route) => {
     const migrated: RouteRule = {
-      id: route.id || crypto.randomUUID(),
+      id: route.id || generateUUID(),
       condition: route.condition || '',
       targetEdgeKey: route.targetEdgeKey || route.target || '',
       label: route.label || '',
