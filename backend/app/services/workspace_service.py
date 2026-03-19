@@ -280,8 +280,13 @@ class WorkspaceService(BaseService[Workspace]):
         if role not in WorkspaceMemberRole._value2member_map_:
             raise BadRequestException("Invalid role")
 
-        # 角色层级保护：非 owner 不能添加 >= 自己等级的角色
         target_role = WorkspaceMemberRole(role)
+
+        # owner 角色不能通过添加成员赋予
+        if target_role == WorkspaceMemberRole.owner:
+            raise BadRequestException("Cannot assign owner role")
+
+        # 角色层级保护：非 owner 不能添加 >= 自己等级的角色
         if member_role != WorkspaceMemberRole.owner:
             if ROLE_RANK.get(target_role, 0) >= ROLE_RANK.get(member_role, 0):
                 raise ForbiddenException("Cannot add a member with a role equal to or higher than your own")
@@ -477,6 +482,10 @@ class WorkspaceService(BaseService[Workspace]):
         if workspace.owner_id == target_user_id:
             raise BadRequestException("Cannot change owner role")
 
+        # owner 角色不能通过角色更新赋予
+        if new_role == WorkspaceMemberRole.owner:
+            raise BadRequestException("Cannot assign owner role")
+
         # 角色层级保护：非 owner 不能修改 >= 自己等级的成员
         if current_role != WorkspaceMemberRole.owner:
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
@@ -507,7 +516,7 @@ class WorkspaceService(BaseService[Workspace]):
             "email": user.email if user else "",
             "name": user.name if user else "",
             "role": new_role.value if hasattr(new_role, "value") else new_role,
-            "isOwner": False,
+            "isOwner": str(workspace.owner_id) == str(target_user_id),
             "createdAt": updated_member.created_at.isoformat()
             if updated_member and hasattr(updated_member, "created_at") and updated_member.created_at
             else None,
@@ -555,8 +564,8 @@ class WorkspaceService(BaseService[Workspace]):
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
                 raise ForbiddenException("Cannot remove a member with equal or higher role")
 
-        # 如果移除自己且是 admin，检查是否是最后一个 admin
-        if is_self and target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
+        # 如果移除的是 admin/owner 角色成员，检查是否是最后一个 admin
+        if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
             if admin_count <= 1:
                 raise BadRequestException("Cannot remove the last admin from a workspace")
