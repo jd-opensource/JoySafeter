@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,8 +40,8 @@ class ApiKey(BaseModel):
     key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     type: Mapped[str] = mapped_column(String(50), nullable=False, default="personal")  # personal/workspace
 
-    last_used: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-    expires_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    last_used: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")
     creator: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[created_by], lazy="selectin")

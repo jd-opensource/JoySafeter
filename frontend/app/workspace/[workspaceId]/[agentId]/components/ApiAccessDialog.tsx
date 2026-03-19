@@ -13,6 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
+import { API_BASE } from '@/lib/api-client'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 
 interface ApiAccessDialogProps {
@@ -32,9 +33,7 @@ export function ApiAccessDialog({
   const [copiedUrl, setCopiedUrl] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
 
-  // Determine the base URL dynamically based on current origin
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-  const apiUrl = `${baseUrl}/api/v1/openapi/graph/${agentId}`
+  const apiUrl = `${API_BASE}/openapi/graph/${agentId}`
 
   const curlExample = `curl -X POST "${apiUrl}/run" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\

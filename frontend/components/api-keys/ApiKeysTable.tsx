@@ -282,9 +282,26 @@ export function ApiKeysTable({ workspaceId, containerClassName }: ApiKeysTablePr
                       </div>
                     </TableCell>
                     <TableCell className="py-2">
-                      <code className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-mono text-gray-600">
-                        {apiKey.key}
-                      </code>
+                      <div className="flex items-center gap-1.5">
+                        <code className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-mono text-gray-600">
+                          {apiKey.keyMasked}
+                        </code>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-5 w-5 p-0 text-gray-400 hover:text-gray-600"
+                                onClick={() => handleCopy(apiKey.key)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>复制 Key</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
                     </TableCell>
                     <TableCell className="py-2">
                       <Badge
@@ -300,13 +317,13 @@ export function ApiKeysTable({ workspaceId, containerClassName }: ApiKeysTablePr
                     </TableCell>
                     <TableCell className="py-2">
                       <span className="text-[11px] text-gray-600">
-                        {apiKey.created_at ? formatDate(new Date(apiKey.created_at), 'yyyy-MM-dd') : '-'}
+                        {apiKey.createdAt ? formatDate(new Date(apiKey.createdAt), 'yyyy-MM-dd') : '-'}
                       </span>
                     </TableCell>
                     <TableCell className="py-2">
                       <span className="text-[11px] text-gray-600">
-                        {apiKey.expires_at
-                          ? formatDate(new Date(apiKey.expires_at), 'yyyy-MM-dd')
+                        {apiKey.expiresAt
+                          ? formatDate(new Date(apiKey.expiresAt), 'yyyy-MM-dd')
                           : '永不过期'}
                       </span>
                     </TableCell>

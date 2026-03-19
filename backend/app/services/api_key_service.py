@@ -73,6 +73,7 @@ class ApiKeyService(BaseService[ApiKey]):
                 "id": str(k.id),
                 "name": k.name,
                 "type": k.type,
+                "key": k.key,
                 "keyMasked": _mask(k.key),
                 "workspaceId": str(k.workspace_id) if k.workspace_id else None,
                 "expiresAt": k.expires_at,

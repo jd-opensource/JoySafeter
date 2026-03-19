@@ -47,7 +47,7 @@ class GraphExecution(BaseModel):
     )
 
     status: Mapped[ExecutionStatus] = mapped_column(
-        Enum(ExecutionStatus),
+        Enum(ExecutionStatus, values_callable=lambda e: [m.value for m in e]),
         default=ExecutionStatus.INIT,
         nullable=False,
     )
