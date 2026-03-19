@@ -19,7 +19,7 @@ class ApiKeyRepository(BaseRepository[ApiKey]):
     def __init__(self, db: AsyncSession):
         super().__init__(ApiKey, db)
 
-    async def list_by_user(self, user_id: uuid.UUID) -> List[ApiKey]:
+    async def list_by_user(self, user_id: str) -> List[ApiKey]:
         result = await self.db.execute(select(ApiKey).where(ApiKey.user_id == user_id))
         return list(result.scalars().all())
 

@@ -81,7 +81,7 @@ export function ApiKeysTable({ workspaceId, containerClassName }: ApiKeysTablePr
         name: keyName.trim(),
         type: keyType,
         workspaceId: keyType === 'workspace' ? workspaceId : undefined,
-        expiresInDays: expiresInDays ? parseInt(expiresInDays) : undefined,
+        expiresInDays: expiresInDays && expiresInDays !== 'never' ? parseInt(expiresInDays) : undefined,
       }),
     onSuccess: (data) => {
       setNewlyCreatedKey(data.key)
@@ -155,7 +155,7 @@ export function ApiKeysTable({ workspaceId, containerClassName }: ApiKeysTablePr
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal={false}>
                     <SelectItem value="workspace">Workspace（可访问此工作空间的 Graph）</SelectItem>
                     <SelectItem value="personal">Personal（仅个人 Graph）</SelectItem>
                   </SelectContent>
@@ -167,12 +167,12 @@ export function ApiKeysTable({ workspaceId, containerClassName }: ApiKeysTablePr
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent portal={false}>
                     <SelectItem value="30">30 天</SelectItem>
                     <SelectItem value="90">90 天</SelectItem>
                     <SelectItem value="180">180 天</SelectItem>
                     <SelectItem value="365">1 年</SelectItem>
-                    <SelectItem value="">永不过期</SelectItem>
+                    <SelectItem value="never">永不过期</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

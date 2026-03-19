@@ -600,7 +600,9 @@ async def chat(
             )
 
         # 从 metadata 中提取附加信息并添加到消息中
-        enriched_message = _enrich_message(payload.message, payload.metadata, is_new_thread=(payload.thread_id is None), log=log, endpoint="Chat API")
+        enriched_message = _enrich_message(
+            payload.message, payload.metadata, is_new_thread=(payload.thread_id is None), log=log, endpoint="Chat API"
+        )
 
         # 注册任务以支持非流式取消
         invoke_task = asyncio.create_task(
@@ -734,7 +736,13 @@ async def chat_stream(
             built_graph = graph
 
             # 5. 从 metadata 中提取附加信息并添加到消息中
-            enriched_message = _enrich_message(payload.message, payload.metadata, is_new_thread=(payload.thread_id is None), log=log, endpoint="Chat API Stream")
+            enriched_message = _enrich_message(
+                payload.message,
+                payload.metadata,
+                is_new_thread=(payload.thread_id is None),
+                log=log,
+                endpoint="Chat API Stream",
+            )
 
             # 6. 事件循环
             async for event in graph.astream_events(
