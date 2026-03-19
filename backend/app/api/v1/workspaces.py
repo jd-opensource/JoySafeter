@@ -47,6 +47,11 @@ class RemoveMemberRequest(BaseModel):
     workspaceId: uuid.UUID
 
 
+class UpdateMemberRoleRequest(BaseModel):
+    workspaceId: uuid.UUID
+    role: str = Field(..., description="成员角色: owner/admin/member/viewer")
+
+
 @router.get("")
 async def list_workspaces(
     db: AsyncSession = Depends(get_db),
@@ -86,81 +91,9 @@ async def create_workspace(
     return {"workspace": workspace}
 
 
-@router.get("/{workspace_id}")
-async def get_workspace(
-    workspace_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
-):
-    """获取单个 workspace 详情"""
-    service = WorkspaceService(db)
-    workspace = await service.get_workspace(workspace_id, current_user)
-    return {"workspace": workspace}
-
-
-@router.patch("/{workspace_id}")
-async def update_workspace(
-    workspace_id: uuid.UUID,
-    payload: UpdateWorkspaceRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
-):
-    """更新 workspace 元数据"""
-    service = WorkspaceService(db)
-    workspace = await service.update_workspace(
-        workspace_id,
-        name=payload.name,
-        description=payload.description,
-        allow_personal_api_keys=payload.allowPersonalApiKeys,
-        settings=payload.settings,
-        current_user=current_user,
-    )
-    return {"workspace": workspace}
-
-
-@router.put("/{workspace_id}")
-async def update_workspace_put(
-    workspace_id: uuid.UUID,
-    payload: UpdateWorkspaceRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
-):
-    """对齐旧项目：PUT 别名"""
-    return await update_workspace(workspace_id, payload, db, current_user)
-
-
-@router.delete("/{workspace_id}")
-async def delete_workspace(
-    workspace_id: uuid.UUID,
-    payload: DeleteWorkspaceRequest = Body(default_factory=DeleteWorkspaceRequest),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
-):
-    """删除 workspace 及其所有相关数据"""
-    service = WorkspaceService(db)
-    await service.delete_workspace(
-        workspace_id,
-        delete_templates=payload.deleteTemplates,
-        current_user=current_user,
-    )
-    return {"success": True}
-
-
-@router.post("/{workspace_id}/duplicate")
-async def duplicate_workspace(
-    workspace_id: uuid.UUID,
-    payload: dict = Body(default_factory=dict),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """复制工作空间"""
-    service = WorkspaceService(db)
-    workspace = await service.duplicate_workspace(
-        workspace_id,
-        name=payload.get("name"),
-        current_user=current_user,
-    )
-    return {"workspace": workspace}
+# ------------------------------------------------------------------ #
+# 邀请路由（必须在 /{workspace_id} 之前声明，避免被动态路由遮蔽）
+# ------------------------------------------------------------------ #
 
 
 @router.get("/invitations")
@@ -263,6 +196,88 @@ async def accept_invitation_by_token(
     return result
 
 
+# ------------------------------------------------------------------ #
+# 动态 /{workspace_id} 路由
+# ------------------------------------------------------------------ #
+
+
+@router.get("/{workspace_id}")
+async def get_workspace(
+    workspace_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
+):
+    """获取单个 workspace 详情"""
+    service = WorkspaceService(db)
+    workspace = await service.get_workspace(workspace_id, current_user)
+    return {"workspace": workspace}
+
+
+@router.patch("/{workspace_id}")
+async def update_workspace(
+    workspace_id: uuid.UUID,
+    payload: UpdateWorkspaceRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
+):
+    """更新 workspace 元数据"""
+    service = WorkspaceService(db)
+    workspace = await service.update_workspace(
+        workspace_id,
+        name=payload.name,
+        description=payload.description,
+        allow_personal_api_keys=payload.allowPersonalApiKeys,
+        settings=payload.settings,
+        current_user=current_user,
+    )
+    return {"workspace": workspace}
+
+
+@router.put("/{workspace_id}")
+async def update_workspace_put(
+    workspace_id: uuid.UUID,
+    payload: UpdateWorkspaceRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
+):
+    """对齐旧项目：PUT 别名"""
+    return await update_workspace(workspace_id, payload, db, current_user)
+
+
+@router.delete("/{workspace_id}")
+async def delete_workspace(
+    workspace_id: uuid.UUID,
+    payload: DeleteWorkspaceRequest = Body(default_factory=DeleteWorkspaceRequest),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
+):
+    """删除 workspace 及其所有相关数据"""
+    service = WorkspaceService(db)
+    await service.delete_workspace(
+        workspace_id,
+        delete_templates=payload.deleteTemplates,
+        current_user=current_user,
+    )
+    return {"success": True}
+
+
+@router.post("/{workspace_id}/duplicate")
+async def duplicate_workspace(
+    workspace_id: uuid.UUID,
+    payload: dict = Body(default_factory=dict),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """复制工作空间"""
+    service = WorkspaceService(db)
+    workspace = await service.duplicate_workspace(
+        workspace_id,
+        name=payload.get("name"),
+        current_user=current_user,
+    )
+    return {"workspace": workspace}
+
+
 @router.get("/{workspace_id}/members")
 async def list_members(
     workspace_id: uuid.UUID,
@@ -350,9 +365,9 @@ async def search_users_for_invitation(
     return {"users": result}
 
 
-class UpdateMemberRoleRequest(BaseModel):
-    workspaceId: uuid.UUID
-    role: str = Field(..., description="成员角色: owner/admin/member/viewer")
+# ------------------------------------------------------------------ #
+# 成员管理路由（/members/* 不会被 /{workspace_id} 遮蔽）
+# ------------------------------------------------------------------ #
 
 
 @router.patch("/members/{user_id}")

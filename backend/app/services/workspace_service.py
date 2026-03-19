@@ -131,7 +131,6 @@ class WorkspaceService(BaseService[Workspace]):
         workspace_type: WorkspaceType = WorkspaceType.team,
     ) -> Dict:
         """创建工作空间（默认创建团队工作空间）"""
-        datetime.utcnow()
         workspace = await self.workspace_repo.create(
             {
                 "name": name,
@@ -293,13 +292,21 @@ class WorkspaceService(BaseService[Workspace]):
                     f"User with email {email} is already a member of this workspace. 该用户已经是工作空间成员"
                 )
 
+        # 检查是否已有未过期的待处理邀请
+        existing_pending = await self.invitation_repo.find_pending(workspace_id, email.lower())
+        if existing_pending:
+            if existing_pending.expires_at and existing_pending.expires_at > datetime.now(timezone.utc):
+                raise BadRequestException(
+                    f"A pending invitation already exists for {email}. 该用户已有待处理的邀请"
+                )
+
         token = uuid.uuid4().hex
         expires_at = datetime.now(timezone.utc) + timedelta(days=7)
 
         invitation = await self.invitation_repo.create(
             {
                 "workspace_id": workspace_id,
-                "email": email,
+                "email": email.lower(),
                 "inviter_id": current_user.id,
                 "role": role,
                 "status": WorkspaceInvitationStatus.pending,
@@ -431,47 +438,6 @@ class WorkspaceService(BaseService[Workspace]):
                 "permissions": inv.permissions.value if hasattr(inv.permissions, "value") else inv.permissions,
                 "expiresAt": inv.expires_at.isoformat() if inv.expires_at else None,
                 "createdAt": inv.created_at.isoformat() if inv.created_at else None,
-            }
-            for inv in invitations
-            if inv.workspace  # 过滤掉已删除的工作空间
-        ]
-
-    async def list_all_invitations_for_user(self, current_user: User) -> List[Dict]:
-        """获取当前用户所有的工作空间邀请（包括已处理的）- 已废弃，使用分页版本
-
-        优化：使用 selectinload 一次性加载关联数据，避免 N+1 查询问题
-        """
-        from sqlalchemy.orm import selectinload
-
-        # 使用 eager loading 一次性加载关联数据
-        query = (
-            select(WorkspaceInvitation)
-            .options(
-                selectinload(WorkspaceInvitation.workspace),
-                selectinload(WorkspaceInvitation.inviter),
-            )
-            .where(WorkspaceInvitation.email == current_user.email.lower())
-            .order_by(WorkspaceInvitation.created_at.desc())
-        )
-        result = await self.db.execute(query)
-        invitations = result.scalars().all()
-
-        now = datetime.now(timezone.utc)
-        return [
-            {
-                "id": str(inv.id),
-                "workspaceId": str(inv.workspace_id),
-                "workspaceName": inv.workspace.name if inv.workspace else None,
-                "email": inv.email,
-                "inviterId": str(inv.inviter_id),
-                "inviterName": inv.inviter.name if inv.inviter else None,
-                "inviterEmail": inv.inviter.email if inv.inviter else None,
-                "role": inv.role,
-                "status": inv.status.value,
-                "permissions": inv.permissions.value if hasattr(inv.permissions, "value") else inv.permissions,
-                "expiresAt": inv.expires_at.isoformat() if inv.expires_at else None,
-                "createdAt": inv.created_at.isoformat() if inv.created_at else None,
-                "isExpired": inv.expires_at < now if inv.expires_at else False,
             }
             for inv in invitations
             if inv.workspace  # 过滤掉已删除的工作空间
@@ -620,10 +586,15 @@ class WorkspaceService(BaseService[Workspace]):
         # 检查用户是否已经是成员
         existing_member = await self.member_repo.get_member(invitation.workspace_id, current_user.id)
         if existing_member:
-            # 如果已经是成员，只更新邀请状态
+            # 用户已是成员 — 标记邀请为已接受并返回成功（幂等操作）
             await self.invitation_repo.update_status(invitation.id, WorkspaceInvitationStatus.accepted)
             await self.commit()
-            raise BadRequestException("You are already a member of this workspace")
+            workspace = await self.workspace_repo.get(invitation.workspace_id)
+            return {
+                "success": True,
+                "workspace": await self._serialize_workspace(workspace, current_user),
+                "message": "You are already a member of this workspace",
+            }
 
         # 创建成员记录
         role = WorkspaceMemberRole(invitation.role)
@@ -939,6 +910,10 @@ class WorkspaceService(BaseService[Workspace]):
         target_member = await self.member_repo.get_member(workspace_id, str(target_user_id))
         if not target_member:
             raise NotFoundException("User not found in workspace")
+
+        # 不能移除工作空间拥有者
+        if str(workspace.owner_id) == str(target_user_id):
+            raise BadRequestException("Cannot remove workspace owner")
 
         # 获取当前用户的角色
         current_role = await self._get_role(workspace, current_user)

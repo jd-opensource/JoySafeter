@@ -738,33 +738,37 @@ export function WorkspaceHeader({
 
               return (
                 <>
-                  <button
-                    type='button'
-                    className='flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      router.push(`/workspace/${workspace.id}/settings/members`)
-                      setShowWorkspaceMenu(null)
-                      setMenuPosition(null)
-                    }}
-                  >
-                    <Users className='h-[12px] w-[12px]' />
-                    {t('workspace.membersManagement')}
-                  </button>
-                  <button
-                    type='button'
-                    className='flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      router.push(`/workspace/${workspace.id}/settings/api-keys`)
-                      setShowWorkspaceMenu(null)
-                      setMenuPosition(null)
-                    }}
-                  >
-                    <Key className='h-[12px] w-[12px]' />
-                    API Keys
-                  </button>
-                  <div className='my-[4px] h-[1px] bg-[var(--border)]' />
+                  {(workspace.role === 'owner' || workspace.role === 'admin') && (
+                    <>
+                      <button
+                        type='button'
+                        className='flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          router.push(`/workspace/${workspace.id}/settings/members`)
+                          setShowWorkspaceMenu(null)
+                          setMenuPosition(null)
+                        }}
+                      >
+                        <Users className='h-[12px] w-[12px]' />
+                        {t('workspace.membersManagement')}
+                      </button>
+                      <button
+                        type='button'
+                        className='flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          router.push(`/workspace/${workspace.id}/settings/api-keys`)
+                          setShowWorkspaceMenu(null)
+                          setMenuPosition(null)
+                        }}
+                      >
+                        <Key className='h-[12px] w-[12px]' />
+                        API Keys
+                      </button>
+                      <div className='my-[4px] h-[1px] bg-[var(--border)]' />
+                    </>
+                  )}
                   <button
                     type='button'
                     className='flex w-full items-center gap-[8px] rounded-[6px] px-[8px] py-[6px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'

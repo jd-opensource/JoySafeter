@@ -135,17 +135,6 @@ async def get_current_user_optional(
     return None
 
 
-def require_roles(*roles: str):
-    """角色权限检查装饰器"""
-
-    async def check_roles(current_user: User = Depends(get_current_user)):
-        if current_user.is_superuser:
-            return current_user
-        return current_user
-
-    return Depends(check_roles)
-
-
 # --------------------------------------------------------------------------- #
 # Workspace / Organization 角色装饰器
 # --------------------------------------------------------------------------- #

@@ -210,12 +210,28 @@ export const workspaceService = {
   },
 
   /**
-   * Accept invitation
+   * Accept invitation by ID (for notification banner)
    */
-  async acceptInvitation(invitationIdOrToken: string): Promise<AcceptInvitationResponse> {
+  async acceptInvitationById(invitationId: string): Promise<AcceptInvitationResponse> {
     return apiPost<AcceptInvitationResponse>(
-      `${API_ENDPOINTS.workspaces}/invitations/${invitationIdOrToken}/accept`
+      `${API_ENDPOINTS.workspaces}/invitations/${invitationId}/accept`
     )
+  },
+
+  /**
+   * Accept invitation by token (for email link)
+   */
+  async acceptInvitationByToken(token: string): Promise<AcceptInvitationResponse> {
+    return apiPost<AcceptInvitationResponse>(
+      `${API_ENDPOINTS.workspaces}/invitations/token/${token}/accept`
+    )
+  },
+
+  /**
+   * Accept invitation (backward compat alias for acceptInvitationById)
+   */
+  async acceptInvitation(invitationId: string): Promise<AcceptInvitationResponse> {
+    return this.acceptInvitationById(invitationId)
   },
 
   /**

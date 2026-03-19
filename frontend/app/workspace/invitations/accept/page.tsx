@@ -60,7 +60,7 @@ function AcceptInvitationContent() {
       if (!token) {
         throw new Error('Token is required')
       }
-      return workspaceService.acceptInvitation(token)
+      return workspaceService.acceptInvitationByToken(token)
     },
     onSuccess: async (data) => {
       // Invalidate workspace list query to ensure newly joined workspace appears in the list
@@ -91,7 +91,7 @@ function AcceptInvitationContent() {
   const handleAccept = () => {
     if (!session?.user) {
       // If not logged in, redirect to login page
-      router.push(`/auth/signin?callbackUrl=${encodeURIComponent(`/workspace/invitations/accept?token=${token}`)}`)
+      router.push(`/signin?callbackUrl=${encodeURIComponent(`/workspace/invitations/accept?token=${token}`)}`)
       return
     }
     setIsAccepting(true)
@@ -116,7 +116,7 @@ function AcceptInvitationContent() {
             </p>
             <Button
               onClick={() => {
-                router.push(`/auth/signin?callbackUrl=${encodeURIComponent(`/workspace/invitations/accept?token=${token}`)}`)
+                router.push(`/signin?callbackUrl=${encodeURIComponent(`/workspace/invitations/accept?token=${token}`)}`)
               }}
               className="w-full"
             >
