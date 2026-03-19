@@ -14,8 +14,7 @@ import {
 } from '@/services/chatBackend'
 
 import { generateId, type Message, type ToolCall } from '@/app/chat/types'
-import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { graphTemplateService } from '@/app/workspace/[workspaceId]/[agentId]/services/graphTemplateService'
+import { findOrCreateGraphByTemplate } from '@/app/chat/services/utils/graphLookup'
 import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
 
 import { formatToolDisplay } from './components/toolDisplayUtils'
@@ -65,6 +64,8 @@ export default function SkillCreatorPage() {
 
   // Resolved graph ID for skill creator
   const graphIdRef = useRef<string | null>(null)
+  const [graphReady, setGraphReady] = useState(false)
+  const [graphError, setGraphError] = useState<string | null>(null)
 
   // Track mounted state
   const isMountedRef = useRef(true)
@@ -76,35 +77,27 @@ export default function SkillCreatorPage() {
     }
   }, [])
 
-  // Resolve skill-creator graph ID on mount
+  // Resolve skill-creator graph ID on mount (uses shared lock to prevent duplicate creation)
   useEffect(() => {
-    const SKILL_CREATOR_GRAPH_NAME = 'Skill Creator'
-    const TEMPLATE_NAME = 'skill-creator'
-
     async function resolveGraphId() {
       try {
         // Find personal workspace
         const response = await apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(API_ENDPOINTS.workspaces)
         const personal = (response.workspaces || []).find((w) => w.type === 'personal')
-        if (!personal) return
-
-        // Look for existing Skill Creator graph
-        const graphs = await agentService.listGraphs(personal.id)
-        const existing = graphs.find((g: any) => g.name === SKILL_CREATOR_GRAPH_NAME)
-        if (existing) {
-          graphIdRef.current = existing.id
+        if (!personal) {
+          if (isMountedRef.current) setGraphError('Personal workspace not found')
           return
         }
 
-        // Create from template
-        const created = await graphTemplateService.createGraphFromTemplate(
-          TEMPLATE_NAME,
-          SKILL_CREATOR_GRAPH_NAME,
-          personal.id
-        )
-        graphIdRef.current = created.id
+        // Find or create via shared utility (same lock as skillCreatorHandler)
+        const graph = await findOrCreateGraphByTemplate('Skill Creator', 'skill-creator', personal.id)
+        graphIdRef.current = graph.id
+        if (isMountedRef.current) setGraphReady(true)
       } catch (error) {
         console.error('Failed to resolve skill-creator graph:', error)
+        if (isMountedRef.current) {
+          setGraphError(error instanceof Error ? error.message : 'Failed to initialize Skill Creator')
+        }
       }
     }
 
@@ -122,7 +115,7 @@ export default function SkillCreatorPage() {
   // ---- Send message (inlined streaming logic so we can intercept preview_skill) ----
   const sendMessage = useCallback(
     async (userPrompt: string) => {
-      if (!userPrompt.trim() || isProcessing) return
+      if (!userPrompt.trim() || isProcessing || !graphReady) return
 
       // Add user message
       const userMsg: Message = {
@@ -300,7 +293,7 @@ export default function SkillCreatorPage() {
         }
       }
     },
-    [isProcessing, editSkillId, safeSetMessages]
+    [isProcessing, editSkillId, safeSetMessages, graphReady]
   )
 
   // ---- Stop streaming ----
@@ -343,12 +336,22 @@ export default function SkillCreatorPage() {
       <div className="flex flex-1 min-h-0">
         {/* Left: Chat panel */}
         <div className="flex-1 flex flex-col min-w-0 border-r border-gray-100">
-          <SkillCreatorChat
-            messages={messages}
-            isProcessing={isProcessing}
-            onSendMessage={sendMessage}
-            onStop={stopMessage}
-          />
+          {graphError ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-red-500">
+              {graphError}
+            </div>
+          ) : !graphReady ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+              Initializing Skill Creator...
+            </div>
+          ) : (
+            <SkillCreatorChat
+              messages={messages}
+              isProcessing={isProcessing}
+              onSendMessage={sendMessage}
+              onStop={stopMessage}
+            />
+          )}
         </div>
 
         {/* Right: Preview panel */}
