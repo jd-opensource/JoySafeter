@@ -12,7 +12,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDate } from 'date-fns'
-import { Users, UserPlus, Mail, Shield, Crown, Eye, Edit, Trash2, Loader2, Check } from 'lucide-react'
+import { Users, UserPlus, Shield, Crown, Eye, Edit, Trash2, Loader2, Check } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { useState, useEffect, useRef } from 'react'
 
@@ -129,18 +129,14 @@ export default function WorkspaceMembersPage() {
     return () => clearTimeout(timer)
   }, [inviteEmail])
 
-  const inviteMutation = useMutation({
+  const addMemberMutation = useMutation({
     mutationFn: async ({ email, role }: { email: string; role: string }) => {
-      return workspaceService.sendInvitation({
-        workspaceId,
-        email,
-        role,
-      })
+      return workspaceService.addMember(workspaceId, email, role)
     },
     onSuccess: () => {
       toastSuccess(
-        t('workspace.inviteSentDescription', { email: inviteEmail }),
-        t('workspace.inviteSent')
+        t('workspace.memberAddedDescription', { email: inviteEmail }),
+        t('workspace.memberAdded')
       )
       setInviteDialogOpen(false)
       setInviteEmail('')
@@ -157,15 +153,24 @@ export default function WorkspaceMembersPage() {
         errorMessage.includes('already a member') ||
         errorMessage.includes('is already a member')
 
+      const isUserNotFound =
+        errorMessage.includes('user not found') ||
+        errorMessage.includes('not found')
+
       if (isAlreadyMember) {
         toastError(
           t('workspace.userAlreadyMemberDescription', { email: inviteEmail }),
           t('workspace.userAlreadyMember')
         )
+      } else if (isUserNotFound) {
+        toastError(
+          t('workspace.userNotFoundDescription'),
+          t('workspace.userNotFound')
+        )
       } else {
         toastError(
-          rawMessage || t('workspace.inviteFailed'),
-          t('workspace.inviteFailed')
+          rawMessage || t('workspace.addMemberFailed'),
+          t('workspace.addMemberFailed')
         )
       }
     },
@@ -226,7 +231,7 @@ export default function WorkspaceMembersPage() {
       })
       return
     }
-    inviteMutation.mutate({ email: inviteEmail.trim(), role: inviteRole })
+    addMemberMutation.mutate({ email: inviteEmail.trim(), role: inviteRole })
   }
 
   const handleUpdateRole = (userId: string, role: 'admin' | 'member' | 'viewer') => {
@@ -271,13 +276,13 @@ export default function WorkspaceMembersPage() {
               <DialogTrigger asChild>
                 <Button>
                   <UserPlus className="h-4 w-4 mr-2" />
-                  {t('workspace.inviteMember')}
+                  {t('workspace.addMember')}
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>{t('workspace.inviteNewMember')}</DialogTitle>
-                  <DialogDescription>{t('workspace.inviteMemberDescription')}</DialogDescription>
+                  <DialogTitle>{t('workspace.addNewMember')}</DialogTitle>
+                  <DialogDescription>{t('workspace.addMemberDescription')}</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div>
@@ -390,16 +395,16 @@ export default function WorkspaceMembersPage() {
                   <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
                     {t('workspace.cancel')}
                   </Button>
-                  <Button onClick={handleInvite} disabled={inviteMutation.isPending}>
-                    {inviteMutation.isPending ? (
+                  <Button onClick={handleInvite} disabled={addMemberMutation.isPending}>
+                    {addMemberMutation.isPending ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        {t('workspace.sending')}
+                        {t('workspace.adding')}
                       </>
                     ) : (
                       <>
-                        <Mail className="h-4 w-4 mr-2" />
-                        {t('workspace.sendInvitation')}
+                        <UserPlus className="h-4 w-4 mr-2" />
+                        {t('workspace.confirmAdd')}
                       </>
                     )}
                   </Button>
@@ -428,7 +433,7 @@ export default function WorkspaceMembersPage() {
             {userPermissions.canAdmin && (
               <Button onClick={() => setInviteDialogOpen(true)}>
                 <UserPlus className="h-4 w-4 mr-2" />
-                {t('workspace.inviteMember')}
+                {t('workspace.addMember')}
               </Button>
             )}
           </div>

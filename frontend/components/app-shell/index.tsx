@@ -4,7 +4,6 @@ import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 
 import { AppSidebar } from '@/components/app-sidebar'
-import { InvitationNotification } from '@/components/invitation-notification/invitation-notification'
 import { isPublicRoute } from '@/lib/core/constants/routes'
 import { cn } from '@/lib/core/utils/cn'
 import { useSidebarStore } from '@/stores/sidebar/store'
@@ -48,7 +47,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-auto">
         {children}
       </main>
-      <InvitationNotification />
     </div>
   )
 }

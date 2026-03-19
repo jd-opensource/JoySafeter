@@ -2,9 +2,7 @@
 
 import { createContext, useContext, ReactNode } from 'react'
 
-import { useNotificationWebSocket, NotificationMessage, NotificationType } from '@/hooks/use-notification-websocket'
-import { useToast } from '@/hooks/use-toast'
-import { useTranslation } from '@/lib/i18n'
+import { useNotificationWebSocket, NotificationMessage } from '@/hooks/use-notification-websocket'
 import { useAuthStore } from '@/stores/auth/store'
 
 interface NotificationContextValue {
@@ -30,33 +28,9 @@ interface NotificationProviderProps {
 
 export function NotificationProvider({ children }: NotificationProviderProps) {
   const user = useAuthStore((state) => state.user)
-  const { toast } = useToast()
-  const { t } = useTranslation()
 
   const handleNotification = (notification: NotificationMessage) => {
-    switch (notification.type) {
-      case NotificationType.INVITATION_RECEIVED:
-        toast({
-          title: t('workspace.newInvitation') || 'New Invitation',
-          description: `${notification.data?.inviterName || notification.data?.inviterEmail || 'Someone'} ${t('workspace.invitedYouToJoin') || 'invited you to join'} ${notification.data?.workspaceName || 'a workspace'}`,
-        })
-        break
-
-      case NotificationType.INVITATION_ACCEPTED:
-        toast({
-          title: t('workspace.invitationAccepted') || 'Invitation Accepted',
-          description: `${notification.data?.acceptedByName || notification.data?.acceptedByEmail || 'Someone'} ${t('workspace.joinedWorkspace') || 'joined'} ${notification.data?.workspaceName || 'your workspace'}`,
-        })
-        break
-
-      case NotificationType.INVITATION_REJECTED:
-        toast({
-          title: t('workspace.invitationRejected') || 'Invitation Declined',
-          description: `${notification.data?.rejectedByEmail || 'Someone'} ${t('workspace.declinedInvitation') || 'declined the invitation to'} ${notification.data?.workspaceName || 'your workspace'}`,
-          variant: 'destructive',
-        })
-        break
-    }
+    // Future notification types can be handled here
   }
 
   const { isConnected, lastNotification, reconnect, disconnect } = useNotificationWebSocket({

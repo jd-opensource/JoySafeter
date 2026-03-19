@@ -5,10 +5,6 @@ import { env as runtimeEnv } from 'next-runtime-env'
 import { useEffect, useRef, useCallback, useState } from 'react'
 
 export enum NotificationType {
-  INVITATION_RECEIVED = 'invitation_received',
-  INVITATION_ACCEPTED = 'invitation_accepted',
-  INVITATION_REJECTED = 'invitation_rejected',
-  INVITATION_CANCELLED = 'invitation_cancelled',
   PING = 'ping',
   PONG = 'pong',
   CONNECTED = 'connected',
@@ -118,14 +114,7 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
           setLastNotification(notification)
 
           switch (notification.type) {
-            case NotificationType.INVITATION_RECEIVED:
-              queryClient.invalidateQueries({ queryKey: ['workspace-invitations', 'pending'] })
-              break
-            case NotificationType.INVITATION_ACCEPTED:
-            case NotificationType.INVITATION_REJECTED:
-              queryClient.invalidateQueries({ queryKey: ['workspace-invitations'] })
-              queryClient.invalidateQueries({ queryKey: ['workspaces'] })
-              break
+            // Future notification types can be handled here
           }
 
           onNotificationRef.current?.(notification)

@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.dependencies import get_current_user, require_workspace_role
 from app.common.pagination import PaginationParams
 from app.core.database import get_db
-from app.models.access_control import PermissionType
 from app.models.auth import AuthUser as User
 from app.models.workspace import WorkspaceMemberRole
 from app.services.user_service import UserService
@@ -36,11 +35,9 @@ class DeleteWorkspaceRequest(BaseModel):
     deleteTemplates: bool = Field(default=True, description="是否同时删除模板数据")
 
 
-class InvitationRequest(BaseModel):
-    workspaceId: uuid.UUID
+class AddMemberRequest(BaseModel):
     email: EmailStr
-    role: str = Field(default="member", description="owner/admin/member/viewer")
-    permission: PermissionType = Field(default=PermissionType.write)
+    role: str = Field(default="member", description="成员角色: admin/member/viewer")
 
 
 class RemoveMemberRequest(BaseModel):
@@ -89,111 +86,6 @@ async def create_workspace(
         workspace_type=workspace_type,
     )
     return {"workspace": workspace}
-
-
-# ------------------------------------------------------------------ #
-# 邀请路由（必须在 /{workspace_id} 之前声明，避免被动态路由遮蔽）
-# ------------------------------------------------------------------ #
-
-
-@router.get("/invitations")
-async def list_invitations(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """获取当前用户有权限查看的所有 workspace 邀请（管理员视角）"""
-    service = WorkspaceService(db)
-    invitations = await service.list_invitations(current_user)
-    return {"invitations": invitations}
-
-
-@router.get("/invitations/pending")
-async def list_pending_invitations(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """获取当前用户待处理的工作空间邀请（被邀请人视角）"""
-    service = WorkspaceService(db)
-    invitations = await service.list_pending_invitations_for_user(current_user)
-    return {"invitations": invitations}
-
-
-@router.get("/invitations/all")
-async def list_all_invitations(
-    pagination: PaginationParams = Depends(),
-    status: Optional[str] = Query(None, description="筛选状态: pending, processed, accepted, rejected"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """获取当前用户所有的工作空间邀请（支持分页和状态筛选）"""
-    service = WorkspaceService(db)
-    result = await service.list_all_invitations_for_user_paginated(current_user, pagination, status=status)
-    return result
-
-
-@router.post("/invitations")
-async def create_invitation(
-    payload: InvitationRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """创建 workspace 邀请"""
-    service = WorkspaceService(db)
-    invitation = await service.create_invitation(
-        workspace_id=payload.workspaceId,
-        email=payload.email,
-        role=payload.role,
-        permission=payload.permission,
-        current_user=current_user,
-    )
-    return {"success": True, "invitation": invitation}
-
-
-@router.get("/invitations/{token}")
-async def get_invitation_by_token(
-    token: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """根据 token 获取邀请信息（无需认证）"""
-    service = WorkspaceService(db)
-    invitation = await service.get_invitation_by_token(token)
-    return {"success": True, "invitation": invitation}
-
-
-@router.post("/invitations/{invitation_id}/accept")
-async def accept_invitation(
-    invitation_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """接受工作空间邀请（通过邀请ID）"""
-    service = WorkspaceService(db)
-    result = await service.accept_invitation(invitation_id, current_user)
-    return result
-
-
-@router.post("/invitations/{invitation_id}/reject")
-async def reject_invitation(
-    invitation_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """拒绝工作空间邀请"""
-    service = WorkspaceService(db)
-    result = await service.reject_invitation(invitation_id, current_user)
-    return result
-
-
-@router.post("/invitations/token/{token}/accept")
-async def accept_invitation_by_token(
-    token: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """接受工作空间邀请（通过token，用于邮件链接）"""
-    service = WorkspaceService(db)
-    result = await service.accept_invitation_by_token(token, current_user)
-    return result
 
 
 # ------------------------------------------------------------------ #
@@ -278,6 +170,24 @@ async def duplicate_workspace(
     return {"workspace": workspace}
 
 
+@router.post("/{workspace_id}/members")
+async def add_member(
+    workspace_id: uuid.UUID,
+    payload: AddMemberRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
+):
+    """直接添加成员到工作空间"""
+    service = WorkspaceService(db)
+    member = await service.add_member(
+        workspace_id=workspace_id,
+        email=payload.email,
+        role=payload.role,
+        current_user=current_user,
+    )
+    return {"member": member}
+
+
 @router.get("/{workspace_id}/members")
 async def list_members(
     workspace_id: uuid.UUID,
@@ -346,7 +256,7 @@ async def search_users_for_invitation(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
 ):
-    """搜索用户（用于邀请成员，需要管理员权限）"""
+    """搜索用户（用于添加成员，需要管理员权限）"""
     user_service = UserService(db)
     users = await user_service.search_users(keyword, limit)
 
