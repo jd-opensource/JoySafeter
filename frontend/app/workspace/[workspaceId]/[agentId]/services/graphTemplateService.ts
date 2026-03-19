@@ -90,8 +90,12 @@ class GraphTemplateService {
     }))
 
     // 4. Create graph metadata
-    const graphDescription =
-      description ?? (templateName === 'default-chat' ? 'Default chat with all available skills, Docker backend' : 'APK Intent Bridge Security Analyzer')
+    const descriptionMap: Record<string, string> = {
+      'default-chat': 'Default chat with all available skills, Docker backend',
+      'apk-detector': 'APK Intent Bridge Security Analyzer',
+      'skill-creator': 'A specialized agent for creating and editing Skills',
+    }
+    const graphDescription = description ?? descriptionMap[templateName] ?? `Graph created from template: ${templateName}`
     const graph = await agentService.createGraph({
       name: graphName,
       description: graphDescription,

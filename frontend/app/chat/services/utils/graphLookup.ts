@@ -5,9 +5,13 @@
  */
 
 import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
+import { graphTemplateService } from '@/app/workspace/[workspaceId]/[agentId]/services/graphTemplateService'
 import { graphKeys } from '@/hooks/queries/graphs'
 
 import type { ModeContext } from '../modeHandlers/types'
+
+// Module-level promise locks keyed by graph name — prevents concurrent creation across all callers
+const creationLocks = new Map<string, Promise<{ id: string; name: string }>>()
 
 /**
  * Look up a graph by name in the user's personal workspace.
@@ -65,4 +69,85 @@ export async function refreshAndFindGraph(
   }
 
   return null
+}
+
+/**
+ * Find an existing graph by name with nodes, or create from template.
+ * - If duplicates exist, keeps the one with most nodes and deletes the rest.
+ * - If a graph exists but has no nodes, re-applies the template state.
+ * - Uses a module-level promise lock keyed by graph name to prevent concurrent creation.
+ */
+export async function findOrCreateGraphByTemplate(
+  graphName: string,
+  templateName: string,
+  workspaceId: string
+): Promise<{ id: string; name: string }> {
+  // If a creation/repair is already in progress for this name, wait for it
+  const inflight = creationLocks.get(graphName)
+  if (inflight) {
+    return inflight
+  }
+
+  const promise = (async () => {
+    try {
+      const graphs = await agentService.listGraphs(workspaceId)
+      const matches = graphs.filter((g) => g.name === graphName)
+
+      if (matches.length > 0) {
+        // Deduplicate: keep the one with most nodes, delete the rest
+        let best = matches[0]
+        for (const g of matches) {
+          if ((g.nodeCount ?? 0) > (best.nodeCount ?? 0)) best = g
+        }
+        // Delete duplicates in the background
+        for (const g of matches) {
+          if (g.id !== best.id) {
+            agentService.deleteGraph(g.id).catch((e) =>
+              console.warn(`Failed to delete duplicate graph ${g.id}:`, e)
+            )
+          }
+        }
+
+        // If the best graph has nodes, use it directly
+        if ((best.nodeCount ?? 0) > 0) {
+          return { id: best.id, name: best.name }
+        }
+
+        // Graph exists but has no nodes — re-apply the template state
+        const template = await graphTemplateService.loadTemplate(templateName)
+        const nodeIdMap = new Map<string, string>()
+        const newNodes = template.nodes.map((node) => {
+          const newId = crypto.randomUUID()
+          nodeIdMap.set(node.id, newId)
+          return { ...node, id: newId }
+        })
+        const newEdges = template.edges.map((edge) => ({
+          ...edge,
+          id: crypto.randomUUID(),
+          source: nodeIdMap.get(edge.source) || edge.source,
+          target: nodeIdMap.get(edge.target) || edge.target,
+        }))
+        await agentService.saveGraphState({
+          graphId: best.id,
+          nodes: newNodes,
+          edges: newEdges,
+          viewport: template.viewport || { x: 0, y: 0, zoom: 1 },
+        })
+        return { id: best.id, name: best.name }
+      }
+
+      // No existing graph — create from template
+      const created = await graphTemplateService.createGraphFromTemplate(
+        templateName,
+        graphName,
+        workspaceId
+      )
+      return { id: created.id, name: created.name }
+    } finally {
+      creationLocks.delete(graphName)
+    }
+  })()
+
+  creationLocks.set(graphName, promise)
+  return promise
 }

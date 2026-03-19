@@ -1,13 +1,12 @@
 /**
- * APK Vulnerability Handler
+ * Skill Creator Handler
  *
- * Handles APK vulnerability detection mode — finds or creates an "APK Detector" graph
- * from the apk-detector template, using the shared findOrCreateGraphByTemplate lock.
+ * Handles skill creation mode — finds or creates a "Skill Creator" graph
+ * from the skill-creator template, using the shared findOrCreateGraphByTemplate lock.
  */
 
 import { graphKeys } from '@/hooks/queries/graphs'
 
-import { AndroidIcon } from '../../components/icons/AndroidIcon'
 import { getModeConfig } from '../../config/modeConfig'
 import { findGraphByName, findOrCreateGraphByTemplate } from '../utils/graphLookup'
 
@@ -20,17 +19,19 @@ import type {
   UploadedFile,
 } from './types'
 
-const APK_DETECTOR_GRAPH_NAME = 'APK Detector'
+import { Wand2 } from 'lucide-react'
+
+const SKILL_CREATOR_GRAPH_NAME = 'Skill Creator'
 
 /**
- * APK Vulnerability Mode Handler
+ * Skill Creator Mode Handler
  */
-export const apkVulnerabilityHandler: ModeHandler = {
+export const skillCreatorHandler: ModeHandler = {
   metadata: {
-    id: 'apk-vulnerability',
-    label: 'chat.apkVulnerability',
-    description: 'chat.apkVulnerabilityDescription',
-    icon: AndroidIcon,
+    id: 'skill-creator',
+    label: 'chat.skillCreator',
+    description: 'chat.skillCreatorDescription',
+    icon: Wand2,
     type: 'template',
   },
 
@@ -44,11 +45,11 @@ export const apkVulnerabilityHandler: ModeHandler = {
       }
     }
 
-    const modeConfig = getModeConfig('apk-vulnerability')
+    const modeConfig = getModeConfig('skill-creator')
     if (!modeConfig || !modeConfig.templateName || !modeConfig.templateGraphName) {
       return {
         success: false,
-        error: 'APK Detector template configuration not found',
+        error: 'Skill Creator template configuration not found',
       }
     }
 
@@ -72,11 +73,11 @@ export const apkVulnerabilityHandler: ModeHandler = {
 
       return {
         success: true,
-        stateUpdates: { mode: 'apk-vulnerability', graphId: graph.id },
+        stateUpdates: { mode: 'skill-creator', graphId: graph.id },
       }
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : 'Failed to create APK Detector graph'
+        error instanceof Error ? error.message : 'Failed to create Skill Creator graph'
       return { success: false, error: errorMessage }
     }
   },
@@ -94,7 +95,7 @@ export const apkVulnerabilityHandler: ModeHandler = {
   },
 
   async getGraphId(context: ModeContext): Promise<string | null> {
-    const graph = await findGraphByName(APK_DETECTOR_GRAPH_NAME, context)
+    const graph = await findGraphByName(SKILL_CREATOR_GRAPH_NAME, context)
     return graph?.id ?? null
   },
 }

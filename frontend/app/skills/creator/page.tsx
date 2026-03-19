@@ -14,6 +14,8 @@ import {
 } from '@/services/chatBackend'
 
 import { generateId, type Message, type ToolCall } from '@/app/chat/types'
+import { findOrCreateGraphByTemplate } from '@/app/chat/services/utils/graphLookup'
+import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
 
 import { formatToolDisplay } from './components/toolDisplayUtils'
 import SkillCreatorChat from './components/SkillCreatorChat'
@@ -60,6 +62,11 @@ export default function SkillCreatorPage() {
   // Save dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
 
+  // Resolved graph ID for skill creator
+  const graphIdRef = useRef<string | null>(null)
+  const [graphReady, setGraphReady] = useState(false)
+  const [graphError, setGraphError] = useState<string | null>(null)
+
   // Track mounted state
   const isMountedRef = useRef(true)
   useEffect(() => {
@@ -68,6 +75,33 @@ export default function SkillCreatorPage() {
       isMountedRef.current = false
       abortRef.current?.abort()
     }
+  }, [])
+
+  // Resolve skill-creator graph ID on mount (uses shared lock to prevent duplicate creation)
+  useEffect(() => {
+    async function resolveGraphId() {
+      try {
+        // Find personal workspace
+        const response = await apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(API_ENDPOINTS.workspaces)
+        const personal = (response.workspaces || []).find((w) => w.type === 'personal')
+        if (!personal) {
+          if (isMountedRef.current) setGraphError('Personal workspace not found')
+          return
+        }
+
+        // Find or create via shared utility (same lock as skillCreatorHandler)
+        const graph = await findOrCreateGraphByTemplate('Skill Creator', 'skill-creator', personal.id)
+        graphIdRef.current = graph.id
+        if (isMountedRef.current) setGraphReady(true)
+      } catch (error) {
+        console.error('Failed to resolve skill-creator graph:', error)
+        if (isMountedRef.current) {
+          setGraphError(error instanceof Error ? error.message : 'Failed to initialize Skill Creator')
+        }
+      }
+    }
+
+    resolveGraphId()
   }, [])
 
   // ---- Safe state updater ----
@@ -81,7 +115,7 @@ export default function SkillCreatorPage() {
   // ---- Send message (inlined streaming logic so we can intercept preview_skill) ----
   const sendMessage = useCallback(
     async (userPrompt: string) => {
-      if (!userPrompt.trim() || isProcessing) return
+      if (!userPrompt.trim() || isProcessing || !graphReady) return
 
       // Add user message
       const userMsg: Message = {
@@ -115,8 +149,8 @@ export default function SkillCreatorPage() {
         const result = await streamChat({
           message: userPrompt,
           threadId: threadIdRef.current,
+          graphId: graphIdRef.current,
           metadata: {
-            mode: 'skill_creator',
             ...(editSkillId ? { edit_skill_id: editSkillId } : {}),
           },
           signal: ac.signal,
@@ -259,7 +293,7 @@ export default function SkillCreatorPage() {
         }
       }
     },
-    [isProcessing, editSkillId, safeSetMessages]
+    [isProcessing, editSkillId, safeSetMessages, graphReady]
   )
 
   // ---- Stop streaming ----
@@ -302,12 +336,22 @@ export default function SkillCreatorPage() {
       <div className="flex flex-1 min-h-0">
         {/* Left: Chat panel */}
         <div className="flex-1 flex flex-col min-w-0 border-r border-gray-100">
-          <SkillCreatorChat
-            messages={messages}
-            isProcessing={isProcessing}
-            onSendMessage={sendMessage}
-            onStop={stopMessage}
-          />
+          {graphError ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-red-500">
+              {graphError}
+            </div>
+          ) : !graphReady ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+              Initializing Skill Creator...
+            </div>
+          ) : (
+            <SkillCreatorChat
+              messages={messages}
+              isProcessing={isProcessing}
+              onSendMessage={sendMessage}
+              onStop={stopMessage}
+            />
+          )}
         </div>
 
         {/* Right: Preview panel */}
