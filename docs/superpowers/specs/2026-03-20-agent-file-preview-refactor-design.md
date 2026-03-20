@@ -53,9 +53,10 @@ ArtifactPanel 展示文件树 + sandbox live read 预览
 ```python
 @dataclass
 class FileEvent:
-    action: str   # "create" | "edit" | "delete"
-    path: str     # 文件相对路径
+    action: str        # "write" | "edit" | "delete"
+    path: str          # 文件相对路径
     size: int | None = None
+    timestamp: float = field(default_factory=lambda: time.time())
 
 class FileEventEmitter:
     """线程安全的文件事件收集器。Proxy 写入，SSE 循环消费。"""
@@ -67,11 +68,19 @@ class FileEventEmitter:
         self._queue.append(FileEvent(action=action, path=path, size=size))
 
     def drain(self) -> list[FileEvent]:
-        """取出所有待发送事件，供 SSE 循环调用。"""
-        events = list(self._queue)
-        self._queue.clear()
+        """原子弹出所有待发送事件，供 SSE 循环调用。
+        使用 popleft 循环而非 list()+clear()，避免两步操作间的竞态。"""
+        events = []
+        while self._queue:
+            try:
+                events.append(self._queue.popleft())
+            except IndexError:
+                break
         return events
 ```
+
+**线程安全说明：** `deque.append()` 和 `deque.popleft()` 在 CPython 中是 GIL-atomic 的。
+`drain()` 使用 popleft 循环保证不会丢失 emit/drain 并发时的事件。
 
 #### 2. `FileTrackingProxy`
 
@@ -88,13 +97,14 @@ class FileTrackingProxy(SandboxBackendProtocol):
     def write(self, file_path, content) -> WriteResult:
         result = self._backend.write(file_path, content)
         if not result.error:
-            self._emitter.emit("create", file_path, len(content.encode("utf-8")))
+            self._emitter.emit("write", file_path, len(content.encode("utf-8")))
         return result
 
     def write_overwrite(self, file_path, content) -> WriteResult:
         result = self._backend.write_overwrite(file_path, content)
         if not result.error:
-            self._emitter.emit("edit", file_path, len(content.encode("utf-8")))
+            # 统一用 "write" action，前端幂等处理（create 或 overwrite 均可）
+            self._emitter.emit("write", file_path, len(content.encode("utf-8")))
         return result
 
     def edit(self, file_path, old_string, new_string, replace_all=False) -> EditResult:
@@ -110,7 +120,12 @@ class FileTrackingProxy(SandboxBackendProtocol):
     def grep_raw(self, pattern, path=None, glob=None): return self._backend.grep_raw(pattern, path, glob)
     def glob_info(self, pattern, path="/"): return self._backend.glob_info(pattern, path)
     def download_files(self, paths): return self._backend.download_files(paths)
-    def upload_files(self, files): return self._backend.upload_files(files)
+    def upload_files(self, files):
+        results = self._backend.upload_files(files)
+        for (path, _content), resp in zip(files, results):
+            if not resp.error:
+                self._emitter.emit("write", path, len(_content))
+        return results
     # 透传生命周期和属性
     @property
     def id(self): return self._backend.id
@@ -118,6 +133,10 @@ class FileTrackingProxy(SandboxBackendProtocol):
     def start(self): return self._backend.start()
     def stop(self): return self._backend.stop()
     def cleanup(self): return self._backend.cleanup()
+
+    def __getattr__(self, name):
+        """未显式代理的方法自动 delegate，保证协议扩展时前向兼容。"""
+        return getattr(self._backend, name)
 ```
 
 设计原则：
@@ -127,14 +146,17 @@ class FileTrackingProxy(SandboxBackendProtocol):
 
 #### 3. SSE 集成（`chat.py` 改动）
 
-在 graph 构建后、事件流循环中注入：
+**Proxy 注入点：** `chat.py` 中构建 graph 时通过 `GraphService` / `DeepAgentsBuilder` 获取 sandbox backend。
+在获取到 backend 实例后、传给 graph 之前，包装为 `FileTrackingProxy`。
+具体方式：`DeepAgentsBuilder.build()` 接受可选 `file_emitter: FileEventEmitter` 参数，
+在内部创建 backend 后用 `FileTrackingProxy(backend, file_emitter)` 包装，再传给工具层。
+
+在事件流循环中消费：
 
 ```python
-# 构建时
+# chat.py 构建时
 emitter = FileEventEmitter()
-# 包装 sandbox backend
-original_backend = ...  # 现有 sandbox adapter
-tracked_backend = FileTrackingProxy(original_backend, emitter)
+graph = await builder.build(..., file_emitter=emitter)
 
 # SSE 循环中
 async for event in graph.astream_events(...):
@@ -146,6 +168,7 @@ async for event in graph.astream_events(...):
             "action": file_evt.action,
             "path": file_evt.path,
             "size": file_evt.size,
+            "timestamp": file_evt.timestamp,
         }, state.thread_id, state)
 ```
 
@@ -155,7 +178,9 @@ async for event in graph.astream_events(...):
 
 ```typescript
 if (type === 'file_event') {
-  const { action, path, size } = data as { action: string; path: string; size?: number }
+  const { action, path, size, timestamp } = data as {
+    action: string; path: string; size?: number; timestamp?: number
+  }
   safeSetMessages(prev => prev.map(m => {
     if (m.id !== aiMsgId) return m
     const tree = { ...(m.metadata?.fileTree as Record<string, any> || {}) }
@@ -198,6 +223,7 @@ interface ArtifactPanelProps {
 | `stream_event_handler.py` | `_FILE_WRITE_TOOLS`、`_extract_files_changed()` 函数、`handle_tool_end` 中的 `files_changed` 字段 |
 | `useBackendChatStream.ts` | `tool_end` 中 `liveFiles` 累积逻辑、`artifacts_ready` 处理 |
 | `ArtifactPanel.tsx` | `runId` / `liveFiles` props、`isLiveMode` 分支、artifact API 调用、`liveFilesToNodes`、`fileInfoToNode` |
+| `chat.py` | `finally` 块中的 `artifacts_ready` SSE yield（后端不再发送该事件） |
 
 ### 保留的代码
 
@@ -206,6 +232,14 @@ interface ArtifactPanelProps {
 | `ArtifactCollector` / `ArtifactResolver` | 可能被其他功能使用（如历史回看），本次不删 |
 | `artifacts.py` 的 `live_read_file` API | 仍然是文件内容预览的唯一来源 |
 | `artifactService.liveReadFile` | 前端唯一的文件读取方法 |
+
+## 已知限制
+
+1. **`execute()` 盲区** — Agent 可通过 `execute("echo 'x' > file.txt")` 写文件，Proxy 无法拦截。
+   这是已知限制，接受为 gap。若后续需覆盖，可在 `execute()` 返回后做 filesystem diff（性能代价大），
+   或约束 agent 工具集禁止通过 shell 写文件。
+2. **页面刷新丢失 fileTree** — SSE 事件是临时的，刷新后 fileTree 为空。
+   依赖 sandbox 容器仍在运行，可在重连时调用 sandbox `ls_info` 重建文件树（后续迭代）。
 
 ## FileTools 覆盖
 
