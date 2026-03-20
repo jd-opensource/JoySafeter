@@ -27,12 +27,12 @@ interface SkillPreviewPanelProps {
 // Component
 // ---------------------------------------------------------------------------
 
-const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
+export default function SkillPreviewPanel({
   previewData,
   isProcessing,
   onSave,
   onRegenerate,
-}) => {
+}: SkillPreviewPanelProps) {
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
 
   // Auto-select SKILL.md when preview data arrives
@@ -169,5 +169,3 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
     </div>
   )
 }
-
-export default SkillPreviewPanel

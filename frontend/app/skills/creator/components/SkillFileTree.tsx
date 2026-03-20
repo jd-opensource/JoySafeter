@@ -137,12 +137,12 @@ interface TreeNodeComponentProps {
   depth?: number
 }
 
-const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({
+function TreeNodeComponent({
   node,
   activeFilePath,
   onSelectFile,
   depth = 0,
-}) => {
+}: TreeNodeComponentProps) {
   const [isExpanded, setIsExpanded] = useState(true)
 
   if (node.isDirectory) {
@@ -212,7 +212,7 @@ interface SkillFileTreeProps {
   onSelectFile: (path: string) => void
 }
 
-const SkillFileTree: React.FC<SkillFileTreeProps> = ({ files, activeFilePath, onSelectFile }) => {
+export default function SkillFileTree({ files, activeFilePath, onSelectFile }: SkillFileTreeProps) {
   const { skillMdFile, tree } = React.useMemo(() => buildPreviewTree(files), [files])
 
   return (
@@ -254,5 +254,3 @@ const SkillFileTree: React.FC<SkillFileTreeProps> = ({ files, activeFilePath, on
     </div>
   )
 }
-
-export default SkillFileTree

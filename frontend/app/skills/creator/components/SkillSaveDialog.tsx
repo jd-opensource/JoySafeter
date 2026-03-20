@@ -36,13 +36,13 @@ interface SkillSaveDialogProps {
 // Component
 // ---------------------------------------------------------------------------
 
-const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
+export default function SkillSaveDialog({
   open,
   onOpenChange,
   previewData,
   editSkillId,
   onSaved,
-}) => {
+}: SkillSaveDialogProps) {
   const [name, setName] = useState(previewData?.skill_name || '')
   const [description, setDescription] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -240,5 +240,3 @@ function extractDescription(content?: string | null): string {
   const match = content.match(/^---[\s\S]*?description:\s*(.+?)$/m)
   return match?.[1]?.trim().replace(/^["']|["']$/g, '') || ''
 }
-
-export default SkillSaveDialog

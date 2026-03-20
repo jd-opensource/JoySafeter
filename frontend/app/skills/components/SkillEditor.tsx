@@ -1,7 +1,6 @@
 'use client'
 
 import { FileText } from 'lucide-react'
-import React from 'react'
 import { UseFormReturn } from 'react-hook-form'
 
 import { Label } from '@/components/ui/label'
@@ -24,7 +23,7 @@ interface SkillEditorProps {
   onUpdateFileContent: (filePath: string, content: string) => void
 }
 
-export const SkillEditor: React.FC<SkillEditorProps> = ({
+export function SkillEditor({
   activeFilePath,
   activeFile,
   isSkillMd,
@@ -32,7 +31,7 @@ export const SkillEditor: React.FC<SkillEditorProps> = ({
   showAdvancedFields,
   onToggleAdvancedFields,
   onUpdateFileContent,
-}) => {
+}: SkillEditorProps) {
   const { t } = useTranslation()
   const content = form.watch('content')
 
