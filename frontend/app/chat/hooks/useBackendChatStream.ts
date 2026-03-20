@@ -15,37 +15,35 @@ import {
   type RouteDecisionEventData,
 } from '@/services/chatBackend'
 
-import { toastSuccess, toastError } from '@/lib/utils/toast'
-import { generateId, Message, ToolCall } from '../types'
+import { toastError } from '@/lib/utils/toast'
+import { generateId, type Message, type ToolCall } from '../types'
+import type { ChatAction } from './useChatReducer'
 
 function now() {
   return Date.now()
 }
 
+/**
+ * Backend chat stream hook.
+ *
+ * Accepts a dispatch function from useChatReducer.
+ * All SSE events are translated into ChatAction dispatches.
+ */
 export const useBackendChatStream = (
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  dispatch: React.Dispatch<ChatAction>,
 ) => {
+
   const [isProcessing, setIsProcessing] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const currentThreadIdRef = useRef<string | null>(null)
+  const currentMsgIdRef = useRef<string>('')
   const isMountedRef = useRef(true)
-
-  // Helper function to safely update messages only if component is mounted
-  const safeSetMessages = useCallback(
-    (updater: React.SetStateAction<Message[]>) => {
-      if (isMountedRef.current) {
-        setMessages(updater)
-      }
-    },
-    [setMessages],
-  )
 
   // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
-      // Abort any ongoing requests
       if (abortRef.current) {
         abortRef.current.abort()
         abortRef.current = null
@@ -54,28 +52,21 @@ export const useBackendChatStream = (
   }, [])
 
   const stopMessage = useCallback(async (threadId: string | null) => {
-    // Use current threadId if provided, otherwise use the ref
     const targetThreadId = threadId || currentThreadIdRef.current
 
-    // Always abort the fetch request first
     abortRef.current?.abort()
 
     if (!targetThreadId) {
-      // If no threadId, just abort the current request
       setIsProcessing(false)
       return
     }
 
     try {
-      // Call backend stop API using unified API client
       const { apiPost } = await import('@/lib/api-client')
-      await apiPost('chat/stop', {
-        thread_id: targetThreadId,
-      })
+      await apiPost('chat/stop', { thread_id: targetThreadId })
       setIsProcessing(false)
     } catch (error) {
       console.error('Failed to stop chat:', error)
-      // Fallback: we've already aborted the request
       setIsProcessing(false)
     }
   }, [])
@@ -93,6 +84,8 @@ export const useBackendChatStream = (
       abortRef.current = ac
 
       const aiMsgId = generateId()
+      currentMsgIdRef.current = aiMsgId
+
       const initialAiMsg: Message = {
         id: aiMsgId,
         role: 'assistant',
@@ -101,17 +94,11 @@ export const useBackendChatStream = (
         isStreaming: true,
         tool_calls: [],
       }
-      safeSetMessages((prev) => [...prev, initialAiMsg])
 
-      // Map tool_name -> last running tool id in the UI (since backend doesn't emit ids)
+      dispatch({ type: 'APPEND_MESSAGE', message: initialAiMsg })
+
+      // Map tool_name -> last running tool id (since backend doesn't emit ids)
       const lastRunningToolIdByName: Record<string, string> = {}
-      // Track node execution for metadata
-      const nodeExecutionLog: Array<{
-        type: string
-        nodeName: string
-        timestamp: number
-        data?: any
-      }> = []
       let latestThreadId: string | undefined = opts.threadId || undefined
       currentThreadIdRef.current = latestThreadId || null
 
@@ -129,41 +116,27 @@ export const useBackendChatStream = (
             if (thread_id) {
               latestThreadId = thread_id
               currentThreadIdRef.current = thread_id
+              dispatch({ type: 'SET_THREAD', threadId: thread_id })
             }
 
-            // Handle thread_id event (initial handshake)
-            if (type === 'thread_id') {
-              return
-            }
+            if (type === 'thread_id') return
 
-            // Handle content event (incremental text)
+            // ─── Content ───────────────────────────────────────────────
             if (type === 'content') {
               const contentData = data as ContentEventData
               const delta = contentData?.delta || ''
               if (!delta) return
 
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === aiMsgId) {
-                    return {
-                      ...m,
-                      content: m.content + delta,
-                      // Optional: save metadata for display
-                      metadata: {
-                        ...(m.metadata || {}),
-                        lastNode: node_name,
-                        lastRunId: run_id,
-                        lastUpdate: timestamp,
-                      },
-                    }
-                  }
-                  return m
-                }),
-              )
+              dispatch({
+                type: 'STREAM_CONTENT',
+                delta,
+                messageId: aiMsgId,
+                metadata: { lastNode: node_name, lastRunId: run_id, lastUpdate: timestamp },
+              })
               return
             }
 
-            // Handle tool_start event
+            // ─── Tool Start ────────────────────────────────────────────
             if (type === 'tool_start') {
               const toolData = data as ToolStartEventData
               const toolName = toolData?.tool_name || 'tool'
@@ -171,349 +144,209 @@ export const useBackendChatStream = (
               const toolId = generateId()
               lastRunningToolIdByName[toolName] = toolId
 
-              const tool: ToolCall = {
-                id: toolId,
-                name: toolName,
-                args: toolInput,
-                status: 'running',
-                startTime: timestamp || now(),
-              }
-
-              safeSetMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId ? { ...m, tool_calls: [...(m.tool_calls || []), tool] } : m,
-                ),
-              )
+              dispatch({
+                type: 'TOOL_START',
+                tool: {
+                  id: toolId,
+                  name: toolName,
+                  args: toolInput,
+                  status: 'running',
+                  startTime: timestamp || now(),
+                },
+              })
               return
             }
 
-            // Handle file_event - real-time file operation from sandbox
+            // ─── File Event ────────────────────────────────────────────
             if (type === 'file_event') {
               const { action, path, size, timestamp: ts } = data as {
                 action: string; path: string; size?: number; timestamp?: number
               }
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id !== aiMsgId) return m
-                  const tree = { ...(m.metadata?.fileTree as Record<string, any> || {}) }
-                  if (action === 'delete') {
-                    delete tree[path]
-                  } else {
-                    tree[path] = { action, size, timestamp: ts }
-                  }
-                  return { ...m, metadata: { ...m.metadata, fileTree: tree } }
-                }),
-              )
+
+              // Update preview panel fileTree state
+              dispatch({
+                type: 'FILE_EVENT',
+                path,
+                info: { action, size, timestamp: ts },
+              })
               return
             }
 
-            // Handle tool_end event
+            // ─── Tool End ──────────────────────────────────────────────
             if (type === 'tool_end') {
               const toolData = data as ToolEndEventData
               const toolName = toolData?.tool_name || 'tool'
               const toolOutput = toolData?.tool_output
               const toolId = lastRunningToolIdByName[toolName]
-
               if (!toolId) return
 
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id !== aiMsgId) return m
-                  const tools = (m.tool_calls || []).map((t) => {
-                    if (t.id === toolId) {
-                      return {
-                        ...t,
-                        status: 'completed' as const,
-                        endTime: timestamp || now(),
-                        result: toolOutput,
-                      }
-                    }
-                    return t
-                  })
-
-                  return { ...m, tool_calls: tools }
-                }),
-              )
+              dispatch({ type: 'TOOL_END', id: toolId, result: toolOutput })
               return
             }
 
-            // Handle error event
+            // ─── Error ─────────────────────────────────────────────────
             if (type === 'error') {
               const errorData = data as ErrorEventData
               const errorMsg = errorData?.message || 'Unknown error'
 
-              // Check if this is a stop event
               if (errorMsg === 'Stream stopped' || errorMsg.includes('stopped')) {
-                safeSetMessages((prev) =>
-                  prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
-                )
+                dispatch({ type: 'UPDATE_MESSAGE', id: aiMsgId, patch: { isStreaming: false } })
                 return
               }
 
-              safeSetMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId
-                    ? { ...m, content: (m.content || '') + `\n\n*Error: ${errorMsg}*` }
-                    : m,
-                ),
-              )
-              // Surface error as toast notification
+              // Append error to message content (we don't have current content,
+              // so we dispatch a special update)
+              dispatch({ type: 'STREAM_ERROR', error: errorMsg })
               toastError(errorMsg)
               return
             }
 
-            // Handle done event
+            // ─── Done ──────────────────────────────────────────────────
             if (type === 'done') {
-              safeSetMessages((prev) =>
-                prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
-              )
+              dispatch({ type: 'UPDATE_MESSAGE', id: aiMsgId, patch: { isStreaming: false } })
               return
             }
 
-            // Handle status event (optional, for displaying status information)
-            if (type === 'status') {
-              // Can display status information here, e.g., "Agent is thinking..."
-              // Not handled for now, can be added as needed
-              return
-            }
+            // ─── Status ────────────────────────────────────────────────
+            if (type === 'status') return
 
-            // Handle node_start event
+            // ─── Node Start ────────────────────────────────────────────
             if (type === 'node_start') {
               const nodeData = data as NodeStartEventData
               const nodeLabel = nodeData?.node_label || node_name || 'Unknown Node'
-              const nodeId = nodeData?.node_id || node_name
+              const nodeId = nodeData?.node_id || node_name || ''
 
-              nodeExecutionLog.push({
-                type: 'node_start',
-                nodeName: nodeLabel,
-                timestamp,
-                data: { nodeId },
+              dispatch({ type: 'NODE_START', nodeId, label: nodeLabel })
+              dispatch({
+                type: 'NODE_LOG',
+                entry: {
+                  type: 'node_start',
+                  nodeName: nodeLabel,
+                  timestamp,
+                  data: { nodeId },
+                },
               })
-
-              // Update message metadata, display current executing node
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === aiMsgId) {
-                    return {
-                      ...m,
-                      metadata: {
-                        ...(m.metadata || {}),
-                        currentNode: nodeLabel,
-                        nodeExecutionLog: [...nodeExecutionLog],
-                      },
-                    }
-                  }
-                  return m
-                }),
-              )
               return
             }
 
-            // Handle node_end event
+            // ─── Node End ──────────────────────────────────────────────
             if (type === 'node_end') {
               const nodeData = data as NodeEndEventData
               const nodeLabel = nodeData?.node_label || node_name || 'Unknown Node'
-              const nodeId = nodeData?.node_id || node_name
-              const status = nodeData?.status || 'completed'
+              const nodeId = nodeData?.node_id || node_name || ''
 
-              nodeExecutionLog.push({
-                type: 'node_end',
-                nodeName: nodeLabel,
-                timestamp,
-                data: { nodeId, status, duration: nodeData?.duration },
-              })
-
-              // Update message metadata
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === aiMsgId) {
-                    return {
-                      ...m,
-                      metadata: {
-                        ...(m.metadata || {}),
-                        lastNode: nodeLabel,
-                        nodeExecutionLog: [...nodeExecutionLog],
-                      },
-                    }
-                  }
-                  return m
-                }),
-              )
-              return
-            }
-
-            // Handle command event - contains node status update information
-            if (type === 'command') {
-              const commandData = data as CommandEventData
-
-              // Record state update information
-              const stateUpdate = commandData?.update || {}
-              const hasStateChanges = Object.keys(stateUpdate).length > 0
-
-              nodeExecutionLog.push({
-                type: 'command',
-                nodeName: node_name || 'unknown',
-                timestamp,
-                data: {
-                  update: stateUpdate,
-                  goto: commandData?.goto,
-                  reason: commandData?.reason,
-                  hasStateChanges,
+              dispatch({ type: 'NODE_END', nodeId })
+              dispatch({
+                type: 'NODE_LOG',
+                entry: {
+                  type: 'node_end',
+                  nodeName: nodeLabel,
+                  timestamp,
+                  data: {
+                    nodeId,
+                    status: nodeData?.status || 'completed',
+                    duration: nodeData?.duration,
+                  },
                 },
               })
 
-              // Update message metadata, including status change information
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === aiMsgId) {
-                    return {
-                      ...m,
-                      metadata: {
-                        ...(m.metadata || {}),
-                        nodeExecutionLog: [...nodeExecutionLog],
-                        lastStateUpdate: hasStateChanges ? stateUpdate : undefined,
-                      },
-                    }
-                  }
-                  return m
-                }),
-              )
+              // Update lastNode on message
+              dispatch({
+                type: 'UPDATE_MESSAGE',
+                id: aiMsgId,
+                patch: { metadata: { lastNode: nodeLabel } },
+              })
               return
             }
 
-            // Handle route_decision event - routing decision information
+            // ─── Command ───────────────────────────────────────────────
+            if (type === 'command') {
+              const commandData = data as CommandEventData
+              const stateUpdate = commandData?.update || {}
+
+              dispatch({
+                type: 'NODE_LOG',
+                entry: {
+                  type: 'command',
+                  nodeName: node_name || 'unknown',
+                  timestamp,
+                  data: {
+                    update: stateUpdate,
+                    goto: commandData?.goto,
+                    reason: commandData?.reason,
+                    hasStateChanges: Object.keys(stateUpdate).length > 0,
+                  },
+                },
+              })
+              return
+            }
+
+            // ─── Route Decision ────────────────────────────────────────
             if (type === 'route_decision') {
               const decisionData = data as RouteDecisionEventData
 
-              nodeExecutionLog.push({
-                type: 'route_decision',
-                nodeName: decisionData?.node_id || 'unknown',
-                timestamp,
-                data: {
-                  nodeType: decisionData?.node_type,
-                  result: decisionData?.result,
-                  reason: decisionData?.reason,
-                  goto: decisionData?.goto,
+              dispatch({
+                type: 'NODE_LOG',
+                entry: {
+                  type: 'route_decision',
+                  nodeName: decisionData?.node_id || 'unknown',
+                  timestamp,
+                  data: {
+                    nodeType: decisionData?.node_type,
+                    result: decisionData?.result,
+                    reason: decisionData?.reason,
+                    goto: decisionData?.goto,
+                  },
                 },
               })
-
-              // Update message metadata, record routing decisions
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === aiMsgId) {
-                    return {
-                      ...m,
-                      metadata: {
-                        ...(m.metadata || {}),
-                        nodeExecutionLog: [...nodeExecutionLog],
-                        lastRouteDecision: {
-                          nodeId: decisionData?.node_id,
-                          result: decisionData?.result,
-                          goto: decisionData?.goto,
-                          reason: decisionData?.reason,
-                        },
-                      },
-                    }
-                  }
-                  return m
-                }),
-              )
               return
             }
 
-            // Handle loop_iteration event
+            // ─── Loop Iteration ────────────────────────────────────────
             if (type === 'loop_iteration') {
-              const iterationData = data as any // LoopIterationEventData
+              const iterationData = data as any
 
-              nodeExecutionLog.push({
-                type: 'loop_iteration',
-                nodeName: iterationData?.loop_node_id || 'unknown',
-                timestamp,
-                data: {
-                  iteration: iterationData?.iteration,
-                  maxIterations: iterationData?.max_iterations,
-                  conditionMet: iterationData?.condition_met,
-                  reason: iterationData?.reason,
+              dispatch({
+                type: 'NODE_LOG',
+                entry: {
+                  type: 'loop_iteration',
+                  nodeName: iterationData?.loop_node_id || 'unknown',
+                  timestamp,
+                  data: {
+                    iteration: iterationData?.iteration,
+                    maxIterations: iterationData?.max_iterations,
+                    conditionMet: iterationData?.condition_met,
+                    reason: iterationData?.reason,
+                  },
                 },
               })
-
-              // Update message metadata
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === aiMsgId) {
-                    return {
-                      ...m,
-                      metadata: {
-                        ...(m.metadata || {}),
-                        nodeExecutionLog: [...nodeExecutionLog],
-                        lastLoopIteration: {
-                          nodeId: iterationData?.loop_node_id,
-                          iteration: iterationData?.iteration,
-                          maxIterations: iterationData?.max_iterations,
-                          conditionMet: iterationData?.condition_met,
-                        },
-                      },
-                    }
-                  }
-                  return m
-                }),
-              )
               return
             }
 
-            // Handle parallel_task event
+            // ─── Parallel Task ─────────────────────────────────────────
             if (type === 'parallel_task') {
-              const taskData = data as any // ParallelTaskEventData
+              const taskData = data as any
 
-              nodeExecutionLog.push({
-                type: 'parallel_task',
-                nodeName: 'system', // Parallel tasks are usually system-level
-                timestamp,
-                data: {
-                  taskId: taskData?.task_id,
-                  status: taskData?.status,
-                  result: taskData?.result,
-                  errorMsg: taskData?.error_msg,
+              dispatch({
+                type: 'NODE_LOG',
+                entry: {
+                  type: 'parallel_task',
+                  nodeName: 'system',
+                  timestamp,
+                  data: {
+                    taskId: taskData?.task_id,
+                    status: taskData?.status,
+                    result: taskData?.result,
+                    errorMsg: taskData?.error_msg,
+                  },
                 },
               })
-
-              // Update message metadata
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === aiMsgId) {
-                    return {
-                      ...m,
-                      metadata: {
-                        ...(m.metadata || {}),
-                        nodeExecutionLog: [...nodeExecutionLog],
-                      },
-                    }
-                  }
-                  return m
-                }),
-              )
               return
             }
 
-            // Handle state_update event
+            // ─── State Update ──────────────────────────────────────────
             if (type === 'state_update') {
-              const updateData = data as any // StateUpdateEventData
-
-              // Update message metadata
-              safeSetMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === aiMsgId) {
-                    return {
-                      ...m,
-                      metadata: {
-                        ...(m.metadata || {}),
-                        lastStateUpdate: updateData?.state_snapshot,
-                      },
-                    }
-                  }
-                  return m
-                }),
-              )
+              // State updates are informational — no action needed beyond logging
               return
             }
           },
@@ -522,19 +355,20 @@ export const useBackendChatStream = (
         if (result.threadId) {
           latestThreadId = result.threadId
           currentThreadIdRef.current = result.threadId
+          dispatch({ type: 'SET_THREAD', threadId: result.threadId })
         }
       } catch (e: any) {
-        const msg =
-          e?.name === 'AbortError' ? 'Request cancelled' : `Error: ${String(e?.message || e)}`
-        safeSetMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMsgId ? { ...m, content: (m.content || '') + `\n\n*${msg}*` } : m,
-          ),
-        )
+        if (e?.name !== 'AbortError') {
+          const msg = `Error: ${String(e?.message || e)}`
+          dispatch({
+            type: 'UPDATE_MESSAGE',
+            id: aiMsgId,
+            patch: { content: `\n\n*${msg}*` },
+          })
+        }
       } finally {
-        safeSetMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
-        )
+        dispatch({ type: 'UPDATE_MESSAGE', id: aiMsgId, patch: { isStreaming: false } })
+        dispatch({ type: 'STREAM_DONE' })
         if (isMountedRef.current) {
           setIsProcessing(false)
         }
@@ -542,7 +376,7 @@ export const useBackendChatStream = (
 
       return { threadId: latestThreadId }
     },
-    [safeSetMessages],
+    [dispatch],
   )
 
   return { sendMessage, stopMessage, isProcessing }

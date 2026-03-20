@@ -76,7 +76,7 @@ export type ChatAction =
   | { type: 'SET_INPUT'; value: string }
   // Streaming lifecycle
   | { type: 'STREAM_START' }
-  | { type: 'STREAM_CONTENT'; delta: string }
+  | { type: 'STREAM_CONTENT'; delta: string; messageId: string; metadata?: Record<string, any> }
   | { type: 'STREAM_DONE' }
   | { type: 'STREAM_ERROR'; error: string }
   // File & tool events
@@ -143,13 +143,22 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }
 
     case 'STREAM_CONTENT': {
-      const lastMsg = state.messages[state.messages.length - 1]
-      if (!lastMsg || lastMsg.role !== 'assistant') return state
       return {
         ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.messageId
+            ? {
+                ...m,
+                content: m.content + action.delta,
+                metadata: action.metadata
+                  ? { ...m.metadata, ...action.metadata }
+                  : m.metadata,
+              }
+            : m,
+        ),
         streaming: {
           ...state.streaming,
-          text: (lastMsg.content ?? '') + action.delta,
+          text: state.streaming.text + action.delta,
         },
       }
     }
