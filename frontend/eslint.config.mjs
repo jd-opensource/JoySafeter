@@ -27,6 +27,15 @@ const eslintConfig = [
       'react/no-unescaped-entities': 'warn',
       'prefer-const': 'warn',
 
+      // Enforce function declarations for components (no React.FC)
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TSTypeReference[typeName.right.name="FC"]',
+          message: 'Use function declarations instead of React.FC.',
+        },
+      ],
+
       // Enforce unified import paths
       'no-restricted-imports': [
         'error',
