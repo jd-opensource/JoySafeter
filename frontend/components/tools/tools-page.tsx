@@ -2,7 +2,7 @@
 
 import { Plus, Loader2 } from 'lucide-react'
 import React, { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { AddMcpDialog } from '@/components/settings/add-mcp-dialog'
 import { McpServerCard, BuiltinToolCard } from '@/components/settings/mcp-server-card'

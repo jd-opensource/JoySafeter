@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Chrome, Github, Globe, Key, Shield } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import React, { useState } from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 export interface FileNode {
   name: string

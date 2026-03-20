@@ -6,7 +6,7 @@ import { Node, Edge } from 'reactflow'
 
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { useBuilderStore } from '../stores/builderStore'

@@ -5,7 +5,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { ALLOWED_EXTENSIONS_STRING } from '@/lib/constants/upload-limits'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { useFileUpload } from '../hooks/useFileUpload'

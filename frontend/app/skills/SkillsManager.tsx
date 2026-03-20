@@ -52,7 +52,7 @@ import {
   parseSkillMd,
 } from '@/services/skillService'
 import { Skill, SkillFile } from '@/types'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { getSkillValidationMessage } from '@/utils/skillValidationI18n'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'

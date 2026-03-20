@@ -4,7 +4,7 @@ import { GripHorizontal, GripVertical } from 'lucide-react'
 import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react'
 import { BaseEdge, EdgeProps, EdgeLabelRenderer } from 'reactflow'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'

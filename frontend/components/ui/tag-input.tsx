@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { type KeyboardEvent, useRef, useState } from 'react'
 
 import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface TagInputProps {
   value: string[]

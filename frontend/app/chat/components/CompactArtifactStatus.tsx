@@ -3,7 +3,7 @@
 import { FolderOpen, Maximize2 } from 'lucide-react'
 import React from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 interface CompactArtifactStatusProps {

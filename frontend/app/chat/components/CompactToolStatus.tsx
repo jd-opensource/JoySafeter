@@ -3,7 +3,7 @@
 import { CheckCircle2, Loader2, AlertCircle, Maximize2 } from 'lucide-react'
 import React from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { ToolCall } from '../types'
 

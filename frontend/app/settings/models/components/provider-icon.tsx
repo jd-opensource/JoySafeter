@@ -4,7 +4,7 @@ import React from 'react'
 
 import type { ModelProvider } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface ProviderIconProps {
   provider: ModelProvider

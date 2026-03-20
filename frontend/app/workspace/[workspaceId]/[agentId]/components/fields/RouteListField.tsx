@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { generateUUID } from '@/lib/utils/uuid'
 
 import { RouteRule, EdgeData } from '../../types/graph'

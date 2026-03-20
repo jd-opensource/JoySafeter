@@ -17,7 +17,7 @@ import { ChevronRight, PlayCircle } from 'lucide-react'
 import React, { useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { useExecutionData } from './contexts/ExecutionDataContext'

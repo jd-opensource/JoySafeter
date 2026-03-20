@@ -19,7 +19,7 @@ import { useDeleteModelProvider } from '@/hooks/queries/models'
 import type { ModelProvider } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
 import { useToast } from '@/hooks/use-toast'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { ModelCredentialDialog } from './credential-dialog'
 import { ProviderIcon } from './provider-icon'
