@@ -1,7 +1,7 @@
 'use client'
 
 import { Plus, Loader2 } from 'lucide-react'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 
 import { AddMcpDialog } from '@/components/settings/add-mcp-dialog'
@@ -16,7 +16,7 @@ import {
 } from '@/hooks/queries/mcp'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 
-export const ToolsPage: React.FC = () => {
+export function ToolsPage() {
   const { t } = useTranslation()
   const [showAddMcp, setShowAddMcp] = useState(false)
   const [editingServer, setEditingServer] = useState<McpServer | null>(null)

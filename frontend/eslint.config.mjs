@@ -66,6 +66,13 @@ const eslintConfig = [
       ],
     },
   },
+  // Allow direct react-i18next imports in the i18n infrastructure files
+  {
+    files: ['lib/i18n/**'],
+    rules: {
+      'no-restricted-imports': 'off',
+    },
+  },
 ]
 
 export default eslintConfig
