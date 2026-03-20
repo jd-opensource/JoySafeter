@@ -4,6 +4,8 @@ import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslation } from '@/lib/i18n'
 
 import { OAuthButtons } from '@/components/auth/oauth-buttons'
@@ -27,6 +29,8 @@ import { quickValidateEmail } from '@/services/email/validation'
 import { inter } from '@/styles/fonts/inter/inter'
 import { soehne } from '@/styles/fonts/soehne/soehne'
 
+import { loginFormSchema, type LoginFormData } from './schemas/loginFormSchema'
+
 const logger = createLogger('LoginForm')
 
 const getEmailErrorKey = (reason?: string): string => {
@@ -39,34 +43,6 @@ const getEmailErrorKey = (reason?: string): string => {
   if (reason.includes('no MX records')) return 'auth.emailNoMxRecords'
   if (reason.includes('Validation service')) return 'auth.emailValidationUnavailable'
   return 'auth.emailInvalid'
-}
-
-const validateEmailField = (emailValue: string, t: (key: string) => string): string[] => {
-  const errors: string[] = []
-
-  if (!emailValue || !emailValue.trim()) {
-    errors.push(t('auth.emailRequired'))
-    return errors
-  }
-
-  const validation = quickValidateEmail(emailValue.trim().toLowerCase())
-  if (!validation.isValid) {
-    const errorKey = getEmailErrorKey(validation.reason)
-    errors.push(t(errorKey))
-  }
-
-  return errors
-}
-
-const PASSWORD_VALIDATIONS = {
-  required: {
-    test: (value: string) => Boolean(value && typeof value === 'string'),
-    getMessage: (t: (key: string) => string) => t('auth.passwordRequired'),
-  },
-  notEmpty: {
-    test: (value: string) => value.trim().length > 0,
-    getMessage: (t: (key: string) => string) => t('auth.passwordEmpty'),
-  },
 }
 
 const validateCallbackUrl = (url: string): boolean => {
@@ -87,22 +63,6 @@ const validateCallbackUrl = (url: string): boolean => {
   }
 }
 
-const validatePassword = (passwordValue: string, t: (key: string) => string): string[] => {
-  const errors: string[] = []
-
-  if (!PASSWORD_VALIDATIONS.required.test(passwordValue)) {
-    errors.push(PASSWORD_VALIDATIONS.required.getMessage(t))
-    return errors
-  }
-
-  if (!PASSWORD_VALIDATIONS.notEmpty.test(passwordValue)) {
-    errors.push(PASSWORD_VALIDATIONS.notEmpty.getMessage(t))
-    return errors
-  }
-
-  return errors
-}
-
 export default function LoginPage() {
   const { t } = useTranslation()
   const router = useRouter()
@@ -111,9 +71,6 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [password, setPassword] = useState('')
-  const [passwordErrors, setPasswordErrors] = useState<string[]>([])
-  const [showValidationError, setShowValidationError] = useState(false)
   const [buttonClass, setButtonClass] = useState('auth-button-gradient')
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
@@ -129,9 +86,12 @@ export default function LoginPage() {
     message: string
   }>({ type: null, message: '' })
 
-  const [email, setEmail] = useState('')
-  const [emailErrors, setEmailErrors] = useState<string[]>([])
-  const [showEmailValidationError, setShowEmailValidationError] = useState(false)
+  const form = useForm<LoginFormData>({
+    resolver: zodResolver(loginFormSchema),
+    defaultValues: { email: '', password: '' },
+    mode: 'onChange',
+  })
+
   const [oauthError, setOauthError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -212,47 +172,18 @@ export default function LoginPage() {
     }
   }, [forgotPasswordEmail, forgotPasswordOpen])
 
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newEmail = e.target.value
-    setEmail(newEmail)
-
-    const errors = validateEmailField(newEmail, t)
-    setEmailErrors(errors)
-    setShowEmailValidationError(false)
-  }
-
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newPassword = e.target.value
-    setPassword(newPassword)
-
-    const errors = validatePassword(newPassword, t)
-    setPasswordErrors(errors)
-    setShowValidationError(false)
-  }
-
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
+  async function onSubmit(data: LoginFormData) {
     setIsLoading(true)
 
-    const formData = new FormData(e.currentTarget)
-    const emailRaw = formData.get('email') as string
-    const email = emailRaw.trim().toLowerCase()
+    const email = data.email.trim().toLowerCase()
+    const password = data.password
 
-    const emailValidationErrors = validateEmailField(email, t)
-    setEmailErrors(emailValidationErrors)
-    setShowEmailValidationError(emailValidationErrors.length > 0)
-
-    const passwordValidationErrors = validatePassword(password, t)
-    setPasswordErrors(passwordValidationErrors)
-    setShowValidationError(passwordValidationErrors.length > 0)
-
-    if (emailValidationErrors.length > 0) {
-      toastError(emailValidationErrors[0])
-      setIsLoading(false)
-      return
-    }
-    if (passwordValidationErrors.length > 0) {
-      toastError(passwordValidationErrors[0])
+    // Advanced email validation (disposable email, MX records, etc.)
+    const emailValidation = quickValidateEmail(email)
+    if (!emailValidation.isValid) {
+      const errorKey = getEmailErrorKey(emailValidation.reason)
+      form.setError('email', { message: t(errorKey) })
+      toastError(t(errorKey))
       setIsLoading(false)
       return
     }
@@ -488,7 +419,10 @@ export default function LoginPage() {
       )}
 
       {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
-        <form onSubmit={onSubmit} className={`${inter.className} mt-8 space-y-8`}>
+        <form
+          onSubmit={form.handleSubmit(onSubmit)}
+          className={`${inter.className} mt-8 space-y-8`}
+        >
           <div className="space-y-6">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -498,18 +432,14 @@ export default function LoginPage() {
               </div>
               <Input
                 id="email"
-                name="email"
                 placeholder={mounted ? t('auth.enterYourEmail') : 'Enter your email'}
-                required
                 autoCapitalize="none"
                 autoComplete="email"
                 autoCorrect="off"
-                value={email}
-                onChange={handleEmailChange}
+                {...form.register('email')}
                 className={cn(
                   'rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
-                  showEmailValidationError &&
-                    emailErrors.length > 0 &&
+                  form.formState.errors.email &&
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                 )}
               />
@@ -531,19 +461,15 @@ export default function LoginPage() {
               <div className="relative">
                 <Input
                   id="password"
-                  name="password"
-                  required
                   type={showPassword ? 'text' : 'password'}
                   autoCapitalize="none"
                   autoComplete="current-password"
                   autoCorrect="off"
                   placeholder={mounted ? t('auth.enterYourPassword') : 'Enter your password'}
-                  value={password}
-                  onChange={handlePasswordChange}
+                  {...form.register('password')}
                   className={cn(
                     'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
-                    showValidationError &&
-                      passwordErrors.length > 0 &&
+                    form.formState.errors.password &&
                       'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                   )}
                 />
