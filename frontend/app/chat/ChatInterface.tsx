@@ -393,18 +393,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       threadId: localChatId || null, // Let backend create new conversation if localChatId is null
       graphId: resolvedGraphId || null,
     }
-    if (mode) {
-      messageOpts.metadata = { mode }
-    }
     if (files && files.length > 0) {
-      if (!messageOpts.metadata) {
-        messageOpts.metadata = {}
+      messageOpts.metadata = {
+        files: files.map(f => ({
+          filename: f.filename,
+          path: f.path,
+          size: f.size,
+        })),
       }
-      messageOpts.metadata.files = files.map(f => ({
-        filename: f.filename,
-        path: f.path,
-        size: f.size,
-      }))
     }
     const result = await sendMessage(text, messageOpts)
 
