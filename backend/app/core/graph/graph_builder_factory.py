@@ -39,6 +39,7 @@ class GraphBuilder:
         max_tokens: int = 4096,
         user_id: Optional[Any] = None,
         model_service: Optional[Any] = None,
+        **kwargs,
     ):
         self.graph = graph
         self.nodes = nodes
@@ -50,6 +51,7 @@ class GraphBuilder:
         self.user_id = user_id
         # 可选：传入 ModelService，便于在 Builder 中按 model_name 解析模型
         self.model_service = model_service
+        self.file_emitter = kwargs.pop("file_emitter", None)
 
     def _has_deep_agents_nodes(self) -> bool:
         """Check if any node has DeepAgents enabled."""
@@ -76,6 +78,7 @@ class GraphBuilder:
                 self.max_tokens,
                 self.user_id,
                 self.model_service,
+                file_emitter=self.file_emitter,
             )
         else:
             logger.debug("[GraphBuilder] No DeepAgents nodes, using LanggraphModelBuilder")

@@ -34,6 +34,8 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
 
     def __init__(self, *args, **kwargs):
         """Initialize DeepAgentsGraphBuilder with component managers."""
+        # Extract file_emitter before passing to super
+        self._file_emitter = kwargs.pop("file_emitter", None)
         super().__init__(*args, **kwargs)
         self._shared_backend: Optional["PydanticSandboxAdapter"] = None
         self._skills_manager = DeepAgentsSkillsManager(self.user_id)
@@ -51,6 +53,10 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
                 logger.info(
                     f"{LOG_PREFIX} Using user sandbox: id={getattr(self._shared_backend, 'id', 'unknown')}, user_id={self.user_id}"
                 )
+                if self._shared_backend and self._file_emitter:
+                    from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
+                    self._shared_backend = FileTrackingProxy(self._shared_backend, self._file_emitter)
+                    logger.info(f"{LOG_PREFIX} Wrapped backend with FileTrackingProxy")
 
             root_node = self._select_and_validate_root()
             result = await self._build_graph(root_node)

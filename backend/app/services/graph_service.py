@@ -671,6 +671,7 @@ class GraphService(BaseService):
         base_url: Optional[str] = None,
         max_tokens: int = 4096,
         user_id: Optional[Any] = None,
+        file_emitter: Optional[Any] = None,
     ) -> CompiledStateGraph:
         """
         Build a default DeepAgents single-node graph in memory (no DB persistence).
@@ -730,6 +731,7 @@ class GraphService(BaseService):
             max_tokens=max_tokens,
             user_id=user_id,
             model_service=model_service,
+            file_emitter=file_emitter,
         )
         compiled_graph = await builder.build()
 
@@ -749,6 +751,7 @@ class GraphService(BaseService):
         max_tokens: int = 4096,
         user_id: Optional[Any] = None,
         current_user: Optional[AuthUser] = None,
+        file_emitter: Optional[Any] = None,
     ) -> CompiledStateGraph:
         """
         Create a LangGraph StateGraph from a graph stored in the database.
@@ -835,6 +838,7 @@ class GraphService(BaseService):
             max_tokens=max_tokens,
             user_id=user_id,
             model_service=model_service,
+            file_emitter=file_emitter,
         )
 
         # 异步构建

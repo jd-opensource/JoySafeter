@@ -114,34 +114,31 @@ export default function ChatInterface({
   // Optimistic "thinking" state: true from submit until hook sets isProcessing (avoids flash)
   const [submitting, setSubmitting] = useState(false)
 
-  // Last run that produced artifacts (set when SSE sends artifacts_ready)
-  const [artifactRunId, setArtifactRunId] = useState<string | null>(null)
   const [artifactDrawerOpen, setArtifactDrawerOpen] = useState(false)
 
-  // Derive live file operations from the current streaming message for real-time artifact preview
-  const liveFiles = useMemo(() => {
-    const streamingMsg = messages.find((m) => m.role === 'assistant' && m.isStreaming)
-    return (streamingMsg?.metadata?.liveFiles as Array<{ path: string; action: string }>) ?? []
+  // Derive fileTree from the latest message that has one
+  const fileTree = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const ft = messages[i].metadata?.fileTree as Record<string, any> | undefined
+      if (ft && Object.keys(ft).length > 0) return ft
+    }
+    return undefined
   }, [messages])
 
-  // Hook to handle real backend streaming via /chat/stream (SSE) - must be before derived state
-  const { sendMessage, stopMessage, isProcessing } = useBackendChatStream(setMessages, {
-    onArtifactsReady: (threadId, runId) => {
-      setArtifactRunId(runId)
-      setToolPanelOpen(false)
-      setArtifactDrawerOpen(true)
-    },
-  })
+  const hasFiles = !!fileTree && Object.keys(fileTree).length > 0
 
-  // Auto-open artifact drawer when first live file operation is detected during streaming
-  const prevLiveCountRef = useRef(0)
+  // Hook to handle real backend streaming via /chat/stream (SSE) - must be before derived state
+  const { sendMessage, stopMessage, isProcessing } = useBackendChatStream(setMessages)
+
+  // Auto-open artifact drawer when files first appear
+  const prevHasFilesRef = useRef(false)
   useEffect(() => {
-    if (liveFiles.length > 0 && prevLiveCountRef.current === 0 && !artifactDrawerOpen) {
+    if (hasFiles && !prevHasFilesRef.current && !artifactDrawerOpen) {
       setToolPanelOpen(false)
       setArtifactDrawerOpen(true)
     }
-    prevLiveCountRef.current = liveFiles.length
-  }, [liveFiles.length])
+    prevHasFilesRef.current = hasFiles
+  }, [hasFiles])
 
   // Clear submitting once hook has taken over (isProcessing true)
   useEffect(() => {
@@ -249,7 +246,6 @@ export default function ChatInterface({
     setLocalChatId(threadId)
     setMessages([])
     setSelectedTool(null)
-    setArtifactRunId(null)
     setArtifactDrawerOpen(false)
 
     try {
@@ -298,7 +294,6 @@ export default function ChatInterface({
     setMessages([])
     setLocalChatId(null)
     setSelectedTool(null)
-    setArtifactRunId(null)
     setArtifactDrawerOpen(false)
     setCurrentMode(undefined)
     setHasShownApkPrompt(false)
@@ -474,7 +469,7 @@ export default function ChatInterface({
             <p>{t('chat.newChat')}</p>
           </TooltipContent>
         </Tooltip>
-        {localChatId && (artifactRunId || liveFiles.length > 0) && (
+        {localChatId && hasFiles && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -608,7 +603,7 @@ export default function ChatInterface({
                     ) : null
                   }
                   compactArtifactStatus={
-                    !artifactDrawerOpen && localChatId && (artifactRunId || liveFiles.length > 0) ? (
+                    !artifactDrawerOpen && localChatId && hasFiles ? (
                       <CompactArtifactStatus
                         onClick={() => {
                           setToolPanelOpen(false)
@@ -635,15 +630,14 @@ export default function ChatInterface({
 
               {/* Right Side Floating Panel - Artifacts Drawer */}
               {localChatId &&
-                (artifactRunId || liveFiles.length > 0) &&
+                hasFiles &&
                 renderFloatingPanel(
                   artifactDrawerOpen,
                   <ArtifactsDrawer
                     isOpen={artifactDrawerOpen}
                     onClose={() => setArtifactDrawerOpen(false)}
                     threadId={localChatId}
-                    runId={artifactRunId ?? ''}
-                    liveFiles={liveFiles.length > 0 ? liveFiles : undefined}
+                    fileTree={fileTree}
                   />,
                 )}
             </div>

@@ -84,7 +84,7 @@ export interface StreamEventEnvelope {
     | 'code_agent_final_answer'
     | 'code_agent_planning'
     | 'code_agent_error'
-    | 'artifacts_ready'
+    | 'file_event'
   node_name: string
   run_id: string
   timestamp: number

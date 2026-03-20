@@ -54,6 +54,7 @@ export default function SkillCreatorPage() {
 
   // Preview state
   const [previewData, setPreviewData] = useState<SkillPreviewData | null>(null)
+  const [fileTree, setFileTree] = useState<Record<string, { action: string; size?: number; timestamp?: number }>>({})
 
   // Save dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
@@ -128,6 +129,7 @@ export default function SkillCreatorPage() {
       safeSetMessages((prev) => [...prev, userMsg])
 
       setIsProcessing(true)
+      setFileTree({})
       abortRef.current?.abort()
       const ac = new AbortController()
       abortRef.current = ac
@@ -164,6 +166,23 @@ export default function SkillCreatorPage() {
             }
 
             if (type === 'thread_id') return
+
+            // ---- File events (incremental file tracking) ----
+            if (type === 'file_event') {
+              const { action, path, size, timestamp } = data as {
+                action: string; path: string; size?: number; timestamp?: number
+              }
+              setFileTree(prev => {
+                const next = { ...prev }
+                if (action === 'delete') {
+                  delete next[path]
+                } else {
+                  next[path] = { action, size, timestamp }
+                }
+                return next
+              })
+              return
+            }
 
             // ---- Content (streaming text) ----
             if (type === 'content') {
