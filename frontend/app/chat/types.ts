@@ -17,6 +17,33 @@ export enum NodeType {
   AI = 'AI',
 }
 
+// ─── Typed metadata for streaming events ─────────────────────────────────────
+
+export interface FileTreeEntry {
+  action: string
+  size?: number
+  timestamp?: number
+}
+
+export interface NodeLogEntry {
+  type: string // common values: 'command' | 'route_decision' | 'loop_iteration' | 'parallel_task' | 'state_update' | 'node_transition'
+  nodeName: string
+  timestamp: number
+  data?: Record<string, unknown>
+}
+
+export interface MessageMetadata {
+  fileTree?: Record<string, FileTreeEntry>
+  nodeExecutionLog?: NodeLogEntry[]
+  currentNode?: string
+  lastNode?: string
+  lastRunId?: string
+  lastUpdate?: number
+  lastRouteDecision?: any
+  lastLoopIteration?: any
+  [key: string]: any // keep backwards compat
+}
+
 // LangGraph / OpenAI compatible message structure
 export interface Message {
   id: string
@@ -25,12 +52,7 @@ export interface Message {
   timestamp: number
   tool_calls?: ToolCall[]
   isStreaming?: boolean
-  metadata?: {
-    lastNode?: string
-    lastRunId?: string
-    lastUpdate?: number
-    [key: string]: any
-  }
+  metadata?: MessageMetadata
 }
 
 export interface ToolCall {
