@@ -55,16 +55,16 @@ chat/
 │   ├── ConversationPanel.tsx       # Message list + input container
 │   ├── MessageList.tsx             # Evolved from ThreadContent
 │   ├── MessageBubble.tsx           # Evolved from MessageItem
-│   └── ChatInput.tsx              # Retained, minor adjustments
+│   └── ChatInput.tsx              # Moved from chat/components/ChatInput.tsx, minor adjustments
 │
 ├── preview/
 │   ├── PreviewPanel.tsx            # Preview container, tab-based content switching
-│   ├── FileTreePreview.tsx         # File tree + code preview (reuses ArtifactPanel logic)
-│   └── PreviewTrigger.ts          # Rules for when to auto-expand preview
+│   └── FileTreePreview.tsx         # File tree + code preview (reuses ArtifactPanel logic)
 │
 └── hooks/
-    ├── useChatReducer.ts           # Replaces 12+ useState
+    ├── useChatReducer.ts           # Replaces 14 useState
     ├── useBackendChatStream.ts     # Retained, adapted to dispatch
+    ├── usePreviewTrigger.ts        # Auto-expand/collapse rules for preview panel
     ├── usePreviewState.ts          # Preview panel state
     └── useFileUpload.ts            # Retained
 
@@ -96,7 +96,15 @@ interface ChatState {
     isProcessing: boolean
     isSubmitting: boolean        // optimistic "thinking" before SSE starts
     text: string
-    nodeExecutionLog: any[]      // accumulated across events within a request
+    nodeExecutionLog: NodeLogEntry[]  // accumulated across events within a request
+  }
+}
+
+interface NodeLogEntry {
+  type: 'command' | 'route_decision' | 'loop_iteration' | 'parallel_task' | 'state_update' | 'node_transition'
+  nodeName: string
+  timestamp: number
+  data?: Record<string, unknown>
   }
   preview: {
     visible: boolean
@@ -138,10 +146,11 @@ type ChatAction =
   // Node execution (agent mode)
   | { type: 'NODE_START'; nodeId: string; label: string }
   | { type: 'NODE_END'; nodeId: string }
-  | { type: 'NODE_LOG'; entry: any }  // command, route_decision, loop_iteration, parallel_task, state_update
+  | { type: 'NODE_LOG'; entry: NodeLogEntry }
   // UI toggles
   | { type: 'TOGGLE_SIDEBAR' }
-  | { type: 'TOGGLE_PREVIEW' }
+  | { type: 'SHOW_PREVIEW'; tab?: string }
+  | { type: 'HIDE_PREVIEW' }
   | { type: 'SELECT_TOOL'; tool: ToolCall | null }
   | { type: 'DISMISS_MODEL_NOTICE' }
   // Mode
@@ -272,7 +281,7 @@ Tab-based container switching between file preview and tool detail:
 
 ### Auto-Expand Rules (PreviewTrigger)
 
-`PreviewTrigger` is a **custom hook** (`usePreviewTrigger`) consumed by `ChatLayout`. It subscribes to `ChatStreamContext` and dispatches `TOGGLE_PREVIEW` actions to the reducer.
+`PreviewTrigger` is a **custom hook** (`usePreviewTrigger`) located at `chat/hooks/usePreviewTrigger.ts`, consumed by `ChatLayout`. It subscribes to `ChatStreamContext` and dispatches `SHOW_PREVIEW`/`HIDE_PREVIEW` actions to the reducer.
 
 ```typescript
 const defaultRules: TriggerRule[] = [
@@ -335,14 +344,15 @@ Each step is independently deliverable:
 - `chat/ChatLayout.tsx`
 - `chat/ChatProvider.tsx`
 - `chat/conversation/ConversationPanel.tsx`
-- `chat/preview/PreviewPanel.tsx`, `FileTreePreview.tsx`, `PreviewTrigger.ts`
-- `chat/hooks/useChatReducer.ts`, `usePreviewState.ts`
+- `chat/preview/PreviewPanel.tsx`, `FileTreePreview.tsx`
+- `chat/hooks/useChatReducer.ts`, `usePreviewState.ts`, `usePreviewTrigger.ts`
 
 **Modified (~8 files)**:
 - `chat/ChatInterface.tsx` — renamed to `ChatPage.tsx`, reduced to Provider + Layout glue (< 50 lines)
 - `chat/components/MessageItem.tsx` → moved to `chat/conversation/MessageBubble.tsx`, integrates new components
 - `chat/components/ThreadContent.tsx` → moved to `chat/conversation/MessageList.tsx`, simplified
 - `chat/hooks/useBackendChatStream.ts` — adapted to dispatch (note: `nodeExecutionLog` moves from closure variable to `ChatState.streaming.nodeExecutionLog`, accumulated via `NODE_LOG` actions)
+- `chat/components/ChatInput.tsx` — moved to `chat/conversation/ChatInput.tsx`
 - `chat/config/modeConfig.ts` — add `starterPrompts` field
 - `chat/components/ChatHome.tsx` — integrate `StarterPrompts`
 - `chat/components/ArtifactPanel.tsx` — refactored into `chat/preview/FileTreePreview.tsx` (same logic, new location)
