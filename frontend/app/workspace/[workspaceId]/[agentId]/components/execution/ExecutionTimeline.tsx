@@ -15,7 +15,7 @@
 import React, { useRef, useMemo, useCallback, useEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import type { ExecutionTreeFlatItem } from '@/types'
 
 import { getTraceDuration } from '../../lib/tree-building'

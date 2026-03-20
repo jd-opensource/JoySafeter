@@ -29,7 +29,7 @@ import {
   SheetDescription,
 } from '@/components/ui/sheet'
 import { useToast } from '@/components/ui/use-toast'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { getNodeAvailableVariables, getGraphVariables } from '../services/variableService'

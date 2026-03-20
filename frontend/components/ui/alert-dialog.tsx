@@ -5,7 +5,7 @@ import { X } from 'lucide-react'
 import * as React from 'react'
 
 import { buttonVariants } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 const AlertDialog = AlertDialogPrimitive.Root
 

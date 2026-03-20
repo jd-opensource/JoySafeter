@@ -23,7 +23,7 @@ import {
   Smartphone,
   Trash2,
 } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import {
   AlertDialog,
@@ -40,7 +40,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
 import { apiDelete, apiGet, apiPost } from '@/lib/api-client'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface InstanceStatus {
   exists: boolean

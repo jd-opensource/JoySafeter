@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { useBuilderStore } from '../stores/builderStore'

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import React, { useState } from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 /**
  * File entry from the preview_skill tool output.

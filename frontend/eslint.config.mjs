@@ -27,6 +27,25 @@ const eslintConfig = [
       'react/no-unescaped-entities': 'warn',
       'prefer-const': 'warn',
 
+      // Enforce unified import paths
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react-i18next',
+              message: 'Use @/lib/i18n instead.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@/lib/core/utils/cn'],
+              message: 'Use @/lib/utils instead.',
+            },
+          ],
+        },
+      ],
+
       // Import ordering
       'import/order': [
         'warn',

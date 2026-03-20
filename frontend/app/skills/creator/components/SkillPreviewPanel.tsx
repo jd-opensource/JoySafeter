@@ -4,7 +4,7 @@ import { Save, RefreshCw, AlertTriangle, CheckCircle2, PackageOpen, FileCode } f
 import React, { useState, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import type { SkillPreviewData } from '../page'
 

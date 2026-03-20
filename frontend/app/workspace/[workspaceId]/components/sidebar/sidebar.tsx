@@ -42,7 +42,7 @@ import {
   useDuplicateWorkspace,
   type Workspace,
 } from '@/hooks/queries/workspaces'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { createLogger } from '@/lib/logs/console/logger'
 import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
 import { useFolderStore, MAX_FOLDER_DEPTH, type WorkflowFolder } from '@/stores/folders/store'

@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown'
 
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import type { Message } from '@/app/chat/types'
 

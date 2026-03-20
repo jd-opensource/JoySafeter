@@ -13,7 +13,7 @@ import ReactFlow, {
 
 import 'reactflow/dist/style.css'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import type { GraphVersionState } from '@/services/graphDeploymentService'
 
 import { nodeRegistry } from '../services/nodeRegistry'

@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { skillService } from '@/services/skillService'
 import { Skill, SkillFile } from '@/types'
 import { SkillCard } from './components/SkillCard'

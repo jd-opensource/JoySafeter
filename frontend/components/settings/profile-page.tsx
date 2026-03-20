@@ -4,7 +4,7 @@ import CryptoJS from 'crypto-js'
 import { Pencil, LogOut, KeyRound, Eye, EyeOff } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import React, { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'

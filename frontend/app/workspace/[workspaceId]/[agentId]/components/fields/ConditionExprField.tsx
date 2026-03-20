@@ -7,7 +7,7 @@ import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-javascript'
 import { Node, Edge } from 'reactflow'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { VariableInputField } from './VariableInputField'
 import { StateField } from '../../types/graph'

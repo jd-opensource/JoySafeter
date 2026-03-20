@@ -34,7 +34,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/use-toast'
 import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/queries/graphs'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import {
   graphDeploymentService,

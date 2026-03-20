@@ -2,7 +2,7 @@
 
 import { X, Info, Plus, FileJson, SquarePen, Trash2, Save, Loader2 } from 'lucide-react'
 import React, { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { Button } from '@/components/ui/button'
 import {

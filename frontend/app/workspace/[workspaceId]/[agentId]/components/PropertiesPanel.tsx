@@ -15,7 +15,7 @@ import {
   applyTemplate,
 } from '../services/nodeConfigTemplates'
 // import { validateNodeConfig } from '../services/nodeConfigValidator'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { Node, Edge } from 'reactflow'
 import { useTranslation } from '@/lib/i18n'
 import { useParams } from 'next/navigation'

@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 
 import { AppSidebar } from '@/components/app-sidebar'
 import { isPublicRoute } from '@/lib/core/constants/routes'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
 /**

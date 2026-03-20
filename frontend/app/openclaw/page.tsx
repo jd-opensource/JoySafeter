@@ -2,12 +2,12 @@
 
 import { PanelRight, Settings2 } from 'lucide-react'
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { OpenClawManagement } from './components/OpenClawManagement'
 import { OpenClawWebUI } from './components/OpenClawWebUI'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 export default function OpenClawPage() {
   const { t } = useTranslation()

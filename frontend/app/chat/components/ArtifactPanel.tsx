@@ -7,7 +7,7 @@ import CodeViewer from '@/app/chat/components/CodeViewer'
 import FileBrowser, { FileNode } from '@/app/chat/components/FileBrowser'
 import { Button } from '@/components/ui/button'
 import { artifactService, type FileInfo } from '@/services/artifactService'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

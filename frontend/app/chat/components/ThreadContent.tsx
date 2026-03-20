@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { Message, ToolCall } from '../types'

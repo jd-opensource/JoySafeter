@@ -15,7 +15,7 @@ import { Activity, ChevronDown, Trash2, TreePine, GanttChart, Search, X } from '
 import React, { useEffect, useState, useCallback, useRef, useDeferredValue } from 'react'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { useExecutionStore } from '../../stores/executionStore'

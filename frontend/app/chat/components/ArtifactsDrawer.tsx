@@ -4,7 +4,7 @@ import { FolderOpen, X } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import ArtifactPanel from '@/app/chat/components/ArtifactPanel'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { artifactService, type RunInfo } from '@/services/artifactService'
 import { Button } from '@/components/ui/button'

@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { schemaService, type GraphSchema } from '../services/schemaService'
 

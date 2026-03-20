@@ -2,11 +2,11 @@
 
 import { PanelLeft } from 'lucide-react'
 import { useCallback, useRef } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { OpenClawManagement } from './OpenClawManagement'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
 
 export function Sidebar() {
