@@ -429,13 +429,13 @@ const SectionHeader = ({
   </div>
 )
 
-const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
+export default function PropertiesPanel({
   node,
   nodes,
   edges,
   onUpdate,
   onClose,
-}) => {
+}: PropertiesPanelProps) {
   const { t } = useTranslation()
   const params = useParams()
   const workspaceId = params.workspaceId as string
@@ -1044,5 +1044,3 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     </div>
   )
 }
-
-export default PropertiesPanel

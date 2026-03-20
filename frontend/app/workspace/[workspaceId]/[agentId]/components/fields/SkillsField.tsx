@@ -1,7 +1,7 @@
 'use client'
 
 import { Loader2, Check, Search, X, Sparkles, Tag } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -21,7 +21,7 @@ interface SkillOption {
   tags: string[]
 }
 
-export const SkillsField: React.FC<SkillsFieldProps> = ({ value, onChange }) => {
+export function SkillsField({ value, onChange }: SkillsFieldProps) {
   const { t } = useTranslation()
 
   const [searchQuery, setSearchQuery] = useState('')

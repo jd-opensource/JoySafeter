@@ -1,7 +1,7 @@
 'use client'
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,13 +22,13 @@ interface DockerConfigFieldProps {
   disabled?: boolean
 }
 
-export const DockerConfigField: React.FC<DockerConfigFieldProps> = ({
+export function DockerConfigField({
   label,
   value = {},
   onChange,
   description,
   disabled = false,
-}) => {
+}: DockerConfigFieldProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   const updateField = (key: string, fieldValue: unknown) => {

@@ -17,7 +17,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react'
-import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 
 import {
   AlertDialog,
@@ -57,12 +57,12 @@ interface DeploymentHistoryPanelProps {
 
 type PreviewMode = 'current' | 'selected'
 
-export const DeploymentHistoryPanel: React.FC<DeploymentHistoryPanelProps> = ({
+export function DeploymentHistoryPanel({
   graphId,
   open,
   onOpenChange,
   nodesCount = 0,
-}) => {
+}: DeploymentHistoryPanelProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()

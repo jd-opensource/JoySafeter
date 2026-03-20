@@ -45,7 +45,7 @@ interface CustomControlsProps {
   fitViewTitle: string
 }
 
-const CustomControls: React.FC<CustomControlsProps> = ({
+function CustomControls({
   past,
   future,
   canEdit,
@@ -57,7 +57,7 @@ const CustomControls: React.FC<CustomControlsProps> = ({
   zoomInTitle,
   zoomOutTitle,
   fitViewTitle,
-}) => {
+}: CustomControlsProps) {
   const { zoomIn, zoomOut, fitView } = useReactFlow()
 
   const handleUndo = () => {
@@ -127,7 +127,7 @@ const CustomControls: React.FC<CustomControlsProps> = ({
   )
 }
 
-export const BuilderCanvas: React.FC = () => {
+export function BuilderCanvas() {
   const { t } = useTranslation()
   const params = useParams()
   const workspaceId = params.workspaceId as string

@@ -1,13 +1,12 @@
 'use client'
 
 import { AlertCircle, Wifi, WifiOff, Loader2 } from 'lucide-react'
-import React from 'react'
 
 import { useTranslation } from '@/lib/i18n'
 
 import { useBuilderStore } from '../stores/builderStore'
 
-export const GraphStatusBar: React.FC = () => {
+export function GraphStatusBar() {
   const { t } = useTranslation()
   const {
     lastAutoSaveTime,

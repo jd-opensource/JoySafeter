@@ -11,7 +11,7 @@ import {
   Repeat2,
 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Node, Edge } from 'reactflow'
 
 import {
@@ -56,14 +56,14 @@ interface EdgePropertiesPanelProps {
   onClose: () => void
 }
 
-export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
+export function EdgePropertiesPanel({
   edge,
   nodes,
   edges,
   onUpdate,
   onDelete,
   onClose,
-}) => {
+}: EdgePropertiesPanelProps) {
   const { t } = useTranslation()
   const params = useParams()
   const workspaceId = params.workspaceId as string

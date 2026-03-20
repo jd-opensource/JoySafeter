@@ -1,7 +1,6 @@
 'use client'
 
 import { BrainCircuit } from 'lucide-react'
-import React from 'react'
 
 import { cn } from '@/lib/utils'
 import type { ExecutionStep } from '@/types'
@@ -11,7 +10,7 @@ interface ThoughtContentProps {
   showHeader?: boolean
 }
 
-export const ThoughtContent: React.FC<ThoughtContentProps> = ({ step, showHeader = true }) => {
+export function ThoughtContent({ step, showHeader = true }: ThoughtContentProps) {
   const isStreaming = step.status === 'running'
   const content = step.content || ''
 

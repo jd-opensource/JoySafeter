@@ -1,7 +1,7 @@
 'use client'
 
 import { GripHorizontal, GripVertical } from 'lucide-react'
-import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react'
+import { useCallback, useState, useMemo, useEffect, useRef } from 'react'
 import { BaseEdge, EdgeProps, EdgeLabelRenderer } from 'reactflow'
 
 import { cn } from '@/lib/utils'
@@ -109,7 +109,7 @@ const getSmartOrthogonalPath = (
   return [d, labelX, labelY, leftX, rightX, leftY, rightY]
 }
 
-export const LoopBackEdge: React.FC<EdgeProps> = ({
+export function LoopBackEdge({
   id,
   sourceX,
   sourceY,
@@ -121,7 +121,7 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
   markerEnd,
   data,
   selected,
-}) => {
+}: EdgeProps) {
   const edgeData = (data || {}) as EdgeData
   const selectedEdgeId = useBuilderStore((state) => state.selectedEdgeId)
   const updateEdge = useBuilderStore((state) => state.updateEdge)

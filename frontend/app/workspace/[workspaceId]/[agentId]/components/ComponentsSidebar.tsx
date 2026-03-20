@@ -1,7 +1,6 @@
 'use client'
 
 import { Wrench } from 'lucide-react'
-import React from 'react'
 
 import { useTranslation } from '@/lib/i18n'
 
@@ -14,7 +13,7 @@ interface ComponentsSidebarProps {
   showHeader?: boolean
 }
 
-export const ComponentsSidebar: React.FC<ComponentsSidebarProps> = ({ showHeader = true }) => {
+export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps) {
   const { t } = useTranslation()
   const { showAdvancedSettings } = useBuilderStore()
   const groupedTools = nodeRegistry.getGrouped()

@@ -1,7 +1,6 @@
 'use client'
 
 import { Trash2, Plus } from 'lucide-react'
-import React from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,12 +13,12 @@ interface StringArrayFieldProps {
   description?: string
 }
 
-export const StringArrayField: React.FC<StringArrayFieldProps> = ({
+export function StringArrayField({
   value,
   onChange,
   placeholder,
   description,
-}) => {
+}: StringArrayFieldProps) {
   const { t } = useTranslation()
   const items = Array.isArray(value) ? value : []
 

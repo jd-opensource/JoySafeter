@@ -1,7 +1,7 @@
 'use client'
 
 import { Loader2 } from 'lucide-react'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 
 import {
   Select,
@@ -25,11 +25,7 @@ interface ModelSelectFieldProps {
   onModelChange?: (modelName: string, providerName: string) => void // Added: pass both model_name and provider_name simultaneously
 }
 
-export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({
-  value,
-  onChange,
-  onModelChange,
-}) => {
+export function ModelSelectField({ value, onChange, onModelChange }: ModelSelectFieldProps) {
   const { t } = useTranslation()
 
   const {

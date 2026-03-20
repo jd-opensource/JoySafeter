@@ -14,7 +14,7 @@
 
 import { Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
 import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
@@ -36,7 +36,7 @@ export type { GraphAction } from '@/types/copilot'
 
 export type CopilotMode = import('./copilot/CopilotInput').CopilotMode
 
-export const CopilotPanel: React.FC = () => {
+export function CopilotPanel() {
   const { t } = useTranslation()
   const params = useParams()
   const graphId = params.agentId as string | undefined

@@ -1,7 +1,7 @@
 'use client'
 
 import { X, Loader2, CheckCircle2, Sparkles, Zap, ChevronRight, Activity } from 'lucide-react'
-import React, { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,7 +14,7 @@ interface ExecutionModalProps {
   onClose: () => void
 }
 
-export const ExecutionModal: React.FC<ExecutionModalProps> = ({ onClose }) => {
+export function ExecutionModal({ onClose }: ExecutionModalProps) {
   const { t } = useTranslation()
   const {
     startExecution,

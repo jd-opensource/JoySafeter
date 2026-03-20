@@ -272,7 +272,7 @@ function ExecutionPanelContent() {
 
 // ============ Main Exported Component ============
 
-export const ExecutionPanelNew: React.FC = () => {
+export function ExecutionPanelNew() {
   const { steps, isExecuting, treeRoots, treeNodeMap } = useExecutionStore()
 
   return (

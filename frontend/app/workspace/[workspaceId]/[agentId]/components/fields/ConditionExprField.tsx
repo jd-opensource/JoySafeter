@@ -1,7 +1,7 @@
 'use client'
 
 import { highlight, languages } from 'prismjs'
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import Editor from 'react-simple-code-editor'
 import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-javascript'
@@ -26,7 +26,7 @@ interface ConditionExprFieldProps {
   graphStateFields?: StateField[]
 }
 
-export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
+export function ConditionExprField({
   value,
   onChange,
   placeholder = "state.get('value', 0) > 10",
@@ -38,7 +38,7 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
   className,
   disabled = false,
   graphStateFields,
-}) => {
+}: ConditionExprFieldProps) {
   // Use local state to prevent losing focus during input
   const [localValue, setLocalValue] = useState(value)
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { X, AlertCircle, CheckCircle2, ArrowRight, FileX, GitBranch, Network } from 'lucide-react'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { Node, Edge } from 'reactflow'
 
 import { Button } from '@/components/ui/button'
@@ -22,13 +22,13 @@ interface ValidationSummaryPanelProps {
 /**
  * ValidationSummaryPanel - Display all validation errors in the graph
  */
-export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
+export function ValidationSummaryPanel({
   nodes,
   edges,
   onClose,
   onSelectNode,
   onSelectEdge,
-}) => {
+}: ValidationSummaryPanelProps) {
   const { t } = useTranslation()
   const { validationErrors } = useBuilderStore()
 
