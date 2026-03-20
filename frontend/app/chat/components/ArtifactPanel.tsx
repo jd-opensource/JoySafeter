@@ -65,11 +65,58 @@ function isTextPreviewable(node: FileNode): boolean {
 function fileTreeToNodes(
   tree: Record<string, { action: string; size?: number; timestamp?: number }>,
 ): FileNode[] {
-  return Object.entries(tree).map(([path, _info]) => {
-    const name = path.split('/').pop() ?? path
-    const ext = name.includes('.') ? (name.split('.').pop() ?? '') : ''
-    return { name, path, type: 'file' as const, extension: ext }
-  })
+  const root: FileNode[] = []
+
+  // Sort paths so parent dirs come first
+  const paths = Object.keys(tree).sort()
+
+  for (const fullPath of paths) {
+    const parts = fullPath.split('/').filter(Boolean)
+    let current = root
+
+    for (let i = 0; i < parts.length; i++) {
+      const name = parts[i]
+      const isLast = i === parts.length - 1
+
+      if (isLast) {
+        // Leaf file node
+        const ext = name.includes('.') ? (name.split('.').pop() ?? '') : ''
+        current.push({ name, path: fullPath, type: 'file', extension: ext })
+      } else {
+        // Directory node — find or create
+        const dirPath = parts.slice(0, i + 1).join('/')
+        let dir = current.find(n => n.type === 'directory' && n.path === dirPath)
+        if (!dir) {
+          dir = { name, path: dirPath, type: 'directory', children: [] }
+          current.push(dir)
+        }
+        current = dir.children!
+      }
+    }
+  }
+
+  // Sort: directories first, then alphabetically
+  const sortNodes = (nodes: FileNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    nodes.filter(n => n.children).forEach(n => sortNodes(n.children!))
+  }
+  sortNodes(root)
+
+  return root
+}
+
+function findFileNode(nodes: FileNode[], path: string): FileNode | null {
+  for (const n of nodes) {
+    if (n.path === path) return n
+    if (n.children) {
+      const found = findFileNode(n.children, path)
+      if (found) return found
+    }
+  }
+  return null
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -108,7 +155,7 @@ export function ArtifactPanel({ threadId, fileTree, className }: ArtifactPanelPr
     [threadId],
   )
 
-  const selectedFile = selectedPath ? files.find((f) => f.path === selectedPath) : null
+  const selectedFile = selectedPath ? findFileNode(files, selectedPath) : null
   const ext = selectedFile?.extension?.toLowerCase() ?? ''
 
   // Suppress unused variable warning — isTextPreviewable kept for future use

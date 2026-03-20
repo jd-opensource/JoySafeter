@@ -379,6 +379,8 @@ export default function SkillCreatorPage() {
         <div className="flex w-[480px] flex-shrink-0 flex-col">
           <SkillPreviewPanel
             previewData={previewData}
+            fileTree={fileTree}
+            threadId={threadIdRef.current}
             isProcessing={isProcessing}
             onSave={() => setShowSaveDialog(true)}
             onRegenerate={handleRegenerate}
@@ -391,6 +393,8 @@ export default function SkillCreatorPage() {
         open={showSaveDialog}
         onOpenChange={setShowSaveDialog}
         previewData={previewData}
+        fileTree={fileTree}
+        threadId={threadIdRef.current}
         editSkillId={editSkillId}
         onSaved={handleSaved}
       />

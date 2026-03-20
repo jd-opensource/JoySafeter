@@ -1,16 +1,13 @@
 'use client'
 
 import { Save, RefreshCw, AlertTriangle, CheckCircle2, PackageOpen, FileCode } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import React from 'react'
 
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 
 import type { SkillPreviewData } from '../page'
 
-import SkillFileTree from './SkillFileTree'
-import type { PreviewFile } from './SkillFileTree'
-import SkillFileViewer from './SkillFileViewer'
+import { ArtifactPanel } from '@/app/chat/components/ArtifactPanel'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -18,6 +15,8 @@ import SkillFileViewer from './SkillFileViewer'
 
 interface SkillPreviewPanelProps {
   previewData: SkillPreviewData | null
+  fileTree?: Record<string, { action: string; size?: number; timestamp?: number }>
+  threadId: string | null
   isProcessing: boolean
   onSave: () => void
   onRegenerate: () => void
@@ -29,27 +28,12 @@ interface SkillPreviewPanelProps {
 
 export default function SkillPreviewPanel({
   previewData,
+  fileTree,
+  threadId,
   isProcessing,
   onSave,
   onRegenerate,
 }: SkillPreviewPanelProps) {
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
-
-  // Auto-select SKILL.md when preview data arrives
-  React.useEffect(() => {
-    if (previewData && previewData.files.length > 0) {
-      const skillMd = previewData.files.find((f) => f.path === 'SKILL.md')
-      setActiveFilePath(skillMd ? 'SKILL.md' : previewData.files[0].path)
-    } else {
-      setActiveFilePath(null)
-    }
-  }, [previewData])
-
-  const activeFile: PreviewFile | null = useMemo(() => {
-    if (!previewData || !activeFilePath) return null
-    return previewData.files.find((f) => f.path === activeFilePath) || null
-  }, [previewData, activeFilePath])
-
   const validation = previewData?.validation
 
   // ---- Empty state ----
@@ -71,6 +55,11 @@ export default function SkillPreviewPanel({
     )
   }
 
+  const fileCount =
+    fileTree && Object.keys(fileTree).length > 0
+      ? Object.keys(fileTree).length
+      : previewData.files.length
+
   // ---- Preview content ----
   return (
     <div className="flex h-full flex-col bg-white">
@@ -82,7 +71,7 @@ export default function SkillPreviewPanel({
             {previewData.skill_name || 'Unnamed Skill'}
           </h3>
           <span className="flex-shrink-0 text-[10px] text-gray-400">
-            {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''}
+            {fileCount} file{fileCount !== 1 ? 's' : ''}
           </span>
         </div>
 
@@ -122,27 +111,18 @@ export default function SkillPreviewPanel({
         </div>
       )}
 
-      {/* Main content: file tree + viewer */}
-      <div className="flex min-h-0 flex-1">
-        {/* File tree sidebar */}
-        <div className="flex w-[180px] flex-shrink-0 flex-col overflow-hidden border-r border-gray-100">
-          <div className="border-b border-gray-50 px-3 py-2">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">
-              Files
-            </span>
-          </div>
-          <SkillFileTree
-            files={previewData.files}
-            activeFilePath={activeFilePath}
-            onSelectFile={setActiveFilePath}
-          />
+      {/* File browser via ArtifactPanel */}
+      {threadId && Object.keys(fileTree || {}).length > 0 ? (
+        <ArtifactPanel
+          threadId={threadId}
+          fileTree={fileTree}
+          className="min-h-0 flex-1"
+        />
+      ) : (
+        <div className="flex flex-1 items-center justify-center text-xs text-gray-400">
+          No files yet
         </div>
-
-        {/* File content viewer */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <SkillFileViewer file={activeFile} />
-        </div>
-      </div>
+      )}
 
       {/* Action buttons */}
       <div className="flex flex-shrink-0 items-center gap-2 border-t border-gray-100 bg-gray-50/50 px-4 py-3">

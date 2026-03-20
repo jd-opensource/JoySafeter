@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { API_BASE } from '@/lib/api-client'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
+import { artifactService } from '@/services/artifactService'
 
 import type { SkillPreviewData } from '../page'
 
@@ -26,6 +27,8 @@ interface SkillSaveDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   previewData: SkillPreviewData | null
+  fileTree?: Record<string, { action: string; size?: number; timestamp?: number }>
+  threadId: string | null
   /** When editing an existing skill, pass its id to PUT instead of POST. */
   editSkillId?: string | null
   /** Called after a successful save with the skill id. */
@@ -40,6 +43,8 @@ export default function SkillSaveDialog({
   open,
   onOpenChange,
   previewData,
+  fileTree,
+  threadId,
   editSkillId,
   onSaved,
 }: SkillSaveDialogProps) {
@@ -56,30 +61,62 @@ export default function SkillSaveDialog({
   }, [open, previewData])
 
   const handleSave = useCallback(async () => {
-    if (!previewData || !name.trim()) return
+    if (!name.trim()) return
 
     setIsSaving(true)
     try {
-      // Build files payload
-      const files = previewData.files.map((f) => ({
-        path: f.path,
-        file_name: f.path.split('/').pop() || f.path,
-        file_type: f.file_type,
-        content: f.content,
-        storage_type: 'database' as const,
-        storage_key: null,
-        size: f.size,
-      }))
+      let files: Array<{
+        path: string
+        file_name: string
+        file_type: string
+        content: string
+        storage_type: 'database'
+        storage_key: null
+        size: number
+      }>
 
-      // Derive description from SKILL.md frontmatter if not provided
-      const skillMd = previewData.files.find((f) => f.path === 'SKILL.md')
+      if (fileTree && threadId && Object.keys(fileTree).length > 0) {
+        // Fetch file contents from sandbox via liveReadFile
+        const paths = Object.keys(fileTree)
+        files = await Promise.all(
+          paths.map(async (path) => {
+            const content = await artifactService.liveReadFile(threadId, path)
+            const fileName = path.split('/').pop() || path
+            const ext = fileName.includes('.') ? fileName.split('.').pop() || '' : ''
+            return {
+              path,
+              file_name: fileName,
+              file_type: ext,
+              content,
+              storage_type: 'database' as const,
+              storage_key: null,
+              size: fileTree[path].size ?? content.length,
+            }
+          })
+        )
+      } else if (previewData) {
+        // Fallback: use previewData.files
+        files = previewData.files.map((f) => ({
+          path: f.path,
+          file_name: f.path.split('/').pop() || f.path,
+          file_type: f.file_type,
+          content: f.content,
+          storage_type: 'database' as const,
+          storage_key: null,
+          size: f.size,
+        }))
+      } else {
+        return
+      }
+
+      const skillMdContent = files.find(f => f.path === 'SKILL.md')?.content
       const effectiveDescription =
-        description.trim() || extractDescription(skillMd?.content) || name
+        description.trim() || extractDescription(skillMdContent) || name
 
       const body = {
         name: name.trim(),
         description: effectiveDescription,
-        content: skillMd?.content || '',
+        content: skillMdContent || '',
         tags: [],
         is_public: false,
         files,
@@ -101,7 +138,6 @@ export default function SkillSaveDialog({
       }
 
       const result = await resp.json()
-      // The response may be wrapped in `{ data: ... }` depending on the API
       const skillId = result?.data?.id || result?.id || editSkillId || ''
 
       toastSuccess(editSkillId ? 'Skill updated successfully' : 'Skill saved to library')
@@ -113,7 +149,7 @@ export default function SkillSaveDialog({
     } finally {
       setIsSaving(false)
     }
-  }, [previewData, name, description, editSkillId, onOpenChange, onSaved])
+  }, [previewData, fileTree, threadId, name, description, editSkillId, onOpenChange, onSaved])
 
   const validation = previewData?.validation
   const hasErrors = !!(validation && !validation.valid)
@@ -194,12 +230,15 @@ export default function SkillSaveDialog({
           </div>
 
           {/* File count */}
-          {previewData && (
+          {(fileTree && Object.keys(fileTree).length > 0) ? (
             <p className="text-xs text-gray-500">
-              {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''} will be
-              saved.
+              {Object.keys(fileTree).length} file{Object.keys(fileTree).length !== 1 ? 's' : ''} will be saved.
             </p>
-          )}
+          ) : previewData ? (
+            <p className="text-xs text-gray-500">
+              {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''} will be saved.
+            </p>
+          ) : null}
         </div>
 
         <DialogFooter>
