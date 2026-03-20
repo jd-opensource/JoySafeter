@@ -22,15 +22,9 @@ function now() {
   return Date.now()
 }
 
-export interface UseBackendChatStreamOptions {
-  onArtifactsReady?: (threadId: string, runId: string) => void
-}
-
 export const useBackendChatStream = (
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  options?: UseBackendChatStreamOptions,
 ) => {
-  const { onArtifactsReady } = options ?? {}
   const [isProcessing, setIsProcessing] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const currentThreadIdRef = useRef<string | null>(null)
@@ -193,6 +187,26 @@ export const useBackendChatStream = (
               return
             }
 
+            // Handle file_event - real-time file operation from sandbox
+            if (type === 'file_event') {
+              const { action, path, size, timestamp: ts } = data as {
+                action: string; path: string; size?: number; timestamp?: number
+              }
+              safeSetMessages((prev) =>
+                prev.map((m) => {
+                  if (m.id !== aiMsgId) return m
+                  const tree = { ...(m.metadata?.fileTree as Record<string, any> || {}) }
+                  if (action === 'delete') {
+                    delete tree[path]
+                  } else {
+                    tree[path] = { action, size, timestamp: ts }
+                  }
+                  return { ...m, metadata: { ...m.metadata, fileTree: tree } }
+                }),
+              )
+              return
+            }
+
             // Handle tool_end event
             if (type === 'tool_end') {
               const toolData = data as ToolEndEventData
@@ -216,20 +230,6 @@ export const useBackendChatStream = (
                     }
                     return t
                   })
-
-                  // Accumulate file operation metadata for real-time artifact preview
-                  const filesChanged = toolData?.files_changed
-                  if (filesChanged?.length) {
-                    const existing = (m.metadata?.liveFiles as Array<{ path: string; action: string }>) ?? []
-                    return {
-                      ...m,
-                      tool_calls: tools,
-                      metadata: {
-                        ...(m.metadata || {}),
-                        liveFiles: [...existing, ...filesChanged],
-                      },
-                    }
-                  }
 
                   return { ...m, tool_calls: tools }
                 }),
@@ -267,16 +267,6 @@ export const useBackendChatStream = (
               safeSetMessages((prev) =>
                 prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
               )
-              return
-            }
-
-            // Handle artifacts_ready: run artifacts are available for this thread/run
-            if (type === 'artifacts_ready') {
-              const runId = (data as { run_id?: string })?.run_id
-              const tid = thread_id || latestThreadId
-              if (runId && tid && onArtifactsReady) {
-                onArtifactsReady(tid, runId)
-              }
               return
             }
 
