@@ -1,7 +1,7 @@
 'use client'
 
 import { FolderOpen, X } from 'lucide-react'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import ArtifactPanel from '@/app/chat/components/ArtifactPanel'
 import { cn } from '@/lib/utils'
@@ -23,7 +23,12 @@ interface ArtifactsDrawerProps {
   runId: string
 }
 
-const ArtifactsDrawer: React.FC<ArtifactsDrawerProps> = ({ isOpen, onClose, threadId, runId }) => {
+export default function ArtifactsDrawer({
+  isOpen,
+  onClose,
+  threadId,
+  runId,
+}: ArtifactsDrawerProps) {
   const { t } = useTranslation()
 
   const [runs, setRuns] = useState<RunInfo[]>([])
@@ -116,5 +121,3 @@ const ArtifactsDrawer: React.FC<ArtifactsDrawerProps> = ({ isOpen, onClose, thre
     </div>
   )
 }
-
-export default ArtifactsDrawer

@@ -30,13 +30,13 @@ interface ChatSidebarProps {
   onNewChat?: () => void
 }
 
-const ChatSidebar: React.FC<ChatSidebarProps> = ({
+export default function ChatSidebar({
   isCollapsed,
   onToggle,
   onSelectConversation,
   currentThreadId,
   onNewChat,
-}) => {
+}: ChatSidebarProps) {
   const { t } = useTranslation()
   const { data: conversationsData, isLoading } = useQuery({
     queryKey: ['conversations'],
@@ -544,5 +544,3 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     </div>
   )
 }
-
-export default ChatSidebar

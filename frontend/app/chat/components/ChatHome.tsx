@@ -61,12 +61,12 @@ interface ChatHomeProps {
   onStop?: () => void
 }
 
-const ChatHome: React.FC<ChatHomeProps> = ({
+export default function ChatHome({
   onStartChat,
   onSelectConversation,
   isProcessing = false,
   onStop,
-}) => {
+}: ChatHomeProps) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -672,5 +672,3 @@ const ChatHome: React.FC<ChatHomeProps> = ({
     </div>
   )
 }
-
-export default ChatHome

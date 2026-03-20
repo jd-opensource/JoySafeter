@@ -1,7 +1,7 @@
 'use client'
 
 import { Download, FolderOpen, Loader2 } from 'lucide-react'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import CodeViewer from '@/app/chat/components/CodeViewer'
 import FileBrowser, { FileNode } from '@/app/chat/components/FileBrowser'
@@ -84,7 +84,7 @@ interface ArtifactPanelProps {
   className?: string
 }
 
-export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ threadId, runId, className }) => {
+export function ArtifactPanel({ threadId, runId, className }: ArtifactPanelProps) {
   const [files, setFiles] = useState<FileNode[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [previewContent, setPreviewContent] = useState<string | null>(null)

@@ -1,7 +1,6 @@
 'use client'
 
 import { FolderOpen, Maximize2 } from 'lucide-react'
-import React from 'react'
 
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
@@ -10,7 +9,7 @@ interface CompactArtifactStatusProps {
   onClick: () => void
 }
 
-const CompactArtifactStatus: React.FC<CompactArtifactStatusProps> = ({ onClick }) => {
+export default function CompactArtifactStatus({ onClick }: CompactArtifactStatusProps) {
   const { t } = useTranslation()
 
   return (
@@ -41,5 +40,3 @@ const CompactArtifactStatus: React.FC<CompactArtifactStatusProps> = ({ onClick }
     </div>
   )
 }
-
-export default CompactArtifactStatus

@@ -18,14 +18,14 @@ interface ThreadContentProps {
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
 }
 
-const ThreadContent: React.FC<ThreadContentProps> = ({
+export default function ThreadContent({
   messages,
   streamingText = '',
   agentStatus,
   currentNodeLabel,
   onToolClick,
   scrollContainerRef,
-}) => {
+}: ThreadContentProps) {
   const { t } = useTranslation()
 
   // When running and last message is assistant, it is shown by Streaming/Processing indicator only
@@ -116,5 +116,3 @@ const ThreadContent: React.FC<ThreadContentProps> = ({
     </div>
   )
 }
-
-export default ThreadContent

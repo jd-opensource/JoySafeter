@@ -3,7 +3,7 @@
 import { format } from 'date-fns'
 import DOMPurify from 'dompurify'
 import { X, CheckCircle2, AlertCircle, Loader2, Wrench, Copy, Check } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -26,14 +26,14 @@ interface ToolExecutionPanelProps {
 const formatToolName = (name: string): string =>
   name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 
-const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
+export default function ToolExecutionPanel({
   isOpen,
   onClose,
   toolCall,
   messages,
   toolCalls = [],
   agentStatus = 'idle',
-}) => {
+}: ToolExecutionPanelProps) {
   const { t } = useTranslation()
 
   const [copiedInput, setCopiedInput] = useState(false)
@@ -373,5 +373,3 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
     </div>
   )
 }
-
-export default ToolExecutionPanel
