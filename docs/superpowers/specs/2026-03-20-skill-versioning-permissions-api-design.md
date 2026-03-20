@@ -73,6 +73,7 @@
 **约束**:
 - Index on `version_id`
 - Cascade delete with SkillVersion
+- 继承 BaseModel（获得 id/created_at/updated_at），updated_at 始终等于 created_at
 
 ### 1.3 SkillCollaborator 表（新增）
 
@@ -272,10 +273,11 @@ async def check_skill_access(
     统一权限校验，替代现有 owner_id != current_user_id 硬编码。
 
     逻辑:
-    1. 是 owner → 通过
-    2. 查 SkillCollaborator → 角色 >= min_role → 通过
-    3. skill.is_public + min_role == viewer → 通过
-    4. 否则 → 403
+    1. 是 superuser → 通过（与现有 require_workspace_role 一致）
+    2. 是 owner → 通过
+    3. 查 SkillCollaborator → 角色 >= min_role → 通过
+    4. skill.is_public + min_role == viewer → 通过
+    5. 否则 → 403
 
     如果是 token 请求，额外校验:
     5. token_scopes 包含 required_scope → 通过
@@ -301,7 +303,7 @@ async def check_skill_access(
 ### 4.1 发布
 
 ```
-POST /v1/skills/{id}/versions  { version: "1.0.0", description: "..." }
+POST /v1/skills/{id}/versions  { version: "1.0.0", release_notes: "..." }
     │
     ├── 校验权限 >= publisher
     ├── 校验 semver MAJOR.MINOR.PATCH 格式 & 大于最高已有版本（使用 semver 库比较）
@@ -329,6 +331,10 @@ POST /v1/skills/{id}/restore  { version: "1.0.0" }
 - 外部使用者通过 API token 或商店获取的是已发布版本
 - PlatformToken 访问版本时需同时满足 scope (`skills:read`) 和 is_public/collaborator 权限
 - `GET /v1/skills/{id}` 继续返回 draft content（后向兼容），增加 `latest_version` 字段
+
+**分页**: 版本列表和协作者列表暂不分页（单个 skill 的版本/协作者数量预期有限）。如后续需要，按 `?page=1&page_size=20` 标准模式扩展。
+
+**resource_type/resource_id 作用域**: PlatformToken 的 `resource_type` + `resource_id` 字段在本期仅作为元数据存储，不在鉴权链中强制校验。用户可据此标记 token 用途，但不影响实际权限（权限完全由 scope + collaborator 角色决定）。未来迭代可选择启用 resource 级 token 隔离。
 - Draft 内容对 viewer 继续可见（兼容现有行为），未来可通过 query param `?version=1.0.0` 获取指定版本内容
 
 ---
@@ -370,6 +376,8 @@ DELETE /v1/tokens/{id}
 - 现有 `skills`, `skill_files` 表零改动
 - 所有已有 Skill 数据自动成为 draft 状态
 - 现有 skill 的 `owner_id` 用户自动拥有 owner 权限，无需数据迁移
+
+**级联删除**: 删除 Skill 时级联删除其所有 `skill_versions`（及 `skill_version_files`）和 `skill_collaborators`。通过 ORM relationship `cascade="all, delete-orphan"` 和 FK `ondelete="CASCADE"` 双重保障。
 
 ### 6.2 代码改动
 
