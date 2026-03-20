@@ -24,7 +24,6 @@ export interface EdgeData {
   /** Display label for the edge */
   label?: string
 
-
   /** Path waypoints for loop_back edges (stored as array of {x, y} in flow coordinates) */
   waypoints?: Array<{ x: number; y: number }>
 
@@ -148,7 +147,15 @@ export interface ValidationError {
 /**
  * State Field Data Types matching backend StateFieldType
  */
-export type StateFieldType = 'string' | 'int' | 'float' | 'bool' | 'list' | 'dict' | 'messages' | 'any'
+export type StateFieldType =
+  | 'string'
+  | 'int'
+  | 'float'
+  | 'bool'
+  | 'list'
+  | 'dict'
+  | 'messages'
+  | 'any'
 
 /**
  * State Field Reducer Types matching backend ReducerType

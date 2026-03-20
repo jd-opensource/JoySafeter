@@ -65,7 +65,7 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      token: null,  // Memory-only state, not persisted
+      token: null, // Memory-only state, not persisted
       isLoading: false,
       error: null,
       get isAuthenticated() {
@@ -89,8 +89,8 @@ export const useAuthStore = create<AuthState>()(
           // SSR environment returns empty storage
           return {
             getItem: () => null,
-            setItem: () => { },
-            removeItem: () => { },
+            setItem: () => {},
+            removeItem: () => {},
           }
         }
         return localStorage
@@ -109,13 +109,13 @@ export const useAuthStore = create<AuthState>()(
           // Migrate from old version: clear possibly stored token
           return {
             ...persistedState,
-            token: null,  // Clear old token
+            token: null, // Clear old token
           }
         }
         return persistedState as AuthState
       },
-    }
-  )
+    },
+  ),
 )
 
 /**

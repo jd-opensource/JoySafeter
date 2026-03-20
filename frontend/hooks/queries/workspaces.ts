@@ -24,7 +24,7 @@ export interface Workspace {
   name: string
   ownerId: string
   description?: string
-  type?: string  // 'personal' | 'team'
+  type?: string // 'personal' | 'team'
   createdAt: Date
   updatedAt: Date
 }
@@ -48,7 +48,7 @@ function mapWorkspace(workspace: any): Workspace {
     name: workspace.name,
     ownerId: workspace.ownerId || workspace.owner_id,
     description: workspace.description,
-    type: workspace.type,  // 'personal' | 'team'
+    type: workspace.type, // 'personal' | 'team'
     createdAt: new Date(workspace.createdAt || workspace.created_at),
     updatedAt: new Date(workspace.updatedAt || workspace.updated_at),
   }
@@ -155,7 +155,7 @@ export function useUpdateWorkspace() {
       try {
         const response = await apiPut<{ workspace: any }>(
           `${API_ENDPOINTS.workspaces}/${variables.id}`,
-          variables.updates
+          variables.updates,
         )
         const workspaceData = response.workspace || response
         if (!workspaceData) {
@@ -173,9 +173,7 @@ export function useUpdateWorkspace() {
       queryClient.setQueryData<Workspace[]>(workspaceKeys.list(), (old) => {
         if (!old) return old
         return old.map((ws) =>
-          ws.id === variables.id
-            ? { ...ws, ...variables.updates, updatedAt: new Date() }
-            : ws
+          ws.id === variables.id ? { ...ws, ...variables.updates, updatedAt: new Date() } : ws,
         )
       })
 
@@ -199,9 +197,7 @@ export function useUpdateWorkspace() {
 
       queryClient.setQueryData<Workspace[]>(workspaceKeys.list(), (old) => {
         if (!old) return old
-        return old.map((ws) =>
-          ws.id === variables.id ? updatedWorkspace : ws
-        )
+        return old.map((ws) => (ws.id === variables.id ? updatedWorkspace : ws))
       })
 
       toastSuccess(i18n.t('workspace.renameSuccess') || 'Workspace renamed successfully')
@@ -267,7 +263,7 @@ export function useDuplicateWorkspace() {
     mutationFn: async (variables: { id: string; name?: string }): Promise<Workspace> => {
       const response = await apiPost<{ workspace: any }>(
         `${API_ENDPOINTS.workspaces}/${variables.id}/duplicate`,
-        { name: variables.name }
+        { name: variables.name },
       )
       return mapWorkspace(response.workspace)
     },
@@ -287,7 +283,9 @@ export function useDuplicateWorkspace() {
         errorMessage = error.message
         // Check if it's a personal space duplication error
         if (errorMessage.includes('个人空间不允许复制')) {
-          errorMessage = i18n.t('workspace.personalSpaceCannotBeDuplicated') || 'Personal space cannot be duplicated'
+          errorMessage =
+            i18n.t('workspace.personalSpaceCannotBeDuplicated') ||
+            'Personal space cannot be duplicated'
         }
       }
       toastError(errorMessage)

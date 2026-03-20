@@ -11,8 +11,8 @@ interface AppLogoProps {
  */
 export function AppLogo({ isCollapsed = false }: AppLogoProps) {
   return (
-    <div className="flex h-[60px] items-center pl-2 pr-4 min-w-0">
-      <Link href="/chat" className="flex items-center gap-1.5 min-w-0 flex-1">
+    <div className="flex h-[60px] min-w-0 items-center pl-2 pr-4">
+      <Link href="/chat" className="flex min-w-0 flex-1 items-center gap-1.5">
         <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center">
           <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[#6f3dfa] to-[#0ea5e9] opacity-100" />
 
@@ -61,7 +61,7 @@ export function AppLogo({ isCollapsed = false }: AppLogoProps) {
         </div>
 
         {!isCollapsed && (
-          <span className="bg-gradient-to-r from-[#6f3dfa] to-[#0ea5e9] bg-clip-text text-[17px] font-bold tracking-tight text-transparent whitespace-nowrap">
+          <span className="whitespace-nowrap bg-gradient-to-r from-[#6f3dfa] to-[#0ea5e9] bg-clip-text text-[17px] font-bold tracking-tight text-transparent">
             JoySafeter
           </span>
         )}

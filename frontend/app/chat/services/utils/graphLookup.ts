@@ -20,16 +20,16 @@ const creationLocks = new Map<string, Promise<{ id: string; name: string }>>()
  */
 export async function findGraphByName(
   graphName: string,
-  context: ModeContext
+  context: ModeContext,
 ): Promise<{ id: string; name: string } | null> {
   if (!context.personalWorkspaceId) return null
 
   // 1. Try query cache
   let workspaceGraphs: Array<{ id: string; name: string }> | undefined
   if (context.queryClient.getQueryData) {
-    workspaceGraphs = context.queryClient.getQueryData<Array<{ id: string; name: string }>>(
-      [...graphKeys.list(context.personalWorkspaceId)]
-    )
+    workspaceGraphs = context.queryClient.getQueryData<Array<{ id: string; name: string }>>([
+      ...graphKeys.list(context.personalWorkspaceId),
+    ])
   }
 
   // 2. Fallback to API
@@ -52,7 +52,7 @@ export async function findGraphByName(
  */
 export async function refreshAndFindGraph(
   graphName: string,
-  context: ModeContext
+  context: ModeContext,
 ): Promise<{ id: string; name: string } | null> {
   if (!context.personalWorkspaceId) return null
 
@@ -63,9 +63,9 @@ export async function refreshAndFindGraph(
   }
 
   if (context.queryClient.getQueryData) {
-    const queryData = context.queryClient.getQueryData<Array<{ id: string; name: string }>>(
-      [...graphKeys.list(context.personalWorkspaceId)]
-    )
+    const queryData = context.queryClient.getQueryData<Array<{ id: string; name: string }>>([
+      ...graphKeys.list(context.personalWorkspaceId),
+    ])
     return queryData?.find((g) => g.name === graphName) ?? null
   }
 
@@ -81,7 +81,7 @@ export async function refreshAndFindGraph(
 export async function findOrCreateGraphByTemplate(
   graphName: string,
   templateName: string,
-  workspaceId: string
+  workspaceId: string,
 ): Promise<{ id: string; name: string }> {
   // If a creation/repair is already in progress for this name, wait for it
   const inflight = creationLocks.get(graphName)
@@ -103,9 +103,9 @@ export async function findOrCreateGraphByTemplate(
         // Delete duplicates in the background
         for (const g of matches) {
           if (g.id !== best.id) {
-            agentService.deleteGraph(g.id).catch((e) =>
-              console.warn(`Failed to delete duplicate graph ${g.id}:`, e)
-            )
+            agentService
+              .deleteGraph(g.id)
+              .catch((e) => console.warn(`Failed to delete duplicate graph ${g.id}:`, e))
           }
         }
 
@@ -141,7 +141,7 @@ export async function findOrCreateGraphByTemplate(
       const created = await graphTemplateService.createGraphFromTemplate(
         templateName,
         graphName,
-        workspaceId
+        workspaceId,
       )
       return { id: created.id, name: created.name }
     } finally {

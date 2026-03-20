@@ -81,7 +81,10 @@ export function toast(message: string, title?: string) {
  * @param error Error object or error message string
  * @param defaultMessage Default error message (used when unable to extract from error)
  */
-export function handleError(error: unknown, defaultMessage = 'Operation failed, please try again later') {
+export function handleError(
+  error: unknown,
+  defaultMessage = 'Operation failed, please try again later',
+) {
   let message = defaultMessage
 
   if (error instanceof Error) {

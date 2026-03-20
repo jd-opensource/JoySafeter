@@ -40,8 +40,8 @@ export class SaveManager {
 
   constructor(
     private getState: () => GraphState,
-    private callbacks: SaveManagerCallbacks
-  ) { }
+    private callbacks: SaveManagerCallbacks,
+  ) {}
 
   /**
    * Unified save entry point
@@ -69,7 +69,7 @@ export class SaveManager {
       state.nodes,
       state.edges,
       state.graphStateFields,
-      state.fallbackNodeId
+      state.fallbackNodeId,
     )
 
     // 优先从 state 同步 hash（如果 SaveManager 的 hash 还未设置，或者 state 中的 hash 更新）
@@ -90,7 +90,7 @@ export class SaveManager {
     try {
       // Deduplicate edges before saving
       const seenEdges = new Set<string>()
-      const deduplicatedEdges = state.edges.filter(edge => {
+      const deduplicatedEdges = state.edges.filter((edge) => {
         const key = `${edge.source}-${edge.target}`
         if (seenEdges.has(key)) {
           return false

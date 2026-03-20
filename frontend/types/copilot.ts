@@ -52,5 +52,9 @@ export interface StreamGraphActionsCallbacks {
   onThoughtStep: (step: { index: number; content: string }) => void
   onContent: (content: string) => void
   onToolCall: (tool: string, input: Record<string, unknown>) => void
-  onToolResult: (action: { type: string; payload: Record<string, unknown>; reasoning?: string }) => void
+  onToolResult: (action: {
+    type: string
+    payload: Record<string, unknown>
+    reasoning?: string
+  }) => void
 }

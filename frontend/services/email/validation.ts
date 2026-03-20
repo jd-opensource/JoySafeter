@@ -159,7 +159,7 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
     try {
       const mxCheckPromise = checkMXRecord(domain)
       const timeoutPromise = new Promise<boolean>((_, reject) =>
-        setTimeout(() => reject(new Error('MX check timeout')), 5000)
+        setTimeout(() => reject(new Error('MX check timeout')), 5000),
       )
 
       checks.mxRecord = await Promise.race([mxCheckPromise, timeoutPromise])

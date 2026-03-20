@@ -10,7 +10,7 @@ export interface GraphDeploymentVersion {
   isActive: boolean
   createdAt: string
   createdBy?: string | null
-  createdByName?: string | null  // Creator username
+  createdByName?: string | null // Creator username
 }
 
 export interface GraphVersionState {
@@ -81,14 +81,22 @@ class GraphDeploymentService {
    * Undeploy graph
    */
   async undeploy(graphId: string): Promise<{ isDeployed: boolean; deployedAt: null }> {
-    return apiDelete<{ isDeployed: boolean; deployedAt: null }>(`${this.getBaseUrl(graphId)}/deploy`)
+    return apiDelete<{ isDeployed: boolean; deployedAt: null }>(
+      `${this.getBaseUrl(graphId)}/deploy`,
+    )
   }
 
   /**
    * Get all deployment versions (paginated)
    */
-  async getVersions(graphId: string, page: number = 1, pageSize: number = 10): Promise<GraphDeploymentVersionsResponse> {
-    return apiGet<GraphDeploymentVersionsResponse>(`${this.getBaseUrl(graphId)}/deployments?page=${page}&page_size=${pageSize}`)
+  async getVersions(
+    graphId: string,
+    page: number = 1,
+    pageSize: number = 10,
+  ): Promise<GraphDeploymentVersionsResponse> {
+    return apiGet<GraphDeploymentVersionsResponse>(
+      `${this.getBaseUrl(graphId)}/deployments?page=${page}&page_size=${pageSize}`,
+    )
   }
 
   /**
@@ -101,28 +109,47 @@ class GraphDeploymentService {
   /**
    * Get complete state of specific version (for preview)
    */
-  async getVersionState(graphId: string, version: number): Promise<GraphDeploymentVersionWithState> {
-    return apiGet<GraphDeploymentVersionWithState>(`${this.getBaseUrl(graphId)}/deployments/${version}/state`)
+  async getVersionState(
+    graphId: string,
+    version: number,
+  ): Promise<GraphDeploymentVersionWithState> {
+    return apiGet<GraphDeploymentVersionWithState>(
+      `${this.getBaseUrl(graphId)}/deployments/${version}/state`,
+    )
   }
 
   /**
    * Rename version
    */
-  async renameVersion(graphId: string, version: number, name: string): Promise<GraphDeploymentVersion> {
-    return apiPatch<GraphDeploymentVersion>(`${this.getBaseUrl(graphId)}/deployments/${version}`, { name })
+  async renameVersion(
+    graphId: string,
+    version: number,
+    name: string,
+  ): Promise<GraphDeploymentVersion> {
+    return apiPatch<GraphDeploymentVersion>(`${this.getBaseUrl(graphId)}/deployments/${version}`, {
+      name,
+    })
   }
 
   /**
    * Activate version
    */
-  async activateVersion(graphId: string, version: number): Promise<{ success: boolean; deployedAt: string }> {
-    return apiPost<{ success: boolean; deployedAt: string }>(`${this.getBaseUrl(graphId)}/deployments/${version}/activate`)
+  async activateVersion(
+    graphId: string,
+    version: number,
+  ): Promise<{ success: boolean; deployedAt: string }> {
+    return apiPost<{ success: boolean; deployedAt: string }>(
+      `${this.getBaseUrl(graphId)}/deployments/${version}/activate`,
+    )
   }
 
   /**
    * Revert to specified version
    */
-  async revertToVersion(graphId: string, version: number): Promise<{
+  async revertToVersion(
+    graphId: string,
+    version: number,
+  ): Promise<{
     success: boolean
     message: string
     version: number
@@ -134,8 +161,13 @@ class GraphDeploymentService {
   /**
    * Delete version
    */
-  async deleteVersion(graphId: string, version: number): Promise<{ success: boolean; message: string }> {
-    return apiDelete<{ success: boolean; message: string }>(`${this.getBaseUrl(graphId)}/deployments/${version}`)
+  async deleteVersion(
+    graphId: string,
+    version: number,
+  ): Promise<{ success: boolean; message: string }> {
+    return apiDelete<{ success: boolean; message: string }>(
+      `${this.getBaseUrl(graphId)}/deployments/${version}`,
+    )
   }
 }
 

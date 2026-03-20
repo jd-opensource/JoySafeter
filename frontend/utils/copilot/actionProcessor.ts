@@ -27,7 +27,7 @@ export class ActionProcessor {
   static processActions(
     actions: GraphAction[],
     currentNodes: Node[],
-    currentEdges: Edge[]
+    currentEdges: Edge[],
   ): ProcessedGraph {
     // Clone current state to apply diffs
     let processedNodes: Node[] = [...currentNodes]
@@ -81,7 +81,7 @@ export class ActionProcessor {
         case 'DELETE_NODE': {
           processedNodes = processedNodes.filter((n) => n.id !== action.payload.id)
           processedEdges = processedEdges.filter(
-            (e) => e.source !== action.payload.id && e.target !== action.payload.id
+            (e) => e.source !== action.payload.id && e.target !== action.payload.id,
           )
           break
         }

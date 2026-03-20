@@ -80,9 +80,7 @@ async function fetchWorkspacePermissions(workspaceId: string): Promise<Workspace
     items: WorkspaceMemberResponse[]
     total: number
     pages: number
-  }>(
-    `${API_ENDPOINTS.workspaces}/${workspaceId}/members?page=1&page_size=100`
-  )
+  }>(`${API_ENDPOINTS.workspaces}/${workspaceId}/members?page=1&page_size=100`)
 
   const members = result.items || []
 
@@ -110,7 +108,7 @@ async function fetchMyPermission(
   workspaceId: string,
   userEmail: string,
   userId: string,
-  userName: string | null = null
+  userName: string | null = null,
 ): Promise<WorkspacePermissions> {
   // 复用现有的 API_ENDPOINTS 和 apiGet
   const result = await apiGet<{
@@ -120,15 +118,17 @@ async function fetchMyPermission(
   }>(`${API_ENDPOINTS.workspaces}/${workspaceId}/my-permission`)
 
   // 复用现有的 mapRoleToPermissionType 函数
-  const users: WorkspaceUser[] = [{
-    userId: userId,
-    email: userEmail,
-    name: userName,
-    image: null,
-    permissionType: mapRoleToPermissionType(result.role),
-    isOwner: result.isOwner,
-    role: result.role,
-  }]
+  const users: WorkspaceUser[] = [
+    {
+      userId: userId,
+      email: userEmail,
+      name: userName,
+      image: null,
+      permissionType: mapRoleToPermissionType(result.role),
+      isOwner: result.isOwner,
+      role: result.role,
+    },
+  ]
 
   return {
     users,
@@ -149,9 +149,7 @@ async function fetchMyPermission(
  * @param workspaceId - The workspace ID to fetch permissions for
  * @returns Object containing permissions data, loading state, error state, and refetch function
  */
-export function useWorkspacePermissions(
-  workspaceId: string | null,
-): UseWorkspacePermissionsReturn {
+export function useWorkspacePermissions(workspaceId: string | null): UseWorkspacePermissionsReturn {
   const queryClient = useQueryClient()
   const { data: session } = useSession()
 
@@ -167,7 +165,12 @@ export function useWorkspacePermissions(
     return () => fetchMyPermission(workspaceId!, userEmail, userId, userName)
   }, [workspaceId, session])
 
-  const { data, isLoading, error, refetch: queryRefetch } = useQuery({
+  const {
+    data,
+    isLoading,
+    error,
+    refetch: queryRefetch,
+  } = useQuery({
     queryKey: [...workspacePermissionKeys.detail(workspaceId || ''), 'my-permission'],
     queryFn: fetchFn,
     enabled: !!workspaceId && !!session?.user?.email,
@@ -179,7 +182,7 @@ export function useWorkspacePermissions(
     if (workspaceId) {
       queryClient.setQueryData(
         [...workspacePermissionKeys.detail(workspaceId), 'my-permission'],
-        newPermissions
+        newPermissions,
       )
     }
   }
@@ -211,7 +214,7 @@ export function useInvalidateWorkspacePermissions() {
 
   return (workspaceId: string) => {
     queryClient.invalidateQueries({
-      queryKey: workspacePermissionKeys.detail(workspaceId)
+      queryKey: workspacePermissionKeys.detail(workspaceId),
     })
   }
 }

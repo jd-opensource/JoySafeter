@@ -22,17 +22,14 @@
 export function toLangGraphNodeName(
   label: string | undefined,
   nodeId: string,
-  nodeType: string = 'agent'
+  nodeType: string = 'agent',
 ): string {
   // Get first 8 characters of node ID
   const shortId = nodeId.slice(0, 8)
 
   if (label && label.trim()) {
     // Transform label: lowercase, replace spaces and hyphens with underscores
-    const sanitizedLabel = label
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/-+/g, '_')
+    const sanitizedLabel = label.toLowerCase().replace(/\s+/g, '_').replace(/-+/g, '_')
     return `${sanitizedLabel}_${shortId}`
   }
 

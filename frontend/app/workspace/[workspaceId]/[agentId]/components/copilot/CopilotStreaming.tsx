@@ -40,13 +40,24 @@ export function CopilotStreaming({
   if (!loading && !currentStage && !streamingContent && toolResults.length === 0) return null
 
   // Group tool results by type
-  const grouped = toolResults.reduce((acc, result, idx) => {
-    if (!acc[result.type]) {
-      acc[result.type] = []
-    }
-    acc[result.type].push({ ...result, originalIndex: idx })
-    return acc
-  }, {} as Record<string, Array<{ type: string; payload: Record<string, unknown>; reasoning?: string; originalIndex: number }>>)
+  const grouped = toolResults.reduce(
+    (acc, result, idx) => {
+      if (!acc[result.type]) {
+        acc[result.type] = []
+      }
+      acc[result.type].push({ ...result, originalIndex: idx })
+      return acc
+    },
+    {} as Record<
+      string,
+      Array<{
+        type: string
+        payload: Record<string, unknown>
+        reasoning?: string
+        originalIndex: number
+      }>
+    >,
+  )
 
   // Get sorted types (to maintain order)
   const types = Object.keys(grouped).sort((a, b) => {
@@ -57,30 +68,35 @@ export function CopilotStreaming({
 
   return (
     <div className="flex gap-2">
-      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 border border-purple-100">
+      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-purple-100 bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 shadow-sm">
         <Sparkles size={16} />
       </div>
-      <div className="flex flex-col gap-2 max-w-[85%]">
+      <div className="flex max-w-[85%] flex-col gap-2">
         {/* Status stage display - show default if loading but no stage set */}
         {(currentStage || loading) && (
-          <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-2xl rounded-bl-none p-3 border border-purple-100/50 shadow-sm">
+          <div className="rounded-2xl rounded-bl-none border border-purple-100/50 bg-gradient-to-r from-purple-50 to-blue-50 p-3 shadow-sm">
             <div className="flex items-center gap-2">
               <span className="text-base">
-                {currentStage ? (stageConfig[currentStage.stage]?.icon || '⏳') : '⏳'}
+                {currentStage ? stageConfig[currentStage.stage]?.icon || '⏳' : '⏳'}
               </span>
               <span
-                className={`text-xs font-medium ${currentStage ? (stageConfig[currentStage.stage]?.color || 'text-gray-600') : 'text-gray-600'}`}
+                className={`text-xs font-medium ${currentStage ? stageConfig[currentStage.stage]?.color || 'text-gray-600' : 'text-gray-600'}`}
               >
                 {currentStage?.message || '正在处理中...'}
               </span>
               <Loader2 size={12} className="animate-spin text-purple-500" />
             </div>
             {/* Progress bar */}
-            <div className="mt-2 h-1 bg-purple-100 rounded-full overflow-hidden">
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-purple-100">
               <div
-                className="h-full bg-gradient-to-r from-purple-400 to-blue-400 rounded-full transition-all duration-500 ease-out animate-pulse"
+                className="h-full animate-pulse rounded-full bg-gradient-to-r from-purple-400 to-blue-400 transition-all duration-500 ease-out"
                 style={{
-                  width: currentStage?.stage === 'processing' ? '90%' : currentStage?.stage === 'generating' ? '70%' : '30%',
+                  width:
+                    currentStage?.stage === 'processing'
+                      ? '90%'
+                      : currentStage?.stage === 'generating'
+                        ? '70%'
+                        : '30%',
                 }}
               />
             </div>
@@ -89,27 +105,29 @@ export function CopilotStreaming({
 
         {/* Streaming content display with tool call info integrated */}
         {(streamingContent || currentToolCall) && (
-          <div className={`rounded-2xl rounded-bl-none border shadow-sm animate-in fade-in duration-200 overflow-hidden ${
-            streamingContent
-              ? 'bg-white border-gray-100'
-              : 'bg-amber-50 border-amber-200'
-          }`}>
+          <div
+            className={`overflow-hidden rounded-2xl rounded-bl-none border shadow-sm duration-200 animate-in fade-in ${
+              streamingContent ? 'border-gray-100 bg-white' : 'border-amber-200 bg-amber-50'
+            }`}
+          >
             {/* Tool call info - fixed at top, always visible */}
             {currentToolCall && (
-              <div className={`p-2.5 shrink-0 ${
-                streamingContent ? 'bg-amber-50 border-b border-amber-200/50' : ''
-              }`}>
+              <div
+                className={`shrink-0 p-2.5 ${
+                  streamingContent ? 'border-b border-amber-200/50 bg-amber-50' : ''
+                }`}
+              >
                 <div className="flex items-center gap-2">
-                  <Loader2 size={12} className="animate-spin text-amber-600 shrink-0" />
+                  <Loader2 size={12} className="shrink-0 animate-spin text-amber-600" />
                   <span className="text-[10px] font-medium text-amber-700">
                     {t('workspace.callingTool') || 'Calling Tool'}:
                   </span>
-                  <span className="text-[10px] font-mono font-bold text-amber-900 truncate">
+                  <span className="truncate font-mono text-[10px] font-bold text-amber-900">
                     {currentToolCall.tool}
                   </span>
                 </div>
                 {Object.keys(currentToolCall.input).length > 0 && (
-                  <div className="mt-1.5 text-[9px] font-mono text-amber-800/70 bg-amber-100/50 rounded px-2 py-1 max-h-16 overflow-y-auto">
+                  <div className="mt-1.5 max-h-16 overflow-y-auto rounded bg-amber-100/50 px-2 py-1 font-mono text-[9px] text-amber-800/70">
                     {JSON.stringify(currentToolCall.input, null, 2)}
                   </div>
                 )}
@@ -117,11 +135,11 @@ export function CopilotStreaming({
             )}
             {/* Streaming content - scrollable area below tool call */}
             {streamingContent && (
-              <div className="relative group">
+              <div className="group relative">
                 {/* Copy button */}
                 <button
                   onClick={onCopyStreaming}
-                  className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded hover:bg-gray-100 z-10"
+                  className="absolute right-1 top-1 z-10 rounded p-1.5 opacity-0 transition-opacity hover:bg-gray-100 group-hover:opacity-100"
                   title="复制"
                 >
                   {copiedStreaming ? (
@@ -133,9 +151,9 @@ export function CopilotStreaming({
                 {/* Scrollable content */}
                 <div
                   ref={streamingContentRef}
-                  className="p-3 pr-5 max-h-64 overflow-y-auto custom-scrollbar"
+                  className="custom-scrollbar max-h-64 overflow-y-auto p-3 pr-5"
                 >
-                  <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
+                  <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-700">
                     {streamingContent}
                   </p>
                 </div>
@@ -146,15 +164,16 @@ export function CopilotStreaming({
 
         {/* Tool results display - grouped by type with collapse */}
         {toolResults.length > 0 && (
-          <div className="bg-green-50 rounded-xl border border-green-200 p-2 space-y-1.5 animate-in fade-in duration-200">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold text-green-700 uppercase tracking-wider px-1">
+          <div className="space-y-1.5 rounded-xl border border-green-200 bg-green-50 p-2 duration-200 animate-in fade-in">
+            <div className="flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-green-700">
               <Check size={10} /> {t('workspace.toolResults') || 'Tool Results'}
             </div>
             {types.map((type) => {
               const results = grouped[type]
               const isExpanded = expandedToolTypes.has(type)
               const hasMultiple = results.length > 1
-              const visibleResults = hasMultiple && !isExpanded ? [results[results.length - 1]] : results
+              const visibleResults =
+                hasMultiple && !isExpanded ? [results[results.length - 1]] : results
               const hiddenCount = hasMultiple && !isExpanded ? results.length - 1 : 0
 
               return (
@@ -162,24 +181,24 @@ export function CopilotStreaming({
                   {visibleResults.map((result, idx) => (
                     <div
                       key={`${type}-${result.originalIndex}`}
-                      className="flex items-center gap-2 bg-white/60 p-1.5 rounded-lg border border-green-100/50"
+                      className="flex items-center gap-2 rounded-lg border border-green-100/50 bg-white/60 p-1.5"
                     >
-                      <div className="w-4 h-4 rounded-full bg-green-100 text-green-600 flex items-center justify-center shrink-0">
+                      <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-600">
                         <Check size={8} strokeWidth={4} />
                       </div>
-                      <div className="flex flex-col min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-1 flex-col">
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-mono font-medium text-green-900">
+                          <span className="font-mono text-[10px] font-medium text-green-900">
                             {result.type}
                           </span>
                           {hasMultiple && !isExpanded && idx === visibleResults.length - 1 && (
-                            <span className="text-[9px] text-green-600 font-medium bg-green-100/50 px-1.5 py-0.5 rounded">
+                            <span className="rounded bg-green-100/50 px-1.5 py-0.5 text-[9px] font-medium text-green-600">
                               {results.length} 项
                             </span>
                           )}
                         </div>
                         {result.reasoning && (
-                          <span className="text-[9px] text-green-700 line-clamp-2 mt-0.5">
+                          <span className="mt-0.5 line-clamp-2 text-[9px] text-green-700">
                             {result.reasoning}
                           </span>
                         )}
@@ -189,19 +208,23 @@ export function CopilotStreaming({
                   {hiddenCount > 0 && (
                     <button
                       onClick={() => onToggleToolType(type)}
-                      className="flex items-center gap-1.5 text-[9px] text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors w-full text-left"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[9px] text-green-600 transition-colors hover:bg-green-100/50 hover:text-green-700"
                     >
                       <ChevronDown size={10} />
-                      <span>展开 {hiddenCount} 个已折叠的 {type} 操作</span>
+                      <span>
+                        展开 {hiddenCount} 个已折叠的 {type} 操作
+                      </span>
                     </button>
                   )}
                   {isExpanded && hasMultiple && (
                     <button
                       onClick={() => onToggleToolType(type)}
-                      className="flex items-center gap-1.5 text-[9px] text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors w-full text-left"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[9px] text-green-600 transition-colors hover:bg-green-100/50 hover:text-green-700"
                     >
                       <ChevronUp size={10} />
-                      <span>折叠 {results.length - 1} 个 {type} 操作</span>
+                      <span>
+                        折叠 {results.length - 1} 个 {type} 操作
+                      </span>
                     </button>
                   )}
                 </div>

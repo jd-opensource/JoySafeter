@@ -41,13 +41,13 @@ const ColorPicker = forwardRef<
           style={{
             backgroundColor: parsedValue,
           }}
-          variant='outline'
+          variant="outline"
         >
           <div />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className='w-full'>
-        <div className='space-y-3'>
+      <PopoverContent className="w-full">
+        <div className="space-y-3">
           <HexColorPicker color={parsedValue} onChange={onChange} />
           <Input
             maxLength={7}

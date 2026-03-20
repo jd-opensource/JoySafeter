@@ -32,7 +32,7 @@ export interface WorkspaceUserPermissions {
 export function useUserPermissions(
   workspacePermissions: WorkspacePermissions | null,
   permissionsLoading = false,
-  permissionsError: string | null = null
+  permissionsError: string | null = null,
 ): WorkspaceUserPermissions {
   const { data: session } = useSession()
 
@@ -52,7 +52,7 @@ export function useUserPermissions(
     }
 
     const currentUser = workspacePermissions?.users?.find(
-      (user) => user.email.toLowerCase() === sessionEmail.toLowerCase()
+      (user) => user.email.toLowerCase() === sessionEmail.toLowerCase(),
     )
 
     if (!currentUser) {

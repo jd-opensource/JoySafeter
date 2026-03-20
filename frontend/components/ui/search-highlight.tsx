@@ -35,7 +35,7 @@ export function SearchHighlight({ text, searchQuery, className = '' }: SearchHig
         return isMatch ? (
           <span
             key={index}
-            className='bg-yellow-200 text-yellow-900 dark:bg-yellow-900/50 dark:text-yellow-200'
+            className="bg-yellow-200 text-yellow-900 dark:bg-yellow-900/50 dark:text-yellow-200"
           >
             {part}
           </span>

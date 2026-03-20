@@ -75,11 +75,11 @@ function ResetPasswordContent() {
 
   return (
     <>
-      <div className='space-y-1 text-center'>
-        <h1 className={`${soehne.className} font-medium text-[32px] text-black tracking-tight`}>
+      <div className="space-y-1 text-center">
+        <h1 className={`${soehne.className} text-[32px] font-medium tracking-tight text-black`}>
           Reset your password
         </h1>
-        <p className={`${inter.className} font-[380] text-[16px] text-muted-foreground`}>
+        <p className={`${inter.className} text-[16px] font-[380] text-muted-foreground`}>
           Enter a new password for your account
         </p>
       </div>
@@ -94,10 +94,10 @@ function ResetPasswordContent() {
         />
       </div>
 
-      <div className={`${inter.className} pt-6 text-center font-light text-[14px]`}>
+      <div className={`${inter.className} pt-6 text-center text-[14px] font-light`}>
         <Link
-          href='/signin'
-          className='font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline'
+          href="/signin"
+          className="font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline"
         >
           Back to signin
         </Link>
@@ -109,7 +109,7 @@ function ResetPasswordContent() {
 export default function ResetPasswordPage() {
   return (
     <Suspense
-      fallback={<div className='flex h-screen items-center justify-center'>Loading...</div>}
+      fallback={<div className="flex h-screen items-center justify-center">Loading...</div>}
     >
       <ResetPasswordContent />
     </Suspense>

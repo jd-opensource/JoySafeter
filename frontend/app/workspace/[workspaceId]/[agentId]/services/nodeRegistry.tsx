@@ -30,13 +30,13 @@ export type FieldType =
   | 'skillSelector'
   | 'kvList'
   | 'boolean'
-  | 'routeList'        // Route rule list
-  | 'conditionExpr'    // Conditional expression editor
-  | 'stringArray'      // String array input
-  | 'dockerConfig'     // Docker configuration editor
-  | 'stateSelect'      // State variable selector
-  | 'stateMapper'      // Visual input mapper
-  | 'code'             // Code editor
+  | 'routeList' // Route rule list
+  | 'conditionExpr' // Conditional expression editor
+  | 'stringArray' // String array input
+  | 'dockerConfig' // Docker configuration editor
+  | 'stateSelect' // State variable selector
+  | 'stateMapper' // Visual input mapper
+  | 'code' // Code editor
 
 export interface FieldSchema {
   key: string
@@ -51,11 +51,11 @@ export interface FieldSchema {
   max?: number
   step?: number
   // For conditionExpr type
-  variables?: string[]  // Available variable hints
+  variables?: string[] // Available variable hints
   // Conditional display: only show when a field equals certain values
   showWhen?: {
-    field: string                    // Dependent field key
-    values: (string | boolean | number)[]  // Show when field value is in this array
+    field: string // Dependent field key
+    values: (string | boolean | number)[] // Show when field value is in this array
   }
 }
 
@@ -94,8 +94,7 @@ const REGISTRY: NodeDefinition[] = [
       systemPrompt: '',
       enableMemory: false,
       memoryModel: 'DeepSeek-Chat',
-      memoryPrompt:
-        'Summarize the interaction highlights and key facts learned about the user.',
+      memoryPrompt: 'Summarize the interaction highlights and key facts learned about the user.',
       useDeepAgents: false,
       description: '',
       backend_type: 'docker',
@@ -169,8 +168,7 @@ const REGISTRY: NodeDefinition[] = [
         key: 'docker_config',
         label: 'Docker Configuration',
         type: 'dockerConfig',
-        description:
-          'Docker sandbox configuration. Only used when backend_type is "docker".',
+        description: 'Docker sandbox configuration. Only used when backend_type is "docker".',
         showWhen: {
           field: 'backend_type',
           values: ['docker'],
@@ -236,8 +234,10 @@ const REGISTRY: NodeDefinition[] = [
         key: 'instruction',
         label: 'Routing Instruction',
         type: 'textarea',
-        placeholder: 'Example: If user sentiment is positive, route to positive branch; otherwise route to negative branch',
-        description: 'Tell AI how to make routing decisions based on current context. AI will analyze message content and state, then select the corresponding route branch.',
+        placeholder:
+          'Example: If user sentiment is positive, route to positive branch; otherwise route to negative branch',
+        description:
+          'Tell AI how to make routing decisions based on current context. AI will analyze message content and state, then select the corresponding route branch.',
         required: true,
       },
       {
@@ -245,7 +245,8 @@ const REGISTRY: NodeDefinition[] = [
         label: 'Route Options',
         type: 'stringArray',
         placeholder: '输入选项名称（如：positive）',
-        description: '定义可用的路由分支列表。每个选项对应一个从该节点出发的连接。例如：positive, negative, neutral',
+        description:
+          '定义可用的路由分支列表。每个选项对应一个从该节点出发的连接。例如：positive, negative, neutral',
       },
     ],
   },
@@ -357,7 +358,8 @@ const REGISTRY: NodeDefinition[] = [
         key: 'routes',
         label: 'Route Rules',
         type: 'routeList',
-        description: 'Define conditions for each outgoing edge. Rules are evaluated in priority order.',
+        description:
+          'Define conditions for each outgoing edge. Rules are evaluated in priority order.',
         required: true,
       },
       {
@@ -486,7 +488,8 @@ const REGISTRY: NodeDefinition[] = [
         label: 'Variables',
         type: 'stateMapper',
         placeholder: 'Map state variables to local variables',
-        description: 'Define input variables. Mapped variables will be directly available in your custom code as local variables.',
+        description:
+          'Define input variables. Mapped variables will be directly available in your custom code as local variables.',
         showWhen: { field: 'execution_mode', values: ['custom'] },
       },
       {
@@ -502,7 +505,8 @@ const REGISTRY: NodeDefinition[] = [
         label: 'Output Mapping',
         type: 'stateMapper',
         placeholder: 'Map function result to state variables',
-        description: 'Define how the function result maps to state variables. E.g., if result={"a": 1}, map "a" to a state variable.',
+        description:
+          'Define how the function result maps to state variables. E.g., if result={"a": 1}, map "a" to a state variable.',
         showWhen: { field: 'execution_mode', values: ['custom', 'predefined'] },
       },
     ],
@@ -543,7 +547,8 @@ const REGISTRY: NodeDefinition[] = [
         label: 'Aggregation Method',
         type: 'select',
         options: ['append', 'merge', 'sum', 'latest'],
-        description: 'How to combine values: Append (List), Merge (Dict), Sum (Number), Latest (Last Value)',
+        description:
+          'How to combine values: Append (List), Merge (Dict), Sum (Number), Latest (Last Value)',
         required: true,
       },
       {
@@ -658,14 +663,16 @@ const REGISTRY: NodeDefinition[] = [
         label: 'State Variables to Fetch',
         type: 'stringArray',
         placeholder: 'user_preferences, session_id',
-        description: 'List of global state variable names to load into the local execution payload.',
+        description:
+          'List of global state variable names to load into the local execution payload.',
         required: true,
       },
       {
         key: 'error_on_missing',
         label: 'Error on Missing',
         type: 'boolean',
-        description: 'If true, execution fails if a requested variable is not found in the global state.',
+        description:
+          'If true, execution fails if a requested variable is not found in the global state.',
       },
     ],
   },
@@ -686,7 +693,8 @@ const REGISTRY: NodeDefinition[] = [
         label: 'State Mapping',
         type: 'stateMapper',
         placeholder: 'Map payload values to global state variables',
-        description: 'Explicitly map values from the local execution payload (or upstream outputs) into the global GraphState.',
+        description:
+          'Explicitly map values from the local execution payload (or upstream outputs) into the global GraphState.',
       },
     ],
   },
@@ -854,21 +862,27 @@ export const nodeRegistry = {
    * Group definitions for the sidebar UI
    */
   getGrouped: () => {
-    const visibleRegistry = REGISTRY.filter((n) => !n.hidden);
+    const visibleRegistry = REGISTRY.filter((n) => !n.hidden)
     return {
       Agents: visibleRegistry.filter((n) => ['agent', 'code_agent', 'a2a_agent'].includes(n.type)),
       'Flow Control': visibleRegistry.filter((n) =>
-        ['condition', 'condition_agent', 'router_node', 'loop_condition_node'].includes(n.type)
+        ['condition', 'condition_agent', 'router_node', 'loop_condition_node'].includes(n.type),
       ),
       'State Management': visibleRegistry.filter((n) =>
-        ['get_state_node', 'set_state_node'].includes(n.type)
+        ['get_state_node', 'set_state_node'].includes(n.type),
       ),
       Actions: visibleRegistry.filter((n) =>
-        ['custom_function', 'http_request_node', 'human_input', 'direct_reply', 'tool_node', 'function_node', 'json_parser_node'].includes(n.type)
+        [
+          'custom_function',
+          'http_request_node',
+          'human_input',
+          'direct_reply',
+          'tool_node',
+          'function_node',
+          'json_parser_node',
+        ].includes(n.type),
       ),
-      Aggregation: visibleRegistry.filter((n) =>
-        ['aggregator_node'].includes(n.type)
-      ),
+      Aggregation: visibleRegistry.filter((n) => ['aggregator_node'].includes(n.type)),
     }
   },
 }

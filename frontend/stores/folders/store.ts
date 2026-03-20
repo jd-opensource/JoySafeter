@@ -82,7 +82,7 @@ export const useFolderStore = create<FolderState>()(
                 acc[folder.id] = folder
                 return acc
               },
-              {} as Record<string, WorkflowFolder>
+              {} as Record<string, WorkflowFolder>,
             ),
           })),
 
@@ -136,9 +136,7 @@ export const useFolderStore = create<FolderState>()(
         reset: () => set(initialState),
 
         getFolderTree: (workspaceId) => {
-          const folders = Object.values(get().folders).filter(
-            (f) => f.workspaceId === workspaceId
-          )
+          const folders = Object.values(get().folders).filter((f) => f.workspaceId === workspaceId)
 
           const buildTree = (parentId: string | null, level = 0): FolderTreeNode[] => {
             // Limit to MAX_FOLDER_DEPTH levels
@@ -204,8 +202,8 @@ export const useFolderStore = create<FolderState>()(
             state.expandedFolders = new Set(state.expandedFolders as unknown as string[])
           }
         },
-      }
+      },
     ),
-    { name: 'folder-store' }
-  )
+    { name: 'folder-store' },
+  ),
 )

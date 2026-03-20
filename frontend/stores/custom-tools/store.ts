@@ -37,7 +37,7 @@ export const useCustomToolsStore = create<CustomToolsStore>((set, get) => ({
       acc[tool.id] = tool
       return acc
     },
-    {} as Record<string, CustomTool>
+    {} as Record<string, CustomTool>,
   ),
   isLoading: false,
   error: null,
@@ -50,7 +50,7 @@ export const useCustomToolsStore = create<CustomToolsStore>((set, get) => ({
           acc[tool.id] = tool
           return acc
         },
-        {} as Record<string, CustomTool>
+        {} as Record<string, CustomTool>,
       ),
     })
   },

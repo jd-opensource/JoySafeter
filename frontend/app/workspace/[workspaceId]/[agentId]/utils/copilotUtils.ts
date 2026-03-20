@@ -53,7 +53,7 @@ export function formatActionContent(action: GraphAction): string {
  */
 export function hasCurrentMessage(
   messages: Array<{ role: string; text?: string }>,
-  checkEmptyText = true
+  checkEmptyText = true,
 ): boolean {
   if (messages.length === 0) return false
   const lastMessage = messages[messages.length - 1]
@@ -66,38 +66,38 @@ export function hasCurrentMessage(
  * Get stage display configuration
  */
 export function getStageConfig(
-  t: (key: string, options?: { defaultValue?: string }) => string
+  t: (key: string, options?: { defaultValue?: string }) => string,
 ): Record<StageType, { icon: string; color: string; label: string }> {
   return {
     thinking: {
       icon: '💭',
       color: 'text-purple-600',
-      label: t('copilot.stage.thinking', { defaultValue: '思考中' })
+      label: t('copilot.stage.thinking', { defaultValue: '思考中' }),
     },
     processing: {
       icon: '✨',
       color: 'text-green-600',
-      label: t('copilot.stage.processing', { defaultValue: '处理中' })
+      label: t('copilot.stage.processing', { defaultValue: '处理中' }),
     },
     generating: {
       icon: '🔧',
       color: 'text-amber-600',
-      label: t('copilot.stage.generating', { defaultValue: '生成节点' })
+      label: t('copilot.stage.generating', { defaultValue: '生成节点' }),
     },
     analyzing: {
       icon: '🔍',
       color: 'text-blue-600',
-      label: t('copilot.stage.analyzing', { defaultValue: '需求分析' })
+      label: t('copilot.stage.analyzing', { defaultValue: '需求分析' }),
     },
     planning: {
       icon: '📋',
       color: 'text-indigo-600',
-      label: t('copilot.stage.planning', { defaultValue: '架构计划' })
+      label: t('copilot.stage.planning', { defaultValue: '架构计划' }),
     },
     validating: {
       icon: '🛡️',
       color: 'text-teal-600',
-      label: t('copilot.stage.validating', { defaultValue: '方案验证' })
+      label: t('copilot.stage.validating', { defaultValue: '方案验证' }),
     },
   }
 }

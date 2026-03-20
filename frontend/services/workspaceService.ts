@@ -47,11 +47,11 @@ export const workspaceService = {
    */
   async getMembers(
     workspaceId: string,
-    params?: { page?: number; pageSize?: number }
+    params?: { page?: number; pageSize?: number },
   ): Promise<PaginatedMembersResponse> {
     const { page = 1, pageSize = 10 } = params || {}
     return apiGet<PaginatedMembersResponse>(
-      `${API_ENDPOINTS.workspaces}/${workspaceId}/members?page=${page}&page_size=${pageSize}`
+      `${API_ENDPOINTS.workspaces}/${workspaceId}/members?page=${page}&page_size=${pageSize}`,
     )
   },
 
@@ -61,13 +61,13 @@ export const workspaceService = {
   async searchUsers(
     workspaceId: string,
     keyword: string,
-    limit: number = 10
+    limit: number = 10,
   ): Promise<{ users: SearchedUser[] }> {
     if (!keyword.trim() || keyword.length < 2) {
       return { users: [] }
     }
     return apiGet<{ users: SearchedUser[] }>(
-      `${API_ENDPOINTS.workspaces}/${workspaceId}/search-users?keyword=${encodeURIComponent(keyword)}&limit=${limit}`
+      `${API_ENDPOINTS.workspaces}/${workspaceId}/search-users?keyword=${encodeURIComponent(keyword)}&limit=${limit}`,
     )
   },
 
@@ -77,11 +77,11 @@ export const workspaceService = {
   async addMember(
     workspaceId: string,
     email: string,
-    role: string
+    role: string,
   ): Promise<{ member: WorkspaceMember }> {
     return apiPost<{ member: WorkspaceMember }>(
       `${API_ENDPOINTS.workspaces}/${workspaceId}/members`,
-      { email, role }
+      { email, role },
     )
   },
 
@@ -91,29 +91,23 @@ export const workspaceService = {
   async updateMemberRole(
     workspaceId: string,
     userId: string,
-    role: string
+    role: string,
   ): Promise<{ member: WorkspaceMember }> {
-    return apiPatch<{ member: WorkspaceMember }>(
-      `${API_ENDPOINTS.workspaces}/members/${userId}`,
-      {
-        workspaceId,
-        role,
-      }
-    )
+    return apiPatch<{ member: WorkspaceMember }>(`${API_ENDPOINTS.workspaces}/members/${userId}`, {
+      workspaceId,
+      role,
+    })
   },
 
   /**
    * Remove member
    */
   async removeMember(workspaceId: string, userId: string): Promise<{ success: boolean }> {
-    return apiFetch<{ success: boolean }>(
-      `${API_ENDPOINTS.workspaces}/members/${userId}`,
-      {
-        method: 'DELETE',
-        body: {
-          workspaceId,
-        },
-      }
-    )
+    return apiFetch<{ success: boolean }>(`${API_ENDPOINTS.workspaces}/members/${userId}`, {
+      method: 'DELETE',
+      body: {
+        workspaceId,
+      },
+    })
   },
 }

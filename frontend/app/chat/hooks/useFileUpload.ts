@@ -19,77 +19,85 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const uploadFile = useCallback(async (file: File) => {
-    const validation = isAllowedFile(file)
-    if (!validation.allowed) {
-      toastError(
-        validation.reason || t('chat.fileNotAllowed', { defaultValue: '文件不符合要求' }),
-        t('chat.fileUploadFailed')
-      )
-      return
-    }
-
-    setIsUploading(true)
-    try {
-      const fileData = await apiUpload<{ filename: string; path: string; size: number; message: string }>(
-        `${API_BASE}/files/upload`,
-        file
-      )
-
-      if (!fileData || !fileData.filename || !fileData.path) {
+  const uploadFile = useCallback(
+    async (file: File) => {
+      const validation = isAllowedFile(file)
+      if (!validation.allowed) {
         toastError(
-          t('chat.uploadFailed', { defaultValue: '上传失败，响应格式异常' }),
-          t('chat.fileUploadFailed')
+          validation.reason || t('chat.fileNotAllowed', { defaultValue: '文件不符合要求' }),
+          t('chat.fileUploadFailed'),
         )
         return
       }
 
-      const uploadedFile: UploadedFile = {
-        id: Date.now().toString(),
-        filename: fileData.filename,
-        path: fileData.path,
-        size: fileData.size,
-      }
-      setFiles((prev) => [...prev, uploadedFile])
-      toastSuccess(fileData.filename, t('chat.fileUploaded'))
-      options.onFileUploaded?.(uploadedFile, file)
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : typeof error === 'string'
-          ? error
-          : t('chat.retry', { defaultValue: '请重试' })
-      toastError(errorMessage, t('chat.fileUploadFailed'))
-    } finally {
-      setIsUploading(false)
-    }
-  }, [t, options])
+      setIsUploading(true)
+      try {
+        const fileData = await apiUpload<{
+          filename: string
+          path: string
+          size: number
+          message: string
+        }>(`${API_BASE}/files/upload`, file)
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = e.target.files
-    if (selectedFiles && selectedFiles.length > 0) {
-      if (selectedFiles.length > UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD) {
-        toastError(
-          t('chat.tooManyFiles', {
-            defaultValue: '最多只能同时上传 {{maxFiles}} 个文件',
-            maxFiles: UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD,
-          }),
-          t('chat.fileUploadFailed')
-        )
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
+        if (!fileData || !fileData.filename || !fileData.path) {
+          toastError(
+            t('chat.uploadFailed', { defaultValue: '上传失败，响应格式异常' }),
+            t('chat.fileUploadFailed'),
+          )
+          return
         }
-        return
+
+        const uploadedFile: UploadedFile = {
+          id: Date.now().toString(),
+          filename: fileData.filename,
+          path: fileData.path,
+          size: fileData.size,
+        }
+        setFiles((prev) => [...prev, uploadedFile])
+        toastSuccess(fileData.filename, t('chat.fileUploaded'))
+        options.onFileUploaded?.(uploadedFile, file)
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : typeof error === 'string'
+              ? error
+              : t('chat.retry', { defaultValue: '请重试' })
+        toastError(errorMessage, t('chat.fileUploadFailed'))
+      } finally {
+        setIsUploading(false)
       }
-      Array.from(selectedFiles).forEach((file) => {
-        uploadFile(file)
-      })
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-  }, [t, uploadFile])
+    },
+    [t, options],
+  )
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const selectedFiles = e.target.files
+      if (selectedFiles && selectedFiles.length > 0) {
+        if (selectedFiles.length > UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD) {
+          toastError(
+            t('chat.tooManyFiles', {
+              defaultValue: '最多只能同时上传 {{maxFiles}} 个文件',
+              maxFiles: UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD,
+            }),
+            t('chat.fileUploadFailed'),
+          )
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+          return
+        }
+        Array.from(selectedFiles).forEach((file) => {
+          uploadFile(file)
+        })
+      }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    },
+    [t, uploadFile],
+  )
 
   const removeFile = useCallback((fileId: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== fileId))

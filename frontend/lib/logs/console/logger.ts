@@ -87,7 +87,7 @@ const formatObject = (obj: unknown): string => {
           name: obj.name,
         },
         null,
-        ENV === 'development' ? 2 : 0
+        ENV === 'development' ? 2 : 0,
       )
     }
     return JSON.stringify(obj, null, ENV === 'development' ? 2 : 0)

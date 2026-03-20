@@ -22,11 +22,13 @@ export function syncThemeToNextThemes(theme: 'light' | 'dark' | 'system'): void 
       localStorage.setItem(storageKey, theme)
     }
 
-    window.dispatchEvent(new StorageEvent('storage', {
-      key: storageKey,
-      newValue: theme === 'system' ? null : theme,
-      storageArea: localStorage,
-    }))
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: storageKey,
+        newValue: theme === 'system' ? null : theme,
+        storageArea: localStorage,
+      }),
+    )
 
     const htmlElement = document.documentElement
     if (theme === 'dark') {

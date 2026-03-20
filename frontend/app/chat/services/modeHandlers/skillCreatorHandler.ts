@@ -57,7 +57,7 @@ export const skillCreatorHandler: ModeHandler = {
       const graph = await findOrCreateGraphByTemplate(
         modeConfig.templateGraphName,
         modeConfig.templateName,
-        context.personalWorkspaceId
+        context.personalWorkspaceId,
       )
 
       // Refresh query cache so other UI components see the graph
@@ -85,7 +85,7 @@ export const skillCreatorHandler: ModeHandler = {
   async onSubmit(
     input: string,
     files: UploadedFile[],
-    context: ModeContext
+    context: ModeContext,
   ): Promise<SubmitResult> {
     return { success: true, processedInput: input }
   },

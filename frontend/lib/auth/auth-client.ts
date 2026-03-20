@@ -61,7 +61,9 @@ export function useSession(): SessionHookResult {
     data: data ?? null,
     isPending,
     error: error as Error | null,
-    refetch: async () => { await refetch() },
+    refetch: async () => {
+      await refetch()
+    },
   }
 }
 

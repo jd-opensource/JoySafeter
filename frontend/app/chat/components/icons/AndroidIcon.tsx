@@ -5,11 +5,9 @@
 import React from 'react'
 import { SVGProps } from 'react'
 
-export const AndroidIcon: React.FC<{ className?: string; size?: number } & SVGProps<SVGSVGElement>> = ({
-  className,
-  size = 18,
-  ...props
-}) => (
+export const AndroidIcon: React.FC<
+  { className?: string; size?: number } & SVGProps<SVGSVGElement>
+> = ({ className, size = 18, ...props }) => (
   <svg
     width={size}
     height={size}

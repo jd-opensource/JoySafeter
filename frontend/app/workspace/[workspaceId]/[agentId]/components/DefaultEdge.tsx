@@ -61,12 +61,7 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={edgeStyle}
-        markerEnd={markerEnd}
-      />
+      <BaseEdge id={id} path={edgePath} style={edgeStyle} markerEnd={markerEnd} />
       {/* Edge label if available - positioned at the middle of the edge line */}
       {edgeData.label && (
         <EdgeLabelRenderer>
@@ -77,7 +72,7 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
               fontSize: 10,
               pointerEvents: 'all',
             }}
-            className="nodrag nopan bg-white border border-gray-300 text-gray-700 px-2 py-0.5 rounded shadow-sm font-medium"
+            className="nodrag nopan rounded border border-gray-300 bg-white px-2 py-0.5 font-medium text-gray-700 shadow-sm"
           >
             {edgeData.label}
           </div>

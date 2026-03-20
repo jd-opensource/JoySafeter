@@ -65,7 +65,7 @@ export function useFolders(workspaceId?: string) {
 
       logger.info('Fetching folders from API', { workspaceId })
       const result = await apiGet<ListFoldersResponse>(
-        `${API_ENDPOINTS.folders}?workspaceId=${encodeURIComponent(workspaceId)}`
+        `${API_ENDPOINTS.folders}?workspaceId=${encodeURIComponent(workspaceId)}`,
       )
       const folders = result.folders.map(mapFolderDtoToModel)
       return folders
@@ -163,7 +163,7 @@ export function useUpdateFolder() {
 
       const result = await apiPut<UpdateFolderResponse>(
         `${API_ENDPOINTS.folders}/${encodeURIComponent(id)}`,
-        payload
+        payload,
       )
 
       return mapFolderDtoToModel(result.folder)
@@ -246,7 +246,7 @@ export function useDuplicateFolderMutation() {
           name,
           parentId: parentId ?? null,
           color,
-        }
+        },
       )
 
       const dto: WorkflowFolderDto = {

@@ -71,7 +71,10 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
       wsRef.current.onerror = null
 
       // Close connection if still open or connecting
-      if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+      if (
+        wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING
+      ) {
         wsRef.current.close()
       }
       wsRef.current = null
@@ -113,8 +116,10 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
           const notification: NotificationMessage = JSON.parse(event.data)
           setLastNotification(notification)
 
-          switch (notification.type) {
+          switch (
+            notification.type
             // Future notification types can be handled here
+          ) {
           }
 
           onNotificationRef.current?.(notification)
@@ -133,7 +138,11 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
 
         const noReconnectCodes = [1000, 4001, 4003]
 
-        if (autoReconnect && !noReconnectCodes.includes(event.code) && reconnectAttemptsRef.current < maxReconnectAttempts) {
+        if (
+          autoReconnect &&
+          !noReconnectCodes.includes(event.code) &&
+          reconnectAttemptsRef.current < maxReconnectAttempts
+        ) {
           reconnectAttemptsRef.current++
           reconnectTimeoutRef.current = setTimeout(() => {
             connect()

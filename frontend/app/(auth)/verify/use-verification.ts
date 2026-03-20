@@ -76,7 +76,7 @@ export function useVerification({
 
       // Whitelist check: only allow specific paths
       const allowedPaths = ['/chat', '/workspace', '/dashboard']
-      const isAllowed = allowedPaths.some(path => url.startsWith(path))
+      const isAllowed = allowedPaths.some((path) => url.startsWith(path))
 
       if (!isAllowed) {
         logger.warn('Invalid redirect URL: not in whitelist', { url })

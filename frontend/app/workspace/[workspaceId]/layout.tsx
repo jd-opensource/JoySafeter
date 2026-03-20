@@ -37,7 +37,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <GlobalCommandsProvider>
         <Sidebar />
         <div
-          className='flex-1 h-full overflow-hidden transition-all duration-300'
+          className="h-full flex-1 overflow-hidden transition-all duration-300"
           style={{ marginLeft: `${contentMarginLeft}px` }}
         >
           {children}

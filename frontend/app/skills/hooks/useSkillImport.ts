@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
 
-
 // File is the browser's native File type (from FileList), not a custom type
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
@@ -38,61 +37,63 @@ export function useSkillImport() {
     setRejectedFiles(validation.rejectedFiles || [])
   }, [])
 
-  const handleImportLocal = useCallback(async (
-    onImportSuccess: (skillFiles: any[], parsedFrontmatter: any) => Promise<void>
-  ) => {
-    if (!localImportValidation?.valid || localImportFiles.length === 0) {
-      return
-    }
+  const handleImportLocal = useCallback(
+    async (onImportSuccess: (skillFiles: any[], parsedFrontmatter: any) => Promise<void>) => {
+      if (!localImportValidation?.valid || localImportFiles.length === 0) {
+        return
+      }
 
-    setActionLoading(true)
-    try {
-      // Convert files to SkillFile format
-      const { skillFiles, rejectedFiles: rejected } = await convertFilesToSkillFiles(localImportFiles)
+      setActionLoading(true)
+      try {
+        // Convert files to SkillFile format
+        const { skillFiles, rejectedFiles: rejected } =
+          await convertFilesToSkillFiles(localImportFiles)
 
-      // Store rejected files for display
-      setRejectedFiles(rejected)
+        // Store rejected files for display
+        setRejectedFiles(rejected)
 
-      // Check for rejected binary files
-      if (rejected.length > 0) {
-        // Still continue if we have valid files, but show warning
-        if (skillFiles.length === 0) {
-          toast({
-            variant: 'destructive',
-            title: t('skills.importFailed'),
-            description: t('skills.allFilesBinary'),
-          })
-          setActionLoading(false)
-          return
+        // Check for rejected binary files
+        if (rejected.length > 0) {
+          // Still continue if we have valid files, but show warning
+          if (skillFiles.length === 0) {
+            toast({
+              variant: 'destructive',
+              title: t('skills.importFailed'),
+              description: t('skills.allFilesBinary'),
+            })
+            setActionLoading(false)
+            return
+          }
         }
+
+        // Find SKILL.md and parse its content
+        const skillMdFile = skillFiles.find((f) => f.path === 'SKILL.md')
+        if (!skillMdFile?.content) {
+          throw new Error('SKILL.md content is required')
+        }
+
+        const { parseSkillMd } = await import('@/services/skillService')
+        const parsed = parseSkillMd(skillMdFile.content)
+
+        await onImportSuccess(skillFiles, parsed.frontmatter)
+
+        // Reset import state
+        setImportModal(null)
+        toast({ title: t('skills.localImportSuccess') })
+      } catch (e) {
+        console.error('Import failed:', e)
+        const description = getSkillValidationMessage(e, t)
+        toast({
+          variant: 'destructive',
+          title: t('skills.importFailed'),
+          ...(description && { description }),
+        })
+      } finally {
+        setActionLoading(false)
       }
-
-      // Find SKILL.md and parse its content
-      const skillMdFile = skillFiles.find(f => f.path === 'SKILL.md')
-      if (!skillMdFile?.content) {
-        throw new Error('SKILL.md content is required')
-      }
-
-      const { parseSkillMd } = await import('@/services/skillService')
-      const parsed = parseSkillMd(skillMdFile.content)
-
-      await onImportSuccess(skillFiles, parsed.frontmatter)
-
-      // Reset import state
-      setImportModal(null)
-      toast({ title: t('skills.localImportSuccess') })
-    } catch (e) {
-      console.error('Import failed:', e)
-      const description = getSkillValidationMessage(e, t)
-      toast({
-        variant: 'destructive',
-        title: t('skills.importFailed'),
-        ...(description && { description }),
-      })
-    } finally {
-      setActionLoading(false)
-    }
-  }, [localImportValidation, localImportFiles, toast, t])
+    },
+    [localImportValidation, localImportFiles, toast, t],
+  )
 
   const resetImport = useCallback(() => {
     setImportModal(null)

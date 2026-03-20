@@ -87,7 +87,15 @@ export interface MemoryQueryParams {
  * Fetch paginated memories list
  */
 export function useMemories(params: MemoryQueryParams = {}) {
-  const { page = 1, limit = 20, search_content, topics, agent_id, sort_by = 'updated_at', sort_order = 'desc' } = params
+  const {
+    page = 1,
+    limit = 20,
+    search_content,
+    topics,
+    agent_id,
+    sort_by = 'updated_at',
+    sort_order = 'desc',
+  } = params
 
   const queryParams = new URLSearchParams()
   queryParams.set('page', page.toString())
@@ -137,8 +145,7 @@ export function useCreateMemory() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (data: MemoryCreateRequest) =>
-      apiPost<UserMemory>(`${MEMORY_API}/memories`, data),
+    mutationFn: (data: MemoryCreateRequest) => apiPost<UserMemory>(`${MEMORY_API}/memories`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: memoryKeys.all })
     },
@@ -168,8 +175,7 @@ export function useDeleteMemory() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (memoryId: string) =>
-      apiDelete<void>(`${MEMORY_API}/memories/${memoryId}`),
+    mutationFn: (memoryId: string) => apiDelete<void>(`${MEMORY_API}/memories/${memoryId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: memoryKeys.all })
     },

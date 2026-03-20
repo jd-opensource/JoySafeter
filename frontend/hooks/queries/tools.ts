@@ -38,16 +38,18 @@ export function useBuiltinTools(options?: { enabled?: boolean }) {
     queryKey: toolKeys.builtin(),
     queryFn: async (): Promise<BuiltinTool[]> => {
       // apiGet automatically unwraps response.data, returns tool array directly
-      const tools = await apiGet<Array<{
-        id: string
-        label: string
-        name: string
-        description?: string
-        tool_type: string
-        category?: string | null
-        tags?: string[]
-        mcp_server?: string | null
-      }>>('tools/builtin')
+      const tools = await apiGet<
+        Array<{
+          id: string
+          label: string
+          name: string
+          description?: string
+          tool_type: string
+          category?: string | null
+          tags?: string[]
+          mcp_server?: string | null
+        }>
+      >('tools/builtin')
       return (tools || []).map((tool) => ({
         id: tool.id,
         label: tool.label,

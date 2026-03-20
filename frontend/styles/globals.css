@@ -193,7 +193,9 @@
 }
 
 .react-flow__handle {
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .react-flow__handle:hover {
@@ -306,7 +308,8 @@ body.dragging-block * {
 
 /* Drop zone pulse animation */
 @keyframes dropZonePulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.6;
   }
   50% {
@@ -353,8 +356,8 @@ body.dragging-block * {
  * SyntaxHighlighter code wrapping
  * Force code tags inside SyntaxHighlighter to wrap text
  */
-pre[class*="language-"] code,
-div[class*="language-"] code {
+pre[class*='language-'] code,
+div[class*='language-'] code {
   white-space: pre-wrap !important;
   word-break: break-word !important;
   overflow-wrap: break-word !important;

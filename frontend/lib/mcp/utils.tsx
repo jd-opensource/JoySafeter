@@ -13,9 +13,7 @@ export type McpConnectionStatus = 'connected' | 'disconnected' | 'error'
 /**
  * Get connection status icon
  */
-export function getConnectionStatusIcon(
-  status?: string
-): ReactNode {
+export function getConnectionStatusIcon(status?: string): ReactNode {
   switch (status as McpConnectionStatus) {
     case 'connected':
       return <CheckCircle2 size={12} className="text-emerald-500" />
@@ -55,9 +53,7 @@ export function getConnectionStatusText(status?: string, t?: (key: string) => st
 /**
  * Get connection status style class
  */
-export function getConnectionStatusClassName(
-  status?: string
-): string {
+export function getConnectionStatusClassName(status?: string): string {
   switch (status as McpConnectionStatus) {
     case 'connected':
       return 'text-emerald-600 bg-emerald-50 border-emerald-200'
@@ -84,12 +80,10 @@ export function formatToolCount(count?: number, t?: (key: string) => string): st
 /**
  * Filter active and connected MCP servers
  */
-export function filterActiveConnectedServers<T extends { enabled: boolean; connectionStatus?: string }>(
-  servers: T[]
-): T[] {
-  return servers.filter(
-    (server) => server.enabled && server.connectionStatus === 'connected'
-  )
+export function filterActiveConnectedServers<
+  T extends { enabled: boolean; connectionStatus?: string },
+>(servers: T[]): T[] {
+  return servers.filter((server) => server.enabled && server.connectionStatus === 'connected')
 }
 
 /**

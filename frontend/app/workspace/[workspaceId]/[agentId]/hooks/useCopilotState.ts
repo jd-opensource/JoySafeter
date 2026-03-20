@@ -56,7 +56,11 @@ export interface CopilotActions {
   // Streaming actions
   setCurrentStage: (stage: { stage: StageType; message: string } | null) => void
   setCurrentToolCall: (call: { tool: string; input: Record<string, unknown> } | null) => void
-  addToolResult: (action: { type: string; payload: Record<string, unknown>; reasoning?: string }) => void
+  addToolResult: (action: {
+    type: string
+    payload: Record<string, unknown>
+    reasoning?: string
+  }) => void
   appendContent: (content: string) => void
   clearStreaming: () => void
   toggleToolType: (type: string) => void
@@ -145,78 +149,87 @@ export function useCopilotState(graphId?: string) {
   }, [])
 
   // State object
-  const state: CopilotState = useMemo(() => ({
-    messages: messagesHook.messages,
-    loadingHistory: messagesHook.loadingHistory,
-    streamingContent: streamingHook.streamingContent,
-    currentStage: streamingHook.currentStage,
-    currentToolCall: streamingHook.currentToolCall,
-    toolResults: streamingHook.toolResults,
-    expandedToolTypes: streamingHook.expandedToolTypes,
-    executingActions: actionExecutorHook.executingActions,
-    currentSessionId: sessionHook.currentSessionId,
-    input,
-    loading,
-    expandedItems,
-    copiedStreaming,
-  }), [
-    messagesHook.messages,
-    messagesHook.loadingHistory,
-    streamingHook.streamingContent,
-    streamingHook.currentStage,
-    streamingHook.currentToolCall,
-    streamingHook.toolResults,
-    streamingHook.expandedToolTypes,
-    actionExecutorHook.executingActions,
-    sessionHook.currentSessionId,
-    input,
-    loading,
-    expandedItems,
-    copiedStreaming,
-  ])
+  const state: CopilotState = useMemo(
+    () => ({
+      messages: messagesHook.messages,
+      loadingHistory: messagesHook.loadingHistory,
+      streamingContent: streamingHook.streamingContent,
+      currentStage: streamingHook.currentStage,
+      currentToolCall: streamingHook.currentToolCall,
+      toolResults: streamingHook.toolResults,
+      expandedToolTypes: streamingHook.expandedToolTypes,
+      executingActions: actionExecutorHook.executingActions,
+      currentSessionId: sessionHook.currentSessionId,
+      input,
+      loading,
+      expandedItems,
+      copiedStreaming,
+    }),
+    [
+      messagesHook.messages,
+      messagesHook.loadingHistory,
+      streamingHook.streamingContent,
+      streamingHook.currentStage,
+      streamingHook.currentToolCall,
+      streamingHook.toolResults,
+      streamingHook.expandedToolTypes,
+      actionExecutorHook.executingActions,
+      sessionHook.currentSessionId,
+      input,
+      loading,
+      expandedItems,
+      copiedStreaming,
+    ],
+  )
 
   // Actions object - using stable function references
-  const actions: CopilotActions = useMemo(() => ({
-    ...messagesHook,
-    ...streamingHook,
-    ...actionExecutorHook,
-    ...sessionHook,
-    setInput,
-    setLoading,
-    toggleExpand,
-    clearExpandedItems,
-    setCopiedStreaming,
-  }), [
-    messagesHook.addMessage,
-    messagesHook.addThoughtStep,
-    messagesHook.clearMessages,
-    messagesHook.setThinkingMessage,
-    messagesHook.finalizeCurrentMessage,
-    messagesHook.removeCurrentMessage,
-    streamingHook.setCurrentStage,
-    streamingHook.setCurrentToolCall,
-    streamingHook.addToolResult,
-    streamingHook.appendContent,
-    streamingHook.clearStreaming,
-    streamingHook.toggleToolType,
-    streamingHook.setStreamingContent,
-    actionExecutorHook.executeActions,
-    sessionHook.setSession,
-    sessionHook.clearSession,
-    toggleExpand,
-    clearExpandedItems,
-  ])
+  const actions: CopilotActions = useMemo(
+    () => ({
+      ...messagesHook,
+      ...streamingHook,
+      ...actionExecutorHook,
+      ...sessionHook,
+      setInput,
+      setLoading,
+      toggleExpand,
+      clearExpandedItems,
+      setCopiedStreaming,
+    }),
+    [
+      messagesHook.addMessage,
+      messagesHook.addThoughtStep,
+      messagesHook.clearMessages,
+      messagesHook.setThinkingMessage,
+      messagesHook.finalizeCurrentMessage,
+      messagesHook.removeCurrentMessage,
+      streamingHook.setCurrentStage,
+      streamingHook.setCurrentToolCall,
+      streamingHook.addToolResult,
+      streamingHook.appendContent,
+      streamingHook.clearStreaming,
+      streamingHook.toggleToolType,
+      streamingHook.setStreamingContent,
+      actionExecutorHook.executeActions,
+      sessionHook.setSession,
+      sessionHook.clearSession,
+      toggleExpand,
+      clearExpandedItems,
+    ],
+  )
 
   // Refs object
-  const refs: CopilotRefs = useMemo(() => ({
-    isMountedRef,
-    isCreatingSessionRef,
-    hasProcessedUrlInputRef: sessionHook.hasProcessedUrlInputRef,
-    scrollRef,
-    streamingContentRef: streamingHook.streamingContentRef,
-    copyTimeoutRef,
-    lastScrollContentRef,
-  }), [sessionHook.hasProcessedUrlInputRef, streamingHook.streamingContentRef])
+  const refs: CopilotRefs = useMemo(
+    () => ({
+      isMountedRef,
+      isCreatingSessionRef,
+      hasProcessedUrlInputRef: sessionHook.hasProcessedUrlInputRef,
+      scrollRef,
+      streamingContentRef: streamingHook.streamingContentRef,
+      copyTimeoutRef,
+      lastScrollContentRef,
+    }),
+    [sessionHook.hasProcessedUrlInputRef, streamingHook.streamingContentRef],
+  )
 
   return {
     state,

@@ -49,10 +49,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "stage",
-        "message"
-      ],
+      "required": ["stage", "message"],
       "title": "CopilotStatusEvent",
       "type": "object"
     },
@@ -71,9 +68,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "content"
-      ],
+      "required": ["content"],
       "title": "CopilotContentEvent",
       "type": "object"
     },
@@ -93,9 +88,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "step"
-      ],
+      "required": ["step"],
       "title": "CopilotThoughtStepEvent",
       "type": "object"
     },
@@ -120,9 +113,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "tool"
-      ],
+      "required": ["tool"],
       "title": "CopilotToolCallEvent",
       "type": "object"
     },
@@ -142,9 +133,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "action"
-      ],
+      "required": ["action"],
       "title": "CopilotToolResultEvent",
       "type": "object"
     },
@@ -185,9 +174,7 @@
           "title": "Batch"
         }
       },
-      "required": [
-        "message"
-      ],
+      "required": ["message"],
       "title": "CopilotResultEvent",
       "type": "object"
     },
@@ -224,10 +211,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "message",
-        "code"
-      ],
+      "required": ["message", "code"],
       "title": "CopilotErrorEvent",
       "type": "object"
     },
@@ -264,11 +248,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "type",
-        "payload",
-        "reasoning"
-      ],
+      "required": ["type", "payload", "reasoning"],
       "title": "GraphAction",
       "type": "object"
     },

@@ -16,24 +16,24 @@ export const env = createEnv({
 
   server: {
     // Authentication
-    DISABLE_REGISTRATION:                  z.boolean().optional(),                 // Flag to disable new user registration
+    DISABLE_REGISTRATION: z.boolean().optional(), // Flag to disable new user registration
 
     // Email & Communication
-    EMAIL_VERIFICATION_ENABLED:            z.boolean().optional(),                 // Enable email verification for user registration and login (defaults to false)
-    RESEND_API_KEY:                        z.string().min(1).optional(),           // Resend API key for transactional emails
-    FROM_EMAIL_ADDRESS:                    z.string().min(1).optional(),           // Complete from address (e.g., "JD <noreply@domain.com>" or "noreply@domain.com")
-    EMAIL_DOMAIN:                          z.string().min(1).optional(),           // Domain for sending emails (fallback when FROM_EMAIL_ADDRESS not set)
-    AZURE_ACS_CONNECTION_STRING:           z.string().optional(),                  // Azure Communication Services connection string
+    EMAIL_VERIFICATION_ENABLED: z.boolean().optional(), // Enable email verification for user registration and login (defaults to false)
+    RESEND_API_KEY: z.string().min(1).optional(), // Resend API key for transactional emails
+    FROM_EMAIL_ADDRESS: z.string().min(1).optional(), // Complete from address (e.g., "JD <noreply@domain.com>" or "noreply@domain.com")
+    EMAIL_DOMAIN: z.string().min(1).optional(), // Domain for sending emails (fallback when FROM_EMAIL_ADDRESS not set)
+    AZURE_ACS_CONNECTION_STRING: z.string().optional(), // Azure Communication Services connection string
   },
 
   client: {
     // Core Application URLs - Required for frontend functionality
-    NEXT_PUBLIC_APP_URL:                   z.string().url().optional(),            // Base URL of the application (e.g., https://www.jd.ai)
+    NEXT_PUBLIC_APP_URL: z.string().url().optional(), // Base URL of the application (e.g., https://www.jd.ai)
   },
 
   // Variables available on both server and client
   shared: {
-    NODE_ENV:                              z.enum(['development', 'test', 'production']).optional(), // Runtime environment
+    NODE_ENV: z.enum(['development', 'test', 'production']).optional(), // Runtime environment
   },
 
   experimental__runtimeEnv: {

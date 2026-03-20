@@ -49,18 +49,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       }
 
       return (
-        <div className='flex h-full w-full flex-col items-center justify-center gap-[16px] p-[24px]'>
-          <div className='text-center'>
-            <h2 className='mb-[8px] font-semibold text-[16px] text-[var(--text-primary)]'>
+        <div className="flex h-full w-full flex-col items-center justify-center gap-[16px] p-[24px]">
+          <div className="text-center">
+            <h2 className="mb-[8px] text-[16px] font-semibold text-[var(--text-primary)]">
               Something went wrong
             </h2>
-            <p className='text-[13px] text-[var(--text-tertiary)]'>
+            <p className="text-[13px] text-[var(--text-tertiary)]">
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
           </div>
           <button
             onClick={this.handleReset}
-            className='rounded-[6px] bg-[var(--surface-9)] px-[16px] py-[8px] text-[13px] text-[var(--text-primary)] hover:bg-[var(--surface-10)]'
+            className="rounded-[6px] bg-[var(--surface-9)] px-[16px] py-[8px] text-[13px] text-[var(--text-primary)] hover:bg-[var(--surface-10)]"
           >
             Try again
           </button>
