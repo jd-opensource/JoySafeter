@@ -23,7 +23,7 @@ interface ChatInputProps {
   compactArtifactStatus?: React.ReactNode
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({
+export default function ChatInput({
   input,
   setInput,
   onSubmit,
@@ -33,7 +33,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   currentGraphId,
   compactToolStatus,
   compactArtifactStatus,
-}) => {
+}: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -216,5 +216,3 @@ const ChatInput: React.FC<ChatInputProps> = ({
     </div>
   )
 }
-
-export default ChatInput

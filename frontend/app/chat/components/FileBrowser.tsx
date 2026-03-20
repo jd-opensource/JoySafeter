@@ -32,7 +32,12 @@ interface FileBrowserProps {
   className?: string
 }
 
-const FileBrowser: React.FC<FileBrowserProps> = ({ files, selectedPath, onSelect, className }) => {
+export default function FileBrowser({
+  files,
+  selectedPath,
+  onSelect,
+  className,
+}: FileBrowserProps) {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
 
   const toggleDir = (path: string) => {
@@ -120,5 +125,3 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ files, selectedPath, onSelect
     </div>
   )
 }
-
-export default FileBrowser

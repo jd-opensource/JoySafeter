@@ -49,11 +49,11 @@ interface ChatInterfaceProps {
 
 const MODEL_SETUP_DISMISSED_KEY = 'modelSetupPromptDismissed'
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({
+export default function ChatInterface({
   chatId: propChatId,
   onChatCreated,
   initialMessages = [],
-}) => {
+}: ChatInterfaceProps) {
   const { t } = useTranslation()
   const router = useRouter()
   const [messages, setMessages] = useState<Message[]>(initialMessages)
@@ -669,5 +669,3 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     </div>
   )
 }
-
-export default ChatInterface

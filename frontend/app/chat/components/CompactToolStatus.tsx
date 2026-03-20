@@ -1,7 +1,6 @@
 'use client'
 
 import { CheckCircle2, Loader2, AlertCircle, Maximize2 } from 'lucide-react'
-import React from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -12,7 +11,7 @@ interface CompactToolStatusProps {
   onClick: () => void
 }
 
-const CompactToolStatus: React.FC<CompactToolStatusProps> = ({ toolCalls, onClick }) => {
+export default function CompactToolStatus({ toolCalls, onClick }: CompactToolStatusProps) {
   // Get the latest tool call status
   const latestTool = toolCalls[toolCalls.length - 1]
 
@@ -85,5 +84,3 @@ const CompactToolStatus: React.FC<CompactToolStatusProps> = ({ toolCalls, onClic
     </div>
   )
 }
-
-export default CompactToolStatus

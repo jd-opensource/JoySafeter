@@ -1,7 +1,7 @@
 'use client'
 
 import { Copy, Check, FileCode, ChevronDown, ChevronRight } from 'lucide-react'
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -57,7 +57,7 @@ const getPrismLanguage = (lang: string): string => {
   return languageMap[lower] || lower || 'text'
 }
 
-const LanguageBadge: React.FC<{ language: string }> = ({ language }) => {
+function LanguageBadge({ language }: { language: string }) {
   const colors: Record<string, string> = {
     python: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     typescript: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -81,7 +81,7 @@ const LanguageBadge: React.FC<{ language: string }> = ({ language }) => {
   )
 }
 
-const CodeViewer: React.FC<CodeViewerProps> = ({
+export default function CodeViewer({
   code,
   language,
   filename,
@@ -90,7 +90,7 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
   collapsible = false,
   defaultCollapsed = false,
   maxHeight = '400px',
-}) => {
+}: CodeViewerProps) {
   const [copied, setCopied] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
 
@@ -206,5 +206,3 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
     </div>
   )
 }
-
-export default CodeViewer

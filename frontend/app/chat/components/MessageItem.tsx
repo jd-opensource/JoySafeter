@@ -69,7 +69,7 @@ const ToolCallItem = ({ tool, onClick }: { tool: ToolCall; onClick?: () => void 
   )
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
+export default function MessageItem({ message, onToolClick }: MessageItemProps) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -229,5 +229,3 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onToolClick }) => {
     </div>
   )
 }
-
-export default MessageItem
