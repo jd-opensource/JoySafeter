@@ -25,7 +25,7 @@ interface SkillCreatorChatProps {
 // Message bubble
 // ---------------------------------------------------------------------------
 
-const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
+function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user'
 
   return (
@@ -103,12 +103,12 @@ const MessageBubble: React.FC<{ message: Message }> = ({ message }) => {
 // Main component
 // ---------------------------------------------------------------------------
 
-const SkillCreatorChat: React.FC<SkillCreatorChatProps> = ({
+export default function SkillCreatorChat({
   messages,
   isProcessing,
   onSendMessage,
   onStop,
-}) => {
+}: SkillCreatorChatProps) {
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollEndRef = useRef<HTMLDivElement>(null)
@@ -244,5 +244,3 @@ const STARTER_PROMPTS = [
     text: 'Create a skill that analyzes application logs to identify errors, patterns, and anomalies.',
   },
 ]
-
-export default SkillCreatorChat

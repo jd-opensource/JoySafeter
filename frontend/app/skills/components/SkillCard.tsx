@@ -11,7 +11,6 @@ import {
   MoreHorizontal,
   Globe,
 } from 'lucide-react'
-import React from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,13 +49,13 @@ function formatRelativeTime(dateString: string): string {
   return date.toLocaleDateString()
 }
 
-export const SkillCard: React.FC<SkillCardProps> = ({
+export function SkillCard({
   skill,
   onView,
   onCopy,
   isOwner = false,
   variant = 'grid',
-}) => {
+}: SkillCardProps) {
   const { t } = useTranslation()
   const fileCount = skill.files?.length || 0
 

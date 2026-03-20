@@ -12,7 +12,7 @@ import {
   FileCode,
   Terminal,
 } from 'lucide-react'
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import { getFilenameFromPath } from '@/services/skillService'
@@ -59,7 +59,7 @@ interface FileTreeNodeComponentProps {
   depth?: number
 }
 
-const FileTreeNodeComponent: React.FC<FileTreeNodeComponentProps> = ({
+function FileTreeNodeComponent({
   node,
   activeFilePath,
   onSelectFile,
@@ -67,7 +67,7 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeComponentProps> = ({
   onRenameFile,
   onAddFile,
   depth = 0,
-}) => {
+}: FileTreeNodeComponentProps) {
   const [isExpanded, setIsExpanded] = useState(true)
 
   if (node.isDirectory) {
@@ -167,14 +167,14 @@ const FileTreeNodeComponent: React.FC<FileTreeNodeComponentProps> = ({
   )
 }
 
-export const SkillFileTree: React.FC<SkillFileTreeProps> = ({
+export function SkillFileTree({
   fileTree,
   activeFilePath,
   onSelectFile,
   onDeleteFile,
   onRenameFile,
   onAddFile,
-}) => {
+}: SkillFileTreeProps) {
   return (
     <div className="custom-scrollbar flex-1 overflow-y-auto p-2">
       {/* SKILL.md - Always displayed first and prominently */}

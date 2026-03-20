@@ -2,7 +2,6 @@
 
 import { ChevronDown } from 'lucide-react'
 import { FileText } from 'lucide-react'
-import React from 'react'
 import { UseFormReturn } from 'react-hook-form'
 
 import {
@@ -32,11 +31,7 @@ interface SkillFormProps {
   onToggleAdvancedFields: () => void
 }
 
-export const SkillForm: React.FC<SkillFormProps> = ({
-  form,
-  showAdvancedFields,
-  onToggleAdvancedFields,
-}) => {
+export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: SkillFormProps) {
   const { t } = useTranslation()
 
   const name = form.watch('name')

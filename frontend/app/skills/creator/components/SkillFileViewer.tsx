@@ -1,7 +1,7 @@
 'use client'
 
 import { Copy, Check } from 'lucide-react'
-import React, { useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -44,7 +44,7 @@ interface SkillFileViewerProps {
   file: PreviewFile | null
 }
 
-const SkillFileViewer: React.FC<SkillFileViewerProps> = ({ file }) => {
+export default function SkillFileViewer({ file }: SkillFileViewerProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {
@@ -109,5 +109,3 @@ const SkillFileViewer: React.FC<SkillFileViewerProps> = ({ file }) => {
     </div>
   )
 }
-
-export default SkillFileViewer
