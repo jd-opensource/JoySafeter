@@ -15,13 +15,13 @@ interface RunInputModalProps {
   onClose: () => void
 }
 
-export const RunInputModal: React.FC<RunInputModalProps> = ({
+export function RunInputModal({
   isOpen,
   input,
   onInputChange,
   onStart,
   onClose,
-}) => {
+}: RunInputModalProps) {
   const { t } = useTranslation()
 
   if (!isOpen) return null

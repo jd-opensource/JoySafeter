@@ -25,7 +25,6 @@ import {
   AlertTriangle,
   Clock,
 } from 'lucide-react'
-import React from 'react'
 
 import { cn } from '@/lib/utils'
 import type { ExecutionTreeNode } from '@/types'
@@ -95,11 +94,11 @@ function formatDuration(ms: number | undefined): string {
   return `${(ms / 60000).toFixed(1)}m`
 }
 
-export const ExecutionTreeNodeContent: React.FC<ExecutionTreeNodeContentProps> = ({
+export function ExecutionTreeNodeContent({
   node,
   isSelected,
   onClick,
-}) => {
+}: ExecutionTreeNodeContentProps) {
   const isParentNode = node.type === 'NODE' || node.type === 'TRACE'
   const duration = node.duration || (node.endTime ? node.endTime - node.startTime : undefined)
 

@@ -12,7 +12,7 @@
  */
 
 import { Braces, Code2, Eye, FileText, Info, AlignLeft } from 'lucide-react'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -390,7 +390,7 @@ function EmptyState({ message }: { message: string }) {
 
 // ============ Main Component ============
 
-export const ExecutionDetailPanel: React.FC = () => {
+export function ExecutionDetailPanel() {
   const { t } = useTranslation()
   const { nodeMap } = useExecutionData()
   const { selectedNodeId } = useExecutionSelection()

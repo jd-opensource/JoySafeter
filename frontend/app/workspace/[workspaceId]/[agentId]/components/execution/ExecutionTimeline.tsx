@@ -12,7 +12,7 @@
  * Inspired by langfuse TraceTimeline/
  */
 
-import React, { useRef, useMemo, useCallback, useEffect } from 'react'
+import { useRef, useMemo, useCallback, useEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { cn } from '@/lib/utils'
@@ -56,7 +56,7 @@ function formatTimeLabel(ms: number): string {
   return `${(ms / 60000).toFixed(1)}m`
 }
 
-export const ExecutionTimelineView: React.FC = () => {
+export function ExecutionTimelineView() {
   const { flatItems, treeRoots, isExecuting } = useExecutionData()
   const { selectedNodeId, selectNode } = useExecutionSelection()
   const parentRef = useRef<HTMLDivElement>(null)

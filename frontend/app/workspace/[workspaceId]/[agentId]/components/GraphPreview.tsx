@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useCallback } from 'react'
+import { useMemo, useCallback } from 'react'
 import ReactFlow, {
   ReactFlowProvider,
   Handle,
@@ -79,10 +79,7 @@ const nodeTypes: NodeTypes = {
 /**
  * Internal preview component (with control buttons)
  */
-const PreviewContent: React.FC<{
-  nodes: Node[]
-  edges: Edge[]
-}> = ({ nodes, edges }) => {
+function PreviewContent({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow()
 
   const handleZoomIn = useCallback(() => {
@@ -153,12 +150,12 @@ const PreviewContent: React.FC<{
   )
 }
 
-export const GraphPreview: React.FC<GraphPreviewProps> = ({
+export function GraphPreview({
   state,
   height = 300,
   width = '100%',
   className,
-}) => {
+}: GraphPreviewProps) {
   const nodes: Node[] = useMemo(() => {
     if (!state?.nodes) return []
 

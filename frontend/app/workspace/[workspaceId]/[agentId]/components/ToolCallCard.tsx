@@ -9,7 +9,7 @@ import {
   AlertCircle,
   Wrench,
 } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -58,11 +58,11 @@ function formatJsonWithNewlines(data: any): string {
   )
 }
 
-export const ToolCallCard: React.FC<ToolCallCardProps> = ({
+export function ToolCallCard({
   step,
   defaultCollapsed = true,
   showHeader = true,
-}) => {
+}: ToolCallCardProps) {
   const { t } = useTranslation()
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
 

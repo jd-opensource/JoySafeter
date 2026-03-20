@@ -48,13 +48,13 @@ interface BuilderToolbarProps {
   nodesCount?: number
 }
 
-export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
+export function BuilderToolbar({
   onImport,
   onExport,
   onRunClick,
   agentId,
   nodesCount = 0,
-}) => {
+}: BuilderToolbarProps) {
   const { workspaceId = '' } = useParams() as { workspaceId: string }
   const { t } = useTranslation()
   const { toast } = useToast()

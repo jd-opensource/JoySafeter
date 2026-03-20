@@ -2,7 +2,7 @@
 
 import { X, Plus, Trash2, Database, AlertCircle, Pencil, Check, Copy } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -77,7 +77,7 @@ function parseDefaultValue(raw: string, type: StateFieldType): any {
 }
 
 // ─── Component ─── ────────────────────────────────────────────
-export const GraphStatePanel: React.FC = () => {
+export function GraphStatePanel() {
   const params = useParams()
   const workspaceId = params.workspaceId as string
   const { toast } = useToast()

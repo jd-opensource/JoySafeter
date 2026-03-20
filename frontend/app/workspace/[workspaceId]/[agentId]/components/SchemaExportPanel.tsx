@@ -1,7 +1,7 @@
 'use client'
 
 import { X, Copy, Check, FileJson, Code, Loader2 } from 'lucide-react'
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -15,7 +15,7 @@ interface SchemaExportPanelProps {
   onClose: () => void
 }
 
-export const SchemaExportPanel: React.FC<SchemaExportPanelProps> = ({ graphId, open, onClose }) => {
+export function SchemaExportPanel({ graphId, open, onClose }: SchemaExportPanelProps) {
   const [activeTab, setActiveTab] = useState<'json' | 'code'>('json')
   const [schema, setSchema] = useState<GraphSchema | null>(null)
   const [code, setCode] = useState<string>('')

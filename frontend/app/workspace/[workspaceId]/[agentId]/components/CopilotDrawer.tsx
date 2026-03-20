@@ -1,7 +1,7 @@
 'use client'
 
 import { Sparkles, X, Minimize2 } from 'lucide-react'
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -13,7 +13,7 @@ interface CopilotDrawerProps {
   className?: string
 }
 
-export const CopilotDrawer: React.FC<CopilotDrawerProps> = ({ className }) => {
+export function CopilotDrawer({ className }: CopilotDrawerProps) {
   const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
 

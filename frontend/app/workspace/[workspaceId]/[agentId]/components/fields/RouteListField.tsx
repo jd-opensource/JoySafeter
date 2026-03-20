@@ -97,7 +97,7 @@ interface RouteRuleItemProps {
   graphStateFields?: import('../../types/graph').StateField[]
 }
 
-const RouteRuleItem: React.FC<RouteRuleItemProps> = ({
+function RouteRuleItem({
   rule,
   index,
   availableEdges,
@@ -109,7 +109,7 @@ const RouteRuleItem: React.FC<RouteRuleItemProps> = ({
   onDelete,
   onCreateEdge,
   graphStateFields,
-}) => {
+}: RouteRuleItemProps) {
   const [showCreateEdge, setShowCreateEdge] = React.useState(false)
   const [selectedTargetNodeId, setSelectedTargetNodeId] = React.useState<string>('')
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -388,7 +388,7 @@ const RouteRuleItem: React.FC<RouteRuleItemProps> = ({
 /**
  * RouteListField - Manage routing rules with drag-and-drop sorting
  */
-export const RouteListField: React.FC<RouteListFieldProps> = ({
+export function RouteListField({
   value,
   onChange,
   availableEdges,
@@ -398,7 +398,7 @@ export const RouteListField: React.FC<RouteListFieldProps> = ({
   edges,
   onCreateEdge,
   graphStateFields,
-}) => {
+}: RouteListFieldProps) {
   const rules = Array.isArray(value) ? value : []
 
   const sensors = useSensors(

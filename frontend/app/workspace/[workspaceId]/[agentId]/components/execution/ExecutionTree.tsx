@@ -14,7 +14,7 @@
  */
 
 import { ChevronRight, PlayCircle } from 'lucide-react'
-import React, { useRef, useEffect, useCallback, useMemo } from 'react'
+import { useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { cn } from '@/lib/utils'
@@ -31,7 +31,7 @@ interface ExecutionTreeProps {
   searchQuery?: string
 }
 
-export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }) => {
+export function ExecutionTree({ searchQuery = '' }: ExecutionTreeProps) {
   const { t } = useTranslation()
   const { flatItems, isExecuting } = useExecutionData()
   const { selectedNodeId, selectNode, toggleCollapse } = useExecutionSelection()

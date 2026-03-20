@@ -34,12 +34,12 @@ interface MappingItem {
   mode: MappingMode
 }
 
-export const StateMapperField: React.FC<StateMapperFieldProps> = ({
+export function StateMapperField({
   value,
   onChange,
   graphStateFields = [],
   currentNodeId,
-}) => {
+}: StateMapperFieldProps) {
   const { t } = useTranslation()
   const nodes = useBuilderStore((state) => state.nodes)
 

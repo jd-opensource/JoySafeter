@@ -16,7 +16,7 @@ interface LoadModalProps {
   onLoad: (graph: AgentGraph) => void
 }
 
-export const LoadModal: React.FC<LoadModalProps> = ({ onClose, onLoad }) => {
+export function LoadModal({ onClose, onLoad }: LoadModalProps) {
   const { t } = useTranslation()
   const [graphs, setGraphs] = useState<AgentGraph[]>([])
   const [loading, setLoading] = useState(true)

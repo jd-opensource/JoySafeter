@@ -1,7 +1,7 @@
 'use client'
 
 import { Loader2, Check, Search, X, Hammer, Server } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from '@/lib/i18n'
 
 import { Badge } from '@/components/ui/badge'
@@ -23,7 +23,7 @@ interface ToolsFieldProps {
   onChange: (val: unknown) => void
 }
 
-export const ToolsField: React.FC<ToolsFieldProps> = ({ value, onChange }) => {
+export function ToolsField({ value, onChange }: ToolsFieldProps) {
   const { t } = useTranslation()
 
   const [searchQuery, setSearchQuery] = useState('')

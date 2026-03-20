@@ -51,14 +51,21 @@ function formatJsonWithNewlines(data: any): string {
 }
 
 /** JSON Data Section Component */
-const DataSection: React.FC<{
+function DataSection({
+  title,
+  data,
+  icon,
+  iconColor,
+  bgColor,
+  defaultCollapsed = false,
+}: {
   title: string
   data: any
   icon: React.ReactNode
   iconColor: string
   bgColor: string
   defaultCollapsed?: boolean
-}> = ({ title, data, icon, iconColor, bgColor, defaultCollapsed = false }) => {
+}) {
   const dataString = JSON.stringify(data)
   const shouldAutoCollapse = dataString.length > 2000
   const [collapsed, setCollapsed] = useState(defaultCollapsed || shouldAutoCollapse)
@@ -115,11 +122,11 @@ const DataSection: React.FC<{
   )
 }
 
-export const ModelIOCard: React.FC<ModelIOCardProps> = ({
+export function ModelIOCard({
   step,
   defaultCollapsed = false,
   showHeader = true,
-}) => {
+}: ModelIOCardProps) {
   const { t } = useTranslation()
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
 

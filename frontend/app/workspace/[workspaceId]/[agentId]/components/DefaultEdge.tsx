@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { BaseEdge, EdgeProps, getBezierPath, EdgeLabelRenderer } from 'reactflow'
 
 import { EdgeData } from '../types/graph'
@@ -14,7 +14,7 @@ import { EDGE_COLORS } from '../utils/edgeStyles'
  * - Different colors for conditional vs normal edges
  * - Label positioned above the edge line
  */
-export const DefaultEdge: React.FC<EdgeProps> = ({
+export function DefaultEdge({
   id,
   sourceX,
   sourceY,
@@ -25,7 +25,7 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
   style = {},
   markerEnd,
   data,
-}) => {
+}: EdgeProps) {
   const edgeData = (data || {}) as EdgeData
 
   // Calculate edge path and label position

@@ -59,13 +59,13 @@ interface StateVariablePanelProps {
   onClose?: () => void
 }
 
-export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
+export function StateVariablePanel({
   nodes,
   edges,
   selectedNodeId,
   onVariableSelect,
   onClose,
-}) => {
+}: StateVariablePanelProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const params = useParams()
@@ -438,7 +438,7 @@ interface VariableItemProps {
   getScopeLabel: (scope: string) => string
 }
 
-const VariableItem: React.FC<VariableItemProps> = ({
+function VariableItem({
   variable,
   onCopy,
   onClick,
@@ -446,7 +446,7 @@ const VariableItem: React.FC<VariableItemProps> = ({
   getScopeColor,
   getScopeIcon,
   getScopeLabel,
-}) => {
+}: VariableItemProps) {
   return (
     <div
       className={cn(

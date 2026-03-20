@@ -10,7 +10,7 @@ import {
   ArrowRight,
   MessageSquare,
 } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -144,7 +144,7 @@ function extractKeyStateFields(state: any): { key: string; value: any }[] {
   return keyFields
 }
 
-export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClose }) => {
+export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
   const { t } = useTranslation()
   const { removeInterrupt } = useExecutionStore()
   const { nodes } = useBuilderStore()

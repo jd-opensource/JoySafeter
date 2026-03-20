@@ -1,7 +1,6 @@
 'use client'
 
 import { Trash2, Plus } from 'lucide-react'
-import React from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +11,7 @@ interface KVListFieldProps {
   onChange: (val: { key: string; value: string }[]) => void
 }
 
-export const KVListField: React.FC<KVListFieldProps> = ({ value, onChange }) => {
+export function KVListField({ value, onChange }: KVListFieldProps) {
   const { t } = useTranslation()
   const items = Array.isArray(value) ? value : []
 

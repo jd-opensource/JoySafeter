@@ -60,7 +60,7 @@ interface VariableInputFieldProps {
   className?: string
 }
 
-export const VariableInputField: React.FC<VariableInputFieldProps> = ({
+export function VariableInputField({
   label,
   value,
   onChange,
@@ -70,7 +70,7 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
   edges,
   currentNodeId,
   className,
-}) => {
+}: VariableInputFieldProps) {
   const [showVariablePanel, setShowVariablePanel] = useState(false)
   // Use local state to prevent losing focus during input
   const [localValue, setLocalValue] = useState(value)
