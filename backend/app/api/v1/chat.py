@@ -52,6 +52,7 @@ from app.models import Conversation, Message
 from app.schemas import BaseResponse, ChatRequest, ChatResponse
 from app.services.graph_service import GraphService
 from app.utils.datetime import utc_now
+from app.utils.file_event_emitter import FileEventEmitter
 from app.utils.stream_event_handler import StreamEventHandler, StreamState
 from app.utils.task_manager import task_manager
 
@@ -699,6 +700,7 @@ async def chat_stream(
     async def event_generator() -> AsyncGenerator[str, None]:
         state = StreamState(thread_id)
         handler = StreamEventHandler()
+        file_emitter = FileEventEmitter()
 
         # 确保本 run 的 artifact 目录存在，供后端写入产物
         artifact_collector = ArtifactCollector()
@@ -721,6 +723,7 @@ async def chat_stream(
                     base_url=llm_params["base_url"],
                     max_tokens=llm_params["max_tokens"],
                     user_id=str(current_user.id),
+                    file_emitter=file_emitter,
                 )
             else:
                 graph = await graph_service.create_graph_by_graph_id(
@@ -731,6 +734,7 @@ async def chat_stream(
                     max_tokens=llm_params["max_tokens"],
                     user_id=current_user.id,
                     current_user=current_user,
+                    file_emitter=file_emitter,
                 )
 
             built_graph = graph
@@ -823,6 +827,15 @@ async def chat_stream(
                     output = data.get("output") if isinstance(data, dict) else None
                     if output and isinstance(output, dict) and "messages" in output:
                         state.all_messages = output["messages"]
+
+                # Drain file events from FileTrackingProxy
+                for file_evt in file_emitter.drain():
+                    yield handler.format_sse("file_event", {
+                        "action": file_evt.action,
+                        "path": file_evt.path,
+                        "size": file_evt.size,
+                        "timestamp": file_evt.timestamp,
+                    }, state.thread_id, state)
 
             # 5. 检查是否有中断
             interrupted = False
@@ -973,22 +986,6 @@ async def chat_stream(
                 )
             except Exception as e:
                 log.warning(f"[Chat API Stream] Failed to write artifact manifest: {e}")
-
-            # Send artifacts_ready ONCE, AFTER manifest is written and files are exported
-            # This ensures the frontend won't see an empty file list
-            if not state.interrupted:
-                try:
-                    yield handler.format_sse(
-                        "artifacts_ready",
-                        {
-                            "thread_id": thread_id,
-                            "run_id": state.artifact_run_id,
-                            "_meta": {"node_name": "system"},
-                        },
-                        thread_id,
-                    )
-                except Exception:
-                    pass  # Client may have disconnected; best-effort
 
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
