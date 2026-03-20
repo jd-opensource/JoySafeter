@@ -11,7 +11,7 @@ import {
   Settings,
   ShieldCheck,
 } from 'lucide-react'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { ViewMode } from '../../types'
 
@@ -49,13 +49,13 @@ interface SidebarProps {
   refreshTrigger?: number
 }
 
-const Sidebar: React.FC<SidebarProps> = ({
+export default function Sidebar({
   onNewChat,
   onLoadHistory,
   activeView,
   onViewChange,
   refreshTrigger = 0,
-}) => {
+}: SidebarProps) {
   const [historyItems, setHistoryItems] = useState<ChatSession[]>([])
   const [loading, setLoading] = useState(true)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -272,5 +272,3 @@ const Sidebar: React.FC<SidebarProps> = ({
     </TooltipProvider>
   )
 }
-
-export default Sidebar

@@ -1,7 +1,7 @@
 'use client'
 
 import { X, Info, Plus, FileJson, SquarePen, Trash2, Save, Loader2 } from 'lucide-react'
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from '@/lib/i18n'
 
 import { Button } from '@/components/ui/button'
@@ -45,11 +45,7 @@ interface HeaderItem {
   value: string
 }
 
-export const AddMcpDialog: React.FC<AddMcpDialogProps> = ({
-  open,
-  onOpenChange,
-  editingServer,
-}) => {
+export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialogProps) {
   const { t } = useTranslation()
   const isEditMode = !!editingServer
   const [mode, setMode] = useState<'form' | 'json'>('form')
