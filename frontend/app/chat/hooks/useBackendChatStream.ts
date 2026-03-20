@@ -216,6 +216,21 @@ export const useBackendChatStream = (
                     }
                     return t
                   })
+
+                  // Accumulate file operation metadata for real-time artifact preview
+                  const filesChanged = toolData?.files_changed
+                  if (filesChanged?.length) {
+                    const existing = (m.metadata?.liveFiles as Array<{ path: string; action: string }>) ?? []
+                    return {
+                      ...m,
+                      tool_calls: tools,
+                      metadata: {
+                        ...(m.metadata || {}),
+                        liveFiles: [...existing, ...filesChanged],
+                      },
+                    }
+                  }
+
                   return { ...m, tool_calls: tools }
                 }),
               )

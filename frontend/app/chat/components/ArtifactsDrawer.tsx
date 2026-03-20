@@ -3,7 +3,7 @@
 import { FolderOpen, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import ArtifactPanel from '@/app/chat/components/ArtifactPanel'
+import ArtifactPanel, { type LiveFileEntry } from '@/app/chat/components/ArtifactPanel'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { artifactService, type RunInfo } from '@/services/artifactService'
@@ -21,6 +21,7 @@ interface ArtifactsDrawerProps {
   onClose: () => void
   threadId: string
   runId: string
+  liveFiles?: LiveFileEntry[]
 }
 
 export default function ArtifactsDrawer({
@@ -28,6 +29,7 @@ export default function ArtifactsDrawer({
   onClose,
   threadId,
   runId,
+  liveFiles,
 }: ArtifactsDrawerProps) {
   const { t } = useTranslation()
 
@@ -117,7 +119,7 @@ export default function ArtifactsDrawer({
         <div className="border-b border-gray-100 px-4 py-2 text-xs text-red-600">{error}</div>
       )}
 
-      <ArtifactPanel threadId={threadId} runId={selectedRunId} className="min-h-0 flex-1" />
+      <ArtifactPanel threadId={threadId} runId={selectedRunId} liveFiles={liveFiles} className="min-h-0 flex-1" />
     </div>
   )
 }

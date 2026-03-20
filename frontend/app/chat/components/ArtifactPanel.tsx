@@ -11,6 +11,11 @@ import { cn } from '@/lib/utils'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+export interface LiveFileEntry {
+  path: string
+  action: string
+}
+
 function fileInfoToNode(f: FileInfo): FileNode {
   const ext = f.name.includes('.') ? (f.name.split('.').pop() ?? '') : ''
   return {
@@ -76,15 +81,36 @@ function isTextPreviewable(node: FileNode): boolean {
   ].includes(ext)
 }
 
+/** Convert live file entries (from tool_end SSE) into FileNode[] for the file browser */
+function liveFilesToNodes(entries: LiveFileEntry[]): FileNode[] {
+  // Deduplicate by path (keep latest action)
+  const pathMap = new Map<string, LiveFileEntry>()
+  for (const entry of entries) {
+    pathMap.set(entry.path, entry)
+  }
+
+  return Array.from(pathMap.values()).map((entry) => {
+    const name = entry.path.split('/').pop() ?? entry.path
+    const ext = name.includes('.') ? (name.split('.').pop() ?? '') : ''
+    return {
+      name,
+      path: entry.path,
+      type: 'file' as const,
+      extension: ext,
+    }
+  })
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 interface ArtifactPanelProps {
   threadId: string
   runId?: string | null
+  liveFiles?: LiveFileEntry[]
   className?: string
 }
 
-export function ArtifactPanel({ threadId, runId, className }: ArtifactPanelProps) {
+export function ArtifactPanel({ threadId, runId, liveFiles, className }: ArtifactPanelProps) {
   const [files, setFiles] = useState<FileNode[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [previewContent, setPreviewContent] = useState<string | null>(null)
@@ -117,7 +143,14 @@ export function ArtifactPanel({ threadId, runId, className }: ArtifactPanelProps
     }
   }, [])
 
+  // Use live files from streaming events when run hasn't completed yet
+  const isLiveMode = !runId && !!liveFiles?.length
+
   useEffect(() => {
+    if (isLiveMode) {
+      setFiles(liveFilesToNodes(liveFiles!))
+      return
+    }
     if (!threadId || !runId) {
       setFiles([])
       return
@@ -129,7 +162,7 @@ export function ArtifactPanel({ threadId, runId, className }: ArtifactPanelProps
       .then((list) => setFiles(list.map(fileInfoToNode)))
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load files'))
       .finally(() => setLoadingFiles(false))
-  }, [threadId, runId])
+  }, [threadId, runId, isLiveMode, liveFiles])
 
   const handleSelectFile = useCallback(
     async (path: string) => {
@@ -141,7 +174,20 @@ export function ArtifactPanel({ threadId, runId, className }: ArtifactPanelProps
         blobUrlRef.current = null
         setPreviewBlobUrl(null)
       }
-      if (!threadId || !runId) return
+      if (!threadId) return
+
+      // Live mode: read directly from running sandbox container
+      if (isLiveMode) {
+        try {
+          const text = await artifactService.liveReadFile(threadId, path)
+          setPreviewContent(text)
+        } catch {
+          setPreviewContent('(Failed to load live preview)')
+        }
+        return
+      }
+
+      if (!runId) return
       const node = nodeMap.get(path)
       if (!node || node.type === 'directory') return
       try {
@@ -158,7 +204,7 @@ export function ArtifactPanel({ threadId, runId, className }: ArtifactPanelProps
         setPreviewContent('(Failed to load preview)')
       }
     },
-    [threadId, runId, nodeMap],
+    [threadId, runId, nodeMap, isLiveMode],
   )
 
   const handleDownload = useCallback(async () => {

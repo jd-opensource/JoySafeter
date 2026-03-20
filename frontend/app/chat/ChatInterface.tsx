@@ -118,6 +118,12 @@ export default function ChatInterface({
   const [artifactRunId, setArtifactRunId] = useState<string | null>(null)
   const [artifactDrawerOpen, setArtifactDrawerOpen] = useState(false)
 
+  // Derive live file operations from the current streaming message for real-time artifact preview
+  const liveFiles = useMemo(() => {
+    const streamingMsg = messages.find((m) => m.role === 'assistant' && m.isStreaming)
+    return (streamingMsg?.metadata?.liveFiles as Array<{ path: string; action: string }>) ?? []
+  }, [messages])
+
   // Hook to handle real backend streaming via /chat/stream (SSE) - must be before derived state
   const { sendMessage, stopMessage, isProcessing } = useBackendChatStream(setMessages, {
     onArtifactsReady: (threadId, runId) => {
@@ -126,6 +132,16 @@ export default function ChatInterface({
       setArtifactDrawerOpen(true)
     },
   })
+
+  // Auto-open artifact drawer when first live file operation is detected during streaming
+  const prevLiveCountRef = useRef(0)
+  useEffect(() => {
+    if (liveFiles.length > 0 && prevLiveCountRef.current === 0 && !artifactDrawerOpen) {
+      setToolPanelOpen(false)
+      setArtifactDrawerOpen(true)
+    }
+    prevLiveCountRef.current = liveFiles.length
+  }, [liveFiles.length])
 
   // Clear submitting once hook has taken over (isProcessing true)
   useEffect(() => {
@@ -458,7 +474,7 @@ export default function ChatInterface({
             <p>{t('chat.newChat')}</p>
           </TooltipContent>
         </Tooltip>
-        {localChatId && artifactRunId && (
+        {localChatId && (artifactRunId || liveFiles.length > 0) && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -592,7 +608,7 @@ export default function ChatInterface({
                     ) : null
                   }
                   compactArtifactStatus={
-                    !artifactDrawerOpen && localChatId && artifactRunId ? (
+                    !artifactDrawerOpen && localChatId && (artifactRunId || liveFiles.length > 0) ? (
                       <CompactArtifactStatus
                         onClick={() => {
                           setToolPanelOpen(false)
@@ -619,14 +635,15 @@ export default function ChatInterface({
 
               {/* Right Side Floating Panel - Artifacts Drawer */}
               {localChatId &&
-                artifactRunId &&
+                (artifactRunId || liveFiles.length > 0) &&
                 renderFloatingPanel(
                   artifactDrawerOpen,
                   <ArtifactsDrawer
                     isOpen={artifactDrawerOpen}
                     onClose={() => setArtifactDrawerOpen(false)}
                     threadId={localChatId}
-                    runId={artifactRunId}
+                    runId={artifactRunId ?? ''}
+                    liveFiles={liveFiles.length > 0 ? liveFiles : undefined}
                   />,
                 )}
             </div>

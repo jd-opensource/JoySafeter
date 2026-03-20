@@ -119,6 +119,7 @@ export interface ToolEndEventData {
   tool_output: any
   duration?: number
   status?: 'success' | 'error'
+  files_changed?: Array<{ path: string; action: string }> | null
 }
 
 /**
