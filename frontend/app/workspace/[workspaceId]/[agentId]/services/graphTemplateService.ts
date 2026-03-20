@@ -67,7 +67,7 @@ class GraphTemplateService {
     templateName: string,
     graphName: string,
     workspaceId: string,
-    description?: string
+    description?: string,
   ): Promise<AgentGraph> {
     // 1. Load template
     const template = await this.loadTemplate(templateName)
@@ -97,7 +97,8 @@ class GraphTemplateService {
       'apk-detector': 'APK Intent Bridge Security Analyzer',
       'skill-creator': 'A specialized agent for creating and editing Skills',
     }
-    const graphDescription = description ?? descriptionMap[templateName] ?? `Graph created from template: ${templateName}`
+    const graphDescription =
+      description ?? descriptionMap[templateName] ?? `Graph created from template: ${templateName}`
     const graph = await agentService.createGraph({
       name: graphName,
       description: graphDescription,

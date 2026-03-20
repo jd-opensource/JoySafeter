@@ -8,7 +8,8 @@ import type { TFunction } from 'i18next'
 import { ApiError } from '@/lib/api-client'
 
 const GOT_RE = /\(got:\s*['"]([^'"]*)['"]\)/
-const NAME_MATCH_DIR_RE = /name\s+['"]([^'"]*)['"]\s+must\s+match\s+directory\s+name\s+['"]([^'"]*)['"]/
+const NAME_MATCH_DIR_RE =
+  /name\s+['"]([^'"]*)['"]\s+must\s+match\s+directory\s+name\s+['"]([^'"]*)['"]/
 
 function extractGot(detail: string): string | undefined {
   const m = detail.match(GOT_RE)

@@ -4,13 +4,26 @@
 
 import { useState, useRef, useCallback } from 'react'
 
-export type StageType = 'thinking' | 'processing' | 'generating' | 'analyzing' | 'planning' | 'validating'
+export type StageType =
+  | 'thinking'
+  | 'processing'
+  | 'generating'
+  | 'analyzing'
+  | 'planning'
+  | 'validating'
 
 export function useCopilotStreaming() {
   const [streamingContent, setStreamingContent] = useState('')
-  const [currentStage, setCurrentStage] = useState<{ stage: StageType; message: string } | null>(null)
-  const [currentToolCall, setCurrentToolCall] = useState<{ tool: string; input: Record<string, unknown> } | null>(null)
-  const [toolResults, setToolResults] = useState<Array<{ type: string; payload: Record<string, unknown>; reasoning?: string }>>([])
+  const [currentStage, setCurrentStage] = useState<{ stage: StageType; message: string } | null>(
+    null,
+  )
+  const [currentToolCall, setCurrentToolCall] = useState<{
+    tool: string
+    input: Record<string, unknown>
+  } | null>(null)
+  const [toolResults, setToolResults] = useState<
+    Array<{ type: string; payload: Record<string, unknown>; reasoning?: string }>
+  >([])
   const [expandedToolTypes, setExpandedToolTypes] = useState<Set<string>>(new Set())
   const [copiedStreaming, setCopiedStreaming] = useState(false)
   const streamingContentRef = useRef<HTMLDivElement>(null)
@@ -28,10 +41,13 @@ export function useCopilotStreaming() {
     })
   }, [])
 
-  const addToolResult = useCallback((action: { type: string; payload: Record<string, unknown>; reasoning?: string }) => {
-    setCurrentToolCall(null)
-    setToolResults((prev) => [...prev, action])
-  }, [])
+  const addToolResult = useCallback(
+    (action: { type: string; payload: Record<string, unknown>; reasoning?: string }) => {
+      setCurrentToolCall(null)
+      setToolResults((prev) => [...prev, action])
+    },
+    [],
+  )
 
   const clearStreaming = useCallback(() => {
     setStreamingContent('')
@@ -57,13 +73,19 @@ export function useCopilotStreaming() {
     setStreamingContent(content)
   }, [])
 
-  const setCurrentStageStable = useCallback((stage: { stage: StageType; message: string } | null) => {
-    setCurrentStage(stage)
-  }, [])
+  const setCurrentStageStable = useCallback(
+    (stage: { stage: StageType; message: string } | null) => {
+      setCurrentStage(stage)
+    },
+    [],
+  )
 
-  const setCurrentToolCallStable = useCallback((call: { tool: string; input: Record<string, unknown> } | null) => {
-    setCurrentToolCall(call)
-  }, [])
+  const setCurrentToolCallStable = useCallback(
+    (call: { tool: string; input: Record<string, unknown> } | null) => {
+      setCurrentToolCall(call)
+    },
+    [],
+  )
 
   const setCopiedStreamingStable = useCallback((copied: boolean) => {
     setCopiedStreaming(copied)

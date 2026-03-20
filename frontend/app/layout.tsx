@@ -58,9 +58,7 @@ export default function RootLayout({
               <AuthGuard>
                 <NotificationProvider>
                   <ZoomPrevention />
-                  <AppShell>
-                    {children}
-                  </AppShell>
+                  <AppShell>{children}</AppShell>
                   <Toaster />
                 </NotificationProvider>
               </AuthGuard>

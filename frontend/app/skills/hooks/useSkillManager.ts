@@ -26,24 +26,25 @@ export function useSkillManager() {
     setSelectedSkill(skill)
   }, [])
 
-  const handleDelete = useCallback(async (id: string) => {
-    try {
-      await deleteSkillMutation.mutateAsync(id)
-      // React Query will automatically refresh the data after mutation
-      if (selectedSkill?.id === id) {
-        setSelectedSkill(null)
+  const handleDelete = useCallback(
+    async (id: string) => {
+      try {
+        await deleteSkillMutation.mutateAsync(id)
+        // React Query will automatically refresh the data after mutation
+        if (selectedSkill?.id === id) {
+          setSelectedSkill(null)
+        }
+        toast({ title: t('skills.deleted') })
+      } catch (e) {
+        toast({ variant: 'destructive', title: t('skills.deleteFailed') })
       }
-      toast({ title: t('skills.deleted') })
-    } catch (e) {
-      toast({ variant: 'destructive', title: t('skills.deleteFailed') })
-    }
-  }, [selectedSkill, deleteSkillMutation, toast, t])
+    },
+    [selectedSkill, deleteSkillMutation, toast, t],
+  )
 
   // Filter skills based on search query
   const filteredSkills = useMemo(() => {
-    return skills.filter(s =>
-      s.name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    return skills.filter((s) => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
   }, [skills, searchQuery])
 
   return {

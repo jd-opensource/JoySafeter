@@ -22,8 +22,6 @@ export const mcpKeys = {
   tools: () => [...mcpKeys.all, 'tools'] as const,
 }
 
-
-
 // ==================== Types (camelCase) ====================
 
 export interface McpServer {
@@ -55,8 +53,8 @@ export interface McpServerConfig {
 
 export interface McpTool {
   serverName: string
-  name: string  // Real tool name (seen by LLM)
-  labelName?: string  // Label name (for display, MCP tools are server_name::tool_name)
+  name: string // Real tool name (seen by LLM)
+  labelName?: string // Label name (for display, MCP tools are server_name::tool_name)
   description?: string
 }
 
@@ -66,7 +64,6 @@ export interface McpTestResult {
   tools?: Array<{ name: string; description?: string }>
   latencyMs?: number
 }
-
 
 // ==================== Query Hooks ====================
 
@@ -98,8 +95,6 @@ export function useMcpToolsQuery() {
   })
 }
 
-
-
 // ==================== Mutation Hooks ====================
 
 export function useCreateMcpServer() {
@@ -123,7 +118,10 @@ export function useUpdateMcpServer() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ serverId, updates }: {
+    mutationFn: async ({
+      serverId,
+      updates,
+    }: {
       serverId: string
       updates: Partial<McpServerConfig>
     }) => {
@@ -173,7 +171,6 @@ export function useTestMcpServer() {
     },
   })
 }
-
 
 // ==================== Exports ====================
 

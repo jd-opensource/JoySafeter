@@ -22,11 +22,14 @@ export interface InterruptState extends Record<string, unknown> {
   max_loop_iterations?: number
   /** Parallel task state */
   parallel_mode?: boolean
-  task_states?: Record<string, {
-    status: 'pending' | 'running' | 'completed' | 'error'
-    result?: any
-    error_msg?: string
-  }>
+  task_states?: Record<
+    string,
+    {
+      status: 'pending' | 'running' | 'completed' | 'error'
+      result?: any
+      error_msg?: string
+    }
+  >
   /** Complete graph state snapshot */
   graph_state?: Partial<GraphState>
 }
@@ -131,11 +134,15 @@ export interface ExecutionStoreActions {
   // Command Mode visualization
   updateState: (state: Partial<GraphState>) => void
   addTraceStep: (step: TraceStep) => void
-  addRouteDecision: (nodeId: string, nodeType: 'condition' | 'router' | 'loop', decision: {
-    result: boolean | string
-    reason: string
-    goto: string
-  }) => void
+  addRouteDecision: (
+    nodeId: string,
+    nodeType: 'condition' | 'router' | 'loop',
+    decision: {
+      result: boolean | string
+      reason: string
+      goto: string
+    },
+  ) => void
 }
 
 export type ExecutionStore = ExecutionStoreState & ExecutionStoreActions

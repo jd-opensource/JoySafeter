@@ -14,7 +14,16 @@ import type { StreamGraphActionsCallbacks } from '@/services/copilotService'
 import type { GraphActionType } from '@/types/copilot'
 
 export interface CopilotWebSocketEvent {
-  type: 'status' | 'content' | 'thought_step' | 'tool_call' | 'tool_result' | 'result' | 'error' | 'done' | 'pong'
+  type:
+    | 'status'
+    | 'content'
+    | 'thought_step'
+    | 'tool_call'
+    | 'tool_result'
+    | 'result'
+    | 'error'
+    | 'done'
+    | 'pong'
   stage?: string
   message?: string
   content?: string
@@ -116,7 +125,10 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
         wsRef.current.onerror = null
 
         // Close connection if still open or connecting
-        if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+        if (
+          wsRef.current.readyState === WebSocket.OPEN ||
+          wsRef.current.readyState === WebSocket.CONNECTING
+        ) {
           wsRef.current.close()
         }
       } catch (e) {
@@ -212,26 +224,30 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
           case 'result':
             await cbs.onResult?.({
               message: data.message ?? '',
-              actions: (data.actions ?? []).map((a: { type: string; payload: Record<string, unknown>; reasoning?: string }) => ({
-                type: a.type as GraphActionType,
-                payload: a.payload ?? {},
-                reasoning: a.reasoning ?? '',
-              })),
+              actions: (data.actions ?? []).map(
+                (a: { type: string; payload: Record<string, unknown>; reasoning?: string }) => ({
+                  type: a.type as GraphActionType,
+                  payload: a.payload ?? {},
+                  reasoning: a.reasoning ?? '',
+                }),
+              ),
             })
             break
           case 'error': {
             const errorCode = (data as { code?: string }).code
             const rawMessage = data.message ?? ''
             const messageByCode: Record<string, string> = {
-              CREDENTIAL_ERROR: 'Authentication error. Please check your API credentials in settings.',
+              CREDENTIAL_ERROR:
+                'Authentication error. Please check your API credentials in settings.',
               AGENT_ERROR: 'Agent initialization failed. Please try again or contact support.',
               CANCELLED: 'Request was cancelled.',
               REDIS_UNAVAILABLE: 'Service temporarily unavailable. Please try again later.',
               UNKNOWN_ERROR: 'An unexpected error occurred. Please try again or contact support.',
             }
-            const errorMessage = errorCode && messageByCode[errorCode] != null
-              ? messageByCode[errorCode]
-              : `${rawMessage || 'An error occurred.'}`
+            const errorMessage =
+              errorCode && messageByCode[errorCode] != null
+                ? messageByCode[errorCode]
+                : `${rawMessage || 'An error occurred.'}`
 
             if (errorCode === 'CANCELLED') {
               cleanup()
@@ -305,7 +321,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
         // Calculate exponential backoff (cap at 30 seconds)
         const backoffDelay = Math.min(
           reconnectInterval * Math.pow(1.5, reconnectAttemptsRef.current),
-          30000
+          30000,
         )
 
         if (
@@ -315,7 +331,9 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
           wsRef.current !== null // Only reconnect if not manually cleaned up
         ) {
           reconnectAttemptsRef.current++
-          console.log(`[WebSocket] Reconnecting (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts}) in ${backoffDelay}ms...`)
+          console.log(
+            `[WebSocket] Reconnecting (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts}) in ${backoffDelay}ms...`,
+          )
           reconnectTimeoutRef.current = setTimeout(() => {
             connect()
           }, backoffDelay)

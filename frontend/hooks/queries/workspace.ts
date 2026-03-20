@@ -29,7 +29,8 @@ export const workspaceDetailKeys = {
   settings: (id: string) => [...workspaceDetailKeys.detail(id), 'settings'] as const,
   permissions: (id: string) => [...workspaceDetailKeys.detail(id), 'permissions'] as const,
   adminLists: () => [...workspaceDetailKeys.all, 'adminList'] as const,
-  adminList: (userId: string | undefined) => [...workspaceDetailKeys.adminLists(), userId ?? ''] as const,
+  adminList: (userId: string | undefined) =>
+    [...workspaceDetailKeys.adminLists(), userId ?? ''] as const,
 }
 
 // Note: workspaceKeys alias removed to avoid conflict with workspaces.ts
@@ -47,7 +48,8 @@ async function fetchWorkspaceSettings(workspaceId: string) {
   ])
 
   const settings = settingsResult.status === 'fulfilled' ? settingsResult.value : null
-  const permissions = permissionsResult.status === 'fulfilled' ? permissionsResult.value : { users: [] }
+  const permissions =
+    permissionsResult.status === 'fulfilled' ? permissionsResult.value : { users: [] }
 
   if (!settings) {
     throw new Error('Failed to fetch workspace settings')
@@ -90,7 +92,7 @@ export function useUpdateWorkspaceSettings() {
       logger.info('Updating workspace settings', { workspaceId, updates })
       const result = await apiPatch<{ workspace: any }>(
         `${API_ENDPOINTS.workspaces}/${workspaceId}`,
-        updates
+        updates,
       )
       return result
     },
@@ -133,12 +135,14 @@ async function fetchAdminWorkspaces(userId: string | undefined): Promise<AdminWo
   const permissionPromises = allUserWorkspaces.map(
     async (workspace: { id: string; name: string; isOwner?: boolean; ownerId?: string }) => {
       try {
-        const permissionData = await apiGet<any>(`${API_ENDPOINTS.workspaces}/${workspace.id}/permissions`)
+        const permissionData = await apiGet<any>(
+          `${API_ENDPOINTS.workspaces}/${workspace.id}/permissions`,
+        )
         return { workspace, permissionData }
       } catch {
         return null
       }
-    }
+    },
   )
 
   const results = await Promise.all(permissionPromises)
@@ -153,7 +157,7 @@ async function fetchAdminWorkspaces(userId: string | undefined): Promise<AdminWo
     if (permissionData.users) {
       const currentUserPermission = permissionData.users.find(
         (user: { id: string; userId?: string; permissionType: string }) =>
-          user.id === userId || user.userId === userId
+          user.id === userId || user.userId === userId,
       )
       hasAdminAccess = currentUserPermission?.permissionType === 'admin'
     }

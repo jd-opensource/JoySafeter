@@ -14,8 +14,8 @@ import { apiGet, apiPost, apiFetch } from '@/lib/api-client'
 export interface ApiKey {
   id: string
   name: string
-  key: string          // full key for copying
-  keyMasked: string    // masked key for display
+  key: string // full key for copying
+  keyMasked: string // masked key for display
   type: 'personal' | 'workspace'
   workspaceId: string | null
   createdAt: string
@@ -26,7 +26,7 @@ export interface ApiKey {
 export interface CreateApiKeyResponse {
   id: string
   name: string
-  key: string          // full key, shown only once
+  key: string // full key, shown only once
   type: string
   workspaceId: string | null
   createdAt: string

@@ -6,16 +6,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import CodeViewer from '@/app/chat/components/CodeViewer'
 import FileBrowser, { FileNode } from '@/app/chat/components/FileBrowser'
 import { Button } from '@/components/ui/button'
-import {
-  artifactService,
-  type FileInfo,
-} from '@/services/artifactService'
+import { artifactService, type FileInfo } from '@/services/artifactService'
 import { cn } from '@/lib/core/utils/cn'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fileInfoToNode(f: FileInfo): FileNode {
-  const ext = f.name.includes('.') ? f.name.split('.').pop() ?? '' : ''
+  const ext = f.name.includes('.') ? (f.name.split('.').pop() ?? '') : ''
   return {
     name: f.name,
     path: f.path,
@@ -48,7 +45,35 @@ function isTextPreviewable(node: FileNode): boolean {
   }
   // Fallback: check extension for files whose backend didn't return content_type
   const ext = (node.extension ?? '').toLowerCase()
-  return ['txt', 'md', 'json', 'py', 'js', 'ts', 'tsx', 'jsx', 'html', 'css', 'yaml', 'yml', 'sh', 'sql', 'xml', 'log', 'csv', 'toml', 'ini', 'cfg', 'env', 'rs', 'go', 'java', 'c', 'h', 'cpp'].includes(ext)
+  return [
+    'txt',
+    'md',
+    'json',
+    'py',
+    'js',
+    'ts',
+    'tsx',
+    'jsx',
+    'html',
+    'css',
+    'yaml',
+    'yml',
+    'sh',
+    'sql',
+    'xml',
+    'log',
+    'csv',
+    'toml',
+    'ini',
+    'cfg',
+    'env',
+    'rs',
+    'go',
+    'java',
+    'c',
+    'h',
+    'cpp',
+  ].includes(ext)
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -59,11 +84,7 @@ interface ArtifactPanelProps {
   className?: string
 }
 
-export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
-  threadId,
-  runId,
-  className,
-}) => {
+export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ threadId, runId, className }) => {
   const [files, setFiles] = useState<FileNode[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [previewContent, setPreviewContent] = useState<string | null>(null)
@@ -137,7 +158,7 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
         setPreviewContent('(Failed to load preview)')
       }
     },
-    [threadId, runId, nodeMap]
+    [threadId, runId, nodeMap],
   )
 
   const handleDownload = useCallback(async () => {
@@ -161,35 +182,29 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   return (
     <div className={cn('flex flex-col bg-white text-gray-900', className)}>
       {error && (
-        <div className="px-3 py-2 text-sm text-red-600 border-b border-gray-100">
-          {error}
-        </div>
+        <div className="border-b border-gray-100 px-3 py-2 text-sm text-red-600">{error}</div>
       )}
-      <div className="flex flex-1 min-h-0">
-        <div className="w-[168px] border-r border-gray-200 overflow-y-auto flex-shrink-0 custom-scrollbar">
+      <div className="flex min-h-0 flex-1">
+        <div className="custom-scrollbar w-[168px] flex-shrink-0 overflow-y-auto border-r border-gray-200">
           {loadingFiles ? (
             <div className="flex items-center justify-center p-4">
               <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
             </div>
           ) : (
-            <FileBrowser
-              files={files}
-              selectedPath={selectedPath}
-              onSelect={handleSelectFile}
-            />
+            <FileBrowser files={files} selectedPath={selectedPath} onSelect={handleSelectFile} />
           )}
         </div>
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {selectedPath && (
-            <div className="flex items-center gap-2 p-3 border-b border-gray-100 bg-white shrink-0">
-              <span className="text-sm truncate flex-1">{selectedPath}</span>
+            <div className="flex shrink-0 items-center gap-2 border-b border-gray-100 bg-white p-3">
+              <span className="flex-1 truncate text-sm">{selectedPath}</span>
               <Button variant="outline" size="sm" onClick={handleDownload}>
-                <Download className="h-4 w-4 mr-1" />
+                <Download className="mr-1 h-4 w-4" />
                 Download
               </Button>
             </div>
           )}
-          <div className="flex-1 overflow-auto p-3 custom-scrollbar">
+          <div className="custom-scrollbar flex-1 overflow-auto p-3">
             {previewContent !== null && (
               <CodeViewer
                 code={previewContent}
@@ -203,13 +218,13 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
                 <img
                   src={previewBlobUrl}
                   alt={selectedPath ?? 'Preview'}
-                  className="max-w-full max-h-[70vh] object-contain"
+                  className="max-h-[70vh] max-w-full object-contain"
                 />
               </div>
             )}
             {!selectedPath && !loadingFiles && (
-              <div className="flex flex-col items-center justify-center text-gray-400 text-sm py-8">
-                <FolderOpen className="h-10 w-10 mb-2 opacity-50" />
+              <div className="flex flex-col items-center justify-center py-8 text-sm text-gray-400">
+                <FolderOpen className="mb-2 h-10 w-10 opacity-50" />
                 Select a file to preview or download
               </div>
             )}

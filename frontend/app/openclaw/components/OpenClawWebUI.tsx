@@ -49,17 +49,17 @@ export function OpenClawWebUI() {
 
   if (!instance?.exists || instance.status !== 'running') {
     return (
-      <div className="flex h-full flex-col items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg)] py-12 px-4 shadow-sm">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--muted)] mb-6">
+      <div className="flex h-full flex-col items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg)] px-4 py-12 shadow-sm">
+        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--muted)]">
           <Server className="h-8 w-8 text-[var(--text-tertiary)]" />
         </div>
         <h3 className="mb-2 text-xl font-semibold tracking-tight text-[var(--text-primary)]">
           {instance?.exists ? 'OpenClaw 实例未运行' : '未创建 OpenClaw 实例'}
         </h3>
-        <p className="mb-8 max-w-md text-center text-[var(--text-secondary)] leading-relaxed">
+        <p className="mb-8 max-w-md text-center leading-relaxed text-[var(--text-secondary)]">
           你需要先启动 OpenClaw 实例，才能使用原生 Web 界面与 Agent 进行交互以及管理设备。
           <br />
-          <span className="text-amber-500/90 text-sm mt-2 block">
+          <span className="mt-2 block text-sm text-amber-500/90">
             提示：实例启动环境准备过程较长，大约需要 4 分钟，请耐心等待。
           </span>
         </p>

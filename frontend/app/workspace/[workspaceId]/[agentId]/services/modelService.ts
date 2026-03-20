@@ -47,10 +47,7 @@ export const modelService = {
         model_name: modelName,
         input,
       }
-      const result = await apiPost<TestModelOutputResponse>(
-        'models/test-output',
-        payload
-      )
+      const result = await apiPost<TestModelOutputResponse>('models/test-output', payload)
 
       return result.output
     } catch (error) {

@@ -101,7 +101,7 @@ export function camelToSnake<T = Record<string, unknown>>(obj: unknown): T {
  * ```
  */
 export function createMapper<T>(
-  transform: (data: Record<string, any>) => T
+  transform: (data: Record<string, any>) => T,
 ): (data: Record<string, any>) => T {
   return transform
 }

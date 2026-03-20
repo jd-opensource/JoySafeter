@@ -63,7 +63,10 @@ type ChatSessionAction =
   | { type: 'SET_FILES'; payload: UploadedFile[] }
   | { type: 'ADD_FILE'; payload: UploadedFile }
   | { type: 'REMOVE_FILE'; payload: string }
-  | { type: 'SET_MODE'; payload: { type: string | null; config?: Record<string, any>; graphId?: string | null } }
+  | {
+      type: 'SET_MODE'
+      payload: { type: string | null; config?: Record<string, any>; graphId?: string | null }
+    }
   | { type: 'CLEAR_MODE' }
   | { type: 'SET_SELECTED_AGENT_ID'; payload: string | null }
   | { type: 'SET_AUTO_REDIRECT'; payload: boolean }
@@ -76,10 +79,7 @@ type ChatSessionAction =
 /**
  * Reducer function
  */
-function chatSessionReducer(
-  state: ChatSessionState,
-  action: ChatSessionAction
-): ChatSessionState {
+function chatSessionReducer(state: ChatSessionState, action: ChatSessionAction): ChatSessionState {
   switch (action.type) {
     case 'SET_INPUT':
       return { ...state, input: action.payload }
@@ -190,14 +190,10 @@ export function useChatSession() {
   }, [])
 
   const setMode = useCallback(
-    (mode: {
-      type: string | null
-      config?: Record<string, any>
-      graphId?: string | null
-    }) => {
+    (mode: { type: string | null; config?: Record<string, any>; graphId?: string | null }) => {
       dispatch({ type: 'SET_MODE', payload: mode })
     },
-    []
+    [],
   )
 
   const clearMode = useCallback(() => {
@@ -208,16 +204,13 @@ export function useChatSession() {
     dispatch({ type: 'SET_SELECTED_AGENT_ID', payload: agentId })
   }, [])
 
-  const setAutoRedirect = useCallback(
-    (enabled: boolean) => {
-      dispatch({ type: 'SET_AUTO_REDIRECT', payload: enabled })
-      localStorage.setItem(AUTO_REDIRECT_KEY, enabled.toString())
-      if (enabled) {
-        dispatch({ type: 'SET_SELECTED_AGENT_ID', payload: null })
-      }
-    },
-    []
-  )
+  const setAutoRedirect = useCallback((enabled: boolean) => {
+    dispatch({ type: 'SET_AUTO_REDIRECT', payload: enabled })
+    localStorage.setItem(AUTO_REDIRECT_KEY, enabled.toString())
+    if (enabled) {
+      dispatch({ type: 'SET_SELECTED_AGENT_ID', payload: null })
+    }
+  }, [])
 
   const setIsRedirecting = useCallback((isRedirecting: boolean) => {
     dispatch({ type: 'SET_IS_REDIRECTING', payload: isRedirecting })

@@ -50,7 +50,13 @@ export type AdapterResult =
   | { type: 'add_step'; step: ExecutionStep }
   | { type: 'append_content'; stepId: string; content: string }
   | { type: 'update_step'; stepId: string; updates: Partial<ExecutionStep>; clearThought?: boolean }
-  | { type: 'interrupt'; nodeId: string; nodeLabel: string; state: InterruptState; threadId: string }
+  | {
+      type: 'interrupt'
+      nodeId: string
+      nodeLabel: string
+      state: InterruptState
+      threadId: string
+    }
   | { type: 'command'; command: CommandEventData; nodeId: string }
   | { type: 'route_decision'; decision: RouteDecisionEventData }
   | { type: 'loop_iteration'; iteration: LoopIterationEventData }
@@ -74,7 +80,11 @@ function extractTraceFields(evt: ChatStreamEvent): TraceFields {
 // Event Handlers
 // ============================================================================
 
-function handleErrorEvent(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+function handleErrorEvent(
+  evt: ChatStreamEvent,
+  ctx: EventAdapterContext,
+  traceFields: TraceFields,
+): AdapterResult {
   const { node_name, timestamp, data } = evt
   const errorData = data as ErrorEventData
   const errorMsg = errorData?.message || 'Unknown error'
@@ -100,7 +110,11 @@ function handleErrorEvent(evt: ChatStreamEvent, ctx: EventAdapterContext, traceF
   }
 }
 
-function handleContentEvent(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+function handleContentEvent(
+  evt: ChatStreamEvent,
+  ctx: EventAdapterContext,
+  traceFields: TraceFields,
+): AdapterResult {
   const { node_name, timestamp, data } = evt
   const contentData = data as ContentEventData
   const delta = contentData?.delta || ''
@@ -130,7 +144,11 @@ function handleContentEvent(evt: ChatStreamEvent, ctx: EventAdapterContext, trac
   }
 }
 
-function handleToolEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+function handleToolEvents(
+  evt: ChatStreamEvent,
+  ctx: EventAdapterContext,
+  traceFields: TraceFields,
+): AdapterResult {
   const { type, node_name, run_id, timestamp, data } = evt
 
   if (type === 'tool_start') {
@@ -197,7 +215,11 @@ function handleToolEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceF
   return { type: 'noop' }
 }
 
-function handleNodeEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+function handleNodeEvents(
+  evt: ChatStreamEvent,
+  ctx: EventAdapterContext,
+  traceFields: TraceFields,
+): AdapterResult {
   const { type, node_name, run_id, timestamp, data } = evt
 
   if (type === 'node_start') {
@@ -249,17 +271,20 @@ function handleNodeEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceF
           duration: nodeData?.duration,
           data: {
             // @ts-ignore
-            payload: nodeData?.payload
-          }
+            payload: nodeData?.payload,
+          },
         },
       }
     }
 
-    const nodeStep = ctx.getSteps().find(
-      (s) => s.stepType === 'node_lifecycle' &&
-        (s.nodeId === nodeId || s.nodeId === nodeData?.node_name) &&
-        s.status === 'running'
-    )
+    const nodeStep = ctx
+      .getSteps()
+      .find(
+        (s) =>
+          s.stepType === 'node_lifecycle' &&
+          (s.nodeId === nodeId || s.nodeId === nodeData?.node_name) &&
+          s.status === 'running',
+      )
 
     if (nodeStep) {
       return {
@@ -272,8 +297,8 @@ function handleNodeEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceF
           data: {
             ...nodeStep.data,
             // @ts-ignore
-            payload: nodeData?.payload
-          }
+            payload: nodeData?.payload,
+          },
         },
       }
     }
@@ -292,7 +317,7 @@ function handleNodeEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceF
         duration: nodeData?.duration,
         data: {
           // @ts-ignore
-          payload: nodeData?.payload
+          payload: nodeData?.payload,
         },
         ...traceFields,
       },
@@ -302,7 +327,11 @@ function handleNodeEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceF
   return { type: 'noop' }
 }
 
-function handleModelEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+function handleModelEvents(
+  evt: ChatStreamEvent,
+  ctx: EventAdapterContext,
+  traceFields: TraceFields,
+): AdapterResult {
   const { type, node_name, run_id, timestamp, data } = evt
 
   if (type === 'model_input') {
@@ -395,7 +424,11 @@ function handleModelEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, trace
   return { type: 'noop' }
 }
 
-function handleCodeAgentEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+function handleCodeAgentEvents(
+  evt: ChatStreamEvent,
+  ctx: EventAdapterContext,
+  traceFields: TraceFields,
+): AdapterResult {
   const { type, node_name, timestamp, data } = evt
 
   if (type === 'code_agent_thought') {
@@ -457,9 +490,10 @@ function handleCodeAgentEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, t
 
   if (type === 'code_agent_final_answer') {
     const answerData = data as CodeAgentFinalAnswerEventData
-    const answerStr = typeof answerData.answer === 'string'
-      ? answerData.answer
-      : JSON.stringify(answerData.answer, null, 2)
+    const answerStr =
+      typeof answerData.answer === 'string'
+        ? answerData.answer
+        : JSON.stringify(answerData.answer, null, 2)
     return {
       type: 'add_step',
       step: {
@@ -518,7 +552,11 @@ function handleCodeAgentEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, t
   return { type: 'noop' }
 }
 
-function handleMiscEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceFields: TraceFields): AdapterResult {
+function handleMiscEvents(
+  evt: ChatStreamEvent,
+  ctx: EventAdapterContext,
+  traceFields: TraceFields,
+): AdapterResult {
   const { type, node_name, data } = evt
 
   if (type === 'done') return { type: 'done' }
@@ -581,7 +619,7 @@ function handleMiscEvents(evt: ChatStreamEvent, ctx: EventAdapterContext, traceF
 
 export function mapChatEventToExecutionStep(
   evt: ChatStreamEvent,
-  ctx: EventAdapterContext
+  ctx: EventAdapterContext,
 ): AdapterResult {
   const traceFields = extractTraceFields(evt)
 
@@ -621,7 +659,7 @@ export function mapChatEventToExecutionStep(
 export function createWorkflowStep(
   id: string,
   input: string,
-  status: 'running' | 'success' | 'error' = 'running'
+  status: 'running' | 'success' | 'error' = 'running',
 ): ExecutionStep {
   return {
     id,
@@ -638,10 +676,7 @@ export function createWorkflowStep(
 /**
  * Creates an error step
  */
-export function createErrorStep(
-  id: string,
-  message: string
-): ExecutionStep {
+export function createErrorStep(id: string, message: string): ExecutionStep {
   return {
     id,
     nodeId: 'system',

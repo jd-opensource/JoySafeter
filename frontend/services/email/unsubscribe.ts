@@ -22,13 +22,13 @@ export interface EmailPreferences {
  */
 export async function generateUnsubscribeToken(
   email: string,
-  emailType = 'marketing'
+  emailType = 'marketing',
 ): Promise<string> {
   try {
-    const result = await apiPost<{ token: string }>(
-      `${EMAIL_API_BASE}/generate-token`,
-      { email, email_type: emailType }
-    )
+    const result = await apiPost<{ token: string }>(`${EMAIL_API_BASE}/generate-token`, {
+      email,
+      email_type: emailType,
+    })
     return result.token
   } catch (error) {
     logger.error('Error generating unsubscribe token:', error)
@@ -44,12 +44,12 @@ export async function generateUnsubscribeToken(
  */
 export async function verifyUnsubscribeToken(
   email: string,
-  token: string
+  token: string,
 ): Promise<{ valid: boolean; emailType?: string }> {
   try {
     const result = await apiPost<{ valid: boolean; email_type?: string }>(
       `${EMAIL_API_BASE}/verify-token`,
-      { email, token }
+      { email, token },
     )
     return {
       valid: result.valid,
@@ -76,7 +76,7 @@ export function isTransactionalEmail(emailType: EmailType): boolean {
 export async function getEmailPreferences(email: string): Promise<EmailPreferences | null> {
   try {
     const result = await apiGet<EmailPreferences>(
-      `${EMAIL_API_BASE}/preferences?email=${encodeURIComponent(email)}`
+      `${EMAIL_API_BASE}/preferences?email=${encodeURIComponent(email)}`,
     )
     return result || null
   } catch (error) {
@@ -92,13 +92,10 @@ export async function getEmailPreferences(email: string): Promise<EmailPreferenc
  */
 export async function updateEmailPreferences(
   email: string,
-  preferences: EmailPreferences
+  preferences: EmailPreferences,
 ): Promise<boolean> {
   try {
-    await apiPut(
-      `${EMAIL_API_BASE}/preferences?email=${encodeURIComponent(email)}`,
-      preferences
-    )
+    await apiPut(`${EMAIL_API_BASE}/preferences?email=${encodeURIComponent(email)}`, preferences)
     logger.info(`Updated email preferences for user: ${email}`)
     return true
   } catch (error) {
@@ -114,11 +111,11 @@ export async function updateEmailPreferences(
  */
 export async function isUnsubscribed(
   email: string,
-  emailType: 'all' | 'marketing' | 'updates' | 'notifications' = 'all'
+  emailType: 'all' | 'marketing' | 'updates' | 'notifications' = 'all',
 ): Promise<boolean> {
   try {
     const result = await apiGet<{ is_unsubscribed: boolean }>(
-      `${EMAIL_API_BASE}/check-unsubscribed?email=${encodeURIComponent(email)}&email_type=${emailType}`
+      `${EMAIL_API_BASE}/check-unsubscribed?email=${encodeURIComponent(email)}&email_type=${emailType}`,
     )
     return result?.is_unsubscribed || false
   } catch (error) {
@@ -134,9 +131,7 @@ export async function isUnsubscribed(
  */
 export async function unsubscribeFromAll(email: string): Promise<boolean> {
   try {
-    await apiPost(
-      `${EMAIL_API_BASE}/unsubscribe/all?email=${encodeURIComponent(email)}`
-    )
+    await apiPost(`${EMAIL_API_BASE}/unsubscribe/all?email=${encodeURIComponent(email)}`)
     return true
   } catch (error) {
     logger.error('Error unsubscribing from all emails:', error)
@@ -151,10 +146,7 @@ export async function unsubscribeFromAll(email: string): Promise<boolean> {
  */
 export async function unsubscribeByToken(email: string, token: string): Promise<boolean> {
   try {
-    await apiPost(
-      `${EMAIL_API_BASE}/unsubscribe`,
-      { email, token }
-    )
+    await apiPost(`${EMAIL_API_BASE}/unsubscribe`, { email, token })
     return true
   } catch (error) {
     logger.error('Error unsubscribing by token:', error)
@@ -169,9 +161,7 @@ export async function unsubscribeByToken(email: string, token: string): Promise<
  */
 export async function resubscribe(email: string): Promise<boolean> {
   try {
-    await apiPost(
-      `${EMAIL_API_BASE}/resubscribe?email=${encodeURIComponent(email)}`
-    )
+    await apiPost(`${EMAIL_API_BASE}/resubscribe?email=${encodeURIComponent(email)}`)
     return true
   } catch (error) {
     logger.error('Error resubscribing:', error)

@@ -27,7 +27,14 @@ import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 
 const CUSTOM_CREDENTIAL_FIELDS = [
-  { key: 'protocol_type', label: '协议类型', type: 'string' as const, required: true, enum: ['openai', 'anthropic', 'gemini'], enumNames: ['OpenAI', 'Anthropic (Claude)', 'Google Gemini'] },
+  {
+    key: 'protocol_type',
+    label: '协议类型',
+    type: 'string' as const,
+    required: true,
+    enum: ['openai', 'anthropic', 'gemini'],
+    enumNames: ['OpenAI', 'Anthropic (Claude)', 'Google Gemini'],
+  },
   { key: 'api_key', label: 'API Key', type: 'string' as const, required: true },
   { key: 'base_url', label: 'Base URL', type: 'string' as const, required: false },
 ]
@@ -39,18 +46,24 @@ interface AddCustomModelDialogProps {
   provider?: ModelProvider | null
 }
 
-export function AddCustomModelDialog({
-  open,
-  onOpenChange,
-  provider,
-}: AddCustomModelDialogProps) {
+export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustomModelDialogProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const createCredential = useCreateCredential()
 
   const formFields = useMemo(() => {
-    if (provider?.credential_schema && typeof provider.credential_schema === 'object' && 'properties' in provider.credential_schema) {
-      const schema = provider.credential_schema as { properties?: Record<string, { title?: string; type?: string; enum?: string[]; enumNames?: string[] }>; required?: string[] }
+    if (
+      provider?.credential_schema &&
+      typeof provider.credential_schema === 'object' &&
+      'properties' in provider.credential_schema
+    ) {
+      const schema = provider.credential_schema as {
+        properties?: Record<
+          string,
+          { title?: string; type?: string; enum?: string[]; enumNames?: string[] }
+        >
+        required?: string[]
+      }
       return Object.entries(schema.properties || {}).map(([key, value]) => ({
         key,
         label: value.title || key,
@@ -124,64 +137,80 @@ export function AddCustomModelDialog({
       toast({
         variant: 'destructive',
         title: t('settings.error'),
-        description: error instanceof Error ? error.message : t('settings.failedToAddCustomModel', { defaultValue: '添加失败' }),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('settings.failedToAddCustomModel', { defaultValue: '添加失败' }),
       })
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden bg-white border border-gray-200 rounded-2xl shadow-2xl">
-        <DialogHeader className="px-6 py-4 border-b border-gray-100">
-          <DialogTitle className="font-bold text-sm">
+      <DialogContent className="gap-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-2xl sm:max-w-md">
+        <DialogHeader className="border-b border-gray-100 px-6 py-4">
+          <DialogTitle className="text-sm font-bold">
             {t('settings.addCustomModel', { defaultValue: '添加自定义模型' })}
           </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+          <DialogDescription className="mt-0.5 text-xs text-muted-foreground">
             {t('settings.addCustomModelDescriptionFull', {
               defaultValue: '填写凭据与模型名称，一步添加一个自定义模型',
             })}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex-col flex">
-          <div className="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
-            {formFields.map((field: { key: string; label: string; type: string; required?: boolean; enum?: string[]; enumNames?: string[] }) => (
-              <div key={field.key}>
-                <Label htmlFor={`custom-${field.key}`}>
-                  {field.label}
-                  {field.required ? <span className="text-destructive ml-1">*</span> : null}
-                </Label>
-                {field.enum?.length ? (
-                  <Select
-                    value={formData[field.key] || field.enum[0]}
-                    onValueChange={(v) => setFormData((prev) => ({ ...prev, [field.key]: v }))}
-                  >
-                    <SelectTrigger id={`custom-${field.key}`} className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent position="popper" className="z-[10000001]">
-                      {field.enum.map((opt, i) => (
-                        <SelectItem key={opt} value={opt}>
-                          {(field.enumNames && field.enumNames[i]) || opt}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    id={`custom-${field.key}`}
-                    type={field.key === 'api_key' ? 'password' : 'text'}
-                    value={formData[field.key] ?? ''}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                    placeholder={field.key === 'base_url' ? 'https://api.openai.com/v1（可选）' : ''}
-                    className="mt-1"
-                  />
-                )}
-              </div>
-            ))}
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <div className="max-h-[60vh] space-y-4 overflow-y-auto px-6 py-4">
+            {formFields.map(
+              (field: {
+                key: string
+                label: string
+                type: string
+                required?: boolean
+                enum?: string[]
+                enumNames?: string[]
+              }) => (
+                <div key={field.key}>
+                  <Label htmlFor={`custom-${field.key}`}>
+                    {field.label}
+                    {field.required ? <span className="ml-1 text-destructive">*</span> : null}
+                  </Label>
+                  {field.enum?.length ? (
+                    <Select
+                      value={formData[field.key] || field.enum[0]}
+                      onValueChange={(v) => setFormData((prev) => ({ ...prev, [field.key]: v }))}
+                    >
+                      <SelectTrigger id={`custom-${field.key}`} className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent position="popper" className="z-[10000001]">
+                        {field.enum.map((opt, i) => (
+                          <SelectItem key={opt} value={opt}>
+                            {(field.enumNames && field.enumNames[i]) || opt}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id={`custom-${field.key}`}
+                      type={field.key === 'api_key' ? 'password' : 'text'}
+                      value={formData[field.key] ?? ''}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, [field.key]: e.target.value }))
+                      }
+                      placeholder={
+                        field.key === 'base_url' ? 'https://api.openai.com/v1（可选）' : ''
+                      }
+                      className="mt-1"
+                    />
+                  )}
+                </div>
+              ),
+            )}
             <div>
               <Label htmlFor="custom-model-name">
                 {t('settings.modelName', { defaultValue: '模型名称' })}
-                <span className="text-destructive ml-1">*</span>
+                <span className="ml-1 text-destructive">*</span>
               </Label>
               <Input
                 id="custom-model-name"
@@ -192,31 +221,37 @@ export function AddCustomModelDialog({
                 required
                 className="mt-1"
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {t('settings.modelNameRequiredHint', {
                   defaultValue: '如 gpt-4o-mini、claude-3-5-sonnet、gemini-1.5-flash',
                 })}
               </p>
             </div>
             <div>
-              <Label htmlFor="custom-display-name">{t('settings.providerDisplayName', { defaultValue: '显示名称' })}（可选）</Label>
+              <Label htmlFor="custom-display-name">
+                {t('settings.providerDisplayName', { defaultValue: '显示名称' })}（可选）
+              </Label>
               <Input
                 id="custom-display-name"
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder={t('settings.providerDisplayNamePlaceholder', { defaultValue: '留空则使用模型名' })}
+                placeholder={t('settings.providerDisplayNamePlaceholder', {
+                  defaultValue: '留空则使用模型名',
+                })}
                 className="mt-1"
               />
             </div>
           </div>
-          <DialogFooter className="border-t border-gray-100 px-6 py-4 flex justify-end gap-2">
+          <DialogFooter className="flex justify-end gap-2 border-t border-gray-100 px-6 py-4">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t('settings.cancel')}
             </Button>
             <Button
               type="submit"
-              disabled={createCredential.isPending || !modelName.trim() || !formData.api_key?.trim()}
+              disabled={
+                createCredential.isPending || !modelName.trim() || !formData.api_key?.trim()
+              }
             >
               {createCredential.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('settings.add', { defaultValue: '添加' })}

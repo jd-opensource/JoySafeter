@@ -147,10 +147,7 @@ export function OpenClawChat() {
               {messages.map((m) => (
                 <div
                   key={m.id}
-                  className={cn(
-                    'flex',
-                    m.role === 'user' ? 'justify-end' : 'justify-start',
-                  )}
+                  className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}
                 >
                   <div
                     className={cn(
@@ -160,7 +157,9 @@ export function OpenClawChat() {
                         : 'bg-[var(--surface-3)] text-[var(--text-primary)]',
                     )}
                   >
-                    <pre className="whitespace-pre-wrap break-words font-sans">{m.content || (isStreaming && m.role === 'assistant' ? '...' : '')}</pre>
+                    <pre className="whitespace-pre-wrap break-words font-sans">
+                      {m.content || (isStreaming && m.role === 'assistant' ? '...' : '')}
+                    </pre>
                   </div>
                 </div>
               ))}

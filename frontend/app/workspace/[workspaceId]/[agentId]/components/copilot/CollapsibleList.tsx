@@ -42,24 +42,16 @@ export function CollapsibleList<T>({
   return (
     <div className={className}>
       {visibleItems.map((item, idx) => (
-        <div key={getKey(item, idx)}>
-          {renderItem(item, idx)}
-        </div>
+        <div key={getKey(item, idx)}>{renderItem(item, idx)}</div>
       ))}
       {hiddenCount > 0 && (
-        <button
-          onClick={() => onToggle(expandKey)}
-          className={buttonClassName}
-        >
+        <button onClick={() => onToggle(expandKey)} className={buttonClassName}>
           <ChevronDown size={10} />
           <span>{expandText || `展开 ${hiddenCount} 个已折叠的项`}</span>
         </button>
       )}
       {isExpanded && hasMultiple && (
-        <button
-          onClick={() => onToggle(expandKey)}
-          className={buttonClassName}
-        >
+        <button onClick={() => onToggle(expandKey)} className={buttonClassName}>
           <ChevronUp size={10} />
           <span>{collapseText || '折叠列表'}</span>
         </button>

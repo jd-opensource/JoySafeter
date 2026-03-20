@@ -51,10 +51,7 @@ export function ExecutionDataProvider({
   collapsedIds,
   children,
 }: ExecutionDataProviderProps) {
-  const flatItems = useMemo(
-    () => flattenTree(treeRoots, collapsedIds),
-    [treeRoots, collapsedIds]
-  )
+  const flatItems = useMemo(() => flattenTree(treeRoots, collapsedIds), [treeRoots, collapsedIds])
 
   const value = useMemo(
     () => ({
@@ -65,12 +62,8 @@ export function ExecutionDataProvider({
       isExecuting,
       collapsedIds,
     }),
-    [steps, treeRoots, nodeMap, flatItems, isExecuting, collapsedIds]
+    [steps, treeRoots, nodeMap, flatItems, isExecuting, collapsedIds],
   )
 
-  return (
-    <ExecutionDataCtx.Provider value={value}>
-      {children}
-    </ExecutionDataCtx.Provider>
-  )
+  return <ExecutionDataCtx.Provider value={value}>{children}</ExecutionDataCtx.Provider>
 }

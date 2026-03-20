@@ -28,7 +28,7 @@ export interface Command {
 export async function resumeWithCommand(
   threadId: string,
   command: Command,
-  onEvent?: (evt: ChatStreamEvent) => void
+  onEvent?: (evt: ChatStreamEvent) => void,
 ): Promise<void> {
   // Use unified apiStream method to handle SSE streaming requests
   const response = await apiStream('chat/resume', {
@@ -51,11 +51,7 @@ export async function resumeWithCommand(
   }
 
   // Create event processing context
-  const ctx = createEventProcessorContext(
-    graphId,
-    generateId,
-    () => store.steps
-  )
+  const ctx = createEventProcessorContext(graphId, generateId, () => store.steps)
 
   // Create store adapter conforming to EventProcessorStore interface
   const storeAdapter: EventProcessorStore = {

@@ -21,16 +21,16 @@ export function CopyButton({ text, className = '', showLabel = true }: CopyButto
   }
 
   return (
-    <div className='absolute top-1 right-1 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100'>
+    <div className="absolute right-1 top-1 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
       {showLabel && (
-        <div className='rounded-md bg-background/80 px-2 py-1 text-muted-foreground text-xs'>
+        <div className="rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
           {copied ? 'Copied!' : 'Click to copy'}
         </div>
       )}
       <Button
-        type='button'
-        variant='ghost'
-        size='icon'
+        type="button"
+        variant="ghost"
+        size="icon"
         className={`h-6 w-6 p-0 ${className}`}
         onClick={(e) => {
           e.stopPropagation() // Prevent click from affecting parent elements
@@ -38,9 +38,9 @@ export function CopyButton({ text, className = '', showLabel = true }: CopyButto
         }}
       >
         {copied ? (
-          <Check className='h-3.5 w-3.5 text-green-500' />
+          <Check className="h-3.5 w-3.5 text-green-500" />
         ) : (
-          <Copy className='h-3.5 w-3.5 text-muted-foreground' />
+          <Copy className="h-3.5 w-3.5 text-muted-foreground" />
         )}
       </Button>
     </div>

@@ -13,9 +13,9 @@ import type { EdgeData } from '../types/graph'
 // ── Edge Style Constants ────────────────────────────────────────────
 
 export const EDGE_COLORS = {
-    normal: '#cbd5e1',      // gray-300
-    conditional: '#3b82f6', // blue-500
-    loop_back: '#9333ea',   // violet-600
+  normal: '#cbd5e1', // gray-300
+  conditional: '#3b82f6', // blue-500
+  loop_back: '#9333ea', // violet-600
 } as const
 
 // ── Core Helper ─────────────────────────────────────────────────────
@@ -26,43 +26,43 @@ export const EDGE_COLORS = {
  * This is the single source of truth for edge appearance.
  */
 export function getEdgeStyleByType(
-    edgeType: EdgeData['edge_type'] | undefined,
-    baseStyle?: CSSProperties
+  edgeType: EdgeData['edge_type'] | undefined,
+  baseStyle?: CSSProperties,
 ): { type: string; style: CSSProperties } {
-    const base = baseStyle || {}
+  const base = baseStyle || {}
 
-    if (edgeType === 'loop_back') {
-        return {
-            type: 'loop_back',
-            style: {
-                ...base,
-                stroke: EDGE_COLORS.loop_back,
-                strokeWidth: 2.5,
-                strokeDasharray: '8,4',
-            },
-        }
-    }
-
-    if (edgeType === 'conditional') {
-        return {
-            type: 'default',
-            style: {
-                ...base,
-                stroke: EDGE_COLORS.conditional,
-                strokeWidth: 2,
-            },
-        }
-    }
-
-    // Normal edge
+  if (edgeType === 'loop_back') {
     return {
-        type: 'default',
-        style: {
-            ...base,
-            stroke: (base as any).stroke || EDGE_COLORS.normal,
-            strokeWidth: (base as any).strokeWidth || 1.5,
-        },
+      type: 'loop_back',
+      style: {
+        ...base,
+        stroke: EDGE_COLORS.loop_back,
+        strokeWidth: 2.5,
+        strokeDasharray: '8,4',
+      },
     }
+  }
+
+  if (edgeType === 'conditional') {
+    return {
+      type: 'default',
+      style: {
+        ...base,
+        stroke: EDGE_COLORS.conditional,
+        strokeWidth: 2,
+      },
+    }
+  }
+
+  // Normal edge
+  return {
+    type: 'default',
+    style: {
+      ...base,
+      stroke: (base as any).stroke || EDGE_COLORS.normal,
+      strokeWidth: (base as any).strokeWidth || 1.5,
+    },
+  }
 }
 
 // ── Edge Processing ─────────────────────────────────────────────────
@@ -74,9 +74,9 @@ export function getEdgeStyleByType(
  * the edge_type → type/style mapping logic.
  */
 export function processEdgesForReactFlow(edges: Edge[]): Edge[] {
-    return edges.map((edge) => {
-        const edgeData = (edge.data || {}) as EdgeData
-        const { type, style } = getEdgeStyleByType(edgeData.edge_type, edge.style)
-        return { ...edge, type, style }
-    })
+  return edges.map((edge) => {
+    const edgeData = (edge.data || {}) as EdgeData
+    const { type, style } = getEdgeStyleByType(edgeData.edge_type, edge.style)
+    return { ...edge, type, style }
+  })
 }

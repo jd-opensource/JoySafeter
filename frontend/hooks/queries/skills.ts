@@ -32,9 +32,7 @@ export function useSkills(includePublic: boolean = true, options?: { enabled?: b
       if (includePublic !== undefined) {
         params.append('include_public', includePublic.toString())
       }
-      const url = params.toString()
-        ? `skills?${params.toString()}`
-        : 'skills'
+      const url = params.toString() ? `skills?${params.toString()}` : 'skills'
       const skills = await apiGet<Skill[]>(url)
       return skills || []
     },
@@ -56,7 +54,7 @@ export function usePublicSkills(options?: { enabled?: boolean }) {
 
   // Filter to only public skills using useMemo
   const publicSkills = useMemo(() => {
-    return allSkills.filter(s => s.is_public)
+    return allSkills.filter((s) => s.is_public)
   }, [allSkills])
 
   return {

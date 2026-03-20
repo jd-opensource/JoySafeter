@@ -22,7 +22,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
-import { truncateValidationError, useCreateCredential, useValidateCredential } from '@/hooks/queries/models'
+import {
+  truncateValidationError,
+  useCreateCredential,
+  useValidateCredential,
+} from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 
@@ -44,7 +48,9 @@ export function ModelCredentialDialog({
   const createCredential = useCreateCredential()
   const validateCredential = useValidateCredential()
   const [validating, setValidating] = useState(false)
-  const [providerDisplayName, setProviderDisplayName] = useState(provider.is_template ? '' : provider.display_name)
+  const [providerDisplayName, setProviderDisplayName] = useState(
+    provider.is_template ? '' : provider.display_name,
+  )
 
   // Parse form fields from credential_schema
   const formFields = useMemo(() => {
@@ -54,16 +60,18 @@ export function ModelCredentialDialog({
     // Simplified here, assuming it's an object with properties
     const schema = provider.credential_schema
     if (schema && typeof schema === 'object' && 'properties' in schema) {
-      return Object.entries((schema as any).properties || {}).map(([key, value]: [string, any]) => ({
-        key,
-        label: value.title || value.label || key,
-        type: value.type || 'string',
-        required: (schema as any).required?.includes(key) || false,
-        description: value.description,
-        default: value.default,
-        enum: Array.isArray(value.enum) ? value.enum : undefined,
-        enumNames: Array.isArray((value as any).enumNames) ? (value as any).enumNames : undefined,
-      }))
+      return Object.entries((schema as any).properties || {}).map(
+        ([key, value]: [string, any]) => ({
+          key,
+          label: value.title || value.label || key,
+          type: value.type || 'string',
+          required: (schema as any).required?.includes(key) || false,
+          description: value.description,
+          default: value.default,
+          enum: Array.isArray(value.enum) ? value.enum : undefined,
+          enumNames: Array.isArray((value as any).enumNames) ? (value as any).enumNames : undefined,
+        }),
+      )
     }
 
     // If no properties, return empty array
@@ -72,7 +80,7 @@ export function ModelCredentialDialog({
 
   const [formData, setFormData] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {}
-    formFields.forEach(field => {
+    formFields.forEach((field) => {
       if (field.default !== undefined) {
         initial[field.key] = String(field.default)
       } else if (field.enum && field.enum.length > 0) {
@@ -93,7 +101,7 @@ export function ModelCredentialDialog({
   // Update form data when formFields changes
   React.useEffect(() => {
     const initial: Record<string, string> = {}
-    formFields.forEach(field => {
+    formFields.forEach((field) => {
       if (field.default !== undefined) {
         initial[field.key] = String(field.default)
       } else {
@@ -130,13 +138,16 @@ export function ModelCredentialDialog({
         toast({
           variant: 'destructive',
           title: t('settings.credentialSavedValidationFailed'),
-          description: truncateValidationError(data?.validation_error) || t('settings.validationFailedHint'),
+          description:
+            truncateValidationError(data?.validation_error) || t('settings.validationFailedHint'),
         })
         // Keep dialog open so user can fix and resubmit
         return
       }
 
-      const baseMessage = credential ? t('settings.credentialUpdated') : t('settings.credentialSaved')
+      const baseMessage = credential
+        ? t('settings.credentialUpdated')
+        : t('settings.credentialSaved')
       toast({
         variant: 'success',
         description: baseMessage,
@@ -145,7 +156,7 @@ export function ModelCredentialDialog({
       onOpenChange(false)
       // Reset form
       const initial: Record<string, string> = {}
-      formFields.forEach(field => {
+      formFields.forEach((field) => {
         if (field.default !== undefined) {
           initial[field.key] = String(field.default)
         } else if (field.enum && field.enum.length > 0) {
@@ -158,9 +169,12 @@ export function ModelCredentialDialog({
     } catch (error) {
       toast({
         title: t('settings.error'),
-        description: error instanceof Error
-          ? error.message
-          : (credential ? t('settings.failedToUpdateCredential') : t('settings.failedToCreateCredential')),
+        description:
+          error instanceof Error
+            ? error.message
+            : credential
+              ? t('settings.failedToUpdateCredential')
+              : t('settings.failedToCreateCredential'),
         variant: 'destructive',
       })
     }
@@ -179,7 +193,8 @@ export function ModelCredentialDialog({
         } else {
           toast({
             title: t('settings.failedToValidateCredential'),
-            description: truncateValidationError(data?.error) || t('settings.failedToValidateCredential'),
+            description:
+              truncateValidationError(data?.error) || t('settings.failedToValidateCredential'),
             variant: 'destructive',
           })
         }
@@ -197,52 +212,60 @@ export function ModelCredentialDialog({
 
   const dialogContentClassName =
     'sm:max-w-lg p-0 gap-0 overflow-hidden bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]'
-  const headerClassName = 'px-6 py-4 border-b border-gray-100 shrink-0 flex flex-row items-center gap-3'
+  const headerClassName =
+    'px-6 py-4 border-b border-gray-100 shrink-0 flex flex-row items-center gap-3'
   const bodyClassName = 'p-6 space-y-4 max-h-[60vh] overflow-y-auto'
-  const footerClassName = 'border-t border-gray-100 px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2'
+  const footerClassName =
+    'border-t border-gray-100 px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={dialogContentClassName}>
         <DialogHeader className={headerClassName}>
-          <div className="p-1.5 rounded-lg border border-gray-50 shadow-sm shrink-0 bg-violet-50 text-violet-600">
+          <div className="shrink-0 rounded-lg border border-gray-50 bg-violet-50 p-1.5 text-violet-600 shadow-sm">
             <KeyRound size={14} />
           </div>
-          <div className="flex flex-col min-w-0">
-            <DialogTitle className="font-bold text-sm leading-tight">
+          <div className="flex min-w-0 flex-col">
+            <DialogTitle className="text-sm font-bold leading-tight">
               {provider.display_name} {t('settings.configureCredential')}
             </DialogTitle>
-            <DialogDescription className="text-muted-foreground text-xs mt-0.5">
+            <DialogDescription className="mt-0.5 text-xs text-muted-foreground">
               {t('settings.modelProviderDescription')}
             </DialogDescription>
           </div>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className={bodyClassName}>
             {provider.is_template && (
               <div>
                 <Label htmlFor="provider-display-name">
                   {t('settings.providerDisplayName', { defaultValue: '供应商名称' })}
-                  <span className="text-destructive ml-1">*</span>
+                  <span className="ml-1 text-destructive">*</span>
                 </Label>
                 <Input
                   id="provider-display-name"
                   type="text"
                   value={providerDisplayName}
                   onChange={(e) => setProviderDisplayName(e.target.value)}
-                  placeholder={t('settings.enterProviderDisplayName', { defaultValue: '例如：DeepSeek、Groq' })}
+                  placeholder={t('settings.enterProviderDisplayName', {
+                    defaultValue: '例如：DeepSeek、Groq',
+                  })}
                   required
                   className="mt-1"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('settings.providerDisplayNameHint', { defaultValue: '为此供应商实例起一个名字' })}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('settings.providerDisplayNameHint', {
+                    defaultValue: '为此供应商实例起一个名字',
+                  })}
                 </p>
                 <div className="h-4" /> {/* Spacer */}
               </div>
             )}
             {formFields.length === 0 ? (
               <div>
-                <Label htmlFor="api_key">{t('settings.apiKeyLabel', { defaultValue: 'API Key' })}</Label>
+                <Label htmlFor="api_key">
+                  {t('settings.apiKeyLabel', { defaultValue: 'API Key' })}
+                </Label>
                 <Input
                   id="api_key"
                   type="password"
@@ -254,25 +277,28 @@ export function ModelCredentialDialog({
                 />
               </div>
             ) : (
-              formFields.map(field => {
+              formFields.map((field) => {
                 const fieldDescription =
-                  (provider.provider_name === 'openaiapicompatible' && field.key === 'base_url')
+                  provider.provider_name === 'openaiapicompatible' && field.key === 'base_url'
                     ? t('settings.baseUrlDescription')
-                    : (provider.provider_name === 'custom' && field.key === 'base_url')
+                    : provider.provider_name === 'custom' && field.key === 'base_url'
                       ? t('settings.baseUrlDescription')
                       : field.description
                 const isEnum = field.enum && field.enum.length > 0
                 const options = isEnum
                   ? (field.enum as string[]).map((val, i) => ({
-                    value: String(val),
-                    label: (field.enumNames && field.enumNames[i]) ? String(field.enumNames[i]) : String(val),
-                  }))
+                      value: String(val),
+                      label:
+                        field.enumNames && field.enumNames[i]
+                          ? String(field.enumNames[i])
+                          : String(val),
+                    }))
                   : []
                 return (
                   <div key={field.key}>
                     <Label htmlFor={field.key}>
                       {field.label}
-                      {field.required && <span className="text-destructive ml-1">*</span>}
+                      {field.required && <span className="ml-1 text-destructive">*</span>}
                     </Label>
                     {isEnum ? (
                       <Select
@@ -283,7 +309,7 @@ export function ModelCredentialDialog({
                           <SelectValue placeholder={field.label} />
                         </SelectTrigger>
                         <SelectContent position="popper" className="z-[10000001]">
-                          {options.map(opt => (
+                          {options.map((opt) => (
                             <SelectItem key={opt.value} value={opt.value}>
                               {opt.label}
                             </SelectItem>
@@ -293,16 +319,30 @@ export function ModelCredentialDialog({
                     ) : (
                       <Input
                         id={field.key}
-                        type={field.type === 'string' ? (field.key.toLowerCase().includes('key') || field.key.toLowerCase().includes('secret') ? 'password' : 'text') : field.type}
+                        type={
+                          field.type === 'string'
+                            ? field.key.toLowerCase().includes('key') ||
+                              field.key.toLowerCase().includes('secret')
+                              ? 'password'
+                              : 'text'
+                            : field.type
+                        }
                         value={formData[field.key] || ''}
                         onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
-                        placeholder={fieldDescription || field.description || t('settings.enterField', { field: field.label, defaultValue: `Enter ${field.label.toLowerCase()}` })}
+                        placeholder={
+                          fieldDescription ||
+                          field.description ||
+                          t('settings.enterField', {
+                            field: field.label,
+                            defaultValue: `Enter ${field.label.toLowerCase()}`,
+                          })
+                        }
                         required={field.required}
                         className="mt-1"
                       />
                     )}
                     {fieldDescription && (
-                      <p className="text-xs text-muted-foreground mt-1">{fieldDescription}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{fieldDescription}</p>
                     )}
                   </div>
                 )
@@ -317,7 +357,7 @@ export function ModelCredentialDialog({
                 onClick={handleValidate}
                 disabled={validating}
               >
-                {validating && <Loader2 className="mr-2 w-4 h-4 animate-spin" />}
+                {validating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t('settings.validateCredential')}
               </Button>
             )}
@@ -325,7 +365,7 @@ export function ModelCredentialDialog({
               {t('settings.cancel')}
             </Button>
             <Button type="submit" disabled={createCredential.isPending}>
-              {createCredential.isPending && <Loader2 className="mr-2 w-4 h-4 animate-spin" />}
+              {createCredential.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('settings.save')}
             </Button>
           </DialogFooter>

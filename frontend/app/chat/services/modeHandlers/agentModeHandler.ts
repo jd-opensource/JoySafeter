@@ -58,11 +58,7 @@ export const agentModeHandler: ModeHandler = {
     }
   },
 
-  async onSubmit(
-    input: string,
-    files: any[],
-    context: ModeContext
-  ): Promise<SubmitResult> {
+  async onSubmit(input: string, files: any[], context: ModeContext): Promise<SubmitResult> {
     const { selectedAgentId } = context
 
     if (!selectedAgentId) {

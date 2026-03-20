@@ -43,7 +43,7 @@ export function ExecutionSelectionProvider({ children }: ExecutionSelectionProvi
   }, [])
 
   const toggleCollapse = useCallback((nodeId: string) => {
-    setCollapsedIds(prev => {
+    setCollapsedIds((prev) => {
       const next = new Set(prev)
       if (next.has(nodeId)) {
         next.delete(nodeId)
@@ -71,12 +71,8 @@ export function ExecutionSelectionProvider({ children }: ExecutionSelectionProvi
       expandAll,
       collapseAll,
     }),
-    [selectedNodeId, collapsedIds, selectNode, toggleCollapse, expandAll, collapseAll]
+    [selectedNodeId, collapsedIds, selectNode, toggleCollapse, expandAll, collapseAll],
   )
 
-  return (
-    <ExecutionSelectionCtx.Provider value={value}>
-      {children}
-    </ExecutionSelectionCtx.Provider>
-  )
+  return <ExecutionSelectionCtx.Provider value={value}>{children}</ExecutionSelectionCtx.Provider>
 }

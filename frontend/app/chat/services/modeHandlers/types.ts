@@ -122,11 +122,7 @@ export interface ModeHandler {
    * Handle submission
    * Called when user submits chat input
    */
-  onSubmit(
-    input: string,
-    files: UploadedFile[],
-    context: ModeContext
-  ): Promise<SubmitResult>
+  onSubmit(input: string, files: UploadedFile[], context: ModeContext): Promise<SubmitResult>
 
   /**
    * Validate input and files

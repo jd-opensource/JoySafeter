@@ -34,11 +34,7 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
       }
     },
 
-    async onSubmit(
-      input: string,
-      files: any[],
-      context: ModeContext
-    ): Promise<SubmitResult> {
+    async onSubmit(input: string, files: any[], context: ModeContext): Promise<SubmitResult> {
       return {
         success: true,
         processedInput: input,

@@ -29,10 +29,7 @@ interface ToolDisplay {
 /**
  * Map a raw tool name + its input args to a user-friendly label and detail.
  */
-export function formatToolDisplay(
-  toolName: string,
-  toolInput: Record<string, any>
-): ToolDisplay {
+export function formatToolDisplay(toolName: string, toolInput: Record<string, any>): ToolDisplay {
   // --- File read operations ---
   if (toolName === 'read_file' || toolName === 'read') {
     const path = toolInput?.file_path || toolInput?.path || ''

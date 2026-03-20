@@ -4,7 +4,7 @@ import { ToolsPage } from '@/components/tools/tools-page'
 
 export default function ToolsPageRoute() {
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full flex-col">
       <ToolsPage />
     </div>
   )

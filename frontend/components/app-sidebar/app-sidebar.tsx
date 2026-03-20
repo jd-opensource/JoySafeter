@@ -20,7 +20,6 @@ import { cn } from '@/lib/core/utils/cn'
 import { AppLogo } from './app-logo'
 import { UserInfo } from './user-info'
 
-
 const menuItems = [
   {
     id: 'dashboard',
@@ -76,7 +75,8 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
 
   // NEXT_PUBLIC_OPENCLAW_ENABLED controls OpenClaw visibility at deployment level
   // Defaults to hidden (false) when env var is not set; set to "true" to show
-  const openclawEnv = runtimeEnv('NEXT_PUBLIC_OPENCLAW_ENABLED') || process.env.NEXT_PUBLIC_OPENCLAW_ENABLED
+  const openclawEnv =
+    runtimeEnv('NEXT_PUBLIC_OPENCLAW_ENABLED') || process.env.NEXT_PUBLIC_OPENCLAW_ENABLED
   const openclawEnabled = openclawEnv?.toLowerCase() === 'true' || openclawEnv === '1'
 
   const visibleMenuItems = openclawEnabled
@@ -89,7 +89,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
         <div className="flex h-full flex-col">
           <AppLogo isCollapsed={isCollapsed} />
 
-          <nav className="flex-1 py-2 px-2">
+          <nav className="flex-1 px-2 py-2">
             <ul className="space-y-1">
               {visibleMenuItems.map((item) => {
                 const Icon = item.icon
@@ -104,7 +104,7 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
                       isCollapsed ? 'justify-center' : '',
                       isActive
                         ? 'bg-[var(--surface-5)] text-[var(--text-primary)]'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]',
                     )}
                   >
                     <Icon className="h-[16px] w-[16px] flex-shrink-0" />
@@ -116,12 +116,8 @@ export function AppSidebar({ isCollapsed = false }: AppSidebarProps) {
                   <li key={item.id}>
                     {isCollapsed ? (
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          {menuItem}
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          {label}
-                        </TooltipContent>
+                        <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
+                        <TooltipContent side="right">{label}</TooltipContent>
                       </Tooltip>
                     ) : (
                       menuItem

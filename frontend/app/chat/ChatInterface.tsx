@@ -15,17 +15,8 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from '@/components/ui/resizable'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
 import { useAvailableModels } from '@/hooks/queries/models'
 import { cn } from '@/lib/core/utils/cn'
@@ -45,10 +36,10 @@ import { graphResolutionService } from './services/graphResolutionService'
 import { generateId, Message, ToolCall } from './types'
 
 // ─── Layout constants ───────────────────────────────────────────────────────
-const SIDE_PANEL_WIDTH = 600      // w-[600px]
-const SIDE_PANEL_GAP = 16         // right-4 = 16px
-const CONTENT_PR = SIDE_PANEL_WIDTH + SIDE_PANEL_GAP * 2  // 632
-const CONTENT_MR = SIDE_PANEL_WIDTH + SIDE_PANEL_GAP      // 616
+const SIDE_PANEL_WIDTH = 600 // w-[600px]
+const SIDE_PANEL_GAP = 16 // right-4 = 16px
+const CONTENT_PR = SIDE_PANEL_WIDTH + SIDE_PANEL_GAP * 2 // 632
+const CONTENT_MR = SIDE_PANEL_WIDTH + SIDE_PANEL_GAP // 616
 
 interface ChatInterfaceProps {
   chatId?: string | null
@@ -79,10 +70,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const personalWorkspaceId = workspacesData?.find((w) => w.type === 'personal')?.id ?? null
 
   // Available models (for "no default model" notice); backend returns same list regardless of workspaceId
-  const { data: availableModels = [], isSuccess: modelsLoaded, isError: modelsError } = useAvailableModels(
-    'chat',
-    { enabled: true }
-  )
+  const {
+    data: availableModels = [],
+    isSuccess: modelsLoaded,
+    isError: modelsError,
+  } = useAvailableModels('chat', { enabled: true })
   // No "usable" default: no model that is both default and available (has credentials)
   const hasNoDefaultModel =
     modelsLoaded &&
@@ -143,7 +135,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Agent status: running when processing or optimistically when just submitted
   const agentStatus = useMemo<'idle' | 'running' | 'connecting' | 'error'>(
     () => (isProcessing || submitting ? 'running' : 'idle'),
-    [isProcessing, submitting]
+    [isProcessing, submitting],
   )
   // Only treat last message as "current reply" when it is assistant (avoid showing previous round as streaming)
   const lastMsg = useMemo(() => messages[messages.length - 1], [messages])
@@ -153,8 +145,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return lastMsg.content ?? ''
   }, [lastMsg, isProcessing])
   const currentNodeLabel = useMemo(
-    () => (lastMsg?.role === 'assistant' ? lastMsg.metadata?.currentNode ?? undefined : undefined),
-    [lastMsg]
+    () =>
+      lastMsg?.role === 'assistant' ? (lastMsg.metadata?.currentNode ?? undefined) : undefined,
+    [lastMsg],
   )
 
   // Current mode state
@@ -201,7 +194,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       // Cmd+B to toggle sidebar
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault()
-        setSidebarVisible(prev => !prev)
+        setSidebarVisible((prev) => !prev)
       }
     }
 
@@ -210,9 +203,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, [])
 
   // Check if there are any tool calls in the messages
-  const hasToolCalls = messages.some(msg =>
-    msg.tool_calls && msg.tool_calls.length > 0
-  )
+  const hasToolCalls = messages.some((msg) => msg.tool_calls && msg.tool_calls.length > 0)
 
   // Extract all tool calls from messages
   const allToolCalls = messages.reduce<ToolCall[]>((acc, msg) => {
@@ -333,7 +324,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [currentMode, messages.length, hasShownApkPrompt, isProcessing, t])
 
-  const handleSubmit = async (text: string, mode?: string, graphId?: string | null, files?: Array<{ id: string; filename: string; path: string; size: number }>) => {
+  const handleSubmit = async (
+    text: string,
+    mode?: string,
+    graphId?: string | null,
+    files?: Array<{ id: string; filename: string; path: string; size: number }>,
+  ) => {
     // Save mode and graphId state first (even if not submitting)
     if (mode) {
       setCurrentMode(mode)
@@ -363,8 +359,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         selectedAgentId: null,
         personalWorkspaceId: workspacesData?.find((w) => w.type === 'personal')?.id || null,
         t,
-        router: { push: () => { } },
-        queryClient: { invalidateQueries: () => { } },
+        router: { push: () => {} },
+        queryClient: { invalidateQueries: () => {} },
       }
       const resolution = await graphResolutionService.resolve(mode, modeContext, false)
       resolvedGraphId = resolution.graphId
@@ -389,7 +385,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // If localChatId doesn't exist in backend (i.e., it's a frontend-generated ID),
     // pass null to let backend create a new conversation
     // Only pass localChatId if we're certain it exists in backend (e.g., from conversation list)
-    const messageOpts: { threadId?: string | null; graphId?: string | null; metadata?: Record<string, any> } = {
+    const messageOpts: {
+      threadId?: string | null
+      graphId?: string | null
+      metadata?: Record<string, any>
+    } = {
       threadId: localChatId || null, // Let backend create new conversation if localChatId is null
       graphId: resolvedGraphId || null,
     }
@@ -400,7 +400,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if (!messageOpts.metadata) {
         messageOpts.metadata = {}
       }
-      messageOpts.metadata.files = files.map(f => ({
+      messageOpts.metadata.files = files.map((f) => ({
         filename: f.filename,
         path: f.path,
         size: f.size,
@@ -424,7 +424,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // ─── Shared sub-component: Header ─────────────────────────────────────────
   const renderHeader = (shrinkForPanel: boolean) => (
     <div
-      className="h-12 flex items-center gap-2 px-6 bg-gray-50 z-10 flex-shrink-0 transition-all duration-200"
+      className="z-10 flex h-12 flex-shrink-0 items-center gap-2 bg-gray-50 px-6 transition-all duration-200"
       style={shrinkForPanel && sidePanelVisible ? { paddingRight: CONTENT_PR } : undefined}
     >
       <TooltipProvider>
@@ -433,8 +433,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSidebarVisible(prev => !prev)}
-              className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+              onClick={() => setSidebarVisible((prev) => !prev)}
+              className="h-9 w-9 p-0 transition-colors hover:bg-gray-100"
             >
               <List size={18} className="text-gray-600" />
             </Button>
@@ -449,7 +449,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               variant="ghost"
               size="sm"
               onClick={handleNewChat}
-              className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+              className="h-9 w-9 p-0 transition-colors hover:bg-gray-100"
             >
               <Plus size={18} className="text-gray-600" />
             </Button>
@@ -468,7 +468,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   setToolPanelOpen(false)
                   setArtifactDrawerOpen((v: boolean) => !v)
                 }}
-                className="h-9 w-9 p-0 hover:bg-gray-100 transition-colors"
+                className="h-9 w-9 p-0 transition-colors hover:bg-gray-100"
               >
                 <FolderOpen size={18} className="text-gray-600" />
               </Button>
@@ -490,15 +490,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const renderFloatingPanel = (isOpen: boolean, children: React.ReactNode) => (
     <div
       className={cn(
-        'absolute top-4 right-4 bottom-4 bg-white border border-gray-200 shadow-2xl z-20 rounded-2xl overflow-hidden',
+        'absolute bottom-4 right-4 top-4 z-20 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl',
         'transition-all duration-200',
         isOpen
-          ? 'translate-x-0 translate-y-0 opacity-100 scale-100'
-          : 'translate-x-[-80%] translate-y-[30%] opacity-0 scale-[0.2] pointer-events-none'
+          ? 'translate-x-0 translate-y-0 scale-100 opacity-100'
+          : 'pointer-events-none translate-x-[-80%] translate-y-[30%] scale-[0.2] opacity-0',
       )}
       style={{
         width: SIDE_PANEL_WIDTH,
-        transitionTimingFunction: isOpen ? 'cubic-bezier(0, 0, 0.2, 1)' : 'cubic-bezier(0.4, 0, 1, 1)',
+        transitionTimingFunction: isOpen
+          ? 'cubic-bezier(0, 0, 0.2, 1)'
+          : 'cubic-bezier(0.4, 0, 1, 1)',
       }}
     >
       {children}
@@ -506,7 +508,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   )
 
   return (
-    <div className="flex flex-col h-full w-full bg-gray-50 relative overflow-hidden">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-gray-50">
       {/* Two-panel layout */}
       <ResizablePanelGroup direction="horizontal" className="flex-1">
         {/* Left Sidebar - History (show/hide based on state) */}
@@ -535,7 +537,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <ResizablePanel defaultSize={88} minSize={70}>
           {/* If new chat and no messages, show ChatHome */}
           {messages.length === 0 && !localChatId && !propChatId ? (
-            <div className="relative h-full flex flex-col overflow-hidden">
+            <div className="relative flex h-full flex-col overflow-hidden">
               {renderHeader(false)}
               <ChatHome
                 onStartChat={handleSubmit}
@@ -545,15 +547,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               />
             </div>
           ) : (
-            <div className="relative h-full flex flex-col overflow-hidden">
+            <div className="relative flex h-full flex-col overflow-hidden">
               {renderHeader(true)}
 
               {/* Messages - Scrollable area */}
               <div
-                className="flex-1 min-h-0 overflow-hidden transition-all duration-200 flex flex-col"
+                className="flex min-h-0 flex-1 flex-col overflow-hidden transition-all duration-200"
                 style={sidePanelVisible ? { marginRight: CONTENT_MR } : undefined}
               >
-                <div className="flex-1 min-h-0 overflow-hidden">
+                <div className="min-h-0 flex-1 overflow-hidden">
                   <ThreadContent
                     messages={messages}
                     streamingText={streamingText}
@@ -567,7 +569,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
               {/* Input Area - Fixed at bottom */}
               <div
-                className="flex-shrink-0 px-6 pb-6 pt-2 relative transition-all duration-200 bg-gray-50"
+                className="relative flex-shrink-0 bg-gray-50 px-6 pb-6 pt-2 transition-all duration-200"
                 style={sidePanelVisible ? { paddingRight: CONTENT_PR } : undefined}
               >
                 <ChatInput
@@ -603,27 +605,30 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               </div>
 
               {/* Right Side Floating Panel - Tool Execution Panel */}
-              {hasToolCalls && renderFloatingPanel(
-                toolPanelOpen,
-                <ToolExecutionPanel
-                  isOpen={toolPanelOpen}
-                  onClose={() => setToolPanelOpen(false)}
-                  toolCall={selectedTool}
-                  messages={messages}
-                  agentStatus={agentStatus}
-                />
-              )}
+              {hasToolCalls &&
+                renderFloatingPanel(
+                  toolPanelOpen,
+                  <ToolExecutionPanel
+                    isOpen={toolPanelOpen}
+                    onClose={() => setToolPanelOpen(false)}
+                    toolCall={selectedTool}
+                    messages={messages}
+                    agentStatus={agentStatus}
+                  />,
+                )}
 
               {/* Right Side Floating Panel - Artifacts Drawer */}
-              {localChatId && artifactRunId && renderFloatingPanel(
-                artifactDrawerOpen,
-                <ArtifactsDrawer
-                  isOpen={artifactDrawerOpen}
-                  onClose={() => setArtifactDrawerOpen(false)}
-                  threadId={localChatId}
-                  runId={artifactRunId}
-                />
-              )}
+              {localChatId &&
+                artifactRunId &&
+                renderFloatingPanel(
+                  artifactDrawerOpen,
+                  <ArtifactsDrawer
+                    isOpen={artifactDrawerOpen}
+                    onClose={() => setArtifactDrawerOpen(false)}
+                    threadId={localChatId}
+                    runId={artifactRunId}
+                  />,
+                )}
             </div>
           )}
         </ResizablePanel>

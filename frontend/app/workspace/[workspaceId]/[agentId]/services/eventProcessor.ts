@@ -22,9 +22,17 @@ export interface GraphState {
   loop_condition_met?: boolean
   max_loop_iterations?: number
   parallel_mode?: boolean
-  task_states?: Record<string, { status: 'pending' | 'running' | 'completed' | 'error'; result?: any; error_msg?: string }>
+  task_states?: Record<
+    string,
+    { status: 'pending' | 'running' | 'completed' | 'error'; result?: any; error_msg?: string }
+  >
   loop_states?: Record<string, any>
-  task_results?: Array<{ status: 'success' | 'error'; error_msg?: string; result?: any; task_id: string }>
+  task_results?: Array<{
+    status: 'success' | 'error'
+    error_msg?: string
+    result?: any
+    task_id: string
+  }>
   parallel_results?: any[]
   loop_body_trace?: string[]
 }
@@ -89,7 +97,7 @@ export interface EventProcessorStore {
       result: boolean | string
       reason: string
       goto: string
-    }
+    },
   ) => void
   setThreadId: (graphId: string, threadId: string | null) => void
   updateGraphState: (graphId: string, updates: { isExecuting?: boolean }) => void
@@ -119,7 +127,7 @@ export interface ProcessEventResult {
 export function processEvent(
   evt: ChatStreamEvent,
   ctx: EventProcessorContext,
-  store: EventProcessorStore
+  store: EventProcessorStore,
 ): ProcessEventResult {
   let { currentThoughtId } = ctx
   const { toolStepMap, nodeStepMap, modelStepMap, genId, getSteps, graphId } = ctx
@@ -220,7 +228,7 @@ function handleCommandEvent(
   result: AdapterResult & { type: 'command' },
   evt: ChatStreamEvent,
   graphId: string,
-  store: EventProcessorStore
+  store: EventProcessorStore,
 ): void {
   if (result.command.update) {
     store.updateState(result.command.update)
@@ -244,7 +252,7 @@ function handleCommandEvent(
  */
 function handleRouteDecisionEvent(
   result: AdapterResult & { type: 'route_decision' },
-  store: EventProcessorStore
+  store: EventProcessorStore,
 ): void {
   store.addRouteDecision(result.decision.node_id, result.decision.node_type, {
     result: result.decision.result,
@@ -268,7 +276,7 @@ function handleRouteDecisionEvent(
  */
 function handleLoopIterationEvent(
   result: AdapterResult & { type: 'loop_iteration' },
-  store: EventProcessorStore
+  store: EventProcessorStore,
 ): void {
   store.updateState({
     loop_count: result.iteration.iteration,
@@ -283,13 +291,12 @@ function handleLoopIterationEvent(
 function handleParallelTaskEvent(
   result: AdapterResult & { type: 'parallel_task' },
   graphId: string,
-  store: EventProcessorStore
+  store: EventProcessorStore,
 ): void {
   const ctx = store.getContext(graphId)
-  const taskStates = (ctx.state.currentState as Record<string, unknown>)?.task_states as Record<
-    string,
-    unknown
-  > || {}
+  const taskStates =
+    ((ctx.state.currentState as Record<string, unknown>)?.task_states as Record<string, unknown>) ||
+    {}
   taskStates[result.task.task_id] = {
     status:
       result.task.status === 'started'
@@ -308,7 +315,7 @@ function handleParallelTaskEvent(
  */
 function handleStateUpdateEvent(
   result: AdapterResult & { type: 'state_update' },
-  store: EventProcessorStore
+  store: EventProcessorStore,
 ): void {
   store.updateState((result.update.state_snapshot || {}) as Partial<GraphState>)
 }
@@ -319,7 +326,7 @@ function handleStateUpdateEvent(
 export function createEventProcessorContext(
   graphId: string,
   genId: (prefix: string) => string,
-  getSteps: () => ExecutionStep[]
+  getSteps: () => ExecutionStep[],
 ): EventProcessorContext {
   return {
     currentThoughtId: null,

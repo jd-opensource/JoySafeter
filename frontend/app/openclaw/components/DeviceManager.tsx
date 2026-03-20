@@ -41,14 +41,14 @@ export function DeviceManager() {
   })
 
   const devices: Device[] = [
-    ...(data?.pending || []).map(d => ({
+    ...(data?.pending || []).map((d) => ({
       id: d.deviceId,
       name: d.clientId,
       type: d.platform,
       status: 'pending',
       lastSeen: d.createdAtMs ? new Date(d.createdAtMs).toLocaleString() : undefined,
     })),
-    ...(data?.paired || []).map(d => ({
+    ...(data?.paired || []).map((d) => ({
       id: d.deviceId,
       name: d.clientId,
       type: d.platform,
@@ -108,9 +108,7 @@ export function DeviceManager() {
                     <p className="text-sm font-medium text-[var(--text-primary)]">
                       {d.name || d.id}
                     </p>
-                    {d.type && (
-                      <p className="text-[10px] text-[var(--text-tertiary)]">{d.type}</p>
-                    )}
+                    {d.type && <p className="text-[10px] text-[var(--text-tertiary)]">{d.type}</p>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

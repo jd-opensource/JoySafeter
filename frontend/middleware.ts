@@ -66,10 +66,7 @@ function validateCallbackUrl(url: string | null): boolean {
  * Wrap response and add X-Frame-Options header
  * Prevent clickjacking attacks
  */
-function wrapResponseWithXFrameOptions(
-  response: NextResponse,
-  pathname: string
-): NextResponse {
+function wrapResponseWithXFrameOptions(response: NextResponse, pathname: string): NextResponse {
   // Some pages allow iframe embedding (feature requirement)
   const isEmbeddable = EMBEDDABLE_PATHS.some((path) => pathname.startsWith(path))
   const allowEmbed = process.env.NEXT_PUBLIC_ALLOW_EMBED === 'true'
@@ -90,7 +87,7 @@ function wrapResponseWithXFrameOptions(
 function addSecurityHeaders(
   response: NextResponse,
   request: NextRequest,
-  nonce?: string
+  nonce?: string,
 ): NextResponse {
   const isProduction = process.env.NODE_ENV === 'production'
   const isHttps = request.nextUrl.protocol === 'https:'
@@ -107,14 +104,14 @@ function addSecurityHeaders(
   // 4. Permissions-Policy: Control browser features
   response.headers.set(
     'Permissions-Policy',
-    'geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()'
+    'geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()',
   )
 
   // 5. Strict-Transport-Security (HSTS): Force HTTPS (only in production and when using HTTPS)
   if (isProduction && isHttps) {
     response.headers.set(
       'Strict-Transport-Security',
-      'max-age=31536000; includeSubDomains; preload'
+      'max-age=31536000; includeSubDomains; preload',
     )
   }
 
@@ -143,7 +140,7 @@ function getBackendApiDomains(): string {
   try {
     const url = new URL(apiUrl)
     const hostname = url.hostname // 不含端口，如 "[IP_ADDRESS]"
-    const host = url.host         // 含端口，如 "[IP_ADDRESS]"
+    const host = url.host // 含端口，如 "[IP_ADDRESS]"
 
     // 精确匹配 + 端口通配，同时覆盖 http/https/ws/wss 四种协议
     if (url.protocol === 'https:') {
@@ -161,11 +158,7 @@ function getBackendApiDomains(): string {
  * 生成 Content Security Policy 头
  * 增强版：移除 unsafe-inline，限制 img-src，添加更严格的控制
  */
-function generateCSPHeader(
-  whiteList: string,
-  nonce: string,
-  isProduction: boolean
-): string {
+function generateCSPHeader(whiteList: string, nonce: string, isProduction: boolean): string {
   const csp = `'nonce-${nonce}'`
   // Remove filesystem: because it's not a standard secure scheme
   const schemeSource = 'data: mediastream: blob:'
@@ -174,7 +167,7 @@ function generateCSPHeader(
   // PublicEnvScript (next-runtime-env) inline script hash
   const inlineScriptHashes = [
     "'sha256-z0nb1PpkFco8UDVc/Xq/SKYGByn8TQYxeliFAv309DM='",
-    "'sha256-hweB5ft6P5GckAdddQeQ/oIE/5wsGJGlNDKQmAvF9CU='"
+    "'sha256-hweB5ft6P5GckAdddQeQ/oIE/5wsGJGlNDKQmAvF9CU='",
   ]
 
   // 从 NEXT_PUBLIC_API_URL 自动推导后端域名（含端口通配，覆盖同主机 MCP 等服务）
@@ -188,7 +181,10 @@ function generateCSPHeader(
 
   // Enhanced strict CSP policy
   // Only enable upgrade-insecure-requests in production and when HTTPS is explicitly enabled
-  const upgradeInsecureRequests = isProduction && process.env.NEXT_PUBLIC_FORCE_HTTPS === 'true' ? 'upgrade-insecure-requests;' : ''
+  const upgradeInsecureRequests =
+    isProduction && process.env.NEXT_PUBLIC_FORCE_HTTPS === 'true'
+      ? 'upgrade-insecure-requests;'
+      : ''
 
   let cspHeader = `
     default-src 'self' ${csp} ${whiteList};
@@ -304,7 +300,8 @@ export const config = {
      * - 静态资源文件 (.png, .jpg, .jpeg, .gif, .svg, .ico, .webp, .woff, .woff2, .ttf, .eot)
      */
     {
-      source: '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf|eot)).*)',
+      source:
+        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf|eot)).*)',
     },
   ],
 }

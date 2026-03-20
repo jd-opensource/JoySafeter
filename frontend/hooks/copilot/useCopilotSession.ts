@@ -19,12 +19,15 @@ export function useCopilotSession(graphId?: string) {
     }
   }, [graphId])
 
-  const setSession = useCallback((sessionId: string) => {
-    setCurrentSessionId(sessionId)
-    if (graphId) {
-      localStorage.setItem(`copilot_session_${graphId}`, sessionId)
-    }
-  }, [graphId])
+  const setSession = useCallback(
+    (sessionId: string) => {
+      setCurrentSessionId(sessionId)
+      if (graphId) {
+        localStorage.setItem(`copilot_session_${graphId}`, sessionId)
+      }
+    },
+    [graphId],
+  )
 
   const clearSession = useCallback(() => {
     setCurrentSessionId(null)

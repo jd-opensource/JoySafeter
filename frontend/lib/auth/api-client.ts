@@ -74,15 +74,19 @@ function notifySessionChange(type: 'signin' | 'logout' | 'refresh'): void {
   }
 }
 
-export function onSessionChange(callback: (type: 'signin' | 'logout' | 'refresh') => void): () => void {
-  if (typeof window === 'undefined') return () => { }
+export function onSessionChange(
+  callback: (type: 'signin' | 'logout' | 'refresh') => void,
+): () => void {
+  if (typeof window === 'undefined') return () => {}
 
   const handler = (e: StorageEvent) => {
     if (e.key === SESSION_CHANGE_KEY && e.newValue) {
       try {
         const event = JSON.parse(e.newValue)
         callback(event.type)
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -103,10 +107,14 @@ export const authApi = {
     callbackURL?: string
   }): Promise<LoginResponse> {
     const hashedPassword = hashPassword(params.password)
-    const response = await apiPost<LoginResponse>('auth/sign-in/email', {
-      email: params.email,
-      password: hashedPassword,
-    }, { withAuth: false })
+    const response = await apiPost<LoginResponse>(
+      'auth/sign-in/email',
+      {
+        email: params.email,
+        password: hashedPassword,
+      },
+      { withAuth: false },
+    )
 
     if (response.csrf_token) {
       setCsrfToken(response.csrf_token)
@@ -122,11 +130,15 @@ export const authApi = {
     name: string
   }): Promise<SignUpResponse> {
     const hashedPassword = hashPassword(params.password)
-    const response = await apiPost<SignUpResponse>('auth/sign-up/email', {
-      email: params.email,
-      password: hashedPassword,
-      name: params.name,
-    }, { withAuth: false })
+    const response = await apiPost<SignUpResponse>(
+      'auth/sign-up/email',
+      {
+        email: params.email,
+        password: hashedPassword,
+        name: params.name,
+      },
+      { withAuth: false },
+    )
 
     if (response.csrf_token) {
       setCsrfToken(response.csrf_token)
@@ -150,7 +162,14 @@ export const authApi = {
   async getSession(): Promise<SessionResponse | null> {
     try {
       const response = await apiGet<{
-        user: { id: string; email: string; name: string; image?: string; email_verified: boolean; is_super_user: boolean } | null
+        user: {
+          id: string
+          email: string
+          name: string
+          image?: string
+          email_verified: boolean
+          is_super_user: boolean
+        } | null
       }>('auth/session')
 
       if (!response?.user) return null
@@ -217,10 +236,14 @@ export const authApi = {
   },
 
   async signInEmailOtp(params: { email: string; otp: string }): Promise<LoginResponse> {
-    const response = await apiPost<LoginResponse>('auth/sign-in/email-otp', {
-      email: params.email,
-      otp: params.otp,
-    }, { withAuth: false })
+    const response = await apiPost<LoginResponse>(
+      'auth/sign-in/email-otp',
+      {
+        email: params.email,
+        otp: params.otp,
+      },
+      { withAuth: false },
+    )
 
     if (response.csrf_token) {
       setCsrfToken(response.csrf_token)
@@ -235,26 +258,28 @@ export const authApi = {
 export const signIn = {
   email: async (
     params: { email: string; password: string; callbackURL?: string },
-    options?: { onError?: (ctx: { error: ApiError }) => void }
+    options?: { onError?: (ctx: { error: ApiError }) => void },
   ) => {
     try {
       const result = await authApi.signInEmail(params)
       return { data: result, error: null }
     } catch (error) {
-      const apiError = error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+      const apiError =
+        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }
   },
   emailOtp: async (
     params: { email: string; otp: string },
-    options?: { onError?: (ctx: { error: ApiError }) => void }
+    options?: { onError?: (ctx: { error: ApiError }) => void },
   ) => {
     try {
       const result = await authApi.signInEmailOtp(params)
       return { data: result, error: null }
     } catch (error) {
-      const apiError = error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+      const apiError =
+        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }
@@ -264,13 +289,14 @@ export const signIn = {
 export const signUp = {
   email: async (
     params: { email: string; password: string; name: string },
-    options?: { onError?: (ctx: { error: ApiError }) => void }
+    options?: { onError?: (ctx: { error: ApiError }) => void },
   ) => {
     try {
       const result = await authApi.signUpEmail(params)
       return { data: result, error: null }
     } catch (error) {
-      const apiError = error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+      const apiError =
+        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }

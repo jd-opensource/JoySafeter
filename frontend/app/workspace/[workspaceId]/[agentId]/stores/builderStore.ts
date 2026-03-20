@@ -56,9 +56,7 @@ import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExpor
  * Converts variables.context entries to StateField[] format.
  * Only applies when state_fields is empty but context has entries.
  */
-function migrateLegacyContextToStateFields(
-  variables: Record<string, any>
-): StateField[] {
+function migrateLegacyContextToStateFields(variables: Record<string, any>): StateField[] {
   const stateFields = (variables.state_fields as StateField[]) || []
   if (stateFields.length > 0) return stateFields
 
@@ -67,7 +65,11 @@ function migrateLegacyContextToStateFields(
 
   const migrated = Object.entries(legacyContext).map(([key, v]) => ({
     name: key,
-    type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string') as StateField['type'],
+    type: (v?.type === 'number'
+      ? 'int'
+      : v?.type === 'boolean'
+        ? 'bool'
+        : v?.type || 'string') as StateField['type'],
     description: v?.description || '',
     defaultValue: v?.value,
   }))
@@ -118,8 +120,6 @@ interface BuilderState {
   activeExecutionNodeId: string | null
   executionLogs: ExecutionLog[]
 
-
-
   // Auto-save State
   lastAutoSaveTime: number | null
   deployedAt: string | null
@@ -154,7 +154,12 @@ interface BuilderState {
   takeSnapshot: () => void
 
   // Node Actions
-  addNode: (type: string, position: { x: number; y: number }, label?: string, configOverride?: Record<string, unknown>) => void
+  addNode: (
+    type: string,
+    position: { x: number; y: number },
+    label?: string,
+    configOverride?: Record<string, unknown>,
+  ) => void
   updateNodeConfig: (id: string, config: Record<string, unknown>) => void
   updateNodeLabel: (id: string, label: string) => void
   deleteNode: (id: string) => void
@@ -237,7 +242,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       onSaveError: (error) => {
         set({ lastSaveError: error })
       },
-    }
+    },
   )
 
   return {
@@ -319,7 +324,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
             graphState.nodes || [],
             graphState.edges || [],
             stateFields,
-            fallbackNodeId
+            fallbackNodeId,
           ),
           isInitializing: false,
         })
@@ -333,7 +338,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         } else {
           setTimeout(() => rfInstance.fitView({ padding: 0.2 }), 100)
         }
-
       } catch (error) {
         console.error('Failed to initialize graph:', error)
         set({ isInitializing: false })
@@ -351,7 +355,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     updateStateField: (name, updates) => {
       set((state) => ({
         graphStateFields: state.graphStateFields.map((f) =>
-          f.name === name ? { ...f, ...updates } : f
+          f.name === name ? { ...f, ...updates } : f,
         ),
         hasPendingChanges: true,
       }))
@@ -385,11 +389,13 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       set({ isExecuting: true, executionLogs: [], activeExecutionNodeId: null })
       get().addLog(
         'system',
-        i18n.t('execution.agentStarted', {
-          defaultValue: '智能体已启动，输入：{{input}}',
-          input
-        }).replace('{{input}}', input),
-        'info'
+        i18n
+          .t('execution.agentStarted', {
+            defaultValue: '智能体已启动，输入：{{input}}',
+            input,
+          })
+          .replace('{{input}}', input),
+        'info',
       )
 
       let currentNode: Node | null = nodes[0]
@@ -413,7 +419,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
               i18n.t('workspace.transitioningTo', {
                 label: (currentNode.data as { label?: string })?.label,
               }),
-              'info'
+              'info',
             )
           }
         } else {
@@ -422,7 +428,11 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       }
 
       if (get().isExecuting) {
-        get().addLog('system', i18n.t('execution.agentCompleted', { defaultValue: '智能体成功完成。' }), 'success')
+        get().addLog(
+          'system',
+          i18n.t('execution.agentCompleted', { defaultValue: '智能体成功完成。' }),
+          'success',
+        )
         set({ isExecuting: false, activeExecutionNodeId: null })
       }
     },
@@ -486,7 +496,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
         const { edges, nodes } = get()
         const exists = edges.some(
-          (e) => e.source === connection.source && e.target === connection.target
+          (e) => e.source === connection.source && e.target === connection.target,
         )
         if (exists) return
 
@@ -521,7 +531,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
               animated: true,
               style: edgeStyle,
             },
-            get().edges
+            get().edges,
           ),
         })
 
@@ -675,7 +685,10 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           const edgeType = updatedData.edge_type
 
           // Update edge type and style based on edge_type
-          const { type: edgeTypeForReactFlow, style: edgeStyle } = getEdgeStyleByType(edgeType, e.style)
+          const { type: edgeTypeForReactFlow, style: edgeStyle } = getEdgeStyleByType(
+            edgeType,
+            e.style,
+          )
 
           return {
             ...e,
@@ -720,7 +733,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           // Priority: find first route without a matching edge
           const unmatchedRoute = routes.find((r) => {
             const hasMatchingEdge = outgoingEdges.some(
-              (e) => ((e.data || {}) as EdgeData).route_key === r.targetEdgeKey
+              (e) => ((e.data || {}) as EdgeData).route_key === r.targetEdgeKey,
             )
             return !hasMatchingEdge
           })
@@ -772,7 +785,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           const processedEdges = processEdgesForReactFlow(edges)
 
           // Load state fields and fallback_node_id from variables
-          const loadedStateFields = migrateLegacyContextToStateFields(variables as Record<string, any> || {})
+          const loadedStateFields = migrateLegacyContextToStateFields(
+            (variables as Record<string, any>) || {},
+          )
           const fallbackNodeId = (variables as any)?.fallback_node_id ?? null
 
           set({
@@ -782,7 +797,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
             fallbackNodeId: fallbackNodeId || null,
             past: [],
             future: [],
-            isInitializing: false
+            isInitializing: false,
           })
         } else {
           let { nodes, edges } = await agentService.getInitialGraph()
@@ -804,7 +819,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       }
     },
 
-
     setValidationErrors: (errors) => set({ validationErrors: errors }),
 
     validateGraph: async () => {
@@ -814,13 +828,15 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         // Transform to schema format
         const schema = schemaService.transformToGraphSchema(nodes, edges)
         // Call backend validation
-        const result = await schemaService.validateGraphData(schema as unknown as Record<string, unknown>)
+        const result = await schemaService.validateGraphData(
+          schema as unknown as Record<string, unknown>,
+        )
 
         // Map backend errors/warnings to ValidationError format
         const errors: ValidationError[] = []
 
         // Process errors
-        result.errors.forEach(msg => {
+        result.errors.forEach((msg) => {
           // Try to extract node ID: "Message... (node_id)..."
           const nodeMatch = msg.match(/\((node_[^)]+)\)/)
           const nodeId = nodeMatch ? nodeMatch[1] : undefined
@@ -834,12 +850,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
             message: msg,
             severity: 'error',
             nodeId,
-            category
+            category,
           })
         })
 
         // Process warnings
-        result.warnings.forEach(msg => {
+        result.warnings.forEach((msg) => {
           const nodeMatch = msg.match(/\((node_[^)]+)\)/)
           const nodeId = nodeMatch ? nodeMatch[1] : undefined
 
@@ -852,21 +868,23 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
             message: msg,
             severity: 'warning',
             nodeId,
-            category
+            category,
           })
         })
 
         set({ validationErrors: errors, isValidating: false })
-        return errors.filter(e => e.severity === 'error').length === 0
+        return errors.filter((e) => e.severity === 'error').length === 0
       } catch (error) {
         console.error('Validation failed:', error)
         set({
-          validationErrors: [{
-            field: 'global',
-            message: 'Validation failed: ' + (error as Error).message,
-            severity: 'error'
-          }],
-          isValidating: false
+          validationErrors: [
+            {
+              field: 'global',
+              message: 'Validation failed: ' + (error as Error).message,
+              severity: 'error',
+            },
+          ],
+          isValidating: false,
         })
         return false
       }
@@ -1029,11 +1047,10 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         nodes: nodes,
         edges: edges.map((e) => ({
           source: e.source,
-          target: e.target
+          target: e.target,
         })),
       }
     },
-
 
     toggleSchemaExport: (show) => {
       set((state) => ({

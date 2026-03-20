@@ -7,11 +7,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
 
-import {
-  streamChat,
-  type ChatStreamEvent,
-  type ToolEndEventData,
-} from '@/services/chatBackend'
+import { streamChat, type ChatStreamEvent, type ToolEndEventData } from '@/services/chatBackend'
 
 import { generateId, type Message, type ToolCall } from '@/app/chat/types'
 import { findOrCreateGraphByTemplate } from '@/app/chat/services/utils/graphLookup'
@@ -82,7 +78,9 @@ export default function SkillCreatorPage() {
     async function resolveGraphId() {
       try {
         // Find personal workspace
-        const response = await apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(API_ENDPOINTS.workspaces)
+        const response = await apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(
+          API_ENDPOINTS.workspaces,
+        )
         const personal = (response.workspaces || []).find((w) => w.type === 'personal')
         if (!personal) {
           if (isMountedRef.current) setGraphError('Personal workspace not found')
@@ -90,13 +88,19 @@ export default function SkillCreatorPage() {
         }
 
         // Find or create via shared utility (same lock as skillCreatorHandler)
-        const graph = await findOrCreateGraphByTemplate('Skill Creator', 'skill-creator', personal.id)
+        const graph = await findOrCreateGraphByTemplate(
+          'Skill Creator',
+          'skill-creator',
+          personal.id,
+        )
         graphIdRef.current = graph.id
         if (isMountedRef.current) setGraphReady(true)
       } catch (error) {
         console.error('Failed to resolve skill-creator graph:', error)
         if (isMountedRef.current) {
-          setGraphError(error instanceof Error ? error.message : 'Failed to initialize Skill Creator')
+          setGraphError(
+            error instanceof Error ? error.message : 'Failed to initialize Skill Creator',
+          )
         }
       }
     }
@@ -105,12 +109,9 @@ export default function SkillCreatorPage() {
   }, [])
 
   // ---- Safe state updater ----
-  const safeSetMessages = useCallback(
-    (updater: React.SetStateAction<Message[]>) => {
-      if (isMountedRef.current) setMessages(updater)
-    },
-    []
-  )
+  const safeSetMessages = useCallback((updater: React.SetStateAction<Message[]>) => {
+    if (isMountedRef.current) setMessages(updater)
+  }, [])
 
   // ---- Send message (inlined streaming logic so we can intercept preview_skill) ----
   const sendMessage = useCallback(
@@ -169,9 +170,7 @@ export default function SkillCreatorPage() {
               const delta = (data as { delta?: string })?.delta || ''
               if (!delta) return
               safeSetMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId ? { ...m, content: m.content + delta } : m
-                )
+                prev.map((m) => (m.id === aiMsgId ? { ...m, content: m.content + delta } : m)),
               )
               return
             }
@@ -195,10 +194,8 @@ export default function SkillCreatorPage() {
               }
               safeSetMessages((prev) =>
                 prev.map((m) =>
-                  m.id === aiMsgId
-                    ? { ...m, tool_calls: [...(m.tool_calls || []), tool] }
-                    : m
-                )
+                  m.id === aiMsgId ? { ...m, tool_calls: [...(m.tool_calls || []), tool] } : m,
+                ),
               )
               return
             }
@@ -233,11 +230,16 @@ export default function SkillCreatorPage() {
                   if (m.id !== aiMsgId) return m
                   const tools = (m.tool_calls || []).map((t) =>
                     t.id === toolId
-                      ? { ...t, status: 'completed' as const, endTime: timestamp || Date.now(), result: toolOutput }
-                      : t
+                      ? {
+                          ...t,
+                          status: 'completed' as const,
+                          endTime: timestamp || Date.now(),
+                          result: toolOutput,
+                        }
+                      : t,
                   )
                   return { ...m, tool_calls: tools }
-                })
+                }),
               )
               return
             }
@@ -247,7 +249,7 @@ export default function SkillCreatorPage() {
               const errMsg = (data as { message?: string })?.message || 'Unknown error'
               if (errMsg === 'Stream stopped' || errMsg.includes('stopped')) {
                 safeSetMessages((prev) =>
-                  prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+                  prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
                 )
                 return
               }
@@ -255,8 +257,8 @@ export default function SkillCreatorPage() {
                 prev.map((m) =>
                   m.id === aiMsgId
                     ? { ...m, content: (m.content || '') + `\n\n*Error: ${errMsg}*` }
-                    : m
-                )
+                    : m,
+                ),
               )
               return
             }
@@ -264,7 +266,7 @@ export default function SkillCreatorPage() {
             // ---- Done ----
             if (type === 'done') {
               safeSetMessages((prev) =>
-                prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+                prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
               )
               return
             }
@@ -280,20 +282,20 @@ export default function SkillCreatorPage() {
             prev.map((m) =>
               m.id === aiMsgId
                 ? { ...m, content: (m.content || '') + `\n\n*Error: ${String(e?.message || e)}*` }
-                : m
-            )
+                : m,
+            ),
           )
         }
       } finally {
         safeSetMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
         )
         if (isMountedRef.current) {
           setIsProcessing(false)
         }
       }
     },
-    [isProcessing, editSkillId, safeSetMessages, graphReady]
+    [isProcessing, editSkillId, safeSetMessages, graphReady],
   )
 
   // ---- Stop streaming ----
@@ -313,13 +315,13 @@ export default function SkillCreatorPage() {
       // Navigate to skills page after save
       router.push('/skills')
     },
-    [router]
+    [router],
   )
 
   return (
-    <div className="flex flex-col h-screen bg-white">
+    <div className="flex h-screen flex-col bg-white">
       {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-gray-100 px-4 py-2.5">
         <Link href="/skills">
           <Button variant="ghost" size="sm" className="gap-1.5 text-gray-600 hover:text-gray-800">
             <ArrowLeft size={14} />
@@ -333,15 +335,15 @@ export default function SkillCreatorPage() {
       </div>
 
       {/* Main split layout */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 flex-1">
         {/* Left: Chat panel */}
-        <div className="flex-1 flex flex-col min-w-0 border-r border-gray-100">
+        <div className="flex min-w-0 flex-1 flex-col border-r border-gray-100">
           {graphError ? (
-            <div className="flex-1 flex items-center justify-center text-sm text-red-500">
+            <div className="flex flex-1 items-center justify-center text-sm text-red-500">
               {graphError}
             </div>
           ) : !graphReady ? (
-            <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+            <div className="flex flex-1 items-center justify-center text-sm text-gray-400">
               Initializing Skill Creator...
             </div>
           ) : (
@@ -355,7 +357,7 @@ export default function SkillCreatorPage() {
         </div>
 
         {/* Right: Preview panel */}
-        <div className="w-[480px] flex-shrink-0 flex flex-col">
+        <div className="flex w-[480px] flex-shrink-0 flex-col">
           <SkillPreviewPanel
             previewData={previewData}
             isProcessing={isProcessing}

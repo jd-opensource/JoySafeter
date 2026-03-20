@@ -13,55 +13,58 @@ export function useActionExecutor(expectedGraphId?: string) {
   const [executingActions, setExecutingActions] = useState(false)
   const { applyAIChanges } = useBuilderStore()
 
-  const executeActions = useCallback(async (actions: GraphAction[]) => {
-    const currentState = useBuilderStore.getState()
-    const currentGraphId = currentState.graphId
+  const executeActions = useCallback(
+    async (actions: GraphAction[]) => {
+      const currentState = useBuilderStore.getState()
+      const currentGraphId = currentState.graphId
 
-    if (expectedGraphId && currentGraphId !== expectedGraphId) {
-      console.warn('[useActionExecutor] graphId mismatch, skipping actions', {
-        expectedGraphId,
-        currentGraphId,
+      if (expectedGraphId && currentGraphId !== expectedGraphId) {
+        console.warn('[useActionExecutor] graphId mismatch, skipping actions', {
+          expectedGraphId,
+          currentGraphId,
+          actionsCount: actions.length,
+        })
+        return
+      }
+
+      console.log('[useActionExecutor] executeActions called', {
         actionsCount: actions.length,
+        actions: actions,
+        currentNodesCount: currentState.nodes.length,
+        currentEdgesCount: currentState.edges.length,
       })
-      return
-    }
 
-    console.log('[useActionExecutor] executeActions called', {
-      actionsCount: actions.length,
-      actions: actions,
-      currentNodesCount: currentState.nodes.length,
-      currentEdgesCount: currentState.edges.length,
-    })
+      setExecutingActions(true)
 
-    setExecutingActions(true)
+      // Use ActionProcessor to process actions
+      const currentNodes: Node[] = [...currentState.nodes]
+      const currentEdges: Edge[] = [...currentState.edges]
 
-    // Use ActionProcessor to process actions
-    const currentNodes: Node[] = [...currentState.nodes]
-    const currentEdges: Edge[] = [...currentState.edges]
+      const { nodes: processedNodes, edges: processedEdges } = ActionProcessor.processActions(
+        actions,
+        currentNodes,
+        currentEdges,
+      )
 
-    const { nodes: processedNodes, edges: processedEdges } = ActionProcessor.processActions(
-      actions,
-      currentNodes,
-      currentEdges
-    )
+      console.log('[useActionExecutor] Actions processed', {
+        newNodesCount: processedNodes.length,
+        newEdgesCount: processedEdges.length,
+        nodesAdded: processedNodes.length - currentNodes.length,
+        edgesAdded: processedEdges.length - currentEdges.length,
+      })
 
-    console.log('[useActionExecutor] Actions processed', {
-      newNodesCount: processedNodes.length,
-      newEdgesCount: processedEdges.length,
-      nodesAdded: processedNodes.length - currentNodes.length,
-      edgesAdded: processedEdges.length - currentEdges.length,
-    })
+      // Apply to store
+      console.log('[useActionExecutor] Calling applyAIChanges', {
+        nodes: processedNodes.length,
+        edges: processedEdges.length,
+      })
+      applyAIChanges({ nodes: processedNodes, edges: processedEdges })
+      console.log('[useActionExecutor] applyAIChanges completed')
 
-    // Apply to store
-    console.log('[useActionExecutor] Calling applyAIChanges', {
-      nodes: processedNodes.length,
-      edges: processedEdges.length,
-    })
-    applyAIChanges({ nodes: processedNodes, edges: processedEdges })
-    console.log('[useActionExecutor] applyAIChanges completed')
-
-    setExecutingActions(false)
-  }, [applyAIChanges])
+      setExecutingActions(false)
+    },
+    [applyAIChanges],
+  )
 
   return {
     executingActions,

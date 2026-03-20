@@ -9,7 +9,7 @@ import { ErrorBoundary } from '@/app/workspace/[workspaceId]/[agentId]/error-bou
  */
 export default function AgentLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className='h-full w-full overflow-hidden bg-muted/40'>
+    <main className="h-full w-full overflow-hidden bg-muted/40">
       <ErrorBoundary>{children}</ErrorBoundary>
     </main>
   )

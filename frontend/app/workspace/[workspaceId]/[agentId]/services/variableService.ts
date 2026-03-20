@@ -61,7 +61,7 @@ function isValidUUID(str: string): boolean {
  */
 export async function getNodeAvailableVariables(
   graphId: string,
-  nodeId: string
+  nodeId: string,
 ): Promise<VariableInfo[]> {
   // Only call API if nodeId is a valid UUID (saved node)
   // Temporary nodes (e.g., "node_xxx") should use frontend fallback
@@ -72,7 +72,7 @@ export async function getNodeAvailableVariables(
 
   try {
     const response = await apiGet<{ variables: VariableInfo[] }>(
-      `graphs/${graphId}/nodes/${nodeId}/available-variables`
+      `graphs/${graphId}/nodes/${nodeId}/available-variables`,
     )
     return response.variables || []
   } catch (error) {
@@ -91,7 +91,7 @@ export async function getNodeAvailableVariables(
 export async function validateVariableUsage(
   graphId: string,
   nodeId: string,
-  expression: string
+  expression: string,
 ): Promise<VariableValidationResult> {
   // Only call API if nodeId is a valid UUID (saved node)
   if (!isValidUUID(nodeId)) {
@@ -107,9 +107,9 @@ export async function validateVariableUsage(
     const response = await apiPost<VariableValidationResult>(
       `graphs/${graphId}/validate-variables`,
       {
-      node_id: nodeId,
+        node_id: nodeId,
         expression,
-      }
+      },
     )
     return response
   } catch (error) {
