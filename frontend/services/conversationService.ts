@@ -96,12 +96,12 @@ export const conversationService = {
     params?: {
       page?: number
       pageSize?: number
-    }
+    },
   ): Promise<ConversationMessage[]> {
     const { page = 1, pageSize = 100 } = params || {}
 
     const response = await apiGet<PaginatedMessagesResponse>(
-      `${API_ENDPOINTS.conversations}/${threadId}/messages?page=${page}&page_size=${pageSize}`
+      `${API_ENDPOINTS.conversations}/${threadId}/messages?page=${page}&page_size=${pageSize}`,
     )
 
     return response?.items || []

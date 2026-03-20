@@ -15,18 +15,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/components/ui/use-toast'
 import { useModels } from '@/hooks/queries/models'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/executionStore'
@@ -60,7 +55,9 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   const executionSteps = useExecutionStore((state) => state.steps)
   const nodeExecutionStatus = useMemo(() => {
     // Find the latest node_lifecycle step for this node
-    const nodeSteps = executionSteps.filter(s => s.nodeId === id && s.stepType === 'node_lifecycle')
+    const nodeSteps = executionSteps.filter(
+      (s) => s.nodeId === id && s.stepType === 'node_lifecycle',
+    )
     if (nodeSteps.length === 0) return null
     return nodeSteps[nodeSteps.length - 1].status
   }, [executionSteps, id])
@@ -72,8 +69,11 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   // Check if node has tools configuration (needed for display)
   const hasTools = useMemo(() => {
     const tools = data.config?.tools
-    return !!(tools && typeof tools === 'object' &&
-      (Array.isArray((tools as any).builtin) || Array.isArray((tools as any).mcp)))
+    return !!(
+      tools &&
+      typeof tools === 'object' &&
+      (Array.isArray((tools as any).builtin) || Array.isArray((tools as any).mcp))
+    )
   }, [data.config?.tools])
 
   // Check if node has model configuration (needed for display)
@@ -85,9 +85,9 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   // This avoids unnecessary requests when page loads
   const { data: models = [] } = useModels({ enabled: hasModel || selected })
   const { data: builtinToolsData = [] } = useBuiltinTools({ enabled: hasTools || selected })
-  const builtinTools = useMemo(() =>
-    builtinToolsData.map(t => ({ id: t.id, label: t.label })),
-    [builtinToolsData]
+  const builtinTools = useMemo(
+    () => builtinToolsData.map((t) => ({ id: t.id, label: t.label })),
+    [builtinToolsData],
   )
 
   // Fetch definition from registry
@@ -137,12 +137,12 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         // Try to get model label from the models list
         if (typeof value === 'string') {
           // Support both new format (provider:name) and old format (name only)
-          let model = models.find(m => m.id === value)
+          let model = models.find((m) => m.id === value)
 
           // Backward compatibility: if not found with new format, try old format (name only)
           if (!model && !value.includes(':')) {
             // Try to find by name only (old format)
-            model = models.find(m => {
+            model = models.find((m) => {
               if (!m.id) return false
               const modelName = m.id.includes(':') ? m.id.split(':')[1] : m.id
               return modelName === value
@@ -153,10 +153,8 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           // Fallback: format model ID to readable name
           // Extract model name if in new format (provider:name)
           const modelName = value.includes(':') ? value.split(':')[1] : value
-          const parts = modelName.split('-').filter(p => !['preview'].includes(p))
-          return parts
-            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-            .join(' ')
+          const parts = modelName.split('-').filter((p) => !['preview'].includes(p))
+          return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
         }
         return String(value)
 
@@ -170,12 +168,12 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
           // Get tool labels
           const builtinLabels = builtinIds
-            .map(id => builtinTools.find(t => t.id === id)?.label || id)
+            .map((id) => builtinTools.find((t) => t.id === id)?.label || id)
             .filter(Boolean)
 
           // Parse MCP tool IDs: format is "server_name::tool_name"
           // Extract tool name part for display
-          const mcpLabels = mcpIds.map(id => {
+          const mcpLabels = mcpIds.map((id) => {
             const parts = id.split('::')
             return parts.length === 2 ? parts[1] : id
           })
@@ -235,7 +233,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
     if (data.config?.input_mapping) {
       const mapping = data.config.input_mapping as any
       if (Array.isArray(mapping)) {
-        mapping.forEach(m => {
+        mapping.forEach((m) => {
           if (typeof m.value === 'string' && m.value.startsWith('state.get(')) {
             const match = m.value.match(/state\.get\(['"](.+)['"]\)/)
             if (match) reads.add(match[1])
@@ -247,7 +245,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
     // Dynamic: Output Mapping (Writes)
     if (data.config?.output_map) {
       const mapping = data.config.output_map as Record<string, string>
-      Object.values(mapping).forEach(val => writes.add(val))
+      Object.values(mapping).forEach((val) => writes.add(val))
     }
 
     // Dynamic: Aggregator Source Variables (Reads)
@@ -257,7 +255,11 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         sources.forEach((s: any) => typeof s === 'string' && reads.add(s))
       } else if (typeof sources === 'string') {
         // handle comma separated string
-        (sources as string).split(',').map(s => s.trim()).filter(Boolean).forEach(s => reads.add(s))
+        ;(sources as string)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((s) => reads.add(s))
       }
     }
 
@@ -268,12 +270,14 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
     return {
       reads: Array.from(reads),
-      writes: Array.from(writes)
+      writes: Array.from(writes),
     }
   }, [def, data.config])
 
-  const isReadingHighlighted = highlightedStateVariable && stateUsage.reads.includes(highlightedStateVariable)
-  const isWritingHighlighted = highlightedStateVariable && stateUsage.writes.includes(highlightedStateVariable)
+  const isReadingHighlighted =
+    highlightedStateVariable && stateUsage.reads.includes(highlightedStateVariable)
+  const isWritingHighlighted =
+    highlightedStateVariable && stateUsage.writes.includes(highlightedStateVariable)
 
   // Get important properties to display on node
   const displayProperties = useMemo(() => {
@@ -282,7 +286,11 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
     // Filter important fields to display
     const importantFields = def.schema.filter((field) => {
       // Skip fields that shouldn't be displayed
-      if (['systemPrompt', 'template', 'expression', 'memoryPrompt', 'description'].includes(field.key)) {
+      if (
+        ['systemPrompt', 'template', 'expression', 'memoryPrompt', 'description'].includes(
+          field.key,
+        )
+      ) {
         return false
       }
       // Only show fields that have values
@@ -312,29 +320,42 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   return (
     <div
       className={cn(
-        'group min-w-[140px] rounded-xl border bg-white/95 backdrop-blur-sm shadow-sm transition-all duration-500 relative',
+        'group relative min-w-[140px] rounded-xl border bg-white/95 shadow-sm backdrop-blur-sm transition-all duration-500',
         selected
           ? 'border-blue-500 ring-2 ring-blue-500/10'
           : 'border-gray-200 hover:border-gray-300',
-        isExecuting && 'border-transparent shadow-[0_0_25px_rgba(59,130,246,0.4)] scale-105 z-50',
-        isInterrupted && 'border-amber-400 ring-2 ring-amber-400/20 shadow-[0_0_15px_rgba(251,191,36,0.3)] z-40',
+        isExecuting && 'z-50 scale-105 border-transparent shadow-[0_0_25px_rgba(59,130,246,0.4)]',
+        isInterrupted &&
+          'z-40 border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-2 ring-amber-400/20',
         // State Highlighting
-        isReadingHighlighted && !isWritingHighlighted && 'border-blue-400 ring-2 ring-blue-400/30 shadow-[0_0_15px_rgba(96,165,250,0.3)] z-30',
-        isWritingHighlighted && !isReadingHighlighted && 'border-amber-400 ring-2 ring-amber-400/30 shadow-[0_0_15px_rgba(251,191,36,0.3)] z-30',
-        isReadingHighlighted && isWritingHighlighted && 'border-purple-400 ring-2 ring-purple-400/30 shadow-[0_0_15px_rgba(168,85,247,0.3)] z-30',
+        isReadingHighlighted &&
+          !isWritingHighlighted &&
+          'z-30 border-blue-400 shadow-[0_0_15px_rgba(96,165,250,0.3)] ring-2 ring-blue-400/30',
+        isWritingHighlighted &&
+          !isReadingHighlighted &&
+          'z-30 border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-2 ring-amber-400/30',
+        isReadingHighlighted &&
+          isWritingHighlighted &&
+          'z-30 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.3)] ring-2 ring-purple-400/30',
         // Execution Status
-        nodeExecutionStatus === 'success' && !isExecuting && !selected && 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]',
-        nodeExecutionStatus === 'error' && !isExecuting && !selected && 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.2)]'
+        nodeExecutionStatus === 'success' &&
+          !isExecuting &&
+          !selected &&
+          'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]',
+        nodeExecutionStatus === 'error' &&
+          !isExecuting &&
+          !selected &&
+          'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.2)]',
       )}
     >
       {/* Quick Actions - Show on hover */}
       <div
         className={cn(
-          '-top-[46px] absolute right-0',
+          'absolute -top-[46px] right-0',
           'flex flex-row items-center',
           'opacity-0 transition-opacity duration-200 group-hover:opacity-100',
-          'gap-[5px] rounded-[10px] bg-white border border-gray-200 shadow-sm p-[5px]',
-          'pointer-events-auto z-10'
+          'gap-[5px] rounded-[10px] border border-gray-200 bg-white p-[5px] shadow-sm',
+          'pointer-events-auto z-10',
         )}
       >
         <TooltipProvider delayDuration={200}>
@@ -354,10 +375,11 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
                   }
                   duplicateNode(id)
                 }}
-                className={`h-[23px] w-[23px] rounded-[8px] bg-transparent p-0 transition-colors flex items-center justify-center ${userPermissions.canEdit
-                  ? 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-                  : 'text-gray-300 cursor-not-allowed opacity-50'
-                  }`}
+                className={`flex h-[23px] w-[23px] items-center justify-center rounded-[8px] bg-transparent p-0 transition-colors ${
+                  userPermissions.canEdit
+                    ? 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                    : 'cursor-not-allowed text-gray-300 opacity-50'
+                }`}
               >
                 <Copy className="h-[11px] w-[11px]" />
               </button>
@@ -368,7 +390,10 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
         {/* Context Badge for '*' reads */}
         {stateUsage.reads.includes('*') && (
-          <div className="text-[6px] px-1 py-0.5 rounded bg-gray-50 text-gray-500 border border-gray-100 italic" title="Reads All State">
+          <div
+            className="rounded border border-gray-100 bg-gray-50 px-1 py-0.5 text-[6px] italic text-gray-500"
+            title="Reads All State"
+          >
             reads: *
           </div>
         )}
@@ -390,10 +415,11 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
                   }
                   setShowDeleteConfirm(true)
                 }}
-                className={`h-[23px] w-[23px] rounded-[8px] bg-transparent p-0 transition-colors flex items-center justify-center ${userPermissions.canEdit
-                  ? 'text-red-500 hover:bg-red-50 hover:text-red-600'
-                  : 'text-gray-300 cursor-not-allowed opacity-50'
-                  }`}
+                className={`flex h-[23px] w-[23px] items-center justify-center rounded-[8px] bg-transparent p-0 transition-colors ${
+                  userPermissions.canEdit
+                    ? 'text-red-500 hover:bg-red-50 hover:text-red-600'
+                    : 'cursor-not-allowed text-gray-300 opacity-50'
+                }`}
               >
                 <Trash2 className="h-[11px] w-[11px]" />
               </button>
@@ -405,9 +431,9 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
       {/* Dynamic Animated Border for Execution */}
       {isExecuting && (
-        <div className="absolute -inset-[2px] rounded-xl overflow-hidden pointer-events-none z-0">
-          <div className="absolute inset-[-200%] bg-[conic-gradient(from_0deg,transparent_20%,#3b82f6_50%,transparent_80%)] animate-[spin_3s_linear_infinite]" />
-          <div className="absolute inset-[2px] bg-white rounded-[10px]" />
+        <div className="pointer-events-none absolute -inset-[2px] z-0 overflow-hidden rounded-xl">
+          <div className="absolute inset-[-200%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_0deg,transparent_20%,#3b82f6_50%,transparent_80%)]" />
+          <div className="absolute inset-[2px] rounded-[10px] bg-white" />
         </div>
       )}
 
@@ -415,39 +441,39 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
       <div className="relative z-10 p-3">
         {/* Execution Status Badge */}
         {isExecuting && (
-          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-blue-600 text-[8px] font-bold text-white px-2 py-0.5 rounded-full shadow-lg flex items-center gap-1 animate-pulse border border-white">
+          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-blue-600 px-2 py-0.5 text-[8px] font-bold text-white shadow-lg">
             <Zap size={8} className="fill-current" />
             {t('workspace.running')}
           </div>
         )}
         {isInterrupted && (
-          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-[8px] font-bold text-white px-2 py-0.5 rounded-full shadow-lg flex items-center gap-1 animate-pulse border border-white">
+          <div className="absolute -top-2.5 left-1/2 flex -translate-x-1/2 animate-pulse items-center gap-1 rounded-full border border-white bg-amber-500 px-2 py-0.5 text-[8px] font-bold text-white shadow-lg">
             <PauseCircle className="h-2.5 w-2.5" />
             {t('workspace.waiting', { defaultValue: 'Waiting' })}
           </div>
         )}
 
-        <div className="flex items-center gap-2.5 mb-2">
+        <div className="mb-2 flex items-center gap-2.5">
           <div
             className={cn(
-              'p-1.5 rounded-lg shrink-0 border border-black/5 transition-colors duration-300',
-              isExecuting ? 'bg-blue-600 text-white' : bgClass + ' ' + colorClass
+              'shrink-0 rounded-lg border border-black/5 p-1.5 transition-colors duration-300',
+              isExecuting ? 'bg-blue-600 text-white' : bgClass + ' ' + colorClass,
             )}
           >
             <Icon size={14} />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <div className="text-[10px] font-bold text-gray-900 leading-tight truncate flex-1 min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="min-w-0 flex-1 truncate text-[10px] font-bold leading-tight text-gray-900">
                 {title}
               </div>
               {useDeepAgents && (
-                <div className="shrink-0 flex items-center gap-0.5" title="DeepAgents Mode">
+                <div className="flex shrink-0 items-center gap-0.5" title="DeepAgents Mode">
                   <Layers size={10} className="text-purple-600" />
                 </div>
               )}
             </div>
-            <div className="text-[7px] text-gray-400 uppercase tracking-widest font-bold leading-none mt-0.5">
+            <div className="mt-0.5 text-[7px] font-bold uppercase leading-none tracking-widest text-gray-400">
               {subLabel}
             </div>
           </div>
@@ -455,17 +481,17 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
         {/* Property Display */}
         {displayProperties.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-gray-100/50 space-y-1">
+          <div className="mt-2 space-y-1 border-t border-gray-100/50 pt-2">
             {displayProperties.map((prop) => (
               <div key={prop.key} className="flex items-center gap-[8px]">
                 <span
-                  className="min-w-0 truncate text-[7px] text-gray-400 capitalize leading-tight"
+                  className="min-w-0 truncate text-[7px] capitalize leading-tight text-gray-400"
                   title={prop.label}
                 >
                   {prop.label}
                 </span>
                 <span
-                  className="flex-1 truncate text-right text-[7px] text-gray-600 font-medium leading-tight"
+                  className="flex-1 truncate text-right text-[7px] font-medium leading-tight text-gray-600"
                   title={prop.value}
                 >
                   {prop.value}
@@ -478,24 +504,27 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         {/* Route Indicator - Show goto information */}
         {(() => {
           const config = data.config || {}
-          const goto = config.goto || config.trueGoto || config.falseGoto ||
+          const goto =
+            config.goto ||
+            config.trueGoto ||
+            config.falseGoto ||
             (config.rules && Array.isArray(config.rules) && config.rules.length > 0
               ? config.rules.find((r: any) => r.commandGoto)?.commandGoto
               : null) ||
             config.commandDefaultGoto
           const routeDecisions = useExecutionStore.getState().routeDecisions
           const latestDecision = routeDecisions
-            .filter(d => d.nodeId === id)
+            .filter((d) => d.nodeId === id)
             .sort((a, b) => b.timestamp - a.timestamp)[0]
           const actualGoto = latestDecision?.decision.goto || goto
 
           if (!actualGoto) return null
 
           return (
-            <div className="mt-2 pt-2 border-t border-gray-100/50">
+            <div className="mt-2 border-t border-gray-100/50 pt-2">
               <div className="flex items-center gap-1 text-[7px] text-blue-600">
                 <ArrowRight size={8} className="text-blue-500" />
-                <span className="font-mono font-semibold truncate" title={actualGoto}>
+                <span className="truncate font-mono font-semibold" title={actualGoto}>
                   → {actualGoto}
                 </span>
               </div>
@@ -505,48 +534,52 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
         {/* State Dependencies (Reads/Writes) */}
         {(stateUsage.reads.length > 0 || stateUsage.writes.length > 0) && (
-          <div className="mt-2 pt-2 border-t border-gray-100/50 flex flex-col gap-1.5">
+          <div className="mt-2 flex flex-col gap-1.5 border-t border-gray-100/50 pt-2">
             {/* Reads */}
-            {stateUsage.reads.length > 0 && stateUsage.reads.some(r => r !== '*') && (
+            {stateUsage.reads.length > 0 && stateUsage.reads.some((r) => r !== '*') && (
               <div className="flex flex-wrap items-center gap-1">
-                <span className="text-[7px] text-gray-400 font-medium">Reads:</span>
-                {stateUsage.reads.filter(r => r !== '*').map((read) => (
-                  <div
-                    key={`read-${read}`}
-                    className="text-[6.5px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 flex items-center gap-0.5 cursor-pointer hover:bg-blue-100 transition-colors"
-                    title={`Highlight nodes reading or writing '${read}'`}
-                    onMouseEnter={() => setHighlightedStateVariable(read)}
-                    onMouseLeave={() => setHighlightedStateVariable(null)}
-                  >
-                    {read}
-                  </div>
-                ))}
+                <span className="text-[7px] font-medium text-gray-400">Reads:</span>
+                {stateUsage.reads
+                  .filter((r) => r !== '*')
+                  .map((read) => (
+                    <div
+                      key={`read-${read}`}
+                      className="flex cursor-pointer items-center gap-0.5 rounded border border-blue-100 bg-blue-50 px-1 py-0.5 text-[6.5px] text-blue-600 transition-colors hover:bg-blue-100"
+                      title={`Highlight nodes reading or writing '${read}'`}
+                      onMouseEnter={() => setHighlightedStateVariable(read)}
+                      onMouseLeave={() => setHighlightedStateVariable(null)}
+                    >
+                      {read}
+                    </div>
+                  ))}
               </div>
             )}
             {/* Writes */}
-            {stateUsage.writes.length > 0 && stateUsage.writes.some(w => w !== '*') && (
+            {stateUsage.writes.length > 0 && stateUsage.writes.some((w) => w !== '*') && (
               <div className="flex flex-wrap items-center gap-1">
-                <span className="text-[7px] text-gray-400 font-medium">Writes:</span>
-                {stateUsage.writes.filter(w => w !== '*').map((write) => (
-                  <div
-                    key={`write-${write}`}
-                    className="text-[6.5px] px-1 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 flex items-center gap-0.5 cursor-pointer hover:bg-amber-100 transition-colors"
-                    title={`Highlight nodes reading or writing '${write}'`}
-                    onMouseEnter={() => setHighlightedStateVariable(write)}
-                    onMouseLeave={() => setHighlightedStateVariable(null)}
-                  >
-                    {write}
-                  </div>
-                ))}
+                <span className="text-[7px] font-medium text-gray-400">Writes:</span>
+                {stateUsage.writes
+                  .filter((w) => w !== '*')
+                  .map((write) => (
+                    <div
+                      key={`write-${write}`}
+                      className="flex cursor-pointer items-center gap-0.5 rounded border border-amber-100 bg-amber-50 px-1 py-0.5 text-[6.5px] text-amber-600 transition-colors hover:bg-amber-100"
+                      title={`Highlight nodes reading or writing '${write}'`}
+                      onMouseEnter={() => setHighlightedStateVariable(write)}
+                      onMouseLeave={() => setHighlightedStateVariable(null)}
+                    >
+                      {write}
+                    </div>
+                  ))}
               </div>
             )}
           </div>
         )}
 
         {isExecuting && (
-          <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-100/50">
-            <Loader2 size={8} className="text-blue-500 animate-spin" />
-            <span className="text-[7px] text-blue-500 font-bold animate-pulse">
+          <div className="mt-2 flex items-center gap-1.5 border-t border-gray-100/50 pt-2">
+            <Loader2 size={8} className="animate-spin text-blue-500" />
+            <span className="animate-pulse text-[7px] font-bold text-blue-500">
               {t('workspace.synchronizing')}
             </span>
           </div>
@@ -554,8 +587,16 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
       </div>
 
       {/* Connection Handles - Must be direct children of node container, like the working version */}
-      <Handle type="target" position={Position.Left} className="!bg-blue-400 !w-2 !h-2 !-left-[5px] border-2 border-white shadow-sm" />
-      <Handle type="source" position={Position.Right} className="!bg-blue-400 !w-2 !h-2 !-right-[5px] border-2 border-white shadow-sm" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!-left-[5px] !h-2 !w-2 border-2 border-white !bg-blue-400 shadow-sm"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!-right-[5px] !h-2 !w-2 border-2 border-white !bg-blue-400 shadow-sm"
+      />
 
       {/* Delete Node Confirmation Dialog - Uses Portal so won't affect node layout */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>

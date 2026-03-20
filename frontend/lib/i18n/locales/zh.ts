@@ -155,7 +155,8 @@ export default {
       failedToValidateCredential: '验证凭据失败',
       syncProviders: '同步供应商',
       syncProvidersHint: '同步模型列表和全局凭据（可选）',
-      syncProvidersSuccess: '同步完成：供应商 {{providers}} 个，模型 {{models}} 个，认证信息 {{credentials}} 个',
+      syncProvidersSuccess:
+        '同步完成：供应商 {{providers}} 个，模型 {{models}} 个，认证信息 {{credentials}} 个',
       syncProvidersFailed: '同步供应商失败',
       showModels: '显示模型',
       modelsNum: '{{num}} 个模型',
@@ -441,7 +442,7 @@ export default {
       contextVariablesTitle: '上下文变量',
       contextVariablesDescription: '定义可在条件表达式中使用的变量。',
       contextVariablesAccess: '访问',
-      contextVariablesUsage: 'context.get(\'key\')',
+      contextVariablesUsage: "context.get('key')",
       definedVariables: '已定义的变量',
       addNewVariable: '添加新变量',
       variableKey: '键',
@@ -475,7 +476,8 @@ export default {
       deleteNodeDescription: '所有连接和配置都将丢失。',
       deleteNodeConfirmMessagePrefix: '确定要删除节点',
       deleteNodeConfirmMessageSuffix: '吗？此操作不可撤销，所有连接和配置都将丢失。',
-      deleteNodeConfirmMessageDefault: '确定要删除此节点吗？此操作不可撤销，所有连接和配置都将丢失。',
+      deleteNodeConfirmMessageDefault:
+        '确定要删除此节点吗？此操作不可撤销，所有连接和配置都将丢失。',
       cancel: '取消',
       synced: '已同步',
       // Node Types
@@ -543,17 +545,22 @@ export default {
       // Copilot Panel
       copilotSubtitle: 'AI打造生产级智能体',
       copilotEmptyHeading: 'AI打造生产级智能体',
-      copilotConnected: '请给出具体任务（不是闲聊），我会直接修改画布。我已连接到核心系统，可修改图表结构。',
+      copilotConnected:
+        '请给出具体任务（不是闲聊），我会直接修改画布。我已连接到核心系统，可修改图表结构。',
       copilotStartWithBlueprint: '经典构建案例',
       copilotBlueprintRagTitle: 'UEM 告警研判系统',
-      copilotBlueprintRagDesc: 'Gatekeeper 快思考初筛 → Parser 提取 IOC → 多维度并行分析 → Verdict Maker 生成结论',
-      copilotBlueprintRagPrompt: '构建一个 UEM 告警研判系统：对主机 UEM 侧告警进行研判，判断是否下载了非授权、高风险或来源不明的文件。首先由 Gatekeeper 基于历史知识库进行"快思考"初筛（秒级过滤）；若需深度研判，则激活"慢思考"流水线，由 Parser 提取关键特征（IOC），并行调度 Threat Analyst（外部情报校验）、Context Analyst（内网资产与流量分析）及 Sandbox Analyst（代码解释与模拟运行）进行多维取证，最终将所有证据汇聚给 Verdict Maker 进行逻辑推理，生成最终的定性结论与处置建议。',
+      copilotBlueprintRagDesc:
+        'Gatekeeper 快思考初筛 → Parser 提取 IOC → 多维度并行分析 → Verdict Maker 生成结论',
+      copilotBlueprintRagPrompt:
+        '构建一个 UEM 告警研判系统：对主机 UEM 侧告警进行研判，判断是否下载了非授权、高风险或来源不明的文件。首先由 Gatekeeper 基于历史知识库进行"快思考"初筛（秒级过滤）；若需深度研判，则激活"慢思考"流水线，由 Parser 提取关键特征（IOC），并行调度 Threat Analyst（外部情报校验）、Context Analyst（内网资产与流量分析）及 Sandbox Analyst（代码解释与模拟运行）进行多维取证，最终将所有证据汇聚给 Verdict Maker 进行逻辑推理，生成最终的定性结论与处置建议。',
       copilotBlueprintDebateTitle: '多智能体辩论',
       copilotBlueprintDebateDesc: '两个智能体就某一话题辩论，由评判智能体裁决。',
-      copilotBlueprintDebatePrompt: '创建一个多智能体系统：智能体 A 提出方案，智能体 B 批评，评判智能体决定最终结果。',
+      copilotBlueprintDebatePrompt:
+        '创建一个多智能体系统：智能体 A 提出方案，智能体 B 批评，评判智能体决定最终结果。',
       copilotBlueprintPipelineTitle: '数据提取管道',
       copilotBlueprintPipelineDesc: '抓取网页、结构化数据、保存到数据库。',
-      copilotBlueprintPipelinePrompt: '设计一个管道：定时触发 -> 抓取网页工具 -> 智能体提取 JSON -> 数据库保存结果。',
+      copilotBlueprintPipelinePrompt:
+        '设计一个管道：定时触发 -> 抓取网页工具 -> 智能体提取 JSON -> 数据库保存结果。',
       copilotChipAddAgent: '添加智能体',
       copilotModeSingleAgent: '单Agent 模式',
       copilotModeDeepAgents: 'DeepAgents 模式',
@@ -612,11 +619,13 @@ export default {
       deleteConfirmTitle: '确认删除工作空间',
       deleteConfirmMessagePrefix: '确定要删除工作空间',
       deleteConfirmMessageSuffix: '吗？此操作不可撤销，将删除该工作空间及其所有相关数据。',
-      deleteConfirmMessageDefault: '确定要删除此工作空间吗？此操作不可撤销，将删除该工作空间及其所有相关数据。',
+      deleteConfirmMessageDefault:
+        '确定要删除此工作空间吗？此操作不可撤销，将删除该工作空间及其所有相关数据。',
       deleteAgentConfirmTitle: '确认删除智能体',
       deleteAgentConfirmMessagePrefix: '确定要删除智能体',
       deleteAgentConfirmMessageSuffix: '吗？此操作不可撤销，将永久删除该智能体及其所有相关数据。',
-      deleteAgentConfirmMessageDefault: '确定要删除此智能体吗？此操作不可撤销，将永久删除该智能体及其所有相关数据。',
+      deleteAgentConfirmMessageDefault:
+        '确定要删除此智能体吗？此操作不可撤销，将永久删除该智能体及其所有相关数据。',
       default: '默认',
       rename: '重命名',
       duplicate: '复制',
@@ -646,20 +655,22 @@ export default {
       expandSidebar: '展开侧边栏',
       // Members Management
       membersManagement: '成员管理',
-      inviteMember: '邀请成员',
-      inviteNewMember: '邀请新成员',
-      inviteMemberDescription: '输入邮箱地址邀请新成员加入工作空间',
+      addMember: '添加成员',
+      addNewMember: '添加新成员',
+      addMemberDescription: '搜索已注册用户并添加为工作空间成员',
       user: '用户',
       emailAddress: '邮箱',
       role: '角色',
       joinedAt: '加入时间',
-      sending: '发送中...',
-      sendInvitation: '发送邀请',
-      inviteSent: '邀请已发送',
-      inviteSentDescription: '已向 {{email}} 发送邀请',
-      inviteFailed: '邀请失败',
+      adding: '添加中...',
+      confirmAdd: '添加成员',
+      memberAdded: '成员已添加',
+      memberAddedDescription: '{{email}} 已成功添加到工作空间',
+      addMemberFailed: '添加成员失败',
+      userNotFound: '用户不存在',
+      userNotFoundDescription: '未找到该邮箱对应的注册用户',
       userAlreadyMember: '该用户已经是工作空间成员',
-      userAlreadyMemberDescription: '{{email}} 已经是当前工作空间的成员，无法重复邀请',
+      userAlreadyMemberDescription: '{{email}} 已经是当前工作空间的成员，无法重复添加',
       roleUpdated: '角色已更新',
       roleUpdatedDescription: '成员角色已成功更新',
       updateFailed: '更新失败',
@@ -670,7 +681,7 @@ export default {
       noAccess: '无权限访问',
       noAccessDescription: '您没有查看工作空间成员的权限',
       noMembers: '暂无成员',
-      noMembersDescription: '邀请成员加入工作空间以开始协作',
+      noMembersDescription: '添加成员到工作空间以开始协作',
       confirmRemoveMember: '确认移除成员',
       confirmRemoveMemberDescription: '确定要移除该成员吗？移除后该成员将无法访问此工作空间。',
       confirmRemove: '确认移除',
@@ -694,31 +705,6 @@ export default {
       },
       searchUsers: '搜索用户...',
       noUsersFound: '未找到用户',
-      // Invitation Acceptance
-      workspaceInvitation: '工作空间邀请',
-      invitationDescription: '您被邀请加入以下工作空间',
-      invitedBy: '邀请人',
-      unknown: '未知',
-      email: '邮箱',
-      emailMismatch: '此邀请是发送给 {{invitationEmail}} 的，但您当前登录的邮箱是 {{currentEmail}}。请使用正确的邮箱登录。',
-      invitationRequiresLogin: '需要登录',
-      invitationRequiresLoginDescription: '请先登录以接受工作空间邀请',
-      loadingInvitation: '加载邀请信息中...',
-      invitationInvalid: '邀请无效',
-      invitationInvalidDescription: '此邀请链接无效或已过期',
-      backToWorkspace: '返回工作空间',
-      acceptInvitation: '接受邀请',
-      accepting: '接受中...',
-      invitationAccepted: '邀请已接受',
-      invitationAcceptedDescription: '您已成功加入工作空间 {{workspaceName}}',
-      acceptInvitationFailed: '接受邀请失败',
-      // Invitation Notification
-      invitedYouToJoin: '邀请您加入',
-      accept: '接受',
-      reject: '拒绝',
-      invitationRejected: '邀请已拒绝',
-      invitationRejectedDescription: '您已拒绝此工作空间邀请',
-      rejectInvitationFailed: '拒绝邀请失败',
       // Deployment History
       deploymentHistory: '部署历史',
       deployed: '已发布',
@@ -838,7 +824,8 @@ export default {
       populateSkillsLibrary: '从本地目录填充您的技能库。',
       manual: '手动',
       // 本地导入
-      selectLocalDirectory: '选择包含技能文件的本地目录。必须包含带有有效 frontmatter 的 SKILL.md。',
+      selectLocalDirectory:
+        '选择包含技能文件的本地目录。必须包含带有有效 frontmatter 的 SKILL.md。',
       selectFolder: '选择文件夹',
       filesSelected: '个文件已选择',
       validationErrors: {
@@ -878,8 +865,10 @@ export default {
       binaryFileReason: '二进制文件（包含不可打印字符或 NULL 字节）',
       binaryFileReadError: '无法读取文件',
       systemFileFiltered: '系统文件，已自动过滤',
-      binaryFileNotSupported: '技能导入仅支持文本文件（代码、配置文件、文档等）。二进制文件（如图片、可执行文件等）无法导入。',
-      allFilesBinary: '所有文件都是二进制文件或系统文件，无法导入。技能导入仅支持文本文件（.py, .md, .json, .yaml 等）',
+      binaryFileNotSupported:
+        '技能导入仅支持文本文件（代码、配置文件、文档等）。二进制文件（如图片、可执行文件等）无法导入。',
+      allFilesBinary:
+        '所有文件都是二进制文件或系统文件，无法导入。技能导入仅支持文本文件（.py, .md, .json, .yaml 等）',
       skillMdBinary: 'SKILL.md 是二进制文件，无法读取',
       // 技能市场
       marketplace: '技能市场',
@@ -911,7 +900,8 @@ export default {
     chat: {
       // Important notice (no default model)
       importantNotice: '重要提示',
-      noDefaultModelNotice: '未检测到默认模型，请先前往「模型与供应商」设置中配置模型，以便正常使用对话与 Agent 功能。',
+      noDefaultModelNotice:
+        '未检测到默认模型，请先前往「模型与供应商」设置中配置模型，以便正常使用对话与 Agent 功能。',
       goToModelSettings: '去设置模型',
       later: '稍后再说',
       // ChatHome
@@ -1034,7 +1024,8 @@ export default {
       creative: '创意激发',
       contentCreation: '内容创作',
       projectPlan: '制定项目计划',
-      projectPlanDesc: '帮我创建一个网站改版项目的详细计划，包括设计、开发和测试阶段的时间线和关键里程碑',
+      projectPlanDesc:
+        '帮我创建一个网站改版项目的详细计划，包括设计、开发和测试阶段的时间线和关键里程碑',
       emailWriting: '写工作邮件',
       emailWritingDesc: '写一封向客户汇报项目进度的专业邮件，需要包含本周完成的工作和下周计划',
       goalSetting: '设定目标',

@@ -1,14 +1,13 @@
 'use client'
 
 import { GripHorizontal, GripVertical } from 'lucide-react'
-import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react'
+import { useCallback, useState, useMemo, useEffect, useRef } from 'react'
 import { BaseEdge, EdgeProps, EdgeLabelRenderer } from 'reactflow'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'
-
 
 /**
  * LoopBackEdge - Custom edge component for loop back connections with Manhattan Routing
@@ -38,7 +37,7 @@ const getSmartOrthogonalPath = (
   targetY: number,
   offsetY: number = 0,
   leftOffsetX: number = 0,
-  rightOffsetX: number = 0
+  rightOffsetX: number = 0,
 ): [string, number, number, number, number, number, number] => {
   // Is this a backward loop? (Target is to the left of Source)
   const isLoopback = targetX < sourceX + 50
@@ -78,7 +77,6 @@ const getSmartOrthogonalPath = (
     leftY = (sourceY + channelY) / 2
     // Right handle is on the right vertical segment (between sourceY and channelY)
     rightY = (sourceY + channelY) / 2
-
   } else {
     // STANDARD STEP LOGIC with Draggable Vertical Segment
     // 1. Start right
@@ -111,7 +109,7 @@ const getSmartOrthogonalPath = (
   return [d, labelX, labelY, leftX, rightX, leftY, rightY]
 }
 
-export const LoopBackEdge: React.FC<EdgeProps> = ({
+export function LoopBackEdge({
   id,
   sourceX,
   sourceY,
@@ -123,7 +121,7 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
   markerEnd,
   data,
   selected,
-}) => {
+}: EdgeProps) {
   const edgeData = (data || {}) as EdgeData
   const selectedEdgeId = useBuilderStore((state) => state.selectedEdgeId)
   const updateEdge = useBuilderStore((state) => state.updateEdge)
@@ -153,7 +151,7 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
       targetY,
       currentOffsetY,
       currentLeftOffsetX,
-      currentRightOffsetX
+      currentRightOffsetX,
     )
   }, [sourceX, sourceY, targetX, targetY, currentOffsetY, currentLeftOffsetX, currentRightOffsetX])
 
@@ -164,82 +162,96 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
   }, [])
 
   // Generic drag handler factory to reduce code duplication
-  const createDragHandler = useCallback((
-    handleType: 'vertical' | 'left' | 'right',
-    getInitialValue: () => number,
-    updateData: (value: number) => Partial<EdgeData>
-  ) => {
-    return (event: React.MouseEvent | React.TouchEvent) => {
-      event.stopPropagation()
-      setDraggingHandle(handleType)
-      takeSnapshot()
+  const createDragHandler = useCallback(
+    (
+      handleType: 'vertical' | 'left' | 'right',
+      getInitialValue: () => number,
+      updateData: (value: number) => Partial<EdgeData>,
+    ) => {
+      return (event: React.MouseEvent | React.TouchEvent) => {
+        event.stopPropagation()
+        setDraggingHandle(handleType)
+        takeSnapshot()
 
-      const isTouch = 'touches' in event
-      const startPos = isTouch
-        ? (handleType === 'vertical' ? event.touches[0].clientY : event.touches[0].clientX)
-        : (handleType === 'vertical' ? event.clientY : event.clientX)
-      const initialValue = getInitialValue()
+        const isTouch = 'touches' in event
+        const startPos = isTouch
+          ? handleType === 'vertical'
+            ? event.touches[0].clientY
+            : event.touches[0].clientX
+          : handleType === 'vertical'
+            ? event.clientY
+            : event.clientX
+        const initialValue = getInitialValue()
 
-      const onMouseMove = (moveEvent: MouseEvent | TouchEvent) => {
-        const isTouchMove = 'touches' in moveEvent
-        const currentPos = isTouchMove
-          ? (handleType === 'vertical' ? moveEvent.touches[0].clientY : moveEvent.touches[0].clientX)
-          : (handleType === 'vertical' ? moveEvent.clientY : moveEvent.clientX)
+        const onMouseMove = (moveEvent: MouseEvent | TouchEvent) => {
+          const isTouchMove = 'touches' in moveEvent
+          const currentPos = isTouchMove
+            ? handleType === 'vertical'
+              ? moveEvent.touches[0].clientY
+              : moveEvent.touches[0].clientX
+            : handleType === 'vertical'
+              ? moveEvent.clientY
+              : moveEvent.clientX
 
-        const viewportZoom = rfInstance?.getViewport().zoom || 1
-        const delta = (currentPos - startPos) / viewportZoom
+          const viewportZoom = rfInstance?.getViewport().zoom || 1
+          const delta = (currentPos - startPos) / viewportZoom
 
-        updateEdge(id, updateData(initialValue + delta))
+          updateEdge(id, updateData(initialValue + delta))
+        }
+
+        const onMouseUp = () => {
+          setDraggingHandle(null)
+          window.removeEventListener('mousemove', onMouseMove)
+          window.removeEventListener('mouseup', onMouseUp)
+          window.removeEventListener('touchmove', onMouseMove)
+          window.removeEventListener('touchend', onMouseUp)
+          // Clear ref
+          activeListenersRef.current = {}
+        }
+
+        // Store listeners in ref for cleanup
+        activeListenersRef.current = { onMouseMove, onMouseUp }
+
+        window.addEventListener('mousemove', onMouseMove)
+        window.addEventListener('mouseup', onMouseUp)
+        window.addEventListener('touchmove', onMouseMove)
+        window.addEventListener('touchend', onMouseUp)
       }
-
-      const onMouseUp = () => {
-        setDraggingHandle(null)
-        window.removeEventListener('mousemove', onMouseMove)
-        window.removeEventListener('mouseup', onMouseUp)
-        window.removeEventListener('touchmove', onMouseMove)
-        window.removeEventListener('touchend', onMouseUp)
-        // Clear ref
-        activeListenersRef.current = {}
-      }
-
-      // Store listeners in ref for cleanup
-      activeListenersRef.current = { onMouseMove, onMouseUp }
-
-      window.addEventListener('mousemove', onMouseMove)
-      window.addEventListener('mouseup', onMouseUp)
-      window.addEventListener('touchmove', onMouseMove)
-      window.addEventListener('touchend', onMouseUp)
-    }
-  }, [takeSnapshot, rfInstance, updateEdge, id])
+    },
+    [takeSnapshot, rfInstance, updateEdge, id],
+  )
 
   // Handle vertical drag (horizontal channel)
   const handleVerticalDragStart = useMemo(
-    () => createDragHandler(
-      'vertical',
-      () => currentOffsetY !== 0 ? currentOffsetY : labelY,
-      (value) => ({ offsetY: value })
-    ),
-    [createDragHandler, currentOffsetY, labelY]
+    () =>
+      createDragHandler(
+        'vertical',
+        () => (currentOffsetY !== 0 ? currentOffsetY : labelY),
+        (value) => ({ offsetY: value }),
+      ),
+    [createDragHandler, currentOffsetY, labelY],
   )
 
   // Handle left vertical segment drag
   const handleLeftDragStart = useMemo(
-    () => createDragHandler(
-      'left',
-      () => currentLeftOffsetX !== 0 ? currentLeftOffsetX : leftX,
-      (value) => ({ leftOffsetX: value })
-    ),
-    [createDragHandler, currentLeftOffsetX, leftX]
+    () =>
+      createDragHandler(
+        'left',
+        () => (currentLeftOffsetX !== 0 ? currentLeftOffsetX : leftX),
+        (value) => ({ leftOffsetX: value }),
+      ),
+    [createDragHandler, currentLeftOffsetX, leftX],
   )
 
   // Handle right vertical segment drag
   const handleRightDragStart = useMemo(
-    () => createDragHandler(
-      'right',
-      () => currentRightOffsetX !== 0 ? currentRightOffsetX : rightX,
-      (value) => ({ rightOffsetX: value })
-    ),
-    [createDragHandler, currentRightOffsetX, rightX]
+    () =>
+      createDragHandler(
+        'right',
+        () => (currentRightOffsetX !== 0 ? currentRightOffsetX : rightX),
+        (value) => ({ rightOffsetX: value }),
+      ),
+    [createDragHandler, currentRightOffsetX, rightX],
   )
 
   // Cleanup event listeners on unmount
@@ -259,24 +271,22 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
   }, [])
 
   // Distinctive purple/violet color for loop back edges - thinner and more elegant
-  const loopBackStyle = useMemo(() => ({
-    ...style,
-    stroke: isSelected ? '#8b5cf6' : '#a78bfa', // violet-500, lighter and more elegant
-    strokeWidth: isSelected ? 1.5 : 1.2, // Thinner lines
-    strokeDasharray: '6,3', // Finer dashed pattern
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-    filter: isSelected ? 'drop-shadow(0 0 2px rgba(139, 92, 246, 0.3))' : 'none',
-  }), [style, isSelected])
+  const loopBackStyle = useMemo(
+    () => ({
+      ...style,
+      stroke: isSelected ? '#8b5cf6' : '#a78bfa', // violet-500, lighter and more elegant
+      strokeWidth: isSelected ? 1.5 : 1.2, // Thinner lines
+      strokeDasharray: '6,3', // Finer dashed pattern
+      strokeLinecap: 'round' as const,
+      strokeLinejoin: 'round' as const,
+      filter: isSelected ? 'drop-shadow(0 0 2px rgba(139, 92, 246, 0.3))' : 'none',
+    }),
+    [style, isSelected],
+  )
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={path}
-        style={loopBackStyle}
-        markerEnd={markerEnd}
-      />
+      <BaseEdge id={id} path={path} style={loopBackStyle} markerEnd={markerEnd} />
 
       {/* Edge label if available */}
       {edgeData.label && (
@@ -288,8 +298,10 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
               pointerEvents: 'all',
             }}
             className={cn(
-              'nodrag nopan px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border shadow-sm bg-white z-10',
-              isSelected ? 'text-violet-600 border-violet-200' : 'text-violet-500 border-violet-200'
+              'nodrag nopan z-10 rounded-md border bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm',
+              isSelected
+                ? 'border-violet-200 text-violet-600'
+                : 'border-violet-200 text-violet-500',
             )}
           >
             {edgeData.label}
@@ -307,20 +319,27 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY + (edgeData.label ? 20 : 0)}px)`,
               pointerEvents: 'all',
             }}
-            className="nodrag nopan cursor-row-resize group z-20"
+            className="nodrag nopan group z-20 cursor-row-resize"
             onMouseDown={handleVerticalDragStart}
             onTouchStart={handleVerticalDragStart}
             onClick={onEdgeClick}
           >
-            <div className={cn(
-              "bg-white border rounded-full p-1.5 shadow-md transition-all",
-              draggingHandle === 'vertical'
-                ? "bg-violet-100 border-violet-500 scale-110 shadow-lg"
-                : "border-violet-300 hover:bg-violet-50 hover:border-violet-400 active:scale-95"
-            )}>
-              <GripHorizontal size={14} className={cn(
-                draggingHandle === 'vertical' ? "text-violet-600" : "text-violet-400 group-hover:text-violet-500"
-              )} />
+            <div
+              className={cn(
+                'rounded-full border bg-white p-1.5 shadow-md transition-all',
+                draggingHandle === 'vertical'
+                  ? 'scale-110 border-violet-500 bg-violet-100 shadow-lg'
+                  : 'border-violet-300 hover:border-violet-400 hover:bg-violet-50 active:scale-95',
+              )}
+            >
+              <GripHorizontal
+                size={14}
+                className={cn(
+                  draggingHandle === 'vertical'
+                    ? 'text-violet-600'
+                    : 'text-violet-400 group-hover:text-violet-500',
+                )}
+              />
             </div>
           </div>
 
@@ -331,20 +350,27 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
               transform: `translate(-50%, -50%) translate(${leftX}px,${leftY}px)`,
               pointerEvents: 'all',
             }}
-            className="nodrag nopan cursor-col-resize group z-20"
+            className="nodrag nopan group z-20 cursor-col-resize"
             onMouseDown={handleLeftDragStart}
             onTouchStart={handleLeftDragStart}
             onClick={onEdgeClick}
           >
-            <div className={cn(
-              "bg-white border rounded-full p-1.5 shadow-md transition-all",
-              draggingHandle === 'left'
-                ? "bg-violet-100 border-violet-500 scale-110 shadow-lg"
-                : "border-violet-300 hover:bg-violet-50 hover:border-violet-400 active:scale-95"
-            )}>
-              <GripVertical size={14} className={cn(
-                draggingHandle === 'left' ? "text-violet-600" : "text-violet-400 group-hover:text-violet-500"
-              )} />
+            <div
+              className={cn(
+                'rounded-full border bg-white p-1.5 shadow-md transition-all',
+                draggingHandle === 'left'
+                  ? 'scale-110 border-violet-500 bg-violet-100 shadow-lg'
+                  : 'border-violet-300 hover:border-violet-400 hover:bg-violet-50 active:scale-95',
+              )}
+            >
+              <GripVertical
+                size={14}
+                className={cn(
+                  draggingHandle === 'left'
+                    ? 'text-violet-600'
+                    : 'text-violet-400 group-hover:text-violet-500',
+                )}
+              />
             </div>
           </div>
 
@@ -355,20 +381,27 @@ export const LoopBackEdge: React.FC<EdgeProps> = ({
               transform: `translate(-50%, -50%) translate(${rightX}px,${rightY}px)`,
               pointerEvents: 'all',
             }}
-            className="nodrag nopan cursor-col-resize group z-20"
+            className="nodrag nopan group z-20 cursor-col-resize"
             onMouseDown={handleRightDragStart}
             onTouchStart={handleRightDragStart}
             onClick={onEdgeClick}
           >
-            <div className={cn(
-              "bg-white border rounded-full p-1.5 shadow-md transition-all",
-              draggingHandle === 'right'
-                ? "bg-violet-100 border-violet-500 scale-110 shadow-lg"
-                : "border-violet-300 hover:bg-violet-50 hover:border-violet-400 active:scale-95"
-            )}>
-              <GripVertical size={14} className={cn(
-                draggingHandle === 'right' ? "text-violet-600" : "text-violet-400 group-hover:text-violet-500"
-              )} />
+            <div
+              className={cn(
+                'rounded-full border bg-white p-1.5 shadow-md transition-all',
+                draggingHandle === 'right'
+                  ? 'scale-110 border-violet-500 bg-violet-100 shadow-lg'
+                  : 'border-violet-300 hover:border-violet-400 hover:bg-violet-50 active:scale-95',
+              )}
+            >
+              <GripVertical
+                size={14}
+                className={cn(
+                  draggingHandle === 'right'
+                    ? 'text-violet-600'
+                    : 'text-violet-400 group-hover:text-violet-500',
+                )}
+              />
             </div>
           </div>
         </EdgeLabelRenderer>

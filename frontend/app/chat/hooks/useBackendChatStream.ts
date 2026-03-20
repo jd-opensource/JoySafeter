@@ -28,7 +28,7 @@ export interface UseBackendChatStreamOptions {
 
 export const useBackendChatStream = (
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  options?: UseBackendChatStreamOptions
+  options?: UseBackendChatStreamOptions,
 ) => {
   const { onArtifactsReady } = options ?? {}
   const [isProcessing, setIsProcessing] = useState(false)
@@ -37,11 +37,14 @@ export const useBackendChatStream = (
   const isMountedRef = useRef(true)
 
   // Helper function to safely update messages only if component is mounted
-  const safeSetMessages = useCallback((updater: React.SetStateAction<Message[]>) => {
-    if (isMountedRef.current) {
-      setMessages(updater)
-    }
-  }, [setMessages])
+  const safeSetMessages = useCallback(
+    (updater: React.SetStateAction<Message[]>) => {
+      if (isMountedRef.current) {
+        setMessages(updater)
+      }
+    },
+    [setMessages],
+  )
 
   // Cleanup on unmount
   useEffect(() => {
@@ -84,7 +87,10 @@ export const useBackendChatStream = (
   }, [])
 
   const sendMessage = useCallback(
-    async (userPrompt: string, opts: { threadId?: string | null; graphId?: string | null; metadata?: Record<string, any> }) => {
+    async (
+      userPrompt: string,
+      opts: { threadId?: string | null; graphId?: string | null; metadata?: Record<string, any> },
+    ) => {
       if (!userPrompt.trim()) return { threadId: opts.threadId || undefined }
 
       setIsProcessing(true)
@@ -106,7 +112,12 @@ export const useBackendChatStream = (
       // Map tool_name -> last running tool id in the UI (since backend doesn't emit ids)
       const lastRunningToolIdByName: Record<string, string> = {}
       // Track node execution for metadata
-      const nodeExecutionLog: Array<{type: string, nodeName: string, timestamp: number, data?: any}> = []
+      const nodeExecutionLog: Array<{
+        type: string
+        nodeName: string
+        timestamp: number
+        data?: any
+      }> = []
       let latestThreadId: string | undefined = opts.threadId || undefined
       currentThreadIdRef.current = latestThreadId || null
 
@@ -153,7 +164,7 @@ export const useBackendChatStream = (
                     }
                   }
                   return m
-                })
+                }),
               )
               return
             }
@@ -176,10 +187,8 @@ export const useBackendChatStream = (
 
               safeSetMessages((prev) =>
                 prev.map((m) =>
-                  m.id === aiMsgId
-                    ? { ...m, tool_calls: [...(m.tool_calls || []), tool] }
-                    : m
-                )
+                  m.id === aiMsgId ? { ...m, tool_calls: [...(m.tool_calls || []), tool] } : m,
+                ),
               )
               return
             }
@@ -207,8 +216,23 @@ export const useBackendChatStream = (
                     }
                     return t
                   })
+
+                  // Accumulate file operation metadata for real-time artifact preview
+                  const filesChanged = toolData?.files_changed
+                  if (filesChanged?.length) {
+                    const existing = (m.metadata?.liveFiles as Array<{ path: string; action: string }>) ?? []
+                    return {
+                      ...m,
+                      tool_calls: tools,
+                      metadata: {
+                        ...(m.metadata || {}),
+                        liveFiles: [...existing, ...filesChanged],
+                      },
+                    }
+                  }
+
                   return { ...m, tool_calls: tools }
-                })
+                }),
               )
               return
             }
@@ -221,7 +245,7 @@ export const useBackendChatStream = (
               // Check if this is a stop event
               if (errorMsg === 'Stream stopped' || errorMsg.includes('stopped')) {
                 safeSetMessages((prev) =>
-                  prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+                  prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
                 )
                 return
               }
@@ -230,8 +254,8 @@ export const useBackendChatStream = (
                 prev.map((m) =>
                   m.id === aiMsgId
                     ? { ...m, content: (m.content || '') + `\n\n*Error: ${errorMsg}*` }
-                    : m
-                )
+                    : m,
+                ),
               )
               // Surface error as toast notification
               toastError(errorMsg)
@@ -241,7 +265,7 @@ export const useBackendChatStream = (
             // Handle done event
             if (type === 'done') {
               safeSetMessages((prev) =>
-                prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+                prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
               )
               return
             }
@@ -273,7 +297,7 @@ export const useBackendChatStream = (
                 type: 'node_start',
                 nodeName: nodeLabel,
                 timestamp,
-                data: { nodeId }
+                data: { nodeId },
               })
 
               // Update message metadata, display current executing node
@@ -290,7 +314,7 @@ export const useBackendChatStream = (
                     }
                   }
                   return m
-                })
+                }),
               )
               return
             }
@@ -306,7 +330,7 @@ export const useBackendChatStream = (
                 type: 'node_end',
                 nodeName: nodeLabel,
                 timestamp,
-                data: { nodeId, status, duration: nodeData?.duration }
+                data: { nodeId, status, duration: nodeData?.duration },
               })
 
               // Update message metadata
@@ -323,7 +347,7 @@ export const useBackendChatStream = (
                     }
                   }
                   return m
-                })
+                }),
               )
               return
             }
@@ -344,8 +368,8 @@ export const useBackendChatStream = (
                   update: stateUpdate,
                   goto: commandData?.goto,
                   reason: commandData?.reason,
-                  hasStateChanges
-                }
+                  hasStateChanges,
+                },
               })
 
               // Update message metadata, including status change information
@@ -362,7 +386,7 @@ export const useBackendChatStream = (
                     }
                   }
                   return m
-                })
+                }),
               )
               return
             }
@@ -379,8 +403,8 @@ export const useBackendChatStream = (
                   nodeType: decisionData?.node_type,
                   result: decisionData?.result,
                   reason: decisionData?.reason,
-                  goto: decisionData?.goto
-                }
+                  goto: decisionData?.goto,
+                },
               })
 
               // Update message metadata, record routing decisions
@@ -396,13 +420,13 @@ export const useBackendChatStream = (
                           nodeId: decisionData?.node_id,
                           result: decisionData?.result,
                           goto: decisionData?.goto,
-                          reason: decisionData?.reason
+                          reason: decisionData?.reason,
                         },
                       },
                     }
                   }
                   return m
-                })
+                }),
               )
               return
             }
@@ -419,8 +443,8 @@ export const useBackendChatStream = (
                   iteration: iterationData?.iteration,
                   maxIterations: iterationData?.max_iterations,
                   conditionMet: iterationData?.condition_met,
-                  reason: iterationData?.reason
-                }
+                  reason: iterationData?.reason,
+                },
               })
 
               // Update message metadata
@@ -436,13 +460,13 @@ export const useBackendChatStream = (
                           nodeId: iterationData?.loop_node_id,
                           iteration: iterationData?.iteration,
                           maxIterations: iterationData?.max_iterations,
-                          conditionMet: iterationData?.condition_met
+                          conditionMet: iterationData?.condition_met,
                         },
                       },
                     }
                   }
                   return m
-                })
+                }),
               )
               return
             }
@@ -459,8 +483,8 @@ export const useBackendChatStream = (
                   taskId: taskData?.task_id,
                   status: taskData?.status,
                   result: taskData?.result,
-                  errorMsg: taskData?.error_msg
-                }
+                  errorMsg: taskData?.error_msg,
+                },
               })
 
               // Update message metadata
@@ -476,7 +500,7 @@ export const useBackendChatStream = (
                     }
                   }
                   return m
-                })
+                }),
               )
               return
             }
@@ -498,7 +522,7 @@ export const useBackendChatStream = (
                     }
                   }
                   return m
-                })
+                }),
               )
               return
             }
@@ -513,11 +537,13 @@ export const useBackendChatStream = (
         const msg =
           e?.name === 'AbortError' ? 'Request cancelled' : `Error: ${String(e?.message || e)}`
         safeSetMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, content: (m.content || '') + `\n\n*${msg}*` } : m))
+          prev.map((m) =>
+            m.id === aiMsgId ? { ...m, content: (m.content || '') + `\n\n*${msg}*` } : m,
+          ),
         )
       } finally {
         safeSetMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
         )
         if (isMountedRef.current) {
           setIsProcessing(false)
@@ -526,7 +552,7 @@ export const useBackendChatStream = (
 
       return { threadId: latestThreadId }
     },
-    [safeSetMessages]
+    [safeSetMessages],
   )
 
   return { sendMessage, stopMessage, isProcessing }

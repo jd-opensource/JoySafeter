@@ -53,21 +53,21 @@ export function CredentialPanel({ provider, credential, onSetup }: CredentialPan
 
   return (
     <>
-      <div className="shrink-0 flex flex-col items-end gap-2 ml-2">
+      <div className="ml-2 flex shrink-0 flex-col items-end gap-2">
         {/* Status: 未配置(灰) / 有效(绿) / 验证未通过(橙) */}
         {!hasCredential ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+          <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+            <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
             {t('settings.notConfigured')}
           </span>
         ) : isValid ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-green-600 bg-green-50 border border-green-200 rounded-full">
+          <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-600">
             <CheckCircle2 size={10} />
             {t('settings.valid')}
           </span>
         ) : (
           <span
-            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full"
+            className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
             title={truncateValidationError(credential.validation_error)}
           >
             <AlertCircle size={10} />
@@ -80,9 +80,7 @@ export function CredentialPanel({ provider, credential, onSetup }: CredentialPan
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('settings.clearCredential')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('settings.deleteCredentialConfirm')}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{t('settings.deleteCredentialConfirm')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('settings.cancel')}</AlertDialogCancel>
@@ -90,7 +88,9 @@ export function CredentialPanel({ provider, credential, onSetup }: CredentialPan
               onClick={handleClearCredential}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteCredential.isPending ? t('settings.loading', { defaultValue: '处理中...' }) : t('settings.confirm', { defaultValue: '确定' })}
+              {deleteCredential.isPending
+                ? t('settings.loading', { defaultValue: '处理中...' })
+                : t('settings.confirm', { defaultValue: '确定' })}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -2,15 +2,13 @@
  * Skill Creator Handler
  *
  * Handles skill creation mode — finds or creates a "Skill Creator" graph
- * from the skill-creator template, following the same pattern as apkVulnerabilityHandler.
+ * from the skill-creator template, using the shared findOrCreateGraphByTemplate lock.
  */
 
-import { graphTemplateService } from '@/app/workspace/[workspaceId]/[agentId]/services/graphTemplateService'
 import { graphKeys } from '@/hooks/queries/graphs'
-import { toastError, toastSuccess } from '@/lib/utils/toast'
 
 import { getModeConfig } from '../../config/modeConfig'
-import { findGraphByName, refreshAndFindGraph } from '../utils/graphLookup'
+import { findGraphByName, findOrCreateGraphByTemplate } from '../utils/graphLookup'
 
 import type {
   ModeHandler,
@@ -21,13 +19,9 @@ import type {
   UploadedFile,
 } from './types'
 
-// Wand2 as icon placeholder — matches modeConfig
 import { Wand2 } from 'lucide-react'
 
 const SKILL_CREATOR_GRAPH_NAME = 'Skill Creator'
-
-// Lock to prevent concurrent graph creation
-let creatingGraphPromise: Promise<ModeSelectionResult> | null = null
 
 /**
  * Skill Creator Mode Handler
@@ -51,20 +45,6 @@ export const skillCreatorHandler: ModeHandler = {
       }
     }
 
-    // Check if graph already exists
-    const existing = await findGraphByName(SKILL_CREATOR_GRAPH_NAME, context)
-    if (existing) {
-      return {
-        success: true,
-        stateUpdates: { mode: 'skill-creator', graphId: existing.id },
-      }
-    }
-
-    // If a creation is already in progress, wait for it
-    if (creatingGraphPromise) {
-      return creatingGraphPromise
-    }
-
     const modeConfig = getModeConfig('skill-creator')
     if (!modeConfig || !modeConfig.templateName || !modeConfig.templateGraphName) {
       return {
@@ -73,57 +53,39 @@ export const skillCreatorHandler: ModeHandler = {
       }
     }
 
-    creatingGraphPromise = (async (): Promise<ModeSelectionResult> => {
-      try {
-        // Double-check after refresh (prevent race)
-        const freshExisting = await refreshAndFindGraph(SKILL_CREATOR_GRAPH_NAME, context)
-        if (freshExisting) {
-          return {
-            success: true,
-            stateUpdates: { mode: 'skill-creator', graphId: freshExisting.id },
-          }
-        }
+    try {
+      const graph = await findOrCreateGraphByTemplate(
+        modeConfig.templateGraphName,
+        modeConfig.templateName,
+        context.personalWorkspaceId,
+      )
 
-        // Create from template
-        const createdGraph = await graphTemplateService.createGraphFromTemplate(
-          modeConfig.templateName!,
-          modeConfig.templateGraphName!,
-          context.personalWorkspaceId!
-        )
-
-        if (context.queryClient.refetchQueries) {
-          await context.queryClient.refetchQueries({
-            queryKey: [...graphKeys.list(context.personalWorkspaceId!)],
-          })
-        } else {
-          context.queryClient.invalidateQueries({
-            queryKey: [...graphKeys.list(context.personalWorkspaceId!)],
-          })
-        }
-
-        toastSuccess('Skill Creator graph created successfully', 'Graph Initialized')
-
-        return {
-          success: true,
-          stateUpdates: { mode: 'skill-creator', graphId: createdGraph.id },
-        }
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : 'Failed to create Skill Creator graph'
-        toastError(errorMessage, 'Graph Creation Failed')
-        return { success: false, error: errorMessage }
-      } finally {
-        creatingGraphPromise = null
+      // Refresh query cache so other UI components see the graph
+      if (context.queryClient.refetchQueries) {
+        await context.queryClient.refetchQueries({
+          queryKey: [...graphKeys.list(context.personalWorkspaceId)],
+        })
+      } else {
+        context.queryClient.invalidateQueries({
+          queryKey: [...graphKeys.list(context.personalWorkspaceId)],
+        })
       }
-    })()
 
-    return creatingGraphPromise
+      return {
+        success: true,
+        stateUpdates: { mode: 'skill-creator', graphId: graph.id },
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to create Skill Creator graph'
+      return { success: false, error: errorMessage }
+    }
   },
 
   async onSubmit(
     input: string,
     files: UploadedFile[],
-    context: ModeContext
+    context: ModeContext,
   ): Promise<SubmitResult> {
     return { success: true, processedInput: input }
   },

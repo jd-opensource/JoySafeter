@@ -9,11 +9,14 @@ from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
+from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
 from app.common.response import success_response
 from app.core.agent.artifacts import ArtifactResolver, FileInfo, RunInfo
+from app.core.database import get_db
 
 router = APIRouter(prefix="/v1/artifacts", tags=["Artifacts"])
 
@@ -95,6 +98,41 @@ async def download_artifact_file(
         media_type=media_type or "application/octet-stream",
         filename=filename,
     )
+
+
+@router.get("/{thread_id}/live/{file_path:path}")
+async def live_read_file(
+    thread_id: str,
+    file_path: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Read a file directly from the running sandbox container (live preview during execution)."""
+    from app.services.sandbox_manager import SandboxManagerService, _sandbox_pool
+
+    service = SandboxManagerService(db)
+    record = await service.get_user_sandbox_record(str(current_user.id))
+    if not record:
+        raise HTTPException(status_code=404, detail="No sandbox found")
+
+    adapter = await _sandbox_pool.get(record.id)
+    if not adapter or not adapter.is_started():
+        if adapter:
+            await _sandbox_pool.release(record.id)
+        raise HTTPException(status_code=404, detail="Sandbox not running")
+
+    try:
+        content = adapter.read(file_path)
+        if content.startswith("[Error:") or content.startswith("Error:"):
+            raise HTTPException(status_code=404, detail=content)
+        return PlainTextResponse(content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Live read failed for {file_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {e}")
+    finally:
+        await _sandbox_pool.release(record.id)
 
 
 @router.delete("/{thread_id}/{run_id}")

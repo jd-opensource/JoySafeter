@@ -1,7 +1,6 @@
 'use client'
 
 import { Wrench } from 'lucide-react'
-import React from 'react'
 
 import { useTranslation } from '@/lib/i18n'
 
@@ -10,35 +9,34 @@ import { useBuilderStore } from '../stores/builderStore'
 
 import { DraggableItem } from './DraggableItem'
 
-
-
 interface ComponentsSidebarProps {
   showHeader?: boolean
 }
 
-export const ComponentsSidebar: React.FC<ComponentsSidebarProps> = ({ showHeader = true }) => {
+export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps) {
   const { t } = useTranslation()
   const { showAdvancedSettings } = useBuilderStore()
   const groupedTools = nodeRegistry.getGrouped()
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex h-full flex-col bg-white">
       {/* Header */}
       {showHeader && (
-        <div className="flex items-center gap-2 px-3 py-3 border-b border-gray-100">
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-3">
           <Wrench size={14} className="text-gray-500" />
-          <span className="text-[13px] font-medium text-gray-700">
-            {t('workspace.components')}
-          </span>
+          <span className="text-[13px] font-medium text-gray-700">{t('workspace.components')}</span>
         </div>
       )}
 
       {/* Component List */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar px-2 py-3 space-y-4">
+      <div className="custom-scrollbar flex-1 space-y-4 overflow-y-auto px-2 py-3">
         {Object.entries(groupedTools).map(([category, items]) => {
           const filteredItems = items.filter((def) => {
             // Only show advanced Data Flow nodes if Advanced Settings is enabled
-            if (!showAdvancedSettings && (def.type === 'get_state_node' || def.type === 'set_state_node')) {
+            if (
+              !showAdvancedSettings &&
+              (def.type === 'get_state_node' || def.type === 'set_state_node')
+            ) {
               return false
             }
             return true
@@ -49,12 +47,13 @@ export const ComponentsSidebar: React.FC<ComponentsSidebarProps> = ({ showHeader
           let categoryKey = 'workspace.nodeCategories.actions'
           if (category === 'Agents') categoryKey = 'workspace.nodeCategories.agents'
           else if (category === 'Flow Control') categoryKey = 'workspace.nodeCategories.flowControl'
-          else if (category === 'State Management') categoryKey = 'workspace.nodeCategories.stateManagement'
+          else if (category === 'State Management')
+            categoryKey = 'workspace.nodeCategories.stateManagement'
           else if (category === 'Aggregation') categoryKey = 'workspace.nodeCategories.aggregation'
 
           return (
             <div key={category} className="space-y-2">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pl-1">
+              <div className="pl-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                 {t(categoryKey)}
               </div>
               {filteredItems.map((def) => (

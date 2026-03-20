@@ -3,12 +3,12 @@
 import { format } from 'date-fns'
 import DOMPurify from 'dompurify'
 import { X, CheckCircle2, AlertCircle, Loader2, Wrench, Copy, Check } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { ToolCall } from '../types'
@@ -26,14 +26,14 @@ interface ToolExecutionPanelProps {
 const formatToolName = (name: string): string =>
   name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 
-const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
+export default function ToolExecutionPanel({
   isOpen,
   onClose,
   toolCall,
   messages,
   toolCalls = [],
   agentStatus = 'idle',
-}) => {
+}: ToolExecutionPanelProps) {
   const { t } = useTranslation()
 
   const [copiedInput, setCopiedInput] = useState(false)
@@ -63,9 +63,9 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
       case 'failed':
         return <AlertCircle size={16} className="text-red-500" />
       case 'running':
-        return <Loader2 size={16} className="text-blue-500 animate-spin" />
+        return <Loader2 size={16} className="animate-spin text-blue-500" />
       default:
-        return <Loader2 size={16} className="text-gray-400 animate-spin" />
+        return <Loader2 size={16} className="animate-spin text-gray-400" />
     }
   }
 
@@ -109,11 +109,10 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
     return String(result)
   }
 
-
   if (!displayToolCall) {
     return (
-      <div className="h-full bg-white flex flex-col">
-        <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+      <div className="flex h-full flex-col bg-white">
+        <div className="flex flex-1 items-center justify-center text-sm text-gray-400">
           No tool execution data
         </div>
       </div>
@@ -121,28 +120,32 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
   }
 
   return (
-    <div className="h-full bg-white flex flex-col">
+    <div className="flex h-full flex-col bg-white">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Wrench size={18} className="text-gray-700 flex-shrink-0" />
-          <span className="text-sm font-medium text-gray-900 truncate">
-            {displayToolCall.name ? formatToolName(displayToolCall.name) : t('chat.initializingTools')}
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Wrench size={18} className="flex-shrink-0 text-gray-700" />
+          <span className="truncate text-sm font-medium text-gray-900">
+            {displayToolCall.name
+              ? formatToolName(displayToolCall.name)
+              : t('chat.initializingTools')}
           </span>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex flex-shrink-0 items-center gap-2">
           {displayToolCall.status && (
-            <div className={cn(
-              "flex items-center gap-2 px-2 py-1 rounded-md border",
-              getStatusColor(displayToolCall.status)
-            )}>
+            <div
+              className={cn(
+                'flex items-center gap-2 rounded-md border px-2 py-1',
+                getStatusColor(displayToolCall.status),
+              )}
+            >
               {getStatusIcon(displayToolCall.status)}
               <span className="text-xs font-medium">{getStatusText(displayToolCall.status)}</span>
             </div>
           )}
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-200 transition-colors flex-shrink-0"
+            className="flex-shrink-0 rounded-lg p-1.5 transition-colors hover:bg-gray-200"
             aria-label="Close panel"
           >
             <X size={16} className="text-gray-500" />
@@ -151,11 +154,13 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
       </div>
 
       {/* Content - Input and Output */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
         {/* Input Section */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">{t('chat.input')}</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">
+              {t('chat.input')}
+            </span>
             <button
               onClick={async () => {
                 try {
@@ -167,14 +172,10 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                   console.error('Failed to copy:', err)
                 }
               }}
-              className="text-gray-500 hover:text-gray-700 transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100"
+              className="flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
               title={t('chat.copyToClipboard')}
             >
-              {copiedInput ? (
-                <Check size={14} className="text-green-600" />
-              ) : (
-                <Copy size={14} />
-              )}
+              {copiedInput ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
             </button>
           </div>
           <div className="relative">
@@ -202,7 +203,9 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
         {displayToolCall.result && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">{t('chat.output')}</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600">
+                {t('chat.output')}
+              </span>
               <button
                 onClick={async () => {
                   try {
@@ -219,14 +222,10 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                     console.error('Failed to copy:', err)
                   }
                 }}
-                className="text-gray-500 hover:text-gray-700 transition-colors flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100"
+                className="flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
                 title={t('chat.copyToClipboard')}
               >
-                {copiedOutput ? (
-                  <Check size={14} className="text-green-600" />
-                ) : (
-                  <Copy size={14} />
-                )}
+                {copiedOutput ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
               </button>
             </div>
             <div className="relative max-h-[500px] overflow-auto">
@@ -235,13 +234,20 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                 // Check if result is JSON that can be parsed
                 let parsedResult: any = null
                 try {
-                  parsedResult = typeof displayToolCall.result === 'string' ? JSON.parse(displayToolCall.result) : displayToolCall.result
+                  parsedResult =
+                    typeof displayToolCall.result === 'string'
+                      ? JSON.parse(displayToolCall.result)
+                      : displayToolCall.result
                 } catch {
                   // Not valid JSON, treat as string
                 }
 
                 // If it's a valid JSON object, use syntax highlighter
-                if (parsedResult && typeof parsedResult === 'object' && !Array.isArray(parsedResult)) {
+                if (
+                  parsedResult &&
+                  typeof parsedResult === 'object' &&
+                  !Array.isArray(parsedResult)
+                ) {
                   return (
                     <SyntaxHighlighter
                       language="json"
@@ -266,41 +272,73 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
                 // If it contains markdown headers, render as markdown
                 if (formatted.includes('##') || formatted.includes('###')) {
                   return (
-                    <div className="bg-gray-50 border border-gray-200 rounded-md p-3 prose prose-sm max-w-none">
+                    <div className="prose prose-sm max-w-none rounded-md border border-gray-200 bg-gray-50 p-3">
                       <ReactMarkdown
                         components={{
                           h2: ({ children }) => (
-                            <h2 className="text-sm font-bold mt-4 mb-2 first:mt-0 text-gray-900">{children}</h2>
+                            <h2 className="mb-2 mt-4 text-sm font-bold text-gray-900 first:mt-0">
+                              {children}
+                            </h2>
                           ),
                           h3: ({ children }) => (
-                            <h3 className="text-xs font-semibold mt-3 mb-1.5 text-gray-800">{children}</h3>
+                            <h3 className="mb-1.5 mt-3 text-xs font-semibold text-gray-800">
+                              {children}
+                            </h3>
                           ),
                           p: ({ children }) => (
-                            <p className="text-xs mb-2 leading-relaxed text-gray-700">{children}</p>
+                            <p className="mb-2 text-xs leading-relaxed text-gray-700">{children}</p>
                           ),
                           ul: ({ children }) => (
-                            <ul className="list-disc list-inside text-xs mb-2 space-y-1 text-gray-700">{children}</ul>
+                            <ul className="mb-2 list-inside list-disc space-y-1 text-xs text-gray-700">
+                              {children}
+                            </ul>
                           ),
                           li: ({ children }) => (
                             <li className="text-xs text-gray-700">{children}</li>
                           ),
                           code: ({ children }) => (
-                            <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono text-gray-800">{children}</code>
+                            <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs text-gray-800">
+                              {children}
+                            </code>
                           ),
                         }}
                       >
                         {DOMPurify.sanitize(formatted, {
                           ALLOWED_TAGS: [
-                            'p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote',
-                            'ul', 'ol', 'li', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                            'hr', 'div', 'span'
+                            'p',
+                            'br',
+                            'strong',
+                            'em',
+                            'code',
+                            'pre',
+                            'blockquote',
+                            'ul',
+                            'ol',
+                            'li',
+                            'a',
+                            'h1',
+                            'h2',
+                            'h3',
+                            'h4',
+                            'h5',
+                            'h6',
+                            'hr',
+                            'div',
+                            'span',
                           ],
                           ALLOWED_ATTR: ['href', 'class', 'id'],
                           ALLOW_DATA_ATTR: false,
                           ALLOW_UNKNOWN_PROTOCOLS: false,
                           ADD_ATTR: ['rel'],
                           FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button'],
-                          FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+                          FORBID_ATTR: [
+                            'onerror',
+                            'onload',
+                            'onclick',
+                            'onmouseover',
+                            'onfocus',
+                            'onblur',
+                          ],
                         })}
                       </ReactMarkdown>
                     </div>
@@ -309,8 +347,8 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
 
                 // Default: plain text with monospace font
                 return (
-                  <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
-                    <pre className="whitespace-pre-wrap break-words font-mono text-xs text-gray-800 leading-relaxed">
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-gray-800">
                       {formatted}
                     </pre>
                   </div>
@@ -322,12 +360,12 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50 flex-shrink-0">
-        <button className="text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors">
+      <div className="flex flex-shrink-0 items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-3">
+        <button className="text-xs font-medium text-gray-600 transition-colors hover:text-gray-900">
           {t('chat.tool')}
         </button>
         {displayToolCall.startTime && (
-          <div className="text-xs text-gray-400 font-mono">
+          <div className="font-mono text-xs text-gray-400">
             {format(new Date(displayToolCall.startTime), 'yyyy/MM/dd HH:mm:ss')}
           </div>
         )}
@@ -335,5 +373,3 @@ const ToolExecutionPanel: React.FC<ToolExecutionPanelProps> = ({
     </div>
   )
 }
-
-export default ToolExecutionPanel

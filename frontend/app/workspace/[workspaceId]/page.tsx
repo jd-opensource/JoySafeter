@@ -11,8 +11,6 @@ import { createLogger } from '@/lib/logs/console/logger'
 
 import { agentService } from './[agentId]/services/agentService'
 
-
-
 const logger = createLogger('WorkspaceDetailPage')
 
 /**
@@ -95,13 +93,11 @@ export default function WorkspaceDetailPage() {
   // Show loading state
   if (isLoading || isCreating) {
     return (
-      <div className='flex h-full items-center justify-center'>
-        <div className='text-center'>
-          <Loader2 className='mx-auto h-8 w-8 animate-spin text-muted-foreground' />
-          <p className='mt-4 text-sm text-muted-foreground'>
-            {isCreating
-              ? t('workspace.creatingDefaultGraph')
-              : t('workspace.loadingAgents')}
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="mt-4 text-sm text-muted-foreground">
+            {isCreating ? t('workspace.creatingDefaultGraph') : t('workspace.loadingAgents')}
           </p>
         </div>
       </div>
@@ -110,10 +106,10 @@ export default function WorkspaceDetailPage() {
 
   // Show loading while redirecting
   return (
-    <div className='flex h-full items-center justify-center'>
-      <div className='text-center'>
-        <Loader2 className='mx-auto h-8 w-8 animate-spin text-muted-foreground' />
-        <p className='mt-4 text-sm text-muted-foreground'>{t('workspace.redirecting')}</p>
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="mt-4 text-sm text-muted-foreground">{t('workspace.redirecting')}</p>
       </div>
     </div>
   )

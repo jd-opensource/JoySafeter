@@ -36,7 +36,12 @@ export function useCopilotEffects({
   // Session recovery: restore state and content when sessionId is restored
   useEffect(() => {
     const { currentSessionId } = state
-    if (!currentSessionId || refs.isCreatingSessionRef.current || lastRestoredSessionIdRef.current === currentSessionId) return
+    if (
+      !currentSessionId ||
+      refs.isCreatingSessionRef.current ||
+      lastRestoredSessionIdRef.current === currentSessionId
+    )
+      return
 
     const restoreSession = async () => {
       console.log('[useCopilotEffects] Restoring session:', currentSessionId)
@@ -55,7 +60,10 @@ export function useCopilotEffects({
         if (sessionData.status === 'generating') {
           if (sessionData.result?.actions?.length) {
             await actions.executeActions(sessionData.result.actions)
-            actions.finalizeCurrentMessage(sessionData.result.message ?? '', sessionData.result.actions)
+            actions.finalizeCurrentMessage(
+              sessionData.result.message ?? '',
+              sessionData.result.actions,
+            )
           } else if (sessionData.content) {
             actions.setStreamingContent(sessionData.content)
             actions.setCurrentStage({ stage: 'processing', message: '继续处理中...' })
@@ -65,7 +73,11 @@ export function useCopilotEffects({
           actions.clearSession()
           actions.clearStreaming()
         } else if (sessionData.status === 'failed') {
-          toast({ title: 'Copilot 任务失败', description: sessionData.error || '执行过程中出现错误，请重试', variant: 'destructive' })
+          toast({
+            title: 'Copilot 任务失败',
+            description: sessionData.error || '执行过程中出现错误，请重试',
+            variant: 'destructive',
+          })
           actions.clearSession()
         }
       } catch (error) {
@@ -81,9 +93,10 @@ export function useCopilotEffects({
   // Update page title to show loading status
   useEffect(() => {
     const baseTitle = 'Agent Platform'
-    document.title = state.loading && state.currentStage
-      ? `⏳ ${state.currentStage.message} - ${baseTitle}`
-      : baseTitle
+    document.title =
+      state.loading && state.currentStage
+        ? `⏳ ${state.currentStage.message} - ${baseTitle}`
+        : baseTitle
   }, [state.loading, state.currentStage])
 
   // Auto-scroll to bottom when content changes
@@ -97,9 +110,15 @@ export function useCopilotEffects({
 
     requestAnimationFrame(() => {
       if (!refs.isMountedRef.current || !scrollEl) return
-      scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: state.streamingContent ? 'smooth' : 'auto' })
+      scrollEl.scrollTo({
+        top: scrollEl.scrollHeight,
+        behavior: state.streamingContent ? 'smooth' : 'auto',
+      })
       if (refs.streamingContentRef.current) {
-        refs.streamingContentRef.current.scrollTo({ top: refs.streamingContentRef.current.scrollHeight, behavior: 'smooth' })
+        refs.streamingContentRef.current.scrollTo({
+          top: refs.streamingContentRef.current.scrollHeight,
+          behavior: 'smooth',
+        })
       }
     })
   }, [state.messages, state.loading, state.streamingContent, refs])
@@ -127,7 +146,10 @@ export function useCopilotEffects({
     const params = new URLSearchParams(searchParams.toString())
     params.delete('copilotInput')
     const newSearch = params.toString()
-    router.replace(newSearch ? `${window.location.pathname}?${newSearch}` : window.location.pathname, { scroll: false })
+    router.replace(
+      newSearch ? `${window.location.pathname}?${newSearch}` : window.location.pathname,
+      { scroll: false },
+    )
 
     setTimeout(() => {
       if (!refs.isMountedRef.current) return

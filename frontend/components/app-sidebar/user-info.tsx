@@ -3,7 +3,7 @@
 import { Settings, LogOut, ChevronDown, Languages, Check } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { SettingsDialog } from '@/components/settings'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -18,7 +18,7 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useSession, client } from '@/lib/auth/auth-client'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface UserInfoProps {
   isCollapsed?: boolean
@@ -66,7 +66,7 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
       // Call logout API
       await client.signOut()
       // Wait a short time to ensure cookies are deleted
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise((resolve) => setTimeout(resolve, 100))
       // Redirect to login page
       window.location.href = '/signin'
     } catch (error) {
@@ -86,26 +86,28 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
 
   return (
     <>
-      <div className="border-t border-[var(--border)] p-2 relative">
+      <div className="relative border-t border-[var(--border)] p-2">
         <div className="flex flex-col gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 className={cn(
-                  "flex w-full items-center rounded-lg px-2 py-2 transition-colors hover:bg-[var(--surface-3)]",
-                  showContent ? "gap-2" : "justify-center"
+                  'flex w-full items-center rounded-lg px-2 py-2 transition-colors hover:bg-[var(--surface-3)]',
+                  showContent ? 'gap-2' : 'justify-center',
                 )}
               >
                 <Avatar className="h-8 w-8 flex-shrink-0">
-                  {user?.image && <AvatarImage src={user.image} alt={user.name || t('user.user')} />}
-                  <AvatarFallback className="bg-[var(--brand-500)] text-[10px] text-white border border-[var(--brand-400)]">
+                  {user?.image && (
+                    <AvatarImage src={user.image} alt={user.name || t('user.user')} />
+                  )}
+                  <AvatarFallback className="border border-[var(--brand-400)] bg-[var(--brand-500)] text-[10px] text-white">
                     {getInitials(user?.name, user?.email)}
                   </AvatarFallback>
                 </Avatar>
                 {showContent && (
                   <>
-                    <div className="flex flex-1 flex-col items-start overflow-hidden min-w-0">
+                    <div className="flex min-w-0 flex-1 flex-col items-start overflow-hidden">
                       <span className="truncate text-[12px] font-medium text-[var(--text-primary)]">
                         {user?.name || user?.email || t('user.user')}
                       </span>
@@ -119,7 +121,7 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
               align="start"
               side="top"
               sideOffset={8}
-              className="w-[180px] z-[10000200] border-[var(--border)]"
+              className="z-[10000200] w-[180px] border-[var(--border)]"
             >
               <div className="px-2 py-1.5">
                 <p className="truncate text-[13px] font-medium">{user?.name || t('user.user')}</p>
@@ -141,7 +143,7 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
                     <DropdownMenuItem
                       key={lang.code}
                       onClick={() => handleLanguageChange(lang.code)}
-                      className="flex items-center justify-between gap-2 cursor-pointer text-[13px]"
+                      className="flex cursor-pointer items-center justify-between gap-2 text-[13px]"
                     >
                       <span>{lang.label}</span>
                       {i18n.language === lang.code && (
@@ -173,10 +175,7 @@ export function UserInfo({ isCollapsed = false, showContent = true }: UserInfoPr
           </DropdownMenu>
         </div>
       </div>
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-      />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   )
 }

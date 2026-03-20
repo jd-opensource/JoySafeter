@@ -70,6 +70,6 @@ export const useSidebarStore = create<SidebarState>()(
           document.documentElement.style.setProperty('--sidebar-width', `${width}px`)
         }
       },
-    }
-  )
+    },
+  ),
 )

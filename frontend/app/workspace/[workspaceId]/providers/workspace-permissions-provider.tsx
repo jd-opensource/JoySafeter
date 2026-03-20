@@ -77,6 +77,8 @@ const WorkspacePermissionsContext = createContext<WorkspacePermissionsContextTyp
     canRead: false,
     canEdit: false,
     canAdmin: false,
+    isOwner: false,
+    role: null,
     userPermissions: 'read',
     isLoading: false,
     error: null,
@@ -112,7 +114,7 @@ export function WorkspacePermissionsProvider({ children }: WorkspacePermissionsP
   const baseUserPermissions = useUserPermissions(
     workspacePermissions,
     permissionsLoading,
-    permissionsError
+    permissionsError,
   )
 
   // Note: Connection-based error detection removed - only rely on operation timeouts
@@ -156,7 +158,7 @@ export function WorkspacePermissionsProvider({ children }: WorkspacePermissionsP
       updatePermissions,
       refetchPermissions,
       userPermissions,
-    ]
+    ],
   )
 
   return (
@@ -174,7 +176,7 @@ export function useWorkspacePermissionsContext(): WorkspacePermissionsContextTyp
   const context = useContext(WorkspacePermissionsContext)
   if (!context) {
     throw new Error(
-      'useWorkspacePermissionsContext must be used within a WorkspacePermissionsProvider'
+      'useWorkspacePermissionsContext must be used within a WorkspacePermissionsProvider',
     )
   }
   return context

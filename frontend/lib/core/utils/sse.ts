@@ -24,9 +24,7 @@ export function encodeSSE(event: SSEEvent): Uint8Array {
     message += `retry: ${event.retry}\n`
   }
 
-  const data = typeof event.data === 'string'
-    ? event.data
-    : JSON.stringify(event.data)
+  const data = typeof event.data === 'string' ? event.data : JSON.stringify(event.data)
 
   message += `data: ${data}\n\n`
 

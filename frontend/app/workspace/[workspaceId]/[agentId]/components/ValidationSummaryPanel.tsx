@@ -1,14 +1,13 @@
 'use client'
 
 import { X, AlertCircle, CheckCircle2, ArrowRight, FileX, GitBranch, Network } from 'lucide-react'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { Node, Edge } from 'reactflow'
 
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
-
 
 import { useBuilderStore } from '../stores/builderStore'
 
@@ -23,13 +22,13 @@ interface ValidationSummaryPanelProps {
 /**
  * ValidationSummaryPanel - Display all validation errors in the graph
  */
-export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
+export function ValidationSummaryPanel({
   nodes,
   edges,
   onClose,
   onSelectNode,
   onSelectEdge,
-}) => {
+}: ValidationSummaryPanelProps) {
   const { t } = useTranslation()
   const { validationErrors } = useBuilderStore()
 
@@ -67,7 +66,7 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
   const hasErrors = criticalErrors.length > 0
   const hasWarnings = warnings.length > 0
 
-  const handleErrorClick = (error: typeof allErrors[0]) => {
+  const handleErrorClick = (error: (typeof allErrors)[0]) => {
     if (error.nodeId && onSelectNode) {
       onSelectNode(error.nodeId)
       onClose()
@@ -78,20 +77,35 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
   }
 
   return (
-    <div className="absolute top-4 right-4 w-[360px] bg-white border border-gray-200 rounded-xl shadow-xl flex flex-col overflow-hidden animate-in slide-in-from-right-10 fade-in duration-300 z-50 max-h-[calc(100vh-120px)]">
+    <div className="absolute right-4 top-4 z-50 flex max-h-[calc(100vh-120px)] w-[360px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl duration-300 animate-in fade-in slide-in-from-right-10">
       {/* Header */}
-      <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
-        <div className="flex items-center gap-2.5 text-gray-900 overflow-hidden">
-          <div className={cn(
-            "p-1 rounded-md border border-gray-100 shadow-sm shrink-0",
-            hasErrors ? "bg-red-50 text-red-600" : hasWarnings ? "bg-amber-50 text-amber-600" : "bg-green-50 text-green-600"
-          )}>
-            {hasErrors ? <AlertCircle size={12} /> : hasWarnings ? <AlertCircle size={12} /> : <CheckCircle2 size={12} />}
+      <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-3 py-2.5">
+        <div className="flex items-center gap-2.5 overflow-hidden text-gray-900">
+          <div
+            className={cn(
+              'shrink-0 rounded-md border border-gray-100 p-1 shadow-sm',
+              hasErrors
+                ? 'bg-red-50 text-red-600'
+                : hasWarnings
+                  ? 'bg-amber-50 text-amber-600'
+                  : 'bg-green-50 text-green-600',
+            )}
+          >
+            {hasErrors ? (
+              <AlertCircle size={12} />
+            ) : hasWarnings ? (
+              <AlertCircle size={12} />
+            ) : (
+              <CheckCircle2 size={12} />
+            )}
           </div>
-          <div className="flex flex-col min-w-0">
-            <h3 className="font-bold text-sm leading-tight truncate">{t('workspace.validationSummary')}</h3>
-            <span className="text-[9px] text-gray-400 uppercase tracking-widest font-bold">
-              {allErrors.length} {allErrors.length !== 1 ? t('workspace.issues') : t('workspace.issue')}
+          <div className="flex min-w-0 flex-col">
+            <h3 className="truncate text-sm font-bold leading-tight">
+              {t('workspace.validationSummary')}
+            </h3>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+              {allErrors.length}{' '}
+              {allErrors.length !== 1 ? t('workspace.issues') : t('workspace.issue')}
             </span>
           </div>
         </div>
@@ -99,44 +113,62 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
           variant="ghost"
           size="icon"
           onClick={onClose}
-          className="h-6 w-6 text-gray-300 hover:text-gray-600 hover:bg-gray-100 shrink-0"
+          className="h-6 w-6 shrink-0 text-gray-300 hover:bg-gray-100 hover:text-gray-600"
         >
           <X size={14} />
         </Button>
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+      <div className="custom-scrollbar flex-1 space-y-3 overflow-y-auto p-3">
         {/* Summary Stats */}
         <div className="grid grid-cols-3 gap-1">
-          <div className={cn(
-            "px-1.5 py-1 rounded-md border text-center",
-            hasErrors ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"
-          )}>
-            <div className="text-sm font-bold text-red-600 leading-tight">{criticalErrors.length}</div>
-            <div className="text-[9px] text-gray-600 uppercase mt-0.5 leading-tight">{t('workspace.errors')}</div>
+          <div
+            className={cn(
+              'rounded-md border px-1.5 py-1 text-center',
+              hasErrors ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50',
+            )}
+          >
+            <div className="text-sm font-bold leading-tight text-red-600">
+              {criticalErrors.length}
+            </div>
+            <div className="mt-0.5 text-[9px] uppercase leading-tight text-gray-600">
+              {t('workspace.errors')}
+            </div>
           </div>
-          <div className={cn(
-            "px-1.5 py-1 rounded-md border text-center",
-            hasWarnings ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-200"
-          )}>
-            <div className="text-sm font-bold text-amber-600 leading-tight">{warnings.length}</div>
-            <div className="text-[9px] text-gray-600 uppercase mt-0.5 leading-tight">{t('workspace.warnings')}</div>
+          <div
+            className={cn(
+              'rounded-md border px-1.5 py-1 text-center',
+              hasWarnings ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50',
+            )}
+          >
+            <div className="text-sm font-bold leading-tight text-amber-600">{warnings.length}</div>
+            <div className="mt-0.5 text-[9px] uppercase leading-tight text-gray-600">
+              {t('workspace.warnings')}
+            </div>
           </div>
-          <div className={cn(
-            "px-1.5 py-1 rounded-md border text-center",
-            allErrors.length === 0 ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200"
-          )}>
-            <div className="text-sm font-bold text-green-600 leading-tight">{nodes.length}</div>
-            <div className="text-[9px] text-gray-600 uppercase mt-0.5 leading-tight">{t('workspace.nodes')}</div>
+          <div
+            className={cn(
+              'rounded-md border px-1.5 py-1 text-center',
+              allErrors.length === 0
+                ? 'border-green-200 bg-green-50'
+                : 'border-gray-200 bg-gray-50',
+            )}
+          >
+            <div className="text-sm font-bold leading-tight text-green-600">{nodes.length}</div>
+            <div className="mt-0.5 text-[9px] uppercase leading-tight text-gray-600">
+              {t('workspace.nodes')}
+            </div>
           </div>
         </div>
 
         {/* Success State */}
         {allErrors.length === 0 && (
           <div className="flex flex-col items-center justify-center py-6 text-center">
-            <CheckCircle2 size={36} className="text-green-500 mb-2" />
-            <h4 className="font-semibold text-sm text-gray-900 mb-1">{t('workspace.allValidationsPassed')}</h4>
+            <CheckCircle2 size={36} className="mb-2 text-green-500" />
+            <h4 className="mb-1 text-sm font-semibold text-gray-900">
+              {t('workspace.allValidationsPassed')}
+            </h4>
             <p className="text-xs text-gray-500">{t('workspace.graphReadyToDeploy')}</p>
           </div>
         )}
@@ -144,7 +176,7 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
         {/* Errors by Category */}
         {Object.entries(errorsByCategory).map(([category, categoryErrors]) => (
           <div key={category} className="space-y-1.5">
-            <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
               {category === 'Graph Structure' && <FileX size={11} />}
               {category === 'Node Configuration' && <GitBranch size={11} />}
               {category === 'Edge Configuration' && <ArrowRight size={11} />}
@@ -163,37 +195,45 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
                     key={idx}
                     onClick={() => isClickable && handleErrorClick(error)}
                     className={cn(
-                      "flex items-start gap-1.5 p-2 rounded-lg border text-xs transition-colors",
+                      'flex items-start gap-1.5 rounded-lg border p-2 text-xs transition-colors',
                       error.severity === 'error'
-                        ? "bg-red-50 border-red-200"
+                        ? 'border-red-200 bg-red-50'
                         : error.severity === 'warning'
-                          ? "bg-amber-50 border-amber-200"
-                          : "bg-blue-50 border-blue-200",
-                      isClickable && "cursor-pointer hover:shadow-sm"
+                          ? 'border-amber-200 bg-amber-50'
+                          : 'border-blue-200 bg-blue-50',
+                      isClickable && 'cursor-pointer hover:shadow-sm',
                     )}
                   >
                     <AlertCircle
                       size={12}
                       className={cn(
-                        "mt-0.5 flex-shrink-0",
-                        error.severity === 'error' ? "text-red-600" : error.severity === 'warning' ? "text-amber-600" : "text-blue-600"
+                        'mt-0.5 flex-shrink-0',
+                        error.severity === 'error'
+                          ? 'text-red-600'
+                          : error.severity === 'warning'
+                            ? 'text-amber-600'
+                            : 'text-blue-600',
                       )}
                     />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium mb-0.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-0.5 font-medium">
                         {error.field}
-                        {nodeLabel && (
-                          <span className="text-gray-500 ml-1">({nodeLabel})</span>
-                        )}
+                        {nodeLabel && <span className="ml-1 text-gray-500">({nodeLabel})</span>}
                       </div>
-                      <div className={cn(
-                        "text-xs",
-                        error.severity === 'error' ? "text-red-800" : error.severity === 'warning' ? "text-amber-800" : "text-blue-800"
-                      )}>
+                      <div
+                        className={cn(
+                          'text-xs',
+                          error.severity === 'error'
+                            ? 'text-red-800'
+                            : error.severity === 'warning'
+                              ? 'text-amber-800'
+                              : 'text-blue-800',
+                        )}
+                      >
                         {error.message}
                       </div>
                       {isClickable && (
-                        <div className="text-[9px] text-gray-400 mt-1 italic">
+                        <div className="mt-1 text-[9px] italic text-gray-400">
                           {t('workspace.clickToNavigate')}
                         </div>
                       )}
@@ -207,16 +247,26 @@ export const ValidationSummaryPanel: React.FC<ValidationSummaryPanelProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-1.5 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-[9px] text-gray-400 font-mono">
+      <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-3 py-1.5 font-mono text-[9px] text-gray-400">
         <span>
-          {hasErrors ? t('workspace.cannotDeploy') : hasWarnings ? t('workspace.deployWithWarnings') : t('workspace.readyToDeploy')}
+          {hasErrors
+            ? t('workspace.cannotDeploy')
+            : hasWarnings
+              ? t('workspace.deployWithWarnings')
+              : t('workspace.readyToDeploy')}
         </span>
         <span className="flex items-center gap-1">
-          <div className={cn(
-            "w-1.5 h-1.5 rounded-full",
-            hasErrors ? "bg-red-500" : hasWarnings ? "bg-amber-500" : "bg-green-500"
-          )} />
-          {hasErrors ? t('workspace.errors') : hasWarnings ? t('workspace.warnings') : t('workspace.valid')}
+          <div
+            className={cn(
+              'h-1.5 w-1.5 rounded-full',
+              hasErrors ? 'bg-red-500' : hasWarnings ? 'bg-amber-500' : 'bg-green-500',
+            )}
+          />
+          {hasErrors
+            ? t('workspace.errors')
+            : hasWarnings
+              ? t('workspace.warnings')
+              : t('workspace.valid')}
         </span>
       </div>
     </div>

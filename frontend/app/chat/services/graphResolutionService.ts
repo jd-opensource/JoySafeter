@@ -39,7 +39,7 @@ class GraphResolutionService {
   async resolve(
     mode: string | null,
     context: ModeContext,
-    autoRedirect: boolean
+    autoRedirect: boolean,
   ): Promise<GraphResolutionResult> {
     // Strategy 1: Graph specified by mode
     if (mode) {
@@ -91,7 +91,7 @@ class GraphResolutionService {
   async getGraphIdFromMode(
     modeType: string | null,
     modeGraphId: string | null | undefined,
-    context: ModeContext
+    context: ModeContext,
   ): Promise<string | null> {
     if (modeGraphId) {
       return modeGraphId

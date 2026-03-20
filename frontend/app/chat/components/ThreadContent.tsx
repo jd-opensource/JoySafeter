@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { Message, ToolCall } from '../types'
@@ -18,14 +18,14 @@ interface ThreadContentProps {
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
 }
 
-const ThreadContent: React.FC<ThreadContentProps> = ({
+export default function ThreadContent({
   messages,
   streamingText = '',
   agentStatus,
   currentNodeLabel,
   onToolClick,
   scrollContainerRef,
-}) => {
+}: ThreadContentProps) {
   const { t } = useTranslation()
 
   // When running and last message is assistant, it is shown by Streaming/Processing indicator only
@@ -39,13 +39,13 @@ const ThreadContent: React.FC<ThreadContentProps> = ({
   return (
     <div
       ref={scrollContainerRef}
-      className="h-full overflow-y-auto bg-gray-50 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+      className="h-full overflow-y-auto bg-gray-50 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      <div className="mx-auto max-w-3xl min-w-0 w-full px-6 py-6">
-        <div className="space-y-6 min-w-0">
+      <div className="mx-auto w-full min-w-0 max-w-3xl px-6 py-6">
+        <div className="min-w-0 space-y-6">
           {/* Messages - history on top for waterfall layout */}
           {messagesToRender.length === 0 ? (
-            <div className="flex items-center justify-center text-gray-400 text-sm py-20">
+            <div className="flex items-center justify-center py-20 text-sm text-gray-400">
               {t('chat.startConversation')}
             </div>
           ) : (
@@ -61,18 +61,18 @@ const ThreadContent: React.FC<ThreadContentProps> = ({
 
           {/* Streaming indicator - current reply at bottom */}
           {streamingText && agentStatus === 'running' && (
-            <div className="flex justify-start mb-6 animate-in fade-in duration-200">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center mr-4 flex-shrink-0 shadow-md mt-0.5">
-                <div className="w-3 h-3 bg-white rounded-full animate-pulse" />
+            <div className="mb-6 flex justify-start duration-200 animate-in fade-in">
+              <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-purple-600 shadow-md">
+                <div className="h-3 w-3 animate-pulse rounded-full bg-white" />
               </div>
-              <div className="max-w-[85%] min-w-[50%]">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 rounded border border-gray-200">
+              <div className="min-w-[50%] max-w-[85%]">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-400">
                     AI
                   </span>
                 </div>
-                <div className="prose prose-sm prose-gray max-w-none text-gray-800 leading-7">
-                  <span className="inline-block w-1.5 h-4 bg-blue-500 animate-pulse rounded-full align-middle mr-1" />
+                <div className="prose prose-sm prose-gray max-w-none leading-7 text-gray-800">
+                  <span className="mr-1 inline-block h-4 w-1.5 animate-pulse rounded-full bg-blue-500 align-middle" />
                   {streamingText}
                 </div>
               </div>
@@ -81,27 +81,29 @@ const ThreadContent: React.FC<ThreadContentProps> = ({
 
           {/* Processing indicator - thinking at bottom */}
           {agentStatus === 'running' && messages.length > 0 && !streamingText && (
-            <div className="flex justify-start mb-6 animate-in fade-in duration-200">
+            <div className="mb-6 flex justify-start duration-200 animate-in fade-in">
               <div
                 className={cn(
-                  'flex items-center gap-4 px-4 py-3 rounded-2xl min-w-0 max-w-[85%]',
-                  'bg-white/90 border border-gray-200/80 shadow-sm'
+                  'flex min-w-0 max-w-[85%] items-center gap-4 rounded-2xl px-4 py-3',
+                  'border border-gray-200/80 bg-white/90 shadow-sm',
                 )}
               >
-                <div className="relative flex-shrink-0 w-10 h-10 flex items-center justify-center overflow-hidden rounded-full">
-                  <div className="absolute inset-0 w-10 h-10 rounded-full bg-blue-400/20 animate-pulse" />
-                  <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-md">
+                <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
+                  <div className="absolute inset-0 h-10 w-10 animate-pulse rounded-full bg-blue-400/20" />
+                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-purple-600 shadow-md">
                     <div className="flex gap-0.5">
-                      <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:0ms]" />
-                      <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:150ms]" />
-                      <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:300ms]" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-white [animation-delay:0ms]" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-white [animation-delay:150ms]" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-white [animation-delay:300ms]" />
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-sm font-medium text-gray-700 animate-pulse">{t('chat.thinking')}</span>
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="animate-pulse text-sm font-medium text-gray-700">
+                    {t('chat.thinking')}
+                  </span>
                   {currentNodeLabel && (
-                    <span className="text-xs text-gray-500 truncate" title={currentNodeLabel}>
+                    <span className="truncate text-xs text-gray-500" title={currentNodeLabel}>
                       {currentNodeLabel}
                     </span>
                   )}
@@ -114,5 +116,3 @@ const ThreadContent: React.FC<ThreadContentProps> = ({
     </div>
   )
 }
-
-export default ThreadContent

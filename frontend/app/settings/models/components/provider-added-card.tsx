@@ -16,10 +16,14 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
-import { useAvailableModels, useDeleteModelProvider, useDeleteCredential } from '@/hooks/queries/models'
+import {
+  useAvailableModels,
+  useDeleteModelProvider,
+  useDeleteCredential,
+} from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
 import { useToast } from '@/hooks/use-toast'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { ModelCredentialDialog } from './credential-dialog'
 import { CredentialPanel } from './credential-panel'
@@ -31,10 +35,7 @@ interface ModelProviderAddedCardProps {
   credential?: ModelCredential
 }
 
-export function ModelProviderAddedCard({
-  provider,
-  credential,
-}: ModelProviderAddedCardProps) {
+export function ModelProviderAddedCard({ provider, credential }: ModelProviderAddedCardProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const [collapsed, setCollapsed] = useState(true)
@@ -48,7 +49,7 @@ export function ModelProviderAddedCard({
 
   const isCustom = provider.provider_type === 'custom'
   const hasCredential = !!credential
-  const providerModels = models.filter(m => m.provider_name === provider.provider_name)
+  const providerModels = models.filter((m) => m.provider_name === provider.provider_name)
   const hasModels = providerModels.length > 0
   const supportedTypes = provider.supported_model_types || []
 
@@ -76,29 +77,30 @@ export function ModelProviderAddedCard({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className={cn(
-          'relative rounded-2xl border transition-all duration-300 overflow-hidden shadow-sm',
+          'relative overflow-hidden rounded-2xl border shadow-sm transition-all duration-300',
           isCustom
-            ? 'bg-gradient-to-br from-violet-50/40 via-indigo-50/20 to-violet-50/40 border-violet-200'
-            : 'bg-white border-gray-100'
+            ? 'border-violet-200 bg-gradient-to-br from-violet-50/40 via-indigo-50/20 to-violet-50/40'
+            : 'border-gray-100 bg-white',
         )}
       >
         {isCustom && (
-          <div className="absolute top-0 right-0 p-3 pt-4">
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase bg-violet-100/80 text-violet-700 backdrop-blur-sm border border-violet-200 z-10">
+          <div className="absolute right-0 top-0 p-3 pt-4">
+            <span className="z-10 inline-flex items-center rounded-full border border-violet-200 bg-violet-100/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700 backdrop-blur-sm">
               CUSTOM
             </span>
           </div>
         )}
 
-        <div className="relative pl-5 py-5 pr-5">
+        <div className="relative py-5 pl-5 pr-5">
           <div className="flex items-start gap-4">
-            <ProviderIcon provider={provider} className="shadow-sm border border-gray-100/50 mt-1" />
+            <ProviderIcon
+              provider={provider}
+              className="mt-1 border border-gray-100/50 shadow-sm"
+            />
 
             <div className="grow">
-              <div className="flex items-baseline gap-2 mb-1">
-                <h3 className="font-bold text-base text-gray-900">
-                  {provider.display_name}
-                </h3>
+              <div className="mb-1 flex items-baseline gap-2">
+                <h3 className="text-base font-bold text-gray-900">{provider.display_name}</h3>
                 {provider.credential_schema && (
                   <CredentialPanel
                     provider={provider}
@@ -108,13 +110,15 @@ export function ModelProviderAddedCard({
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                {supportedTypes.map(modelType => (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {supportedTypes.map((modelType) => (
                   <span
                     key={modelType}
-                    className="px-1.5 py-0.5 text-[10px] font-bold text-gray-500 bg-gray-50 border border-gray-100 rounded"
+                    className="rounded border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[10px] font-bold text-gray-500"
                   >
-                    {t(`settings.modelTypes.${modelType}` as any, { defaultValue: modelType.toUpperCase() })}
+                    {t(`settings.modelTypes.${modelType}` as any, {
+                      defaultValue: modelType.toUpperCase(),
+                    })}
                   </span>
                 ))}
               </div>
@@ -126,7 +130,7 @@ export function ModelProviderAddedCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 p-0 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  className="h-8 w-8 rounded-lg p-0 text-red-400 transition-colors hover:bg-red-50 hover:text-red-500"
                   onClick={(e) => {
                     e.stopPropagation()
                     setShowDeleteDialog(true)
@@ -142,7 +146,7 @@ export function ModelProviderAddedCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  className="h-8 w-8 rounded-lg p-0 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500"
                   onClick={(e) => {
                     e.stopPropagation()
                     setShowClearConfirm(true)
@@ -157,7 +161,7 @@ export function ModelProviderAddedCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                className="h-8 w-8 rounded-lg p-0 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
                 onClick={(e) => {
                   e.stopPropagation()
                   setShowCredentialDialog(true)
@@ -173,25 +177,25 @@ export function ModelProviderAddedCard({
         {/* Models Bar */}
         <div
           className={cn(
-            "flex items-center justify-between px-5 py-3 border-t border-gray-100/60 bg-gray-50/30 cursor-pointer hover:bg-gray-50 transition-colors",
-            !collapsed && "bg-gray-50"
+            'flex cursor-pointer items-center justify-between border-t border-gray-100/60 bg-gray-50/30 px-5 py-3 transition-colors hover:bg-gray-50',
+            !collapsed && 'bg-gray-50',
           )}
           onClick={() => setCollapsed(!collapsed)}
         >
           <div className="flex items-center gap-2.5 text-xs font-semibold text-gray-500">
-            <Sparkles size={14} className={cn("transition-colors", hasModels ? "text-blue-500" : "text-gray-400")} />
+            <Sparkles
+              size={14}
+              className={cn('transition-colors', hasModels ? 'text-blue-500' : 'text-gray-400')}
+            />
             <span>
               {hasModels
                 ? t('settings.showModelsNum', { num: providerModels.length })
                 : t('settings.showModels')}
             </span>
-            {modelsLoading && <Loader2 className="animate-spin w-3 h-3 text-gray-400" />}
+            {modelsLoading && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
           </div>
-          <motion.div
-            animate={{ rotate: collapsed ? 0 : 180 }}
-            transition={{ duration: 0.3 }}
-          >
-            <ChevronDown className="w-4 h-4 text-gray-400" />
+          <motion.div animate={{ rotate: collapsed ? 0 : 180 }} transition={{ duration: 0.3 }}>
+            <ChevronDown className="h-4 w-4 text-gray-400" />
           </motion.div>
         </div>
 
@@ -219,29 +223,37 @@ export function ModelProviderAddedCard({
         <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>{t('settings.deleteProviderTitle', { defaultValue: 'Confirm Delete' })}</AlertDialogTitle>
+              <AlertDialogTitle>
+                {t('settings.deleteProviderTitle', { defaultValue: 'Confirm Delete' })}
+              </AlertDialogTitle>
               <AlertDialogDescription>
                 {t('settings.deleteProviderDescription', {
-                  defaultValue: 'Are you sure you want to delete this provider? This will remove all related models and credentials.',
-                  name: provider.display_name
+                  defaultValue:
+                    'Are you sure you want to delete this provider? This will remove all related models and credentials.',
+                  name: provider.display_name,
                 })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>{t('common.cancel', { defaultValue: 'Cancel' })}</AlertDialogCancel>
+              <AlertDialogCancel>
+                {t('common.cancel', { defaultValue: 'Cancel' })}
+              </AlertDialogCancel>
               <AlertDialogAction
-                className="bg-red-600 hover:bg-red-700 text-white"
+                className="bg-red-600 text-white hover:bg-red-700"
                 onClick={async () => {
                   try {
                     await deleteProvider.mutateAsync(provider.provider_name)
                     toast({
                       variant: 'success',
-                      description: t('settings.providerDeleted', { defaultValue: 'Provider deleted successfully' }),
+                      description: t('settings.providerDeleted', {
+                        defaultValue: 'Provider deleted successfully',
+                      }),
                     })
                   } catch (error) {
                     toast({
                       variant: 'destructive',
-                      description: error instanceof Error ? error.message : 'Failed to delete provider',
+                      description:
+                        error instanceof Error ? error.message : 'Failed to delete provider',
                     })
                   }
                 }}
@@ -266,12 +278,16 @@ export function ModelProviderAddedCard({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>{t('common.cancel', { defaultValue: 'Cancel' })}</AlertDialogCancel>
+              <AlertDialogCancel>
+                {t('common.cancel', { defaultValue: 'Cancel' })}
+              </AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleClearCredential}
-                className="bg-red-600 hover:bg-red-700 text-white"
+                className="bg-red-600 text-white hover:bg-red-700"
               >
-                {deleteCredential.isPending ? t('common.processing', { defaultValue: 'Processing...' }) : t('common.confirm', { defaultValue: 'Confirm' })}
+                {deleteCredential.isPending
+                  ? t('common.processing', { defaultValue: 'Processing...' })
+                  : t('common.confirm', { defaultValue: 'Confirm' })}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -2,12 +2,12 @@
 
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { inter } from '@/styles/fonts/inter/inter'
 
@@ -78,38 +78,39 @@ export function RequestResetForm({
 
   return (
     <form onSubmit={handleSubmit} className={cn(`${inter.className} space-y-8`, className)}>
-      <div className='space-y-6'>
-        <div className='space-y-2'>
-          <div className='flex items-center justify-between'>
-            <Label htmlFor='reset-email' suppressHydrationWarning>
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="reset-email" suppressHydrationWarning>
               {mounted ? t('auth.email') : 'Email'}
             </Label>
           </div>
           <Input
-            id='reset-email'
+            id="reset-email"
             value={email}
             onChange={(e) => onEmailChange(e.target.value)}
             placeholder={mounted ? t('auth.enterYourEmail') : 'Enter your email'}
-            type='email'
+            type="email"
             disabled={isSubmitting}
             required
-            className='rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100'
+            className="rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100"
           />
-          <p className='text-muted-foreground text-sm' suppressHydrationWarning>
-            {mounted ? t('auth.sendResetLinkDescription') : 'We will send you a password reset link'}
+          <p className="text-sm text-muted-foreground" suppressHydrationWarning>
+            {mounted
+              ? t('auth.sendResetLinkDescription')
+              : 'We will send you a password reset link'}
           </p>
         </div>
-
       </div>
 
       <Button
-        type='submit'
+        type="submit"
         disabled={isSubmitting}
         onMouseEnter={() => setIsButtonHovered(true)}
         onMouseLeave={() => setIsButtonHovered(false)}
-        className='group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pr-[10px] pl-[12px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all'
+        className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all"
       >
-        <span className='flex items-center gap-1' suppressHydrationWarning>
+        <span className="flex items-center gap-1" suppressHydrationWarning>
           {isSubmitting
             ? mounted
               ? t('auth.sending')
@@ -117,11 +118,11 @@ export function RequestResetForm({
             : mounted
               ? t('auth.sendResetLink')
               : 'Send Reset Link'}
-          <span className='inline-flex transition-transform duration-200 group-hover:translate-x-0.5'>
+          <span className="inline-flex transition-transform duration-200 group-hover:translate-x-0.5">
             {isButtonHovered ? (
-              <ArrowRight className='h-4 w-4' aria-hidden='true' />
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             ) : (
-              <ChevronRight className='h-4 w-4' aria-hidden='true' />
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
             )}
           </span>
         </span>
@@ -253,20 +254,20 @@ export function SetNewPasswordForm({
 
   return (
     <form onSubmit={handleSubmit} className={cn(`${inter.className} space-y-8`, className)}>
-      <div className='space-y-6'>
-        <div className='space-y-2'>
-          <div className='flex items-center justify-between'>
-            <Label htmlFor='password' suppressHydrationWarning>
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password" suppressHydrationWarning>
               {mounted ? t('auth.newPassword') : 'New Password'}
             </Label>
           </div>
-          <div className='relative'>
+          <div className="relative">
             <Input
-              id='password'
+              id="password"
               type={showPassword ? 'text' : 'password'}
-              autoCapitalize='none'
-              autoComplete='new-password'
-              autoCorrect='off'
+              autoCapitalize="none"
+              autoComplete="new-password"
+              autoCorrect="off"
               disabled={isSubmitting || !token}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -275,32 +276,32 @@ export function SetNewPasswordForm({
               className={cn(
                 'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
                 validationMessage &&
-                  'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500'
+                  'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
               )}
             />
             <button
-              type='button'
+              type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className='-translate-y-1/2 absolute top-1/2 right-3 text-gray-500 transition hover:text-gray-700'
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition hover:text-gray-700"
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
         </div>
-        <div className='space-y-2'>
-          <div className='flex items-center justify-between'>
-            <Label htmlFor='confirmPassword' suppressHydrationWarning>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="confirmPassword" suppressHydrationWarning>
               {mounted ? t('auth.confirmPassword') : 'Confirm Password'}
             </Label>
           </div>
-          <div className='relative'>
+          <div className="relative">
             <Input
-              id='confirmPassword'
+              id="confirmPassword"
               type={showConfirmPassword ? 'text' : 'password'}
-              autoCapitalize='none'
-              autoComplete='new-password'
-              autoCorrect='off'
+              autoCapitalize="none"
+              autoComplete="new-password"
+              autoCorrect="off"
               disabled={isSubmitting || !token}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -309,30 +310,29 @@ export function SetNewPasswordForm({
               className={cn(
                 'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
                 validationMessage &&
-                  'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500'
+                  'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
               )}
             />
             <button
-              type='button'
+              type="button"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className='-translate-y-1/2 absolute top-1/2 right-3 text-gray-500 transition hover:text-gray-700'
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition hover:text-gray-700"
               aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
             >
               {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
         </div>
-
       </div>
 
       <Button
         disabled={isSubmitting || !token}
-        type='submit'
+        type="submit"
         onMouseEnter={() => setIsButtonHovered(true)}
         onMouseLeave={() => setIsButtonHovered(false)}
-        className='group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pr-[10px] pl-[12px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all'
+        className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all"
       >
-        <span className='flex items-center gap-1' suppressHydrationWarning>
+        <span className="flex items-center gap-1" suppressHydrationWarning>
           {isSubmitting
             ? mounted
               ? t('auth.resettingPassword')
@@ -340,11 +340,11 @@ export function SetNewPasswordForm({
             : mounted
               ? t('auth.resetPassword')
               : 'Reset Password'}
-          <span className='inline-flex transition-transform duration-200 group-hover:translate-x-0.5'>
+          <span className="inline-flex transition-transform duration-200 group-hover:translate-x-0.5">
             {isButtonHovered ? (
-              <ArrowRight className='h-4 w-4' aria-hidden='true' />
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             ) : (
-              <ChevronRight className='h-4 w-4' aria-hidden='true' />
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
             )}
           </span>
         </span>

@@ -7,7 +7,7 @@ import { useVerification } from '@/app/(auth)/verify/use-verification'
 import { Button } from '@/components/ui/button'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { toastError } from '@/lib/utils/toast'
 import { inter } from '@/styles/fonts/inter/inter'
 import { soehne } from '@/styles/fonts/soehne/soehne'
@@ -99,11 +99,11 @@ function VerificationForm({
 
   return (
     <>
-      <div className='space-y-1 text-center'>
-        <h1 className={`${soehne.className} font-medium text-[32px] text-black tracking-tight`}>
+      <div className="space-y-1 text-center">
+        <h1 className={`${soehne.className} text-[32px] font-medium tracking-tight text-black`}>
           {isVerified ? 'Email Verified!' : 'Verify Your Email'}
         </h1>
-        <p className={`${inter.className} font-[380] text-[16px] text-muted-foreground`}>
+        <p className={`${inter.className} text-[16px] font-[380] text-muted-foreground`}>
           {isVerified
             ? 'Your email has been verified. Redirecting to dashboard...'
             : !isEmailVerificationEnabled
@@ -118,13 +118,13 @@ function VerificationForm({
 
       {!isVerified && isEmailVerificationEnabled && (
         <div className={`${inter.className} mt-8 space-y-8`}>
-          <div className='space-y-6'>
-            <p className='text-center text-muted-foreground text-sm'>
+          <div className="space-y-6">
+            <p className="text-center text-sm text-muted-foreground">
               Enter the 6-digit code to verify your account.
               {hasEmailService ? " If you don't see it in your inbox, check your spam folder." : ''}
             </p>
 
-            <div className='flex justify-center'>
+            <div className="flex justify-center">
               <InputOTP
                 maxLength={6}
                 value={otp}
@@ -132,86 +132,85 @@ function VerificationForm({
                 disabled={isLoading}
                 className={cn('gap-2', isInvalidOtp && 'otp-error')}
               >
-                <InputOTPGroup className='[&>div]:!rounded-[10px] gap-2'>
+                <InputOTPGroup className="gap-2 [&>div]:!rounded-[10px]">
                   <InputOTPSlot
                     index={0}
                     className={cn(
-                      '!rounded-[10px] h-12 w-12 border bg-white text-center font-medium text-lg shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-gray-300 hover:border-gray-400',
                       'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={1}
                     className={cn(
-                      '!rounded-[10px] h-12 w-12 border bg-white text-center font-medium text-lg shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-gray-300 hover:border-gray-400',
                       'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={2}
                     className={cn(
-                      '!rounded-[10px] h-12 w-12 border bg-white text-center font-medium text-lg shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-gray-300 hover:border-gray-400',
                       'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={3}
                     className={cn(
-                      '!rounded-[10px] h-12 w-12 border bg-white text-center font-medium text-lg shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-gray-300 hover:border-gray-400',
                       'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={4}
                     className={cn(
-                      '!rounded-[10px] h-12 w-12 border bg-white text-center font-medium text-lg shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-gray-300 hover:border-gray-400',
                       'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={5}
                     className={cn(
-                      '!rounded-[10px] h-12 w-12 border bg-white text-center font-medium text-lg shadow-sm transition-all duration-200',
+                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
                       'border-gray-300 hover:border-gray-400',
                       'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
-                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                      isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                 </InputOTPGroup>
               </InputOTP>
             </div>
-
           </div>
 
           <Button
             onClick={verifyCode}
-            className={`${buttonClass} flex w-full items-center justify-center gap-2 rounded-[10px] border font-medium text-[15px] text-white transition-all duration-200`}
+            className={`${buttonClass} flex w-full items-center justify-center gap-2 rounded-[10px] border text-[15px] font-medium text-white transition-all duration-200`}
             disabled={!isOtpComplete || isLoading}
           >
             {isLoading ? 'Verifying...' : 'Verify Email'}
           </Button>
 
           {hasEmailService && (
-            <div className='text-center'>
-              <p className='text-muted-foreground text-sm'>
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">
                 Didn't receive a code?{' '}
                 {countdown > 0 ? (
                   <span>
-                    Resend in <span className='font-medium text-foreground'>{countdown}s</span>
+                    Resend in <span className="font-medium text-foreground">{countdown}s</span>
                   </span>
                 ) : (
                   <button
-                    className='font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline'
+                    className="font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline"
                     onClick={handleResend}
                     disabled={isLoading || isResendDisabled}
                   >
@@ -222,7 +221,7 @@ function VerificationForm({
             </div>
           )}
 
-          <div className='text-center font-light text-[14px]'>
+          <div className="text-center text-[14px] font-light">
             <button
               onClick={() => {
                 if (typeof window !== 'undefined') {
@@ -232,7 +231,7 @@ function VerificationForm({
                 }
                 router.push('/signup')
               }}
-              className='font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline'
+              className="font-medium text-[var(--brand-accent-hex)] underline-offset-4 transition hover:text-[var(--brand-accent-hover-hex)] hover:underline"
             >
               Back to signup
             </button>
@@ -245,9 +244,9 @@ function VerificationForm({
 
 function VerificationFormFallback() {
   return (
-    <div className='text-center space-y-4'>
-      <Skeleton className='mx-auto h-8 w-48' />
-      <Skeleton className='mx-auto h-4 w-64' />
+    <div className="space-y-4 text-center">
+      <Skeleton className="mx-auto h-8 w-48" />
+      <Skeleton className="mx-auto h-4 w-64" />
     </div>
   )
 }

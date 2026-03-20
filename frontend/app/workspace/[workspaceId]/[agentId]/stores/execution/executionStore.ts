@@ -32,12 +32,7 @@ import {
   createExecutionContext,
   getExecutionManager,
 } from './ExecutionManager'
-import type {
-  ExecutionStore,
-  ExecutionContext,
-  GraphExecutionState,
-  InterruptInfo
-} from './types'
+import type { ExecutionStore, ExecutionContext, GraphExecutionState, InterruptInfo } from './types'
 import { generateId } from './utils'
 
 // ============ Batch Update Buffer ============
@@ -50,7 +45,7 @@ let contentUpdateScheduled = false
 
 function getOrCreateContext(
   contexts: Map<string, ExecutionContext>,
-  graphId: string | null
+  graphId: string | null,
 ): ExecutionContext {
   if (!graphId) return createExecutionContext('')
   let context = contexts.get(graphId)
@@ -78,7 +73,10 @@ function syncComputedProperties(state: GraphExecutionState) {
 /**
  * Rebuild tree structure from steps and merge into state updates.
  */
-function rebuildTree(steps: ExecutionStep[]): { treeRoots: ExecutionTreeNode[]; treeNodeMap: Map<string, ExecutionTreeNode> } {
+function rebuildTree(steps: ExecutionStep[]): {
+  treeRoots: ExecutionTreeNode[]
+  treeNodeMap: Map<string, ExecutionTreeNode>
+} {
   const { roots, nodeMap } = buildExecutionTree(steps)
   return { treeRoots: roots, treeNodeMap: nodeMap }
 }
@@ -133,7 +131,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       if (graphId) {
         manager.recordAccess(graphId)
         const toEvict = manager.getGraphsToEvict(contexts)
-        toEvict.forEach(id => clearGraphState(id))
+        toEvict.forEach((id) => clearGraphState(id))
       }
 
       const context = getOrCreateContext(contexts, graphId)
@@ -176,27 +174,25 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
     addStep: (step: ExecutionStep) => {
       const state = getCurrentState()
-      if (state.steps.some(s => s.id === step.id)) return
+      if (state.steps.some((s) => s.id === step.id)) return
       const newSteps = [...state.steps, step]
       updateCurrentState({ steps: newSteps, ...rebuildTree(newSteps) })
     },
 
     updateStep: (stepId: string, updates: Partial<ExecutionStep>) => {
       const state = getCurrentState()
-      const idx = state.steps.findIndex(s => s.id === stepId)
+      const idx = state.steps.findIndex((s) => s.id === stepId)
       if (idx === -1) return
 
       const step = state.steps[idx]
       const hasChanges = Object.keys(updates).some(
-        k => step[k as keyof ExecutionStep] !== updates[k as keyof ExecutionStep]
+        (k) => step[k as keyof ExecutionStep] !== updates[k as keyof ExecutionStep],
       )
       if (!hasChanges) return
 
       const newSteps = [...state.steps]
       // Deep merge data field instead of overwriting
-      const mergedData = updates.data
-        ? { ...(step.data || {}), ...updates.data }
-        : step.data
+      const mergedData = updates.data ? { ...(step.data || {}), ...updates.data } : step.data
       newSteps[idx] = { ...step, ...updates, data: mergedData }
       updateCurrentState({ steps: newSteps, ...rebuildTree(newSteps) })
     },
@@ -221,11 +217,11 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
           let hasChanges = false
 
           updates.forEach((content, id) => {
-            const idx = newSteps.findIndex(s => s.id === id)
+            const idx = newSteps.findIndex((s) => s.id === id)
             if (idx !== -1) {
               newSteps[idx] = {
                 ...newSteps[idx],
-                content: (newSteps[idx].content || '') + content
+                content: (newSteps[idx].content || '') + content,
               }
               hasChanges = true
             }
@@ -253,12 +249,12 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       newInterrupts.set(interrupt.nodeId, interrupt)
 
       const nodeStep = state.steps.find(
-        s => s.nodeId === interrupt.nodeId && s.status === 'running'
+        (s) => s.nodeId === interrupt.nodeId && s.status === 'running',
       )
 
       if (nodeStep) {
-        const updatedSteps = state.steps.map(s =>
-          s.id === nodeStep.id ? { ...s, status: 'waiting' as const } : s
+        const updatedSteps = state.steps.map((s) =>
+          s.id === nodeStep.id ? { ...s, status: 'waiting' as const } : s,
         )
         updateCurrentState({ pendingInterrupts: newInterrupts, steps: updatedSteps })
       } else {
@@ -422,11 +418,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       })
 
       // Create event processing context
-      const ctx = createEventProcessorContext(
-        graphId,
-        genId,
-        () => get().steps
-      )
+      const ctx = createEventProcessorContext(graphId, genId, () => get().steps)
 
       // Create store adapter conforming to EventProcessorStore interface
       const storeAdapter: EventProcessorStore = {
@@ -469,7 +461,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         if (result.threadId) store.setThreadId(graphId, result.threadId)
 
         const graphContext = store.getContext(graphId)
-        const workflowStep = graphContext.state.steps.find(s => s.id === workflowId)
+        const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
         store.updateStep(workflowId, {
           status: 'success',
           endTime: Date.now(),
@@ -497,7 +489,8 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
     },
 
     stopExecution: async () => {
-      const { currentGraphId, getContext, setAbortController, setThreadId, updateGraphState } = get()
+      const { currentGraphId, getContext, setAbortController, setThreadId, updateGraphState } =
+        get()
       if (!currentGraphId) return
 
       const context = getContext(currentGraphId)

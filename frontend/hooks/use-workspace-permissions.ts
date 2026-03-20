@@ -11,7 +11,7 @@ import { useMemo } from 'react'
 import { API_ENDPOINTS, apiGet } from '@/lib/api-client'
 import { useSession } from '@/lib/auth/auth-client'
 import { createLogger } from '@/lib/logs/console/logger'
-import type { PermissionType } from '@/lib/workspaces/permissions/types'
+import type { PermissionType, WorkspaceMemberRole } from '@/lib/workspaces/permissions/types'
 import { mapRoleToPermissionType } from '@/lib/workspaces/permissions/types'
 
 const logger = createLogger('useWorkspacePermissions')
@@ -41,6 +41,8 @@ export interface WorkspaceUser {
   name: string | null
   image: string | null
   permissionType: PermissionType
+  isOwner: boolean
+  role: WorkspaceMemberRole
 }
 
 export interface WorkspacePermissions {
@@ -71,16 +73,14 @@ export const workspacePermissionKeys = {
 
 /**
  * Fetch workspace member list and convert to permission format
- * Only fetch the first page, which is usually sufficient for permission checks
+ * Used only for backward compatibility; prefer fetchMyPermission for permission checks
  */
 async function fetchWorkspacePermissions(workspaceId: string): Promise<WorkspacePermissions> {
   const result = await apiGet<{
     items: WorkspaceMemberResponse[]
     total: number
     pages: number
-  }>(
-    `${API_ENDPOINTS.workspaces}/${workspaceId}/members?page=1&page_size=100`
-  )
+  }>(`${API_ENDPOINTS.workspaces}/${workspaceId}/members?page=1&page_size=100`)
 
   const members = result.items || []
 
@@ -90,6 +90,8 @@ async function fetchWorkspacePermissions(workspaceId: string): Promise<Workspace
     name: member.name,
     image: null,
     permissionType: mapRoleToPermissionType(member.role),
+    isOwner: member.isOwner,
+    role: member.role,
   }))
 
   return {
@@ -106,7 +108,7 @@ async function fetchMyPermission(
   workspaceId: string,
   userEmail: string,
   userId: string,
-  userName: string | null = null
+  userName: string | null = null,
 ): Promise<WorkspacePermissions> {
   // 复用现有的 API_ENDPOINTS 和 apiGet
   const result = await apiGet<{
@@ -116,13 +118,17 @@ async function fetchMyPermission(
   }>(`${API_ENDPOINTS.workspaces}/${workspaceId}/my-permission`)
 
   // 复用现有的 mapRoleToPermissionType 函数
-  const users: WorkspaceUser[] = [{
-    userId: userId,
-    email: userEmail,
-    name: userName,
-    image: null,
-    permissionType: mapRoleToPermissionType(result.role),
-  }]
+  const users: WorkspaceUser[] = [
+    {
+      userId: userId,
+      email: userEmail,
+      name: userName,
+      image: null,
+      permissionType: mapRoleToPermissionType(result.role),
+      isOwner: result.isOwner,
+      role: result.role,
+    },
+  ]
 
   return {
     users,
@@ -137,30 +143,17 @@ async function fetchMyPermission(
 /**
  * Custom hook to fetch and manage workspace permissions
  *
- * Uses React Query for caching and deduplication:
- * - Requests with same workspaceId are automatically deduplicated
- * - Data is cached for 60 seconds
- * - Multiple components using the same hook only send one request
+ * Always uses lightweight /my-permission endpoint.
+ * For full member lists, use workspaceService.getMembers() directly (e.g. in members page).
  *
  * @param workspaceId - The workspace ID to fetch permissions for
- * @param options - Options for fetching permissions
- * @param options.useFullList - If true, fetch full member list; if false (default), fetch only current user's permission (lightweight)
  * @returns Object containing permissions data, loading state, error state, and refetch function
  */
-export function useWorkspacePermissions(
-  workspaceId: string | null,
-  options?: { useFullList?: boolean }
-): UseWorkspacePermissionsReturn {
+export function useWorkspacePermissions(workspaceId: string | null): UseWorkspacePermissionsReturn {
   const queryClient = useQueryClient()
-  const { data: session } = useSession() // 复用现有的 useSession
+  const { data: session } = useSession()
 
-  // 使用 useMemo 创建 fetch 函数，根据选项选择不同的实现
   const fetchFn = useMemo(() => {
-    if (options?.useFullList) {
-      return () => fetchWorkspacePermissions(workspaceId!)
-    }
-
-    // 轻量级获取：需要用户信息
     const userEmail = session?.user?.email
     const userId = session?.user?.id || ''
     const userName = session?.user?.name || null
@@ -170,34 +163,30 @@ export function useWorkspacePermissions(
     }
 
     return () => fetchMyPermission(workspaceId!, userEmail, userId, userName)
-  }, [workspaceId, options?.useFullList, session])
+  }, [workspaceId, session])
 
-  const { data, isLoading, error, refetch: queryRefetch } = useQuery({
-    queryKey: options?.useFullList
-      ? workspacePermissionKeys.detail(workspaceId || '')
-      : [...workspacePermissionKeys.detail(workspaceId || ''), 'my-permission'],
+  const {
+    data,
+    isLoading,
+    error,
+    refetch: queryRefetch,
+  } = useQuery({
+    queryKey: [...workspacePermissionKeys.detail(workspaceId || ''), 'my-permission'],
     queryFn: fetchFn,
-    enabled: !!workspaceId && (!options?.useFullList ? !!session?.user?.email : true),
-    staleTime: 60 * 1000, // 60 seconds - permission data doesn't change frequently
-    gcTime: 5 * 60 * 1000, // 5 minutes
+    enabled: !!workspaceId && !!session?.user?.email,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
   })
 
-  /**
-   * Manually update permission cache
-   * Used for optimistic update scenarios
-   */
   const updatePermissions = (newPermissions: WorkspacePermissions): void => {
     if (workspaceId) {
-      const queryKey = options?.useFullList
-        ? workspacePermissionKeys.detail(workspaceId)
-        : [...workspacePermissionKeys.detail(workspaceId), 'my-permission']
-      queryClient.setQueryData(queryKey, newPermissions)
+      queryClient.setQueryData(
+        [...workspacePermissionKeys.detail(workspaceId), 'my-permission'],
+        newPermissions,
+      )
     }
   }
 
-  /**
-   * Refetch permission data
-   */
   const refetch = async (): Promise<void> => {
     if (workspaceId) {
       await queryRefetch()
@@ -225,7 +214,7 @@ export function useInvalidateWorkspacePermissions() {
 
   return (workspaceId: string) => {
     queryClient.invalidateQueries({
-      queryKey: workspacePermissionKeys.detail(workspaceId)
+      queryKey: workspacePermissionKeys.detail(workspaceId),
     })
   }
 }

@@ -7,15 +7,10 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
 
-import {
-  streamChat,
-  type ChatStreamEvent,
-  type ToolEndEventData,
-} from '@/services/chatBackend'
+import { streamChat, type ChatStreamEvent, type ToolEndEventData } from '@/services/chatBackend'
 
 import { generateId, type Message, type ToolCall } from '@/app/chat/types'
-import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { graphTemplateService } from '@/app/workspace/[workspaceId]/[agentId]/services/graphTemplateService'
+import { findOrCreateGraphByTemplate } from '@/app/chat/services/utils/graphLookup'
 import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
 
 import { formatToolDisplay } from './components/toolDisplayUtils'
@@ -65,6 +60,8 @@ export default function SkillCreatorPage() {
 
   // Resolved graph ID for skill creator
   const graphIdRef = useRef<string | null>(null)
+  const [graphReady, setGraphReady] = useState(false)
+  const [graphError, setGraphError] = useState<string | null>(null)
 
   // Track mounted state
   const isMountedRef = useRef(true)
@@ -76,35 +73,35 @@ export default function SkillCreatorPage() {
     }
   }, [])
 
-  // Resolve skill-creator graph ID on mount
+  // Resolve skill-creator graph ID on mount (uses shared lock to prevent duplicate creation)
   useEffect(() => {
-    const SKILL_CREATOR_GRAPH_NAME = 'Skill Creator'
-    const TEMPLATE_NAME = 'skill-creator'
-
     async function resolveGraphId() {
       try {
         // Find personal workspace
-        const response = await apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(API_ENDPOINTS.workspaces)
+        const response = await apiGet<{ workspaces: Array<{ id: string; type?: string }> }>(
+          API_ENDPOINTS.workspaces,
+        )
         const personal = (response.workspaces || []).find((w) => w.type === 'personal')
-        if (!personal) return
-
-        // Look for existing Skill Creator graph
-        const graphs = await agentService.listGraphs(personal.id)
-        const existing = graphs.find((g: any) => g.name === SKILL_CREATOR_GRAPH_NAME)
-        if (existing) {
-          graphIdRef.current = existing.id
+        if (!personal) {
+          if (isMountedRef.current) setGraphError('Personal workspace not found')
           return
         }
 
-        // Create from template
-        const created = await graphTemplateService.createGraphFromTemplate(
-          TEMPLATE_NAME,
-          SKILL_CREATOR_GRAPH_NAME,
-          personal.id
+        // Find or create via shared utility (same lock as skillCreatorHandler)
+        const graph = await findOrCreateGraphByTemplate(
+          'Skill Creator',
+          'skill-creator',
+          personal.id,
         )
-        graphIdRef.current = created.id
+        graphIdRef.current = graph.id
+        if (isMountedRef.current) setGraphReady(true)
       } catch (error) {
         console.error('Failed to resolve skill-creator graph:', error)
+        if (isMountedRef.current) {
+          setGraphError(
+            error instanceof Error ? error.message : 'Failed to initialize Skill Creator',
+          )
+        }
       }
     }
 
@@ -112,17 +109,14 @@ export default function SkillCreatorPage() {
   }, [])
 
   // ---- Safe state updater ----
-  const safeSetMessages = useCallback(
-    (updater: React.SetStateAction<Message[]>) => {
-      if (isMountedRef.current) setMessages(updater)
-    },
-    []
-  )
+  const safeSetMessages = useCallback((updater: React.SetStateAction<Message[]>) => {
+    if (isMountedRef.current) setMessages(updater)
+  }, [])
 
   // ---- Send message (inlined streaming logic so we can intercept preview_skill) ----
   const sendMessage = useCallback(
     async (userPrompt: string) => {
-      if (!userPrompt.trim() || isProcessing) return
+      if (!userPrompt.trim() || isProcessing || !graphReady) return
 
       // Add user message
       const userMsg: Message = {
@@ -176,9 +170,7 @@ export default function SkillCreatorPage() {
               const delta = (data as { delta?: string })?.delta || ''
               if (!delta) return
               safeSetMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId ? { ...m, content: m.content + delta } : m
-                )
+                prev.map((m) => (m.id === aiMsgId ? { ...m, content: m.content + delta } : m)),
               )
               return
             }
@@ -202,10 +194,8 @@ export default function SkillCreatorPage() {
               }
               safeSetMessages((prev) =>
                 prev.map((m) =>
-                  m.id === aiMsgId
-                    ? { ...m, tool_calls: [...(m.tool_calls || []), tool] }
-                    : m
-                )
+                  m.id === aiMsgId ? { ...m, tool_calls: [...(m.tool_calls || []), tool] } : m,
+                ),
               )
               return
             }
@@ -240,11 +230,16 @@ export default function SkillCreatorPage() {
                   if (m.id !== aiMsgId) return m
                   const tools = (m.tool_calls || []).map((t) =>
                     t.id === toolId
-                      ? { ...t, status: 'completed' as const, endTime: timestamp || Date.now(), result: toolOutput }
-                      : t
+                      ? {
+                          ...t,
+                          status: 'completed' as const,
+                          endTime: timestamp || Date.now(),
+                          result: toolOutput,
+                        }
+                      : t,
                   )
                   return { ...m, tool_calls: tools }
-                })
+                }),
               )
               return
             }
@@ -254,7 +249,7 @@ export default function SkillCreatorPage() {
               const errMsg = (data as { message?: string })?.message || 'Unknown error'
               if (errMsg === 'Stream stopped' || errMsg.includes('stopped')) {
                 safeSetMessages((prev) =>
-                  prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+                  prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
                 )
                 return
               }
@@ -262,8 +257,8 @@ export default function SkillCreatorPage() {
                 prev.map((m) =>
                   m.id === aiMsgId
                     ? { ...m, content: (m.content || '') + `\n\n*Error: ${errMsg}*` }
-                    : m
-                )
+                    : m,
+                ),
               )
               return
             }
@@ -271,7 +266,7 @@ export default function SkillCreatorPage() {
             // ---- Done ----
             if (type === 'done') {
               safeSetMessages((prev) =>
-                prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+                prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
               )
               return
             }
@@ -287,20 +282,20 @@ export default function SkillCreatorPage() {
             prev.map((m) =>
               m.id === aiMsgId
                 ? { ...m, content: (m.content || '') + `\n\n*Error: ${String(e?.message || e)}*` }
-                : m
-            )
+                : m,
+            ),
           )
         }
       } finally {
         safeSetMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
         )
         if (isMountedRef.current) {
           setIsProcessing(false)
         }
       }
     },
-    [isProcessing, editSkillId, safeSetMessages]
+    [isProcessing, editSkillId, safeSetMessages, graphReady],
   )
 
   // ---- Stop streaming ----
@@ -320,13 +315,13 @@ export default function SkillCreatorPage() {
       // Navigate to skills page after save
       router.push('/skills')
     },
-    [router]
+    [router],
   )
 
   return (
-    <div className="flex flex-col h-screen bg-white">
+    <div className="flex h-screen flex-col bg-white">
       {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-gray-100 px-4 py-2.5">
         <Link href="/skills">
           <Button variant="ghost" size="sm" className="gap-1.5 text-gray-600 hover:text-gray-800">
             <ArrowLeft size={14} />
@@ -340,19 +335,29 @@ export default function SkillCreatorPage() {
       </div>
 
       {/* Main split layout */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 flex-1">
         {/* Left: Chat panel */}
-        <div className="flex-1 flex flex-col min-w-0 border-r border-gray-100">
-          <SkillCreatorChat
-            messages={messages}
-            isProcessing={isProcessing}
-            onSendMessage={sendMessage}
-            onStop={stopMessage}
-          />
+        <div className="flex min-w-0 flex-1 flex-col border-r border-gray-100">
+          {graphError ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-red-500">
+              {graphError}
+            </div>
+          ) : !graphReady ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-gray-400">
+              Initializing Skill Creator...
+            </div>
+          ) : (
+            <SkillCreatorChat
+              messages={messages}
+              isProcessing={isProcessing}
+              onSendMessage={sendMessage}
+              onStop={stopMessage}
+            />
+          )}
         </div>
 
         {/* Right: Preview panel */}
-        <div className="w-[480px] flex-shrink-0 flex flex-col">
+        <div className="flex w-[480px] flex-shrink-0 flex-col">
           <SkillPreviewPanel
             previewData={previewData}
             isProcessing={isProcessing}

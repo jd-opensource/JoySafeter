@@ -9,8 +9,8 @@ import type { ModeConfig } from '../../config/modeConfig'
 import { agentModeHandler } from './agentModeHandler'
 import { apkVulnerabilityHandler } from './apkVulnerabilityHandler'
 import { defaultChatModeHandler } from './defaultChatModeHandler'
-import { skillCreatorHandler } from './skillCreatorHandler'
 import { createSimpleModeHandler } from './simpleModeHandler'
+import { skillCreatorHandler } from './skillCreatorHandler'
 import type { ModeHandler, ModeMetadata } from './types'
 
 /**

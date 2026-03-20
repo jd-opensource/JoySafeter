@@ -14,7 +14,7 @@
 
 import { Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
 import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
@@ -36,7 +36,7 @@ export type { GraphAction } from '@/types/copilot'
 
 export type CopilotMode = import('./copilot/CopilotInput').CopilotMode
 
-export const CopilotPanel: React.FC = () => {
+export function CopilotPanel() {
   const { t } = useTranslation()
   const params = useParams()
   const graphId = params.agentId as string | undefined
@@ -64,19 +64,14 @@ export const CopilotPanel: React.FC = () => {
   })
 
   // Business logic handlers
-  const {
-    handleSend,
-    handleSendWithInput,
-    handleStop,
-    handleReset,
-    handleAIDecision,
-  } = useCopilotActions({
-    state,
-    actions,
-    refs,
-    graphId,
-    copilotMode,
-  })
+  const { handleSend, handleSendWithInput, handleStop, handleReset, handleAIDecision } =
+    useCopilotActions({
+      state,
+      actions,
+      refs,
+      graphId,
+      copilotMode,
+    })
 
   // Side effects (session recovery, auto-scroll, URL params, etc.)
   useCopilotEffects({
@@ -123,16 +118,13 @@ export const CopilotPanel: React.FC = () => {
 
   return (
     <CopilotErrorBoundary>
-      <div className="flex flex-col h-full bg-white relative">
+      <div className="relative flex h-full flex-col bg-white">
         {/* Messages and streaming area */}
-        <div
-          className="flex-1 overflow-y-auto p-3 space-y-5 custom-scrollbar"
-          ref={refs.scrollRef}
-        >
+        <div className="custom-scrollbar flex-1 space-y-5 overflow-y-auto p-3" ref={refs.scrollRef}>
           {/* Loading history indicator */}
           {state.loadingHistory && (
             <div className="flex items-center justify-center py-4">
-              <Loader2 size={16} className="animate-spin text-purple-500 mr-2" />
+              <Loader2 size={16} className="mr-2 animate-spin text-purple-500" />
               <span className="text-xs text-gray-500">{t('workspace.loadingHistory')}</span>
             </div>
           )}

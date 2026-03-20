@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import React, { useState } from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 export interface FileNode {
   name: string
@@ -32,12 +32,12 @@ interface FileBrowserProps {
   className?: string
 }
 
-const FileBrowser: React.FC<FileBrowserProps> = ({
+export default function FileBrowser({
   files,
   selectedPath,
   onSelect,
   className,
-}) => {
+}: FileBrowserProps) {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
 
   const toggleDir = (path: string) => {
@@ -86,8 +86,8 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
       <div key={node.path}>
         <div
           className={cn(
-            'flex items-center gap-1.5 py-1.5 cursor-pointer hover:bg-gray-100 transition-colors text-sm',
-            isSelected && 'bg-blue-50 hover:bg-blue-100'
+            'flex cursor-pointer items-center gap-1.5 py-1.5 text-sm transition-colors hover:bg-gray-100',
+            isSelected && 'bg-blue-50 hover:bg-blue-100',
           )}
           style={{ paddingLeft: `${paddingLeft}px` }}
           onClick={() => {
@@ -104,7 +104,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
             </span>
           )}
           <span className="flex-shrink-0">{getFileIcon(node)}</span>
-          <span className={cn('flex-1 truncate', isSelected && 'text-blue-700 font-medium')}>
+          <span className={cn('flex-1 truncate', isSelected && 'font-medium text-blue-700')}>
             {node.name}
           </span>
         </div>
@@ -118,16 +118,10 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
   return (
     <div className={cn('h-full overflow-y-auto', className)}>
       {files.length === 0 ? (
-        <div className="text-center text-gray-400 text-sm mt-8">
-          No files available
-        </div>
+        <div className="mt-8 text-center text-sm text-gray-400">No files available</div>
       ) : (
-        <div className="py-2">
-          {files.map((file) => renderNode(file))}
-        </div>
+        <div className="py-2">{files.map((file) => renderNode(file))}</div>
       )}
     </div>
   )
 }
-
-export default FileBrowser

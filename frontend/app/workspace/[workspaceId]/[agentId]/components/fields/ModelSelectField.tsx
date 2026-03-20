@@ -1,8 +1,7 @@
 'use client'
 
 import { Loader2 } from 'lucide-react'
-import React, { useMemo } from 'react'
-
+import { useMemo } from 'react'
 
 import {
   Select,
@@ -26,16 +25,20 @@ interface ModelSelectFieldProps {
   onModelChange?: (modelName: string, providerName: string) => void // Added: pass both model_name and provider_name simultaneously
 }
 
-export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onChange, onModelChange }) => {
+export function ModelSelectField({ value, onChange, onModelChange }: ModelSelectFieldProps) {
   const { t } = useTranslation()
 
-  const { data: availableModelsData = [], isLoading: loading, error: queryError } = useAvailableModels('chat')
+  const {
+    data: availableModelsData = [],
+    isLoading: loading,
+    error: queryError,
+  } = useAvailableModels('chat')
 
   // Convert AvailableModel[] to ModelOption[] and deduplicate by id (provider_name:name)
   const models: ModelOption[] = useMemo(() => {
-    const modelMap: Record<string, ModelOption> = {};
+    const modelMap: Record<string, ModelOption> = {}
 
-    for (const model of (availableModelsData || [])) {
+    for (const model of availableModelsData || []) {
       const id = `${model.provider_name}:${model.name}`
       if (!modelMap[id]) {
         // 首次遇到，直接添加
@@ -55,7 +58,7 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
           // 合并 is_available：任何一个为 true 就是 true
           isAvailable: existing.isAvailable || model.is_available,
           // 合并 is_default：任何一个为 true 就是 true
-          isDefault: existing.isDefault || (model.is_default || false),
+          isDefault: existing.isDefault || model.is_default || false,
           // 优先使用非空的 display_name
           label: model.display_name || existing.label,
         }
@@ -67,7 +70,9 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
 
   const error = useMemo(() => {
     if (queryError) {
-      return queryError instanceof Error ? queryError.message : t('workspace.failedToLoadModels', { defaultValue: 'Failed to load models' })
+      return queryError instanceof Error
+        ? queryError.message
+        : t('workspace.failedToLoadModels', { defaultValue: 'Failed to load models' })
     }
     if (models.length === 0 && !loading) {
       return t('workspace.noModelsAvailable', { defaultValue: 'No models available' })
@@ -90,7 +95,7 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
 
   if (loading) {
     return (
-      <div className="flex h-8 w-full items-center rounded-md border border-gray-200 bg-white px-3 text-[10px] text-gray-400 italic">
+      <div className="flex h-8 w-full items-center rounded-md border border-gray-200 bg-white px-3 text-[10px] italic text-gray-400">
         <Loader2 className="mr-2 h-3 w-3 animate-spin" />
         {t('workspace.initializing')}
       </div>
@@ -170,7 +175,7 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
 
   return (
     <Select value={normalizedValue || undefined} onValueChange={handleValueChange}>
-      <SelectTrigger className="w-full h-8 text-xs">
+      <SelectTrigger className="h-8 w-full text-xs">
         <SelectValue placeholder={t('workspace.selectModel')} />
       </SelectTrigger>
       <SelectContent>
@@ -179,9 +184,9 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
           const providerModels = availableGroups.get(provider)!
           return (
             <SelectGroup key={provider}>
-              <SelectLabel className="flex items-center gap-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 py-1.5 !pl-2">
+              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                 <span>{provider}</span>
-                <div className="flex-1 h-px bg-gray-200" />
+                <div className="h-px flex-1 bg-gray-200" />
               </SelectLabel>
               {providerModels.map((model) => (
                 <SelectItem key={model.id} value={model.id} className="text-xs">
@@ -202,9 +207,9 @@ export const ModelSelectField: React.FC<ModelSelectFieldProps> = ({ value, onCha
           const providerModels = unavailableGroups.get(provider)!
           return (
             <SelectGroup key={`unavailable-${provider}`}>
-              <SelectLabel className="flex items-center gap-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-2 py-1.5 !pl-2">
+              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                 <span>{provider}</span>
-                <div className="flex-1 h-px bg-gray-200" />
+                <div className="h-px flex-1 bg-gray-200" />
               </SelectLabel>
               {providerModels.map((model) => (
                 <SelectItem

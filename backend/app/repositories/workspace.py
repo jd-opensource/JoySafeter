@@ -134,12 +134,12 @@ class WorkspaceInvitationRepository(BaseRepository[WorkspaceInvitation]):
         return result.scalar_one_or_none()
 
     async def update_status(self, invitation_id: uuid.UUID, status: WorkspaceInvitationStatus) -> WorkspaceInvitation:
-        """更新邀请状态"""
+        """更新邀请状态（使用 flush 而非 commit，由 service 层控制事务边界）"""
         invitation = await self.get(invitation_id)
         if not invitation:
             raise NotFoundException("Invitation not found")
         invitation.status = status
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(invitation)
         return invitation
 

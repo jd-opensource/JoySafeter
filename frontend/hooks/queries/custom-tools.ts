@@ -16,7 +16,7 @@ import type {
   CustomToolSchema,
   CustomTool as LegacyCustomTool,
   LegacyCustomToolSchema,
-  CustomToolParameter
+  CustomToolParameter,
 } from '@/stores/custom-tools/types'
 
 import { STALE_TIME } from './constants'
@@ -181,7 +181,7 @@ async function fetchCustomTools(): Promise<CustomToolDefinition[]> {
 
     const apiTool: ApiCustomTool = {
       id: tool.id,
-      title: toolName,  // Use 'name' from backend as 'title' for frontend
+      title: toolName, // Use 'name' from backend as 'title' for frontend
       schema: tool.schema,
       code: typeof tool.code === 'string' ? tool.code : '',
       userId: tool.ownerId || tool.userId || null,
@@ -291,9 +291,7 @@ export function useUpdateCustomTool() {
     mutationFn: async ({ toolId, updates }: UpdateCustomToolParams) => {
       logger.info(`Updating custom tool: ${toolId}`)
 
-      const currentTools = queryClient.getQueryData<CustomToolDefinition[]>(
-        customToolsKeys.list()
-      )
+      const currentTools = queryClient.getQueryData<CustomToolDefinition[]>(customToolsKeys.list())
       const currentTool = currentTools?.find((t) => t.id === toolId)
 
       if (!currentTool) {
@@ -329,9 +327,7 @@ export function useUpdateCustomTool() {
     onMutate: async ({ toolId, updates }) => {
       await queryClient.cancelQueries({ queryKey: customToolsKeys.list() })
 
-      const previousTools = queryClient.getQueryData<CustomToolDefinition[]>(
-        customToolsKeys.list()
-      )
+      const previousTools = queryClient.getQueryData<CustomToolDefinition[]>(customToolsKeys.list())
 
       if (previousTools) {
         queryClient.setQueryData<CustomToolDefinition[]>(
@@ -344,8 +340,8 @@ export function useUpdateCustomTool() {
                   schema: updates.schema ?? tool.schema,
                   code: updates.code ?? tool.code,
                 }
-              : tool
-          )
+              : tool,
+          ),
         )
       }
 
@@ -382,14 +378,12 @@ export function useDeleteCustomTool() {
     onMutate: async ({ toolId }) => {
       await queryClient.cancelQueries({ queryKey: customToolsKeys.list() })
 
-      const previousTools = queryClient.getQueryData<CustomToolDefinition[]>(
-        customToolsKeys.list()
-      )
+      const previousTools = queryClient.getQueryData<CustomToolDefinition[]>(customToolsKeys.list())
 
       if (previousTools) {
         queryClient.setQueryData<CustomToolDefinition[]>(
           customToolsKeys.list(),
-          previousTools.filter((tool) => tool.id !== toolId)
+          previousTools.filter((tool) => tool.id !== toolId),
         )
       }
 

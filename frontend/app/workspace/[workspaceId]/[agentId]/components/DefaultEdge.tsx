@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { BaseEdge, EdgeProps, getBezierPath, EdgeLabelRenderer } from 'reactflow'
 
 import { EdgeData } from '../types/graph'
@@ -14,7 +14,7 @@ import { EDGE_COLORS } from '../utils/edgeStyles'
  * - Different colors for conditional vs normal edges
  * - Label positioned above the edge line
  */
-export const DefaultEdge: React.FC<EdgeProps> = ({
+export function DefaultEdge({
   id,
   sourceX,
   sourceY,
@@ -25,7 +25,7 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
   style = {},
   markerEnd,
   data,
-}) => {
+}: EdgeProps) {
   const edgeData = (data || {}) as EdgeData
 
   // Calculate edge path and label position
@@ -61,12 +61,7 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={edgeStyle}
-        markerEnd={markerEnd}
-      />
+      <BaseEdge id={id} path={edgePath} style={edgeStyle} markerEnd={markerEnd} />
       {/* Edge label if available - positioned at the middle of the edge line */}
       {edgeData.label && (
         <EdgeLabelRenderer>
@@ -77,7 +72,7 @@ export const DefaultEdge: React.FC<EdgeProps> = ({
               fontSize: 10,
               pointerEvents: 'all',
             }}
-            className="nodrag nopan bg-white border border-gray-300 text-gray-700 px-2 py-0.5 rounded shadow-sm font-medium"
+            className="nodrag nopan rounded border border-gray-300 bg-white px-2 py-0.5 font-medium text-gray-700 shadow-sm"
           >
             {edgeData.label}
           </div>

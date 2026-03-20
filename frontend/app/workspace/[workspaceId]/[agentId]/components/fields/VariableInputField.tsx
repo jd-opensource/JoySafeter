@@ -7,7 +7,7 @@ import { Node, Edge } from 'reactflow'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import Editor from 'react-simple-code-editor'
 import Prism from 'prismjs'
@@ -60,7 +60,7 @@ interface VariableInputFieldProps {
   className?: string
 }
 
-export const VariableInputField: React.FC<VariableInputFieldProps> = ({
+export function VariableInputField({
   label,
   value,
   onChange,
@@ -70,7 +70,7 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
   edges,
   currentNodeId,
   className,
-}) => {
+}: VariableInputFieldProps) {
   const [showVariablePanel, setShowVariablePanel] = useState(false)
   // Use local state to prevent losing focus during input
   const [localValue, setLocalValue] = useState(value)
@@ -108,13 +108,13 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
     // so appending to end is safest if cursor is lost.
     const start = localValue.length
     const before = localValue
-    const newValue = before + (before.endsWith(' ') || before === '' ? '' : ' ') + variablePath + ' '
+    const newValue =
+      before + (before.endsWith(' ') || before === '' ? '' : ' ') + variablePath + ' '
 
     setLocalValue(newValue)
     setShowVariablePanel(false)
     onChange(newValue)
   }
-
 
   return (
     <div className={cn('space-y-1.5', className)}>
@@ -132,15 +132,19 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
         </Button>
       </div>
 
-      <div className="relative group">
-        <div className={cn(
-          "min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-within:ring-1 focus-within:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-          "editor-container" // Hook for custom CSS
-        )}>
+      <div className="group relative">
+        <div
+          className={cn(
+            'min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-within:ring-1 focus-within:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
+            'editor-container', // Hook for custom CSS
+          )}
+        >
           <Editor
             value={localValue}
             onValueChange={handleInputChange}
-            highlight={code => Prism.highlight(code, Prism.languages.joyvariables, 'joyvariables')}
+            highlight={(code) =>
+              Prism.highlight(code, Prism.languages.joyvariables, 'joyvariables')
+            }
             padding={0}
             onKeyDown={(e) => {
               if (e.key === '@' && !showVariablePanel) {
@@ -155,7 +159,7 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
               minHeight: '40px',
               outline: 'none',
               border: 'none',
-              background: 'transparent'
+              background: 'transparent',
             }}
             placeholder={placeholder || 'Type @ to insert variable...'}
             textareaClassName="focus:outline-none"
@@ -163,8 +167,9 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
         </div>
 
         {/* CSS to style the highlighted tokens as data pills */}
-        <style dangerouslySetInnerHTML={{
-          __html: `
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
           .editor-container .token.magic-pill {
             background-color: var(--blue-100, #e0f2fe);
             color: var(--blue-700, #0369a1);
@@ -186,13 +191,13 @@ export const VariableInputField: React.FC<VariableInputFieldProps> = ({
              background: transparent !important;
              text-shadow: none !important;
           }
-        `}} />
+        `,
+          }}
+        />
       </div>
 
       {/* Description */}
-      {description && (
-        <p className="text-[10px] text-gray-500">{description}</p>
-      )}
+      {description && <p className="text-[10px] text-gray-500">{description}</p>}
 
       {/* Variable Panel */}
       {showVariablePanel && (

@@ -14,7 +14,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 import type {
   GraphDeploymentVersion as DeploymentVersion,
-  GraphDeploymentStatus as DeploymentStatus
+  GraphDeploymentStatus as DeploymentStatus,
 } from '@/services/graphDeploymentService'
 
 import { STALE_TIME, CACHE_TIME } from './constants'
@@ -78,23 +78,23 @@ export const graphKeys = {
 
 async function fetchGraphs(workspaceId?: string): Promise<AgentGraph[]> {
   const url = workspaceId ? `graphs?workspaceId=${workspaceId}` : 'graphs'
-  const response = await apiGet<{ data: AgentGraph[] }>(url)
-  return response.data || []
+  const response = await apiGet<AgentGraph[]>(url)
+  return response || []
 }
 
 async function fetchDeployedGraphs(): Promise<AgentGraph[]> {
-  const response = await apiGet<{ data: AgentGraph[] }>('graphs/deployed')
-  return response.data || []
+  const response = await apiGet<AgentGraph[]>('graphs/deployed')
+  return response || []
 }
 
 async function fetchGraphState(graphId: string): Promise<GraphState> {
   // apiGet's parseResponse already unwraps { success, data } structure, returns data directly
-  const data = await apiGet<GraphState>(`graphs/${graphId}/state`) || { nodes: [], edges: [] }
+  const data = (await apiGet<GraphState>(`graphs/${graphId}/state`)) || { nodes: [], edges: [] }
 
   // Edge deduplication
   if (data.edges && data.edges.length > 0) {
     const seenEdges = new Set<string>()
-    data.edges = data.edges.filter(edge => {
+    data.edges = data.edges.filter((edge) => {
       const key = `${edge.source}-${edge.target}`
       if (seenEdges.has(key)) {
         return false
@@ -114,8 +114,14 @@ async function fetchDeploymentStatus(graphId: string): Promise<DeploymentStatus>
 async function fetchDeploymentVersions(
   graphId: string,
   page: number = 1,
-  pageSize: number = 10
-): Promise<{ versions: DeploymentVersion[]; total: number; page: number; pageSize: number; totalPages: number }> {
+  pageSize: number = 10,
+): Promise<{
+  versions: DeploymentVersion[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}> {
   // Use correct backend endpoint /deployments (not /deploy/versions)
   return apiGet(`graphs/${graphId}/deployments?page=${page}&page_size=${pageSize}`)
 }
@@ -190,12 +196,12 @@ export function useGraphState(
   options?: {
     enabled?: boolean
     refetchOnMount?: boolean | 'always'
-  }
+  },
 ) {
   return useQuery({
     queryKey: graphKeys.state(graphId || ''),
     queryFn: () => fetchGraphState(graphId!),
-    enabled: !!graphId && (options?.enabled !== false),
+    enabled: !!graphId && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
     gcTime: CACHE_TIME.STANDARD,
     refetchOnMount: options?.refetchOnMount ?? false, // default to use cache
@@ -216,7 +222,7 @@ export function useDeploymentStatus(graphId?: string, options?: { enabled?: bool
   return useQuery({
     queryKey: graphKeys.deployment(graphId || ''),
     queryFn: () => fetchDeploymentStatus(graphId!),
-    enabled: !!graphId && (options?.enabled !== false),
+    enabled: !!graphId && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
     placeholderData: keepPreviousData,
   })
@@ -234,13 +240,13 @@ export function useDeploymentVersions(
   graphId?: string,
   page: number = 1,
   pageSize: number = 10,
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean },
 ) {
   return useQuery({
     queryKey: [...graphKeys.versions(graphId || ''), page, pageSize],
     queryFn: () => fetchDeploymentVersions(graphId!, page, pageSize),
     // Only execute when graphId exists and enabled is true (or not specified)
-    enabled: !!graphId && (options?.enabled !== false),
+    enabled: !!graphId && options?.enabled !== false,
     staleTime: STALE_TIME.SHORT,
     placeholderData: keepPreviousData,
   })
@@ -258,7 +264,7 @@ export function useCopilotHistory(graphId?: string, options?: { enabled?: boolea
   return useQuery({
     queryKey: graphKeys.copilotHistory(graphId || ''),
     queryFn: () => fetchCopilotHistory(graphId!),
-    enabled: !!graphId && (options?.enabled !== false),
+    enabled: !!graphId && options?.enabled !== false,
     staleTime: STALE_TIME.STANDARD,
     // Don't show old data on first load
     placeholderData: undefined,
@@ -284,7 +290,9 @@ export function useSaveGraphState() {
       variables?: { context?: Record<string, unknown> }
     }) => {
       if (!params.graphId || !isValidUUID(params.graphId)) {
-        logger.warn('useSaveGraphState called with invalid graphId, skip request', { graphId: params.graphId })
+        logger.warn('useSaveGraphState called with invalid graphId, skip request', {
+          graphId: params.graphId,
+        })
         return
       }
 
@@ -436,7 +444,7 @@ export function useUndeployGraph() {
  */
 export function useGraphFromCache(graphId?: string, workspaceId?: string) {
   const { data: graphs } = useGraphs(workspaceId)
-  return graphs?.find(g => g.id === graphId)
+  return graphs?.find((g) => g.id === graphId)
 }
 
 /**

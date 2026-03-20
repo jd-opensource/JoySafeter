@@ -14,10 +14,10 @@
  */
 
 import { ChevronRight, PlayCircle } from 'lucide-react'
-import React, { useRef, useEffect, useCallback, useMemo } from 'react'
+import { useRef, useEffect, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { useExecutionData } from './contexts/ExecutionDataContext'
@@ -31,7 +31,7 @@ interface ExecutionTreeProps {
   searchQuery?: string
 }
 
-export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }) => {
+export function ExecutionTree({ searchQuery = '' }: ExecutionTreeProps) {
   const { t } = useTranslation()
   const { flatItems, isExecuting } = useExecutionData()
   const { selectedNodeId, selectNode, toggleCollapse } = useExecutionSelection()
@@ -43,7 +43,7 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
     if (!searchQuery.trim()) return flatItems
 
     const query = searchQuery.toLowerCase()
-    return flatItems.filter(item => {
+    return flatItems.filter((item) => {
       const name = item.node.name?.toLowerCase() || ''
       const stepType = item.node.step?.stepType?.toLowerCase() || ''
       const content = item.node.step?.content?.toLowerCase() || ''
@@ -75,11 +75,11 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
 
   if (flatItems.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-3 opacity-60">
-        <div className="w-12 h-12 rounded-full border border-gray-100 bg-gray-50 flex items-center justify-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-gray-400 opacity-60">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-gray-100 bg-gray-50">
           <PlayCircle size={20} strokeWidth={1} />
         </div>
-        <span className="text-xs font-medium font-mono">
+        <span className="font-mono text-xs font-medium">
           {t('workspace.readyToExecute', { defaultValue: 'Ready to execute' })}
         </span>
       </div>
@@ -88,8 +88,8 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
 
   if (searchQuery && filteredItems.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-2">
-        <span className="text-xs font-mono">No results for &quot;{searchQuery}&quot;</span>
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-gray-400">
+        <span className="font-mono text-xs">No results for &quot;{searchQuery}&quot;</span>
       </div>
     )
   }
@@ -98,7 +98,7 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
     <div
       ref={parentRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-auto h-full"
+      className="h-full flex-1 overflow-auto"
       style={{ contain: 'strict' }}
     >
       <div
@@ -130,7 +130,7 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
               }}
             >
               <div
-                className="flex items-center relative"
+                className="relative flex items-center"
                 style={{ paddingLeft: `${depth * TREE_INDENT_PX + 4}px` }}
               >
                 {/* Connector lines */}
@@ -139,7 +139,7 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
                     {Array.from({ length: depth }, (_, i) => (
                       <div
                         key={i}
-                        className="absolute top-0 bottom-0 w-px bg-gray-200"
+                        className="absolute bottom-0 top-0 w-px bg-gray-200"
                         style={{ left: `${(i + 1) * TREE_INDENT_PX - 4}px` }}
                       />
                     ))}
@@ -156,20 +156,20 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
                 )}
 
                 {/* Expand/collapse button */}
-                <div className="w-5 h-5 flex items-center justify-center shrink-0 relative z-10">
+                <div className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center">
                   {hasChildren && !searchQuery ? (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
                         toggleCollapse(node.id)
                       }}
-                      className="p-0.5 rounded hover:bg-gray-200 transition-colors"
+                      className="rounded p-0.5 transition-colors hover:bg-gray-200"
                     >
                       <ChevronRight
                         size={12}
                         className={cn(
                           'text-gray-400 transition-transform duration-150',
-                          isExpanded && 'rotate-90'
+                          isExpanded && 'rotate-90',
                         )}
                       />
                     </button>
@@ -179,7 +179,7 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
                 </div>
 
                 {/* Node content */}
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <ExecutionTreeNodeContent
                     node={node}
                     isSelected={isSelected}
@@ -194,9 +194,9 @@ export const ExecutionTree: React.FC<ExecutionTreeProps> = ({ searchQuery = '' }
 
       {/* Waiting indicator */}
       {isExecuting && !searchQuery && (
-        <div className="px-4 py-2 flex items-center gap-2">
-          <div className="w-1 h-3 bg-cyan-400 animate-pulse" />
-          <span className="text-[9px] text-cyan-600 font-mono animate-pulse">
+        <div className="flex items-center gap-2 px-4 py-2">
+          <div className="h-3 w-1 animate-pulse bg-cyan-400" />
+          <span className="animate-pulse font-mono text-[9px] text-cyan-600">
             {t('workspace.waitingForNextStep', { defaultValue: 'Waiting for next step...' })}
           </span>
         </div>

@@ -23,15 +23,15 @@ export function computeGraphStateHash(
   nodes: Node[],
   edges: Edge[],
   stateFields?: any[],
-  fallbackNodeId?: string | null
+  fallbackNodeId?: string | null,
 ): string {
   const stateForHash = {
-    nodes: nodes.map(n => ({
+    nodes: nodes.map((n) => ({
       id: n.id,
       position: n.position,
       data: n.data,
     })),
-    edges: edges.map(e => ({
+    edges: edges.map((e) => ({
       source: e.source,
       target: e.target,
       data: e.data ?? {},

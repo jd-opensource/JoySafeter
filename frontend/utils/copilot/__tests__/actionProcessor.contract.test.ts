@@ -14,10 +14,7 @@ import type { Node, Edge } from 'reactflow'
 
 import { ActionProcessor } from '../actionProcessor'
 
-const FIXTURES_PATH = resolve(
-  __dirname,
-  '../../../../docs/schemas/copilot-apply-fixtures.json'
-)
+const FIXTURES_PATH = resolve(__dirname, '../../../../docs/schemas/copilot-apply-fixtures.json')
 
 interface ApplyCase {
   name: string
@@ -79,7 +76,7 @@ describe('ActionProcessor contract', () => {
       const { nodes: gotNodes, edges: gotEdges } = ActionProcessor.processActions(
         actions,
         initial_nodes as Node[],
-        initial_edges as Edge[]
+        initial_edges as Edge[],
       )
       const gotN = normalizeNodes(gotNodes)
       const gotE = normalizeEdges(gotEdges)

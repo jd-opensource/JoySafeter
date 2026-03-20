@@ -11,7 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface UnifiedDialogProps {
   open: boolean
@@ -67,24 +67,22 @@ export function UnifiedDialog({
       <DialogContent
         hideCloseButton
         className={cn(
-          'max-h-[85vh] p-0 bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden',
-          maxWidthClasses[maxWidth]
+          'flex max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-2xl',
+          maxWidthClasses[maxWidth],
         )}
       >
         {/* Header */}
-        <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 flex flex-row items-center justify-between">
+        <DialogHeader className="flex shrink-0 flex-row items-center justify-between border-b border-gray-100 px-6 py-4">
           <div className="flex items-center gap-3 overflow-hidden">
             {icon && (
-              <div className={cn('p-2 rounded-lg shrink-0', iconBgColor, iconColor)}>
-                {icon}
-              </div>
+              <div className={cn('shrink-0 rounded-lg p-2', iconBgColor, iconColor)}>{icon}</div>
             )}
-            <div className="flex flex-col min-w-0">
-              <DialogTitle className="font-bold text-sm text-gray-900 leading-tight">
+            <div className="flex min-w-0 flex-col">
+              <DialogTitle className="text-sm font-bold leading-tight text-gray-900">
                 {title}
               </DialogTitle>
               {description && (
-                <DialogDescription className="text-xs text-gray-500 mt-0.5">
+                <DialogDescription className="mt-0.5 text-xs text-gray-500">
                   {description}
                 </DialogDescription>
               )}
@@ -92,7 +90,7 @@ export function UnifiedDialog({
           </div>
           <button
             onClick={() => onOpenChange(false)}
-            className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-1.5 rounded-full transition-colors shrink-0"
+            className="shrink-0 rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
           >
             <X size={16} />
           </button>
@@ -101,9 +99,9 @@ export function UnifiedDialog({
         {/* Content */}
         <div
           className={cn(
-            'flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4',
+            'custom-scrollbar flex-1 space-y-4 overflow-y-auto p-6',
             showContentBg && 'bg-[#FAFAFA]',
-            contentClassName
+            contentClassName,
           )}
         >
           {children}
@@ -111,7 +109,7 @@ export function UnifiedDialog({
 
         {/* Footer */}
         {footer && (
-          <DialogFooter className="px-6 py-4 border-t border-gray-100 bg-white shrink-0 gap-3 sm:gap-3">
+          <DialogFooter className="shrink-0 gap-3 border-t border-gray-100 bg-white px-6 py-4 sm:gap-3">
             {footer}
           </DialogFooter>
         )}
@@ -156,13 +154,13 @@ export function ValidationBox({ type, icon, title, items, children }: Validation
   const styles = validationStyles[type]
 
   return (
-    <div className={cn('border rounded-xl p-4', styles.container)}>
-      <div className={cn('flex items-center gap-2 font-semibold text-sm', styles.title)}>
+    <div className={cn('rounded-xl border p-4', styles.container)}>
+      <div className={cn('flex items-center gap-2 text-sm font-semibold', styles.title)}>
         {icon}
         {title}
       </div>
       {items && items.length > 0 && (
-        <ul className={cn('text-xs list-disc list-inside space-y-1.5 mt-2', styles.list)}>
+        <ul className={cn('mt-2 list-inside list-disc space-y-1.5 text-xs', styles.list)}>
           {items.map((item, i) => (
             <li key={i}>{item}</li>
           ))}
@@ -183,21 +181,23 @@ interface FileListBoxProps {
 
 export function FileListBox({ title, files, maxShow = 20, moreText }: FileListBoxProps) {
   return (
-    <div className="border border-gray-200 rounded-xl p-4 bg-white max-h-48 overflow-y-auto custom-scrollbar">
-      <div className="text-xs font-semibold text-gray-700 mb-3">{title}</div>
+    <div className="custom-scrollbar max-h-48 overflow-y-auto rounded-xl border border-gray-200 bg-white p-4">
+      <div className="mb-3 text-xs font-semibold text-gray-700">{title}</div>
       <div className="space-y-2">
         {files.slice(0, maxShow).map((file, i) => (
           <div key={i} className="flex items-center gap-2 text-xs text-gray-600">
-            {file.icon && <span className="text-gray-400 shrink-0">{file.icon}</span>}
-            <span className="font-mono truncate">{file.name}</span>
+            {file.icon && <span className="shrink-0 text-gray-400">{file.icon}</span>}
+            <span className="truncate font-mono">{file.name}</span>
             {file.size !== undefined && (
-              <span className="text-gray-400 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
+              <span className="shrink-0 text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
             )}
           </div>
         ))}
         {files.length > maxShow && (
-          <div className="text-xs text-gray-400 pt-1">
-            {moreText ? moreText(files.length - maxShow) : `... and ${files.length - maxShow} more files`}
+          <div className="pt-1 text-xs text-gray-400">
+            {moreText
+              ? moreText(files.length - maxShow)
+              : `... and ${files.length - maxShow} more files`}
           </div>
         )}
       </div>

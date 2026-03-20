@@ -36,7 +36,9 @@ export default function WorkspacePage() {
     // Ensure redirect happens on the correct path
     if (typeof window !== 'undefined' && window.location.pathname === '/workspace') {
       if (workspaces.length === 0) {
-        logger.error('No workspaces found for user, personal space should have been created on login')
+        logger.error(
+          'No workspaces found for user, personal space should have been created on login',
+        )
         router.replace('/')
         return
       }
@@ -50,9 +52,9 @@ export default function WorkspacePage() {
 
   if (isSessionPending || isWorkspacesLoading) {
     return (
-      <div className='flex h-screen w-full items-center justify-center'>
-        <div className='flex flex-col items-center justify-center text-center align-middle'>
-          <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+      <div className="flex h-screen w-full items-center justify-center">
+        <div className="flex flex-col items-center justify-center text-center align-middle">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       </div>
     )

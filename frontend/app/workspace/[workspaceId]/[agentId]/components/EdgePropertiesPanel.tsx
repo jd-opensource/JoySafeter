@@ -1,8 +1,17 @@
 'use client'
 
-import { X, ArrowRight, AlertCircle, CheckCircle2, Trash2, Split, Route, Repeat2 } from 'lucide-react'
+import {
+  X,
+  ArrowRight,
+  AlertCircle,
+  CheckCircle2,
+  Trash2,
+  Split,
+  Route,
+  Repeat2,
+} from 'lucide-react'
 import { useParams } from 'next/navigation'
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Node, Edge } from 'reactflow'
 
 import {
@@ -29,7 +38,7 @@ import {
 import { useToast } from '@/components/ui/use-toast'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { useBuilderStore } from '../stores/builderStore'
 
@@ -47,14 +56,14 @@ interface EdgePropertiesPanelProps {
   onClose: () => void
 }
 
-export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
+export function EdgePropertiesPanel({
   edge,
   nodes,
   edges,
   onUpdate,
   onDelete,
   onClose,
-}) => {
+}: EdgePropertiesPanelProps) {
   const { t } = useTranslation()
   const params = useParams()
   const workspaceId = params.workspaceId as string
@@ -64,8 +73,8 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Store actions for smart updates
-  const updateNodeConfig = useBuilderStore(state => state.updateNodeConfig)
-  const graphStateFields = useBuilderStore(state => state.graphStateFields)
+  const updateNodeConfig = useBuilderStore((state) => state.updateNodeConfig)
+  const graphStateFields = useBuilderStore((state) => state.graphStateFields)
 
   const sourceNode = nodes.find((n) => n.id === edge.source)
   const targetNode = nodes.find((n) => n.id === edge.target)
@@ -131,9 +140,11 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
   // Auto-generate Handle ID suggestions based on node type
   const getHandleIdSuggestions = () => {
     if (sourceNodeType === 'router_node') {
-      const config = (sourceNode?.data as {
-        config?: { routes?: Array<{ targetEdgeKey?: string }> }
-      })?.config
+      const config = (
+        sourceNode?.data as {
+          config?: { routes?: Array<{ targetEdgeKey?: string }> }
+        }
+      )?.config
       const routes = config?.routes || []
       return routes.map((r) => ({
         handleId: r.targetEdgeKey || '',
@@ -167,20 +178,24 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
         errors.push({
           field: 'Route Key',
           message: t('workspace.routeKeyRequired', { defaultValue: 'Route key is required' }),
-          severity: 'error'
+          severity: 'error',
         })
       } else {
         // Validate route key exists in source node config
         if (sourceNodeType === 'router_node') {
-          const config = (sourceNode?.data as { config?: { routes?: Array<{ targetEdgeKey?: string }> } })?.config
+          const config = (
+            sourceNode?.data as { config?: { routes?: Array<{ targetEdgeKey?: string }> } }
+          )?.config
           const routes = config?.routes || []
-          const ruleExists = routes.some(r => r.targetEdgeKey === edgeData.route_key)
+          const ruleExists = routes.some((r) => r.targetEdgeKey === edgeData.route_key)
 
           if (!ruleExists) {
             errors.push({
               field: 'Route Key',
-              message: t('workspace.routeKeyMismatch', { defaultValue: 'Route key must match a rule in the source node' }),
-              severity: 'warning'
+              message: t('workspace.routeKeyMismatch', {
+                defaultValue: 'Route key must match a rule in the source node',
+              }),
+              severity: 'warning',
             })
           }
         }
@@ -195,7 +210,9 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
   // Decide if we should show the smart condition editor
   // Show if: Source is Conditional Type AND Edge is Conditional AND (RouteKey is set OR not router)
   // For Router: need route_key to know WHICH condition to edit
-  const showSmartEditor = isConditionalSource && edgeData.edge_type === 'conditional' &&
+  const showSmartEditor =
+    isConditionalSource &&
+    edgeData.edge_type === 'conditional' &&
     (!isRouterNode || edgeData.route_key)
 
   const updateEdgeData = (updates: Partial<EdgeData>) => {
@@ -234,16 +251,16 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
   }
 
   return (
-    <div className="absolute top-[56px] right-[336px] bottom-[60px] w-[400px] bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right-10 fade-in duration-300 z-50">
+    <div className="absolute bottom-[60px] right-[336px] top-[56px] z-50 flex w-[400px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10">
       {/* Header */}
-      <div className="px-4 py-3.5 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
-        <div className="flex items-center gap-3 text-gray-900 overflow-hidden">
-          <div className="p-1.5 rounded-lg border border-gray-50 shadow-sm shrink-0 bg-blue-50 text-blue-600">
+      <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-4 py-3.5">
+        <div className="flex items-center gap-3 overflow-hidden text-gray-900">
+          <div className="shrink-0 rounded-lg border border-gray-50 bg-blue-50 p-1.5 text-blue-600 shadow-sm">
             <ArrowRight size={14} />
           </div>
-          <div className="flex flex-col min-w-0">
-            <h3 className="font-bold text-sm leading-tight truncate">Edge Properties</h3>
-            <span className="text-[9px] text-gray-400 uppercase tracking-widest font-bold">
+          <div className="flex min-w-0 flex-col">
+            <h3 className="truncate text-sm font-bold leading-tight">Edge Properties</h3>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
               Connection
             </span>
           </div>
@@ -252,16 +269,16 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
           variant="ghost"
           size="icon"
           onClick={onClose}
-          className="h-7 w-7 text-gray-300 hover:text-gray-600 hover:bg-gray-100 shrink-0"
+          className="h-7 w-7 shrink-0 text-gray-300 hover:bg-gray-100 hover:text-gray-600"
         >
           <X size={16} />
         </Button>
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4 pb-12">
+      <div className="custom-scrollbar flex-1 space-y-4 overflow-y-auto p-4 pb-12">
         {/* Source -> Target Display */}
-        <div className="flex items-center gap-2 text-xs text-gray-500 pb-2 border-b border-gray-100">
+        <div className="flex items-center gap-2 border-b border-gray-100 pb-2 text-xs text-gray-500">
           <Badge variant="outline" className="text-[10px]">
             {(sourceNode?.data as { label?: string })?.label || sourceNode?.id}
           </Badge>
@@ -278,22 +295,22 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
               <div
                 key={idx}
                 className={cn(
-                  'flex items-start gap-2 p-2 rounded text-xs',
+                  'flex items-start gap-2 rounded p-2 text-xs',
                   error.severity === 'error'
-                    ? 'bg-red-50 border border-red-200'
-                    : 'bg-amber-50 border border-amber-200'
+                    ? 'border border-red-200 bg-red-50'
+                    : 'border border-amber-200 bg-amber-50',
                 )}
               >
                 <AlertCircle
                   size={14}
                   className={cn(
                     'mt-0.5 flex-shrink-0',
-                    error.severity === 'error' ? 'text-red-600' : 'text-amber-600'
+                    error.severity === 'error' ? 'text-red-600' : 'text-amber-600',
                   )}
                 />
                 <div className={cn(error.severity === 'error' ? 'text-red-800' : 'text-amber-800')}>
                   <div className="font-medium">{error.field}</div>
-                  <div className="text-xs mt-0.5">{error.message}</div>
+                  <div className="mt-0.5 text-xs">{error.message}</div>
                 </div>
               </div>
             ))}
@@ -302,7 +319,7 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
 
         {/* Validation Success */}
         {!hasErrors && edgeData.edge_type && (
-          <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
+          <div className="flex items-center gap-2 rounded border border-green-200 bg-green-50 p-2 text-xs text-green-800">
             <CheckCircle2 size={14} />
             <span>Edge configuration is valid</span>
           </div>
@@ -310,20 +327,19 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
 
         {/* Smart Condition Editor */}
         {showSmartEditor && (
-          <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-            <div className="flex items-center gap-2 mb-1">
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="mb-1 flex items-center gap-2">
               {getSourceIcon()}
-              <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Logic Condition ({sourceNodeType.replace('_node', '')})
               </Label>
             </div>
-            <p className="text-[10px] text-slate-400 mb-2">
+            <p className="mb-2 text-[10px] text-slate-400">
               {isRouterNode
                 ? `Edits condition for route "${edgeData.route_key}"`
                 : isConditionNode
-                  ? "Edits the splitting condition"
-                  : "Edits the loop continue condition"
-              }
+                  ? 'Edits the splitting condition'
+                  : 'Edits the loop continue condition'}
             </p>
             <ConditionExprField
               value={currentCondition}
@@ -331,13 +347,15 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
               disabled={!userPermissions.canEdit}
               graphStateFields={graphStateFields}
               placeholder={
-                isRouterNode ? "state.get('value') > 10" :
-                  isConditionNode ? "state.get('is_valid')" :
-                    "loop_count < 5"
+                isRouterNode
+                  ? "state.get('value') > 10"
+                  : isConditionNode
+                    ? "state.get('is_valid')"
+                    : 'loop_count < 5'
               }
             />
-            <div className="flex items-center gap-1.5 mt-1 text-[9px] text-blue-600/70">
-              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+            <div className="mt-1 flex items-center gap-1.5 text-[9px] text-blue-600/70">
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
               Updates Source Node Configuration
             </div>
           </div>
@@ -346,7 +364,7 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
         {/* Route Key (Smart Select) */}
         {isConditionalSource && (
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+            <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
               Route Key
             </Label>
 
@@ -354,11 +372,11 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
               <Select
                 value={edgeData.route_key || ''}
                 onValueChange={(val) => {
-                  const suggestion = suggestions.find(s => s.routeKey === val)
+                  const suggestion = suggestions.find((s) => s.routeKey === val)
                   updateEdgeData({
                     route_key: val,
                     source_handle_id: suggestion?.handleId || val, // Auto-map handle ID
-                    edge_type: 'conditional' // Force conditional type
+                    edge_type: 'conditional', // Force conditional type
                   })
                 }}
                 disabled={!userPermissions.canEdit}
@@ -377,10 +395,12 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
             ) : (
               <Input
                 value={edgeData.route_key || ''}
-                onChange={(e) => updateEdgeData({
-                  route_key: e.target.value,
-                  edge_type: 'conditional'
-                })}
+                onChange={(e) =>
+                  updateEdgeData({
+                    route_key: e.target.value,
+                    edge_type: 'conditional',
+                  })
+                }
                 placeholder="e.g., high_score, default"
                 disabled={!userPermissions.canEdit}
                 className="h-8 text-xs"
@@ -389,21 +409,21 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
 
             <p className="text-[9px] text-gray-400">
               {isRouterNode
-                ? "Select a route defined in the source node"
-                : "Logic branch for this connection"}
+                ? 'Select a route defined in the source node'
+                : 'Logic branch for this connection'}
             </p>
           </div>
         )}
-
-
       </div>
 
       {/* Footer Actions */}
-      <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[9px] text-gray-400 font-mono">
+      <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-4 py-2">
+        <div className="flex items-center gap-2 font-mono text-[9px] text-gray-400">
           <span className="truncate">EDGE: {edge.id.slice(0, 8)}</span>
           <span className="flex items-center gap-1">
-            <div className={cn('w-1.5 h-1.5 rounded-full', hasErrors ? 'bg-red-500' : 'bg-green-500')} />{' '}
+            <div
+              className={cn('h-1.5 w-1.5 rounded-full', hasErrors ? 'bg-red-500' : 'bg-green-500')}
+            />{' '}
             {hasErrors ? 'Issues' : 'Valid'}
           </span>
         </div>
@@ -413,7 +433,7 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
             size="sm"
             onClick={() => setShowDeleteConfirm(true)}
             disabled={!userPermissions.canEdit}
-            className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 text-xs"
+            className="h-7 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
           >
             <Trash2 size={12} className="mr-1" />
             删除
@@ -430,8 +450,10 @@ export const EdgePropertiesPanel: React.FC<EdgePropertiesPanelProps> = ({
               <AlertDialogDescription>
                 确定要删除这条连接吗？此操作无法撤销。
                 <br />
-                <span className="text-xs text-gray-500 mt-1 block">
-                  从 <strong>{(sourceNode?.data as { label?: string })?.label || edge.source}</strong> 到{' '}
+                <span className="mt-1 block text-xs text-gray-500">
+                  从{' '}
+                  <strong>{(sourceNode?.data as { label?: string })?.label || edge.source}</strong>{' '}
+                  到{' '}
                   <strong>{(targetNode?.data as { label?: string })?.label || edge.target}</strong>
                 </span>
               </AlertDialogDescription>

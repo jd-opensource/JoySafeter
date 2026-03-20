@@ -1,9 +1,8 @@
 'use client'
 
 import { BrainCircuit } from 'lucide-react'
-import React from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import type { ExecutionStep } from '@/types'
 
 interface ThoughtContentProps {
@@ -11,10 +10,7 @@ interface ThoughtContentProps {
   showHeader?: boolean
 }
 
-export const ThoughtContent: React.FC<ThoughtContentProps> = ({
-  step,
-  showHeader = true,
-}) => {
+export function ThoughtContent({ step, showHeader = true }: ThoughtContentProps) {
   const isStreaming = step.status === 'running'
   const content = step.content || ''
 
@@ -23,30 +19,26 @@ export const ThoughtContent: React.FC<ThoughtContentProps> = ({
       {showHeader && (
         <div className="flex items-center gap-2">
           <BrainCircuit size={14} className="text-purple-500" />
-          <span className="text-[11px] font-semibold text-purple-600">
-            {step.title}
-          </span>
+          <span className="text-[11px] font-semibold text-purple-600">{step.title}</span>
           {isStreaming && (
             <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
-              <span className="text-[9px] text-purple-500 font-medium">
-                Thinking...
-              </span>
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-purple-500" />
+              <span className="text-[9px] font-medium text-purple-500">Thinking...</span>
             </div>
           )}
         </div>
       )}
 
       <div className="prose prose-sm max-w-none">
-        <div className={cn(
-          'text-xs leading-7 text-gray-700 font-mono whitespace-pre-wrap',
-          'bg-purple-50/50 border border-purple-100 rounded-lg p-3'
-        )}>
-          {content || (
-            <span className="text-gray-400 italic">Thinking...</span>
+        <div
+          className={cn(
+            'whitespace-pre-wrap font-mono text-xs leading-7 text-gray-700',
+            'rounded-lg border border-purple-100 bg-purple-50/50 p-3',
           )}
+        >
+          {content || <span className="italic text-gray-400">Thinking...</span>}
           {isStreaming && (
-            <span className="inline-block w-2 h-4 bg-purple-500 animate-pulse ml-1 align-middle" />
+            <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-purple-500 align-middle" />
           )}
         </div>
       </div>

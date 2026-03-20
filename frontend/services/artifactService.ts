@@ -105,5 +105,16 @@ export const artifactService = {
     await apiDelete(`${API_BASE}/${path}`)
   },
 
+  /**
+   * Read a file directly from the running sandbox container (live preview during execution).
+   */
+  async liveReadFile(threadId: string, filePath: string): Promise<string> {
+    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/')
+    const url = `${API_BASE}/artifacts/${encodeURIComponent(threadId)}/live/${encodedPath}`
+    const res = await fetch(url, { credentials: 'include' })
+    if (!res.ok) throw new Error(`Live read failed: ${res.statusText}`)
+    return res.text()
+  },
+
   getDownloadUrl: getArtifactDownloadUrl,
 }

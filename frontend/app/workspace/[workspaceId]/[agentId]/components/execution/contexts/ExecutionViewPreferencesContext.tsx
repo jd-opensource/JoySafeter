@@ -28,7 +28,9 @@ const ExecutionViewPreferencesCtx = createContext<ExecutionViewPreferencesContex
 export function useExecutionViewPreferences() {
   const ctx = useContext(ExecutionViewPreferencesCtx)
   if (!ctx) {
-    throw new Error('useExecutionViewPreferences must be used within ExecutionViewPreferencesProvider')
+    throw new Error(
+      'useExecutionViewPreferences must be used within ExecutionViewPreferencesProvider',
+    )
   }
   return ctx
 }
@@ -37,13 +39,15 @@ interface ExecutionViewPreferencesProviderProps {
   children: React.ReactNode
 }
 
-export function ExecutionViewPreferencesProvider({ children }: ExecutionViewPreferencesProviderProps) {
+export function ExecutionViewPreferencesProvider({
+  children,
+}: ExecutionViewPreferencesProviderProps) {
   const [jsonViewMode, setJsonViewMode] = useState<JsonViewMode>('formatted')
   const [showDuration, setShowDuration] = useState(true)
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>('preview')
 
   const toggleShowDuration = useCallback(() => {
-    setShowDuration(prev => !prev)
+    setShowDuration((prev) => !prev)
   }, [])
 
   const value = useMemo(
@@ -55,7 +59,7 @@ export function ExecutionViewPreferencesProvider({ children }: ExecutionViewPref
       activeDetailTab,
       setActiveDetailTab,
     }),
-    [jsonViewMode, showDuration, activeDetailTab, toggleShowDuration]
+    [jsonViewMode, showDuration, activeDetailTab, toggleShowDuration],
   )
 
   return (

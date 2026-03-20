@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 type AuthBackgroundProps = {
   className?: string
@@ -30,11 +30,7 @@ class Particle {
     this.size = 1
   }
 
-  update(
-    mouse: { x: number; y: number; isActive: boolean },
-    width: number,
-    height: number
-  ) {
+  update(mouse: { x: number; y: number; isActive: boolean }, width: number, height: number) {
     if (mouse.isActive) {
       const dx = this.x - mouse.x
       const dy = this.y - mouse.y
@@ -150,19 +146,12 @@ export default function AuthBackground({ className, children }: AuthBackgroundPr
   return (
     <div className={cn('relative min-h-screen w-full overflow-hidden', className)}>
       {/* Pure white background */}
-      <div
-        className='fixed inset-0 h-full w-full bg-white'
-        style={{ zIndex: 1 }}
-      />
+      <div className="fixed inset-0 h-full w-full bg-white" style={{ zIndex: 1 }} />
 
       {/* Particle canvas */}
-      <canvas
-        ref={canvasRef}
-        className='fixed inset-0 h-full w-full'
-        style={{ zIndex: 2 }}
-      />
+      <canvas ref={canvasRef} className="fixed inset-0 h-full w-full" style={{ zIndex: 2 }} />
 
-      <div className='relative z-20'>{children}</div>
+      <div className="relative z-20">{children}</div>
     </div>
   )
 }

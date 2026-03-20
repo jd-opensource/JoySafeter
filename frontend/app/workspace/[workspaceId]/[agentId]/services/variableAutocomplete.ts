@@ -25,7 +25,7 @@ export interface VariableSuggestion {
 export function getVariableSuggestions(
   nodes: Node[],
   edges: Edge[],
-  currentNodeId: string
+  currentNodeId: string,
 ): VariableSuggestion[] {
   const suggestions: VariableSuggestion[] = []
 
@@ -62,7 +62,11 @@ export function getVariableSuggestions(
 
   // Collect variables from upstream nodes
   upstreamNodes.forEach((node) => {
-    const nodeData = node.data as { type?: string; label?: string; config?: Record<string, unknown> }
+    const nodeData = node.data as {
+      type?: string
+      label?: string
+      config?: Record<string, unknown>
+    }
     const nodeType = nodeData.type || 'agent'
     const nodeLabel = nodeData.label || node.id
     const config = nodeData.config || {}
@@ -95,11 +99,7 @@ export function getVariableSuggestions(
 /**
  * Get upstream nodes for a given node.
  */
-function getUpstreamNodes(
-  nodeId: string,
-  nodes: Node[],
-  edges: Edge[]
-): Node[] {
+function getUpstreamNodes(nodeId: string, nodes: Node[], edges: Edge[]): Node[] {
   const upstream: Node[] = []
   const visited = new Set<string>()
 
@@ -154,7 +154,7 @@ export function extractVariableReferences(expression: string): string[] {
  */
 export function validateVariableReferences(
   expression: string,
-  availableVariables: VariableSuggestion[]
+  availableVariables: VariableSuggestion[],
 ): Array<{ variable: string; error: string }> {
   const errors: Array<{ variable: string; error: string }> = []
   const referencedVars = extractVariableReferences(expression)
@@ -165,9 +165,7 @@ export function validateVariableReferences(
     // Check if variable name is available
     if (!availableVarNames.has(varName)) {
       // Check if it's a path-based reference
-      const pathMatches = Array.from(availableVarPaths).filter((path) =>
-        path.includes(varName)
-      )
+      const pathMatches = Array.from(availableVarPaths).filter((path) => path.includes(varName))
       if (pathMatches.length === 0) {
         errors.push({
           variable: varName,
@@ -186,7 +184,7 @@ export function validateVariableReferences(
 export function getAutocompleteSuggestions(
   input: string,
   cursorPosition: number,
-  availableVariables: VariableSuggestion[]
+  availableVariables: VariableSuggestion[],
 ): VariableSuggestion[] {
   // Extract the word being typed
   const beforeCursor = input.substring(0, cursorPosition)
@@ -202,7 +200,7 @@ export function getAutocompleteSuggestions(
     .filter(
       (v) =>
         v.name.toLowerCase().startsWith(prefix.toLowerCase()) ||
-        v.path.toLowerCase().includes(prefix.toLowerCase())
+        v.path.toLowerCase().includes(prefix.toLowerCase()),
     )
     .slice(0, 10)
 }

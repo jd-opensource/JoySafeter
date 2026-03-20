@@ -66,7 +66,8 @@ export default {
       // Add MCP Dialog
       addMcpServer: 'Add MCP Server',
       editMcpServer: 'Edit MCP Server',
-      addMcpServerDescription: 'Configure a new Model Context Protocol server to extend your agent\'s capabilities',
+      addMcpServerDescription:
+        "Configure a new Model Context Protocol server to extend your agent's capabilities",
       editMcpServerDescription: 'Update Model Context Protocol server configuration',
       formMode: 'Form Mode',
       jsonMode: 'JSON Mode',
@@ -90,7 +91,8 @@ export default {
       activeStatusDescription: 'Enable this MCP server immediately',
       configurationJson: 'Configuration JSON',
       jsonPlaceholder: '{ ... }',
-      jsonHint: 'Validate your JSON structure before saving. Incorrect configuration may cause connection failures.',
+      jsonHint:
+        'Validate your JSON structure before saving. Incorrect configuration may cause connection failures.',
       cancel: 'Cancel',
       save: 'Save',
       collapse: 'Collapse',
@@ -154,7 +156,8 @@ export default {
       failedToValidateCredential: 'Failed to validate credential',
       syncProviders: 'Sync Providers',
       syncProvidersHint: 'Sync model list and global credentials (optional)',
-      syncProvidersSuccess: 'Sync completed: {{providers}} providers, {{models}} models, {{credentials}} credentials',
+      syncProvidersSuccess:
+        'Sync completed: {{providers}} providers, {{models}} models, {{credentials}} credentials',
       syncProvidersFailed: 'Failed to sync providers',
       showModels: 'Show Models',
       modelsNum: '{{num}} models',
@@ -212,7 +215,8 @@ export default {
         refresh: 'Refresh',
         stopConfirm: 'Are you sure you want to stop this sandbox?',
         restartConfirm: 'Are you sure you want to restart this sandbox?',
-        rebuildConfirm: 'Are you sure you want to rebuild this sandbox? Data in the container will be lost.',
+        rebuildConfirm:
+          'Are you sure you want to rebuild this sandbox? Data in the container will be lost.',
         deleteConfirm: 'Are you sure you want to delete this sandbox?',
         operationSuccess: 'Operation successful',
         operationFailed: 'Operation failed',
@@ -250,7 +254,8 @@ export default {
       resettingPassword: 'Resetting...',
       sendResetLink: 'Send Reset Link',
       sending: 'Sending...',
-      resetPasswordDescription: "Enter your email address and we'll send you a link to reset your password if your account exists.",
+      resetPasswordDescription:
+        "Enter your email address and we'll send you a link to reset your password if your account exists.",
       sendResetLinkDescription: "We'll send a password reset link to this email address.",
       passwordResetSuccess: 'Password reset successfully! Redirecting to login...',
       passwordResetFailed: 'Failed to reset password',
@@ -296,7 +301,8 @@ export default {
       platformTitle: 'Your Security Expert',
       platformSubtitle: 'Battle-Tested, Intelligent Orchestration, Self-Evolving Security',
       platformDescription1: 'Generate Your First Production-Grade (Security) Agent in One Sentence',
-      platformDescription2: 'Turn Security Capabilities into Building Blocks, Turn Agents into Production Lines',
+      platformDescription2:
+        'Turn Security Capabilities into Building Blocks, Turn Agents into Production Lines',
       featureIntelligentOrchestration: 'Auto Agent Orchestration',
       featureSecure: 'Production-Grade Security Agent',
       featureMultiAgent: 'Modular Security Capabilities',
@@ -335,7 +341,8 @@ export default {
       operations: 'Operations',
       // New Graph
       createNewGraph: 'Create New Graph',
-      newGraphWarning: 'Your current canvas has unsaved changes. Creating a new graph will clear all nodes and connections. Are you sure you want to continue?',
+      newGraphWarning:
+        'Your current canvas has unsaved changes. Creating a new graph will clear all nodes and connections. Are you sure you want to continue?',
       createNew: 'Create New',
       newGraphCreated: 'New Graph Created',
       newGraphCreatedDescription: 'Canvas has been cleared. Start building your new agent flow.',
@@ -364,11 +371,14 @@ export default {
       saveFailedDescription: 'There was an error saving your graph. Please try again.',
       // Import/Overwrite
       overwriteCanvas: 'Overwrite Canvas',
-      importOverwriteWarning: 'Importing this graph will overwrite your current canvas. All unsaved changes will be lost.',
-      loadOverwriteWarning: 'Loading "{{name}}" will overwrite your current canvas. All unsaved changes will be lost.',
+      importOverwriteWarning:
+        'Importing this graph will overwrite your current canvas. All unsaved changes will be lost.',
+      loadOverwriteWarning:
+        'Loading "{{name}}" will overwrite your current canvas. All unsaved changes will be lost.',
       overwriteAndLoad: 'Overwrite and Load',
       importFailed: 'Import Failed',
-      importFailedMessage: 'Failed to import the graph. Please check the file format and try again.',
+      importFailedMessage:
+        'Failed to import the graph. Please check the file format and try again.',
       // Deploy
       deploy: 'Deploy',
       deploying: 'Deploying',
@@ -428,7 +438,8 @@ export default {
       liveExecution: 'Live Execution',
       readyToStart: 'Ready to Start',
       processing: 'PROCESSING',
-      enterPrompt: 'Enter a prompt to initiate the workflow. The system will sequentially process each agent node on the canvas.',
+      enterPrompt:
+        'Enter a prompt to initiate the workflow. The system will sequentially process each agent node on the canvas.',
       simulateUserInput: 'Simulate user input...',
       agentActive: 'AGENT ACTIVE',
       flowFinished: 'FLOW FINISHED',
@@ -440,7 +451,7 @@ export default {
       contextVariablesTitle: 'Context Variables',
       contextVariablesDescription: 'Define variables that can be used in condition expressions.',
       contextVariablesAccess: 'Access via',
-      contextVariablesUsage: 'context.get(\'key\')',
+      contextVariablesUsage: "context.get('key')",
       definedVariables: 'Defined Variables',
       addNewVariable: 'Add New Variable',
       variableKey: 'Key',
@@ -458,7 +469,8 @@ export default {
       validationError: 'Validation Error',
       variableKeyRequired: 'Variable key is required',
       variableKeyExists: 'Variable "{{key}}" already exists',
-      variableKeyInvalid: 'Variable key must start with a letter or underscore and contain only letters, numbers, and underscores',
+      variableKeyInvalid:
+        'Variable key must start with a letter or underscore and contain only letters, numbers, and underscores',
       invalidValue: 'Invalid {{type}} value',
       // Properties Panel
       general: 'General',
@@ -474,8 +486,10 @@ export default {
       deleteNode: 'Delete Node?',
       deleteNodeDescription: 'All connections and configurations will be lost.',
       deleteNodeConfirmMessagePrefix: 'Are you sure you want to delete node',
-      deleteNodeConfirmMessageSuffix: '? This action cannot be undone and all connections and configurations will be lost.',
-      deleteNodeConfirmMessageDefault: 'Are you sure you want to delete this node? This action cannot be undone and all connections and configurations will be lost.',
+      deleteNodeConfirmMessageSuffix:
+        '? This action cannot be undone and all connections and configurations will be lost.',
+      deleteNodeConfirmMessageDefault:
+        'Are you sure you want to delete this node? This action cannot be undone and all connections and configurations will be lost.',
       cancel: 'Cancel',
       synced: 'SYNCED',
       // Node Types
@@ -543,17 +557,22 @@ export default {
       // Copilot Panel
       copilotSubtitle: 'AI-powered Production-grade MultiAgent',
       copilotEmptyHeading: 'AI-powered Production-grade Multiagent',
-      copilotConnected: "Give me a concrete task (not chitchat)—I'll update the canvas directly. I'm connected to the graph and can modify it.",
+      copilotConnected:
+        "Give me a concrete task (not chitchat)—I'll update the canvas directly. I'm connected to the graph and can modify it.",
       copilotStartWithBlueprint: 'Classic Build Cases',
       copilotBlueprintRagTitle: 'UEM Alert Analysis System',
-      copilotBlueprintRagDesc: 'Gatekeeper fast screening → Parser extracts IOC → Multi-dimensional parallel analysis → Verdict Maker generates conclusion',
-      copilotBlueprintRagPrompt: 'Build a UEM alert analysis system: Analyze UEM-side alerts on hosts to determine if unauthorized, high-risk, or unknown-source files have been downloaded. First, Gatekeeper performs fast-thinking initial screening based on historical knowledge base (second-level filtering); if deep analysis is needed, activate the slow-thinking pipeline where Parser extracts key features (IOC), then parallel dispatch Threat Analyst (external intelligence verification), Context Analyst (internal network assets and traffic analysis), and Sandbox Analyst (code interpretation and simulation) for multi-dimensional forensics. Finally, all evidence is aggregated to Verdict Maker for logical reasoning to generate final qualitative conclusions and handling recommendations.',
+      copilotBlueprintRagDesc:
+        'Gatekeeper fast screening → Parser extracts IOC → Multi-dimensional parallel analysis → Verdict Maker generates conclusion',
+      copilotBlueprintRagPrompt:
+        'Build a UEM alert analysis system: Analyze UEM-side alerts on hosts to determine if unauthorized, high-risk, or unknown-source files have been downloaded. First, Gatekeeper performs fast-thinking initial screening based on historical knowledge base (second-level filtering); if deep analysis is needed, activate the slow-thinking pipeline where Parser extracts key features (IOC), then parallel dispatch Threat Analyst (external intelligence verification), Context Analyst (internal network assets and traffic analysis), and Sandbox Analyst (code interpretation and simulation) for multi-dimensional forensics. Finally, all evidence is aggregated to Verdict Maker for logical reasoning to generate final qualitative conclusions and handling recommendations.',
       copilotBlueprintDebateTitle: 'Multi-Agent Debate',
       copilotBlueprintDebateDesc: 'Two agents debating a topic with a judge.',
-      copilotBlueprintDebatePrompt: 'Create a Multi-Agent system where Agent A proposes a plan, Agent B critiques it, and a Judge Agent decides the final outcome.',
+      copilotBlueprintDebatePrompt:
+        'Create a Multi-Agent system where Agent A proposes a plan, Agent B critiques it, and a Judge Agent decides the final outcome.',
       copilotBlueprintPipelineTitle: 'Data Extraction Pipeline',
       copilotBlueprintPipelineDesc: 'Scrape web, structure data, save to DB.',
-      copilotBlueprintPipelinePrompt: 'Design a pipeline: Trigger on schedule -> Tool to scrape website -> Agent to extract JSON -> Database to save results.',
+      copilotBlueprintPipelinePrompt:
+        'Design a pipeline: Trigger on schedule -> Tool to scrape website -> Agent to extract JSON -> Database to save results.',
       copilotChipAddAgent: 'Add a new Agent node',
       copilotModeSingleAgent: 'Single Agent',
       copilotModeDeepAgents: 'DeepAgents',
@@ -571,7 +590,8 @@ export default {
       smartSuggestions: 'Smart Suggestions',
       aiDecision: 'AI Auto Complete',
       resetConversation: 'Reset Conversation',
-      aiDecisionPrompt: 'AI auto complete, provide reasonable choices or deduce to complete missing information',
+      aiDecisionPrompt:
+        'AI auto complete, provide reasonable choices or deduce to complete missing information',
       // Execution Logs
       workflowStarted: 'Workflow started with input: "{{input}}"',
       processingLogic: 'Processing logic...',
@@ -611,12 +631,16 @@ export default {
       deleteSuccess: 'Workspace deleted successfully',
       deleteConfirmTitle: 'Confirm Delete Workspace',
       deleteConfirmMessagePrefix: 'Are you sure you want to delete workspace',
-      deleteConfirmMessageSuffix: '? This action cannot be undone and will delete the workspace and all its related data.',
-      deleteConfirmMessageDefault: 'Are you sure you want to delete this workspace? This action cannot be undone and will delete the workspace and all its related data.',
+      deleteConfirmMessageSuffix:
+        '? This action cannot be undone and will delete the workspace and all its related data.',
+      deleteConfirmMessageDefault:
+        'Are you sure you want to delete this workspace? This action cannot be undone and will delete the workspace and all its related data.',
       deleteAgentConfirmTitle: 'Confirm Delete Agent',
       deleteAgentConfirmMessagePrefix: 'Are you sure you want to delete agent',
-      deleteAgentConfirmMessageSuffix: '? This action cannot be undone and will permanently delete the agent and all its related data.',
-      deleteAgentConfirmMessageDefault: 'Are you sure you want to delete this agent? This action cannot be undone and will permanently delete the agent and all its related data.',
+      deleteAgentConfirmMessageSuffix:
+        '? This action cannot be undone and will permanently delete the agent and all its related data.',
+      deleteAgentConfirmMessageDefault:
+        'Are you sure you want to delete this agent? This action cannot be undone and will permanently delete the agent and all its related data.',
       default: 'Default',
       rename: 'Rename',
       duplicate: 'Duplicate',
@@ -646,20 +670,22 @@ export default {
       expandSidebar: 'Expand Sidebar',
       // Members Management
       membersManagement: 'Members Management',
-      inviteMember: 'Invite Member',
-      inviteNewMember: 'Invite New Member',
-      inviteMemberDescription: 'Enter email address to invite new members to the workspace',
+      addMember: 'Add Member',
+      addNewMember: 'Add New Member',
+      addMemberDescription: 'Search registered users and add them to the workspace',
       user: 'User',
       emailAddress: 'Email Address',
       role: 'Role',
       joinedAt: 'Joined At',
-      sending: 'Sending...',
-      sendInvitation: 'Send Invitation',
-      inviteSent: 'Invitation Sent',
-      inviteSentDescription: 'Invitation sent to {{email}}',
-      inviteFailed: 'Invitation Failed',
+      adding: 'Adding...',
+      confirmAdd: 'Add Member',
+      memberAdded: 'Member Added',
+      memberAddedDescription: '{{email}} has been added to the workspace',
+      addMemberFailed: 'Add Member Failed',
+      userNotFound: 'User Not Found',
+      userNotFoundDescription: 'No registered user found with this email',
       userAlreadyMember: 'User is already a member',
-      userAlreadyMemberDescription: '{{email}} is already a member of this workspace and cannot be invited again',
+      userAlreadyMemberDescription: '{{email}} is already a member of this workspace',
       roleUpdated: 'Role Updated',
       roleUpdatedDescription: 'Member role has been successfully updated',
       updateFailed: 'Update Failed',
@@ -670,9 +696,10 @@ export default {
       noAccess: 'No Access',
       noAccessDescription: 'You do not have permission to view workspace members',
       noMembers: 'No Members',
-      noMembersDescription: 'Invite members to join the workspace to start collaborating',
+      noMembersDescription: 'Add members to the workspace to start collaborating',
       confirmRemoveMember: 'Confirm Remove Member',
-      confirmRemoveMemberDescription: 'Are you sure you want to remove this member? After removal, the member will no longer be able to access this workspace.',
+      confirmRemoveMemberDescription:
+        'Are you sure you want to remove this member? After removal, the member will no longer be able to access this workspace.',
       confirmRemove: 'Confirm Remove',
       save: 'Save',
       actions: 'Actions',
@@ -694,31 +721,6 @@ export default {
       },
       searchUsers: 'Search users...',
       noUsersFound: 'No users found',
-      // Invitation Acceptance
-      workspaceInvitation: 'Workspace Invitation',
-      invitationDescription: 'You have been invited to join the following workspace',
-      invitedBy: 'Invited by',
-      unknown: 'Unknown',
-      email: 'Email',
-      emailMismatch: 'This invitation was sent to {{invitationEmail}}, but you are currently logged in as {{currentEmail}}. Please sign in with the correct email address.',
-      invitationRequiresLogin: 'Login Required',
-      invitationRequiresLoginDescription: 'Please sign in to accept the workspace invitation',
-      loadingInvitation: 'Loading invitation...',
-      invitationInvalid: 'Invalid Invitation',
-      invitationInvalidDescription: 'This invitation link is invalid or has expired',
-      backToWorkspace: 'Back to Workspace',
-      acceptInvitation: 'Accept Invitation',
-      accepting: 'Accepting...',
-      invitationAccepted: 'Invitation Accepted',
-      invitationAcceptedDescription: 'You have successfully joined workspace {{workspaceName}}',
-      acceptInvitationFailed: 'Failed to Accept Invitation',
-      // Invitation Notification
-      invitedYouToJoin: 'invited you to join',
-      accept: 'Accept',
-      reject: 'Reject',
-      invitationRejected: 'Invitation Rejected',
-      invitationRejectedDescription: 'You have rejected this workspace invitation',
-      rejectInvitationFailed: 'Failed to Reject Invitation',
       // Deployment History
       deploymentHistory: 'Deployment History',
       deployed: 'Deployed',
@@ -738,7 +740,8 @@ export default {
       // Revert
       revertConfirmTitle: 'Confirm Revert',
       revertConfirmMessagePrefix: 'Are you sure you want to revert to',
-      revertConfirmMessageSuffix: '? All unsaved changes to the current agent will be overwritten. This action cannot be undone.',
+      revertConfirmMessageSuffix:
+        '? All unsaved changes to the current agent will be overwritten. This action cannot be undone.',
       revertConfirmMessageDefault: 'Are you sure you want to revert to this version?',
       confirmRevert: 'Confirm Revert',
       reverting: 'Reverting...',
@@ -766,7 +769,8 @@ export default {
       // Undeploy
       undeploy: 'Undeploy',
       undeployConfirmTitle: 'Confirm Undeploy',
-      undeployConfirmMessage: 'Are you sure you want to undeploy? Once undeployed, this agent will not be callable externally.',
+      undeployConfirmMessage:
+        'Are you sure you want to undeploy? Once undeployed, this agent will not be callable externally.',
       confirmUndeploy: 'Confirm Undeploy',
       undeploying: 'Undeploying...',
       undeploySuccess: 'Undeploy Successful',
@@ -838,14 +842,16 @@ export default {
       populateSkillsLibrary: 'Populate your skills library from local directories.',
       manual: 'Manual',
       // Local import
-      selectLocalDirectory: 'Select a local directory containing your skill files. Must include SKILL.md with valid frontmatter.',
+      selectLocalDirectory:
+        'Select a local directory containing your skill files. Must include SKILL.md with valid frontmatter.',
       selectFolder: 'Select Folder',
       filesSelected: 'files selected',
       validationErrors: {
         title: 'Validation Errors',
         nameRequired: 'Skill name is required',
         nameTooLong: 'Skill name must be at most {{max}} characters (got: {{name}})',
-        nameFormat: 'Skill name must be lowercase alphanumeric with single hyphens only (e.g. web-research). Got: {{name}}',
+        nameFormat:
+          'Skill name must be lowercase alphanumeric with single hyphens only (e.g. web-research). Got: {{name}}',
         nameMatchDirectory: 'Skill name "{{name}}" must match directory name "{{directory}}"',
         descriptionRequired: 'Description is required',
         descriptionTooLong: 'Description must be at most {{max}} characters',
@@ -865,7 +871,8 @@ export default {
       fileRenameFailed: 'Failed to rename file',
       invalidPath: 'Invalid file path',
       confirmDeleteFile: 'Delete File',
-      deleteFileWarning: 'Are you sure you want to delete "{{filename}}"? This action cannot be undone.',
+      deleteFileWarning:
+        'Are you sure you want to delete "{{filename}}"? This action cannot be undone.',
       deleteFile: 'Delete',
       renameFile: 'Rename File',
       renameFileDescription: 'Enter a new name for "{{filename}}"',
@@ -878,8 +885,10 @@ export default {
       binaryFileReason: 'Binary file (contains non-printable characters or NULL bytes)',
       binaryFileReadError: 'Failed to read file',
       systemFileFiltered: 'System file, automatically filtered',
-      binaryFileNotSupported: 'Skill import only supports text files (code, config files, documentation, etc.). Binary files (such as images, executables, etc.) cannot be imported.',
-      allFilesBinary: 'All files are binary files or system files and cannot be imported. Skill import only supports text files (.py, .md, .json, .yaml, etc.)',
+      binaryFileNotSupported:
+        'Skill import only supports text files (code, config files, documentation, etc.). Binary files (such as images, executables, etc.) cannot be imported.',
+      allFilesBinary:
+        'All files are binary files or system files and cannot be imported. Skill import only supports text files (.py, .md, .json, .yaml, etc.)',
       skillMdBinary: 'SKILL.md is a binary file and cannot be read',
       // Skills marketplace
       marketplace: 'Skills Marketplace',
@@ -911,7 +920,8 @@ export default {
     chat: {
       // Important notice (no default model)
       importantNotice: 'Important Notice',
-      noDefaultModelNotice: 'No default model detected. Please configure a model in Models & Providers settings to use chat and Agent features.',
+      noDefaultModelNotice:
+        'No default model detected. Please configure a model in Models & Providers settings to use chat and Agent features.',
       goToModelSettings: 'Go to Model Settings',
       later: 'Later',
       // ChatHome
@@ -970,7 +980,8 @@ export default {
         chat3: 'How to detect and fix XSS vulnerabilities?',
         chat4: 'Introduce me to the OWASP Top 10 security risks',
         mcpScan1: 'Scan MCP server configurations to detect security vulnerabilities',
-        mcpScan2: 'Analyze MCP protocol implementation to identify potential injection and privilege escalation risks',
+        mcpScan2:
+          'Analyze MCP protocol implementation to identify potential injection and privilege escalation risks',
         mcpScan3: 'Detect authentication and authorization mechanism flaws in MCP servers',
         mcpScan4: 'Scan MCP tools and resources to assess security risk levels',
       },
@@ -1031,29 +1042,41 @@ export default {
       creative: 'Creative',
       contentCreation: 'Content Creation',
       projectPlan: 'Project Planning',
-      projectPlanDesc: 'Create a detailed plan for a website redesign project, including timeline and key milestones for design, development, and testing phases',
+      projectPlanDesc:
+        'Create a detailed plan for a website redesign project, including timeline and key milestones for design, development, and testing phases',
       emailWriting: 'Email Writing',
-      emailWritingDesc: 'Write a professional email to report project progress to a client, including work completed this week and plans for next week',
+      emailWritingDesc:
+        'Write a professional email to report project progress to a client, including work completed this week and plans for next week',
       goalSetting: 'Goal Setting',
-      goalSettingDesc: 'Help me set OKR goals for this quarter, including 3 key objectives and corresponding key results',
+      goalSettingDesc:
+        'Help me set OKR goals for this quarter, including 3 key objectives and corresponding key results',
       productIdeas: 'Product Ideas',
-      productIdeasDesc: 'Generate 10 innovative smart home product ideas, considering environmental and energy-saving factors',
+      productIdeasDesc:
+        'Generate 10 innovative smart home product ideas, considering environmental and energy-saving factors',
       copywriting: 'Copywriting',
-      copywritingDesc: 'Create 5 catchy ad slogans for a fitness app, with a youthful and energetic style',
+      copywritingDesc:
+        'Create 5 catchy ad slogans for a fitness app, with a youthful and energetic style',
       designConcept: 'Design Concept',
-      designConceptDesc: 'Provide 3 different creative directions and design concepts for a tech company logo design',
+      designConceptDesc:
+        'Provide 3 different creative directions and design concepts for a tech company logo design',
       salesAnalysis: 'Sales Analysis',
-      salesAnalysisDesc: 'Analyze Q4 sales data, create visualizations and identify growth trends and anomalies',
+      salesAnalysisDesc:
+        'Analyze Q4 sales data, create visualizations and identify growth trends and anomalies',
       userInsights: 'User Insights',
-      userInsightsDesc: 'Extract key pain points and improvement suggestions from user feedback, prioritized by importance',
+      userInsightsDesc:
+        'Extract key pain points and improvement suggestions from user feedback, prioritized by importance',
       competitorAnalysis: 'Competitor Analysis',
-      competitorAnalysisDesc: 'Compare three competitor products by features and pricing, create a detailed comparison table',
+      competitorAnalysisDesc:
+        'Compare three competitor products by features and pricing, create a detailed comparison table',
       documentation: 'Documentation',
-      documentationDesc: 'Create a product feature documentation template, including overview, feature list, and user guide',
+      documentationDesc:
+        'Create a product feature documentation template, including overview, feature list, and user guide',
       presentation: 'Presentation',
-      presentationDesc: 'Create a presentation outline for a product launch, including opening, product introduction, and closing',
+      presentationDesc:
+        'Create a presentation outline for a product launch, including opening, product introduction, and closing',
       tutorial: 'Tutorial Writing',
-      tutorialDesc: 'Write a Python beginner tutorial table of contents, including basic syntax, data types, and hands-on projects',
+      tutorialDesc:
+        'Write a Python beginner tutorial table of contents, including basic syntax, data types, and hands-on projects',
     },
     // Memory
     memory: {
@@ -1062,14 +1085,16 @@ export default {
       addMemory: 'Add Memory',
       optimize: 'Optimize',
       optimized: 'Memories optimized',
-      optimizeResult: 'Reduced from {{before}} to {{after}} memories ({{percent}}% token reduction)',
+      optimizeResult:
+        'Reduced from {{before}} to {{after}} memories ({{percent}}% token reduction)',
       optimizeFailed: 'Failed to optimize memories',
       searchPlaceholder: 'Search memories...',
       allTopics: 'All Topics',
       newest: 'Newest',
       oldest: 'Oldest',
       noMemories: 'No memories yet',
-      noMemoriesDescription: 'Memories are automatically created when you chat with agents that have memory enabled. You can also add them manually.',
+      noMemoriesDescription:
+        'Memories are automatically created when you chat with agents that have memory enabled. You can also add them manually.',
       addFirstMemory: 'Add your first memory',
       loadError: 'Failed to load memories',
       createMemory: 'Create Memory',
@@ -1088,7 +1113,8 @@ export default {
       memoryDeleted: 'Memory deleted successfully',
       deleteFailed: 'Failed to delete memory',
       confirmDelete: 'Delete Memory?',
-      confirmDeleteDescription: 'This action cannot be undone. The memory will be permanently removed.',
+      confirmDeleteDescription:
+        'This action cannot be undone. The memory will be permanently removed.',
       edit: 'Edit',
       delete: 'Delete',
       create: 'Create',

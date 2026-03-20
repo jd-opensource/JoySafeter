@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-
-from sqlalchemy import select
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.common.pagination import PageResult, PaginationParams
-from app.models.access_control import PermissionType, WorkspaceInvitation, WorkspaceInvitationStatus
 from app.models.auth import AuthUser as User
 from app.models.workspace import Workspace, WorkspaceMemberRole, WorkspaceType
 from app.repositories.workspace import (
-    WorkspaceInvitationRepository,
     WorkspaceMemberRepository,
     WorkspaceRepository,
 )
-from app.services.email_service import EmailService
 
 from .base import BaseService
+
+ROLE_RANK = {
+    WorkspaceMemberRole.viewer: 0,
+    WorkspaceMemberRole.member: 1,
+    WorkspaceMemberRole.admin: 2,
+    WorkspaceMemberRole.owner: 3,
+}
 
 
 class WorkspaceService(BaseService[Workspace]):
@@ -30,8 +31,6 @@ class WorkspaceService(BaseService[Workspace]):
         super().__init__(db)
         self.workspace_repo = WorkspaceRepository(db)
         self.member_repo = WorkspaceMemberRepository(db)
-        self.invitation_repo = WorkspaceInvitationRepository(db)
-        self.email_service = EmailService()
 
     async def _serialize_workspace(self, workspace: Workspace, current_user: User) -> Dict:
         """序列化 workspace，对齐旧项目 camelCase 字段命名"""
@@ -131,7 +130,6 @@ class WorkspaceService(BaseService[Workspace]):
         workspace_type: WorkspaceType = WorkspaceType.team,
     ) -> Dict:
         """创建工作空间（默认创建团队工作空间）"""
-        datetime.utcnow()
         workspace = await self.workspace_repo.create(
             {
                 "name": name,
@@ -264,464 +262,57 @@ class WorkspaceService(BaseService[Workspace]):
         return await self._serialize_workspace(new_workspace, current_user)
 
     # ------------------------------------------------------------------ #
-    # 邀请
+    # 直接添加成员
     # ------------------------------------------------------------------ #
-    async def create_invitation(
+    async def add_member(
         self,
         *,
         workspace_id: uuid.UUID,
         email: str,
         role: str,
-        permission: PermissionType,
         current_user: User,
     ) -> Dict:
+        """直接添加成员到工作空间（无需邀请流程）"""
         member_role = await self._ensure_member(workspace_id, current_user)
         self._ensure_admin_role(member_role)
 
         if role not in WorkspaceMemberRole._value2member_map_:
             raise BadRequestException("Invalid role")
 
+        target_role = WorkspaceMemberRole(role)
+
+        # owner 角色不能通过添加成员赋予
+        if target_role == WorkspaceMemberRole.owner:
+            raise BadRequestException("Cannot assign owner role")
+
+        # 角色层级保护：非 owner 不能添加 >= 自己等级的角色
+        if member_role != WorkspaceMemberRole.owner:
+            if ROLE_RANK.get(target_role, 0) >= ROLE_RANK.get(member_role, 0):
+                raise ForbiddenException("Cannot add a member with a role equal to or higher than your own")
+
         from app.repositories.auth_user import AuthUserRepository
 
         user_repo = AuthUserRepository(self.db)
-        invitee = await user_repo.get_by_email(email.lower())
+        target_user = await user_repo.get_by_email(email.lower())
 
-        if invitee:
-            existing_member = await self.member_repo.get_member(workspace_id, invitee.id)
-            if existing_member:
-                raise BadRequestException(
-                    f"User with email {email} is already a member of this workspace. 该用户已经是工作空间成员"
-                )
+        if not target_user:
+            raise NotFoundException("User not found")
 
-        token = uuid.uuid4().hex
-        expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-
-        invitation = await self.invitation_repo.create(
-            {
-                "workspace_id": workspace_id,
-                "email": email,
-                "inviter_id": current_user.id,
-                "role": role,
-                "status": WorkspaceInvitationStatus.pending,
-                "token": token,
-                "permissions": permission,
-                "expires_at": expires_at,
-            }
-        )
-        await self.commit()
-
-        # 获取工作空间名称用于通知
-        workspace = await self.workspace_repo.get(workspace_id)
-        workspace_name = workspace.name if workspace else "Unknown"
-
-        # 可选：发送邮件通知（忽略失败但记录日志）
-        # 现在主要依赖登录后的系统通知，邮件作为可选的通知方式
-        invite_link = f"{self.email_service.frontend_url}/workspace/invitations/accept?token={token}"
-        subject = "工作空间邀请"
-        html = f"""
-        <p>您被邀请加入工作空间。</p>
-        <p>请登录系统查看邀请通知并接受邀请。</p>
-        <p>或点击链接直接接受：<a href="{invite_link}">{invite_link}</a></p>
-        """
-        try:
-            await self.email_service.send_email(email, subject, html)
-        except Exception:
-            # 不阻断流程，邮件发送失败不影响邀请创建
-            pass
-
-        invitation_data = {
-            "id": str(invitation.id),
-            "workspaceId": str(invitation.workspace_id),
-            "workspaceName": workspace_name,
-            "email": invitation.email,
-            "role": invitation.role,
-            "status": invitation.status.value,
-            "token": invitation.token,
-            "inviterName": current_user.name,
-            "inviterEmail": current_user.email,
-            "expiresAt": invitation.expires_at.isoformat() if invitation.expires_at else None,
-            "createdAt": invitation.created_at.isoformat() if invitation.created_at else None,
-            "updatedAt": invitation.updated_at.isoformat() if invitation.updated_at else None,
-        }
-
-        # 推送 WebSocket 通知给被邀请人（如果已注册）
-        if invitee:
-            try:
-                from app.websocket.notification_manager import NotificationType, notification_manager
-
-                await notification_manager.send_to_user(
-                    invitee.id,
-                    {
-                        "type": NotificationType.INVITATION_RECEIVED.value,
-                        "data": invitation_data,
-                    },
-                )
-            except Exception as e:
-                # 不阻断流程，通知失败不影响邀请创建
-                from loguru import logger
-
-                logger.warning(f"Failed to send WebSocket notification: {e}")
-
-        return invitation_data
-
-    async def list_invitations(self, current_user: User) -> List[Dict]:
-        """
-        获取当前用户所有 workspace 的邀请列表。
-        对齐旧项目：返回用户有权限访问的 workspace 下的所有邀请。
-        """
-        workspaces = await self.workspace_repo.list_for_user(current_user.id)
-        if not workspaces:
-            return []
-
-        workspace_ids = [ws.id for ws in workspaces]
-        invitations = await self.invitation_repo.list_by_workspaces(workspace_ids)
-
-        return [
-            {
-                "id": str(inv.id),
-                "workspaceId": str(inv.workspace_id),
-                "email": inv.email,
-                "inviterId": str(inv.inviter_id),
-                "role": inv.role,
-                "status": inv.status.value if hasattr(inv.status, "value") else inv.status,
-                "permissions": inv.permissions.value if hasattr(inv.permissions, "value") else inv.permissions,
-                "token": inv.token,
-                "expiresAt": inv.expires_at,
-                "createdAt": inv.created_at,
-                "updatedAt": inv.updated_at,
-            }
-            for inv in invitations
-        ]
-
-    async def list_pending_invitations_for_user(self, current_user: User) -> List[Dict]:
-        """获取当前用户待处理的工作空间邀请
-
-        优化：使用 selectinload 一次性加载关联数据，避免 N+1 查询问题
-        """
-        from sqlalchemy.orm import selectinload
-
-        # 使用 eager loading 一次性加载 workspace 和 inviter 关联
-        query = (
-            select(WorkspaceInvitation)
-            .options(
-                selectinload(WorkspaceInvitation.workspace),
-                selectinload(WorkspaceInvitation.inviter),
-            )
-            .where(
-                WorkspaceInvitation.email == current_user.email.lower(),
-                WorkspaceInvitation.status == WorkspaceInvitationStatus.pending,
-                WorkspaceInvitation.expires_at > datetime.now(timezone.utc),
-            )
-            .order_by(WorkspaceInvitation.created_at.desc())
-        )
-        result = await self.db.execute(query)
-        invitations = result.scalars().all()
-
-        return [
-            {
-                "id": str(inv.id),
-                "workspaceId": str(inv.workspace_id),
-                "workspaceName": inv.workspace.name if inv.workspace else None,
-                "email": inv.email,
-                "inviterId": str(inv.inviter_id),
-                "inviterName": inv.inviter.name if inv.inviter else None,
-                "inviterEmail": inv.inviter.email if inv.inviter else None,
-                "role": inv.role,
-                "status": inv.status.value,
-                "permissions": inv.permissions.value if hasattr(inv.permissions, "value") else inv.permissions,
-                "expiresAt": inv.expires_at.isoformat() if inv.expires_at else None,
-                "createdAt": inv.created_at.isoformat() if inv.created_at else None,
-            }
-            for inv in invitations
-            if inv.workspace  # 过滤掉已删除的工作空间
-        ]
-
-    async def list_all_invitations_for_user(self, current_user: User) -> List[Dict]:
-        """获取当前用户所有的工作空间邀请（包括已处理的）- 已废弃，使用分页版本
-
-        优化：使用 selectinload 一次性加载关联数据，避免 N+1 查询问题
-        """
-        from sqlalchemy.orm import selectinload
-
-        # 使用 eager loading 一次性加载关联数据
-        query = (
-            select(WorkspaceInvitation)
-            .options(
-                selectinload(WorkspaceInvitation.workspace),
-                selectinload(WorkspaceInvitation.inviter),
-            )
-            .where(WorkspaceInvitation.email == current_user.email.lower())
-            .order_by(WorkspaceInvitation.created_at.desc())
-        )
-        result = await self.db.execute(query)
-        invitations = result.scalars().all()
-
-        now = datetime.now(timezone.utc)
-        return [
-            {
-                "id": str(inv.id),
-                "workspaceId": str(inv.workspace_id),
-                "workspaceName": inv.workspace.name if inv.workspace else None,
-                "email": inv.email,
-                "inviterId": str(inv.inviter_id),
-                "inviterName": inv.inviter.name if inv.inviter else None,
-                "inviterEmail": inv.inviter.email if inv.inviter else None,
-                "role": inv.role,
-                "status": inv.status.value,
-                "permissions": inv.permissions.value if hasattr(inv.permissions, "value") else inv.permissions,
-                "expiresAt": inv.expires_at.isoformat() if inv.expires_at else None,
-                "createdAt": inv.created_at.isoformat() if inv.created_at else None,
-                "isExpired": inv.expires_at < now if inv.expires_at else False,
-            }
-            for inv in invitations
-            if inv.workspace  # 过滤掉已删除的工作空间
-        ]
-
-    async def list_all_invitations_for_user_paginated(
-        self, current_user: User, pagination: PaginationParams, status: Optional[str] = None
-    ) -> PageResult:
-        """获取当前用户所有的工作空间邀请（支持分页和状态筛选）
-
-        优化：使用 selectinload 一次性加载关联数据，避免 N+1 查询问题
-        """
-        from sqlalchemy import and_, or_
-        from sqlalchemy.orm import selectinload
-
-        from app.common.pagination import PageResult, Paginator
-
-        # 构建基础查询，使用 eager loading
-        query = (
-            select(WorkspaceInvitation)
-            .options(
-                selectinload(WorkspaceInvitation.workspace),
-                selectinload(WorkspaceInvitation.inviter),
-            )
-            .where(WorkspaceInvitation.email == current_user.email.lower())
-        )
-
-        # 状态筛选
-        now = datetime.now(timezone.utc)
-        if status == "pending":
-            # 待处理：状态为pending且未过期（expires_at为None或未过期）
-            query = query.where(WorkspaceInvitation.status == WorkspaceInvitationStatus.pending).where(
-                or_(WorkspaceInvitation.expires_at.is_(None), WorkspaceInvitation.expires_at > now)
-            )
-        elif status == "processed":
-            # 已处理：状态不是pending或已过期
-            query = query.where(
-                or_(
-                    WorkspaceInvitation.status != WorkspaceInvitationStatus.pending,
-                    and_(WorkspaceInvitation.expires_at.isnot(None), WorkspaceInvitation.expires_at <= now),
-                )
-            )
-        elif status:
-            # 特定状态筛选（accepted, rejected等）
-            try:
-                status_enum = WorkspaceInvitationStatus(status)
-                query = query.where(WorkspaceInvitation.status == status_enum)
-            except ValueError:
-                # 无效的状态值，忽略筛选
-                pass
-
-        # 排序
-        query = query.order_by(WorkspaceInvitation.created_at.desc())
-
-        # 使用分页器
-        paginator = Paginator(self.db)
-        page_result = await paginator.paginate(query, pagination)
-
-        # 转换结果（关联数据已通过 eager loading 加载，无需额外查询）
-        result_list = [
-            {
-                "id": str(inv.id),
-                "workspaceId": str(inv.workspace_id),
-                "workspaceName": inv.workspace.name if inv.workspace else None,
-                "email": inv.email,
-                "inviterId": str(inv.inviter_id),
-                "inviterName": inv.inviter.name if inv.inviter else None,
-                "inviterEmail": inv.inviter.email if inv.inviter else None,
-                "role": inv.role,
-                "status": inv.status.value,
-                "permissions": inv.permissions.value if hasattr(inv.permissions, "value") else inv.permissions,
-                "expiresAt": inv.expires_at.isoformat() if inv.expires_at else None,
-                "createdAt": inv.created_at.isoformat() if inv.created_at else None,
-                "isExpired": inv.expires_at < now if inv.expires_at else False,
-            }
-            for inv in page_result.items
-            if inv.workspace  # 过滤掉已删除的工作空间
-        ]
-
-        return PageResult(
-            items=result_list,
-            total=page_result.total,
-            page=page_result.page,
-            page_size=page_result.page_size,
-            pages=page_result.pages,
-        )
-
-    async def get_invitation_by_token(self, token: str) -> Dict:
-        """根据 token 获取邀请信息"""
-        invitation = await self.invitation_repo.get_by_token(token)
-        if not invitation:
-            raise NotFoundException("Invitation not found")
-
-        # 检查是否过期
-        if invitation.expires_at < datetime.now(timezone.utc):
-            raise BadRequestException("Invitation has expired")
-
-        # 检查状态
-        if invitation.status != WorkspaceInvitationStatus.pending:
-            raise BadRequestException(f"Invitation has been {invitation.status.value}")
-
-        # 获取工作空间信息
-        workspace = await self.workspace_repo.get(invitation.workspace_id)
-        if not workspace:
-            raise NotFoundException("Workspace not found")
-
-        # 获取邀请人信息
-        from app.repositories.auth_user import AuthUserRepository
-
-        user_repo = AuthUserRepository(self.db)
-        inviter = await user_repo.get_by(id=invitation.inviter_id)
-
-        return {
-            "id": str(invitation.id),
-            "workspaceId": str(invitation.workspace_id),
-            "workspaceName": workspace.name,
-            "email": invitation.email,
-            "inviterId": str(invitation.inviter_id),
-            "inviterName": inviter.name if inviter else None,
-            "inviterEmail": inviter.email if inviter else None,
-            "role": invitation.role,
-            "status": invitation.status.value,
-            "permissions": invitation.permissions.value,
-            "expiresAt": invitation.expires_at.isoformat() if invitation.expires_at else None,
-            "createdAt": invitation.created_at.isoformat() if invitation.created_at else None,
-        }
-
-    async def accept_invitation(self, invitation_id: uuid.UUID, current_user: User) -> Dict:
-        """接受工作空间邀请（通过邀请ID）"""
-        invitation = await self.invitation_repo.get(invitation_id)
-        if not invitation:
-            raise NotFoundException("Invitation not found")
-
-        # 检查是否过期
-        if invitation.expires_at < datetime.now(timezone.utc):
-            raise BadRequestException("Invitation has expired")
-
-        # 检查状态
-        if invitation.status != WorkspaceInvitationStatus.pending:
-            raise BadRequestException(f"Invitation has been {invitation.status.value}")
-
-        # 检查邮箱是否匹配
-        if invitation.email.lower() != current_user.email.lower():
-            raise ForbiddenException("This invitation is not for your email address")
-
-        # 检查用户是否已经是成员
-        existing_member = await self.member_repo.get_member(invitation.workspace_id, current_user.id)
+        existing_member = await self.member_repo.get_member(workspace_id, target_user.id)
         if existing_member:
-            # 如果已经是成员，只更新邀请状态
-            await self.invitation_repo.update_status(invitation.id, WorkspaceInvitationStatus.accepted)
-            await self.commit()
-            raise BadRequestException("You are already a member of this workspace")
+            raise BadRequestException(f"User with email {email} is already a member of this workspace")
 
-        # 创建成员记录
-        role = WorkspaceMemberRole(invitation.role)
-        await self.member_repo.create(
-            {
-                "workspace_id": invitation.workspace_id,
-                "user_id": current_user.id,
-                "role": role,
-            }
-        )
-
-        # 更新邀请状态
-        await self.invitation_repo.update_status(invitation.id, WorkspaceInvitationStatus.accepted)
+        await self.member_repo.create({"workspace_id": workspace_id, "user_id": target_user.id, "role": target_role})
         await self.commit()
 
-        # 获取工作空间信息
-        workspace = await self.workspace_repo.get(invitation.workspace_id)
-
-        # 推送 WebSocket 通知给邀请人
-        try:
-            from app.websocket.notification_manager import NotificationType, notification_manager
-
-            await notification_manager.send_to_user(
-                str(invitation.inviter_id),
-                {
-                    "type": NotificationType.INVITATION_ACCEPTED.value,
-                    "data": {
-                        "invitationId": str(invitation.id),
-                        "workspaceId": str(invitation.workspace_id),
-                        "workspaceName": workspace.name if workspace else None,
-                        "acceptedByName": current_user.name,
-                        "acceptedByEmail": current_user.email,
-                    },
-                },
-            )
-        except Exception as e:
-            from loguru import logger
-
-            logger.warning(f"Failed to send WebSocket notification: {e}")
-
         return {
-            "success": True,
-            "workspace": await self._serialize_workspace(workspace, current_user),
-            "message": "Invitation accepted successfully",
-        }
-
-    async def accept_invitation_by_token(self, token: str, current_user: User) -> Dict:
-        """接受工作空间邀请（通过token，用于邮件链接）"""
-        invitation = await self.invitation_repo.get_by_token(token)
-        if not invitation:
-            raise NotFoundException("Invitation not found")
-        return await self.accept_invitation(invitation.id, current_user)
-
-    async def reject_invitation(self, invitation_id: uuid.UUID, current_user: User) -> Dict:
-        """拒绝工作空间邀请"""
-        invitation = await self.invitation_repo.get(invitation_id)
-        if not invitation:
-            raise NotFoundException("Invitation not found")
-
-        # 检查邮箱是否匹配
-        if invitation.email.lower() != current_user.email.lower():
-            raise ForbiddenException("This invitation is not for your email address")
-
-        # 检查状态
-        if invitation.status != WorkspaceInvitationStatus.pending:
-            raise BadRequestException(f"Invitation has been {invitation.status.value}")
-
-        # 获取工作空间信息（用于通知）
-        workspace = await self.workspace_repo.get(invitation.workspace_id)
-
-        # 更新邀请状态
-        await self.invitation_repo.update_status(invitation.id, WorkspaceInvitationStatus.rejected)
-        await self.commit()
-
-        # 推送 WebSocket 通知给邀请人
-        try:
-            from app.websocket.notification_manager import NotificationType, notification_manager
-
-            await notification_manager.send_to_user(
-                str(invitation.inviter_id),
-                {
-                    "type": NotificationType.INVITATION_REJECTED.value,
-                    "data": {
-                        "invitationId": str(invitation.id),
-                        "workspaceId": str(invitation.workspace_id),
-                        "workspaceName": workspace.name if workspace else None,
-                        "rejectedByEmail": current_user.email,
-                    },
-                },
-            )
-        except Exception as e:
-            from loguru import logger
-
-            logger.warning(f"Failed to send WebSocket notification: {e}")
-
-        return {
-            "success": True,
-            "message": "Invitation rejected successfully",
+            "id": str(target_user.id),
+            "userId": str(target_user.id),
+            "workspaceId": str(workspace_id),
+            "email": target_user.email,
+            "name": target_user.name,
+            "role": target_role.value,
+            "isOwner": False,
         }
 
     # ------------------------------------------------------------------ #
@@ -886,6 +477,17 @@ class WorkspaceService(BaseService[Workspace]):
         if workspace.owner_id == target_user_id:
             raise BadRequestException("Cannot change owner role")
 
+        # owner 角色不能通过角色更新赋予
+        if new_role == WorkspaceMemberRole.owner:
+            raise BadRequestException("Cannot assign owner role")
+
+        # 角色层级保护：非 owner 不能修改 >= 自己等级的成员
+        if current_role != WorkspaceMemberRole.owner:
+            if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
+                raise ForbiddenException("Cannot modify a member with equal or higher role")
+            if ROLE_RANK.get(new_role, 0) >= ROLE_RANK.get(current_role, 0):
+                raise ForbiddenException("Cannot assign a role equal to or higher than your own")
+
         # 如果修改的是 admin，检查是否是最后一个 admin
         if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
@@ -909,7 +511,7 @@ class WorkspaceService(BaseService[Workspace]):
             "email": user.email if user else "",
             "name": user.name if user else "",
             "role": new_role.value if hasattr(new_role, "value") else new_role,
-            "isOwner": False,
+            "isOwner": str(workspace.owner_id) == str(target_user_id),
             "createdAt": updated_member.created_at.isoformat()
             if updated_member and hasattr(updated_member, "created_at") and updated_member.created_at
             else None,
@@ -940,6 +542,10 @@ class WorkspaceService(BaseService[Workspace]):
         if not target_member:
             raise NotFoundException("User not found in workspace")
 
+        # 不能移除工作空间拥有者
+        if str(workspace.owner_id) == str(target_user_id):
+            raise BadRequestException("Cannot remove workspace owner")
+
         # 获取当前用户的角色
         current_role = await self._get_role(workspace, current_user)
         is_admin = current_role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}
@@ -948,8 +554,14 @@ class WorkspaceService(BaseService[Workspace]):
         if not is_admin and not is_self:
             raise ForbiddenException("Insufficient permissions")
 
-        # 如果移除自己且是 admin，检查是否是最后一个 admin
-        if is_self and target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
+        # 角色层级保护：非 owner 不能移除 >= 自己等级的成员
+        if is_admin and not is_self and current_role != WorkspaceMemberRole.owner:
+            assert isinstance(current_role, WorkspaceMemberRole)
+            if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
+                raise ForbiddenException("Cannot remove a member with equal or higher role")
+
+        # 如果移除的是 admin/owner 角色成员，检查是否是最后一个 admin
+        if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
             if admin_count <= 1:
                 raise BadRequestException("Cannot remove the last admin from a workspace")

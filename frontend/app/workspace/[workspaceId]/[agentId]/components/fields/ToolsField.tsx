@@ -1,14 +1,14 @@
 'use client'
 
 import { Loader2, Check, Search, X, Hammer, Server } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useState, useMemo } from 'react'
+import { useTranslation } from '@/lib/i18n'
 
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 import { useMcpTools } from '@/hooks/use-mcp-tools'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { parseMcpToolId } from '@/lib/mcp/utils'
 
 import { ToolOption } from '../../services/agentService'
@@ -23,7 +23,7 @@ interface ToolsFieldProps {
   onChange: (val: unknown) => void
 }
 
-export const ToolsField: React.FC<ToolsFieldProps> = ({ value, onChange }) => {
+export function ToolsField({ value, onChange }: ToolsFieldProps) {
   const { t } = useTranslation()
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -99,9 +99,7 @@ export const ToolsField: React.FC<ToolsFieldProps> = ({ value, onChange }) => {
     if (!searchQuery.trim()) return allTools
     const q = searchQuery.toLowerCase()
     return allTools.filter(
-      (t) =>
-        t.label.toLowerCase().includes(q) ||
-        t.description?.toLowerCase().includes(q)
+      (t) => t.label.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q),
     )
   }, [allTools, searchQuery])
 
@@ -111,18 +109,18 @@ export const ToolsField: React.FC<ToolsFieldProps> = ({ value, onChange }) => {
     <div className="space-y-2">
       {/* 1. Selected Tags (STRICTLY ABOVE) */}
       {(builtinTools.length > 0 || mcpTools.length > 0) && (
-        <div className="flex flex-wrap gap-1.5 mb-2.5">
+        <div className="mb-2.5 flex flex-wrap gap-1.5">
           {builtinTools.map((id: string) => (
             <Badge
               key={id}
               variant="secondary"
-              className="pl-2 pr-1 py-0.5 gap-1 text-[10px] bg-blue-50 text-blue-700 border-blue-200 shadow-sm"
+              className="gap-1 border-blue-200 bg-blue-50 py-0.5 pl-2 pr-1 text-[10px] text-blue-700 shadow-sm"
             >
               <Hammer size={10} className="shrink-0" />
               {getToolLabel(id)}
               <button
                 onClick={() => toggleBuiltin(id)}
-                className="ml-0.5 p-0.5 hover:bg-blue-200 rounded-full transition-colors"
+                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-blue-200"
               >
                 <X size={10} />
               </button>
@@ -135,13 +133,13 @@ export const ToolsField: React.FC<ToolsFieldProps> = ({ value, onChange }) => {
               <Badge
                 key={toolId}
                 variant="secondary"
-                className="pl-2 pr-1 py-0.5 gap-1 text-[10px] bg-purple-50 text-purple-700 border-purple-200 shadow-sm"
+                className="gap-1 border-purple-200 bg-purple-50 py-0.5 pl-2 pr-1 text-[10px] text-purple-700 shadow-sm"
               >
                 <Server size={10} className="shrink-0" />
                 {displayName}
                 <button
                   onClick={() => removeMcp(toolId)}
-                  className="ml-0.5 p-0.5 hover:bg-purple-200 rounded-full transition-colors"
+                  className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-purple-200"
                 >
                   <X size={10} />
                 </button>
@@ -152,33 +150,31 @@ export const ToolsField: React.FC<ToolsFieldProps> = ({ value, onChange }) => {
       )}
 
       {/* 2. Search Area */}
-      <div className="relative group">
+      <div className="group relative">
         <Search
           size={13}
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors"
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors group-focus-within:text-blue-500"
         />
-                <Input
-                  placeholder={t('workspace.searchTools')}
-                  className="pl-8 h-8 text-[11px] border-gray-200 bg-white shadow-none focus-visible:ring-blue-100"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+        <Input
+          placeholder={t('workspace.searchTools')}
+          className="h-8 border-gray-200 bg-white pl-8 text-[11px] shadow-none focus-visible:ring-blue-100"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
 
       {/* 3. Available Selection List */}
-      <div className="max-h-[160px] overflow-y-auto custom-scrollbar border border-gray-100 rounded-lg divide-y divide-gray-50 bg-gray-50/30 mt-1">
+      <div className="custom-scrollbar mt-1 max-h-[160px] divide-y divide-gray-50 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/30">
         {isLoadingData ? (
-          <div className="p-4 flex flex-col items-center justify-center gap-2 text-gray-400">
+          <div className="flex flex-col items-center justify-center gap-2 p-4 text-gray-400">
             <Loader2 size={14} className="animate-spin text-blue-500" />
-                        <span className="text-[10px] font-medium tracking-tight">
-                          {t('workspace.syncingCatalog')}
-                        </span>
+            <span className="text-[10px] font-medium tracking-tight">
+              {t('workspace.syncingCatalog')}
+            </span>
           </div>
         ) : filteredTools.length === 0 ? (
-          <div className="p-6 text-center text-[10px] text-gray-400 italic">
-                    {searchQuery
-                      ? t('workspace.noMatchingCapabilities')
-                      : t('workspace.catalogEmpty')}
+          <div className="p-6 text-center text-[10px] italic text-gray-400">
+            {searchQuery ? t('workspace.noMatchingCapabilities') : t('workspace.catalogEmpty')}
           </div>
         ) : (
           filteredTools.map((tool) => {
@@ -200,11 +196,11 @@ export const ToolsField: React.FC<ToolsFieldProps> = ({ value, onChange }) => {
                 key={tool.id}
                 onClick={handleClick}
                 className={cn(
-                  'p-2 flex items-center justify-between cursor-pointer transition-all hover:bg-white group',
-                  isSelected ? 'bg-white' : ''
+                  'group flex cursor-pointer items-center justify-between p-2 transition-all hover:bg-white',
+                  isSelected ? 'bg-white' : '',
                 )}
               >
-                <div className="flex flex-col min-w-0 pr-2">
+                <div className="flex min-w-0 flex-col pr-2">
                   <div className="flex items-center gap-1.5">
                     {isBuiltin ? (
                       <Hammer
@@ -219,25 +215,25 @@ export const ToolsField: React.FC<ToolsFieldProps> = ({ value, onChange }) => {
                     )}
                     <span
                       className={cn(
-                        'text-[11px] font-medium truncate',
-                        isSelected ? 'text-blue-700' : 'text-gray-600'
+                        'truncate text-[11px] font-medium',
+                        isSelected ? 'text-blue-700' : 'text-gray-600',
                       )}
                     >
                       {tool.label}
                     </span>
                   </div>
                   {tool.description && (
-                    <p className="text-[9px] text-gray-400 truncate mt-0.5 pl-4">
+                    <p className="mt-0.5 truncate pl-4 text-[9px] text-gray-400">
                       {tool.description}
                     </p>
                   )}
                 </div>
                 <div
                   className={cn(
-                    'w-4 h-4 rounded-full border flex items-center justify-center transition-all shrink-0 shadow-sm',
+                    'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all',
                     isSelected
-                      ? 'bg-blue-500 border-blue-600 text-white'
-                      : 'border-gray-200 bg-white group-hover:border-gray-300'
+                      ? 'border-blue-600 bg-blue-500 text-white'
+                      : 'border-gray-200 bg-white group-hover:border-gray-300',
                   )}
                 >
                   {isSelected && <Check size={10} strokeWidth={3} />}

@@ -25,9 +25,8 @@ import {
   AlertTriangle,
   Clock,
 } from 'lucide-react'
-import React from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import type { ExecutionTreeNode } from '@/types'
 
 interface ExecutionTreeNodeContentProps {
@@ -38,13 +37,18 @@ interface ExecutionTreeNodeContentProps {
 
 function getNodeIcon(node: ExecutionTreeNode) {
   if (node.status === 'running') {
-    return <Zap size={13} className="text-cyan-600 fill-cyan-100 animate-pulse" />
+    return <Zap size={13} className="animate-pulse fill-cyan-100 text-cyan-600" />
   }
 
   const stepType = node.step?.stepType
   switch (stepType) {
     case 'node_lifecycle':
-      return <Cpu size={13} className={node.status === 'success' ? 'text-emerald-500' : 'text-blue-500'} />
+      return (
+        <Cpu
+          size={13}
+          className={node.status === 'success' ? 'text-emerald-500' : 'text-blue-500'}
+        />
+      )
     case 'agent_thought':
       return <BrainCircuit size={13} className="text-purple-500" />
     case 'tool_execution':
@@ -71,15 +75,15 @@ function getNodeIcon(node: ExecutionTreeNode) {
 function getStatusDot(status: string) {
   switch (status) {
     case 'running':
-      return <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse shrink-0" />
+      return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-cyan-500" />
     case 'success':
-      return <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
     case 'error':
-      return <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
     case 'waiting':
-      return <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+      return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
     default:
-      return <span className="w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
+      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gray-300" />
   }
 }
 
@@ -90,11 +94,11 @@ function formatDuration(ms: number | undefined): string {
   return `${(ms / 60000).toFixed(1)}m`
 }
 
-export const ExecutionTreeNodeContent: React.FC<ExecutionTreeNodeContentProps> = ({
+export function ExecutionTreeNodeContent({
   node,
   isSelected,
   onClick,
-}) => {
+}: ExecutionTreeNodeContentProps) {
   const isParentNode = node.type === 'NODE' || node.type === 'TRACE'
   const duration = node.duration || (node.endTime ? node.endTime - node.startTime : undefined)
 
@@ -102,19 +106,15 @@ export const ExecutionTreeNodeContent: React.FC<ExecutionTreeNodeContentProps> =
     <div
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 py-1.5 px-2 cursor-pointer transition-all duration-150 rounded-sm group min-w-0',
-        isSelected
-          ? 'bg-blue-50 ring-1 ring-blue-200'
-          : 'hover:bg-gray-50',
+        'group flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 transition-all duration-150',
+        isSelected ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-gray-50',
       )}
     >
       {/* Icon */}
       <div
         className={cn(
-          'w-5 h-5 rounded flex items-center justify-center shrink-0',
-          isParentNode
-            ? 'bg-gray-100 border border-gray-200'
-            : 'bg-white border border-gray-150',
+          'flex h-5 w-5 shrink-0 items-center justify-center rounded',
+          isParentNode ? 'border border-gray-200 bg-gray-100' : 'border-gray-150 border bg-white',
         )}
       >
         {getNodeIcon(node)}
@@ -123,7 +123,7 @@ export const ExecutionTreeNodeContent: React.FC<ExecutionTreeNodeContentProps> =
       {/* Name */}
       <span
         className={cn(
-          'text-[11px] font-medium truncate flex-1 min-w-0',
+          'min-w-0 flex-1 truncate text-[11px] font-medium',
           isParentNode ? 'font-semibold text-gray-800' : 'text-gray-600',
           isSelected && 'text-blue-800',
         )}
@@ -132,9 +132,9 @@ export const ExecutionTreeNodeContent: React.FC<ExecutionTreeNodeContentProps> =
       </span>
 
       {/* Right side: duration + status */}
-      <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {duration !== undefined && duration > 0 && (
-          <span className="text-[9px] text-gray-400 font-mono flex items-center gap-0.5">
+          <span className="flex items-center gap-0.5 font-mono text-[9px] text-gray-400">
             <Clock size={8} className="opacity-60" />
             {formatDuration(duration)}
           </span>

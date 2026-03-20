@@ -5,10 +5,6 @@ import { env as runtimeEnv } from 'next-runtime-env'
 import { useEffect, useRef, useCallback, useState } from 'react'
 
 export enum NotificationType {
-  INVITATION_RECEIVED = 'invitation_received',
-  INVITATION_ACCEPTED = 'invitation_accepted',
-  INVITATION_REJECTED = 'invitation_rejected',
-  INVITATION_CANCELLED = 'invitation_cancelled',
   PING = 'ping',
   PONG = 'pong',
   CONNECTED = 'connected',
@@ -75,7 +71,10 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
       wsRef.current.onerror = null
 
       // Close connection if still open or connecting
-      if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+      if (
+        wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING
+      ) {
         wsRef.current.close()
       }
       wsRef.current = null
@@ -117,15 +116,10 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
           const notification: NotificationMessage = JSON.parse(event.data)
           setLastNotification(notification)
 
-          switch (notification.type) {
-            case NotificationType.INVITATION_RECEIVED:
-              queryClient.invalidateQueries({ queryKey: ['workspace-invitations', 'pending'] })
-              break
-            case NotificationType.INVITATION_ACCEPTED:
-            case NotificationType.INVITATION_REJECTED:
-              queryClient.invalidateQueries({ queryKey: ['workspace-invitations'] })
-              queryClient.invalidateQueries({ queryKey: ['workspaces'] })
-              break
+          switch (
+            notification.type
+            // Future notification types can be handled here
+          ) {
           }
 
           onNotificationRef.current?.(notification)
@@ -144,7 +138,11 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
 
         const noReconnectCodes = [1000, 4001, 4003]
 
-        if (autoReconnect && !noReconnectCodes.includes(event.code) && reconnectAttemptsRef.current < maxReconnectAttempts) {
+        if (
+          autoReconnect &&
+          !noReconnectCodes.includes(event.code) &&
+          reconnectAttemptsRef.current < maxReconnectAttempts
+        ) {
           reconnectAttemptsRef.current++
           reconnectTimeoutRef.current = setTimeout(() => {
             connect()

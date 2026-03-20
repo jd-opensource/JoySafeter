@@ -1,11 +1,19 @@
 'use client'
 
-import { ChevronDown, ChevronRight, Clock, Loader2, CheckCircle2, AlertCircle, Wrench } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Wrench,
+} from 'lucide-react'
+import { useState, useMemo } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import type { ExecutionStep, ToolExecutionData } from '@/types'
 
@@ -46,15 +54,15 @@ function formatJsonWithNewlines(data: any): string {
         }
       }
       return match
-    }
+    },
   )
 }
 
-export const ToolCallCard: React.FC<ToolCallCardProps> = ({
+export function ToolCallCard({
   step,
   defaultCollapsed = true,
   showHeader = true,
-}) => {
+}: ToolCallCardProps) {
   const { t } = useTranslation()
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
 
@@ -80,7 +88,7 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
   const getStatusIcon = () => {
     switch (step.status) {
       case 'running':
-        return <Loader2 size={12} className="text-cyan-500 animate-spin" />
+        return <Loader2 size={12} className="animate-spin text-cyan-500" />
       case 'success':
         return <CheckCircle2 size={12} className="text-emerald-500" />
       case 'error':
@@ -105,42 +113,39 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
   }
 
   return (
-    <div className={cn(
-      'border rounded-lg transition-all duration-200',
-      getStatusColor()
-    )}>
+    <div className={cn('rounded-lg border transition-all duration-200', getStatusColor())}>
       {showHeader && (
         <div
-          className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-white/50 transition-colors"
+          className="flex cursor-pointer items-center justify-between px-3 py-2 transition-colors hover:bg-white/50"
           onClick={() => setIsCollapsed(!isCollapsed)}
         >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             {isCollapsed ? (
-              <ChevronRight size={14} className="text-gray-400 shrink-0" />
+              <ChevronRight size={14} className="shrink-0 text-gray-400" />
             ) : (
-              <ChevronDown size={14} className="text-gray-400 shrink-0" />
+              <ChevronDown size={14} className="shrink-0 text-gray-400" />
             )}
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
               {getStatusIcon()}
-              <span className="text-[11px] font-semibold text-gray-700 truncate">
-                {step.title}
-              </span>
+              <span className="truncate text-[11px] font-semibold text-gray-700">{step.title}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
             {duration !== undefined && (
               <div className="flex items-center gap-1 text-[9px] text-gray-500">
                 <Clock size={10} />
                 <span className="font-mono">{duration}ms</span>
               </div>
             )}
-            <div className={cn(
-              'px-1.5 py-0.5 rounded text-[9px] font-medium',
-              step.status === 'running' && 'text-cyan-700 bg-cyan-100',
-              step.status === 'success' && 'text-emerald-700 bg-emerald-100',
-              step.status === 'error' && 'text-red-700 bg-red-100',
-              step.status === 'pending' && 'text-gray-700 bg-gray-100'
-            )}>
+            <div
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[9px] font-medium',
+                step.status === 'running' && 'bg-cyan-100 text-cyan-700',
+                step.status === 'success' && 'bg-emerald-100 text-emerald-700',
+                step.status === 'error' && 'bg-red-100 text-red-700',
+                step.status === 'pending' && 'bg-gray-100 text-gray-700',
+              )}
+            >
               {step.status}
             </div>
           </div>
@@ -148,17 +153,17 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
       )}
 
       {!isCollapsed && (
-        <div className="p-3 space-y-3 border-t border-gray-200 bg-white">
+        <div className="space-y-3 border-t border-gray-200 bg-white p-3">
           {/* Input Section */}
           {input !== undefined && (
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">
                   {t('workspace.input', { defaultValue: 'Input' })}
                 </span>
-                <div className="flex-1 h-[1px] bg-amber-100" />
+                <div className="h-[1px] flex-1 bg-amber-100" />
               </div>
-              <div className="rounded-md overflow-hidden border border-amber-200">
+              <div className="overflow-hidden rounded-md border border-amber-200">
                 <SyntaxHighlighter
                   language="json"
                   style={oneLight}
@@ -194,35 +199,37 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
           {output !== undefined ? (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+                <div className="flex flex-1 items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
                     {t('workspace.output', { defaultValue: 'Output' })}
                   </span>
-                  <div className="flex-1 h-[1px] bg-emerald-100" />
+                  <div className="h-[1px] flex-1 bg-emerald-100" />
                 </div>
                 {shouldAutoCollapse && (
                   <button
                     onClick={() => setOutputCollapsed(!outputCollapsed)}
-                    className="text-[9px] text-emerald-600 hover:text-emerald-700 font-medium px-2 py-0.5 rounded hover:bg-emerald-50 transition-colors"
+                    className="rounded px-2 py-0.5 text-[9px] font-medium text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
                   >
-                    {outputCollapsed ? t('tool.expand', { defaultValue: '展开' }) : t('tool.collapse', { defaultValue: '折叠' })}
+                    {outputCollapsed
+                      ? t('tool.expand', { defaultValue: '展开' })
+                      : t('tool.collapse', { defaultValue: '折叠' })}
                   </button>
                 )}
               </div>
               {outputCollapsed ? (
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2">
-                  <p className="text-[10px] text-emerald-700 font-mono line-clamp-3">
+                  <p className="line-clamp-3 font-mono text-[10px] text-emerald-700">
                     {outputString.slice(0, 200)}...
                   </p>
                   <button
                     onClick={() => setOutputCollapsed(false)}
-                    className="text-[9px] text-emerald-600 hover:text-emerald-700 font-medium mt-1"
+                    className="mt-1 text-[9px] font-medium text-emerald-600 hover:text-emerald-700"
                   >
                     {t('tool.clickToExpand', { defaultValue: '点击展开查看完整输出' })}
                   </button>
                 </div>
               ) : (
-                <div className="rounded-md overflow-hidden border border-emerald-200">
+                <div className="overflow-hidden rounded-md border border-emerald-200">
                   <SyntaxHighlighter
                     language="json"
                     style={oneLight}
@@ -254,9 +261,9 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({
               )}
             </div>
           ) : step.status === 'running' ? (
-            <div className="flex items-center gap-2 text-gray-400 py-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
-              <span className="text-[10px] font-mono">
+            <div className="flex items-center gap-2 py-2 text-gray-400">
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-500" />
+              <span className="font-mono text-[10px]">
                 {t('workspace.waitingForResponse', { defaultValue: 'Waiting for response...' })}
               </span>
             </div>

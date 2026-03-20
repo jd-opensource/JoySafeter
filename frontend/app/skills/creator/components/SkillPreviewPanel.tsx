@@ -1,17 +1,10 @@
 'use client'
 
-import {
-  Save,
-  RefreshCw,
-  AlertTriangle,
-  CheckCircle2,
-  PackageOpen,
-  FileCode,
-} from 'lucide-react'
+import { Save, RefreshCw, AlertTriangle, CheckCircle2, PackageOpen, FileCode } from 'lucide-react'
 import React, { useState, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import type { SkillPreviewData } from '../page'
 
@@ -34,12 +27,12 @@ interface SkillPreviewPanelProps {
 // Component
 // ---------------------------------------------------------------------------
 
-const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
+export default function SkillPreviewPanel({
   previewData,
   isProcessing,
   onSave,
   onRegenerate,
-}) => {
+}: SkillPreviewPanelProps) {
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
 
   // Auto-select SKILL.md when preview data arrives
@@ -62,14 +55,14 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
   // ---- Empty state ----
   if (!previewData) {
     return (
-      <div className="flex flex-col h-full bg-gray-50/50">
-        <div className="flex items-center justify-center flex-1">
-          <div className="text-center px-6">
-            <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
+      <div className="flex h-full flex-col bg-gray-50/50">
+        <div className="flex flex-1 items-center justify-center">
+          <div className="px-6 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100">
               <PackageOpen size={22} className="text-gray-400" />
             </div>
-            <h4 className="text-sm font-medium text-gray-600 mb-1">No preview yet</h4>
-            <p className="text-xs text-gray-400 max-w-[220px] leading-relaxed">
+            <h4 className="mb-1 text-sm font-medium text-gray-600">No preview yet</h4>
+            <p className="max-w-[220px] text-xs leading-relaxed text-gray-400">
               Start a conversation to generate skill files. The preview will appear here.
             </p>
           </div>
@@ -80,15 +73,15 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
 
   // ---- Preview content ----
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex h-full flex-col bg-white">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <FileCode size={16} className="text-emerald-600 flex-shrink-0" />
-          <h3 className="text-sm font-semibold text-gray-800 truncate">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileCode size={16} className="flex-shrink-0 text-emerald-600" />
+          <h3 className="truncate text-sm font-semibold text-gray-800">
             {previewData.skill_name || 'Unnamed Skill'}
           </h3>
-          <span className="text-[10px] text-gray-400 flex-shrink-0">
+          <span className="flex-shrink-0 text-[10px] text-gray-400">
             {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''}
           </span>
         </div>
@@ -97,12 +90,12 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
         {validation && (
           <div className="flex-shrink-0">
             {validation.valid ? (
-              <span className="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+              <span className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] text-green-600">
                 <CheckCircle2 size={10} />
                 Valid
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-[10px] text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+              <span className="flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] text-red-600">
                 <AlertTriangle size={10} />
                 {validation.errors.length} error{validation.errors.length !== 1 ? 's' : ''}
               </span>
@@ -113,7 +106,7 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
 
       {/* Validation errors / warnings */}
       {validation && (!validation.valid || validation.warnings.length > 0) && (
-        <div className="px-4 py-2 border-b border-gray-100 space-y-1 flex-shrink-0">
+        <div className="flex-shrink-0 space-y-1 border-b border-gray-100 px-4 py-2">
           {validation.errors.map((err, i) => (
             <div key={`e-${i}`} className="flex items-center gap-1.5 text-[10px] text-red-600">
               <AlertTriangle size={10} className="flex-shrink-0" />
@@ -130,11 +123,11 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
       )}
 
       {/* Main content: file tree + viewer */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 flex-1">
         {/* File tree sidebar */}
-        <div className="w-[180px] border-r border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
-          <div className="px-3 py-2 border-b border-gray-50">
-            <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+        <div className="flex w-[180px] flex-shrink-0 flex-col overflow-hidden border-r border-gray-100">
+          <div className="border-b border-gray-50 px-3 py-2">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">
               Files
             </span>
           </div>
@@ -146,19 +139,19 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
         </div>
 
         {/* File content viewer */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex min-w-0 flex-1 flex-col">
           <SkillFileViewer file={activeFile} />
         </div>
       </div>
 
       {/* Action buttons */}
-      <div className="flex items-center gap-2 px-4 py-3 border-t border-gray-100 flex-shrink-0 bg-gray-50/50">
+      <div className="flex flex-shrink-0 items-center gap-2 border-t border-gray-100 bg-gray-50/50 px-4 py-3">
         <Button
           variant="outline"
           size="sm"
           onClick={onRegenerate}
           disabled={isProcessing}
-          className="text-xs gap-1.5"
+          className="gap-1.5 text-xs"
         >
           <RefreshCw size={12} />
           Regenerate
@@ -167,7 +160,7 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
           size="sm"
           onClick={onSave}
           disabled={isProcessing || (validation ? !validation.valid : false)}
-          className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white ml-auto"
+          className="ml-auto gap-1.5 bg-emerald-600 text-xs text-white hover:bg-emerald-700"
         >
           <Save size={12} />
           Save to Library
@@ -176,5 +169,3 @@ const SkillPreviewPanel: React.FC<SkillPreviewPanelProps> = ({
     </div>
   )
 }
-
-export default SkillPreviewPanel

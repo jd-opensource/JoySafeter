@@ -12,10 +12,10 @@
  * Inspired by langfuse TraceTimeline/
  */
 
-import React, { useRef, useMemo, useCallback, useEffect } from 'react'
+import { useRef, useMemo, useCallback, useEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import type { ExecutionTreeFlatItem } from '@/types'
 
 import { getTraceDuration } from '../../lib/tree-building'
@@ -31,14 +31,22 @@ function getBarColor(status: string, stepType?: string): string {
   if (status === 'error') return 'bg-red-400'
 
   switch (stepType) {
-    case 'node_lifecycle': return 'bg-blue-400'
-    case 'tool_execution': return 'bg-amber-400'
-    case 'model_io': return 'bg-indigo-400'
-    case 'agent_thought': return 'bg-purple-400'
-    case 'code_agent_code': return 'bg-blue-500'
-    case 'code_agent_thought': return 'bg-indigo-400'
-    case 'code_agent_observation': return 'bg-teal-400'
-    default: return 'bg-gray-400'
+    case 'node_lifecycle':
+      return 'bg-blue-400'
+    case 'tool_execution':
+      return 'bg-amber-400'
+    case 'model_io':
+      return 'bg-indigo-400'
+    case 'agent_thought':
+      return 'bg-purple-400'
+    case 'code_agent_code':
+      return 'bg-blue-500'
+    case 'code_agent_thought':
+      return 'bg-indigo-400'
+    case 'code_agent_observation':
+      return 'bg-teal-400'
+    default:
+      return 'bg-gray-400'
   }
 }
 
@@ -48,7 +56,7 @@ function formatTimeLabel(ms: number): string {
   return `${(ms / 60000).toFixed(1)}m`
 }
 
-export const ExecutionTimelineView: React.FC = () => {
+export function ExecutionTimelineView() {
   const { flatItems, treeRoots, isExecuting } = useExecutionData()
   const { selectedNodeId, selectNode } = useExecutionSelection()
   const parentRef = useRef<HTMLDivElement>(null)
@@ -58,10 +66,7 @@ export const ExecutionTimelineView: React.FC = () => {
     return Math.max(d, 100) // Minimum 100ms for rendering
   }, [treeRoots])
 
-  const traceStart = useMemo(
-    () => (treeRoots.length > 0 ? treeRoots[0].startTime : 0),
-    [treeRoots]
-  )
+  const traceStart = useMemo(() => (treeRoots.length > 0 ? treeRoots[0].startTime : 0), [treeRoots])
 
   const virtualizer = useVirtualizer({
     count: flatItems.length,
@@ -83,26 +88,26 @@ export const ExecutionTimelineView: React.FC = () => {
     const step = traceDuration / tickCount
     return Array.from({ length: tickCount + 1 }, (_, i) => ({
       ms: i * step,
-      percent: (i * step / traceDuration) * 100,
+      percent: ((i * step) / traceDuration) * 100,
     }))
   }, [traceDuration])
 
   if (flatItems.length === 0) return null
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full flex-col">
       {/* Time Scale Header */}
-      <div className="h-6 border-b border-gray-200 flex shrink-0 bg-gray-50/80 select-none">
+      <div className="flex h-6 shrink-0 select-none border-b border-gray-200 bg-gray-50/80">
         <div className="shrink-0 border-r border-gray-200" style={{ width: NAME_WIDTH }} />
-        <div className="flex-1 relative">
+        <div className="relative flex-1">
           {ticks.map((tick, i) => (
             <div
               key={i}
-              className="absolute top-0 bottom-0 flex flex-col items-center"
+              className="absolute bottom-0 top-0 flex flex-col items-center"
               style={{ left: `${tick.percent}%` }}
             >
-              <div className="w-px h-2 bg-gray-300" />
-              <span className="text-[8px] text-gray-400 font-mono mt-0.5">
+              <div className="h-2 w-px bg-gray-300" />
+              <span className="mt-0.5 font-mono text-[8px] text-gray-400">
                 {formatTimeLabel(tick.ms)}
               </span>
             </div>
@@ -111,11 +116,7 @@ export const ExecutionTimelineView: React.FC = () => {
       </div>
 
       {/* Timeline Rows */}
-      <div
-        ref={parentRef}
-        className="flex-1 overflow-auto"
-        style={{ contain: 'strict' }}
-      >
+      <div ref={parentRef} className="flex-1 overflow-auto" style={{ contain: 'strict' }}>
         <div
           style={{
             height: `${virtualizer.getTotalSize()}px`,
@@ -130,14 +131,12 @@ export const ExecutionTimelineView: React.FC = () => {
             const { node } = item
             const isSelected = selectedNodeId === node.id
             const nodeStart = node.startTime - traceStart
-            const nodeDuration = node.endTime
-              ? node.endTime - node.startTime
-              : node.duration || 0
+            const nodeDuration = node.endTime ? node.endTime - node.startTime : node.duration || 0
 
             const leftPercent = (nodeStart / traceDuration) * 100
             const widthPercent = Math.max(
               (nodeDuration / traceDuration) * 100,
-              (MIN_BAR_WIDTH / (parentRef.current?.clientWidth || 800 - NAME_WIDTH)) * 100
+              (MIN_BAR_WIDTH / (parentRef.current?.clientWidth || 800 - NAME_WIDTH)) * 100,
             )
 
             return (
@@ -154,32 +153,32 @@ export const ExecutionTimelineView: React.FC = () => {
                   height: ROW_HEIGHT,
                 }}
                 className={cn(
-                  'flex items-center cursor-pointer border-b border-gray-100 transition-colors',
-                  isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'
+                  'flex cursor-pointer items-center border-b border-gray-100 transition-colors',
+                  isSelected ? 'bg-blue-50' : 'hover:bg-gray-50',
                 )}
                 onClick={() => selectNode(node.id)}
               >
                 {/* Name column */}
                 <div
-                  className="shrink-0 border-r border-gray-200 px-2 flex items-center min-w-0"
+                  className="flex min-w-0 shrink-0 items-center border-r border-gray-200 px-2"
                   style={{
                     width: NAME_WIDTH,
                     paddingLeft: `${node.depth * 16 + 8}px`,
                   }}
                 >
-                  <span className="text-[10px] text-gray-600 font-medium truncate">
+                  <span className="truncate text-[10px] font-medium text-gray-600">
                     {node.name}
                   </span>
                 </div>
 
                 {/* Timeline bar */}
-                <div className="flex-1 relative h-full">
+                <div className="relative h-full flex-1">
                   <div
                     className={cn(
-                      'absolute top-1/2 -translate-y-1/2 h-4 rounded-sm transition-all',
+                      'absolute top-1/2 h-4 -translate-y-1/2 rounded-sm transition-all',
                       getBarColor(node.status, node.step?.stepType),
                       node.status === 'running' && 'animate-pulse',
-                      isSelected && 'ring-1 ring-blue-400'
+                      isSelected && 'ring-1 ring-blue-400',
                     )}
                     style={{
                       left: `${leftPercent}%`,
@@ -188,7 +187,7 @@ export const ExecutionTimelineView: React.FC = () => {
                     }}
                   >
                     {nodeDuration > 0 && widthPercent > 5 && (
-                      <span className="absolute inset-0 flex items-center justify-center text-[8px] text-white font-mono font-medium truncate px-1">
+                      <span className="absolute inset-0 flex items-center justify-center truncate px-1 font-mono text-[8px] font-medium text-white">
                         {formatTimeLabel(nodeDuration)}
                       </span>
                     )}

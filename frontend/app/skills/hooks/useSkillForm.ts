@@ -2,7 +2,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 
-
 import { parseSkillMd } from '@/services/skillService'
 import { Skill } from '@/types'
 
@@ -17,7 +16,11 @@ interface UseSkillFormOptions {
 /**
  * Hook for managing skill form state and validation using react-hook-form
  */
-export function useSkillForm({ initialSkill, onSave, form: existingForm }: UseSkillFormOptions = {}) {
+export function useSkillForm({
+  initialSkill,
+  onSave,
+  form: existingForm,
+}: UseSkillFormOptions = {}) {
   const [showAdvancedFields, setShowAdvancedFields] = useState(false)
 
   const internalForm = useForm<SkillFormData>({
@@ -44,7 +47,7 @@ export function useSkillForm({ initialSkill, onSave, form: existingForm }: UseSk
     if (initialSkill) {
       // Parse SKILL.md if present to extract frontmatter
       const skillMdFile = initialSkill.files?.find(
-        f => f.path === 'SKILL.md' || f.file_name === 'SKILL.md'
+        (f) => f.path === 'SKILL.md' || f.file_name === 'SKILL.md',
       )
       let content = initialSkill.content
       // Use source_type if available, otherwise fall back to legacy source field
@@ -75,7 +78,7 @@ export function useSkillForm({ initialSkill, onSave, form: existingForm }: UseSk
           allowedTools = frontmatter.allowed_tools
         } else if (frontmatter['allowed-tools']) {
           if (typeof frontmatter['allowed-tools'] === 'string') {
-            allowedTools = frontmatter['allowed-tools'].split(/\s+/).filter(t => t.trim())
+            allowedTools = frontmatter['allowed-tools'].split(/\s+/).filter((t) => t.trim())
           } else if (Array.isArray(frontmatter['allowed-tools'])) {
             allowedTools = frontmatter['allowed-tools']
           }
@@ -111,7 +114,9 @@ export function useSkillForm({ initialSkill, onSave, form: existingForm }: UseSk
     } else {
       // Log warning in development if onSave is not provided
       if (process.env.NODE_ENV === 'development') {
-        console.warn('useSkillForm: onSave callback is not provided. Form submission will not save data.')
+        console.warn(
+          'useSkillForm: onSave callback is not provided. Form submission will not save data.',
+        )
       }
     }
   })

@@ -138,11 +138,22 @@ async def import_graph_schema(
     This creates a new graph in the database with the nodes and edges
     defined in the schema. Returns the ID of the newly created graph.
     """
+    workspace_id = payload.workspace_id
+    if workspace_id:
+        from app.models.workspace import WorkspaceMemberRole
+        from app.services.workspace_permission import check_workspace_access
+
+        has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
+        if not has_access:
+            from app.common.exceptions import ForbiddenException
+
+            raise ForbiddenException("No access to import into this workspace")
+
     service = SchemaService(db)
     graph_id = await service.import_schema(
         schema_data=payload.schema_data,
         user_id=current_user.id,
-        workspace_id=payload.workspace_id,
+        workspace_id=workspace_id,
     )
     await db.commit()
 

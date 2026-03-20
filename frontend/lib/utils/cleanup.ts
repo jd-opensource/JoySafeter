@@ -28,7 +28,7 @@ import React from 'react'
  */
 export function createSafeStateUpdater<T>(
   isMountedRef: React.MutableRefObject<boolean>,
-  setState: React.Dispatch<React.SetStateAction<T>>
+  setState: React.Dispatch<React.SetStateAction<T>>,
 ): React.Dispatch<React.SetStateAction<T>> {
   return (value: React.SetStateAction<T>) => {
     if (isMountedRef.current) {
@@ -55,11 +55,9 @@ export function createSafeStateUpdater<T>(
  * }, [])
  * ```
  */
-export function createTimerCleanup(
-  timers: (NodeJS.Timeout | null)[]
-): () => void {
+export function createTimerCleanup(timers: (NodeJS.Timeout | null)[]): () => void {
   return () => {
-    timers.forEach(timer => {
+    timers.forEach((timer) => {
       if (timer) {
         clearTimeout(timer)
         clearInterval(timer)
@@ -83,9 +81,7 @@ export function createTimerCleanup(
  * }, [url])
  * ```
  */
-export function createWebSocketCleanup(
-  ws: WebSocket | null
-): () => void {
+export function createWebSocketCleanup(ws: WebSocket | null): () => void {
   return () => {
     if (ws) {
       // Remove all event handlers to prevent memory leaks
@@ -118,9 +114,7 @@ export function createWebSocketCleanup(
  * }, [])
  * ```
  */
-export function createAbortControllerCleanup(
-  abortController: AbortController | null
-): () => void {
+export function createAbortControllerCleanup(abortController: AbortController | null): () => void {
   return () => {
     if (abortController) {
       abortController.abort()
@@ -150,7 +144,7 @@ export function createEventListenerCleanup(
   target: EventTarget,
   event: string,
   handler: EventListener,
-  options?: boolean | AddEventListenerOptions
+  options?: boolean | AddEventListenerOptions,
 ): () => void {
   return () => {
     target.removeEventListener(event, handler, options)

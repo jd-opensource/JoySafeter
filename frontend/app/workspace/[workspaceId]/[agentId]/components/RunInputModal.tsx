@@ -15,13 +15,13 @@ interface RunInputModalProps {
   onClose: () => void
 }
 
-export const RunInputModal: React.FC<RunInputModalProps> = ({
+export function RunInputModal({
   isOpen,
   input,
   onInputChange,
   onStart,
   onClose,
-}) => {
+}: RunInputModalProps) {
   const { t } = useTranslation()
 
   if (!isOpen) return null
@@ -33,15 +33,15 @@ export const RunInputModal: React.FC<RunInputModalProps> = ({
   }
 
   return (
-    <div className="fixed right-[12px] top-[68px] z-[100] w-[380px] pointer-events-none">
-      <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200 overflow-hidden pointer-events-auto animate-in slide-in-from-top-4 duration-300">
+    <div className="pointer-events-none fixed right-[12px] top-[68px] z-[100] w-[380px]">
+      <div className="pointer-events-auto overflow-hidden rounded-2xl border border-gray-200 bg-white/95 shadow-2xl backdrop-blur-xl duration-300 animate-in slide-in-from-top-4">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white/50">
+        <div className="flex items-center justify-between border-b border-gray-100 bg-white/50 px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="p-1 rounded-md bg-blue-600 text-white">
+            <div className="rounded-md bg-blue-600 p-1 text-white">
               <Activity size={14} />
             </div>
-            <h3 className="text-[11px] font-bold text-gray-900 uppercase tracking-wider">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-900">
               {t('workspace.readyToStart')}
             </h3>
           </div>
@@ -56,11 +56,11 @@ export const RunInputModal: React.FC<RunInputModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-4 space-y-4">
+        <div className="space-y-4 p-4">
           {/* Info Banner */}
-          <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 flex items-start gap-3">
-            <Sparkles className="text-blue-500 shrink-0 mt-0.5" size={16} />
-            <p className="text-[10px] text-blue-700 leading-relaxed font-medium">
+          <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+            <Sparkles className="mt-0.5 shrink-0 text-blue-500" size={16} />
+            <p className="text-[10px] font-medium leading-relaxed text-blue-700">
               {t('workspace.enterPrompt')}
             </p>
           </div>
@@ -69,7 +69,7 @@ export const RunInputModal: React.FC<RunInputModalProps> = ({
           <div className="flex gap-2">
             <Input
               placeholder={t('workspace.simulateUserInput')}
-              className="h-9 text-[11px] bg-white border-gray-200 focus-visible:ring-blue-100"
+              className="h-9 border-gray-200 bg-white text-[11px] focus-visible:ring-blue-100"
               value={input}
               onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -77,7 +77,7 @@ export const RunInputModal: React.FC<RunInputModalProps> = ({
             />
             <Button
               size="sm"
-              className="bg-blue-600 hover:bg-blue-700 h-9 px-4 gap-2 text-[11px] font-bold"
+              className="h-9 gap-2 bg-blue-600 px-4 text-[11px] font-bold hover:bg-blue-700"
               onClick={onStart}
               disabled={!input.trim()}
             >

@@ -2,12 +2,12 @@
 
 import { PanelRight, Settings2 } from 'lucide-react'
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation } from '@/lib/i18n'
 
 import { OpenClawManagement } from './components/OpenClawManagement'
 import { OpenClawWebUI } from './components/OpenClawWebUI'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 export default function OpenClawPage() {
   const { t } = useTranslation()
@@ -16,13 +16,13 @@ export default function OpenClawPage() {
   return (
     <div className="flex h-full w-full overflow-hidden">
       {/* Main Content Area */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden p-3 gap-2 transition-all duration-300 relative">
+      <div className="relative flex min-w-0 flex-1 flex-col gap-2 overflow-hidden p-3 transition-all duration-300">
         {!isRightSidebarOpen && (
-          <div className="absolute top-4 right-4 z-10">
+          <div className="absolute right-4 top-4 z-10">
             <Button
               variant="outline"
               size="icon"
-              className="h-9 w-9 bg-[var(--surface-1)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] shadow-sm border border-[var(--border)] rounded-md backdrop-blur"
+              className="h-9 w-9 rounded-md border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] shadow-sm backdrop-blur hover:text-[var(--text-primary)]"
               onClick={() => setIsRightSidebarOpen(true)}
               title={t('openclaw.manageInstancesAndDevices')}
             >
@@ -39,15 +39,17 @@ export default function OpenClawPage() {
       {/* Right Sidebar */}
       <div
         className={cn(
-          'flex flex-col border-l border-[var(--border)] bg-[#fafafa] dark:bg-[var(--surface-1)] transition-all duration-300 ease-in-out shrink-0 relative',
-          isRightSidebarOpen ? 'w-[320px] sm:w-[380px]' : 'w-0 overflow-hidden border-l-0 opacity-0'
+          'relative flex shrink-0 flex-col border-l border-[var(--border)] bg-[#fafafa] transition-all duration-300 ease-in-out dark:bg-[var(--surface-1)]',
+          isRightSidebarOpen
+            ? 'w-[320px] sm:w-[380px]'
+            : 'w-0 overflow-hidden border-l-0 opacity-0',
         )}
       >
-        <div className="absolute top-4 right-4 z-10">
+        <div className="absolute right-4 top-4 z-10">
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-2)]"
+            className="h-8 w-8 text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
             onClick={() => setIsRightSidebarOpen(false)}
             title="Collapse Sidebar"
           >
@@ -55,7 +57,7 @@ export default function OpenClawPage() {
           </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 pt-14 sm:pt-14">
+        <div className="flex-1 overflow-y-auto p-4 pt-14 sm:p-5 sm:pt-14">
           {isRightSidebarOpen && <OpenClawManagement />}
         </div>
       </div>

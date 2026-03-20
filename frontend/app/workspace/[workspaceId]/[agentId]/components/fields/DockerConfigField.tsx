@@ -1,7 +1,7 @@
 'use client'
 
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,13 +22,13 @@ interface DockerConfigFieldProps {
   disabled?: boolean
 }
 
-export const DockerConfigField: React.FC<DockerConfigFieldProps> = ({
+export function DockerConfigField({
   label,
   value = {},
   onChange,
   description,
   disabled = false,
-}) => {
+}: DockerConfigFieldProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   const updateField = (key: string, fieldValue: unknown) => {
@@ -52,7 +52,7 @@ export const DockerConfigField: React.FC<DockerConfigFieldProps> = ({
         <div className="space-y-0.5">
           <Label className="text-xs font-semibold text-gray-700">{label}</Label>
           {description && (
-            <p className="text-[10px] text-gray-500 leading-relaxed">{description}</p>
+            <p className="text-[10px] leading-relaxed text-gray-500">{description}</p>
           )}
         </div>
         <Button
@@ -72,7 +72,7 @@ export const DockerConfigField: React.FC<DockerConfigFieldProps> = ({
       </div>
 
       {isExpanded && (
-        <div className="space-y-3 pl-4 border-l-2 border-blue-100 bg-blue-50/30 rounded-r-md p-3 animate-in slide-in-from-top-2 duration-200">
+        <div className="space-y-3 rounded-r-md border-l-2 border-blue-100 bg-blue-50/30 p-3 pl-4 duration-200 animate-in slide-in-from-top-2">
           {/* Docker Image */}
           <div className="space-y-1">
             <Label className="text-[10px] font-medium text-gray-600">Docker Image</Label>

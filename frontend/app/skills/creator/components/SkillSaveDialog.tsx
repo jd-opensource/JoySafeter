@@ -36,13 +36,13 @@ interface SkillSaveDialogProps {
 // Component
 // ---------------------------------------------------------------------------
 
-const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
+export default function SkillSaveDialog({
   open,
   onOpenChange,
   previewData,
   editSkillId,
   onSaved,
-}) => {
+}: SkillSaveDialogProps) {
   const [name, setName] = useState(previewData?.skill_name || '')
   const [description, setDescription] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -73,7 +73,8 @@ const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
 
       // Derive description from SKILL.md frontmatter if not provided
       const skillMd = previewData.files.find((f) => f.path === 'SKILL.md')
-      const effectiveDescription = description.trim() || extractDescription(skillMd?.content) || name
+      const effectiveDescription =
+        description.trim() || extractDescription(skillMd?.content) || name
 
       const body = {
         name: name.trim(),
@@ -84,9 +85,7 @@ const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
         files,
       }
 
-      const url = editSkillId
-        ? `${API_BASE}/skills/${editSkillId}`
-        : `${API_BASE}/skills`
+      const url = editSkillId ? `${API_BASE}/skills/${editSkillId}` : `${API_BASE}/skills`
       const method = editSkillId ? 'PUT' : 'POST'
 
       const resp = await fetch(url, {
@@ -136,11 +135,11 @@ const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
           {validation && (
             <div className="space-y-2">
               {hasErrors && (
-                <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-3">
+                <div className="flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-600">
                   <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="font-medium">Validation errors:</p>
-                    <ul className="list-disc ml-4 mt-1 text-xs">
+                    <ul className="ml-4 mt-1 list-disc text-xs">
                       {validation.errors.map((err, i) => (
                         <li key={i}>{err}</li>
                       ))}
@@ -149,11 +148,11 @@ const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
                 </div>
               )}
               {validation.warnings.length > 0 && (
-                <div className="flex items-start gap-2 text-sm text-amber-600 bg-amber-50 rounded-lg p-3">
+                <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-600">
                   <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="font-medium">Warnings:</p>
-                    <ul className="list-disc ml-4 mt-1 text-xs">
+                    <ul className="ml-4 mt-1 list-disc text-xs">
                       {validation.warnings.map((w, i) => (
                         <li key={i}>{w}</li>
                       ))}
@@ -162,7 +161,7 @@ const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
                 </div>
               )}
               {validation.valid && validation.warnings.length === 0 && (
-                <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 rounded-lg bg-green-50 p-3 text-sm text-green-600">
                   <CheckCircle2 size={16} />
                   <span>All validation checks passed</span>
                 </div>
@@ -172,7 +171,7 @@ const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
 
           {/* Name input */}
           <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">Skill Name</label>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Skill Name</label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -183,8 +182,8 @@ const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
 
           {/* Description input */}
           <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">
-              Description <span className="text-gray-400 font-normal">(optional)</span>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Description <span className="font-normal text-gray-400">(optional)</span>
             </label>
             <Input
               value={description}
@@ -210,11 +209,11 @@ const SkillSaveDialog: React.FC<SkillSaveDialogProps> = ({
           <Button
             onClick={handleSave}
             disabled={isSaving || !name.trim() || hasErrors}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            className="bg-emerald-600 text-white hover:bg-emerald-700"
           >
             {isSaving ? (
               <>
-                <Loader2 size={14} className="animate-spin mr-1" />
+                <Loader2 size={14} className="mr-1 animate-spin" />
                 Saving...
               </>
             ) : editSkillId ? (
@@ -241,5 +240,3 @@ function extractDescription(content?: string | null): string {
   const match = content.match(/^---[\s\S]*?description:\s*(.+?)$/m)
   return match?.[1]?.trim().replace(/^["']|["']$/g, '') || ''
 }
-
-export default SkillSaveDialog

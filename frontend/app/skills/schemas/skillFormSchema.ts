@@ -1,13 +1,18 @@
 import { z } from 'zod'
 
-import { validateSkillName, validateSkillDescription, validateCompatibility } from '@/utils/skillValidators'
+import {
+  validateSkillName,
+  validateSkillDescription,
+  validateCompatibility,
+} from '@/utils/skillValidators'
 
 /**
  * Skill form schema using Zod validation
  * Per Agent Skills specification: https://agentskills.io/specification
  */
 export const skillFormSchema = z.object({
-  name: z.string()
+  name: z
+    .string()
     .min(1, 'Skill name is required')
     .max(64, 'Skill name must be 64 characters or less')
     .refine(
@@ -18,9 +23,10 @@ export const skillFormSchema = z.object({
       (val) => {
         const result = validateSkillName(val)
         return { message: result.error || 'Invalid skill name format' }
-      }
+      },
     ),
-  description: z.string()
+  description: z
+    .string()
     .min(1, 'Skill description is required')
     .max(1024, 'Skill description must be 1024 characters or less')
     .refine(
@@ -31,11 +37,12 @@ export const skillFormSchema = z.object({
       (val) => {
         const result = validateSkillDescription(val)
         return { message: result.error || 'Invalid skill description' }
-      }
+      },
     ),
   content: z.string().default(''),
   license: z.string().optional(),
-  compatibility: z.string()
+  compatibility: z
+    .string()
     .max(500, 'Compatibility must be 500 characters or less')
     .nullish()
     .refine(
@@ -48,7 +55,7 @@ export const skillFormSchema = z.object({
         if (!val) return { message: '' }
         const result = validateCompatibility(val)
         return { message: result.error || 'Invalid compatibility' }
-      }
+      },
     ),
   metadata: z.record(z.string(), z.string()).optional().default({}),
   allowed_tools: z.array(z.string()).optional().default([]),

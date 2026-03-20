@@ -22,13 +22,11 @@ export default function DiscoverPage() {
       {/* Content */}
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="text-center">
-          <Compass className="mx-auto h-16 w-16 text-[var(--text-tertiary)] mb-4" />
-          <h2 className="text-xl font-medium text-[var(--text-primary)] mb-2">
+          <Compass className="mx-auto mb-4 h-16 w-16 text-[var(--text-tertiary)]" />
+          <h2 className="mb-2 text-xl font-medium text-[var(--text-primary)]">
             {t('sidebar.discover')}
           </h2>
-          <p className="text-[var(--text-secondary)] max-w-md">
-            {t('sidebar.discoverComingSoon')}
-          </p>
+          <p className="max-w-md text-[var(--text-secondary)]">{t('sidebar.discoverComingSoon')}</p>
         </div>
       </div>
     </div>

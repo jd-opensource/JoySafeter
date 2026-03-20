@@ -47,20 +47,20 @@ class ApiKeyService(BaseService[ApiKey]):
         except ValueError:
             return -1
 
-    async def _ensure_workspace_admin(self, workspace_id: uuid.UUID, user_id: uuid.UUID):
+    async def _ensure_workspace_admin(self, workspace_id: uuid.UUID, user_id: str):
         workspace = await self.ws_repo.get(workspace_id)
         if not workspace:
             raise NotFoundException("Workspace not found")
-        if workspace.owner_id == user_id:
+        if str(workspace.owner_id) == str(user_id):
             return
-        member = await self.member_repo.get_member(workspace_id, user_id)
+        member = await self.member_repo.get_member(workspace_id, str(user_id))
         if not member or self._role_rank(member.role) < self._role_rank(WorkspaceMemberRole.admin):
             raise ForbiddenException("Insufficient workspace permission")
 
     # ---------------------------- #
     # 公共方法
     # ---------------------------- #
-    async def list_keys(self, *, current_user_id: uuid.UUID, workspace_id: Optional[uuid.UUID]) -> List[Dict]:
+    async def list_keys(self, *, current_user_id: str, workspace_id: Optional[uuid.UUID]) -> List[Dict]:
         keys: List[ApiKey] = []
         if workspace_id:
             await self._ensure_workspace_admin(workspace_id, current_user_id)
@@ -73,6 +73,7 @@ class ApiKeyService(BaseService[ApiKey]):
                 "id": str(k.id),
                 "name": k.name,
                 "type": k.type,
+                "key": k.key,
                 "keyMasked": _mask(k.key),
                 "workspaceId": str(k.workspace_id) if k.workspace_id else None,
                 "expiresAt": k.expires_at,
@@ -86,7 +87,7 @@ class ApiKeyService(BaseService[ApiKey]):
     async def create_key(
         self,
         *,
-        current_user_id: uuid.UUID,
+        current_user_id: str,
         name: str,
         type: str = "personal",
         workspace_id: Optional[uuid.UUID] = None,
@@ -127,7 +128,7 @@ class ApiKeyService(BaseService[ApiKey]):
             "createdAt": record.created_at,
         }
 
-    async def delete_key(self, *, key_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
+    async def delete_key(self, *, key_id: uuid.UUID, current_user_id: str) -> None:
         key = await self.repo.get(key_id)
         if not key:
             raise NotFoundException("ApiKey not found")

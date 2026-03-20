@@ -1,16 +1,23 @@
 'use client'
 
 import { AlertCircle, Wifi, WifiOff, Loader2 } from 'lucide-react'
-import React from 'react'
 
 import { useTranslation } from '@/lib/i18n'
 
 import { useBuilderStore } from '../stores/builderStore'
 
-
-export const GraphStatusBar: React.FC = () => {
+export function GraphStatusBar() {
   const { t } = useTranslation()
-  const { lastAutoSaveTime, deployedAt, hasPendingChanges, lastSaveError, saveRetryCount, isSaving, graphId, graphName } = useBuilderStore()
+  const {
+    lastAutoSaveTime,
+    deployedAt,
+    hasPendingChanges,
+    lastSaveError,
+    saveRetryCount,
+    isSaving,
+    graphId,
+    graphName,
+  } = useBuilderStore()
 
   const formatTime = (timestamp: number | null): string => {
     if (!timestamp) return ''
@@ -49,7 +56,7 @@ export const GraphStatusBar: React.FC = () => {
     // Network offline status
     if (lastSaveError === 'offline') {
       return (
-        <span className="text-amber-600 flex items-center gap-1">
+        <span className="flex items-center gap-1 text-amber-600">
           <WifiOff size={12} />
           {t('status.offline', { defaultValue: '离线' })}
         </span>
@@ -59,7 +66,7 @@ export const GraphStatusBar: React.FC = () => {
     // Currently saving
     if (isSaving) {
       return (
-        <span className="text-blue-500 flex items-center gap-1">
+        <span className="flex items-center gap-1 text-blue-500">
           <Loader2 size={12} className="animate-spin" />
           {t('status.saving', { defaultValue: '保存中...' })}
         </span>
@@ -69,7 +76,7 @@ export const GraphStatusBar: React.FC = () => {
     // Save failed with unsaved changes
     if (lastSaveError && hasPendingChanges && saveRetryCount >= 3) {
       return (
-        <span className="text-red-500 flex items-center gap-1" title={lastSaveError}>
+        <span className="flex items-center gap-1 text-red-500" title={lastSaveError}>
           <AlertCircle size={12} />
           {t('status.saveFailed', { defaultValue: '保存失败' })}
         </span>
@@ -113,9 +120,7 @@ export const GraphStatusBar: React.FC = () => {
       )
     }
 
-    return (
-      <span className="text-gray-400">{t('workspace.autoSaved')} --:--:--</span>
-    )
+    return <span className="text-gray-400">{t('workspace.autoSaved')} --:--:--</span>
   }
 
   return (
@@ -124,9 +129,7 @@ export const GraphStatusBar: React.FC = () => {
         {renderSaveStatus()}
         <span className="text-gray-300">·</span>
         {deployedAt ? (
-          <span>
-            {formatPublishedTime(deployedAt)}
-          </span>
+          <span>{formatPublishedTime(deployedAt)}</span>
         ) : (
           <span className="text-gray-400">{t('workspace.unpublished')}</span>
         )}

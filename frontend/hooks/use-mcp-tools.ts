@@ -50,12 +50,12 @@ export function useMcpTools() {
 
   const getToolById = useCallback(
     (toolId: string) => mcpTools.find((tool) => tool.id === toolId),
-    [mcpTools]
+    [mcpTools],
   )
 
   const getToolsByServer = useCallback(
     (serverName: string) => mcpTools.filter((tool) => tool.serverName === serverName),
-    [mcpTools]
+    [mcpTools],
   )
 
   return {
@@ -75,14 +75,16 @@ export function useMcpToolExecution() {
 
       try {
         // Use unified API client, automatically handles CSRF token, authentication, and error handling
-        const result = await apiPost<{ success: boolean; data: any; message?: string; error?: string }>(
-          `${API_BASE}/mcp/tools/execute`,
-          {
-            serverName,
-            toolName,
-            arguments: args,
-          }
-        )
+        const result = await apiPost<{
+          success: boolean
+          data: any
+          message?: string
+          error?: string
+        }>(`${API_BASE}/mcp/tools/execute`, {
+          serverName,
+          toolName,
+          arguments: args,
+        })
 
         // Compatible with backend response format (may be wrapped in data or returned directly)
         if (result && typeof result === 'object' && 'success' in result) {
@@ -101,7 +103,7 @@ export function useMcpToolExecution() {
         throw new Error('Tool execution failed')
       }
     },
-    []
+    [],
   )
 
   return { executeTool }

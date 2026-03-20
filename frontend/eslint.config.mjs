@@ -27,6 +27,34 @@ const eslintConfig = [
       'react/no-unescaped-entities': 'warn',
       'prefer-const': 'warn',
 
+      // Enforce function declarations for components (no React.FC)
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TSTypeReference[typeName.right.name="FC"]',
+          message: 'Use function declarations instead of React.FC.',
+        },
+      ],
+
+      // Enforce unified import paths
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react-i18next',
+              message: 'Use @/lib/i18n instead.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@/lib/core/utils/cn'],
+              message: 'Use @/lib/utils instead.',
+            },
+          ],
+        },
+      ],
+
       // Import ordering
       'import/order': [
         'warn',
@@ -36,6 +64,13 @@ const eslintConfig = [
           alphabetize: { order: 'asc', caseInsensitive: true },
         },
       ],
+    },
+  },
+  // Allow direct react-i18next imports in the i18n infrastructure files
+  {
+    files: ['lib/i18n/**'],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
 ]

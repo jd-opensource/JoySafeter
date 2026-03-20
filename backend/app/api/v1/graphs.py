@@ -712,6 +712,12 @@ async def get_copilot_history(
     log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
     log.info("copilot.history.get start")
 
+    graph_service = GraphService(db)
+    graph = await graph_service.graph_repo.get(graph_id)
+    if not graph:
+        raise NotFoundException("Graph not found")
+    await graph_service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
+
     service = CopilotService(user_id=str(current_user.id), db=db)
     result = await service.get_history_for_api(str(graph_id))
 
@@ -744,6 +750,12 @@ async def clear_copilot_history(
     log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
     log.info("copilot.history.clear start")
 
+    graph_service = GraphService(db)
+    graph = await graph_service.graph_repo.get(graph_id)
+    if not graph:
+        raise NotFoundException("Graph not found")
+    await graph_service._ensure_access(graph, current_user, WorkspaceMemberRole.member)
+
     service = CopilotService(user_id=str(current_user.id), db=db)
     success = await service.clear_history(str(graph_id))
 
@@ -774,6 +786,12 @@ async def save_copilot_messages(
     """
     log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
     log.info("copilot.messages.save start")
+
+    graph_service = GraphService(db)
+    graph = await graph_service.graph_repo.get(graph_id)
+    if not graph:
+        raise NotFoundException("Graph not found")
+    await graph_service._ensure_access(graph, current_user, WorkspaceMemberRole.member)
 
     try:
         user_msg_data = payload.get("user_message", {})

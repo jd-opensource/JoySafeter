@@ -171,20 +171,23 @@ async function processEmailData(options: EmailOptions): Promise<ProcessedEmailDa
     const primaryEmail = Array.isArray(to) ? to[0] : to
     try {
       const unsubscribeToken = await generateUnsubscribeToken(primaryEmail, emailType)
-    const baseUrl = getBaseUrl()
-    const unsubscribeUrl = `${baseUrl}/unsubscribe?token=${unsubscribeToken}&email=${encodeURIComponent(primaryEmail)}`
+      const baseUrl = getBaseUrl()
+      const unsubscribeUrl = `${baseUrl}/unsubscribe?token=${unsubscribeToken}&email=${encodeURIComponent(primaryEmail)}`
 
-    headers['List-Unsubscribe'] = `<${unsubscribeUrl}>`
-    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
+      headers['List-Unsubscribe'] = `<${unsubscribeUrl}>`
+      headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
 
-    if (html) {
-      finalHtml = html.replace(/\{\{UNSUBSCRIBE_TOKEN\}\}/g, unsubscribeToken)
-    }
-    if (text) {
-      finalText = text.replace(/\{\{UNSUBSCRIBE_TOKEN\}\}/g, unsubscribeToken)
+      if (html) {
+        finalHtml = html.replace(/\{\{UNSUBSCRIBE_TOKEN\}\}/g, unsubscribeToken)
+      }
+      if (text) {
+        finalText = text.replace(/\{\{UNSUBSCRIBE_TOKEN\}\}/g, unsubscribeToken)
       }
     } catch (error) {
-      logger.warn('Failed to generate unsubscribe token, continuing without unsubscribe link:', error)
+      logger.warn(
+        'Failed to generate unsubscribe token, continuing without unsubscribe link:',
+        error,
+      )
       // Continue sending email, but without unsubscribe link
     }
   }

@@ -1,8 +1,10 @@
+import { generateUUID } from '@/lib/utils/uuid'
+
 /**
  * Generate a short request ID for correlation
  */
 export function generateRequestId(): string {
-  return crypto.randomUUID().slice(0, 8)
+  return generateUUID().slice(0, 8)
 }
 
 /**

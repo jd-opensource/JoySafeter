@@ -7,7 +7,7 @@ import { type MutableRefObject, useEffect, useRef } from 'react'
  * @returns A mutable ref object that can be used locally
  */
 export function useForwardedRef<T>(
-  forwardedRef: React.ForwardedRef<T>
+  forwardedRef: React.ForwardedRef<T>,
 ): MutableRefObject<T | null> {
   const innerRef = useRef<T | null>(null)
 

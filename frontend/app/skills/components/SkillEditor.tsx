@@ -1,7 +1,6 @@
 'use client'
 
 import { FileText } from 'lucide-react'
-import React from 'react'
 import { UseFormReturn } from 'react-hook-form'
 
 import { Label } from '@/components/ui/label'
@@ -14,7 +13,6 @@ import { SkillFormData } from '../schemas/skillFormSchema'
 import { getFileIcon } from './SkillFileTree'
 import { SkillForm } from './SkillForm'
 
-
 interface SkillEditorProps {
   activeFilePath: string | null
   activeFile: SkillFile | null
@@ -25,7 +23,7 @@ interface SkillEditorProps {
   onUpdateFileContent: (filePath: string, content: string) => void
 }
 
-export const SkillEditor: React.FC<SkillEditorProps> = ({
+export function SkillEditor({
   activeFilePath,
   activeFile,
   isSkillMd,
@@ -33,13 +31,13 @@ export const SkillEditor: React.FC<SkillEditorProps> = ({
   showAdvancedFields,
   onToggleAdvancedFields,
   onUpdateFileContent,
-}) => {
+}: SkillEditorProps) {
   const { t } = useTranslation()
   const content = form.watch('content')
 
   if (isSkillMd) {
     return (
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar max-w-4xl mx-auto w-full">
+      <div className="custom-scrollbar mx-auto w-full max-w-4xl flex-1 space-y-6 overflow-y-auto p-6">
         {/* YAML Frontmatter Section */}
         <SkillForm
           form={form}
@@ -48,13 +46,13 @@ export const SkillEditor: React.FC<SkillEditorProps> = ({
         />
 
         {/* Markdown Content Section */}
-        <div className="flex-1 flex flex-col space-y-2">
-          <Label className="text-[10px] font-bold text-gray-400 uppercase">
+        <div className="flex flex-1 flex-col space-y-2">
+          <Label className="text-[10px] font-bold uppercase text-gray-400">
             {t('skills.content') || 'Instructions'} (Markdown)
           </Label>
           <Textarea
             {...form.register('content')}
-            className="flex-1 min-h-[350px] font-mono text-xs p-4 bg-white border-gray-200 resize-none"
+            className="min-h-[350px] flex-1 resize-none border-gray-200 bg-white p-4 font-mono text-xs"
             placeholder="# Skill Instructions
 
 ## Overview
@@ -70,8 +68,8 @@ How to use this skill..."
 
   if (activeFile) {
     return (
-      <div className="flex-1 flex flex-col bg-gray-50 p-2">
-        <div className="mb-2 px-2 py-1 flex items-center gap-2 text-xs text-gray-500">
+      <div className="flex flex-1 flex-col bg-gray-50 p-2">
+        <div className="mb-2 flex items-center gap-2 px-2 py-1 text-xs text-gray-500">
           {getFileIcon(activeFile.path, activeFile.file_type)}
           <span className="font-mono">{activeFilePath}</span>
           <span className="text-gray-300">|</span>
@@ -80,7 +78,7 @@ How to use this skill..."
         <Textarea
           value={activeFile?.content || ''}
           onChange={(e) => onUpdateFileContent(activeFilePath!, e.target.value)}
-          className="flex-1 border-gray-200 rounded-xl focus-visible:ring-emerald-50 font-mono text-xs p-6 resize-none shadow-sm"
+          className="flex-1 resize-none rounded-xl border-gray-200 p-6 font-mono text-xs shadow-sm focus-visible:ring-emerald-50"
           placeholder={t('skills.codingLogicPlaceholder') || 'Enter file content...'}
         />
       </div>
@@ -88,7 +86,7 @@ How to use this skill..."
   }
 
   return (
-    <div className="flex-1 flex items-center justify-center text-gray-400">
+    <div className="flex flex-1 items-center justify-center text-gray-400">
       <div className="text-center">
         <FileText size={32} className="mx-auto mb-2 text-gray-200" />
         <p className="text-xs">Select a file to edit</p>

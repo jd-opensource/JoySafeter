@@ -4,6 +4,7 @@ import { useSidebarStore } from '@/stores/sidebar/store'
 
 import { Sidebar } from './components/sidebar/sidebar'
 import { GlobalCommandsProvider } from './providers/global-commands-provider'
+import { WorkspacePermissionsProvider } from './providers/workspace-permissions-provider'
 
 /**
  * Workspace Detail Layout
@@ -32,14 +33,16 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const contentMarginLeft = isWorkspaceSidebarCollapsed ? 0 : workspaceSidebarWidth
 
   return (
-    <GlobalCommandsProvider>
-      <Sidebar />
-      <div
-        className='flex-1 h-full overflow-hidden transition-all duration-300'
-        style={{ marginLeft: `${contentMarginLeft}px` }}
-      >
-        {children}
-      </div>
-    </GlobalCommandsProvider>
+    <WorkspacePermissionsProvider>
+      <GlobalCommandsProvider>
+        <Sidebar />
+        <div
+          className="h-full flex-1 overflow-hidden transition-all duration-300"
+          style={{ marginLeft: `${contentMarginLeft}px` }}
+        >
+          {children}
+        </div>
+      </GlobalCommandsProvider>
+    </WorkspacePermissionsProvider>
   )
 }

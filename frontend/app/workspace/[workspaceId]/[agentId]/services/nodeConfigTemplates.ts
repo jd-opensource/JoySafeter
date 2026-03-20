@@ -135,7 +135,7 @@ export const getTemplatesForNodeType = (nodeType: string): NodeConfigTemplate[] 
 
 export const applyTemplate = (
   nodeType: string,
-  templateName: string
+  templateName: string,
 ): Record<string, unknown> | null => {
   const templates = getTemplatesForNodeType(nodeType)
   const template = templates.find((t) => t.name === templateName)

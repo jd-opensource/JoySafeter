@@ -22,9 +22,6 @@ import { GraphStatusBar } from './GraphStatusBar'
 import { SchemaExportPanel } from './SchemaExportPanel'
 import { ValidationSummaryPanel } from './ValidationSummaryPanel'
 
-
-
-
 import 'reactflow/dist/style.css'
 import { LoopBackEdge } from './LoopBackEdge'
 import { DefaultEdge } from './DefaultEdge'
@@ -32,8 +29,6 @@ import { DefaultEdge } from './DefaultEdge'
 import { EdgeData } from '../types/graph'
 import { EDGE_COLORS } from '../utils/edgeStyles'
 import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
-
-
 
 // Custom Controls Component
 interface CustomControlsProps {
@@ -50,7 +45,7 @@ interface CustomControlsProps {
   fitViewTitle: string
 }
 
-const CustomControls: React.FC<CustomControlsProps> = ({
+function CustomControls({
   past,
   future,
   canEdit,
@@ -62,7 +57,7 @@ const CustomControls: React.FC<CustomControlsProps> = ({
   zoomInTitle,
   zoomOutTitle,
   fitViewTitle,
-}) => {
+}: CustomControlsProps) {
   const { zoomIn, zoomOut, fitView } = useReactFlow()
 
   const handleUndo = () => {
@@ -82,39 +77,39 @@ const CustomControls: React.FC<CustomControlsProps> = ({
   }
 
   return (
-    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-[100]">
-      <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+    <div className="absolute bottom-4 left-1/2 z-[100] -translate-x-1/2 transform">
+      <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-lg">
         {/* Zoom Controls */}
         <button
           onClick={() => zoomIn()}
-          className="flex items-center justify-center w-7 h-7 rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
           title={zoomInTitle}
         >
           <ZoomIn size={15} className="text-gray-600" />
         </button>
         <button
           onClick={() => zoomOut()}
-          className="flex items-center justify-center w-7 h-7 rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
           title={zoomOutTitle}
         >
           <ZoomOut size={15} className="text-gray-600" />
         </button>
         <button
           onClick={() => fitView({ padding: 0.2 })}
-          className="flex items-center justify-center w-7 h-7 rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
           title={fitViewTitle}
         >
           <Maximize size={15} className="text-gray-600" />
         </button>
 
         {/* Divider */}
-        <div className="w-px h-5 bg-gray-200 mx-1" />
+        <div className="mx-1 h-5 w-px bg-gray-200" />
 
         {/* Undo/Redo */}
         <button
           onClick={handleUndo}
           disabled={past.length === 0 || !canEdit}
-          className="flex items-center justify-center w-7 h-7 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 active:bg-gray-200"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
           title={undoTitle}
         >
           <Undo2 size={15} className="text-gray-600" />
@@ -122,7 +117,7 @@ const CustomControls: React.FC<CustomControlsProps> = ({
         <button
           onClick={handleRedo}
           disabled={future.length === 0 || !canEdit}
-          className="flex items-center justify-center w-7 h-7 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 active:bg-gray-200"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
           title={redoTitle}
         >
           <Redo2 size={15} className="text-gray-600" />
@@ -132,8 +127,7 @@ const CustomControls: React.FC<CustomControlsProps> = ({
   )
 }
 
-export const BuilderCanvas: React.FC = () => {
-
+export function BuilderCanvas() {
   const { t } = useTranslation()
   const params = useParams()
   const workspaceId = params.workspaceId as string
@@ -183,11 +177,7 @@ export const BuilderCanvas: React.FC = () => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Don't handle shortcuts when user is typing in an input/textarea
       const target = event.target as HTMLElement
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      ) {
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return
       }
 
@@ -204,10 +194,7 @@ export const BuilderCanvas: React.FC = () => {
       }
 
       // Redo: Ctrl+Shift+Z / Cmd+Shift+Z or Ctrl+Y / Cmd+Y
-      if (
-        (ctrlOrCmd && event.key === 'z' && event.shiftKey) ||
-        (ctrlOrCmd && event.key === 'y')
-      ) {
+      if ((ctrlOrCmd && event.key === 'z' && event.shiftKey) || (ctrlOrCmd && event.key === 'y')) {
         event.preventDefault()
         if (future.length > 0 && userPermissions.canEdit) {
           redo()
@@ -252,7 +239,10 @@ export const BuilderCanvas: React.FC = () => {
       }
 
       // Delete: Delete or Backspace
-      if ((event.key === 'Delete' || event.key === 'Backspace') && (selectedNodeId || selectedEdgeId)) {
+      if (
+        (event.key === 'Delete' || event.key === 'Backspace') &&
+        (selectedNodeId || selectedEdgeId)
+      ) {
         event.preventDefault()
         if (!userPermissions.canEdit) {
           toast({
@@ -326,9 +316,7 @@ export const BuilderCanvas: React.FC = () => {
     const result: typeof edges = []
 
     for (const e of edges) {
-      const key =
-        e.id ||
-        `${e.source}-${e.target}-${e.sourceHandle ?? ''}-${e.targetHandle ?? ''}`
+      const key = e.id || `${e.source}-${e.target}-${e.sourceHandle ?? ''}-${e.targetHandle ?? ''}`
 
       if (seen.has(key)) continue
       seen.add(key)
@@ -401,7 +389,7 @@ export const BuilderCanvas: React.FC = () => {
 
       addNode(type, position, label, configOverride)
     },
-    [addNode, userPermissions.canEdit, toast, t, workspaceId]
+    [addNode, userPermissions.canEdit, toast, t, workspaceId],
   )
 
   // Process edges for React Flow with unique types and styling
@@ -424,19 +412,18 @@ export const BuilderCanvas: React.FC = () => {
     })
   }, [uniqueEdges])
 
-
   return (
     <div
-      className="flex-1 h-full relative overflow-hidden bg-gray-50"
+      className="relative h-full flex-1 overflow-hidden bg-gray-50"
       ref={reactFlowWrapper}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
       <div
-        className={`absolute inset-4 z-50 border-2 border-dashed rounded-xl flex items-center justify-center pointer-events-none transition-all duration-200 ${isDragOver ? 'border-blue-500/50 bg-blue-500/5 backdrop-blur-[1px] opacity-100 scale-100' : 'border-transparent opacity-0 scale-95'}`}
+        className={`pointer-events-none absolute inset-4 z-50 flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 ${isDragOver ? 'scale-100 border-blue-500/50 bg-blue-500/5 opacity-100 backdrop-blur-[1px]' : 'scale-95 border-transparent opacity-0'}`}
       >
-        <div className="bg-white border border-blue-100 text-blue-600 px-6 py-3 rounded-xl shadow-xl font-medium flex items-center gap-3 animate-bounce">
+        <div className="flex animate-bounce items-center gap-3 rounded-xl border border-blue-100 bg-white px-6 py-3 font-medium text-blue-600 shadow-xl">
           <Plus size={20} /> <span className="text-lg">{t('workspace.dropToAddNode')}</span>
         </div>
       </div>
@@ -447,7 +434,7 @@ export const BuilderCanvas: React.FC = () => {
       <div
         className="absolute top-4 z-[100]"
         style={{
-          left: isSidebarCollapsed ? '320px' : '16px'
+          left: isSidebarCollapsed ? '320px' : '16px',
         }}
       >
         <GraphStatusBar />
@@ -469,7 +456,7 @@ export const BuilderCanvas: React.FC = () => {
         onNodeDragStart={() => takeSnapshot()}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        className="bg-gray-50 w-full h-full"
+        className="h-full w-full bg-gray-50"
         defaultEdgeOptions={{
           style: { stroke: EDGE_COLORS.normal, strokeWidth: 1.5 },
           animated: true,

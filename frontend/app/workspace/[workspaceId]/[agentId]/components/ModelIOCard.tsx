@@ -5,7 +5,7 @@ import React, { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import type { ExecutionStep } from '@/types'
 
@@ -46,34 +46,39 @@ function formatJsonWithNewlines(data: any): string {
         }
       }
       return match
-    }
+    },
   )
 }
 
 /** JSON Data Section Component */
-const DataSection: React.FC<{
+function DataSection({
+  title,
+  data,
+  icon,
+  iconColor,
+  bgColor,
+  defaultCollapsed = false,
+}: {
   title: string
   data: any
   icon: React.ReactNode
   iconColor: string
   bgColor: string
   defaultCollapsed?: boolean
-}> = ({ title, data, icon, iconColor, bgColor, defaultCollapsed = false }) => {
+}) {
   const dataString = JSON.stringify(data)
   const shouldAutoCollapse = dataString.length > 2000
   const [collapsed, setCollapsed] = useState(defaultCollapsed || shouldAutoCollapse)
 
   return (
-    <div className={cn("rounded border overflow-hidden", bgColor)}>
+    <div className={cn('overflow-hidden rounded border', bgColor)}>
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center justify-between p-2 hover:bg-gray-100/50 transition-colors"
+        className="flex w-full items-center justify-between p-2 transition-colors hover:bg-gray-100/50"
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>
-          <span className="text-[10px] font-semibold text-gray-600 uppercase">
-            {title}
-          </span>
+          <span className="text-[10px] font-semibold uppercase text-gray-600">{title}</span>
         </div>
         {collapsed ? (
           <ChevronRight size={12} className="text-gray-400" />
@@ -117,11 +122,11 @@ const DataSection: React.FC<{
   )
 }
 
-export const ModelIOCard: React.FC<ModelIOCardProps> = ({
+export function ModelIOCard({
   step,
   defaultCollapsed = false,
   showHeader = true,
-}) => {
+}: ModelIOCardProps) {
   const { t } = useTranslation()
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
 
@@ -139,19 +144,17 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
   if (!showHeader) {
     // Full screen view in ExecutionPanel
     return (
-      <div className="h-full overflow-auto custom-scrollbar bg-white p-4">
+      <div className="custom-scrollbar h-full overflow-auto bg-white p-4">
         <div className="space-y-4">
           {/* Model Info Header */}
-          <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+          <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
             <Brain size={14} className="text-purple-600" />
-            <span className="text-xs font-semibold text-gray-700">
-              Model I/O
-            </span>
-            <span className="text-[10px] text-gray-500 font-mono">
+            <span className="text-xs font-semibold text-gray-700">Model I/O</span>
+            <span className="font-mono text-[10px] text-gray-500">
               ({modelProvider}/{modelName})
             </span>
             {isRunning && (
-              <span className="ml-2 px-2 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 rounded">
+              <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                 等待输出...
               </span>
             )}
@@ -181,8 +184,8 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
 
           {/* No output yet */}
           {!hasOutput && hasInput && (
-            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <div className="animate-pulse w-2 h-2 bg-amber-500 rounded-full" />
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
               <span className="text-xs text-amber-700">等待模型响应...</span>
             </div>
           )}
@@ -193,47 +196,47 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
 
   // Collapsible card view
   return (
-    <div className={cn(
-      "border rounded-lg transition-all",
-      hasOutput ? "border-green-200 bg-green-50/50" : "border-amber-200 bg-amber-50/50"
-    )}>
+    <div
+      className={cn(
+        'rounded-lg border transition-all',
+        hasOutput ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/50',
+      )}
+    >
       {/* Header */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="w-full flex items-center justify-between p-3 hover:bg-opacity-80 transition-colors"
+        className="flex w-full items-center justify-between p-3 transition-colors hover:bg-opacity-80"
       >
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {isCollapsed ? (
-            <ChevronRight size={14} className="text-gray-500 shrink-0" />
+            <ChevronRight size={14} className="shrink-0 text-gray-500" />
           ) : (
-            <ChevronDown size={14} className="text-gray-500 shrink-0" />
+            <ChevronDown size={14} className="shrink-0 text-gray-500" />
           )}
-          <Brain size={14} className="text-purple-600 shrink-0" />
-          <span className="text-xs font-semibold text-gray-700 truncate">
-            Model I/O
-          </span>
-          <span className="text-[10px] text-gray-500 font-mono truncate">
+          <Brain size={14} className="shrink-0 text-purple-600" />
+          <span className="truncate text-xs font-semibold text-gray-700">Model I/O</span>
+          <span className="truncate font-mono text-[10px] text-gray-500">
             {modelProvider}/{modelName}
           </span>
 
           {/* Status indicator */}
-          <div className="flex items-center gap-1 ml-auto">
+          <div className="ml-auto flex items-center gap-1">
             {hasInput && (
-              <span className="px-1.5 py-0.5 text-[9px] font-medium bg-blue-100 text-blue-700 rounded">
+              <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium text-blue-700">
                 IN
               </span>
             )}
-            {hasInput && hasOutput && (
-              <ArrowRight size={10} className="text-gray-400" />
-            )}
+            {hasInput && hasOutput && <ArrowRight size={10} className="text-gray-400" />}
             {hasOutput ? (
-              <span className="px-1.5 py-0.5 text-[9px] font-medium bg-purple-100 text-purple-700 rounded">
+              <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[9px] font-medium text-purple-700">
                 OUT
               </span>
-            ) : hasInput && (
-              <span className="px-1.5 py-0.5 text-[9px] font-medium bg-amber-100 text-amber-700 rounded animate-pulse">
-                ...
-              </span>
+            ) : (
+              hasInput && (
+                <span className="animate-pulse rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+                  ...
+                </span>
+              )
             )}
           </div>
         </div>
@@ -241,7 +244,7 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
 
       {/* Content */}
       {!isCollapsed && (
-        <div className="border-t border-gray-200 bg-white p-3 space-y-2">
+        <div className="space-y-2 border-t border-gray-200 bg-white p-3">
           {/* Input Section */}
           {hasInput && (
             <DataSection
@@ -267,8 +270,8 @@ export const ModelIOCard: React.FC<ModelIOCardProps> = ({
 
           {/* Waiting indicator */}
           {!hasOutput && hasInput && (
-            <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded">
-              <div className="animate-pulse w-2 h-2 bg-amber-500 rounded-full" />
+            <div className="flex items-center gap-2 rounded border border-amber-200 bg-amber-50 p-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
               <span className="text-[10px] text-amber-700">等待模型响应...</span>
             </div>
           )}

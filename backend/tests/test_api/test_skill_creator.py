@@ -1,13 +1,10 @@
-"""Integration smoke tests for the Skill Creator feature.
-
-After the mode→graph_id unification, skill_creator no longer uses a dedicated
-`mode` field. Instead, it routes through `graph_id` like all other modes.
-The `edit_skill_id` is now passed via `metadata`.
-"""
+"""Integration smoke tests for the Skill Creator feature."""
 
 import json
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
 from app.schemas.chat import ChatRequest
@@ -16,26 +13,19 @@ from app.schemas.chat import ChatRequest
 class TestSkillCreatorIntegration:
     """Verify key components of the Skill Creator feature work together."""
 
-    def test_chat_request_with_graph_id(self):
-        """Skill creator now uses graph_id for routing, not mode."""
-        import uuid
+    def test_chat_request_accepts_skill_creator_mode(self):
+        req = ChatRequest(message="Create a network scan skill", mode="skill_creator")
+        assert req.mode == "skill_creator"
+        assert req.edit_skill_id is None
 
-        gid = uuid.uuid4()
-        req = ChatRequest(message="Create a network scan skill", graph_id=gid)
-        assert req.graph_id == gid
-
-    def test_chat_request_with_edit_skill_id_in_metadata(self):
-        """edit_skill_id is now passed via metadata."""
-        import uuid
-
-        gid = uuid.uuid4()
+    def test_chat_request_skill_creator_with_edit(self):
         req = ChatRequest(
             message="Update this skill",
-            graph_id=gid,
-            metadata={"edit_skill_id": "abc-123"},
+            mode="skill_creator",
+            edit_skill_id="abc-123",
         )
-        assert req.graph_id == gid
-        assert req.metadata["edit_skill_id"] == "abc-123"
+        assert req.mode == "skill_creator"
+        assert req.edit_skill_id == "abc-123"
 
     def test_preview_skill_end_to_end(self):
         """Simulate: agent creates skill files in sandbox -> preview_skill reads them."""
@@ -66,3 +56,13 @@ class TestSkillCreatorIntegration:
             paths = {f["path"] for f in result["files"]}
             assert "SKILL.md" in paths
             assert "scripts/scan.py" in paths
+
+    def test_graph_service_has_skill_creator_method(self):
+        """Verify GraphService has the create_skill_creator_graph method."""
+        try:
+            from app.services.graph_service import GraphService
+        except ImportError as exc:
+            pytest.skip(f"GraphService import requires optional deps: {exc}")
+
+        assert hasattr(GraphService, "create_skill_creator_graph")
+        assert callable(getattr(GraphService, "create_skill_creator_graph"))

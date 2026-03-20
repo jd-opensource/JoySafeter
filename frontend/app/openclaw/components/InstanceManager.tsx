@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiDelete, apiGet, apiPost } from '@/lib/api-client'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface InstanceStatus {
   exists: boolean
@@ -60,7 +60,10 @@ export function InstanceManager() {
   })
 
   const isAnyLoading =
-    startMutation.isPending || stopMutation.isPending || restartMutation.isPending || deleteMutation.isPending
+    startMutation.isPending ||
+    stopMutation.isPending ||
+    restartMutation.isPending ||
+    deleteMutation.isPending
 
   if (isLoading) {
     return (
@@ -117,7 +120,12 @@ export function InstanceManager() {
           </div>
           {instance.alive !== undefined && (
             <div className="flex items-center gap-2">
-              <span className={cn('inline-block h-2 w-2 rounded-full', instance.alive ? 'bg-green-500' : 'bg-red-500')} />
+              <span
+                className={cn(
+                  'inline-block h-2 w-2 rounded-full',
+                  instance.alive ? 'bg-green-500' : 'bg-red-500',
+                )}
+              />
               <span>Gateway {instance.alive ? '在线' : '离线'}</span>
             </div>
           )}
@@ -127,7 +135,7 @@ export function InstanceManager() {
             </div>
           )}
           {instance.errorMessage && (
-            <div className="text-red-600 text-xs">{instance.errorMessage}</div>
+            <div className="text-xs text-red-600">{instance.errorMessage}</div>
           )}
         </div>
 
@@ -143,7 +151,12 @@ export function InstanceManager() {
             </Button>
           )}
           {status === 'running' && (
-            <Button size="sm" variant="outline" onClick={() => stopMutation.mutate()} disabled={isAnyLoading}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => stopMutation.mutate()}
+              disabled={isAnyLoading}
+            >
               {stopMutation.isPending ? (
                 <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
               ) : (
@@ -152,7 +165,12 @@ export function InstanceManager() {
               停止
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={() => restartMutation.mutate()} disabled={isAnyLoading}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => restartMutation.mutate()}
+            disabled={isAnyLoading}
+          >
             {restartMutation.isPending ? (
               <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
             ) : (

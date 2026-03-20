@@ -14,21 +14,22 @@ import { apiGet, apiPost, apiFetch } from '@/lib/api-client'
 export interface ApiKey {
   id: string
   name: string
-  key: string          // masked, except on creation
+  key: string // full key for copying
+  keyMasked: string // masked key for display
   type: 'personal' | 'workspace'
-  workspace_id: string | null
-  created_at: string
-  expires_at: string | null
-  last_used: string | null
+  workspaceId: string | null
+  createdAt: string
+  expiresAt: string | null
+  lastUsed: string | null
 }
 
 export interface CreateApiKeyResponse {
   id: string
   name: string
-  key: string          // full key, shown only once
+  key: string // full key, shown only once
   type: string
-  workspace_id: string | null
-  created_at: string
+  workspaceId: string | null
+  createdAt: string
 }
 
 // ==================== Service ====================
@@ -50,11 +51,17 @@ export const apiKeyService = {
     workspaceId?: string
     expiresInDays?: number
   }): Promise<CreateApiKeyResponse> {
+    let expiresAt: string | undefined
+    if (params.expiresInDays) {
+      const d = new Date()
+      d.setDate(d.getDate() + params.expiresInDays)
+      expiresAt = d.toISOString()
+    }
     return apiPost<CreateApiKeyResponse>('api-keys', {
       name: params.name,
       type: params.type,
       workspaceId: params.workspaceId,
-      expiresInDays: params.expiresInDays,
+      expiresAt,
     })
   },
 

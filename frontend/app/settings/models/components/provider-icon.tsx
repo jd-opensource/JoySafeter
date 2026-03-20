@@ -4,7 +4,7 @@ import React from 'react'
 
 import type { ModelProvider } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface ProviderIconProps {
   provider: ModelProvider
@@ -17,11 +17,19 @@ export function ProviderIcon({ provider, className = '' }: ProviderIconProps) {
 
   if (provider.icon) {
     return (
-      <div className={cn('relative w-8 h-8 flex items-center justify-center bg-gray-50 rounded-lg overflow-hidden border border-gray-100 shadow-sm', className)}>
+      <div
+        className={cn(
+          'relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-gray-100 bg-gray-50 shadow-sm',
+          className,
+        )}
+      >
         <img
-          alt={t('settings.providerIconAlt', { provider: provider.display_name, defaultValue: `${provider.display_name} icon` })}
+          alt={t('settings.providerIconAlt', {
+            provider: provider.display_name,
+            defaultValue: `${provider.display_name} icon`,
+          })}
           src={provider.icon}
-          className="w-5 h-5 object-contain"
+          className="h-5 w-5 object-contain"
           onError={(e) => {
             e.currentTarget.style.display = 'none'
           }}
@@ -40,10 +48,18 @@ export function ProviderIcon({ provider, className = '' }: ProviderIconProps) {
     'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200',
   ]
   const colorIndex = (provider.display_name?.length || 0) % bgColors.length
-  const colorClass = isCustom ? 'bg-violet-100 text-violet-600 border-violet-200' : bgColors[colorIndex]
+  const colorClass = isCustom
+    ? 'bg-violet-100 text-violet-600 border-violet-200'
+    : bgColors[colorIndex]
 
   return (
-    <div className={cn('relative w-8 h-8 flex items-center justify-center rounded-lg border shadow-sm font-bold text-sm', colorClass, className)}>
+    <div
+      className={cn(
+        'relative flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-bold shadow-sm',
+        colorClass,
+        className,
+      )}
+    >
       {firstLetter}
     </div>
   )

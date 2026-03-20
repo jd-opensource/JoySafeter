@@ -1,14 +1,31 @@
 'use client'
 
-import { Bot, Check, ChevronRight, ChevronDown, Copy, Folder, FolderOpen, FolderPlus, GripVertical, MoreHorizontal, Pencil, Trash2, X } from 'lucide-react'
+import {
+  Bot,
+  Check,
+  ChevronRight,
+  ChevronDown,
+  Copy,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  GripVertical,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  X,
+} from 'lucide-react'
 import Link from 'next/link'
 import { useParams, usePathname } from 'next/navigation'
 import { useCallback, useState, useRef, useEffect, useMemo } from 'react'
 
-import type { Folder as FolderType, AgentMetadata } from '@/app/workspace/[workspaceId]/components/sidebar/sidebar'
+import type {
+  Folder as FolderType,
+  AgentMetadata,
+} from '@/app/workspace/[workspaceId]/components/sidebar/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 /**
@@ -125,13 +142,16 @@ function AgentItem({
     setIsEditing(false)
   }, [agent.name])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSaveRename()
-    } else if (e.key === 'Escape') {
-      handleCancelRename()
-    }
-  }, [handleSaveRename, handleCancelRename])
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        handleSaveRename()
+      } else if (e.key === 'Escape') {
+        handleCancelRename()
+      }
+    },
+    [handleSaveRename, handleCancelRename],
+  )
 
   const handleDelete = useCallback(() => {
     setShowMenu(false)
@@ -157,48 +177,46 @@ function AgentItem({
           isDragging && 'opacity-50',
           active
             ? 'bg-[var(--surface-9)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--surface-5)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--surface-5)]',
         )}
         style={{ marginLeft: `${indentPadding}px` }}
       >
-        <div className='flex cursor-grab items-center px-[4px] py-[6px] opacity-0 transition-opacity group-hover:opacity-100'>
-          <GripVertical className='h-[12px] w-[12px] text-[var(--text-tertiary)]' />
+        <div className="flex cursor-grab items-center px-[4px] py-[6px] opacity-0 transition-opacity group-hover:opacity-100">
+          <GripVertical className="h-[12px] w-[12px] text-[var(--text-tertiary)]" />
         </div>
 
         {isEditing ? (
-          <div className='flex flex-1 items-center gap-[6px] py-[3px] pr-[6px] animate-in fade-in duration-150'>
-            <Bot
-              className='ml-[2px] h-[14px] w-[14px] flex-shrink-0 text-blue-500'
-            />
-            <div className='relative flex flex-1 items-center'>
+          <div className="flex flex-1 items-center gap-[6px] py-[3px] pr-[6px] duration-150 animate-in fade-in">
+            <Bot className="ml-[2px] h-[14px] w-[14px] flex-shrink-0 text-blue-500" />
+            <div className="relative flex flex-1 items-center">
               <input
                 ref={inputRef}
-                type='text'
+                type="text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={handleSaveRename}
                 onKeyDown={handleKeyDown}
-                className='w-full rounded-[6px] border border-[var(--brand-primary)]/60 bg-[var(--surface-1)] px-[8px] py-[4px] font-medium text-[12px] text-[var(--text-primary)] shadow-sm outline-none ring-2 ring-[var(--brand-primary)]/20 transition-all placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-primary)] focus:ring-[var(--brand-primary)]/30'
+                className="border-[var(--brand-primary)]/60 ring-[var(--brand-primary)]/20 focus:ring-[var(--brand-primary)]/30 w-full rounded-[6px] border bg-[var(--surface-1)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 transition-all placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-primary)]"
                 onClick={(e) => e.stopPropagation()}
-                placeholder='Enter name...'
+                placeholder="Enter name..."
               />
             </div>
-            <div className='flex items-center gap-[2px]'>
+            <div className="flex items-center gap-[2px]">
               <button
-                type='button'
-                className='flex h-[24px] w-[24px] items-center justify-center rounded-[6px] bg-[var(--brand-primary)] text-white shadow-sm transition-all hover:bg-[var(--brand-primary)]/90 hover:shadow active:scale-95'
+                type="button"
+                className="hover:bg-[var(--brand-primary)]/90 flex h-[24px] w-[24px] items-center justify-center rounded-[6px] bg-[var(--brand-primary)] text-white shadow-sm transition-all hover:shadow active:scale-95"
                 onClick={handleSaveRename}
-                title='Save'
+                title="Save"
               >
-                <Check className='h-[12px] w-[12px]' strokeWidth={2.5} />
+                <Check className="h-[12px] w-[12px]" strokeWidth={2.5} />
               </button>
               <button
-                type='button'
-                className='flex h-[24px] w-[24px] items-center justify-center rounded-[6px] bg-[var(--surface-5)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-9)] hover:text-[var(--text-secondary)] active:scale-95'
+                type="button"
+                className="flex h-[24px] w-[24px] items-center justify-center rounded-[6px] bg-[var(--surface-5)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-9)] hover:text-[var(--text-secondary)] active:scale-95"
                 onClick={handleCancelRename}
-                title='Cancel'
+                title="Cancel"
               >
-                <X className='h-[12px] w-[12px]' strokeWidth={2.5} />
+                <X className="h-[12px] w-[12px]" strokeWidth={2.5} />
               </button>
             </div>
           </div>
@@ -208,22 +226,20 @@ function AgentItem({
               <TooltipTrigger asChild>
                 <Link
                   href={`/workspace/${workspaceId}/${agent.id}`}
-                  className='flex flex-1 items-center py-[5px] pr-[6px] min-w-0'
+                  className="flex min-w-0 flex-1 items-center py-[5px] pr-[6px]"
                   onClick={(e) => isDragging && e.preventDefault()}
                   onDoubleClick={(e) => {
                     e.preventDefault()
                     handleStartRename()
                   }}
                 >
-                  <Bot
-                    className='mr-[6px] h-[14px] w-[14px] flex-shrink-0 text-blue-500'
-                  />
-                  <span className='truncate font-medium text-[12px]'>{agent.name}</span>
+                  <Bot className="mr-[6px] h-[14px] w-[14px] flex-shrink-0 text-blue-500" />
+                  <span className="truncate text-[12px] font-medium">{agent.name}</span>
                 </Link>
               </TooltipTrigger>
               <TooltipContent
-                side='bottom'
-                className='max-w-[280px] break-words bg-[var(--surface-1)] text-[var(--text-primary)] border border-[var(--border)] shadow-lg'
+                side="bottom"
+                className="max-w-[280px] break-words border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-primary)] shadow-lg"
               >
                 {agent.name}
               </TooltipContent>
@@ -234,8 +250,8 @@ function AgentItem({
         {/* Menu Button */}
         {!isEditing && (
           <button
-            type='button'
-            className='mr-[4px] rounded-[4px] p-[4px] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--surface-9)]'
+            type="button"
+            className="mr-[4px] rounded-[4px] p-[4px] opacity-0 transition-opacity hover:bg-[var(--surface-9)] group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               e.preventDefault()
@@ -243,7 +259,7 @@ function AgentItem({
               setShowMenu(!showMenu)
             }}
           >
-            <MoreHorizontal className='h-[12px] w-[12px] text-[var(--text-tertiary)]' />
+            <MoreHorizontal className="h-[12px] w-[12px] text-[var(--text-tertiary)]" />
           </button>
         )}
       </div>
@@ -251,12 +267,9 @@ function AgentItem({
       {/* Context Menu */}
       {showMenu && (
         <>
+          <div className="fixed inset-0 z-[100]" onClick={() => setShowMenu(false)} />
           <div
-            className='fixed inset-0 z-[100]'
-            onClick={() => setShowMenu(false)}
-          />
-          <div
-            className='fixed z-[101] min-w-[120px] rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg'
+            className="fixed z-[101] min-w-[120px] rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg"
             style={{
               left: `${menuPosition.x}px`,
               top: `${menuPosition.y}px`,
@@ -264,33 +277,33 @@ function AgentItem({
           >
             {onRename && (
               <button
-                type='button'
-                className='flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
+                type="button"
+                className="flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
                 onClick={handleStartRename}
               >
-                <Pencil className='h-[12px] w-[12px]' />
+                <Pencil className="h-[12px] w-[12px]" />
                 {t('workspace.rename')}
               </button>
             )}
             {onDuplicate && (
               <button
-                type='button'
-                className='flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
+                type="button"
+                className="flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
                 onClick={handleDuplicate}
               >
-                <Copy className='h-[12px] w-[12px]' />
+                <Copy className="h-[12px] w-[12px]" />
                 {t('workspace.duplicate')}
               </button>
             )}
             {onDelete && (
               <>
-                <div className='my-[4px] h-[1px] bg-[var(--border)]' />
+                <div className="my-[4px] h-[1px] bg-[var(--border)]" />
                 <button
-                  type='button'
-                  className='flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] font-medium text-[12px] text-[#ef4444] transition-colors hover:bg-[var(--surface-5)]'
+                  type="button"
+                  className="flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] text-[12px] font-medium text-[#ef4444] transition-colors hover:bg-[var(--surface-5)]"
                   onClick={handleDelete}
                 >
-                  <Trash2 className='h-[12px] w-[12px]' />
+                  <Trash2 className="h-[12px] w-[12px]" />
                   {t('workspace.delete')}
                 </button>
               </>
@@ -392,7 +405,7 @@ function FolderItem({
         setIsEditing(false)
       }
     },
-    [handleSaveRename, folder.name]
+    [handleSaveRename, folder.name],
   )
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -417,7 +430,7 @@ function FolderItem({
   const indentPadding = depth * 12
 
   return (
-    <div className='space-y-[2px]'>
+    <div className="space-y-[2px]">
       {/* Folder Header */}
       <div
         className={cn(
@@ -425,73 +438,67 @@ function FolderItem({
           isDragOver
             ? 'bg-[var(--brand-primary)]/20 ring-2 ring-[var(--brand-primary)]'
             : 'hover:bg-[var(--surface-5)]',
-          isDragActive && !isDragOver && 'ring-1 ring-dashed ring-[var(--border)]'
+          isDragActive && !isDragOver && 'ring-dashed ring-1 ring-[var(--border)]',
         )}
         style={{ paddingLeft: `${8 + indentPadding}px` }}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <button
-          type='button'
-          className='flex flex-1 items-center gap-[6px]'
-          onClick={onToggle}
-        >
+        <button type="button" className="flex flex-1 items-center gap-[6px]" onClick={onToggle}>
           {folder.isExpanded ? (
-            <ChevronDown className='h-[12px] w-[12px] flex-shrink-0 transition-all duration-100' />
+            <ChevronDown className="h-[12px] w-[12px] flex-shrink-0 transition-all duration-100" />
           ) : (
-            <ChevronRight className='h-[12px] w-[12px] flex-shrink-0 transition-all duration-100' />
+            <ChevronRight className="h-[12px] w-[12px] flex-shrink-0 transition-all duration-100" />
           )}
           {folder.isExpanded ? (
-            <FolderOpen className='h-[14px] w-[14px] flex-shrink-0 text-[var(--text-tertiary)]' />
+            <FolderOpen className="h-[14px] w-[14px] flex-shrink-0 text-[var(--text-tertiary)]" />
           ) : (
-            <Folder className='h-[14px] w-[14px] flex-shrink-0 text-[var(--text-tertiary)]' />
+            <Folder className="h-[14px] w-[14px] flex-shrink-0 text-[var(--text-tertiary)]" />
           )}
           {isEditing ? (
-            <div className='flex flex-1 items-center gap-[4px] animate-in fade-in duration-150'>
+            <div className="flex flex-1 items-center gap-[4px] duration-150 animate-in fade-in">
               <input
-                type='text'
+                type="text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={handleSaveRename}
                 onKeyDown={handleKeyDown}
-                className='flex-1 rounded-[5px] border border-[var(--brand-primary)]/60 bg-[var(--surface-1)] px-[6px] py-[2px] font-medium text-[12px] text-[var(--text-primary)] shadow-sm outline-none ring-2 ring-[var(--brand-primary)]/20 transition-all focus:border-[var(--brand-primary)] focus:ring-[var(--brand-primary)]/30'
+                className="border-[var(--brand-primary)]/60 ring-[var(--brand-primary)]/20 focus:ring-[var(--brand-primary)]/30 flex-1 rounded-[5px] border bg-[var(--surface-1)] px-[6px] py-[2px] text-[12px] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 transition-all focus:border-[var(--brand-primary)]"
                 autoFocus
                 onClick={(e) => e.stopPropagation()}
               />
               <button
-                type='button'
-                className='flex h-[20px] w-[20px] items-center justify-center rounded-[5px] bg-[var(--brand-primary)] text-white shadow-sm transition-all hover:bg-[var(--brand-primary)]/90 active:scale-95'
+                type="button"
+                className="hover:bg-[var(--brand-primary)]/90 flex h-[20px] w-[20px] items-center justify-center rounded-[5px] bg-[var(--brand-primary)] text-white shadow-sm transition-all active:scale-95"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleSaveRename()
                 }}
               >
-                <Check className='h-[10px] w-[10px]' strokeWidth={2.5} />
+                <Check className="h-[10px] w-[10px]" strokeWidth={2.5} />
               </button>
               <button
-                type='button'
-                className='flex h-[20px] w-[20px] items-center justify-center rounded-[5px] bg-[var(--surface-5)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-9)] active:scale-95'
+                type="button"
+                className="flex h-[20px] w-[20px] items-center justify-center rounded-[5px] bg-[var(--surface-5)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-9)] active:scale-95"
                 onClick={(e) => {
                   e.stopPropagation()
                   setEditName(folder.name)
                   setIsEditing(false)
                 }}
               >
-                <X className='h-[10px] w-[10px]' strokeWidth={2.5} />
+                <X className="h-[10px] w-[10px]" strokeWidth={2.5} />
               </button>
             </div>
           ) : (
             <TooltipProvider delayDuration={400}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className='truncate font-medium text-[13px]'>
-                    {folder.name}
-                  </span>
+                  <span className="truncate text-[13px] font-medium">{folder.name}</span>
                 </TooltipTrigger>
                 <TooltipContent
-                  side='bottom'
-                  className='max-w-[280px] break-words bg-[var(--surface-1)] text-[var(--text-primary)] border border-[var(--border)] shadow-lg'
+                  side="bottom"
+                  className="max-w-[280px] break-words border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-primary)] shadow-lg"
                 >
                   {folder.name}
                 </TooltipContent>
@@ -501,70 +508,67 @@ function FolderItem({
         </button>
 
         {/* Menu */}
-        <div className='relative'>
+        <div className="relative">
           <button
-            type='button'
-            className='rounded-[4px] p-[2px] opacity-0 transition-opacity group-hover:opacity-100'
+            type="button"
+            className="rounded-[4px] p-[2px] opacity-0 transition-opacity group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               setShowMenu(!showMenu)
             }}
           >
-            <MoreHorizontal className='h-[14px] w-[14px]' />
+            <MoreHorizontal className="h-[14px] w-[14px]" />
           </button>
 
           {showMenu && (
             <>
-              <div
-                className='fixed inset-0 z-40'
-                onClick={() => setShowMenu(false)}
-              />
-              <div className='absolute top-[24px] right-0 z-50 min-w-[140px] rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg'>
+              <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+              <div className="absolute right-0 top-[24px] z-50 min-w-[140px] rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-[4px] shadow-lg">
                 {canCreateSubfolder && (
                   <button
-                    type='button'
-                    className='flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
+                    type="button"
+                    className="flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
                     onClick={() => {
                       setShowMenu(false)
                       onCreateSubfolder?.()
                     }}
                   >
-                    <FolderPlus className='h-[12px] w-[12px]' />
+                    <FolderPlus className="h-[12px] w-[12px]" />
                     {t('workspace.newSubfolder')}
                   </button>
                 )}
                 <button
-                  type='button'
-                  className='flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
+                  type="button"
+                  className="flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
                   onClick={() => {
                     setShowMenu(false)
                     onDuplicate?.()
                   }}
                 >
-                  <Copy className='h-[12px] w-[12px]' />
+                  <Copy className="h-[12px] w-[12px]" />
                   {t('workspace.duplicate')}
                 </button>
-                <div className='my-[4px] h-[1px] bg-[var(--border)]' />
+                <div className="my-[4px] h-[1px] bg-[var(--border)]" />
                 <button
-                  type='button'
-                  className='flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] font-medium text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]'
+                  type="button"
+                  className="flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-5)]"
                   onClick={() => {
                     setShowMenu(false)
                     setIsEditing(true)
                   }}
                 >
-                  <Pencil className='h-[12px] w-[12px]' />
+                  <Pencil className="h-[12px] w-[12px]" />
                   {t('workspace.rename')}
                 </button>
                 <button
-                  type='button'
-                  className='flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] font-medium text-[12px] text-[#ef4444] transition-colors hover:bg-[var(--surface-5)]'
+                  type="button"
+                  className="flex w-full items-center gap-[6px] rounded-[6px] px-[6px] py-[5px] text-[12px] font-medium text-[#ef4444] transition-colors hover:bg-[var(--surface-5)]"
                   onClick={() => {
                     setShowMenu(false)
                     onDelete()
                   }}
                 >
-                  <Trash2 className='h-[12px] w-[12px]' />
+                  <Trash2 className="h-[12px] w-[12px]" />
                   {t('workspace.delete')}
                 </button>
               </div>
@@ -575,41 +579,42 @@ function FolderItem({
 
       {/* Folder Contents (expanded) */}
       {folder.isExpanded && (
-        <div className='space-y-[2px]'>
+        <div className="space-y-[2px]">
           {/* Subfolders - only render if not at max depth */}
-          {depth < maxDepth - 1 && subfolders.map((subfolder) => (
-            <FolderItem
-              key={subfolder.id}
-              folder={subfolder}
-              agents={getAgentsInFolder(subfolder.id)}
-              subfolders={getSubfolders(subfolder.id)}
-              allFolders={allFolders}
-              activeAgentId={activeAgentId}
-              depth={depth + 1}
-              maxDepth={maxDepth}
-              onToggle={() => onToggleFolder(subfolder.id)}
-              onRename={(newName) => onRenameFolder(subfolder.id, newName)}
-              onDelete={() => onDeleteFolder(subfolder.id)}
-              onCreateSubfolder={() => onCreateSubfolderFor(subfolder.id)}
-              onDuplicate={() => onDuplicateFolder(subfolder.id)}
-              onDropAgent={(aId) => onMoveAgentToFolder(aId, subfolder.id)}
-              onDragAgentStart={onDragAgentStart}
-              onDragAgentEnd={onDragAgentEnd}
-              isDragActive={isDragActive}
-              getAgentsInFolder={getAgentsInFolder}
-              getSubfolders={getSubfolders}
-              onToggleFolder={onToggleFolder}
-              onRenameFolder={onRenameFolder}
-              onDeleteFolder={onDeleteFolder}
-              onCreateSubfolderFor={onCreateSubfolderFor}
-              onDuplicateFolder={onDuplicateFolder}
-              onMoveAgentToFolder={onMoveAgentToFolder}
-              onRenameAgent={onRenameAgent}
-              onDeleteAgent={onDeleteAgent}
-              onDuplicateAgent={onDuplicateAgent}
-              canEdit={canEdit}
-            />
-          ))}
+          {depth < maxDepth - 1 &&
+            subfolders.map((subfolder) => (
+              <FolderItem
+                key={subfolder.id}
+                folder={subfolder}
+                agents={getAgentsInFolder(subfolder.id)}
+                subfolders={getSubfolders(subfolder.id)}
+                allFolders={allFolders}
+                activeAgentId={activeAgentId}
+                depth={depth + 1}
+                maxDepth={maxDepth}
+                onToggle={() => onToggleFolder(subfolder.id)}
+                onRename={(newName) => onRenameFolder(subfolder.id, newName)}
+                onDelete={() => onDeleteFolder(subfolder.id)}
+                onCreateSubfolder={() => onCreateSubfolderFor(subfolder.id)}
+                onDuplicate={() => onDuplicateFolder(subfolder.id)}
+                onDropAgent={(aId) => onMoveAgentToFolder(aId, subfolder.id)}
+                onDragAgentStart={onDragAgentStart}
+                onDragAgentEnd={onDragAgentEnd}
+                isDragActive={isDragActive}
+                getAgentsInFolder={getAgentsInFolder}
+                getSubfolders={getSubfolders}
+                onToggleFolder={onToggleFolder}
+                onRenameFolder={onRenameFolder}
+                onDeleteFolder={onDeleteFolder}
+                onCreateSubfolderFor={onCreateSubfolderFor}
+                onDuplicateFolder={onDuplicateFolder}
+                onMoveAgentToFolder={onMoveAgentToFolder}
+                onRenameAgent={onRenameAgent}
+                onDeleteAgent={onDeleteAgent}
+                onDuplicateAgent={onDuplicateAgent}
+                canEdit={canEdit}
+              />
+            ))}
 
           {/* Agents in this folder */}
           {agents.map((agent) => (
@@ -635,7 +640,7 @@ function FolderItem({
                 'rounded-[6px] py-[8px] text-[11px] font-normal',
                 isDragOver
                   ? 'bg-[var(--brand-primary)]/10 text-[var(--text-secondary)]'
-                  : 'text-[var(--text-subtle)] opacity-60'
+                  : 'text-[var(--text-subtle)] opacity-60',
               )}
               style={{ marginLeft: `${24 + indentPadding}px` }}
             >
@@ -686,17 +691,14 @@ function RootDropZone({ children, isDragActive, onDropAgent }: RootDropZoneProps
 
   return (
     <div
-      className={cn(
-        'rounded-[6px] p-[4px] transition-all',
-        isDragOver && 'bg-[var(--surface-5)]'
-      )}
+      className={cn('rounded-[6px] p-[4px] transition-all', isDragOver && 'bg-[var(--surface-5)]')}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {children}
       {isDragOver && (
-        <div className='rounded-[6px] border border-dashed border-[var(--border)] py-[8px] text-center font-medium text-[var(--text-tertiary)] text-[11px]'>
+        <div className="rounded-[6px] border border-dashed border-[var(--border)] py-[8px] text-center text-[11px] font-medium text-[var(--text-tertiary)]">
           {t('workspace.dropHereToRemoveFromFolder')}
         </div>
       )}
@@ -756,10 +758,7 @@ export function AgentList({
   const agentId = params.agentId as string | undefined
   const [isDragActive, setIsDragActive] = useState(false)
 
-  const isAgentActive = useCallback(
-    (id: string) => pathname?.includes(`/${id}`),
-    [pathname]
-  )
+  const isAgentActive = useCallback((id: string) => pathname?.includes(`/${id}`), [pathname])
 
   // Filter agents by search query
   const filteredAgents = useMemo(() => {
@@ -790,13 +789,13 @@ export function AgentList({
   // Get agents in each folder
   const getAgentsInFolder = useCallback(
     (folderId: string) => filteredAgents.filter((a) => a.folderId === folderId),
-    [filteredAgents]
+    [filteredAgents],
   )
 
   // Get subfolders of a folder
   const getSubfolders = useCallback(
     (parentId: string) => filteredFolders.filter((f) => f.parentId === parentId),
-    [filteredFolders]
+    [filteredFolders],
   )
 
   // Get root folders (no parent)
@@ -815,14 +814,14 @@ export function AgentList({
 
   if (isLoading) {
     return (
-      <div className='space-y-[4px]'>
+      <div className="space-y-[4px]">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={`skeleton-${i}`}
-            className='flex items-center gap-[6px] rounded-[6px] px-[6px] py-[5px]'
+            className="flex items-center gap-[6px] rounded-[6px] px-[6px] py-[5px]"
           >
-            <Skeleton className='h-[12px] w-[12px] rounded-[3px]' />
-            <Skeleton className='h-[14px] w-[80px]' />
+            <Skeleton className="h-[12px] w-[12px] rounded-[3px]" />
+            <Skeleton className="h-[14px] w-[80px]" />
           </div>
         ))}
       </div>
@@ -833,14 +832,14 @@ export function AgentList({
 
   if (hasNoContent) {
     return (
-      <div className='px-[8px] py-[12px] text-center font-medium text-[var(--text-tertiary)] text-[13px]'>
+      <div className="px-[8px] py-[12px] text-center text-[13px] font-medium text-[var(--text-tertiary)]">
         {t('workspace.noAgentsYet')}
       </div>
     )
   }
 
   return (
-    <div className='space-y-[4px]'>
+    <div className="space-y-[4px]">
       {/* Root Folders */}
       {rootFolders.map((folder) => (
         <FolderItem
@@ -882,9 +881,9 @@ export function AgentList({
           isDragActive={isDragActive && rootFolders.length > 0}
           onDropAgent={(aId) => onMoveAgentToFolder?.(aId, null)}
         >
-          <div className='space-y-[2px]'>
+          <div className="space-y-[2px]">
             {rootFolders.length > 0 && (
-              <div className='px-[8px] py-[4px] font-medium text-[var(--text-tertiary)] text-[11px]'>
+              <div className="px-[8px] py-[4px] text-[11px] font-medium text-[var(--text-tertiary)]">
                 {t('workspace.ungrouped')}
               </div>
             )}
@@ -907,11 +906,8 @@ export function AgentList({
 
       {/* Empty root drop zone when all agents are in folders */}
       {rootAgents.length === 0 && rootFolders.length > 0 && isDragActive && (
-        <RootDropZone
-          isDragActive={true}
-          onDropAgent={(aId) => onMoveAgentToFolder?.(aId, null)}
-        >
-          <div className='rounded-[6px] border border-dashed border-[var(--border)] py-[12px] text-center font-medium text-[var(--text-tertiary)] text-[11px]'>
+        <RootDropZone isDragActive={true} onDropAgent={(aId) => onMoveAgentToFolder?.(aId, null)}>
+          <div className="rounded-[6px] border border-dashed border-[var(--border)] py-[12px] text-center text-[11px] font-medium text-[var(--text-tertiary)]">
             {t('workspace.dropHereToRemoveFromFolder')}
           </div>
         </RootDropZone>

@@ -22,7 +22,6 @@ import type {
 
 import { STALE_TIME } from './constants'
 
-
 // Re-export types for convenience
 export type {
   ModelProvider,
@@ -126,11 +125,11 @@ export interface ModelProvidersByConfigResult {
  */
 export function useModelProvidersByConfig(
   providers: ModelProvider[],
-  credentials: ModelCredential[]
+  credentials: ModelCredential[],
 ): ModelProvidersByConfigResult {
   const credentialsByProvider = useMemo(
     () => buildCredentialsByProvider(credentials),
-    [credentials]
+    [credentials],
   )
 
   const [configuredProviders, notConfiguredProviders, templateProviders] = useMemo(() => {
@@ -166,7 +165,7 @@ export function useModelProvidersByConfig(
 
   const noValidCredential =
     configuredProviders.length === 0 ||
-    configuredProviders.every(p => !credentialsByProvider.get(p.provider_name)?.is_valid)
+    configuredProviders.every((p) => !credentialsByProvider.get(p.provider_name)?.is_valid)
 
   return {
     credentialsByProvider,
@@ -177,7 +176,10 @@ export function useModelProvidersByConfig(
   }
 }
 
-export function truncateValidationError(error: string | undefined, maxLen = VALIDATION_ERROR_TOOLTIP_MAX_LEN): string {
+export function truncateValidationError(
+  error: string | undefined,
+  maxLen = VALIDATION_ERROR_TOOLTIP_MAX_LEN,
+): string {
   if (!error) return ''
   return error.length <= maxLen ? error : `${error.slice(0, maxLen)}…`
 }
@@ -194,10 +196,7 @@ export function useModelCredential(credentialId: string) {
   })
 }
 
-export function useAvailableModels(
-  modelType: string = 'chat',
-  options?: { enabled?: boolean }
-) {
+export function useAvailableModels(modelType: string = 'chat', options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: modelKeys.available(modelType),
     queryFn: async (): Promise<AvailableModel[]> => {
@@ -242,15 +241,17 @@ export function useModels(options?: { enabled?: boolean }) {
     queryKey: modelKeys.chat(),
     queryFn: async (): Promise<ModelOption[]> => {
       // apiGet automatically unwraps response.data
-      const models = await apiGet<Array<{
-        id: string
-        name: string
-        model_type: string
-        provider_display_name: string
-        provider_name: string
-        is_available: boolean
-        is_default: boolean
-      }>>('models?model_type=chat')
+      const models = await apiGet<
+        Array<{
+          id: string
+          name: string
+          model_type: string
+          provider_display_name: string
+          provider_name: string
+          is_available: boolean
+          is_default: boolean
+        }>
+      >('models?model_type=chat')
       return (models || []).map((model) => ({
         id: model.id,
         label: model.name,
@@ -268,7 +269,6 @@ export function useModels(options?: { enabled?: boolean }) {
 }
 
 // ==================== Mutation Hooks ====================
-
 
 export function useCreateCredential() {
   const queryClient = useQueryClient()
@@ -304,7 +304,7 @@ export function useValidateCredential() {
   return useMutation({
     mutationFn: async (credentialId: string) => {
       const data = await apiPost<{ is_valid: boolean; error?: string }>(
-        `${MODEL_CREDENTIALS_PATH}/${credentialId}/validate`
+        `${MODEL_CREDENTIALS_PATH}/${credentialId}/validate`,
       )
       logger.info(`Validated credential: ${credentialId}`)
       return data
@@ -378,15 +378,14 @@ export function useUpdateModelInstanceDefault() {
 
   return useMutation({
     mutationFn: async (request: UpdateModelInstanceDefaultRequest) => {
-      const data = await apiPatch<ModelInstance>(
-        `${MODELS_PATH}/instances/default`,
-        {
-          provider_name: request.provider_name,
-          model_name: request.model_name,
-          is_default: request.is_default,
-        }
+      const data = await apiPatch<ModelInstance>(`${MODELS_PATH}/instances/default`, {
+        provider_name: request.provider_name,
+        model_name: request.model_name,
+        is_default: request.is_default,
+      })
+      logger.info(
+        `Updated model instance default status: ${request.model_name} -> ${request.is_default}`,
       )
-      logger.info(`Updated model instance default status: ${request.model_name} -> ${request.is_default}`)
       return data
     },
     onSuccess: () => {

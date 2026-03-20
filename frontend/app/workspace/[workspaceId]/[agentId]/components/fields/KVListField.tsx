@@ -1,7 +1,6 @@
 'use client'
 
 import { Trash2, Plus } from 'lucide-react'
-import React from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +11,7 @@ interface KVListFieldProps {
   onChange: (val: { key: string; value: string }[]) => void
 }
 
-export const KVListField: React.FC<KVListFieldProps> = ({ value, onChange }) => {
+export function KVListField({ value, onChange }: KVListFieldProps) {
   const { t } = useTranslation()
   const items = Array.isArray(value) ? value : []
 
@@ -26,26 +25,26 @@ export const KVListField: React.FC<KVListFieldProps> = ({ value, onChange }) => 
   const handleRemove = (index: number) => onChange(items.filter((_, i) => i !== index))
 
   return (
-    <div className="space-y-2 border border-gray-200 rounded-xl p-3 bg-gray-50/30">
+    <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/30 p-3">
       {items.length === 0 && (
-        <div className="text-[10px] text-gray-400 text-center py-2">
+        <div className="py-2 text-center text-[10px] text-gray-400">
           {t('workspace.noParametersDefined')}
         </div>
       )}
       {items.map((item, index) => (
-        <div key={index} className="flex gap-2 items-center">
+        <div key={index} className="flex items-center gap-2">
           <Input
             value={item.key}
             onChange={(e) => handleChange(index, 'key', e.target.value)}
             placeholder={t('workspace.parameterName', { defaultValue: 'Name' })}
-            className="h-8 text-xs bg-white"
+            className="h-8 bg-white text-xs"
           />
-          <span className="text-gray-300 font-mono">:</span>
+          <span className="font-mono text-gray-300">:</span>
           <Input
             value={item.value}
             onChange={(e) => handleChange(index, 'value', e.target.value)}
             placeholder={t('workspace.parameterType', { defaultValue: 'Type' })}
-            className="h-8 text-xs bg-white"
+            className="h-8 bg-white text-xs"
           />
           <Button
             variant="ghost"
@@ -61,7 +60,7 @@ export const KVListField: React.FC<KVListFieldProps> = ({ value, onChange }) => 
         variant="outline"
         size="sm"
         onClick={handleAdd}
-        className="w-full border-dashed text-gray-500 mt-1 h-8 text-xs"
+        className="mt-1 h-8 w-full border-dashed text-xs text-gray-500"
       >
         <Plus size={12} /> {t('workspace.addParameter')}
       </Button>

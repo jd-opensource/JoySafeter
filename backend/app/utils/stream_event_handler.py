@@ -671,6 +671,9 @@ class StreamEventHandler:
             meta["observation_id"] = obs_id or ""
             meta["parent_observation_id"] = state.get_parent_observation_id(run_id) or ""
 
+            # Extract file operation metadata for real-time artifact preview
+            files_changed = _extract_files_changed(tool_name, output, record)
+
             return self.format_sse(
                 "tool_end",
                 {
@@ -678,6 +681,7 @@ class StreamEventHandler:
                     "tool_output": output,
                     "duration": duration,
                     "status": "error" if has_error else "success",
+                    "files_changed": files_changed if files_changed else None,
                     "_meta": meta,
                 },
                 state.thread_id,
@@ -1008,3 +1012,52 @@ def _clean_task_results(task_results: list) -> list:
         else:
             cleaned.append(tr)
     return cleaned
+
+
+# Tools that perform file system write operations
+_FILE_WRITE_TOOLS = frozenset({"save_file", "write", "write_overwrite", "edit", "replace_file_chunk"})
+
+
+def _extract_files_changed(
+    tool_name: Optional[str],
+    output: Any,
+    record: Optional["ObservationRecord"],
+) -> list[dict[str, str]]:
+    """Extract file paths from file-writing tool results for real-time artifact preview.
+
+    Returns a list of {"path": ..., "action": ...} dicts, or empty list.
+    """
+    if not tool_name or tool_name not in _FILE_WRITE_TOOLS:
+        return []
+
+    # Determine action type
+    action = "edit" if tool_name in ("edit", "replace_file_chunk") else "write"
+
+    # Try to get file path from tool input (stored in observation record)
+    tool_input = {}
+    if record and record.input_data and isinstance(record.input_data, dict):
+        tool_input = record.input_data.get("tool_input", {})
+        if not isinstance(tool_input, dict):
+            tool_input = {}
+
+    file_path = None
+
+    if tool_name == "save_file":
+        # save_file returns the relative file_name as its output string
+        if isinstance(output, str) and not output.startswith("Error"):
+            file_path = output.strip()
+        else:
+            file_path = tool_input.get("file_name")
+    elif tool_name in ("write", "write_overwrite", "edit"):
+        # PydanticSandboxAdapter tools use file_path in input
+        file_path = tool_input.get("file_path")
+        # Also check output for path (WriteResult/EditResult may have .path)
+        if not file_path and hasattr(output, "path"):
+            file_path = output.path
+    elif tool_name == "replace_file_chunk":
+        file_path = tool_input.get("file_name")
+
+    if file_path and isinstance(file_path, str):
+        return [{"path": file_path, "action": action}]
+    return []
+

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import React, { useState } from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 /**
  * File entry from the preview_skill tool output.
@@ -78,11 +78,17 @@ export function buildPreviewTree(files: PreviewFile[]): {
     name: string,
     path: string,
     isDir: boolean,
-    file?: PreviewFile
+    file?: PreviewFile,
   ): TreeNode => {
     let node = nodes.find((n) => n.name === name)
     if (!node) {
-      node = { name, path, isDirectory: isDir, children: isDir ? [] : undefined, file: isDir ? undefined : file }
+      node = {
+        name,
+        path,
+        isDirectory: isDir,
+        children: isDir ? [] : undefined,
+        file: isDir ? undefined : file,
+      }
       nodes.push(node)
     }
     return node
@@ -131,19 +137,19 @@ interface TreeNodeComponentProps {
   depth?: number
 }
 
-const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({
+function TreeNodeComponent({
   node,
   activeFilePath,
   onSelectFile,
   depth = 0,
-}) => {
+}: TreeNodeComponentProps) {
   const [isExpanded, setIsExpanded] = useState(true)
 
   if (node.isDirectory) {
     return (
       <div className="mb-0.5">
         <div
-          className="flex items-center px-2 py-1 rounded-lg hover:bg-gray-50 cursor-pointer"
+          className="flex cursor-pointer items-center rounded-lg px-2 py-1 hover:bg-gray-50"
           onClick={() => setIsExpanded(!isExpanded)}
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
         >
@@ -183,10 +189,10 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({
     <div
       onClick={() => onSelectFile(node.path)}
       className={cn(
-        'flex items-center gap-2 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors',
+        'flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs transition-colors',
         activeFilePath === node.path
-          ? 'bg-emerald-50 text-emerald-700 font-medium'
-          : 'text-gray-600 hover:bg-gray-50'
+          ? 'bg-emerald-50 font-medium text-emerald-700'
+          : 'text-gray-600 hover:bg-gray-50',
       )}
       style={{ paddingLeft: `${depth * 12 + 8}px` }}
     >
@@ -206,20 +212,20 @@ interface SkillFileTreeProps {
   onSelectFile: (path: string) => void
 }
 
-const SkillFileTree: React.FC<SkillFileTreeProps> = ({ files, activeFilePath, onSelectFile }) => {
+export default function SkillFileTree({ files, activeFilePath, onSelectFile }: SkillFileTreeProps) {
   const { skillMdFile, tree } = React.useMemo(() => buildPreviewTree(files), [files])
 
   return (
-    <div className="p-2 overflow-y-auto flex-1">
+    <div className="flex-1 overflow-y-auto p-2">
       {/* SKILL.md always at top */}
       {skillMdFile && (
         <div
           onClick={() => onSelectFile('SKILL.md')}
           className={cn(
-            'flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer transition-colors mb-2',
+            'mb-2 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors',
             activeFilePath === 'SKILL.md'
-              ? 'bg-emerald-50 text-emerald-700 font-medium border border-emerald-200'
-              : 'text-gray-700 hover:bg-gray-50 border border-transparent'
+              ? 'border border-emerald-200 bg-emerald-50 font-medium text-emerald-700'
+              : 'border border-transparent text-gray-700 hover:bg-gray-50',
           )}
         >
           <FileText size={14} className="text-emerald-500" />
@@ -229,7 +235,7 @@ const SkillFileTree: React.FC<SkillFileTreeProps> = ({ files, activeFilePath, on
 
       {/* Rest of the tree */}
       {tree.length > 0 && (
-        <div className="border-t border-gray-100 pt-2 mt-1">
+        <div className="mt-1 border-t border-gray-100 pt-2">
           {tree.map((node) => (
             <TreeNodeComponent
               key={node.path}
@@ -243,10 +249,8 @@ const SkillFileTree: React.FC<SkillFileTreeProps> = ({ files, activeFilePath, on
 
       {/* Empty state */}
       {!skillMdFile && tree.length === 0 && (
-        <div className="text-center py-4 text-gray-400 text-xs">No files yet</div>
+        <div className="py-4 text-center text-xs text-gray-400">No files yet</div>
       )}
     </div>
   )
 }
-
-export default SkillFileTree

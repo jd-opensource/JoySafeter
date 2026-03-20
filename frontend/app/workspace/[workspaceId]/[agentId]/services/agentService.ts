@@ -124,8 +124,8 @@ export const agentService = {
 
   async listGraphs(workspaceId?: string): Promise<AgentGraph[]> {
     const url = workspaceId ? `graphs?workspaceId=${workspaceId}` : 'graphs'
-    const response = await apiGet<{ data: AgentGraph[] }>(url)
-    return response.data || []
+    const response = await apiGet<AgentGraph[]>(url)
+    return response || []
   },
 
   async saveGraph(params: {
@@ -154,7 +154,7 @@ export const agentService = {
     }
 
     const seenEdges = new Set<string>()
-    const deduplicatedEdges = params.edges.filter(edge => {
+    const deduplicatedEdges = params.edges.filter((edge) => {
       const key = `${edge.source}-${edge.target}`
       if (seenEdges.has(key)) {
         return false
@@ -184,12 +184,15 @@ export const agentService = {
     }
   }): Promise<void> {
     if (!params.graphId || !isValidUUID(params.graphId)) {
-      console.warn('[agentService] saveGraphState called with invalid graphId, skip request:', params.graphId)
+      console.warn(
+        '[agentService] saveGraphState called with invalid graphId, skip request:',
+        params.graphId,
+      )
       return
     }
 
     const seenEdges = new Set<string>()
-    const deduplicatedEdges = params.edges.filter(edge => {
+    const deduplicatedEdges = params.edges.filter((edge) => {
       const key = `${edge.source}-${edge.target}`
       if (seenEdges.has(key)) {
         return false
@@ -206,16 +209,17 @@ export const agentService = {
     })
   },
 
-  async loadGraphState(
-    graphId: string
-  ): Promise<{
+  async loadGraphState(graphId: string): Promise<{
     nodes: Node[]
     edges: Edge[]
     viewport?: { x: number; y: number; zoom: number }
     variables?: { context?: Record<string, unknown> }
   }> {
     if (!graphId || !isValidUUID(graphId)) {
-      console.warn('[agentService] loadGraphState called with invalid graphId, return empty state:', graphId)
+      console.warn(
+        '[agentService] loadGraphState called with invalid graphId, return empty state:',
+        graphId,
+      )
       return { nodes: [], edges: [] }
     }
 
@@ -231,7 +235,7 @@ export const agentService = {
 
     if (data.edges && data.edges.length > 0) {
       const seenEdges = new Set<string>()
-      data.edges = data.edges.filter(edge => {
+      data.edges = data.edges.filter((edge) => {
         const key = `${edge.source}-${edge.target}`
         if (seenEdges.has(key)) {
           return false
@@ -292,7 +296,7 @@ export const agentService = {
       description?: string
       color?: string
       folderId?: string | null
-    }
+    },
   ): Promise<void> {
     await apiPut(`graphs/${id}`, params)
   },
@@ -309,7 +313,7 @@ export const agentService = {
     options?: {
       newName?: string
       workspaceId?: string | null
-    }
+    },
   ): Promise<string> {
     // Load original graph state
     const state = await this.loadGraphState(id)
@@ -402,16 +406,18 @@ export const agentService = {
   async getBuiltinTools(): Promise<ToolOption[]> {
     try {
       // apiGet automatically unwraps response.data, directly return tools array
-      const tools = await apiGet<Array<{
-        id: string
-        label: string
-        name: string
-        description?: string
-        tool_type: string
-        category?: string | null
-        tags?: string[]
-        mcp_server?: string | null
-      }>>('tools/builtin')
+      const tools = await apiGet<
+        Array<{
+          id: string
+          label: string
+          name: string
+          description?: string
+          tool_type: string
+          category?: string | null
+          tags?: string[]
+          mcp_server?: string | null
+        }>
+      >('tools/builtin')
       return (tools || []).map((tool) => ({
         id: tool.id,
         label: tool.label,
@@ -442,16 +448,15 @@ export const agentService = {
    */
   async getAvailableSkills(): Promise<SkillOption[]> {
     try {
-      const response = await apiGet<{
-        data: Array<{
+      const skills = await apiGet<
+        Array<{
           id: string
           name: string
           description: string
           tags?: string[]
         }>
-      }>('skills?include_public=true')
-      const skills = response.data || []
-      return skills.map((skill) => ({
+      >('skills?include_public=true')
+      return (skills || []).map((skill) => ({
         id: skill.id,
         name: skill.name,
         description: skill.description,

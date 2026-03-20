@@ -1,7 +1,16 @@
 'use client'
 
-import { PauseCircle, CheckCircle, XCircle, Edit, Play, SkipForward, ArrowRight, MessageSquare } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import {
+  PauseCircle,
+  CheckCircle,
+  XCircle,
+  Edit,
+  Play,
+  SkipForward,
+  ArrowRight,
+  MessageSquare,
+} from 'lucide-react'
+import { useState, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,7 +30,6 @@ import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore, type InterruptInfo } from '../stores/executionStore'
 import { getNodeNameFromFlowNode } from '../utils/nodeNameUtils'
 
-
 interface InterruptPanelProps {
   interrupt: InterruptInfo
   onClose?: () => void
@@ -29,9 +37,24 @@ interface InterruptPanelProps {
 
 // Security: Sensitive field names to redact from state display
 const SENSITIVE_FIELDS = [
-  'password', 'passwd', 'pwd', 'secret', 'token', 'apikey', 'api_key',
-  'api-key', 'authorization', 'auth', 'credential', 'private_key',
-  'private-key', 'session', 'cookie', 'csrf', 'jwt', 'bearer',
+  'password',
+  'passwd',
+  'pwd',
+  'secret',
+  'token',
+  'apikey',
+  'api_key',
+  'api-key',
+  'authorization',
+  'auth',
+  'credential',
+  'private_key',
+  'private-key',
+  'session',
+  'cookie',
+  'csrf',
+  'jwt',
+  'bearer',
 ]
 
 /**
@@ -61,9 +84,7 @@ function filterSensitiveFields(state: any): any {
   for (const key of keys) {
     const lowerKey = key.toLowerCase()
     // Check if this is a sensitive field
-    const isSensitive = SENSITIVE_FIELDS.some(sensitive =>
-      lowerKey.includes(sensitive)
-    )
+    const isSensitive = SENSITIVE_FIELDS.some((sensitive) => lowerKey.includes(sensitive))
 
     if (isSensitive) {
       // Redact sensitive values
@@ -106,7 +127,9 @@ function extractKeyStateFields(state: any): { key: string; value: any }[] {
   }
 
   // Add other fields (display up to 10)
-  const otherKeys = Object.keys(state).filter(k => !priorityFields.includes(k)).slice(0, 10)
+  const otherKeys = Object.keys(state)
+    .filter((k) => !priorityFields.includes(k))
+    .slice(0, 10)
   for (const key of otherKeys) {
     const value = state[key]
     if (Array.isArray(value)) {
@@ -121,7 +144,7 @@ function extractKeyStateFields(state: any): { key: string; value: any }[] {
   return keyFields
 }
 
-export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClose }) => {
+export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
   const { t } = useTranslation()
   const { removeInterrupt } = useExecutionStore()
   const { nodes } = useBuilderStore()
@@ -137,7 +160,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
 
   // Detect gate mode from the interrupted node's config
   const gateMode = useMemo(() => {
-    const interruptedNode = nodes.find(n => n.id === interrupt.nodeId)
+    const interruptedNode = nodes.find((n) => n.id === interrupt.nodeId)
     const config = (interruptedNode?.data as { config?: { gate_mode?: string } })?.config
     return config?.gate_mode || 'approval'
   }, [nodes, interrupt.nodeId])
@@ -145,8 +168,8 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
   // Get list of jumpable nodes (exclude current interrupt node)
   const availableNodes = useMemo(() => {
     return nodes
-      .filter(node => node.id !== interrupt.nodeId)
-      .map(node => ({
+      .filter((node) => node.id !== interrupt.nodeId)
+      .map((node) => ({
         id: node.id,
         label: (node.data as { label?: string })?.label || node.id,
         type: (node.data as { type?: string })?.type || 'unknown',
@@ -155,7 +178,10 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
   }, [nodes, interrupt.nodeId])
 
   // Extract key state fields (with sensitive fields filtered)
-  const keyStateFields = useMemo(() => extractKeyStateFields(filterSensitiveFields(interrupt.state)), [interrupt.state])
+  const keyStateFields = useMemo(
+    () => extractKeyStateFields(filterSensitiveFields(interrupt.state)),
+    [interrupt.state],
+  )
 
   const handleContinue = async () => {
     setIsResuming(true)
@@ -172,7 +198,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
             },
           },
         },
-        undefined
+        undefined,
       )
       removeInterrupt(interrupt.nodeId)
       toast({
@@ -211,7 +237,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
         {
           update: editedState,
         },
-        undefined
+        undefined,
       )
       removeInterrupt(interrupt.nodeId)
       toast({
@@ -248,14 +274,14 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
     setExecuting(true)
     try {
       // Find target node
-      const targetNode = nodes.find(n => n.id === nodeId)
+      const targetNode = nodes.find((n) => n.id === nodeId)
 
       // Use unified node name conversion tool (ensure consistency with backend LangGraph format)
       const nodeName = targetNode
         ? getNodeNameFromFlowNode({
-          id: targetNode.id,
-          data: targetNode.data as { label?: string; type?: string },
-        })
+            id: targetNode.id,
+            data: targetNode.data as { label?: string; type?: string },
+          })
         : `unknown_${nodeId.slice(0, 8)}`
 
       await resumeWithCommand(
@@ -263,7 +289,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
         {
           goto: nodeName,
         },
-        undefined
+        undefined,
       )
       removeInterrupt(interrupt.nodeId)
       toast({
@@ -293,7 +319,9 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
           <CardTitle className="text-lg">{t('workspace.executionPaused')}</CardTitle>
         </div>
         <CardDescription>
-          {t('workspace.nodeWaitingForAction', { nodeLabel: sanitizeStringValue(interrupt.nodeLabel || interrupt.nodeId) })}
+          {t('workspace.nodeWaitingForAction', {
+            nodeLabel: sanitizeStringValue(interrupt.nodeLabel || interrupt.nodeId),
+          })}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -301,7 +329,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
         {!isEditing && keyStateFields.length > 0 && (
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">State Summary</label>
-            <div className="p-3 bg-white border border-gray-200 rounded-md space-y-1">
+            <div className="space-y-1 rounded-md border border-gray-200 bg-white p-3">
               {keyStateFields.slice(0, 5).map((field, idx) => (
                 <div key={idx} className="text-xs">
                   <span className="font-mono font-semibold text-gray-700">{field.key}:</span>{' '}
@@ -309,7 +337,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
                 </div>
               ))}
               {keyStateFields.length > 5 && (
-                <div className="text-xs text-gray-500 pt-1">
+                <div className="pt-1 text-xs text-gray-500">
                   and {keyStateFields.length - 5} more fields...
                 </div>
               )}
@@ -330,7 +358,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
                 onClick={() => setIsEditing(true)}
                 className="h-7 text-xs"
               >
-                <Edit className="h-3 w-3 mr-1" />
+                <Edit className="mr-1 h-3 w-3" />
                 Edit
               </Button>
             )}
@@ -346,7 +374,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
                     // Invalid JSON, keep as is
                   }
                 }}
-                className="w-full h-32 p-2 text-xs font-mono border border-gray-300 rounded-md bg-white"
+                className="h-32 w-full rounded-md border border-gray-300 bg-white p-2 font-mono text-xs"
                 placeholder="Edit state JSON..."
               />
               <div className="flex gap-2">
@@ -356,7 +384,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
                   disabled={isResuming}
                   className="h-7 text-xs"
                 >
-                  <Play className="h-3 w-3 mr-1" />
+                  <Play className="mr-1 h-3 w-3" />
                   Apply and Continue
                 </Button>
                 <Button
@@ -374,8 +402,8 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
               </div>
             </div>
           ) : (
-            <div className="p-3 bg-white border border-gray-200 rounded-md max-h-32 overflow-auto">
-              <pre className="text-xs font-mono text-gray-600">
+            <div className="max-h-32 overflow-auto rounded-md border border-gray-200 bg-white p-3">
+              <pre className="font-mono text-xs text-gray-600">
                 {JSON.stringify(filterSensitiveFields(interrupt.state), null, 2)}
               </pre>
             </div>
@@ -392,14 +420,14 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
               className="w-full"
               disabled={isResuming}
             >
-              <SkipForward className="h-4 w-4 mr-2" />
+              <SkipForward className="mr-2 h-4 w-4" />
               Jump to Other Node
             </Button>
           </div>
         )}
 
         {showGotoSelector && (
-          <div className="space-y-2 p-3 bg-white border border-gray-200 rounded-md">
+          <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3">
             <label className="text-sm font-medium text-gray-700">Select Node to Jump To</label>
             <Select value={selectedNodeId} onValueChange={setSelectedNodeId}>
               <SelectTrigger>
@@ -420,7 +448,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
                 disabled={isResuming || !selectedNodeId}
                 className="flex-1"
               >
-                <ArrowRight className="h-3 w-3 mr-1" />
+                <ArrowRight className="mr-1 h-3 w-3" />
                 Jump
               </Button>
               <Button
@@ -455,21 +483,25 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
                   ? 'Type your response here…'
                   : 'Optional: Provide feedback or revision notes…'
               }
-              className="h-20 text-sm resize-none"
+              className="h-20 resize-none text-sm"
             />
           </div>
         )}
 
         {/* Main Action Buttons */}
         {!isEditing && !showGotoSelector && (
-          <div className="flex gap-2 pt-2 border-t border-amber-200">
+          <div className="flex gap-2 border-t border-amber-200 pt-2">
             <Button
               onClick={handleContinue}
               disabled={isResuming || (gateMode === 'input' && !feedback.trim())}
               className="flex-1 bg-green-600 hover:bg-green-700"
             >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              {gateMode === 'approval' ? 'Approve' : gateMode === 'input' ? 'Send Response' : 'Approve & Continue'}
+              <CheckCircle className="mr-2 h-4 w-4" />
+              {gateMode === 'approval'
+                ? 'Approve'
+                : gateMode === 'input'
+                  ? 'Send Response'
+                  : 'Approve & Continue'}
             </Button>
             <Button
               onClick={async () => {
@@ -487,7 +519,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
                         },
                       },
                     },
-                    undefined
+                    undefined,
                   )
                   removeInterrupt(interrupt.nodeId)
                   toast({
@@ -511,7 +543,7 @@ export const InterruptPanel: React.FC<InterruptPanelProps> = ({ interrupt, onClo
               variant="destructive"
               className="flex-1"
             >
-              <XCircle className="h-4 w-4 mr-2" />
+              <XCircle className="mr-2 h-4 w-4" />
               {gateMode === 'approval' ? 'Reject' : 'Stop Execution'}
             </Button>
           </div>

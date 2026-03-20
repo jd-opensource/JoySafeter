@@ -2,7 +2,6 @@
 
 import { ChevronDown } from 'lucide-react'
 import { FileText } from 'lucide-react'
-import React from 'react'
 import { UseFormReturn } from 'react-hook-form'
 
 import {
@@ -18,10 +17,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
-import { MAX_SKILL_NAME_LENGTH, MAX_SKILL_DESCRIPTION_LENGTH, MAX_COMPATIBILITY_LENGTH } from '@/utils/skillValidators'
+import {
+  MAX_SKILL_NAME_LENGTH,
+  MAX_SKILL_DESCRIPTION_LENGTH,
+  MAX_COMPATIBILITY_LENGTH,
+} from '@/utils/skillValidators'
 
 import { SkillFormData } from '../schemas/skillFormSchema'
-
 
 interface SkillFormProps {
   form: UseFormReturn<SkillFormData>
@@ -29,11 +31,7 @@ interface SkillFormProps {
   onToggleAdvancedFields: () => void
 }
 
-export const SkillForm: React.FC<SkillFormProps> = ({
-  form,
-  showAdvancedFields,
-  onToggleAdvancedFields,
-}) => {
+export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: SkillFormProps) {
   const { t } = useTranslation()
 
   const name = form.watch('name')
@@ -41,10 +39,12 @@ export const SkillForm: React.FC<SkillFormProps> = ({
   const compatibility = form.watch('compatibility')
 
   return (
-    <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+      <div className="mb-4 flex items-center gap-2">
         <FileText size={16} className="text-emerald-500" />
-        <span className="text-xs font-bold text-gray-600">SKILL.md Metadata (YAML Frontmatter)</span>
+        <span className="text-xs font-bold text-gray-600">
+          SKILL.md Metadata (YAML Frontmatter)
+        </span>
       </div>
 
       <Form {...form}>
@@ -56,17 +56,19 @@ export const SkillForm: React.FC<SkillFormProps> = ({
             render={({ field }) => (
               <FormItem>
                 <div className="flex items-center justify-between">
-                  <FormLabel className="text-[10px] font-bold text-gray-400 uppercase">
+                  <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
                     {t('skills.name') || 'Name'} *
                   </FormLabel>
-                  <span className={`text-[10px] ${
-                    (name?.length || 0) > MAX_SKILL_NAME_LENGTH
-                      ? 'text-red-500'
-                      : (name?.length || 0) > 50
-                        ? 'text-amber-500'
-                        : 'text-gray-400'
-                  }`}>
-                    {(name?.length || 0)}/{MAX_SKILL_NAME_LENGTH}
+                  <span
+                    className={`text-[10px] ${
+                      (name?.length || 0) > MAX_SKILL_NAME_LENGTH
+                        ? 'text-red-500'
+                        : (name?.length || 0) > 50
+                          ? 'text-amber-500'
+                          : 'text-gray-400'
+                    }`}
+                  >
+                    {name?.length || 0}/{MAX_SKILL_NAME_LENGTH}
                   </span>
                 </div>
                 <FormControl>
@@ -89,23 +91,25 @@ export const SkillForm: React.FC<SkillFormProps> = ({
             render={({ field }) => (
               <FormItem>
                 <div className="flex items-center justify-between">
-                  <FormLabel className="text-[10px] font-bold text-gray-400 uppercase">
+                  <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
                     {t('skills.description') || 'Description'} *
                   </FormLabel>
-                  <span className={`text-[10px] ${
-                    (description?.length || 0) > MAX_SKILL_DESCRIPTION_LENGTH
-                      ? 'text-red-500'
-                      : (description?.length || 0) > 900
-                        ? 'text-amber-500'
-                        : 'text-gray-400'
-                  }`}>
-                    {(description?.length || 0)}/{MAX_SKILL_DESCRIPTION_LENGTH}
+                  <span
+                    className={`text-[10px] ${
+                      (description?.length || 0) > MAX_SKILL_DESCRIPTION_LENGTH
+                        ? 'text-red-500'
+                        : (description?.length || 0) > 900
+                          ? 'text-amber-500'
+                          : 'text-gray-400'
+                    }`}
+                  >
+                    {description?.length || 0}/{MAX_SKILL_DESCRIPTION_LENGTH}
                   </span>
                 </div>
                 <FormControl>
                   <Textarea
                     {...field}
-                    className="min-h-[60px] text-xs resize-none"
+                    className="min-h-[60px] resize-none text-xs"
                     placeholder="Brief description of what this skill does"
                     maxLength={MAX_SKILL_DESCRIPTION_LENGTH}
                   />
@@ -121,7 +125,7 @@ export const SkillForm: React.FC<SkillFormProps> = ({
             name="license"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-[10px] font-bold text-gray-400 uppercase">
+                <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
                   {t('skills.license') || 'License'}
                 </FormLabel>
                 <FormControl>
@@ -141,7 +145,7 @@ export const SkillForm: React.FC<SkillFormProps> = ({
           <button
             type="button"
             onClick={onToggleAdvancedFields}
-            className="flex items-center gap-2 text-[10px] text-gray-500 hover:text-gray-700 transition-colors mt-2"
+            className="mt-2 flex items-center gap-2 text-[10px] text-gray-500 transition-colors hover:text-gray-700"
           >
             <ChevronDown
               size={12}
@@ -152,7 +156,7 @@ export const SkillForm: React.FC<SkillFormProps> = ({
 
           {/* Advanced Fields (Collapsible) */}
           {showAdvancedFields && (
-            <div className="space-y-4 pt-2 border-t border-gray-200">
+            <div className="space-y-4 border-t border-gray-200 pt-2">
               {/* Compatibility Field */}
               <FormField
                 control={form.control}
@@ -160,18 +164,20 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                 render={({ field }) => (
                   <FormItem>
                     <div className="flex items-center justify-between">
-                      <FormLabel className="text-[10px] font-bold text-gray-400 uppercase">
+                      <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
                         Compatibility
-                        <span className="ml-1 text-gray-400 font-normal">(optional)</span>
+                        <span className="ml-1 font-normal text-gray-400">(optional)</span>
                       </FormLabel>
-                      <span className={`text-[10px] ${
-                        (compatibility?.length || 0) > MAX_COMPATIBILITY_LENGTH
-                          ? 'text-red-500'
-                          : (compatibility?.length || 0) > 450
-                            ? 'text-amber-500'
-                            : 'text-gray-400'
-                      }`}>
-                        {(compatibility?.length || 0)}/{MAX_COMPATIBILITY_LENGTH}
+                      <span
+                        className={`text-[10px] ${
+                          (compatibility?.length || 0) > MAX_COMPATIBILITY_LENGTH
+                            ? 'text-red-500'
+                            : (compatibility?.length || 0) > 450
+                              ? 'text-amber-500'
+                              : 'text-gray-400'
+                        }`}
+                      >
+                        {compatibility?.length || 0}/{MAX_COMPATIBILITY_LENGTH}
                       </span>
                     </div>
                     <FormControl>
@@ -197,16 +203,18 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                 name="allowed_tools"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-[10px] font-bold text-gray-400 uppercase">
+                    <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
                       Allowed Tools
-                      <span className="ml-1 text-gray-400 font-normal">(optional, experimental)</span>
+                      <span className="ml-1 font-normal text-gray-400">
+                        (optional, experimental)
+                      </span>
                     </FormLabel>
                     <FormControl>
                       <Input
                         value={field.value?.join(' ') || ''}
                         onChange={(e) => {
                           const value = e.target.value.trim()
-                          const tools = value ? value.split(/\s+/).filter(t => t.trim()) : []
+                          const tools = value ? value.split(/\s+/).filter((t) => t.trim()) : []
                           field.onChange(tools.length > 0 ? tools : [])
                         }}
                         className="h-9 text-xs"
@@ -227,9 +235,9 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                 name="metadata"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-[10px] font-bold text-gray-400 uppercase">
+                    <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
                       Metadata
-                      <span className="ml-1 text-gray-400 font-normal">(optional, JSON)</span>
+                      <span className="ml-1 font-normal text-gray-400">(optional, JSON)</span>
                     </FormLabel>
                     <FormControl>
                       <Textarea
@@ -252,7 +260,7 @@ export const SkillForm: React.FC<SkillFormProps> = ({
                             // Invalid JSON, keep as is for now
                           }
                         }}
-                        className="min-h-[80px] text-xs font-mono resize-none"
+                        className="min-h-[80px] resize-none font-mono text-xs"
                         placeholder='{\n  "version": "1.0",\n  "author": "team-name"\n}'
                       />
                     </FormControl>

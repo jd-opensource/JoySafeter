@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useCallback } from 'react'
+import { useMemo, useCallback } from 'react'
 import ReactFlow, {
   ReactFlowProvider,
   Handle,
@@ -13,7 +13,7 @@ import ReactFlow, {
 
 import 'reactflow/dist/style.css'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import type { GraphVersionState } from '@/services/graphDeploymentService'
 
 import { nodeRegistry } from '../services/nodeRegistry'
@@ -30,7 +30,11 @@ interface GraphPreviewProps {
 /**
  * Simplified preview node component
  */
-const PreviewNode = ({ data }: { data: { type: string; label?: string; config?: Record<string, unknown> } }) => {
+const PreviewNode = ({
+  data,
+}: {
+  data: { type: string; label?: string; config?: Record<string, unknown> }
+}) => {
   const def = nodeRegistry.get(data.type)
   const Icon = def?.icon || Bot
   const colorClass = def?.style?.color || 'text-gray-500'
@@ -38,23 +42,21 @@ const PreviewNode = ({ data }: { data: { type: string; label?: string; config?: 
   const label = data.label || def?.label || 'Node'
 
   return (
-    <div className="min-w-[100px] rounded-lg border border-gray-200 bg-white shadow-sm p-2 relative">
+    <div className="relative min-w-[100px] rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
       {/* Left input connection point */}
       <Handle
         type="target"
         position={Position.Left}
-        className="!bg-gray-300 !w-1.5 !h-1.5 !-left-[4px] !border-0"
+        className="!-left-[4px] !h-1.5 !w-1.5 !border-0 !bg-gray-300"
       />
 
       <div className="flex items-center gap-2">
-        <div className={cn('p-1 rounded-md shrink-0 border border-black/5', bgClass, colorClass)}>
+        <div className={cn('shrink-0 rounded-md border border-black/5 p-1', bgClass, colorClass)}>
           <Icon size={12} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[9px] font-semibold text-gray-900 truncate">
-            {label}
-          </div>
-          <div className="text-[7px] text-gray-400 uppercase tracking-wider">
+          <div className="truncate text-[9px] font-semibold text-gray-900">{label}</div>
+          <div className="text-[7px] uppercase tracking-wider text-gray-400">
             {def?.subLabel || data.type}
           </div>
         </div>
@@ -64,7 +66,7 @@ const PreviewNode = ({ data }: { data: { type: string; label?: string; config?: 
       <Handle
         type="source"
         position={Position.Right}
-        className="!bg-gray-300 !w-1.5 !h-1.5 !-right-[4px] !border-0"
+        className="!-right-[4px] !h-1.5 !w-1.5 !border-0 !bg-gray-300"
       />
     </div>
   )
@@ -77,10 +79,7 @@ const nodeTypes: NodeTypes = {
 /**
  * Internal preview component (with control buttons)
  */
-const PreviewContent: React.FC<{
-  nodes: Node[]
-  edges: Edge[]
-}> = ({ nodes, edges }) => {
+function PreviewContent({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow()
 
   const handleZoomIn = useCallback(() => {
@@ -117,7 +116,7 @@ const PreviewContent: React.FC<{
       />
 
       {/* Control buttons */}
-      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 bg-white/90 rounded-md shadow-sm border border-gray-200 p-0.5">
+      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-gray-200 bg-white/90 p-0.5 shadow-sm">
         <Button
           size="sm"
           variant="ghost"
@@ -136,7 +135,7 @@ const PreviewContent: React.FC<{
         >
           <ZoomOut size={12} />
         </Button>
-        <div className="w-px h-3 bg-gray-200" />
+        <div className="h-3 w-px bg-gray-200" />
         <Button
           size="sm"
           variant="ghost"
@@ -151,12 +150,12 @@ const PreviewContent: React.FC<{
   )
 }
 
-export const GraphPreview: React.FC<GraphPreviewProps> = ({
+export function GraphPreview({
   state,
   height = 300,
   width = '100%',
   className,
-}) => {
+}: GraphPreviewProps) {
   const nodes: Node[] = useMemo(() => {
     if (!state?.nodes) return []
 
@@ -204,7 +203,7 @@ export const GraphPreview: React.FC<GraphPreviewProps> = ({
         style={{ height, width }}
         className={cn(
           'flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50',
-          className
+          className,
         )}
       >
         <span className="text-xs text-gray-400">No node data</span>
@@ -214,7 +213,10 @@ export const GraphPreview: React.FC<GraphPreviewProps> = ({
 
   return (
     <ReactFlowProvider>
-      <div style={{ height, width }} className={cn('rounded-lg border border-gray-200 overflow-hidden relative', className)}>
+      <div
+        style={{ height, width }}
+        className={cn('relative overflow-hidden rounded-lg border border-gray-200', className)}
+      >
         <PreviewContent nodes={nodes} edges={edges} />
       </div>
     </ReactFlowProvider>

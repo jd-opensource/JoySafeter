@@ -13,6 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
+import { API_BASE } from '@/lib/api-client'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 
 interface ApiAccessDialogProps {
@@ -32,9 +33,7 @@ export function ApiAccessDialog({
   const [copiedUrl, setCopiedUrl] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
 
-  // Determine the base URL dynamically based on current origin
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-  const apiUrl = `${baseUrl}/api/v1/openapi/graph/${agentId}`
+  const apiUrl = `${API_BASE}/openapi/graph/${agentId}`
 
   const curlExample = `curl -X POST "${apiUrl}/run" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
@@ -65,30 +64,34 @@ export function ApiAccessDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+      <DialogContent className="flex max-h-[90vh] max-w-4xl flex-col overflow-hidden">
         <DialogHeader className="px-2 pt-2">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100">
               <Terminal className="h-4 w-4 text-blue-600" />
             </div>
             <div>
-              <DialogTitle className="text-xl">{t('workspace.apiAccess', { defaultValue: 'API Access' })}</DialogTitle>
+              <DialogTitle className="text-xl">
+                {t('workspace.apiAccess', { defaultValue: 'API Access' })}
+              </DialogTitle>
               <DialogDescription>
-                {t('workspace.apiAccessDescription', { defaultValue: 'Access and execute this graph remotely via REST API.' })}
+                {t('workspace.apiAccessDescription', {
+                  defaultValue: 'Access and execute this graph remotely via REST API.',
+                })}
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto mt-4 px-2 custom-scrollbar">
+        <div className="custom-scrollbar mt-4 flex-1 overflow-y-auto px-2">
           <Tabs defaultValue="integration" className="w-full">
-            <TabsList className="grid w-[400px] grid-cols-2 mb-6">
+            <TabsList className="mb-6 grid w-[400px] grid-cols-2">
               <TabsTrigger value="integration">
-                <Terminal className="h-4 w-4 mr-2" />
+                <Terminal className="mr-2 h-4 w-4" />
                 Integration Guide
               </TabsTrigger>
               <TabsTrigger value="keys">
-                <Key className="h-4 w-4 mr-2" />
+                <Key className="mr-2 h-4 w-4" />
                 API Keys
               </TabsTrigger>
             </TabsList>
@@ -99,8 +102,13 @@ export function ApiAccessDialog({
                 <h3 className="text-sm font-semibold text-gray-900">Base URL</h3>
                 <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
-                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">ENDPOINT</span>
-                    <code className="text-sm font-mono text-gray-800 break-all truncate" title={apiUrl}>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      ENDPOINT
+                    </span>
+                    <code
+                      className="truncate break-all font-mono text-sm text-gray-800"
+                      title={apiUrl}
+                    >
                       {apiUrl}
                     </code>
                   </div>
@@ -113,10 +121,16 @@ export function ApiAccessDialog({
                           className="h-8 w-8 flex-shrink-0"
                           onClick={handleCopyUrl}
                         >
-                          {copiedUrl ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-gray-500" />}
+                          {copiedUrl ? (
+                            <Check className="h-4 w-4 text-green-600" />
+                          ) : (
+                            <Copy className="h-4 w-4 text-gray-500" />
+                          )}
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{t('workspace.copy', { defaultValue: 'Copy' })}</TooltipContent>
+                      <TooltipContent>
+                        {t('workspace.copy', { defaultValue: 'Copy' })}
+                      </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 </div>
@@ -126,10 +140,14 @@ export function ApiAccessDialog({
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-gray-900">Authentication</h3>
                 <p className="text-sm text-gray-500">
-                  Authenticate your API requests by including your API Key in the <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">Authorization</code> HTTP header as a Bearer token.
+                  Authenticate your API requests by including your API Key in the{' '}
+                  <code className="rounded bg-gray-100 px-1 py-0.5 text-gray-800">
+                    Authorization
+                  </code>{' '}
+                  HTTP header as a Bearer token.
                 </p>
                 <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
-                  <code className="text-sm font-mono text-blue-800 font-semibold">
+                  <code className="font-mono text-sm font-semibold text-blue-800">
                     Authorization: Bearer YOUR_API_KEY
                   </code>
                 </div>
@@ -138,9 +156,9 @@ export function ApiAccessDialog({
               {/* Example Request */}
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-gray-900">Example Request</h3>
-                <div className="relative rounded-lg overflow-hidden border border-gray-200">
-                  <div className="flex items-center justify-between bg-gray-100 px-4 py-2 border-b border-gray-200">
-                    <span className="text-xs font-semibold text-gray-600 text-mono">cURL</span>
+                <div className="relative overflow-hidden rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between border-b border-gray-200 bg-gray-100 px-4 py-2">
+                    <span className="text-mono text-xs font-semibold text-gray-600">cURL</span>
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -150,14 +168,20 @@ export function ApiAccessDialog({
                             className="h-6 w-6"
                             onClick={handleCopyCode}
                           >
-                            {copiedCode ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3 text-gray-500" />}
+                            {copiedCode ? (
+                              <Check className="h-3 w-3 text-green-600" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-gray-500" />
+                            )}
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{t('workspace.copyCode', { defaultValue: 'Copy Code' })}</TooltipContent>
+                        <TooltipContent>
+                          {t('workspace.copyCode', { defaultValue: 'Copy Code' })}
+                        </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>
-                  <pre className="p-4 bg-[#0d1117] text-gray-300 text-xs font-mono overflow-x-auto">
+                  <pre className="overflow-x-auto bg-[#0d1117] p-4 font-mono text-xs text-gray-300">
                     <code>{curlExample}</code>
                   </pre>
                 </div>
@@ -169,21 +193,34 @@ export function ApiAccessDialog({
                   href="https://github.com/jd-opensource/JoySafeter/blob/main/docs/api/openapi.md"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:text-blue-700 hover:underline font-medium inline-flex items-center"
+                  className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
                 >
                   {t('workspace.viewFullApiDocs', { defaultValue: 'View Full API Documentation' })}
-                  <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  <svg
+                    className="ml-1 h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                    />
                   </svg>
                 </a>
               </div>
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-4">
-              <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4">
+              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="mb-4">
                   <h3 className="text-sm font-medium text-gray-900">Workspace API Keys</h3>
-                  <p className="text-xs text-gray-500 mt-1">Manage API keys that have access to this workspace's resources.</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Manage API keys that have access to this workspace's resources.
+                  </p>
                 </div>
                 <ApiKeysTable workspaceId={workspaceId} />
               </div>

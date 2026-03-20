@@ -118,7 +118,7 @@ export function useUpdateGeneralSetting() {
       await queryClient.cancelQueries({ queryKey: generalSettingsKeys.settings() })
 
       const previousSettings = queryClient.getQueryData<GeneralSettings>(
-        generalSettingsKeys.settings()
+        generalSettingsKeys.settings(),
       )
 
       if (previousSettings) {

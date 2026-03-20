@@ -4,7 +4,11 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 
 import { useSession } from '@/lib/auth/auth-client'
-import { isPublicRoute, DEFAULT_AUTHENTICATED_ROUTE, DEFAULT_SIGNIN_ROUTE } from '@/lib/core/constants/routes'
+import {
+  isPublicRoute,
+  DEFAULT_AUTHENTICATED_ROUTE,
+  DEFAULT_SIGNIN_ROUTE,
+} from '@/lib/core/constants/routes'
 
 /**
  * Auth Guard 组件
@@ -24,7 +28,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!session?.data && !isPublic) {
       const currentPath = pathname || '/'
-      const redirectUrl = currentPath !== '/' ? `?callbackUrl=${encodeURIComponent(currentPath)}` : ''
+      const redirectUrl =
+        currentPath !== '/' ? `?callbackUrl=${encodeURIComponent(currentPath)}` : ''
       router.push(`${DEFAULT_SIGNIN_ROUTE}${redirectUrl}`)
       return
     }

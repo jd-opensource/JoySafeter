@@ -1,13 +1,12 @@
 'use client'
 
 import { Copy, Check, FileCode, ChevronDown, ChevronRight } from 'lucide-react'
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/core/utils/cn'
-
+import { cn } from '@/lib/utils'
 
 interface CodeViewerProps {
   code: string
@@ -58,7 +57,7 @@ const getPrismLanguage = (lang: string): string => {
   return languageMap[lower] || lower || 'text'
 }
 
-const LanguageBadge: React.FC<{ language: string }> = ({ language }) => {
+function LanguageBadge({ language }: { language: string }) {
   const colors: Record<string, string> = {
     python: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     typescript: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -76,13 +75,13 @@ const LanguageBadge: React.FC<{ language: string }> = ({ language }) => {
   const colorClass = colors[language.toLowerCase()] || 'bg-gray-100 text-gray-700 border-gray-200'
 
   return (
-    <span className={cn('px-2 py-0.5 rounded text-[10px] font-medium border', colorClass)}>
+    <span className={cn('rounded border px-2 py-0.5 text-[10px] font-medium', colorClass)}>
       {language}
     </span>
   )
 }
 
-const CodeViewer: React.FC<CodeViewerProps> = ({
+export default function CodeViewer({
   code,
   language,
   filename,
@@ -90,8 +89,8 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
   showLineNumbers = true,
   collapsible = false,
   defaultCollapsed = false,
-  maxHeight = '400px'
-}) => {
+  maxHeight = '400px',
+}: CodeViewerProps) {
   const [copied, setCopied] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
 
@@ -112,14 +111,19 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
   const lineCount = lines.length
 
   return (
-    <div className={cn('flex flex-col bg-white rounded-lg border border-gray-200 overflow-hidden', className)}>
+    <div
+      className={cn(
+        'flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white',
+        className,
+      )}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50/80">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+      <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/80 px-3 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {collapsible && (
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="p-0.5 hover:bg-gray-200 rounded transition-colors"
+              className="rounded p-0.5 transition-colors hover:bg-gray-200"
             >
               {isCollapsed ? (
                 <ChevronRight size={14} className="text-gray-500" />
@@ -128,20 +132,18 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
               )}
             </button>
           )}
-          <FileCode size={14} className="text-gray-400 flex-shrink-0" />
-          <span className="text-xs font-medium text-gray-700 truncate">
+          <FileCode size={14} className="flex-shrink-0 text-gray-400" />
+          <span className="truncate text-xs font-medium text-gray-700">
             {filename || 'untitled'}
           </span>
           <LanguageBadge language={prismLanguage} />
-          <span className="text-[10px] text-gray-400">
-            {lineCount} lines
-          </span>
+          <span className="text-[10px] text-gray-400">{lineCount} lines</span>
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={handleCopy}
-          className="h-7 px-2 gap-1.5 text-gray-500 hover:text-gray-700"
+          className="h-7 gap-1.5 px-2 text-gray-500 hover:text-gray-700"
         >
           {copied ? (
             <>
@@ -159,10 +161,7 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
 
       {/* Code Content */}
       {!isCollapsed && (
-        <div
-          className="overflow-auto"
-          style={{ maxHeight }}
-        >
+        <div className="overflow-auto" style={{ maxHeight }}>
           <SyntaxHighlighter
             language={prismLanguage}
             style={oneLight}
@@ -196,15 +195,14 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
 
       {/* Collapsed preview */}
       {isCollapsed && (
-        <div className="px-3 py-2 bg-gray-50 text-xs text-gray-500">
-          <span className="font-mono">{lines[0]?.slice(0, 60)}{lines[0]?.length > 60 ? '...' : ''}</span>
-          {lineCount > 1 && (
-            <span className="ml-2 text-gray-400">+{lineCount - 1} more lines</span>
-          )}
+        <div className="bg-gray-50 px-3 py-2 text-xs text-gray-500">
+          <span className="font-mono">
+            {lines[0]?.slice(0, 60)}
+            {lines[0]?.length > 60 ? '...' : ''}
+          </span>
+          {lineCount > 1 && <span className="ml-2 text-gray-400">+{lineCount - 1} more lines</span>}
         </div>
       )}
     </div>
   )
 }
-
-export default CodeViewer

@@ -50,7 +50,7 @@ function getNodeType(step: ExecutionStep): ExecutionTreeNodeType {
  * Returns true if at least one step has parentObservationId set.
  */
 function hasObservationHierarchy(steps: ExecutionStep[]): boolean {
-  return steps.some(s => !!s.parentObservationId)
+  return steps.some((s) => !!s.parentObservationId)
 }
 
 /**
@@ -137,7 +137,9 @@ function buildTreeByObservation(steps: ExecutionStep[]): {
   // Pass 3: Compute depth and childrenDepth bottom-up (iterative BFS)
   // First, set depth using BFS from roots
   const queue: ExecutionTreeNode[] = [...roots]
-  for (const r of queue) { r.depth = 0 }
+  for (const r of queue) {
+    r.depth = 0
+  }
   while (queue.length > 0) {
     const node = queue.shift()!
     for (const child of node.children) {
@@ -163,7 +165,7 @@ function buildTreeByObservation(steps: ExecutionStep[]): {
     if (node.children.length === 0) {
       node.childrenDepth = 0
     } else {
-      node.childrenDepth = 1 + Math.max(...node.children.map(c => c.childrenDepth))
+      node.childrenDepth = 1 + Math.max(...node.children.map((c) => c.childrenDepth))
     }
   }
 
@@ -260,7 +262,7 @@ function buildTreeByNodeId(steps: ExecutionStep[]): {
  */
 export function flattenTree(
   roots: ExecutionTreeNode[],
-  collapsedIds: Set<string>
+  collapsedIds: Set<string>,
 ): ExecutionTreeFlatItem[] {
   const items: ExecutionTreeFlatItem[] = []
 

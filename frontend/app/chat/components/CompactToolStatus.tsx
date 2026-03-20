@@ -1,9 +1,8 @@
 'use client'
 
 import { CheckCircle2, Loader2, AlertCircle, Maximize2 } from 'lucide-react'
-import React from 'react'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { ToolCall } from '../types'
 
@@ -12,7 +11,7 @@ interface CompactToolStatusProps {
   onClick: () => void
 }
 
-const CompactToolStatus: React.FC<CompactToolStatusProps> = ({ toolCalls, onClick }) => {
+export default function CompactToolStatus({ toolCalls, onClick }: CompactToolStatusProps) {
   // Get the latest tool call status
   const latestTool = toolCalls[toolCalls.length - 1]
 
@@ -25,9 +24,9 @@ const CompactToolStatus: React.FC<CompactToolStatusProps> = ({ toolCalls, onClic
       case 'failed':
         return <AlertCircle size={18} className="text-red-500" />
       case 'running':
-        return <Loader2 size={18} className="text-blue-500 animate-spin" />
+        return <Loader2 size={18} className="animate-spin text-blue-500" />
       default:
-        return <Loader2 size={18} className="text-gray-400 animate-spin" />
+        return <Loader2 size={18} className="animate-spin text-gray-400" />
     }
   }
 
@@ -57,39 +56,31 @@ const CompactToolStatus: React.FC<CompactToolStatusProps> = ({ toolCalls, onClic
     }
   }
 
-  const toolName = latestTool.name
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (l) => l.toUpperCase())
+  const toolName = latestTool.name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 
   return (
     <div
       onClick={onClick}
       className={cn(
-        'flex items-center justify-between px-4 py-3 rounded-xl border cursor-pointer transition-all duration-200 shadow-sm hover:shadow-md',
-        getStatusColor(latestTool.status)
+        'flex cursor-pointer items-center justify-between rounded-xl border px-4 py-3 shadow-sm transition-all duration-200 hover:shadow-md',
+        getStatusColor(latestTool.status),
       )}
     >
       {/* Left: Icon + Tool Name */}
       <div className="flex items-center gap-3">
-        <div className="flex-shrink-0">
-          {getStatusIcon(latestTool.status)}
-        </div>
-        <span className="font-medium text-base text-gray-800">
-          {toolName}
-        </span>
+        <div className="flex-shrink-0">{getStatusIcon(latestTool.status)}</div>
+        <span className="text-base font-medium text-gray-800">{toolName}</span>
       </div>
 
       {/* Right: Status Badge + Expand Icon */}
       <div className="flex items-center gap-3">
         {latestTool.status === 'completed' && (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-300">
+          <span className="inline-flex items-center rounded-full border border-green-300 bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
             {getStatusText(latestTool.status)}
           </span>
         )}
-        <Maximize2 size={16} className="text-gray-400 flex-shrink-0" />
+        <Maximize2 size={16} className="flex-shrink-0 text-gray-400" />
       </div>
     </div>
   )
 }
-
-export default CompactToolStatus

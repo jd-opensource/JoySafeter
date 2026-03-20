@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useForwardedRef } from '@/hooks/use-forwarded-ref'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface ColorPickerProps {
   value: string
@@ -41,13 +41,13 @@ const ColorPicker = forwardRef<
           style={{
             backgroundColor: parsedValue,
           }}
-          variant='outline'
+          variant="outline"
         >
           <div />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className='w-full'>
-        <div className='space-y-3'>
+      <PopoverContent className="w-full">
+        <div className="space-y-3">
           <HexColorPicker color={parsedValue} onChange={onChange} />
           <Input
             maxLength={7}

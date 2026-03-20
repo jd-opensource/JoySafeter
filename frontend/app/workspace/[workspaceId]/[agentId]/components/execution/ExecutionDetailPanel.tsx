@@ -11,19 +11,12 @@
  * Inspired by langfuse ObservationDetailView.tsx
  */
 
-import {
-  Braces,
-  Code2,
-  Eye,
-  FileText,
-  Info,
-  AlignLeft,
-} from 'lucide-react'
-import React, { useMemo } from 'react'
+import { Braces, Code2, Eye, FileText, Info, AlignLeft } from 'lucide-react'
+import { useMemo } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
@@ -33,7 +26,11 @@ import { ModelIOCard } from '../ModelIOCard'
 
 import { useExecutionData } from './contexts/ExecutionDataContext'
 import { useExecutionSelection } from './contexts/ExecutionSelectionContext'
-import { useExecutionViewPreferences, type DetailTab, type JsonViewMode } from './contexts/ExecutionViewPreferencesContext'
+import {
+  useExecutionViewPreferences,
+  type DetailTab,
+  type JsonViewMode,
+} from './contexts/ExecutionViewPreferencesContext'
 
 /**
  * Format JSON to better display string values containing newlines
@@ -52,7 +49,7 @@ function JsonView({ data, label }: { data: any; label?: string }) {
   return (
     <div className="space-y-1">
       {label && (
-        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-1">
+        <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
           {label}
         </div>
       )}
@@ -96,11 +93,11 @@ function FormattedView({ data, label }: { data: any; label?: string }) {
     return (
       <div className="space-y-1">
         {label && (
-          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-1">
+          <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
             {label}
           </div>
         )}
-        <div className="text-xs text-gray-700 font-mono whitespace-pre-wrap bg-gray-50 rounded-md p-3 border border-gray-200 leading-relaxed">
+        <div className="whitespace-pre-wrap rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-xs leading-relaxed text-gray-700">
           {data}
         </div>
       </div>
@@ -149,11 +146,14 @@ function PreviewTab() {
 
     case 'node_lifecycle':
       return (
-        <div className="p-4 space-y-3">
+        <div className="space-y-3 p-4">
           {step.data?.input && <ViewComponent data={step.data.input} label="Input" />}
           {step.content && <ViewComponent data={step.content} label="Content" />}
           {!step.data?.input && !step.content && (
-            <ViewComponent data={step.data || { nodeId: step.nodeId, nodeLabel: step.nodeLabel }} label="Node Info" />
+            <ViewComponent
+              data={step.data || { nodeId: step.nodeId, nodeLabel: step.nodeLabel }}
+              label="Node Info"
+            />
           )}
         </div>
       )
@@ -182,12 +182,14 @@ function PreviewTab() {
     case 'code_agent_observation':
       return (
         <div className="p-4">
-          <div className={cn(
-            'text-xs font-mono leading-relaxed border rounded-md p-3 whitespace-pre-wrap',
-            step.data?.has_error
-              ? 'text-red-700 bg-red-50 border-red-200'
-              : 'text-teal-700 bg-teal-50 border-teal-200'
-          )}>
+          <div
+            className={cn(
+              'whitespace-pre-wrap rounded-md border p-3 font-mono text-xs leading-relaxed',
+              step.data?.has_error
+                ? 'border-red-200 bg-red-50 text-red-700'
+                : 'border-teal-200 bg-teal-50 text-teal-700',
+            )}
+          >
             {step.content}
           </div>
         </div>
@@ -196,7 +198,7 @@ function PreviewTab() {
     case 'code_agent_final_answer':
       return (
         <div className="p-4">
-          <div className="text-xs text-green-700 font-mono leading-relaxed bg-green-50 border border-green-200 rounded-md p-3 whitespace-pre-wrap">
+          <div className="whitespace-pre-wrap rounded-md border border-green-200 bg-green-50 p-3 font-mono text-xs leading-relaxed text-green-700">
             {step.content}
           </div>
         </div>
@@ -205,7 +207,7 @@ function PreviewTab() {
     case 'code_agent_planning':
       return (
         <div className="p-4">
-          <div className="text-xs text-orange-700 font-mono leading-relaxed bg-orange-50 border border-orange-200 rounded-md p-3 whitespace-pre-wrap">
+          <div className="whitespace-pre-wrap rounded-md border border-orange-200 bg-orange-50 p-3 font-mono text-xs leading-relaxed text-orange-700">
             {step.content}
           </div>
         </div>
@@ -214,7 +216,7 @@ function PreviewTab() {
     case 'code_agent_error':
       return (
         <div className="p-4">
-          <div className="text-xs text-red-700 font-mono leading-relaxed bg-red-50 border border-red-200 rounded-md p-3 whitespace-pre-wrap">
+          <div className="whitespace-pre-wrap rounded-md border border-red-200 bg-red-50 p-3 font-mono text-xs leading-relaxed text-red-700">
             {step.content}
           </div>
         </div>
@@ -244,13 +246,13 @@ function OutputTab() {
   switch (step.stepType) {
     case 'tool_execution':
       return (
-        <div className="p-4 space-y-3">
+        <div className="space-y-3 p-4">
           {step.data?.response ? (
             <ViewComponent data={step.data.response} label="Tool Output" />
           ) : step.status === 'running' ? (
             <div className="flex items-center gap-2 text-cyan-600">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
-              <span className="text-xs font-mono">Executing...</span>
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-500" />
+              <span className="font-mono text-xs">Executing...</span>
             </div>
           ) : (
             <EmptyState message="No output available" />
@@ -260,7 +262,7 @@ function OutputTab() {
 
     case 'model_io':
       return (
-        <div className="p-4 space-y-3">
+        <div className="space-y-3 p-4">
           {step.data?.output ? (
             <ViewComponent data={step.data.output} label="Model Output" />
           ) : step.data?.response ? (
@@ -281,7 +283,7 @@ function OutputTab() {
 
     case 'node_lifecycle':
       return (
-        <div className="p-4 space-y-3">
+        <div className="space-y-3 p-4">
           {step.data?.output ? (
             <ViewComponent data={step.data.output} label="Node Output" />
           ) : step.endTime ? (
@@ -350,12 +352,15 @@ function MetadataTab() {
     <div className="p-4">
       <div className="space-y-2">
         {Object.entries(metadata).map(([key, value]) => (
-          <div key={key} className="flex items-start gap-3 py-1.5 border-b border-gray-100 last:border-b-0">
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider w-24 shrink-0 pt-0.5">
+          <div
+            key={key}
+            className="flex items-start gap-3 border-b border-gray-100 py-1.5 last:border-b-0"
+          >
+            <span className="w-24 shrink-0 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
               {key}
             </span>
-            <span className="text-[11px] text-gray-700 font-mono break-all">
-              {value === null ? <span className="text-gray-300 italic">null</span> : String(value)}
+            <span className="break-all font-mono text-[11px] text-gray-700">
+              {value === null ? <span className="italic text-gray-300">null</span> : String(value)}
             </span>
           </div>
         ))}
@@ -364,7 +369,7 @@ function MetadataTab() {
       {/* Raw data section */}
       {step.data && (
         <div className="mt-4">
-          <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
             Raw Data
           </div>
           <JsonView data={step.data} />
@@ -376,98 +381,105 @@ function MetadataTab() {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-3 py-12">
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-gray-400">
       <Braces size={32} strokeWidth={0.5} className="text-gray-300" />
-      <p className="text-xs font-mono">{message}</p>
+      <p className="font-mono text-xs">{message}</p>
     </div>
   )
 }
 
 // ============ Main Component ============
 
-export const ExecutionDetailPanel: React.FC = () => {
+export function ExecutionDetailPanel() {
   const { t } = useTranslation()
   const { nodeMap } = useExecutionData()
   const { selectedNodeId } = useExecutionSelection()
-  const { jsonViewMode, setJsonViewMode, activeDetailTab, setActiveDetailTab } = useExecutionViewPreferences()
+  const { jsonViewMode, setJsonViewMode, activeDetailTab, setActiveDetailTab } =
+    useExecutionViewPreferences()
 
   const node = selectedNodeId ? nodeMap.get(selectedNodeId) : null
   const step = node?.step
 
   if (!step) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-3">
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-gray-400">
         <Braces size={40} strokeWidth={0.5} className="text-gray-300" />
-        <p className="text-xs font-mono">
-          {t('workspace.selectStepToInspectPayload', { defaultValue: 'Select a step to inspect payload' })}
+        <p className="font-mono text-xs">
+          {t('workspace.selectStepToInspectPayload', {
+            defaultValue: 'Select a step to inspect payload',
+          })}
         </p>
       </div>
     )
   }
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="flex h-full flex-col bg-white">
       {/* Header */}
-      <div className="h-9 border-b border-gray-200 flex items-center px-3 bg-gray-50/80 shrink-0 justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          <AlignLeft size={13} className="text-gray-500 shrink-0" />
-          <span className="text-[11px] font-semibold text-gray-800 truncate">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-gray-200 bg-gray-50/80 px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <AlignLeft size={13} className="shrink-0 text-gray-500" />
+          <span className="truncate text-[11px] font-semibold text-gray-800">
             {step.title || step.nodeLabel}
           </span>
-          <span className="text-[9px] text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 shrink-0">
+          <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-[9px] text-gray-400">
             {step.stepType}
           </span>
         </div>
 
         {/* Formatted / JSON toggle */}
-        <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5 border border-gray-200">
+        <div className="flex items-center gap-0.5 rounded-md border border-gray-200 bg-gray-100 p-0.5">
           <button
             onClick={() => setJsonViewMode('formatted')}
             className={cn(
-              'px-2 py-0.5 rounded text-[9px] font-medium transition-colors',
+              'rounded px-2 py-0.5 text-[9px] font-medium transition-colors',
               jsonViewMode === 'formatted'
                 ? 'bg-white text-gray-800 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 hover:text-gray-700',
             )}
           >
-            <FileText size={10} className="inline mr-1" />
+            <FileText size={10} className="mr-1 inline" />
             Formatted
           </button>
           <button
             onClick={() => setJsonViewMode('json')}
             className={cn(
-              'px-2 py-0.5 rounded text-[9px] font-medium transition-colors',
+              'rounded px-2 py-0.5 text-[9px] font-medium transition-colors',
               jsonViewMode === 'json'
                 ? 'bg-white text-gray-800 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 hover:text-gray-700',
             )}
           >
-            <Code2 size={10} className="inline mr-1" />
+            <Code2 size={10} className="mr-1 inline" />
             JSON
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeDetailTab} onValueChange={(v) => setActiveDetailTab(v as DetailTab)} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="h-8 bg-transparent border-b border-gray-200 rounded-none px-3 gap-0 justify-start shrink-0">
+      <Tabs
+        value={activeDetailTab}
+        onValueChange={(v) => setActiveDetailTab(v as DetailTab)}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <TabsList className="h-8 shrink-0 justify-start gap-0 rounded-none border-b border-gray-200 bg-transparent px-3">
           <TabsTrigger
             value="preview"
-            className="h-8 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none text-[11px] px-3"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <Eye size={12} className="mr-1" />
             Preview
           </TabsTrigger>
           <TabsTrigger
             value="output"
-            className="h-8 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none text-[11px] px-3"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <AlignLeft size={12} className="mr-1" />
             Output
           </TabsTrigger>
           <TabsTrigger
             value="metadata"
-            className="h-8 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none text-[11px] px-3"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <Info size={12} className="mr-1" />
             Metadata

@@ -23,10 +23,7 @@ class CopilotRedirectService {
    * @param context Mode context
    * @returns Redirect path, or null if failed
    */
-  async redirectToCopilot(
-    userInput: string,
-    context: ModeContext
-  ): Promise<string | null> {
+  async redirectToCopilot(userInput: string, context: ModeContext): Promise<string | null> {
     const { workspaces, t, router, queryClient } = context
 
     try {
@@ -82,10 +79,7 @@ class CopilotRedirectService {
    * @param context Mode context
    * @returns Whether the redirect was successful
    */
-  async executeRedirect(
-    userInput: string,
-    context: ModeContext
-  ): Promise<boolean> {
+  async executeRedirect(userInput: string, context: ModeContext): Promise<boolean> {
     const redirectPath = await this.redirectToCopilot(userInput, context)
     if (redirectPath) {
       context.router.push(redirectPath)

@@ -2,6 +2,8 @@
 
 import { Node, Edge } from 'reactflow'
 
+import { generateUUID } from '@/lib/utils/uuid'
+
 import { agentService, type AgentGraph } from './agentService'
 
 export interface GraphTemplate {
@@ -65,7 +67,7 @@ class GraphTemplateService {
     templateName: string,
     graphName: string,
     workspaceId: string,
-    description?: string
+    description?: string,
   ): Promise<AgentGraph> {
     // 1. Load template
     const template = await this.loadTemplate(templateName)
@@ -73,7 +75,7 @@ class GraphTemplateService {
     // 2. Regenerate node IDs and create mapping (UUID for backend consistency)
     const nodeIdMap = new Map<string, string>()
     const newNodes = template.nodes.map((node) => {
-      const newId = crypto.randomUUID()
+      const newId = generateUUID()
       nodeIdMap.set(node.id, newId)
       return {
         ...node,
@@ -84,14 +86,19 @@ class GraphTemplateService {
     // 3. Update edges with new source and target IDs
     const newEdges = template.edges.map((edge) => ({
       ...edge,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       source: nodeIdMap.get(edge.source) || edge.source,
       target: nodeIdMap.get(edge.target) || edge.target,
     }))
 
     // 4. Create graph metadata
+    const descriptionMap: Record<string, string> = {
+      'default-chat': 'Default chat with all available skills, Docker backend',
+      'apk-detector': 'APK Intent Bridge Security Analyzer',
+      'skill-creator': 'A specialized agent for creating and editing Skills',
+    }
     const graphDescription =
-      description ?? (templateName === 'default-chat' ? 'Default chat with all available skills, Docker backend' : 'APK Intent Bridge Security Analyzer')
+      description ?? descriptionMap[templateName] ?? `Graph created from template: ${templateName}`
     const graph = await agentService.createGraph({
       name: graphName,
       description: graphDescription,

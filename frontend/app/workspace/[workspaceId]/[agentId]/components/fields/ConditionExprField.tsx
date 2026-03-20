@@ -1,13 +1,13 @@
 'use client'
 
 import { highlight, languages } from 'prismjs'
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import Editor from 'react-simple-code-editor'
 import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-javascript'
 import { Node, Edge } from 'reactflow'
 
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 import { VariableInputField } from './VariableInputField'
 import { StateField } from '../../types/graph'
@@ -26,7 +26,7 @@ interface ConditionExprFieldProps {
   graphStateFields?: StateField[]
 }
 
-export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
+export function ConditionExprField({
   value,
   onChange,
   placeholder = "state.get('value', 0) > 10",
@@ -38,7 +38,7 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
   className,
   disabled = false,
   graphStateFields,
-}) => {
+}: ConditionExprFieldProps) {
   // Use local state to prevent losing focus during input
   const [localValue, setLocalValue] = useState(value)
 
@@ -47,7 +47,7 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
   const [builderState, setBuilderState] = useState({
     variable: '',
     operator: '==',
-    value: ''
+    value: '',
   })
 
   // Sync external value to local state when it changes from outside
@@ -68,21 +68,21 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
       setBuilderState({
         variable: match[1],
         operator: match[2],
-        value: match[3].replace(/^['"]|['"]$/g, '')
+        value: match[3].replace(/^['"]|['"]$/g, ''),
       })
       setMode('builder')
     } else if (isEmptyMatch) {
       setBuilderState({
         variable: isEmptyMatch[1],
         operator: 'is_empty',
-        value: ''
+        value: '',
       })
       setMode('builder')
     } else if (isNotEmptyMatch) {
       setBuilderState({
         variable: isNotEmptyMatch[1],
         operator: 'is_not_empty',
-        value: ''
+        value: '',
       })
       setMode('builder')
     } else if (value && value.trim() !== '') {
@@ -110,7 +110,8 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
     const varRef = `state.get('${newState.variable}')`
 
     const isNumber = !isNaN(Number(newState.value)) && newState.value.trim() !== ''
-    const isBool = newState.value.toLowerCase() === 'true' || newState.value.toLowerCase() === 'false'
+    const isBool =
+      newState.value.toLowerCase() === 'true' || newState.value.toLowerCase() === 'false'
     const cleanValue = isNumber || isBool ? newState.value.toLowerCase() : `'${newState.value}'`
 
     switch (newState.operator) {
@@ -138,10 +139,10 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
         <button
           onClick={() => setMode('builder')}
           className={cn(
-            "text-[10px] px-2 py-0.5 rounded-full border transition-all",
+            'rounded-full border px-2 py-0.5 text-[10px] transition-all',
             mode === 'builder'
-              ? "bg-blue-50 border-blue-200 text-blue-700 font-medium"
-              : "bg-transparent border-transparent text-gray-400 hover:text-gray-600"
+              ? 'border-blue-200 bg-blue-50 font-medium text-blue-700'
+              : 'border-transparent bg-transparent text-gray-400 hover:text-gray-600',
           )}
         >
           Visual
@@ -149,10 +150,10 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
         <button
           onClick={() => setMode('code')}
           className={cn(
-            "text-[10px] px-2 py-0.5 rounded-full border transition-all",
+            'rounded-full border px-2 py-0.5 text-[10px] transition-all',
             mode === 'code'
-              ? "bg-purple-50 border-purple-200 text-purple-700 font-medium"
-              : "bg-transparent border-transparent text-gray-400 hover:text-gray-600"
+              ? 'border-purple-200 bg-purple-50 font-medium text-purple-700'
+              : 'border-transparent bg-transparent text-gray-400 hover:text-gray-600',
           )}
         >
           Code
@@ -160,33 +161,38 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
       </div>
 
       {mode === 'builder' ? (
-        <div className="p-3 bg-gray-50/50 rounded-lg border border-gray-200 space-y-3">
+        <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-3">
           {/* Builder UI */}
           <div className="space-y-1">
-            <label className="text-[10px] uppercase font-bold text-gray-400">Variable</label>
+            <label className="text-[10px] font-bold uppercase text-gray-400">Variable</label>
             <select
-              className="w-full h-8 text-xs bg-white border border-gray-200 rounded px-2 outline-none focus:border-blue-400"
+              className="h-8 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-blue-400"
               value={builderState.variable}
               onChange={(e) => updateBuilder('variable', e.target.value)}
             >
-              <option value="" disabled>Select state variable...</option>
-              {graphStateFields?.map(f => (
-                <option key={f.name} value={f.name}>{f.name} ({f.type})</option>
+              <option value="" disabled>
+                Select state variable...
+              </option>
+              {graphStateFields?.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {f.name} ({f.type})
+                </option>
               ))}
               <option disabled>--- System ---</option>
               <option value="loop_count">loop_count</option>
               <option value="current_node">current_node</option>
-              {!graphStateFields?.find(f => f.name === builderState.variable) && builderState.variable && (
-                <option value={builderState.variable}>{builderState.variable}</option>
-              )}
+              {!graphStateFields?.find((f) => f.name === builderState.variable) &&
+                builderState.variable && (
+                  <option value={builderState.variable}>{builderState.variable}</option>
+                )}
             </select>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 space-y-1">
-              <label className="text-[10px] uppercase font-bold text-gray-400">Condition</label>
+              <label className="text-[10px] font-bold uppercase text-gray-400">Condition</label>
               <select
-                className="w-full h-8 text-xs bg-white border border-gray-200 rounded px-2 outline-none focus:border-blue-400"
+                className="h-8 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-blue-400"
                 value={builderState.operator}
                 onChange={(e) => updateBuilder('operator', e.target.value)}
               >
@@ -203,10 +209,10 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
             </div>
 
             <div className="col-span-2 space-y-1">
-              <label className="text-[10px] uppercase font-bold text-gray-400">Value</label>
+              <label className="text-[10px] font-bold uppercase text-gray-400">Value</label>
               {!['is_empty', 'is_not_empty'].includes(builderState.operator) && (
                 <input
-                  className="w-full h-8 text-xs bg-white border border-gray-200 rounded px-2 outline-none focus:border-blue-400"
+                  className="h-8 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-blue-400"
                   placeholder="Value..."
                   value={builderState.value}
                   onChange={(e) => updateBuilder('value', e.target.value)}
@@ -215,8 +221,8 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
             </div>
           </div>
 
-          <div className="pt-2 border-t border-gray-100">
-            <p className="text-[9px] text-gray-400 font-mono truncate">
+          <div className="border-t border-gray-100 pt-2">
+            <p className="truncate font-mono text-[9px] text-gray-400">
               Preview: <span className="text-blue-500">{localValue || '(empty)'}</span>
             </p>
           </div>
@@ -226,8 +232,8 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
           <div
             className={cn(
               'relative min-h-[80px] rounded-lg border bg-white font-mono text-xs',
-              'focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500',
-              disabled && 'bg-gray-50 cursor-not-allowed opacity-60'
+              'focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500',
+              disabled && 'cursor-not-allowed bg-gray-50 opacity-60',
             )}
           >
             <Editor
@@ -253,13 +259,12 @@ export const ConditionExprField: React.FC<ConditionExprFieldProps> = ({
       )}
 
       {description && mode === 'code' && (
-        <p className="text-[9px] text-gray-400 leading-tight italic">{description}</p>
+        <p className="text-[9px] italic leading-tight text-gray-400">{description}</p>
       )}
 
       {variables && variables.length > 0 && mode === 'code' && (
         <div className="text-[9px] text-gray-500">
-          <span className="font-medium">Available variables:</span>{' '}
-          {variables.join(', ')}
+          <span className="font-medium">Available variables:</span> {variables.join(', ')}
         </div>
       )}
     </div>

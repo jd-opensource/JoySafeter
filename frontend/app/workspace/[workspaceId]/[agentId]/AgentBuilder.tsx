@@ -78,15 +78,20 @@ const AgentBuilderContent = () => {
 
   // Use React Query to fetch graph state uniformly, avoiding duplicate requests
   // refetchOnMount: 'always' ensures latest data is fetched when switching graphs
-  const { data: graphStateData, isSuccess: isGraphStateLoaded } = useGraphState(agentId ?? undefined, {
-    refetchOnMount: 'always',
-  })
+  const { data: graphStateData, isSuccess: isGraphStateLoaded } = useGraphState(
+    agentId ?? undefined,
+    {
+      refetchOnMount: 'always',
+    },
+  )
 
   const { toast } = useToast()
   const [showLoadModal, setShowLoadModal] = useState(false)
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
   const [showNewConfirm, setShowNewConfirm] = useState(false)
-  const [pendingGraph, setPendingGraph] = useState<AgentGraph | { type: 'import'; file: File } | null>(null)
+  const [pendingGraph, setPendingGraph] = useState<
+    AgentGraph | { type: 'import'; file: File } | null
+  >(null)
   const [isLoadingGraph, setIsLoadingGraph] = useState(false)
   const [isRunModalOpen, setIsRunModalOpen] = useState(false)
   const [runInput, setRunInput] = useState('')
@@ -134,7 +139,8 @@ const AgentBuilderContent = () => {
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const { hasPendingChanges, autoSaveDebounceTimer, nodes, edges, rfInstance, graphId } = useBuilderStore.getState()
+      const { hasPendingChanges, autoSaveDebounceTimer, nodes, edges, rfInstance, graphId } =
+        useBuilderStore.getState()
 
       if (!graphId || graphId !== agentId || !isValidUUID(graphId)) {
         return
@@ -222,7 +228,7 @@ const AgentBuilderContent = () => {
     }
 
     // Sync other metadata...
-    const currentGraph = graphsData?.find(g => g.id === agentId)
+    const currentGraph = graphsData?.find((g) => g.id === agentId)
     if (currentGraph) {
       if (currentGraph.name) {
         agentService.setCachedGraphName(currentGraph.name)
@@ -240,7 +246,7 @@ const AgentBuilderContent = () => {
       state.nodes || [],
       state.edges || [],
       storeState.graphStateFields,
-      storeState.fallbackNodeId
+      storeState.fallbackNodeId,
     )
 
     // Apply multiple state changes in one batch to ensure consistency
@@ -293,7 +299,7 @@ const AgentBuilderContent = () => {
     setViewportWhenReady()
 
     return () => {
-      viewportTimersRef.current.forEach(timer => {
+      viewportTimersRef.current.forEach((timer) => {
         if (timer) clearTimeout(timer)
       })
       viewportTimersRef.current = []
@@ -550,7 +556,7 @@ const AgentBuilderContent = () => {
   }
 
   return (
-    <div className="w-full h-full flex flex-col bg-gray-50 text-gray-900 relative overflow-hidden">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-gray-50 text-gray-900">
       {showLoadModal && (
         <LoadModal onClose={() => setShowLoadModal(false)} onLoad={handleLoadAttempt} />
       )}
@@ -558,7 +564,7 @@ const AgentBuilderContent = () => {
       <AlertDialog open={showOverwriteConfirm} onOpenChange={setShowOverwriteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <div className="flex items-center gap-1 text-amber-600 mb-2">
+            <div className="mb-2 flex items-center gap-1 text-amber-600">
               <AlertTriangle size={20} />
               <AlertDialogTitle>{t('workspace.overwriteCanvas')}</AlertDialogTitle>
             </div>
@@ -566,15 +572,18 @@ const AgentBuilderContent = () => {
               {pendingGraph && 'type' in pendingGraph && pendingGraph.type === 'import'
                 ? t('workspace.importOverwriteWarning')
                 : t('workspace.loadOverwriteWarning', {
-                  name: pendingGraph && 'name' in pendingGraph ? pendingGraph.name : '',
-                })}
+                    name: pendingGraph && 'name' in pendingGraph ? pendingGraph.name : '',
+                  })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleCancelOverwrite}>
               {t('common.cancel')}
             </AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmOverwrite} className="bg-blue-600 hover:bg-blue-700">
+            <AlertDialogAction
+              onClick={handleConfirmOverwrite}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
               {pendingGraph && 'type' in pendingGraph && pendingGraph.type === 'import'
                 ? t('workspace.import')
                 : t('workspace.overwriteAndLoad')}
@@ -586,19 +595,18 @@ const AgentBuilderContent = () => {
       <AlertDialog open={showNewConfirm} onOpenChange={setShowNewConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <div className="flex items-center gap-1 text-green-600 mb-2">
+            <div className="mb-2 flex items-center gap-1 text-green-600">
               <FilePlus size={20} />
               <AlertDialogTitle>{t('workspace.createNewGraph')}</AlertDialogTitle>
             </div>
-            <AlertDialogDescription>
-              {t('workspace.newGraphWarning')}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{t('workspace.newGraphWarning')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>
-              {t('common.cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmNew} className="bg-green-600 hover:bg-green-700">
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmNew}
+              className="bg-green-600 hover:bg-green-700"
+            >
               {t('workspace.createNew')}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -606,23 +614,23 @@ const AgentBuilderContent = () => {
       </AlertDialog>
 
       {(isInitializing || isLoadingGraph) && (
-        <div className="absolute inset-0 z-[60] bg-gray-50/80 backdrop-blur-sm flex flex-col items-center justify-center">
-          <Loader2 size={40} className="text-blue-500 animate-spin mb-3" />
-          <p className="text-gray-500 font-medium">
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-gray-50/80 backdrop-blur-sm">
+          <Loader2 size={40} className="mb-3 animate-spin text-blue-500" />
+          <p className="font-medium text-gray-500">
             {isLoadingGraph ? t('workspace.loadingGraph') : t('workspace.loadingWorkspace')}
           </p>
         </div>
       )}
 
       {/* Main Content Area - Canvas takes full space, panels overlay on top */}
-      <div className="flex-1 min-h-0 relative">
+      <div className="relative min-h-0 flex-1">
         <ErrorBoundary>
           <BuilderCanvas key={agentId || 'empty'} />
         </ErrorBoundary>
       </div>
 
       {/* RIGHT: Panel - Fixed Position (combines Toolbar and Sidebar) */}
-      <aside className="fixed inset-y-0 right-0 z-20 w-[320px] bg-white border-l border-gray-200 overflow-hidden flex flex-col">
+      <aside className="fixed inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-gray-200 bg-white">
         {/* Header with Toolbar */}
         <div className="flex-shrink-0 border-b border-gray-200">
           <BuilderToolbar
@@ -635,7 +643,7 @@ const AgentBuilderContent = () => {
         </div>
 
         {/* Sidebar Content with Tabs (Copilot and Toolbox) */}
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <BuilderSidebarTabs />
         </div>
       </aside>

@@ -1,6 +1,17 @@
 'use client'
 
-import { Database, Copy, Check, AlertCircle, Info, Eye, X, Loader2, GitBranch, Layers } from 'lucide-react'
+import {
+  Database,
+  Copy,
+  Check,
+  AlertCircle,
+  Info,
+  Eye,
+  X,
+  Loader2,
+  GitBranch,
+  Layers,
+} from 'lucide-react'
 import { useParams } from 'next/navigation'
 import React, { useMemo, useState, useEffect } from 'react'
 import { Node, Edge } from 'reactflow'
@@ -18,11 +29,10 @@ import {
   SheetDescription,
 } from '@/components/ui/sheet'
 import { useToast } from '@/components/ui/use-toast'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { getNodeAvailableVariables, getGraphVariables } from '../services/variableService'
-
 
 interface VariableInfo {
   name: string
@@ -49,19 +59,21 @@ interface StateVariablePanelProps {
   onClose?: () => void
 }
 
-export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
+export function StateVariablePanel({
   nodes,
   edges,
   selectedNodeId,
   onVariableSelect,
   onClose,
-}) => {
+}: StateVariablePanelProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const params = useParams()
   const graphId = params.agentId as string
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedScope, setSelectedScope] = useState<'all' | 'global' | 'loop' | 'task' | 'node'>('all')
+  const [selectedScope, setSelectedScope] = useState<'all' | 'global' | 'loop' | 'task' | 'node'>(
+    'all',
+  )
   const [copiedPath, setCopiedPath] = useState<string | null>(null)
   const [variables, setVariables] = useState<VariableInfo[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -115,7 +127,7 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
           v.name.toLowerCase().includes(query) ||
           v.path.toLowerCase().includes(query) ||
           v.source.toLowerCase().includes(query) ||
-          v.description?.toLowerCase().includes(query)
+          v.description?.toLowerCase().includes(query),
       )
     }
 
@@ -203,21 +215,21 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
     <Sheet open={true} onOpenChange={(open) => !open && onClose?.()}>
       <SheetContent
         side="left"
-        className="w-[420px] sm:max-w-[420px] p-0 flex flex-col bg-[var(--surface-2)] border-r border-[var(--border)]"
+        className="flex w-[420px] flex-col border-r border-[var(--border)] bg-[var(--surface-2)] p-0 sm:max-w-[420px]"
       >
         {/* Header */}
-        <div className="px-4 py-3.5 border-b border-[var(--border)] shrink-0 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 backdrop-blur-sm">
+        <div className="shrink-0 border-b border-[var(--border)] bg-gradient-to-r from-blue-50/50 to-indigo-50/50 px-4 py-3.5 backdrop-blur-sm dark:from-blue-950/20 dark:to-indigo-950/20">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-sm">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-500 shadow-sm">
                 <Database size={16} className="text-white" />
               </div>
               <div className="flex flex-col">
-                <SheetTitle className="text-sm font-semibold text-[var(--text-primary)] leading-tight">
+                <SheetTitle className="text-sm font-semibold leading-tight text-[var(--text-primary)]">
                   State Variables
                 </SheetTitle>
                 {selectedNodeId && (
-                  <SheetDescription className="text-[10px] text-[var(--text-muted)] leading-tight mt-0.5">
+                  <SheetDescription className="mt-0.5 text-[10px] leading-tight text-[var(--text-muted)]">
                     Available variables for selected node
                   </SheetDescription>
                 )}
@@ -227,7 +239,7 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
               variant="ghost"
               size="icon"
               onClick={() => onClose?.()}
-              className="h-7 w-7 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)]"
+              className="h-7 w-7 text-[var(--text-muted)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
             >
               <X size={14} />
             </Button>
@@ -235,14 +247,14 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
         </div>
 
         {/* Search and Filter */}
-        <div className="px-4 py-3 border-b border-[var(--border)] shrink-0 bg-[var(--surface-1)] space-y-2.5">
+        <div className="shrink-0 space-y-2.5 border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-3">
           <SearchInput
             placeholder="Search variables..."
             value={searchQuery}
             onValueChange={setSearchQuery}
-            className="bg-[var(--surface-2)] hover:bg-[var(--surface-3)] focus-within:bg-[var(--surface-elevated)] focus-within:border-[var(--brand-500)]/40 focus-within:shadow-sm transition-all"
+            className="focus-within:border-[var(--brand-500)]/40 bg-[var(--surface-2)] transition-all focus-within:bg-[var(--surface-elevated)] focus-within:shadow-sm hover:bg-[var(--surface-3)]"
           />
-          <div className="flex gap-1.5 flex-wrap">
+          <div className="flex flex-wrap gap-1.5">
             {(['all', 'global', 'loop', 'task', 'node'] as const).map((scope) => (
               <Button
                 key={scope}
@@ -250,10 +262,10 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 size="sm"
                 onClick={() => setSelectedScope(scope)}
                 className={cn(
-                  "h-7 text-xs px-2.5 font-medium transition-all",
+                  'h-7 px-2.5 text-xs font-medium transition-all',
                   selectedScope === scope
-                    ? "bg-[var(--brand-500)] text-white hover:bg-[var(--brand-500)]/90 shadow-sm"
-                    : "bg-[var(--surface-2)] border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
+                    ? 'hover:bg-[var(--brand-500)]/90 bg-[var(--brand-500)] text-white shadow-sm'
+                    : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]',
                 )}
               >
                 {scope === 'all' ? 'All' : getScopeLabel(scope)}
@@ -264,16 +276,16 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
 
         {/* Variables List */}
         <ScrollArea className="flex-1">
-          <div className="p-4 space-y-5">
+          <div className="space-y-5 p-4">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-12 text-[var(--text-muted)]">
-                <Loader2 size={24} className="animate-spin mb-3 opacity-50" />
+                <Loader2 size={24} className="mb-3 animate-spin opacity-50" />
                 <div className="text-xs font-medium">Loading variables...</div>
               </div>
             ) : filteredVariables.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-[var(--text-muted)]">
                 <AlertCircle size={32} className="mb-3 opacity-40" />
-                <div className="text-xs font-medium mb-1">No variables found</div>
+                <div className="mb-1 text-xs font-medium">No variables found</div>
                 {searchQuery && (
                   <div className="text-[10px] opacity-70">Try using different search terms</div>
                 )}
@@ -283,14 +295,17 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 {/* Global Variables */}
                 {groupedVariables.global.length > 0 && (
                   <div className="space-y-2.5">
-                    <div className="flex items-center gap-2 mb-2 px-1">
-                      <div className="w-5 h-5 rounded-md bg-blue-100 dark:bg-blue-950/40 flex items-center justify-center">
+                    <div className="mb-2 flex items-center gap-2 px-1">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-950/40">
                         <Database size={11} className="text-blue-600 dark:text-blue-400" />
                       </div>
-                      <Label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                         Global Variables
                       </Label>
-                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-0">
+                      <Badge
+                        variant="secondary"
+                        className="ml-auto h-4 border-0 bg-blue-50 px-1.5 text-[10px] text-blue-700 dark:bg-blue-950/30 dark:text-blue-400"
+                      >
                         {groupedVariables.global.length}
                       </Badge>
                     </div>
@@ -312,14 +327,17 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 {/* Loop Variables */}
                 {groupedVariables.loop.length > 0 && (
                   <div className="space-y-2.5">
-                    <div className="flex items-center gap-2 mb-2 px-1">
-                      <div className="w-5 h-5 rounded-md bg-cyan-100 dark:bg-cyan-950/40 flex items-center justify-center">
+                    <div className="mb-2 flex items-center gap-2 px-1">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-md bg-cyan-100 dark:bg-cyan-950/40">
                         <GitBranch size={11} className="text-cyan-600 dark:text-cyan-400" />
                       </div>
-                      <Label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                         Loop Variables
                       </Label>
-                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-cyan-50 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-400 border-0">
+                      <Badge
+                        variant="secondary"
+                        className="ml-auto h-4 border-0 bg-cyan-50 px-1.5 text-[10px] text-cyan-700 dark:bg-cyan-950/30 dark:text-cyan-400"
+                      >
                         {groupedVariables.loop.length}
                       </Badge>
                     </div>
@@ -341,14 +359,17 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 {/* Task Variables */}
                 {groupedVariables.task.length > 0 && (
                   <div className="space-y-2.5">
-                    <div className="flex items-center gap-2 mb-2 px-1">
-                      <div className="w-5 h-5 rounded-md bg-purple-100 dark:bg-purple-950/40 flex items-center justify-center">
+                    <div className="mb-2 flex items-center gap-2 px-1">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-950/40">
                         <Layers size={11} className="text-purple-600 dark:text-purple-400" />
                       </div>
-                      <Label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                         Task Variables
                       </Label>
-                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-0">
+                      <Badge
+                        variant="secondary"
+                        className="ml-auto h-4 border-0 bg-purple-50 px-1.5 text-[10px] text-purple-700 dark:bg-purple-950/30 dark:text-purple-400"
+                      >
                         {groupedVariables.task.length}
                       </Badge>
                     </div>
@@ -370,14 +391,17 @@ export const StateVariablePanel: React.FC<StateVariablePanelProps> = ({
                 {/* Node Variables */}
                 {groupedVariables.node.length > 0 && (
                   <div className="space-y-2.5">
-                    <div className="flex items-center gap-2 mb-2 px-1">
-                      <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center">
+                    <div className="mb-2 flex items-center gap-2 px-1">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-100 dark:bg-emerald-950/40">
                         <Info size={11} className="text-emerald-600 dark:text-emerald-400" />
                       </div>
-                      <Label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
                         Node Variables
                       </Label>
-                      <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-0">
+                      <Badge
+                        variant="secondary"
+                        className="ml-auto h-4 border-0 bg-emerald-50 px-1.5 text-[10px] text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
+                      >
                         {groupedVariables.node.length}
                       </Badge>
                     </div>
@@ -414,7 +438,7 @@ interface VariableItemProps {
   getScopeLabel: (scope: string) => string
 }
 
-const VariableItem: React.FC<VariableItemProps> = ({
+function VariableItem({
   variable,
   onCopy,
   onClick,
@@ -422,29 +446,29 @@ const VariableItem: React.FC<VariableItemProps> = ({
   getScopeColor,
   getScopeIcon,
   getScopeLabel,
-}) => {
+}: VariableItemProps) {
   return (
     <div
       className={cn(
-        'group relative p-3.5 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)]',
-        'hover:bg-[var(--surface-3)] hover:border-[var(--brand-500)]/30 cursor-pointer',
-        'transition-all duration-200 shadow-sm hover:shadow-md',
-        onClick && 'hover:shadow-[0_0_0_1px_var(--brand-500)/20]'
+        'group relative rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3.5',
+        'hover:border-[var(--brand-500)]/30 cursor-pointer hover:bg-[var(--surface-3)]',
+        'shadow-sm transition-all duration-200 hover:shadow-md',
+        onClick && 'hover:shadow-[0_0_0_1px_var(--brand-500)/20]',
       )}
       onClick={() => onClick?.(variable)}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0 space-y-2">
+        <div className="min-w-0 flex-1 space-y-2">
           {/* Header: Name and Scope Badge */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate text-sm font-semibold text-[var(--text-primary)]">
               {variable.name}
             </span>
             <Badge
               variant="outline"
               className={cn(
-                "text-[10px] h-5 px-1.5 font-medium border rounded-md flex items-center gap-1",
-                getScopeColor(variable.scope)
+                'flex h-5 items-center gap-1 rounded-md border px-1.5 text-[10px] font-medium',
+                getScopeColor(variable.scope),
               )}
             >
               {getScopeIcon(variable.scope)}
@@ -453,19 +477,19 @@ const VariableItem: React.FC<VariableItemProps> = ({
           </div>
 
           {/* Variable Path */}
-          <div className="text-xs text-[var(--text-tertiary)] font-mono break-all bg-[var(--surface-2)] px-2 py-1.5 rounded border border-[var(--border)]/50">
+          <div className="border-[var(--border)]/50 break-all rounded border bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs text-[var(--text-tertiary)]">
             {variable.path}
           </div>
 
           {/* Description */}
           {variable.description && (
-            <div className="text-xs text-[var(--text-secondary)] leading-relaxed">
+            <div className="text-xs leading-relaxed text-[var(--text-secondary)]">
               {variable.description}
             </div>
           )}
 
           {/* Footer: Source and Type */}
-          <div className="flex items-center gap-2 flex-wrap pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
               <span className="opacity-70">Source:</span>
               <span className="font-medium">{variable.source}</span>
@@ -473,7 +497,7 @@ const VariableItem: React.FC<VariableItemProps> = ({
             {variable.value_type && (
               <Badge
                 variant="secondary"
-                className="text-[10px] h-4 px-1.5 bg-[var(--surface-3)] text-[var(--text-tertiary)] border-0 font-normal"
+                className="h-4 border-0 bg-[var(--surface-3)] px-1.5 text-[10px] font-normal text-[var(--text-tertiary)]"
               >
                 {variable.value_type}
               </Badge>
@@ -482,7 +506,7 @@ const VariableItem: React.FC<VariableItemProps> = ({
 
           {/* Usages */}
           {variable.usages && variable.usages.length > 0 && (
-            <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)] pt-0.5">
+            <div className="flex items-center gap-1.5 pt-0.5 text-[10px] text-[var(--text-muted)]">
               <Eye size={10} className="opacity-60" />
               <span>Used in {variable.usages.length} node(s)</span>
             </div>
@@ -498,10 +522,10 @@ const VariableItem: React.FC<VariableItemProps> = ({
             onCopy(variable.path)
           }}
           className={cn(
-            "h-7 w-7 p-0 shrink-0 rounded-md",
-            "text-[var(--text-muted)] hover:text-[var(--text-primary)]",
-            "hover:bg-[var(--surface-4)] transition-colors",
-            "opacity-0 group-hover:opacity-100"
+            'h-7 w-7 shrink-0 rounded-md p-0',
+            'text-[var(--text-muted)] hover:text-[var(--text-primary)]',
+            'transition-colors hover:bg-[var(--surface-4)]',
+            'opacity-0 group-hover:opacity-100',
           )}
           title="Copy path"
         >
@@ -520,7 +544,7 @@ const VariableItem: React.FC<VariableItemProps> = ({
 function analyzeVariables(
   nodes: Node[],
   edges: Edge[],
-  selectedNodeId?: string | null
+  selectedNodeId?: string | null,
 ): VariableInfo[] {
   const variables: VariableInfo[] = []
 
@@ -560,7 +584,11 @@ function analyzeVariables(
 
   // Analyze node configurations to extract variables
   nodes.forEach((node) => {
-    const nodeData = node.data as { type?: string; label?: string; config?: Record<string, unknown> }
+    const nodeData = node.data as {
+      type?: string
+      label?: string
+      config?: Record<string, unknown>
+    }
     const nodeType = nodeData.type || 'agent'
     const nodeLabel = nodeData.label || node.id
     const config = nodeData.config || {}

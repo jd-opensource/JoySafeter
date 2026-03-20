@@ -5,7 +5,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { ALLOWED_EXTENSIONS_STRING } from '@/lib/constants/upload-limits'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 import { useFileUpload } from '../hooks/useFileUpload'
@@ -23,7 +23,7 @@ interface ChatInputProps {
   compactArtifactStatus?: React.ReactNode
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({
+export default function ChatInput({
   input,
   setInput,
   onSubmit,
@@ -33,31 +33,27 @@ const ChatInput: React.FC<ChatInputProps> = ({
   currentGraphId,
   compactToolStatus,
   compactArtifactStatus,
-}) => {
+}: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
 
-  const handleApkAutoSubmit = useCallback((uploadedFile: UploadedFile, rawFile: File) => {
-    if (currentMode === 'apk-vulnerability' && rawFile.name.toLowerCase().endsWith('.apk')) {
-      const taskText = t('chat.apkVulnerabilityTaskWithPath', {
-        defaultValue: '任务APK IntentBridge漏洞挖掘  apk路径为 {{path}}',
-        path: uploadedFile.path,
-      })
-      onSubmit(taskText, currentMode, currentGraphId || undefined, [uploadedFile])
-      clearFiles()
-    }
-  }, [currentMode, currentGraphId, onSubmit, t])
+  const handleApkAutoSubmit = useCallback(
+    (uploadedFile: UploadedFile, rawFile: File) => {
+      if (currentMode === 'apk-vulnerability' && rawFile.name.toLowerCase().endsWith('.apk')) {
+        const taskText = t('chat.apkVulnerabilityTaskWithPath', {
+          defaultValue: '任务APK IntentBridge漏洞挖掘  apk路径为 {{path}}',
+          path: uploadedFile.path,
+        })
+        onSubmit(taskText, currentMode, currentGraphId || undefined, [uploadedFile])
+        clearFiles()
+      }
+    },
+    [currentMode, currentGraphId, onSubmit, t],
+  )
 
-  const {
-    files,
-    isUploading,
-    fileInputRef,
-    uploadFile,
-    handleFileSelect,
-    removeFile,
-    clearFiles,
-  } = useFileUpload({ onFileUploaded: handleApkAutoSubmit })
+  const { files, isUploading, fileInputRef, uploadFile, handleFileSelect, removeFile, clearFiles } =
+    useFileUpload({ onFileUploaded: handleApkAutoSubmit })
 
   // Auto-resize textarea
   useEffect(() => {
@@ -76,9 +72,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleSubmit = () => {
     if (isProcessing) return
-    const text = input.trim() || (currentMode === 'apk-vulnerability' && files.length > 0
-      ? t('chat.apkVulnerabilityTaskStart', { defaultValue: '开启任务：APK IntentBridge 漏洞挖掘' })
-      : '')
+    const text =
+      input.trim() ||
+      (currentMode === 'apk-vulnerability' && files.length > 0
+        ? t('chat.apkVulnerabilityTaskStart', {
+            defaultValue: '开启任务：APK IntentBridge 漏洞挖掘',
+          })
+        : '')
     if (!text && files.length === 0) return
 
     onSubmit(text, currentMode, null, files.length > 0 ? files : undefined)
@@ -108,20 +108,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const canSubmit = input.trim() || (currentMode === 'apk-vulnerability' && files.length > 0)
 
   return (
-    <div className="relative w-full max-w-3xl mx-auto">
+    <div className="relative mx-auto w-full max-w-3xl">
       {/* Compact Tool Status - Above Input, Full Width */}
-      {compactToolStatus && (
-        <div className="mb-3">
-          {compactToolStatus}
-        </div>
-      )}
+      {compactToolStatus && <div className="mb-3">{compactToolStatus}</div>}
 
       {/* Compact Artifact Status - Above Input, Full Width */}
-      {compactArtifactStatus && (
-        <div className="mb-3">
-          {compactArtifactStatus}
-        </div>
-      )}
+      {compactArtifactStatus && <div className="mb-3">{compactArtifactStatus}</div>}
 
       {/* File List */}
       {files.length > 0 && (
@@ -129,13 +121,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
           {files.map((file) => (
             <div
               key={file.id}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-md text-sm text-gray-700"
+              className="flex items-center gap-1.5 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700"
             >
               <Paperclip size={14} className="text-gray-500" />
               <span className="max-w-[200px] truncate">{file.filename}</span>
               <button
                 onClick={() => removeFile(file.id)}
-                className="ml-1 hover:bg-gray-200 rounded-full p-0.5 transition-colors"
+                className="ml-1 rounded-full p-0.5 transition-colors hover:bg-gray-200"
                 aria-label="Remove file"
                 disabled={isProcessing || isUploading}
               >
@@ -149,8 +141,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
       {/* Main Input Container */}
       <div
         className={cn(
-          'bg-white border border-gray-200 rounded-[24px] shadow-sm transition-all flex items-end gap-3 p-4',
-          isDragOver && 'border-blue-400 bg-blue-50'
+          'flex items-end gap-3 rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm transition-all',
+          isDragOver && 'border-blue-400 bg-blue-50',
         )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -165,14 +157,14 @@ const ChatInput: React.FC<ChatInputProps> = ({
           className="hidden"
           disabled={isProcessing || isUploading}
         />
-        <div className="flex-1 flex flex-col gap-1 relative">
+        <div className="relative flex flex-1 flex-col gap-1">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('chat.describeHelpNeeded')}
-            className="flex-1 bg-transparent border-none shadow-none focus-visible:ring-0 focus:outline-none px-0.5 pb-6 pt-4 min-h-[100px] max-h-[200px] overflow-y-auto resize-none text-base placeholder:text-gray-400"
+            className="max-h-[200px] min-h-[100px] flex-1 resize-none overflow-y-auto border-none bg-transparent px-0.5 pb-6 pt-4 text-base shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
             rows={1}
             disabled={isProcessing || isUploading}
           />
@@ -184,25 +176,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onClick={() => fileInputRef.current?.click()}
           disabled={isProcessing || isUploading}
           className={cn(
-            'h-10 w-10 p-0 bg-transparent border-[1.5px] border-gray-200 rounded-2xl text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-all duration-200 flex items-center justify-center flex-shrink-0',
-            (isUploading || isProcessing) && 'opacity-50 cursor-not-allowed'
+            'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border-[1.5px] border-gray-200 bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-gray-700',
+            (isUploading || isProcessing) && 'cursor-not-allowed opacity-50',
           )}
           title={t('chat.uploadFile')}
         >
-          {isUploading ? (
-            <Loader2 size={18} className="animate-spin" />
-          ) : (
-            <Paperclip size={18} />
-          )}
+          {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
         </Button>
         {isProcessing && onStop ? (
           <Button
             onClick={onStop}
             size="sm"
-            className="w-10 h-10 rounded-full transition-all flex-shrink-0 flex items-center justify-center p-0 bg-red-500 hover:bg-red-600"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
             title={t('chat.stop')}
           >
-            <Square size={14} className="text-white fill-white" />
+            <Square size={14} className="fill-white text-white" />
           </Button>
         ) : (
           <Button
@@ -210,15 +198,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
             disabled={!canSubmit || isProcessing || isUploading}
             size="sm"
             className={cn(
-              'w-10 h-10 rounded-full transition-all flex-shrink-0 flex items-center justify-center p-0',
+              'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
               canSubmit && !isProcessing && !isUploading
                 ? 'bg-gray-900 hover:bg-gray-800'
-                : 'bg-gray-100 cursor-not-allowed'
+                : 'cursor-not-allowed bg-gray-100',
             )}
           >
             <ArrowRight
               size={18}
-              className={canSubmit && !isProcessing && !isUploading ? 'text-white' : 'text-gray-300'}
+              className={
+                canSubmit && !isProcessing && !isUploading ? 'text-white' : 'text-gray-300'
+              }
             />
           </Button>
         )}
@@ -226,5 +216,3 @@ const ChatInput: React.FC<ChatInputProps> = ({
     </div>
   )
 }
-
-export default ChatInput

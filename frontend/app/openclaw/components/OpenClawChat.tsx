@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiStream } from '@/lib/api-client'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 
 interface Message {
   id: string
@@ -147,10 +147,7 @@ export function OpenClawChat() {
               {messages.map((m) => (
                 <div
                   key={m.id}
-                  className={cn(
-                    'flex',
-                    m.role === 'user' ? 'justify-end' : 'justify-start',
-                  )}
+                  className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}
                 >
                   <div
                     className={cn(
@@ -160,7 +157,9 @@ export function OpenClawChat() {
                         : 'bg-[var(--surface-3)] text-[var(--text-primary)]',
                     )}
                   >
-                    <pre className="whitespace-pre-wrap break-words font-sans">{m.content || (isStreaming && m.role === 'assistant' ? '...' : '')}</pre>
+                    <pre className="whitespace-pre-wrap break-words font-sans">
+                      {m.content || (isStreaming && m.role === 'assistant' ? '...' : '')}
+                    </pre>
                   </div>
                 </div>
               ))}

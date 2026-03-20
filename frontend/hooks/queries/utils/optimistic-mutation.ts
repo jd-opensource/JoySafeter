@@ -23,7 +23,7 @@ export interface OptimisticMutationContext<TItem> {
 
 export function createOptimisticMutationHandlers<TData, TVariables, TItem>(
   queryClient: QueryClient,
-  config: OptimisticMutationConfig<TData, TVariables, TItem, OptimisticMutationContext<TItem>>
+  config: OptimisticMutationConfig<TData, TVariables, TItem, OptimisticMutationContext<TItem>>,
 ) {
   const {
     name,
@@ -58,7 +58,7 @@ export function createOptimisticMutationHandlers<TData, TVariables, TItem>(
     onError: (
       error: Error,
       _variables: TVariables,
-      context: OptimisticMutationContext<TItem> | undefined
+      context: OptimisticMutationContext<TItem> | undefined,
     ) => {
       logger.error(`[${name}] Failed:`, error)
       if (context?.previousState) {

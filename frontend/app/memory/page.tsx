@@ -64,7 +64,7 @@ import {
   UserMemory,
 } from '@/hooks/queries/useMemories'
 import { useToast } from '@/hooks/use-toast'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 export default function KnowledgePage() {
@@ -87,7 +87,11 @@ export default function KnowledgePage() {
   const pageSize = 20
 
   // Queries
-  const { data: memoriesData, isLoading, error } = useMemories({
+  const {
+    data: memoriesData,
+    isLoading,
+    error,
+  } = useMemories({
     page,
     limit: pageSize,
     search_content: searchQuery || undefined,
@@ -109,20 +113,29 @@ export default function KnowledgePage() {
   // Handlers
   const handleCreate = async () => {
     if (!formMemory.trim()) {
-      toast({ variant: 'destructive', title: t('memory.memoryRequired', { defaultValue: 'Memory content is required' }) })
+      toast({
+        variant: 'destructive',
+        title: t('memory.memoryRequired', { defaultValue: 'Memory content is required' }),
+      })
       return
     }
 
     try {
       await createMutation.mutateAsync({
         memory: formMemory.trim(),
-        topics: formTopics.split(',').map(t => t.trim()).filter(Boolean),
+        topics: formTopics
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean),
       })
       toast({ title: t('memory.memoryCreated', { defaultValue: 'Memory created successfully' }) })
       setIsCreateOpen(false)
       resetForm()
     } catch {
-      toast({ variant: 'destructive', title: t('memory.createFailed', { defaultValue: 'Failed to create memory' }) })
+      toast({
+        variant: 'destructive',
+        title: t('memory.createFailed', { defaultValue: 'Failed to create memory' }),
+      })
     }
   }
 
@@ -134,14 +147,20 @@ export default function KnowledgePage() {
         memoryId: editingMemory.memory_id,
         data: {
           memory: formMemory.trim(),
-          topics: formTopics.split(',').map(t => t.trim()).filter(Boolean),
+          topics: formTopics
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean),
         },
       })
       toast({ title: t('memory.memoryUpdated', { defaultValue: 'Memory updated successfully' }) })
       setEditingMemory(null)
       resetForm()
     } catch {
-      toast({ variant: 'destructive', title: t('memory.updateFailed', { defaultValue: 'Failed to update memory' }) })
+      toast({
+        variant: 'destructive',
+        title: t('memory.updateFailed', { defaultValue: 'Failed to update memory' }),
+      })
     }
   }
 
@@ -152,7 +171,10 @@ export default function KnowledgePage() {
       toast({ title: t('memory.memoryDeleted', { defaultValue: 'Memory deleted successfully' }) })
       setDeleteConfirmMemory(null)
     } catch {
-      toast({ variant: 'destructive', title: t('memory.deleteFailed', { defaultValue: 'Failed to delete memory' }) })
+      toast({
+        variant: 'destructive',
+        title: t('memory.deleteFailed', { defaultValue: 'Failed to delete memory' }),
+      })
     }
   }
 
@@ -164,7 +186,10 @@ export default function KnowledgePage() {
         description: `${result.memories_before} → ${result.memories_after} (${result.reduction_percentage.toFixed(1)}% reduction)`,
       })
     } catch {
-      toast({ variant: 'destructive', title: t('memory.optimizeFailed', { defaultValue: 'Failed to optimize memories' }) })
+      toast({
+        variant: 'destructive',
+        title: t('memory.optimizeFailed', { defaultValue: 'Failed to optimize memories' }),
+      })
     }
   }
 
@@ -200,15 +225,17 @@ export default function KnowledgePage() {
       <div className="flex-shrink-0 border-b border-gray-100 bg-white p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center border bg-emerald-50 border-emerald-100 text-emerald-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600">
               <Brain size={18} />
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900">
                 {t('memory.title', { defaultValue: 'Knowledge & Memory' })}
               </h2>
-              <p className="text-xs text-gray-500 mt-1">
-                {t('memory.subtitle', { defaultValue: 'Long-term memories stored across conversations' })}
+              <p className="mt-1 text-xs text-gray-500">
+                {t('memory.subtitle', {
+                  defaultValue: 'Long-term memories stored across conversations',
+                })}
               </p>
             </div>
           </div>
@@ -218,7 +245,7 @@ export default function KnowledgePage() {
               size="sm"
               onClick={handleOptimize}
               disabled={optimizeMutation.isPending || memories.length === 0}
-              className="gap-1.5 text-xs h-9"
+              className="h-9 gap-1.5 text-xs"
             >
               {optimizeMutation.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -230,7 +257,7 @@ export default function KnowledgePage() {
             <Button
               size="sm"
               onClick={openCreate}
-              className="gap-1.5 text-xs h-9 bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100 shadow-lg"
+              className="h-9 gap-1.5 bg-emerald-600 text-xs shadow-lg shadow-emerald-100 hover:bg-emerald-700"
             >
               <Plus className="h-3.5 w-3.5" />
               {t('memory.addMemory', { defaultValue: 'Add Memory' })}
@@ -239,7 +266,7 @@ export default function KnowledgePage() {
         </div>
 
         {/* Filters - using SearchInput component */}
-        <div className="flex items-center gap-3 mt-4">
+        <div className="mt-4 flex items-center gap-3">
           <SearchInput
             value={searchQuery}
             onValueChange={(v) => {
@@ -247,7 +274,7 @@ export default function KnowledgePage() {
               setPage(1)
             }}
             placeholder={t('memory.searchPlaceholder', { defaultValue: 'Search memories...' })}
-            className="flex-1 max-w-md h-9"
+            className="h-9 max-w-md flex-1"
           />
           <Select
             value={selectedTopic || 'all'}
@@ -256,11 +283,13 @@ export default function KnowledgePage() {
               setPage(1)
             }}
           >
-            <SelectTrigger className="w-40 h-9 text-sm">
+            <SelectTrigger className="h-9 w-40 text-sm">
               <SelectValue placeholder={t('memory.allTopics', { defaultValue: 'All Topics' })} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t('memory.allTopics', { defaultValue: 'All Topics' })}</SelectItem>
+              <SelectItem value="all">
+                {t('memory.allTopics', { defaultValue: 'All Topics' })}
+              </SelectItem>
               {topics.map((topic) => (
                 <SelectItem key={topic} value={topic}>
                   {topic}
@@ -274,20 +303,22 @@ export default function KnowledgePage() {
             onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
             className="h-9 text-xs"
           >
-            {sortOrder === 'desc' ? t('memory.newest', { defaultValue: 'Newest' }) : t('memory.oldest', { defaultValue: 'Oldest' })}
+            {sortOrder === 'desc'
+              ? t('memory.newest', { defaultValue: 'Newest' })
+              : t('memory.oldest', { defaultValue: 'Oldest' })}
           </Button>
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50 space-y-6">
+      <div className="flex-1 space-y-6 overflow-y-auto bg-gray-50/50 p-6">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-            <AlertCircle className="h-10 w-10 mb-3 text-red-400" />
+            <AlertCircle className="mb-3 h-10 w-10 text-red-400" />
             <p>{t('memory.loadError', { defaultValue: 'Failed to load memories' })}</p>
           </div>
         ) : memories.length === 0 ? (
@@ -296,30 +327,26 @@ export default function KnowledgePage() {
             const hasFilters = searchQuery.trim() || selectedTopic
             return (
               <div
-                className={`p-4 rounded-xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-center gap-2 bg-gray-50 ${hasFilters ? '' : 'hover:bg-white hover:border-gray-400 transition-colors cursor-pointer'} py-12`}
+                className={`flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-center ${hasFilters ? '' : 'cursor-pointer transition-colors hover:border-gray-400 hover:bg-white'} py-12`}
                 onClick={hasFilters ? undefined : openCreate}
               >
-                <div className="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm text-gray-400">
-                  {hasFilters ? (
-                    <AlertCircle size={20} />
-                  ) : (
-                    <Plus size={20} />
-                  )}
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 shadow-sm">
+                  {hasFilters ? <AlertCircle size={20} /> : <Plus size={20} />}
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-gray-900">
                     {hasFilters
                       ? t('memory.noMemoriesFiltered', { defaultValue: 'No memories found' })
-                      : t('memory.noMemories', { defaultValue: 'No memories yet' })
-                    }
+                      : t('memory.noMemories', { defaultValue: 'No memories yet' })}
                   </h4>
-                  <p className="text-xs text-gray-500 mt-1 max-w-md">
+                  <p className="mt-1 max-w-md text-xs text-gray-500">
                     {hasFilters
                       ? t('memory.noMemoriesFilteredDescription', {
-                          defaultValue: 'Try adjusting your search or filter criteria'
+                          defaultValue: 'Try adjusting your search or filter criteria',
                         })
-                      : t('memory.noMemoriesDescription', { defaultValue: 'Click to add your first memory' })
-                    }
+                      : t('memory.noMemoriesDescription', {
+                          defaultValue: 'Click to add your first memory',
+                        })}
                   </p>
                 </div>
               </div>
@@ -331,25 +358,25 @@ export default function KnowledgePage() {
             {memories.map((memory) => (
               <Card
                 key={memory.memory_id}
-                className="group flex items-start justify-between p-4 bg-white border-gray-200 hover:shadow-md transition-all hover:border-emerald-200"
+                className="group flex items-start justify-between border-gray-200 bg-white p-4 transition-all hover:border-emerald-200 hover:shadow-md"
               >
-                <div className="flex items-start gap-4 flex-1 min-w-0">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center border bg-emerald-50 border-emerald-100 text-emerald-600 flex-shrink-0">
+                <div className="flex min-w-0 flex-1 items-start gap-4">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600">
                     <Brain size={18} />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap line-clamp-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
                       {memory.memory}
                     </p>
-                    <div className="flex items-center gap-3 mt-2 flex-wrap">
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
                       {memory.topics && memory.topics.length > 0 && (
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <Tag className="h-3 w-3 text-gray-400" />
                           {memory.topics.map((topic) => (
                             <Badge
                               key={topic}
                               variant="outline"
-                              className="text-[9px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-100"
+                              className="border-emerald-100 bg-emerald-50 px-1.5 py-0 text-[9px] text-emerald-600"
                             >
                               {topic}
                             </Badge>
@@ -372,7 +399,7 @@ export default function KnowledgePage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-gray-400 hover:text-gray-900 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="h-8 w-8 text-gray-400 opacity-0 transition-opacity hover:text-gray-900 group-hover:opacity-100"
                     >
                       <MoreHorizontal size={16} />
                     </Button>
@@ -420,26 +447,36 @@ export default function KnowledgePage() {
               {t('memory.createMemory', { defaultValue: 'Create Memory' })}
             </DialogTitle>
             <DialogDescription>
-              {t('memory.createMemoryDescription', { defaultValue: 'Add a new memory that will be available to your agents.' })}
+              {t('memory.createMemoryDescription', {
+                defaultValue: 'Add a new memory that will be available to your agents.',
+              })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label className="text-xs font-medium">{t('memory.memoryContent', { defaultValue: 'Memory Content' })}</Label>
+              <Label className="text-xs font-medium">
+                {t('memory.memoryContent', { defaultValue: 'Memory Content' })}
+              </Label>
               <Textarea
                 value={formMemory}
                 onChange={(e) => setFormMemory(e.target.value)}
-                placeholder={t('memory.memoryPlaceholder', { defaultValue: 'e.g., User prefers concise technical explanations' })}
+                placeholder={t('memory.memoryPlaceholder', {
+                  defaultValue: 'e.g., User prefers concise technical explanations',
+                })}
                 rows={4}
                 className="resize-none text-sm"
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium">{t('memory.topics', { defaultValue: 'Topics' })}</Label>
+              <Label className="text-xs font-medium">
+                {t('memory.topics', { defaultValue: 'Topics' })}
+              </Label>
               <Input
                 value={formTopics}
                 onChange={(e) => setFormTopics(e.target.value)}
-                placeholder={t('memory.topicsPlaceholder', { defaultValue: 'preferences, technical (comma separated)' })}
+                placeholder={t('memory.topicsPlaceholder', {
+                  defaultValue: 'preferences, technical (comma separated)',
+                })}
                 className="text-sm"
               />
             </div>
@@ -471,7 +508,9 @@ export default function KnowledgePage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label className="text-xs font-medium">{t('memory.memoryContent', { defaultValue: 'Memory Content' })}</Label>
+              <Label className="text-xs font-medium">
+                {t('memory.memoryContent', { defaultValue: 'Memory Content' })}
+              </Label>
               <Textarea
                 value={formMemory}
                 onChange={(e) => setFormMemory(e.target.value)}
@@ -480,11 +519,15 @@ export default function KnowledgePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium">{t('memory.topics', { defaultValue: 'Topics' })}</Label>
+              <Label className="text-xs font-medium">
+                {t('memory.topics', { defaultValue: 'Topics' })}
+              </Label>
               <Input
                 value={formTopics}
                 onChange={(e) => setFormTopics(e.target.value)}
-                placeholder={t('memory.topicsPlaceholder', { defaultValue: 'preferences, technical (comma separated)' })}
+                placeholder={t('memory.topicsPlaceholder', {
+                  defaultValue: 'preferences, technical (comma separated)',
+                })}
                 className="text-sm"
               />
             </div>
@@ -506,26 +549,30 @@ export default function KnowledgePage() {
       </Dialog>
 
       {/* Delete Confirmation - using AlertDialog for better semantics */}
-      <AlertDialog open={!!deleteConfirmMemory} onOpenChange={(open) => !open && setDeleteConfirmMemory(null)}>
+      <AlertDialog
+        open={!!deleteConfirmMemory}
+        onOpenChange={(open) => !open && setDeleteConfirmMemory(null)}
+      >
         <AlertDialogContent variant="destructive">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t('memory.confirmDelete', { defaultValue: 'Delete Memory?' })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t('memory.confirmDeleteDescription', { defaultValue: 'This action cannot be undone. The memory will be permanently removed.' })}
+              {t('memory.confirmDeleteDescription', {
+                defaultValue:
+                  'This action cannot be undone. The memory will be permanently removed.',
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>
-              {t('common.cancel', { defaultValue: 'Cancel' })}
-            </AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel', { defaultValue: 'Cancel' })}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleteMutation.isPending}
               className="bg-red-600 hover:bg-red-700"
             >
-              {deleteMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('memory.delete', { defaultValue: 'Delete' })}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -459,6 +459,33 @@ async def save_assistant_message(
     await db.commit()
 
 
+# ==================== Message Enrichment ====================
+
+
+def _enrich_message(message: str, metadata: dict, *, is_new_thread: bool, log, endpoint: str) -> str:
+    """Append edit_skill_id context (first message only) and file info to user message."""
+    enriched = message
+
+    # Only inject editing context on the first message of a new thread
+    edit_skill_id = metadata.get("edit_skill_id")
+    if edit_skill_id and is_new_thread:
+        log.info(f"[{endpoint}] 🔧 编辑技能模式: edit_skill_id={edit_skill_id}")
+        enriched += (
+            f"\n\n[Editing Mode] The user wants to modify an existing skill (ID: {edit_skill_id}). "
+            f"The skill files have been pre-loaded into the sandbox. "
+            f"Read the existing files first, then apply the user's requested changes."
+        )
+
+    files = metadata.get("files", [])
+    if files:
+        log.info(f"[{endpoint}] 📎 发现 {len(files)} 个文件: {files}")
+        file_info = "\n\nAttached files:\n" + "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
+        enriched += file_info
+        log.info(f"[{endpoint}] ✅ 消息已包含文件路径，长度: {len(enriched)}")
+
+    return enriched
+
+
 # ==================== Event Dispatch Helpers ====================
 
 
@@ -573,23 +600,9 @@ async def chat(
             )
 
         # 从 metadata 中提取附加信息并添加到消息中
-        enriched_message = payload.message
-
-        edit_skill_id = payload.metadata.get("edit_skill_id")
-        if edit_skill_id:
-            log.info(f"[Chat API] 🔧 编辑技能模式: edit_skill_id={edit_skill_id}")
-            enriched_message += (
-                f"\n\n[Editing Mode] The user wants to modify an existing skill (ID: {edit_skill_id}). "
-                f"The skill files have been pre-loaded into the sandbox. "
-                f"Read the existing files first, then apply the user's requested changes."
-            )
-
-        files = payload.metadata.get("files", [])
-        if files:
-            log.info(f"[Chat API] 📎 发现 {len(files)} 个文件: {files}")
-            file_info = "\n\nAttached files:\n" + "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
-            enriched_message += file_info
-            log.info(f"[Chat API] ✅ 消息已包含文件路径，长度: {len(enriched_message)}")
+        enriched_message = _enrich_message(
+            payload.message, payload.metadata, is_new_thread=(payload.thread_id is None), log=log, endpoint="Chat API"
+        )
 
         # 注册任务以支持非流式取消
         invoke_task = asyncio.create_task(
@@ -723,23 +736,13 @@ async def chat_stream(
             built_graph = graph
 
             # 5. 从 metadata 中提取附加信息并添加到消息中
-            enriched_message = payload.message
-
-            edit_skill_id = payload.metadata.get("edit_skill_id")
-            if edit_skill_id:
-                log.info(f"[Chat API Stream] 🔧 编辑技能模式: edit_skill_id={edit_skill_id}")
-                enriched_message += (
-                    f"\n\n[Editing Mode] The user wants to modify an existing skill (ID: {edit_skill_id}). "
-                    f"The skill files have been pre-loaded into the sandbox. "
-                    f"Read the existing files first, then apply the user's requested changes."
-                )
-
-            files = payload.metadata.get("files", [])
-            if files:
-                log.info(f"[Chat API Stream] 📎 发现 {len(files)} 个文件: {files}")
-                file_info = "\n\nAttached files:\n" + "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
-                enriched_message += file_info
-                log.info(f"[Chat API Stream] ✅ 消息已包含文件路径，长度: {len(enriched_message)}")
+            enriched_message = _enrich_message(
+                payload.message,
+                payload.metadata,
+                is_new_thread=(payload.thread_id is None),
+                log=log,
+                endpoint="Chat API Stream",
+            )
 
             # 6. 事件循环
             async for event in graph.astream_events(

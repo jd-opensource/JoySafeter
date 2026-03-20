@@ -27,15 +27,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/components/ui/use-toast'
 import { useDeploymentStatus, graphKeys } from '@/hooks/queries/graphs'
-import { cn } from '@/lib/core/utils/cn'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { useDeploymentStore } from '@/stores/deploymentStore'
 
@@ -53,18 +48,23 @@ interface BuilderToolbarProps {
   nodesCount?: number
 }
 
-export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
+export function BuilderToolbar({
   onImport,
   onExport,
   onRunClick,
   agentId,
   nodesCount = 0,
-}) => {
+}: BuilderToolbarProps) {
   const { workspaceId = '' } = useParams() as { workspaceId: string }
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()
-  const { isExecuting, stopExecution, showPanel: showExecutionPanel, togglePanel: toggleExecutionPanel } = useExecutionStore()
+  const {
+    isExecuting,
+    stopExecution,
+    showPanel: showExecutionPanel,
+    togglePanel: toggleExecutionPanel,
+  } = useExecutionStore()
 
   // Use React Query hook to get deployment status (automatic caching and deduplication)
   const { data: deploymentStatus } = useDeploymentStatus(agentId)
@@ -80,7 +80,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
     validateGraph,
     isValidating,
     showAdvancedSettings,
-    toggleAdvancedSettings
+    toggleAdvancedSettings,
   } = useBuilderStore()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -119,7 +119,9 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
     if (!isValid) {
       toast({
         title: t('workspace.validationFailed', { defaultValue: 'Validation Failed' }),
-        description: t('workspace.checkValidationPanel', { defaultValue: 'Please check the validation panel for errors.' }),
+        description: t('workspace.checkValidationPanel', {
+          defaultValue: 'Please check the validation panel for errors.',
+        }),
         variant: 'destructive',
       })
       // Open validation panel to show errors
@@ -192,7 +194,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
   return (
     <>
       <TooltipProvider delayDuration={300}>
-        <div className="flex items-center justify-between px-3 py-1 border-b border-gray-200/60">
+        <div className="flex items-center justify-between border-b border-gray-200/60 px-3 py-1">
           {/* Left: Menu and Controls */}
           <div className="flex items-center gap-1">
             <input
@@ -208,13 +210,16 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 hover:bg-gray-100/80 rounded-md"
+                  className="h-7 w-7 rounded-md hover:bg-gray-100/80"
                 >
                   <MoreHorizontal size={16} className="text-gray-600" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="bottom" sideOffset={8}>
-                <DropdownMenuItem onClick={() => toggleAdvancedSettings()} className="font-medium text-blue-600">
+                <DropdownMenuItem
+                  onClick={() => toggleAdvancedSettings()}
+                  className="font-medium text-blue-600"
+                >
                   {showAdvancedSettings ? 'Hide Advanced Mode' : 'Show Advanced Mode'}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -254,7 +259,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
                   variant="ghost"
                   size="icon"
                   onClick={() => toggleValidationSummary(true)}
-                  className="h-7 w-7 hover:bg-gray-100/80 rounded-md"
+                  className="h-7 w-7 rounded-md hover:bg-gray-100/80"
                 >
                   <ShieldCheck size={16} className="text-gray-600" />
                 </Button>
@@ -270,7 +275,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
                     variant="ghost"
                     size="icon"
                     onClick={() => toggleExecutionPanel(true)}
-                    className="h-7 w-7 hover:bg-gray-100/80 rounded-md"
+                    className="h-7 w-7 rounded-md hover:bg-gray-100/80"
                   >
                     <ChevronDown size={16} className="text-gray-600" />
                   </Button>
@@ -284,7 +289,7 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
           <div className="flex items-center gap-2">
             {/* Deploy Dropdown */}
             <DropdownMenu>
-              <div className="flex rounded-md shadow-sm hover:shadow transition-all group">
+              <div className="group flex rounded-md shadow-sm transition-all hover:shadow">
                 {/* Main Deploy Action Button */}
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -294,12 +299,12 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
                         onClick={handleDeploy}
                         disabled={isDeploying || nodesCount === 0}
                         className={cn(
-                          'h-7 px-3 gap-1.5 text-[13px] font-medium transition-all rounded-r-none',
+                          'h-7 gap-1.5 rounded-r-none px-3 text-[13px] font-medium transition-all',
                           isDeployed
                             ? needsRedeployment
-                              ? 'bg-primary hover:bg-primary/90 text-primary-foreground border border-primary border-r-white/20'
-                              : 'bg-green-100 hover:bg-green-200 text-green-800 border border-green-300 border-r-green-400/50'
-                            : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 border-r-black/10'
+                              ? 'border border-primary border-r-white/20 bg-primary text-primary-foreground hover:bg-primary/90'
+                              : 'border border-green-300 border-r-green-400/50 bg-green-100 text-green-800 hover:bg-green-200'
+                            : 'border border-gray-200 border-r-black/10 bg-white text-gray-700 hover:bg-gray-50',
                         )}
                         style={{ borderRightWidth: '1px' }}
                       >
@@ -320,12 +325,12 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
                   <Button
                     size="sm"
                     className={cn(
-                      'h-7 px-1 rounded-l-none transition-all',
+                      'h-7 rounded-l-none px-1 transition-all',
                       isDeployed
                         ? needsRedeployment
-                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground border border-l-0 border-primary'
-                          : 'bg-green-100 hover:bg-green-200 text-green-800 border border-l-0 border-green-300'
-                        : 'bg-white hover:bg-gray-50 text-gray-700 border border-l-0 border-gray-200'
+                          ? 'border border-l-0 border-primary bg-primary text-primary-foreground hover:bg-primary/90'
+                          : 'border border-l-0 border-green-300 bg-green-100 text-green-800 hover:bg-green-200'
+                        : 'border border-l-0 border-gray-200 bg-white text-gray-700 hover:bg-gray-50',
                     )}
                   >
                     <ChevronDown size={14} />
@@ -352,10 +357,10 @@ export const BuilderToolbar: React.FC<BuilderToolbarProps> = ({
               size="sm"
               onClick={toggleRun}
               className={cn(
-                'h-7 px-3 gap-1.5 text-[13px] font-medium rounded-md shadow-sm hover:shadow transition-all',
+                'h-7 gap-1.5 rounded-md px-3 text-[13px] font-medium shadow-sm transition-all hover:shadow',
                 isExecuting
-                  ? 'bg-red-500 hover:bg-red-600 text-white'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : 'bg-blue-600 text-white hover:bg-blue-700',
               )}
             >
               {isExecuting ? (

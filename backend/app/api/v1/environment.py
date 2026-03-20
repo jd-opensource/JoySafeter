@@ -17,11 +17,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user, require_workspace_role
-from app.common.exceptions import ForbiddenException
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.workspace import WorkspaceMemberRole
-from app.repositories.workspace import WorkspaceMemberRepository
 from app.services.environment_service import EnvironmentService
 
 router = APIRouter(prefix="/v1/environment", tags=["Environment"])
@@ -29,21 +27,6 @@ router = APIRouter(prefix="/v1/environment", tags=["Environment"])
 
 class EnvPayload(BaseModel):
     variables: Dict[str, str] = Field(default_factory=dict)
-
-
-async def _ensure_workspace_role(db: AsyncSession, workspace_id: uuid.UUID, user: User, min_role: WorkspaceMemberRole):
-    repo = WorkspaceMemberRepository(db)
-    member = await repo.get_member(workspace_id, user.id)
-    if not member:
-        raise ForbiddenException("No access to workspace environment")
-    role_order = [
-        WorkspaceMemberRole.viewer,
-        WorkspaceMemberRole.member,
-        WorkspaceMemberRole.admin,
-        WorkspaceMemberRole.owner,
-    ]
-    if role_order.index(member.role) < role_order.index(min_role):
-        raise ForbiddenException("Insufficient permission for workspace environment")
 
 
 @router.get("/user")

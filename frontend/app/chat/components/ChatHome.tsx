@@ -1,7 +1,18 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { MessageSquare, ArrowRight, X, ChevronDown, Square, Loader2, Sparkles, Zap, Paperclip, Bot } from 'lucide-react'
+import {
+  MessageSquare,
+  ArrowRight,
+  X,
+  ChevronDown,
+  Square,
+  Loader2,
+  Sparkles,
+  Zap,
+  Paperclip,
+  Bot,
+} from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import React, { useRef, useEffect } from 'react'
 
@@ -13,16 +24,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
 import { API_BASE, apiUpload } from '@/lib/api-client'
-import { isAllowedFile, ALLOWED_EXTENSIONS_STRING, UPLOAD_LIMITS } from '@/lib/constants/upload-limits'
-import { cn } from '@/lib/core/utils/cn'
+import {
+  isAllowedFile,
+  ALLOWED_EXTENSIONS_STRING,
+  UPLOAD_LIMITS,
+} from '@/lib/constants/upload-limits'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 
@@ -40,13 +50,23 @@ if (typeof window !== 'undefined') {
 }
 
 interface ChatHomeProps {
-  onStartChat: (message: string, mode?: string, graphId?: string | null, files?: UploadedFile[]) => void
+  onStartChat: (
+    message: string,
+    mode?: string,
+    graphId?: string | null,
+    files?: UploadedFile[],
+  ) => void
   onSelectConversation?: (threadId: string) => void
   isProcessing?: boolean
   onStop?: () => void
 }
 
-const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, isProcessing = false, onStop }) => {
+export default function ChatHome({
+  onStartChat,
+  onSelectConversation,
+  isProcessing = false,
+  onStop,
+}: ChatHomeProps) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -116,17 +136,19 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
     if (!validation.allowed) {
       toastError(
         validation.reason || t('chat.fileNotAllowed', { defaultValue: '文件不符合要求' }),
-        t('chat.fileUploadFailed')
+        t('chat.fileUploadFailed'),
       )
       return
     }
 
     setIsUploading(true)
     try {
-      const fileData = await apiUpload<{ filename: string; path: string; size: number; message: string }>(
-        `${API_BASE}/files/upload`,
-        file
-      )
+      const fileData = await apiUpload<{
+        filename: string
+        path: string
+        size: number
+        message: string
+      }>(`${API_BASE}/files/upload`, file)
 
       if (fileData && fileData.filename) {
         const uploadedFile: UploadedFile = {
@@ -140,7 +162,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
       } else {
         toastError(
           t('chat.uploadFailed', { defaultValue: '上传失败，响应格式异常' }),
-          t('chat.fileUploadFailed')
+          t('chat.fileUploadFailed'),
         )
       }
     } catch (error) {
@@ -148,8 +170,8 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
         error instanceof Error
           ? error.message
           : typeof error === 'string'
-          ? error
-          : t('chat.retry', { defaultValue: '请重试' })
+            ? error
+            : t('chat.retry', { defaultValue: '请重试' })
       toastError(errorMessage, t('chat.fileUploadFailed'))
     } finally {
       setIsUploading(false)
@@ -165,7 +187,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
             defaultValue: '最多只能同时上传 {{maxFiles}} 个文件',
             maxFiles: UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD,
           }),
-          t('chat.fileUploadFailed')
+          t('chat.fileUploadFailed'),
         )
         if (fileInputRef.current) {
           fileInputRef.current.value = ''
@@ -210,14 +232,19 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
         }
         return result
       } else if (result.error) {
-        toastError(result.error, t('chat.modeSelectionFailed', { defaultValue: 'Mode selection failed' }))
+        toastError(
+          result.error,
+          t('chat.modeSelectionFailed', { defaultValue: 'Mode selection failed' }),
+        )
         return result
       }
       return null
     } catch (error) {
       console.error('Failed to select mode:', error)
       const errorMessage =
-        error instanceof Error ? error.message : t('chat.modeSelectionFailed', { defaultValue: 'Mode selection failed' })
+        error instanceof Error
+          ? error.message
+          : t('chat.modeSelectionFailed', { defaultValue: 'Mode selection failed' })
       toastError(errorMessage, t('chat.retry', { defaultValue: 'Please try again' }))
       return null
     } finally {
@@ -253,7 +280,8 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
       const validation = handler.validate(state.input, state.files)
       if (!validation.valid) {
         // Translate error message if it's a translation key
-        const errorMessage = validation.error || t('chat.validationFailed', { defaultValue: 'Validation failed' })
+        const errorMessage =
+          validation.error || t('chat.validationFailed', { defaultValue: 'Validation failed' })
         toastError(errorMessage, t('chat.submitFailed', { defaultValue: 'Submit failed' }))
         return
       }
@@ -269,7 +297,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
         if (!submitResult.success) {
           toastError(
             submitResult.error || t('chat.submitFailed', { defaultValue: 'Submit failed' }),
-            t('chat.submitFailed', { defaultValue: 'Submit failed' })
+            t('chat.submitFailed', { defaultValue: 'Submit failed' }),
           )
           return
         }
@@ -278,14 +306,20 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
       } catch (error) {
         console.error('Failed to process submit:', error)
         toastError(
-          error instanceof Error ? error.message : t('chat.submitFailed', { defaultValue: 'Submit failed' }),
-          t('chat.submitFailed', { defaultValue: 'Submit failed' })
+          error instanceof Error
+            ? error.message
+            : t('chat.submitFailed', { defaultValue: 'Submit failed' }),
+          t('chat.submitFailed', { defaultValue: 'Submit failed' }),
         )
         return
       }
     } else {
       // No mode handler, use Graph resolution service
-      const resolution = await graphResolutionService.resolve(currentMode, modeContext, state.autoRedirect)
+      const resolution = await graphResolutionService.resolve(
+        currentMode,
+        modeContext,
+        state.autoRedirect,
+      )
       graphId = resolution.graphId
     }
 
@@ -300,7 +334,12 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
 
     // Clear input and call onStartChat
     resetInput()
-    onStartChat(processedInput, currentMode || undefined, graphId, state.files.length > 0 ? state.files : undefined)
+    onStartChat(
+      processedInput,
+      currentMode || undefined,
+      graphId,
+      state.files.length > 0 ? state.files : undefined,
+    )
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -360,38 +399,41 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
 
   return (
     <div className="flex h-full w-full bg-gray-50">
-      <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
-        <div className="w-full max-w-3xl flex flex-col gap-8">
+      <div className="relative flex flex-1 flex-col items-center justify-center p-8">
+        <div className="flex w-full max-w-3xl flex-col gap-8">
           <div className="text-center">
-            <h1 className="text-4xl font-light text-gray-900 tracking-tight mb-2">
+            <h1 className="mb-2 text-4xl font-light tracking-tight text-gray-900">
               {t('chat.createSomethingAwesome')}
             </h1>
           </div>
 
-          <div className="relative w-full max-w-4xl mx-auto">
-            <div className="bg-white border border-gray-200 rounded-[24px] shadow-sm transition-all">
-              <div className="w-full flex flex-col gap-2 p-2 pb-3">
-                {state.selectedAgentId && (() => {
-                  const selectedAgent = deployedAgents.find((a: AgentGraph) => a.id === state.selectedAgentId)
-                  return selectedAgent ? (
-                    <div className="flex items-center gap-2 px-3 pt-2">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-sm font-medium text-gray-700">
-                        <MessageSquare size={14} />
-                        <span className="max-w-[120px] truncate">{selectedAgent.name}</span>
-                        <button
-                          onClick={() => setSelectedAgentId(null)}
-                          className="ml-1 hover:bg-gray-200 rounded-full p-0.5 transition-colors"
-                          aria-label={t('chat.clearAgent')}
-                        >
-                          <X size={12} />
-                        </button>
+          <div className="relative mx-auto w-full max-w-4xl">
+            <div className="rounded-[24px] border border-gray-200 bg-white shadow-sm transition-all">
+              <div className="flex w-full flex-col gap-2 p-2 pb-3">
+                {state.selectedAgentId &&
+                  (() => {
+                    const selectedAgent = deployedAgents.find(
+                      (a: AgentGraph) => a.id === state.selectedAgentId,
+                    )
+                    return selectedAgent ? (
+                      <div className="flex items-center gap-2 px-3 pt-2">
+                        <div className="flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700">
+                          <MessageSquare size={14} />
+                          <span className="max-w-[120px] truncate">{selectedAgent.name}</span>
+                          <button
+                            onClick={() => setSelectedAgentId(null)}
+                            className="ml-1 rounded-full p-0.5 transition-colors hover:bg-gray-200"
+                            aria-label={t('chat.clearAgent')}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : null
-                })()}
+                    ) : null
+                  })()}
 
                 <div className="flex items-end gap-3 px-3">
-                  <div className="flex-1 flex flex-col gap-1 relative">
+                  <div className="relative flex flex-1 flex-col gap-1">
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -402,17 +444,17 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                       disabled={isProcessing || state.isUploading}
                     />
                     {state.files.length > 0 && (
-                      <div className="flex flex-wrap gap-2 px-1 pt-2 pb-1">
+                      <div className="flex flex-wrap gap-2 px-1 pb-1 pt-2">
                         {state.files.map((file) => (
                           <div
                             key={file.id}
-                            className="flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded-md text-xs text-gray-700"
+                            className="flex items-center gap-1.5 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-700"
                           >
                             <Paperclip size={12} className="text-gray-500" />
                             <span className="max-w-[150px] truncate">{file.filename}</span>
                             <button
                               onClick={() => removeFile(file.id)}
-                              className="ml-1 hover:bg-gray-200 rounded-full p-0.5 transition-colors"
+                              className="ml-1 rounded-full p-0.5 transition-colors hover:bg-gray-200"
                               aria-label="Remove file"
                             >
                               <X size={10} />
@@ -427,7 +469,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                       onChange={handleInputChange}
                       onKeyDown={handleKeyDown}
                       placeholder={t('chat.describeHelpNeeded')}
-                      className="w-full bg-transparent border-none shadow-none focus-visible:ring-0 focus:outline-none px-1 pb-14 pt-5 min-h-[120px] max-h-[240px] overflow-y-auto resize-none text-base placeholder:text-gray-400 transition-all duration-200"
+                      className="max-h-[240px] min-h-[120px] w-full resize-none overflow-y-auto border-none bg-transparent px-1 pb-14 pt-5 text-base shadow-none transition-all duration-200 placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
                       rows={1}
                       disabled={isProcessing}
                     />
@@ -438,10 +480,10 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                         onClick={() => !state.isRedirecting && setAutoRedirect(!state.autoRedirect)}
                         disabled={state.isRedirecting}
                         className={cn(
-                          'h-9 px-3 bg-transparent border-[1.5px] rounded-full transition-all duration-200 flex items-center gap-2',
+                          'flex h-9 items-center gap-2 rounded-full border-[1.5px] bg-transparent px-3 transition-all duration-200',
                           state.autoRedirect
-                            ? 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300'
-                            : 'border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-50 hover:border-gray-300'
+                            ? 'border-emerald-200 text-emerald-600 hover:border-emerald-300 hover:bg-emerald-50'
+                            : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700',
                         )}
                       >
                         <Zap size={16} />
@@ -454,18 +496,23 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-9 px-3 bg-transparent border-[1.5px] border-gray-200 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 flex items-center gap-2"
+                            className="flex h-9 items-center gap-2 rounded-full border-[1.5px] border-gray-200 bg-transparent px-3 text-gray-500 transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
                             disabled={isLoadingAgents}
                           >
                             <Bot size={16} />
                             <span className="text-sm font-medium">{t('chat.selectAgent')}</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-56 max-h-[300px] overflow-y-auto">
+                        <DropdownMenuContent
+                          align="start"
+                          className="max-h-[300px] w-56 overflow-y-auto"
+                        >
                           {isLoadingAgents ? (
                             <DropdownMenuItem disabled>{t('chat.loading')}...</DropdownMenuItem>
                           ) : deployedAgents.length === 0 ? (
-                            <DropdownMenuItem disabled>{t('chat.noDeployedAgents')}</DropdownMenuItem>
+                            <DropdownMenuItem disabled>
+                              {t('chat.noDeployedAgents')}
+                            </DropdownMenuItem>
                           ) : (
                             <>
                               {deployedAgents.map((agent: AgentGraph) => (
@@ -474,7 +521,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                                   onClick={() => handleAgentSelect(agent.id)}
                                   className={cn(
                                     'flex items-center gap-2',
-                                    state.selectedAgentId === agent.id && 'bg-gray-100'
+                                    state.selectedAgentId === agent.id && 'bg-gray-100',
                                   )}
                                 >
                                   <MessageSquare size={14} className="text-gray-400" />
@@ -490,7 +537,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                       </DropdownMenu>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex flex-shrink-0 items-center gap-2">
                     <TooltipProvider delayDuration={100}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -501,8 +548,8 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isProcessing || state.isUploading}
                             className={cn(
-                              'h-10 w-10 p-0 bg-transparent border-[1.5px] border-gray-200 rounded-2xl text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-all duration-200 flex items-center justify-center',
-                              state.isUploading && 'opacity-50 cursor-not-allowed'
+                              'flex h-10 w-10 items-center justify-center rounded-2xl border-[1.5px] border-gray-200 bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-gray-700',
+                              state.isUploading && 'cursor-not-allowed opacity-50',
                             )}
                           >
                             {state.isUploading ? (
@@ -521,10 +568,10 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                       <Button
                         onClick={onStop}
                         size="sm"
-                        className="w-10 h-10 rounded-full transition-all flex-shrink-0 flex items-center justify-center p-0 bg-red-500 hover:bg-red-600"
+                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
                         title={t('chat.stop')}
                       >
-                        <Square size={14} className="text-white fill-white" />
+                        <Square size={14} className="fill-white text-white" />
                       </Button>
                     ) : (
                       <Button
@@ -532,14 +579,14 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                         disabled={!state.input.trim() || isProcessing || state.isRedirecting}
                         size="sm"
                         className={cn(
-                          'w-10 h-10 rounded-full transition-all flex-shrink-0 flex items-center justify-center p-0',
+                          'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                           state.input.trim() && !isProcessing && !state.isRedirecting
                             ? 'bg-gray-900 hover:bg-gray-800'
-                            : 'bg-gray-100 cursor-not-allowed'
+                            : 'cursor-not-allowed bg-gray-100',
                         )}
                       >
                         {state.isRedirecting ? (
-                          <Loader2 size={18} className="text-gray-400 animate-spin" />
+                          <Loader2 size={18} className="animate-spin text-gray-400" />
                         ) : (
                           <ArrowRight
                             size={18}
@@ -558,10 +605,10 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
             </div>
           </div>
 
-          <div className="w-full mt-4">
+          <div className="mt-4 w-full">
             <button
               onClick={() => setShowCases(!state.showCases)}
-              className="flex items-center justify-between w-full p-2 text-gray-500 hover:text-gray-700 text-sm font-medium transition-colors"
+              className="flex w-full items-center justify-between p-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-700"
             >
               <div className="flex items-center gap-2">
                 <Sparkles size={14} />
@@ -576,7 +623,7 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
             <div
               className={cn(
                 'grid grid-cols-2 gap-3 overflow-hidden transition-all duration-500 ease-in-out',
-                state.showCases ? 'max-h-[500px] opacity-100 mt-4' : 'max-h-0 opacity-0'
+                state.showCases ? 'mt-4 max-h-[500px] opacity-100' : 'max-h-0 opacity-0',
               )}
             >
               {modeOptions.map((mode) => {
@@ -587,32 +634,33 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
                     key={mode.id}
                     onClick={() => handleCaseClick(mode.id, isSelected)}
                     className={cn(
-                      'group p-4 border rounded-xl cursor-pointer transition-all flex items-start gap-4',
+                      'group flex cursor-pointer items-start gap-4 rounded-xl border p-4 transition-all',
                       isSelected
-                        ? 'bg-blue-50 border-blue-500 shadow-md'
-                        : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md'
+                        ? 'border-blue-500 bg-blue-50 shadow-md'
+                        : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md',
                     )}
                   >
                     <div
                       className={cn(
-                        'p-2 rounded-lg transition-colors',
-                        isSelected ? 'bg-blue-100' : 'bg-gray-50 group-hover:bg-blue-50'
+                        'rounded-lg p-2 transition-colors',
+                        isSelected ? 'bg-blue-100' : 'bg-gray-50 group-hover:bg-blue-50',
                       )}
                     >
-                      <Icon size={20} className={cn(isSelected ? 'text-blue-600' : 'text-gray-600')} />
+                      <Icon
+                        size={20}
+                        className={cn(isSelected ? 'text-blue-600' : 'text-gray-600')}
+                      />
                     </div>
                     <div>
                       <h3
                         className={cn(
                           'text-sm font-medium',
-                          isSelected
-                            ? 'text-blue-700'
-                            : 'text-gray-800 group-hover:text-blue-700'
+                          isSelected ? 'text-blue-700' : 'text-gray-800 group-hover:text-blue-700',
                         )}
                       >
                         {mode.label}
                       </h3>
-                      <p className="text-xs text-gray-500 mt-1">{mode.description}</p>
+                      <p className="mt-1 text-xs text-gray-500">{mode.description}</p>
                     </div>
                   </div>
                 )
@@ -624,5 +672,3 @@ const ChatHome: React.FC<ChatHomeProps> = ({ onStartChat, onSelectConversation, 
     </div>
   )
 }
-
-export default ChatHome

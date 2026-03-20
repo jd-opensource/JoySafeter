@@ -76,7 +76,7 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly statusText: string,
     public readonly detail?: string,
-    code?: string
+    code?: string,
   ) {
     super(detail || statusText || `API Error: ${status}`)
     this.name = 'ApiError'
@@ -113,10 +113,17 @@ async function parseResponse<T>(response: Response): Promise<T> {
   try {
     const json = JSON.parse(text)
 
-    // Standard API response format
-    if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
-      if (!json.success) {
-        throw new ApiError(response.status, response.statusText, json.message || 'API request failed', json.code)
+    // Standard API response format: { success?, data }
+    // Auto-unwrap `data` whether or not `success` is present,
+    // so callers always receive the inner payload directly.
+    if (json && typeof json === 'object' && 'data' in json) {
+      if ('success' in json && !json.success) {
+        throw new ApiError(
+          response.status,
+          response.statusText,
+          json.message || 'API request failed',
+          json.code,
+        )
       }
       return json.data
     }
@@ -239,7 +246,9 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
           const errorData = await response.json()
           errorMessage = errorData.detail || errorData.message || errorMessage
           errorCode = errorData.code
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         throw new ApiError(response.status, response.statusText, errorMessage, errorCode)
       }
 
@@ -264,36 +273,57 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
 
 // ==================== Convenience Methods ====================
 
-export function apiGet<T>(url: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<T> {
+export function apiGet<T>(
+  url: string,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
   return apiFetch<T>(url, { ...options, method: 'GET' })
 }
 
-export function apiPost<T>(url: string, body?: any, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<T> {
+export function apiPost<T>(
+  url: string,
+  body?: any,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
   return apiFetch<T>(url, { ...options, method: 'POST', body })
 }
 
-export function apiPut<T>(url: string, body?: any, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<T> {
+export function apiPut<T>(
+  url: string,
+  body?: any,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
   return apiFetch<T>(url, { ...options, method: 'PUT', body })
 }
 
-export function apiDelete<T>(url: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<T> {
+export function apiDelete<T>(
+  url: string,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
   return apiFetch<T>(url, { ...options, method: 'DELETE' })
 }
 
-export function apiPatch<T>(url: string, body?: any, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<T> {
+export function apiPatch<T>(
+  url: string,
+  body?: any,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<T> {
   return apiFetch<T>(url, { ...options, method: 'PATCH', body })
 }
 
 export async function apiUpload<T>(
   url: string,
   file: File | FormData,
-  options?: Omit<ApiRequestOptions, 'method' | 'body' | 'json'>
+  options?: Omit<ApiRequestOptions, 'method' | 'body' | 'json'>,
 ): Promise<T> {
-  const formData = file instanceof FormData ? file : (() => {
-    const fd = new FormData()
-    fd.append('file', file)
-    return fd
-  })()
+  const formData =
+    file instanceof FormData
+      ? file
+      : (() => {
+          const fd = new FormData()
+          fd.append('file', file)
+          return fd
+        })()
 
   return apiFetch<T>(url, { ...options, method: 'POST', body: formData, json: false })
 }
@@ -304,13 +334,13 @@ export async function apiUpload<T>(
 export async function apiStream(
   url: string,
   body: any,
-  options?: { signal?: AbortSignal; withAuth?: boolean }
+  options?: { signal?: AbortSignal; withAuth?: boolean },
 ): Promise<Response> {
   const { withAuth = true, signal } = options || {}
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Accept': 'text/event-stream',
+    Accept: 'text/event-stream',
   }
 
   if (withAuth) {
@@ -335,7 +365,9 @@ export async function apiStream(
         const newCsrfToken = getCsrfToken()
         if (newCsrfToken) headers['X-CSRF-Token'] = newCsrfToken
         return makeRequest()
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     if (!response.ok) {

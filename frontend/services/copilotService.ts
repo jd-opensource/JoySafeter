@@ -29,15 +29,15 @@ export type { GraphAction, CopilotResponse, ConversationMessage, StreamGraphActi
  * Includes actions for context in multi-turn conversations.
  */
 function convertConversationHistory(
-  history: Array<{ role: 'user' | 'model'; text: string; actions?: GraphAction[] }>
+  history: Array<{ role: 'user' | 'model'; text: string; actions?: GraphAction[] }>,
 ): Array<ConversationMessage> {
   const ERROR_KEYWORDS = ['请求已取消', 'systemError', 'error', 'cancelled']
 
   return history
     .filter((msg) => {
       // Skip error/cancelled messages
-      const isError = ERROR_KEYWORDS.some(keyword =>
-        msg.text.toLowerCase().includes(keyword.toLowerCase())
+      const isError = ERROR_KEYWORDS.some((keyword) =>
+        msg.text.toLowerCase().includes(keyword.toLowerCase()),
       )
       if (isError) return false
 
@@ -73,7 +73,6 @@ export const copilotService = {
     }
   },
 
-
   /**
    * Convert conversation history format (helper method)
    */
@@ -100,7 +99,7 @@ export const copilotService = {
         graph_id: graphId || undefined,
         conversation_history: conversationHistory.length > 0 ? conversationHistory : undefined,
         ...(mode !== undefined && { mode }),
-      }
+      },
     )
 
     return response

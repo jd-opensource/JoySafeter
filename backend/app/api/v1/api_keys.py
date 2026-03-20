@@ -20,7 +20,7 @@ from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.services.api_key_service import ApiKeyService
 
-router = APIRouter(prefix="/api-keys", tags=["ApiKeys"])
+router = APIRouter(prefix="/v1/api-keys", tags=["ApiKeys"])
 
 
 class ApiKeyCreate(BaseModel):
@@ -39,7 +39,7 @@ async def list_api_keys(
     # 注意：workspace_id 可能为 None（personal API key）
 
     service = ApiKeyService(db)
-    data = await service.list_keys(current_user_id=uuid.UUID(current_user.id), workspace_id=workspace_id)
+    data = await service.list_keys(current_user_id=current_user.id, workspace_id=workspace_id)
     return {"success": True, "data": data}
 
 
@@ -55,7 +55,7 @@ async def create_api_key(
     service = ApiKeyService(db)
     # workspace 类型的权限在 service 内校验（admin+）；personal 仅本人
     data = await service.create_key(
-        current_user_id=uuid.UUID(current_user.id),
+        current_user_id=current_user.id,
         name=payload.name,
         type=payload.type,
         workspace_id=workspace_id,
@@ -71,5 +71,5 @@ async def delete_api_key(
     current_user: User = Depends(get_current_user),
 ):
     service = ApiKeyService(db)
-    await service.delete_key(key_id=key_id, current_user_id=uuid.UUID(current_user.id))
+    await service.delete_key(key_id=key_id, current_user_id=current_user.id)
     return {"success": True}
