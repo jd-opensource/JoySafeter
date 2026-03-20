@@ -1,7 +1,7 @@
 'use client'
 
 import { Settings, User, Brain, Box } from 'lucide-react'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -43,7 +43,7 @@ const MenuItem = ({
   </button>
 )
 
-export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChange }) => {
+export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { t } = useTranslation()
   const { data: session } = useSession()
   const user = session?.user
