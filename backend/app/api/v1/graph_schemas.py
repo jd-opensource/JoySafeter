@@ -140,11 +140,13 @@ async def import_graph_schema(
     """
     workspace_id = payload.workspace_id
     if workspace_id:
-        from app.services.workspace_permission import check_workspace_access
         from app.models.workspace import WorkspaceMemberRole
+        from app.services.workspace_permission import check_workspace_access
+
         has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.member)
         if not has_access:
             from app.common.exceptions import ForbiddenException
+
             raise ForbiddenException("No access to import into this workspace")
 
     service = SchemaService(db)

@@ -16,7 +16,6 @@ from app.repositories.workspace import (
 
 from .base import BaseService
 
-
 ROLE_RANK = {
     WorkspaceMemberRole.viewer: 0,
     WorkspaceMemberRole.member: 1,
@@ -301,13 +300,9 @@ class WorkspaceService(BaseService[Workspace]):
 
         existing_member = await self.member_repo.get_member(workspace_id, target_user.id)
         if existing_member:
-            raise BadRequestException(
-                f"User with email {email} is already a member of this workspace"
-            )
+            raise BadRequestException(f"User with email {email} is already a member of this workspace")
 
-        await self.member_repo.create(
-            {"workspace_id": workspace_id, "user_id": target_user.id, "role": target_role}
-        )
+        await self.member_repo.create({"workspace_id": workspace_id, "user_id": target_user.id, "role": target_role})
         await self.commit()
 
         return {
@@ -561,6 +556,7 @@ class WorkspaceService(BaseService[Workspace]):
 
         # 角色层级保护：非 owner 不能移除 >= 自己等级的成员
         if is_admin and not is_self and current_role != WorkspaceMemberRole.owner:
+            assert isinstance(current_role, WorkspaceMemberRole)
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
                 raise ForbiddenException("Cannot remove a member with equal or higher role")
 

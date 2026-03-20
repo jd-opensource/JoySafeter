@@ -176,8 +176,9 @@ async def list_traces(
     service = TraceService(db)
 
     if workspace_id:
-        from app.services.workspace_permission import check_workspace_access
         from app.models.workspace import WorkspaceMemberRole
+        from app.services.workspace_permission import check_workspace_access
+
         has_access = await check_workspace_access(db, workspace_id, current_user, WorkspaceMemberRole.viewer)
         if not has_access:
             raise ForbiddenException("No access to workspace traces")
@@ -222,8 +223,9 @@ async def get_trace_detail(
         return BaseResponse(success=False, code=404, msg="Trace not found", data=None)
 
     if trace.workspace_id:
-        from app.services.workspace_permission import check_workspace_access
         from app.models.workspace import WorkspaceMemberRole
+        from app.services.workspace_permission import check_workspace_access
+
         has_access = await check_workspace_access(db, trace.workspace_id, current_user, WorkspaceMemberRole.viewer)
         if not has_access:
             raise ForbiddenException("No access to workspace traces")
@@ -259,8 +261,9 @@ async def get_trace_observations(
         return BaseResponse(success=False, code=404, msg="Trace not found", data=None)
 
     if trace.workspace_id:
-        from app.services.workspace_permission import check_workspace_access
         from app.models.workspace import WorkspaceMemberRole
+        from app.services.workspace_permission import check_workspace_access
+
         has_access = await check_workspace_access(db, trace.workspace_id, current_user, WorkspaceMemberRole.viewer)
         if not has_access:
             raise ForbiddenException("No access to workspace traces")
