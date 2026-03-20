@@ -30,21 +30,29 @@
 |------|------|------|
 | id | UUID | 主键 |
 | skill_id | UUID FK → skills.id | 所属 Skill |
-| version | String(20) | semver 版本号，如 "1.0.0" |
-| description | Text | 发布说明 / changelog |
+| version | String(20) | semver 版本号，仅 MAJOR.MINOR.PATCH 格式 |
+| release_notes | Text | 发布说明 / changelog |
+| skill_name | String(64) | 快照：发布时的 skill 名称 |
+| skill_description | String(1024) | 快照：发布时的 skill 描述 |
 | content | Text | 快照：skill body |
 | tags | JSONB | 快照 |
 | meta_data | JSONB | 快照 |
 | allowed_tools | JSONB | 快照 |
 | compatibility | String(500) | 快照 |
+| license | String(100) | 快照 |
 | published_by_id | String FK → user.id | 发布人 |
 | published_at | DateTime(tz) | 发布时间 |
-| created_at | DateTime(tz) | 记录创建时间 |
+| created_at | DateTime(tz) | 继承自 BaseModel（updated_at 也会继承，值始终等于 created_at） |
 
 **约束**:
 - UniqueConstraint(`skill_id`, `version`)
 - Index on `skill_id`
 - Index on `published_at`
+
+**版本号规则**:
+- 仅接受 `MAJOR.MINOR.PATCH` 格式（如 `1.0.0`），不支持 pre-release 或 build metadata
+- 使用 `semver` PyPI 包进行解析和比较（避免字符串排序导致 `1.10.0 < 1.9.0` 的错误）
+- 新版本号必须大于已有最高版本
 
 ### 1.2 SkillVersionFile 表（新增）
 
@@ -80,9 +88,9 @@ Skill 级别的协作者权限管理，独立于 workspace。
 | created_at | DateTime(tz) | 邀请时间 |
 
 **约束**:
-- UniqueConstraint(`skill_id`, `user_id`)
-- Index on `skill_id`
-- Index on `user_id`
+- UniqueConstraint(`skill_id`, `user_id`) — 自动创建 (skill_id, user_id) 复合索引
+- Index on (`user_id`, `skill_id`) — 用于反向查询（用户有权访问哪些 skill）
+- `invited_by` 字段 NOT NULL，始终设为执行操作的用户
 
 **角色权限矩阵**:
 
@@ -121,6 +129,10 @@ Skill 级别的协作者权限管理，独立于 workspace。
 - Index on `token_hash`
 - Index on `is_active`
 
+**限制**:
+- 每用户最多 50 个 active token（创建时校验，达到上限返回 400）
+- 已撤销（is_active=False）的 token 不计入额度
+
 **与现有 ApiKey 的关系**: 并行存在，互不影响。现有 ApiKey 继续服务已有功能，未来可选迁移但不在本次范围。
 
 ---
@@ -142,7 +154,7 @@ POST   /v1/skills/{skill_id}/restore            # 基于历史版本恢复 draft
 ```json
 {
   "version": "1.2.0",
-  "description": "新增 X 功能，修复 Y 问题"
+  "release_notes": "新增 X 功能，修复 Y 问题"
 }
 ```
 
@@ -154,8 +166,8 @@ POST   /v1/skills/{skill_id}/restore            # 基于历史版本恢复 draft
 ```
 
 **规则**:
-- 版本号需符合 semver 格式，且大于已有最高版本
-- 发布时把当前 draft 的 content + files 完整快照
+- 版本号需符合 semver `MAJOR.MINOR.PATCH` 格式（使用 `semver` 库解析），且大于已有最高版本
+- 发布时把当前 draft 的 content + name + description + files 完整快照
 - SkillVersion 创建后无 update 接口，天然不可变
 - 恢复操作覆盖 draft，不影响任何已发布版本
 - `GET /v1/skills/{id}` 增加 `latest_version` 字段指向最新已发布版本
@@ -184,6 +196,12 @@ POST   /v1/skills/{skill_id}/transfer                   # 转让 ownership
   "new_owner_id": "xxx"
 }
 ```
+
+**转让规则**:
+- 仅 owner 可发起转让
+- 转让后旧 owner 自动成为 admin 协作者（不会失去访问权）
+- `created_by_id` 不变（保留创建历史）
+- 必须校验新 owner 是否已有同名 skill（`UniqueConstraint(owner_id, name)`），冲突时返回明确错误
 
 ### 2.3 Token 管理 API
 
@@ -225,13 +243,20 @@ DELETE /v1/tokens/{id}     # 撤销 token（soft delete: is_active = False）
 ```
 请求进入
   → get_current_user_or_token()
-      ├── session cookie → 返回 AuthUser (scopes=None，走角色权限)
-      └── Authorization: Bearer sk_xxx
-            → sha256(token) → 查 platform_tokens.token_hash
-            → 校验 is_active + expires_at
-            → 更新 last_used_at
-            → 返回 (AuthUser, scopes)
+      1. 检查 session cookie → 如有则返回 AuthUser (scopes=None，走角色权限)
+      2. 检查 Authorization: Bearer 头
+         ├── token 以 "sk_" 开头 → PlatformToken 路径
+         │     → sha256(token) → 查 platform_tokens.token_hash
+         │     → 校验 is_active + expires_at
+         │     → 异步更新 last_used_at（仅当距上次更新 >5 分钟时写入，减少 DB 压力）
+         │     → 返回 (AuthUser, scopes)
+         └── 否则 → 走现有 JWT/session token 解析流程
 ```
+
+**关键规则**:
+- `sk_` 前缀是 PlatformToken 的唯一判定标识，与现有 JWT token 不会冲突
+- Token 管理 API（`POST/GET/DELETE /v1/tokens`）仅支持 session 鉴权，不允许用 PlatformToken 管理 PlatformToken
+- PlatformToken 访问 skill 版本时，必须同时满足 scope 和 is_public/collaborator 权限
 
 ### 3.2 Skill 权限校验函数
 
@@ -265,7 +290,7 @@ async def check_skill_access(
 | 读取 skill / 版本列表 | viewer | `skills:read` |
 | 编辑 draft / 文件 | editor | `skills:write` |
 | 发布版本 | publisher | `skills:publish` |
-| 删除版本 | admin | `skills:publish` |
+| 删除版本 | admin | `skills:admin` |
 | 管理协作者 | admin | `skills:admin` |
 | 删除 skill | owner | `skills:admin` |
 
@@ -279,8 +304,8 @@ async def check_skill_access(
 POST /v1/skills/{id}/versions  { version: "1.0.0", description: "..." }
     │
     ├── 校验权限 >= publisher
-    ├── 校验 semver 格式 & 大于最高已有版本
-    ├── 创建 SkillVersion（快照 content/tags/metadata/allowed_tools/compatibility）
+    ├── 校验 semver MAJOR.MINOR.PATCH 格式 & 大于最高已有版本（使用 semver 库比较）
+    ├── 创建 SkillVersion（快照 skill_name/skill_description/content/tags/metadata/allowed_tools/compatibility/license）
     ├── 复制当前 SkillFile → SkillVersionFile（逐条复制内容）
     └── 返回 SkillVersion 详情
 ```
@@ -293,7 +318,7 @@ POST /v1/skills/{id}/versions  { version: "1.0.0", description: "..." }
 ```
 POST /v1/skills/{id}/restore  { version: "1.0.0" }
     │
-    ├── 校验权限 >= editor
+    ├── 校验权限 >= publisher（恢复是破坏性操作，覆盖整个 draft）
     ├── 读取 SkillVersion 的内容和文件
     ├── 覆盖 Skill draft content + 删除旧 SkillFile + 写入版本文件
     └── 返回更新后的 Skill（draft 状态）
@@ -302,8 +327,9 @@ POST /v1/skills/{id}/restore  { version: "1.0.0" }
 ### 4.3 版本消费
 
 - 外部使用者通过 API token 或商店获取的是已发布版本
-- Draft 仅对 editor+ 权限的协作者可见
-- `GET /v1/skills/{id}` 增加 `latest_version` 字段
+- PlatformToken 访问版本时需同时满足 scope (`skills:read`) 和 is_public/collaborator 权限
+- `GET /v1/skills/{id}` 继续返回 draft content（后向兼容），增加 `latest_version` 字段
+- Draft 内容对 viewer 继续可见（兼容现有行为），未来可通过 query param `?version=1.0.0` 获取指定版本内容
 
 ---
 
@@ -348,11 +374,13 @@ DELETE /v1/tokens/{id}
 ### 6.2 代码改动
 
 - `SkillService` 中所有 `owner_id != current_user_id` 硬编码替换为 `check_skill_access()` 调用
+- `SkillRepository.list_by_user()` 查询条件扩展：`OR skill_id IN (SELECT skill_id FROM skill_collaborators WHERE user_id = :user_id)`，确保协作者能看到被授权的私有 skill
+- 同步影响 `DatabaseSkillAdapter` 和 `skills_manager.py` 中的 skill 加载逻辑（它们都依赖 `list_skills()`）
 - 新增 `SkillVersionService` 处理版本 CRUD
 - 新增 `SkillCollaboratorService` 处理协作者管理
 - 新增 `PlatformTokenService` 处理 token 管理
 - 新增 FastAPI dependency `get_current_user_or_token()` 支持双模式鉴权
-- 新增 API 路由文件: `skills_versions.py`, `skills_collaborators.py`, `tokens.py`
+- 新增 API 路由文件: `skill_versions.py`, `skill_collaborators.py`, `tokens.py`
 
 ### 6.3 与现有 ApiKey 的关系
 
@@ -391,3 +419,4 @@ DELETE /v1/tokens/{id}
 - `backend/app/api/v1/__init__.py` — 注册新路由
 - `frontend/services/skillService.ts` — 新增版本/协作者/token API 调用
 - `frontend/app/skills/SkillsManager.tsx` — 版本管理 UI、协作者管理 UI
+- `backend/app/api/v1/skills.py` — OpenClaw sync：协作者编辑时，同步 owner 的容器（不仅是当前用户的）
