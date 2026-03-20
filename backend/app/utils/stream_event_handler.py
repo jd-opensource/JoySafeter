@@ -1060,4 +1060,3 @@ def _extract_files_changed(
     if file_path and isinstance(file_path, str):
         return [{"path": file_path, "action": action}]
     return []
-
