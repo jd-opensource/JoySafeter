@@ -440,48 +440,48 @@ export default function ChatHome({
                     ) : null
                   })()}
 
-                <div className="flex items-end gap-3 px-3">
-                  <div className="relative flex flex-1 flex-col gap-1">
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileSelect}
-                      multiple
-                      accept={ALLOWED_EXTENSIONS_STRING}
-                      className="hidden"
-                      disabled={isProcessing || state.isUploading}
-                    />
-                    {state.files.length > 0 && (
-                      <div className="flex flex-wrap gap-2 px-1 pb-1 pt-2">
-                        {state.files.map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center gap-1.5 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-700"
+                <div className="flex flex-col gap-2 px-3">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    multiple
+                    accept={ALLOWED_EXTENSIONS_STRING}
+                    className="hidden"
+                    disabled={isProcessing || state.isUploading}
+                  />
+                  {state.files.length > 0 && (
+                    <div className="flex flex-wrap gap-2 px-1 pb-1 pt-2">
+                      {state.files.map((file) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center gap-1.5 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-700"
+                        >
+                          <Paperclip size={12} className="text-gray-500" />
+                          <span className="max-w-[150px] truncate">{file.filename}</span>
+                          <button
+                            onClick={() => removeFile(file.id)}
+                            className="ml-1 rounded-full p-0.5 transition-colors hover:bg-gray-200"
+                            aria-label="Remove file"
                           >
-                            <Paperclip size={12} className="text-gray-500" />
-                            <span className="max-w-[150px] truncate">{file.filename}</span>
-                            <button
-                              onClick={() => removeFile(file.id)}
-                              className="ml-1 rounded-full p-0.5 transition-colors hover:bg-gray-200"
-                              aria-label="Remove file"
-                            >
-                              <X size={10} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <textarea
-                      ref={textareaRef}
-                      value={state.input}
-                      onChange={handleInputChange}
-                      onKeyDown={handleKeyDown}
-                      placeholder={t('chat.describeHelpNeeded')}
-                      className="max-h-[160px] min-h-[24px] w-full resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
-                      rows={1}
-                      disabled={isProcessing}
-                    />
-                    <div className="flex items-center gap-2 pt-1">
+                            <X size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <textarea
+                    ref={textareaRef}
+                    value={state.input}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder={t('chat.describeHelpNeeded')}
+                    className="max-h-[160px] min-h-[44px] w-full resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
+                    rows={1}
+                    disabled={isProcessing}
+                  />
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center gap-2">
                       <Button
                         variant="outline"
                         size="sm"
@@ -544,69 +544,69 @@ export default function ChatHome({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                  </div>
-                  <div className="flex flex-shrink-0 items-center gap-2">
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={isProcessing || state.isUploading}
-                            className={cn(
-                              'flex h-8 w-8 items-center justify-center rounded-xl border-[1.5px] border-gray-200 bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-gray-700',
-                              state.isUploading && 'cursor-not-allowed opacity-50',
-                            )}
-                          >
-                            {state.isUploading ? (
-                              <Loader2 size={18} className="animate-spin" />
-                            ) : (
-                              <Paperclip size={18} />
-                            )}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
-                          {t('chat.uploadFile')}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    {isProcessing && onStop ? (
-                      <Button
-                        onClick={onStop}
-                        size="sm"
-                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
-                        title={t('chat.stop')}
-                      >
-                        <Square size={14} className="fill-white text-white" />
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={handleSubmit}
-                        disabled={!state.input.trim() || isProcessing || state.isRedirecting}
-                        size="sm"
-                        className={cn(
-                          'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
-                          state.input.trim() && !isProcessing && !state.isRedirecting
-                            ? 'bg-blue-600 hover:bg-blue-700'
-                            : 'cursor-not-allowed bg-gray-100',
-                        )}
-                      >
-                        {state.isRedirecting ? (
-                          <Loader2 size={18} className="animate-spin text-gray-400" />
-                        ) : (
-                          <ArrowRight
-                            size={18}
-                            className={
-                              state.input.trim() && !isProcessing && !state.isRedirecting
-                                ? 'text-white'
-                                : 'text-gray-300'
-                            }
-                          />
-                        )}
-                      </Button>
-                    )}
+                    <div className="flex flex-shrink-0 items-center gap-2">
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={isProcessing || state.isUploading}
+                              className={cn(
+                                'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-200 hover:text-gray-700',
+                                state.isUploading && 'cursor-not-allowed opacity-50',
+                              )}
+                            >
+                              {state.isUploading ? (
+                                <Loader2 size={18} className="animate-spin" />
+                              ) : (
+                                <Paperclip size={18} />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">
+                            {t('chat.uploadFile')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      {isProcessing && onStop ? (
+                        <Button
+                          onClick={onStop}
+                          size="sm"
+                          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
+                          title={t('chat.stop')}
+                        >
+                          <Square size={14} className="fill-white text-white" />
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={handleSubmit}
+                          disabled={!state.input.trim() || isProcessing || state.isRedirecting}
+                          size="sm"
+                          className={cn(
+                            'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
+                            state.input.trim() && !isProcessing && !state.isRedirecting
+                              ? 'bg-blue-600 hover:bg-blue-700'
+                              : 'cursor-not-allowed bg-gray-100',
+                          )}
+                        >
+                          {state.isRedirecting ? (
+                            <Loader2 size={18} className="animate-spin text-gray-400" />
+                          ) : (
+                            <ArrowRight
+                              size={18}
+                              className={
+                                state.input.trim() && !isProcessing && !state.isRedirecting
+                                  ? 'text-white'
+                                  : 'text-gray-300'
+                              }
+                            />
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

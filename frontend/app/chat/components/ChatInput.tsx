@@ -131,7 +131,7 @@ export default function ChatInput({
       {/* Main Input Container */}
       <div
         className={cn(
-          'flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 transition-all',
+          'flex flex-col gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 transition-all',
           isDragOver && 'border-blue-400 bg-blue-50',
         )}
         onDragOver={handleDragOver}
@@ -147,61 +147,66 @@ export default function ChatInput({
           className="hidden"
           disabled={isProcessing || isUploading}
         />
-        <div className="relative flex flex-1 flex-col gap-1">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={t('chat.describeHelpNeeded')}
-            className="max-h-[160px] min-h-[24px] flex-1 resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
-            rows={1}
-            disabled={isProcessing || isUploading}
-          />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => fileInputRef.current?.click()}
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={t('chat.describeHelpNeeded')}
+          className="max-h-[160px] min-h-[44px] w-full resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
+          rows={1}
           disabled={isProcessing || isUploading}
-          className={cn(
-            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border-[1.5px] border-gray-200 bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-gray-700',
-            (isUploading || isProcessing) && 'cursor-not-allowed opacity-50',
-          )}
-          title={t('chat.uploadFile')}
-        >
-          {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
-        </Button>
-        {isProcessing && onStop ? (
-          <Button
-            onClick={onStop}
-            size="sm"
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
-            title={t('chat.stop')}
-          >
-            <Square size={14} className="fill-white text-white" />
-          </Button>
-        ) : (
-          <Button
-            onClick={handleSubmit}
-            disabled={!canSubmit || isProcessing || isUploading}
-            size="sm"
-            className={cn(
-              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
-              canSubmit && !isProcessing && !isUploading
-                ? 'bg-blue-600 hover:bg-blue-700'
-                : 'cursor-not-allowed bg-gray-100',
+        />
+        <div className="flex items-center justify-between pt-1">
+          <div className="flex items-center gap-2">
+            {/* Left side empty for now or add future quick actions */}
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessing || isUploading}
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-200 hover:text-gray-700',
+                (isUploading || isProcessing) && 'cursor-not-allowed opacity-50',
+              )}
+              title={t('chat.uploadFile')}
+            >
+              {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
+            </Button>
+            {isProcessing && onStop ? (
+              <Button
+                onClick={onStop}
+                size="sm"
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
+                title={t('chat.stop')}
+              >
+                <Square size={14} className="fill-white text-white" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSubmit}
+                disabled={!canSubmit || isProcessing || isUploading}
+                size="sm"
+                className={cn(
+                  'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
+                  canSubmit && !isProcessing && !isUploading
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : 'cursor-not-allowed bg-gray-100',
+                )}
+              >
+                <ArrowRight
+                  size={18}
+                  className={
+                    canSubmit && !isProcessing && !isUploading ? 'text-white' : 'text-gray-300'
+                  }
+                />
+              </Button>
             )}
-          >
-            <ArrowRight
-              size={18}
-              className={
-                canSubmit && !isProcessing && !isUploading ? 'text-white' : 'text-gray-300'
-              }
-            />
-          </Button>
-        )}
+          </div>
+        </div>
       </div>
     </div>
   )
