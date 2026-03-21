@@ -17,6 +17,7 @@ from app.common.exceptions import UnauthorizedException
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.platform_token import PlatformToken
+from app.services.platform_token_service import TOKEN_PREFIX
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
@@ -64,7 +65,7 @@ async def get_current_user_or_token(
         )
 
     # PlatformToken path
-    if raw_token and raw_token.startswith("sk_"):
+    if raw_token and raw_token.startswith(TOKEN_PREFIX):
         return await _authenticate_platform_token(raw_token, db)
 
     # Fall through to existing session/JWT auth
@@ -99,9 +100,11 @@ async def _authenticate_platform_token(
         pt.last_used_at = now
         await db.commit()
 
-    # Load the user
-    user_result = await db.execute(select(User).where(User.id == pt.user_id))
-    user = user_result.scalar_one_or_none()
+    # Load the user — use the already-loaded relationship if available
+    user = pt.user if pt.user else None
+    if not user:
+        user_result = await db.execute(select(User).where(User.id == pt.user_id))
+        user = user_result.scalar_one_or_none()
     if not user or not user.is_active:
         raise UnauthorizedException("Token owner account is inactive")
 

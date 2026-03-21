@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +11,7 @@ from app.common.auth_dependency import AuthContext, get_current_user_or_token
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
+from app.schemas.skill import SkillSchema
 from app.schemas.skill_version import (
     VersionPublishRequest,
     VersionRestoreRequest,
@@ -135,8 +135,6 @@ async def restore_version(
         current_user_id=current_user.id,
         is_superuser=current_user.is_superuser,
     )
-    from app.schemas.skill import SkillSchema
-
     return {
         "success": True,
         "data": SkillSchema.model_validate(skill).model_dump(),

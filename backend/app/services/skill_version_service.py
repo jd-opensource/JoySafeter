@@ -36,7 +36,7 @@ class SkillVersionService(BaseService[SkillVersion]):
         is_superuser: bool = False,
         token_scopes: Optional[List[str]] = None,
     ) -> SkillVersion:
-        skill = await self._get_skill_or_404(skill_id)
+        skill = await self._get_skill_with_files_or_404(skill_id)
         await check_skill_access(
             self.db, skill, current_user_id, CollaboratorRole.publisher,
             is_superuser=is_superuser,
@@ -182,7 +182,7 @@ class SkillVersionService(BaseService[SkillVersion]):
         is_superuser: bool = False,
         token_scopes: Optional[List[str]] = None,
     ) -> Skill:
-        skill = await self._get_skill_or_404(skill_id)
+        skill = await self._get_skill_with_files_or_404(skill_id)
         await check_skill_access(
             self.db, skill, current_user_id, CollaboratorRole.publisher,
             is_superuser=is_superuser,
@@ -223,6 +223,12 @@ class SkillVersionService(BaseService[SkillVersion]):
         return skill
 
     async def _get_skill_or_404(self, skill_id: uuid.UUID) -> Skill:
+        skill = await self.skill_repo.get(skill_id)
+        if not skill:
+            raise NotFoundException("Skill not found")
+        return skill
+
+    async def _get_skill_with_files_or_404(self, skill_id: uuid.UUID) -> Skill:
         skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundException("Skill not found")

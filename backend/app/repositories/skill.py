@@ -32,11 +32,10 @@ class SkillRepository(BaseRepository[Skill]):
 
         conditions = []
         if user_id:
-            # 用户自己的 Skills 或公开的 Skills
+            collab_subquery = select(SkillCollaborator.skill_id).where(
+                SkillCollaborator.user_id == user_id
+            ).scalar_subquery()
             if include_public:
-                collab_subquery = select(SkillCollaborator.skill_id).where(
-                    SkillCollaborator.user_id == user_id
-                ).scalar_subquery()
                 conditions.append(
                     or_(
                         Skill.owner_id == user_id,
@@ -46,9 +45,6 @@ class SkillRepository(BaseRepository[Skill]):
                     )
                 )
             else:
-                collab_subquery = select(SkillCollaborator.skill_id).where(
-                    SkillCollaborator.user_id == user_id
-                ).scalar_subquery()
                 conditions.append(
                     or_(
                         Skill.owner_id == user_id,

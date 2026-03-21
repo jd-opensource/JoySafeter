@@ -165,9 +165,9 @@ export function BuiltinToolCard({
   label,
   name,
   description,
-  _toolType,
-  _category,
-  _tags,
+  toolType: _toolType,
+  category: _category,
+  tags: _tags,
 }: BuiltinToolCardProps) {
   const { t } = useTranslation()
   const displayName = label || name || id

@@ -53,14 +53,14 @@ async def check_skill_access(
         _check_token_scope(token_scopes, required_scope)
         return
 
-    # 3. Check collaborator role
-    collab = await _get_collaborator(db, skill.id, user_id)
-    if collab and collab.role >= min_role:
+    # 3. Public skill + viewer access (skip DB query)
+    if skill.is_public and min_role == CollaboratorRole.viewer:
         _check_token_scope(token_scopes, required_scope)
         return
 
-    # 4. Public skill + viewer access
-    if skill.is_public and min_role == CollaboratorRole.viewer:
+    # 4. Check collaborator role
+    collab = await _get_collaborator(db, skill.id, user_id)
+    if collab and collab.role >= min_role:
         _check_token_scope(token_scopes, required_scope)
         return
 
