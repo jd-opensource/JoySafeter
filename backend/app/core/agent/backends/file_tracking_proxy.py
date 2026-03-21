@@ -18,7 +18,7 @@ from deepagents.backends.protocol import (
 from app.utils.file_event_emitter import FileEventEmitter
 
 
-class FileTrackingProxy:
+class FileTrackingProxy(SandboxBackendProtocol):
     """Transparent proxy that intercepts write operations and emits file events.
 
     All non-write methods are delegated directly to the wrapped backend.
