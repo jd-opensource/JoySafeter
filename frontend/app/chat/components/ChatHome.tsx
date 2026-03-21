@@ -481,7 +481,7 @@ export default function ChatHome({
                       rows={1}
                       disabled={isProcessing}
                     />
-                    <div className="absolute bottom-1 left-1 flex items-center gap-2">
+                    <div className="flex items-center gap-2 pt-1">
                       <Button
                         variant="outline"
                         size="sm"

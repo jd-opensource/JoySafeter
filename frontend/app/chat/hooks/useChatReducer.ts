@@ -55,7 +55,7 @@ export const initialChatState: ChatState = {
     userDismissed: false,
   },
   ui: {
-    sidebarVisible: false,
+    sidebarVisible: true,
     selectedTool: null,
     showNoDefaultModelNotice: false,
   },
