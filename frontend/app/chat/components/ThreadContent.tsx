@@ -2,6 +2,8 @@
 
 import React, { useMemo } from 'react'
 
+import { MessageSquare } from 'lucide-react'
+
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
@@ -48,8 +50,12 @@ export default function ThreadContent({
         <div className="min-w-0 space-y-6">
           {/* Messages - history on top for waterfall layout */}
           {messagesToRender.length === 0 ? (
-            <div className="flex items-center justify-center py-20 text-sm text-gray-400">
-              {t('chat.startConversation')}
+            <div className="flex flex-col items-center justify-center gap-3 py-20">
+              <div className="rounded-full bg-blue-50 p-4">
+                <MessageSquare size={24} className="text-blue-500" />
+              </div>
+              <p className="text-base font-medium text-gray-600">{t('chat.startConversation')}</p>
+              <p className="text-sm text-gray-400">{t('chat.askAnything', { defaultValue: 'Ask anything to get started' })}</p>
             </div>
           ) : (
             messagesToRender.map((msg, idx) => (
@@ -77,12 +83,12 @@ export default function ThreadContent({
           {/* Streaming indicator - current reply at bottom */}
           {streamingText && agentStatus === 'running' && (
             <div className="group mb-6 flex justify-start duration-200 animate-in fade-in">
-              <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-purple-600 shadow-md">
+              <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md">
                 <div className="h-3 w-3 animate-pulse rounded-full bg-white" />
               </div>
               <div className="min-w-[50%] max-w-[85%]">
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-400">
+                  <span className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-500">
                     AI
                   </span>
                 </div>
@@ -103,12 +109,12 @@ export default function ThreadContent({
               <div
                 className={cn(
                   'flex min-w-0 max-w-[85%] items-center gap-4 rounded-2xl px-4 py-3',
-                  'border border-gray-200/80 bg-white/90 shadow-sm',
+                  'border border-gray-200/80 bg-white/90 shadow-sm backdrop-blur-sm',
                 )}
               >
                 <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
                   <div className="absolute inset-0 h-10 w-10 animate-pulse rounded-full bg-blue-400/20" />
-                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-purple-600 shadow-md">
+                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md">
                     <div className="flex gap-0.5">
                       <span className="h-2 w-2 animate-bounce rounded-full bg-white [animation-delay:0ms]" />
                       <span className="h-2 w-2 animate-bounce rounded-full bg-white [animation-delay:150ms]" />
