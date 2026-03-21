@@ -73,9 +73,7 @@ class FileTrackingProxy(SandboxBackendProtocol):
     def execute(self, command: str) -> ExecuteResponse:
         return self._backend.execute(command)
 
-    def grep_raw(
-        self, pattern: str, path: str | None = None, glob: str | None = None
-    ) -> list[GrepMatch] | str:
+    def grep_raw(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch] | str:
         return self._backend.grep_raw(pattern, path, glob)
 
     def glob_info(self, pattern: str, path: str = "/") -> list[FileInfo]:

@@ -334,7 +334,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
         {/* Left Sidebar */}
         <ResizablePanel
           ref={sidebarPanelRef}
-          defaultSize={12}
+          defaultSize={0}
           minSize={10}
           maxSize={25}
           collapsible

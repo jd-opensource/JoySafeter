@@ -830,12 +830,17 @@ async def chat_stream(
 
                 # Drain file events from FileTrackingProxy
                 for file_evt in file_emitter.drain():
-                    yield handler.format_sse("file_event", {
-                        "action": file_evt.action,
-                        "path": file_evt.path,
-                        "size": file_evt.size,
-                        "timestamp": file_evt.timestamp,
-                    }, state.thread_id, state)
+                    yield handler.format_sse(
+                        "file_event",
+                        {
+                            "action": file_evt.action,
+                            "path": file_evt.path,
+                            "size": file_evt.size,
+                            "timestamp": file_evt.timestamp,
+                        },
+                        state.thread_id,
+                        state,
+                    )
 
             # 5. 检查是否有中断
             interrupted = False

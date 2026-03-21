@@ -55,6 +55,7 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
                 )
                 if self._shared_backend and self._file_emitter:
                     from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
+
                     self._shared_backend = FileTrackingProxy(self._shared_backend, self._file_emitter)
                     logger.info(f"{LOG_PREFIX} Wrapped backend with FileTrackingProxy")
 

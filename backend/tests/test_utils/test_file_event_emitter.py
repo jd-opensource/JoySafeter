@@ -1,4 +1,4 @@
-from app.utils.file_event_emitter import FileEvent, FileEventEmitter
+from app.utils.file_event_emitter import FileEventEmitter
 
 
 def test_emit_and_drain():

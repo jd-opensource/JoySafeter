@@ -1008,4 +1008,3 @@ def _clean_task_results(task_results: list) -> list:
         else:
             cleaned.append(tr)
     return cleaned
-

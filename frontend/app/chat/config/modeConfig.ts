@@ -38,11 +38,6 @@ export const modeConfigs: ModeConfig[] = [
     type: 'template',
     templateName: 'default-chat',
     templateGraphName: 'Default Chat',
-    starterPrompts: [
-      '帮我分析一段代码的安全性',
-      '如何防范常见的Web漏洞？',
-      '解释一下OWASP Top 10',
-    ],
   },
   {
     id: 'mcp-scan',
