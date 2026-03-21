@@ -25,7 +25,7 @@ export default function PreviewPanel() {
           {hasFiles && (
             <button
               onClick={() => setActiveTab('files')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm ${
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-all duration-200 ${
                 activeTab === 'files'
                   ? 'bg-gray-100 font-medium'
                   : 'text-gray-500 hover:text-gray-700'
@@ -38,7 +38,7 @@ export default function PreviewPanel() {
           {hasTool && (
             <button
               onClick={() => setActiveTab('tool')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm ${
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-all duration-200 ${
                 activeTab === 'tool'
                   ? 'bg-gray-100 font-medium'
                   : 'text-gray-500 hover:text-gray-700'
