@@ -30,6 +30,7 @@ from app.core.skill.yaml_parser import (
 from app.models.skill import Skill, SkillFile
 from app.models.skill_collaborator import CollaboratorRole
 from app.repositories.skill import SkillFileRepository, SkillRepository
+from app.repositories.skill_version import SkillVersionRepository
 
 from .base import BaseService
 
@@ -74,6 +75,7 @@ class SkillService(BaseService[Skill]):
             raise ForbiddenException("You don't have permission to access this skill")
 
         # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
+        skill = await self._attach_latest_version(skill)
         result = skill
         return result  # type: ignore
 
@@ -789,3 +791,10 @@ class SkillService(BaseService[Skill]):
             return "yaml"
         else:
             return "text"
+
+    async def _attach_latest_version(self, skill):
+        """Attach latest_version string to skill for API response."""
+        ver_repo = SkillVersionRepository(self.db)
+        latest = await ver_repo.get_latest(skill.id)
+        skill.latest_version = latest.version if latest else None
+        return skill

@@ -83,6 +83,7 @@ class SkillSchema(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     files: Optional[List[SkillFileSchema]] = None
+    latest_version: Optional[str] = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -117,7 +118,7 @@ class SkillSchema(BaseModel):
                     else:
                         data_dict[key] = getattr(data, key, None)
             # Also get relationships and other attributes
-            for key in ["id", "created_at", "updated_at", "files"]:
+            for key in ["id", "created_at", "updated_at", "files", "latest_version"]:
                 if hasattr(data, key):
                     data_dict[key] = getattr(data, key)
             # Ensure meta_data is mapped to metadata

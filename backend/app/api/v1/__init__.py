@@ -29,6 +29,9 @@ from .openclaw_proxy import router as openclaw_proxy_router
 from .organizations import router as organizations_router
 from .sandboxes import router as sandboxes_router
 from .skills import router as skills_router
+from .skill_collaborators import router as skill_collaborators_router
+from .skill_versions import router as skill_versions_router
+from .tokens import router as tokens_router
 from .tools import router as tools_router
 from .traces import router as traces_router
 from .users import router as users_router
@@ -56,6 +59,9 @@ ROUTERS = [
     graph_schemas_router,
     graph_tests_router,
     skills_router,
+    skill_versions_router,
+    skill_collaborators_router,
+    tokens_router,
     chat_router,
     graphs_router,
     traces_router,
