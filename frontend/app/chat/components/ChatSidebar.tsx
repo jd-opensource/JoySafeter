@@ -1,24 +1,14 @@
 'use client'
 
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { MessageSquare, Plus, ChevronLeft, ChevronRight, ChevronDown, Trash2 } from 'lucide-react'
+import { MessageSquare, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import React, { useState } from 'react'
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 import { conversationService, type Conversation } from '@/services/conversationService'
+import ConversationGroup from './ConversationGroup'
 
 // Conversation type imported from conversationService
 
@@ -77,10 +67,10 @@ export default function ChatSidebar({
     title: string
   } | null>(null)
 
-  // Collapse states: today expanded by default, others collapsed
-  const [isTodayCollapsed, setIsTodayCollapsed] = useState(false)
-  const [isThisMonthCollapsed, setIsThisMonthCollapsed] = useState(true)
-  const [isOlderCollapsed, setIsOlderCollapsed] = useState(true)
+  // Expand states: today expanded by default, others collapsed
+  const [isTodayExpanded, setIsTodayExpanded] = useState(true)
+  const [isThisMonthExpanded, setIsThisMonthExpanded] = useState(false)
+  const [isOlderExpanded, setIsOlderExpanded] = useState(false)
 
   const deleteConversationMutation = useMutation({
     mutationFn: (threadId: string) => conversationService.deleteConversation(threadId),
@@ -108,6 +98,11 @@ export default function ChatSidebar({
     if (conversationToDelete) {
       deleteConversationMutation.mutate(conversationToDelete.threadId)
     }
+  }
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmOpen(false)
+    setConversationToDelete(null)
   }
 
   const formatTime = (dateString: string) => {
@@ -183,355 +178,55 @@ export default function ChatSidebar({
           </div>
         ) : (
           <>
-            {/* Today */}
-            {todayConvs.length > 0 && (
-              <div className="mb-2">
-                {!isCollapsed && (
-                  <button
-                    onClick={() => setIsTodayCollapsed(!isTodayCollapsed)}
-                    className="mb-1.5 flex w-full items-center justify-between px-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-400 transition-colors hover:text-gray-700"
-                  >
-                    <span>{t('chat.today')}</span>
-                    {isTodayCollapsed ? (
-                      <ChevronRight size={14} className="text-gray-400" />
-                    ) : (
-                      <ChevronDown size={14} className="text-gray-400" />
-                    )}
-                  </button>
-                )}
-                {!isTodayCollapsed && (
-                  <div className="space-y-0.5">
-                    {todayConvs.map((conv) => (
-                      <div
-                        key={conv.thread_id}
-                        className={cn(
-                          'group relative flex w-full items-center rounded-md transition-colors duration-150',
-                          isCollapsed ? 'justify-center px-1.5 py-1.5' : 'gap-2 px-2 py-1.5',
-                          currentThreadId === conv.thread_id
-                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-blue-50'
-                            : 'text-gray-600 hover:bg-white/60',
-                        )}
-                      >
-                        <button
-                          onClick={() => {
-                            onSelectConversation(conv.thread_id)
-                          }}
-                          className={cn(
-                            'flex min-w-0 flex-1 items-center text-left',
-                            isCollapsed ? 'justify-center' : 'gap-2',
-                          )}
-                          title={conv.title || t('chat.newChat')}
-                        >
-                          <MessageSquare
-                            size={14}
-                            className={cn(
-                              'flex-shrink-0',
-                              currentThreadId === conv.thread_id
-                                ? 'text-blue-500'
-                                : 'text-gray-400',
-                            )}
-                          />
-                          {!isCollapsed && (
-                            <>
-                              <div className="min-w-0 flex-1 truncate text-xs">
-                                {conv.title || t('chat.newChat')}
-                              </div>
-                              <div className="flex-shrink-0 text-[10px] text-gray-400">
-                                {formatTime(conv.updated_at)}
-                              </div>
-                            </>
-                          )}
-                        </button>
-                        {!isCollapsed && (
-                          <AlertDialog
-                            open={
-                              deleteConfirmOpen && conversationToDelete?.threadId === conv.thread_id
-                            }
-                            onOpenChange={setDeleteConfirmOpen}
-                          >
-                            <AlertDialogTrigger asChild>
-                              <button
-                                onClick={(e) =>
-                                  handleDeleteConversation(
-                                    e,
-                                    conv.thread_id,
-                                    conv.title || t('chat.newChat'),
-                                  )
-                                }
-                                className="flex-shrink-0 rounded p-1 opacity-0 transition-all hover:bg-red-100 group-hover:opacity-100"
-                                title={t('chat.delete')}
-                              >
-                                <Trash2 size={12} className="text-gray-400 hover:text-red-600" />
-                              </button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent variant="destructive">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>{t('chat.deleteConfirmTitle')}</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {t('chat.deleteConfirmMessage')}{' '}
-                                  <span className="font-semibold text-[#ef4444]">
-                                    {conv.title || t('chat.newChat')}
-                                  </span>
-                                  {'?'}
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel
-                                  onClick={() => {
-                                    setDeleteConfirmOpen(false)
-                                    setConversationToDelete(null)
-                                  }}
-                                >
-                                  {t('chat.cancel')}
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={handleConfirmDelete}
-                                  className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
-                                >
-                                  {t('chat.delete')}
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* This Month */}
-            {monthConvs.length > 0 && (
-              <div className="mb-2">
-                {!isCollapsed && (
-                  <button
-                    onClick={() => setIsThisMonthCollapsed(!isThisMonthCollapsed)}
-                    className="mb-1.5 flex w-full items-center justify-between px-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-400 transition-colors hover:text-gray-700"
-                  >
-                    <span>{t('chat.thisMonth')}</span>
-                    {isThisMonthCollapsed ? (
-                      <ChevronRight size={14} className="text-gray-400" />
-                    ) : (
-                      <ChevronDown size={14} className="text-gray-400" />
-                    )}
-                  </button>
-                )}
-                {!isThisMonthCollapsed && (
-                  <div className="space-y-0.5">
-                    {monthConvs.map((conv) => (
-                      <div
-                        key={conv.thread_id}
-                        className={cn(
-                          'group relative flex w-full items-center rounded-md transition-colors duration-150',
-                          isCollapsed ? 'justify-center px-1.5 py-1.5' : 'gap-2 px-2 py-1.5',
-                          currentThreadId === conv.thread_id
-                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-blue-50'
-                            : 'text-gray-600 hover:bg-white/60',
-                        )}
-                      >
-                        <button
-                          onClick={() => onSelectConversation(conv.thread_id)}
-                          className={cn(
-                            'flex min-w-0 flex-1 items-center text-left',
-                            isCollapsed ? 'justify-center' : 'gap-2',
-                          )}
-                          title={conv.title || t('chat.newChat')}
-                        >
-                          <MessageSquare
-                            size={14}
-                            className={cn(
-                              'flex-shrink-0',
-                              currentThreadId === conv.thread_id
-                                ? 'text-blue-500'
-                                : 'text-gray-400',
-                            )}
-                          />
-                          {!isCollapsed && (
-                            <>
-                              <div className="min-w-0 flex-1 truncate text-xs">
-                                {conv.title || t('chat.newChat')}
-                              </div>
-                              <div className="flex-shrink-0 text-[10px] text-gray-400">
-                                {formatTime(conv.updated_at)}
-                              </div>
-                            </>
-                          )}
-                        </button>
-                        {!isCollapsed && (
-                          <AlertDialog
-                            open={
-                              deleteConfirmOpen && conversationToDelete?.threadId === conv.thread_id
-                            }
-                            onOpenChange={setDeleteConfirmOpen}
-                          >
-                            <AlertDialogTrigger asChild>
-                              <button
-                                onClick={(e) =>
-                                  handleDeleteConversation(
-                                    e,
-                                    conv.thread_id,
-                                    conv.title || t('chat.newChat'),
-                                  )
-                                }
-                                className="flex-shrink-0 rounded p-1 opacity-0 transition-all hover:bg-red-100 group-hover:opacity-100"
-                                title={t('chat.delete')}
-                              >
-                                <Trash2 size={12} className="text-gray-400 hover:text-red-600" />
-                              </button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent variant="destructive">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>{t('chat.deleteConfirmTitle')}</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {t('chat.deleteConfirmMessage')}{' '}
-                                  <span className="font-semibold text-[#ef4444]">
-                                    {conv.title || t('chat.newChat')}
-                                  </span>
-                                  {'?'}
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel
-                                  onClick={() => {
-                                    setDeleteConfirmOpen(false)
-                                    setConversationToDelete(null)
-                                  }}
-                                >
-                                  {t('chat.cancel')}
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={handleConfirmDelete}
-                                  className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
-                                >
-                                  {t('chat.delete')}
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Older */}
-            {olderConvs.length > 0 && (
-              <div>
-                {!isCollapsed && (
-                  <button
-                    onClick={() => setIsOlderCollapsed(!isOlderCollapsed)}
-                    className="mb-1.5 flex w-full items-center justify-between px-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-400 transition-colors hover:text-gray-700"
-                  >
-                    <span>{t('chat.older')}</span>
-                    {isOlderCollapsed ? (
-                      <ChevronRight size={14} className="text-gray-400" />
-                    ) : (
-                      <ChevronDown size={14} className="text-gray-400" />
-                    )}
-                  </button>
-                )}
-                {!isOlderCollapsed && (
-                  <div className="space-y-0.5">
-                    {olderConvs.slice(0, 10).map((conv) => (
-                      <div
-                        key={conv.thread_id}
-                        className={cn(
-                          'group relative flex w-full items-center rounded-md transition-colors duration-150',
-                          isCollapsed ? 'justify-center px-1.5 py-1.5' : 'gap-2 px-2 py-1.5',
-                          currentThreadId === conv.thread_id
-                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-blue-50'
-                            : 'text-gray-600 hover:bg-white/60',
-                        )}
-                      >
-                        <button
-                          onClick={() => onSelectConversation(conv.thread_id)}
-                          className={cn(
-                            'flex min-w-0 flex-1 items-center text-left',
-                            isCollapsed ? 'justify-center' : 'gap-2',
-                          )}
-                          title={conv.title || t('chat.newChat')}
-                        >
-                          <MessageSquare
-                            size={14}
-                            className={cn(
-                              'flex-shrink-0',
-                              currentThreadId === conv.thread_id
-                                ? 'text-blue-500'
-                                : 'text-gray-400',
-                            )}
-                          />
-                          {!isCollapsed && (
-                            <>
-                              <div className="min-w-0 flex-1 truncate text-xs">
-                                {conv.title || t('chat.newChat')}
-                              </div>
-                              <div className="flex-shrink-0 text-[10px] text-gray-400">
-                                {formatTime(conv.updated_at)}
-                              </div>
-                            </>
-                          )}
-                        </button>
-                        {!isCollapsed && (
-                          <AlertDialog
-                            open={
-                              deleteConfirmOpen && conversationToDelete?.threadId === conv.thread_id
-                            }
-                            onOpenChange={setDeleteConfirmOpen}
-                          >
-                            <AlertDialogTrigger asChild>
-                              <button
-                                onClick={(e) =>
-                                  handleDeleteConversation(
-                                    e,
-                                    conv.thread_id,
-                                    conv.title || t('chat.newChat'),
-                                  )
-                                }
-                                className="flex-shrink-0 rounded p-1 opacity-0 transition-all hover:bg-red-100 group-hover:opacity-100"
-                                title={t('chat.delete')}
-                              >
-                                <Trash2 size={12} className="text-gray-400 hover:text-red-600" />
-                              </button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent variant="destructive">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>{t('chat.deleteConfirmTitle')}</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {t('chat.deleteConfirmMessage')}{' '}
-                                  <span className="font-semibold text-[#ef4444]">
-                                    {conv.title || t('chat.newChat')}
-                                  </span>
-                                  {'?'}
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel
-                                  onClick={() => {
-                                    setDeleteConfirmOpen(false)
-                                    setConversationToDelete(null)
-                                  }}
-                                >
-                                  {t('chat.cancel')}
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={handleConfirmDelete}
-                                  className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
-                                >
-                                  {t('chat.delete')}
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            <ConversationGroup
+              label={t('chat.today')}
+              conversations={todayConvs}
+              isExpanded={isTodayExpanded}
+              onToggleExpand={() => setIsTodayExpanded(!isTodayExpanded)}
+              isCollapsed={isCollapsed}
+              currentThreadId={currentThreadId}
+              onSelectConversation={onSelectConversation}
+              onDeleteClick={handleDeleteConversation}
+              formatTime={formatTime}
+              deleteConfirmOpen={deleteConfirmOpen}
+              conversationToDelete={conversationToDelete}
+              onDeleteConfirmChange={setDeleteConfirmOpen}
+              onConfirmDelete={handleConfirmDelete}
+              onCancelDelete={handleCancelDelete}
+            />
+            <ConversationGroup
+              label={t('chat.thisMonth')}
+              conversations={monthConvs}
+              isExpanded={isThisMonthExpanded}
+              onToggleExpand={() => setIsThisMonthExpanded(!isThisMonthExpanded)}
+              isCollapsed={isCollapsed}
+              currentThreadId={currentThreadId}
+              onSelectConversation={onSelectConversation}
+              onDeleteClick={handleDeleteConversation}
+              formatTime={formatTime}
+              deleteConfirmOpen={deleteConfirmOpen}
+              conversationToDelete={conversationToDelete}
+              onDeleteConfirmChange={setDeleteConfirmOpen}
+              onConfirmDelete={handleConfirmDelete}
+              onCancelDelete={handleCancelDelete}
+            />
+            <ConversationGroup
+              label={t('chat.older')}
+              conversations={olderConvs}
+              isExpanded={isOlderExpanded}
+              onToggleExpand={() => setIsOlderExpanded(!isOlderExpanded)}
+              isCollapsed={isCollapsed}
+              currentThreadId={currentThreadId}
+              onSelectConversation={onSelectConversation}
+              onDeleteClick={handleDeleteConversation}
+              formatTime={formatTime}
+              maxItems={10}
+              deleteConfirmOpen={deleteConfirmOpen}
+              conversationToDelete={conversationToDelete}
+              onDeleteConfirmChange={setDeleteConfirmOpen}
+              onConfirmDelete={handleConfirmDelete}
+              onCancelDelete={handleCancelDelete}
+            />
           </>
         )}
       </div>
