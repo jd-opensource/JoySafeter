@@ -11,7 +11,7 @@ class TokenCreate(BaseModel):
     name: str = Field(..., max_length=255)
     scopes: List[str] = Field(..., description="e.g. ['skills:read', 'skills:write']")
     resource_type: Optional[str] = Field(None, max_length=50)
-    resource_id: Optional[str] = None
+    resource_id: Optional[uuid.UUID] = None
     expires_at: Optional[datetime] = None
 
 

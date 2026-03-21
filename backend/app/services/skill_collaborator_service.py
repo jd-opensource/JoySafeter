@@ -129,6 +129,9 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
         # Remove new owner from collaborators if present
         await self.repo.delete_by_skill_and_user(skill_id, new_owner_id)
 
+        # Remove old owner from collaborators if present (avoid UniqueConstraint violation)
+        await self.repo.delete_by_skill_and_user(skill_id, current_user_id)
+
         # Add old owner as admin collaborator
         old_owner_collab = SkillCollaborator(
             skill_id=skill_id,

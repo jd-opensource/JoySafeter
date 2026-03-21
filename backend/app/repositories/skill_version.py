@@ -54,13 +54,17 @@ class SkillVersionRepository(BaseRepository[SkillVersion]):
 
     async def get_highest_version_str(self, skill_id: uuid.UUID) -> Optional[str]:
         """Return the highest semver version string for a skill."""
-        versions = await self.list_by_skill(skill_id)
-        if not versions:
-            return None
         import semver
-        parsed = [(v, semver.Version.parse(v.version)) for v in versions]
-        parsed.sort(key=lambda x: x[1], reverse=True)
-        return parsed[0][0].version
+
+        result = await self.db.execute(
+            select(SkillVersion.version)
+            .where(SkillVersion.skill_id == skill_id)
+        )
+        version_strs = list(result.scalars().all())
+        if not version_strs:
+            return None
+        version_strs.sort(key=lambda v: semver.Version.parse(v), reverse=True)
+        return version_strs[0]
 
 
 class SkillVersionFileRepository(BaseRepository[SkillVersionFile]):
