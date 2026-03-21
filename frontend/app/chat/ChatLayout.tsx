@@ -20,6 +20,7 @@ import { useChatState, useChatStream } from './ChatProvider'
 import { useBackendChatStream } from './hooks/useBackendChatStream'
 import { usePreviewTrigger } from './hooks/usePreviewTrigger'
 import { graphResolutionService } from './services/graphResolutionService'
+import { getModeConfig } from './config/modeConfig'
 import { generateId, type Message, type ToolCall } from './types'
 
 interface ChatLayoutProps {
@@ -246,7 +247,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
 
   // ─── Header ──────────────────────────────────────────────────────────────
   const renderHeader = () => (
-    <div className="z-10 flex h-12 flex-shrink-0 items-center gap-2 bg-gray-50 px-6">
+    <div className="z-10 flex h-14 flex-shrink-0 items-center gap-2 border-b border-gray-100 bg-white px-6">
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -254,7 +255,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
               variant="ghost"
               size="sm"
               onClick={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
-              className="h-9 w-9 p-0 transition-colors hover:bg-gray-100"
+              className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-gray-100"
             >
               <List size={18} className="text-gray-600" />
             </Button>
@@ -269,15 +270,20 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
               variant="ghost"
               size="sm"
               onClick={handleNewChat}
-              className="h-9 w-9 p-0 transition-colors hover:bg-gray-100"
+              className="h-9 w-9 rounded-full bg-blue-600 p-0 text-white transition-colors hover:bg-blue-700"
             >
-              <Plus size={18} className="text-gray-600" />
+              <Plus size={18} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
             <p>{t('chat.newChat')}</p>
           </TooltipContent>
         </Tooltip>
+        <div className="flex min-w-0 flex-1 justify-center">
+          <span className="truncate text-sm font-medium text-gray-700">
+            {t(getModeConfig(state.mode.currentMode)?.labelKey || 'chat.modes.default-chat')}
+          </span>
+        </div>
         {state.threadId && hasFiles && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -291,7 +297,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
                     dispatch({ type: 'SHOW_PREVIEW' })
                   }
                 }}
-                className="h-9 w-9 p-0 transition-colors hover:bg-gray-100"
+                className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-gray-100"
               >
                 <FolderOpen size={18} className="text-gray-600" />
               </Button>
