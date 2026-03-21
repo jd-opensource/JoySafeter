@@ -1,7 +1,5 @@
 'use client'
 
-import { useMemo } from 'react'
-
 import { formatToolDisplay } from './toolDisplayRegistry'
 
 interface ToolCallDetailProps {
@@ -14,7 +12,7 @@ interface ToolCallDetailProps {
 }
 
 export function ToolCallDetail({ name, args, status, result, startTime, endTime }: ToolCallDetailProps) {
-  const display = useMemo(() => formatToolDisplay(name, args), [name, args])
+  const display = formatToolDisplay(name, args)
   const duration = startTime && endTime ? ((endTime - startTime) / 1000).toFixed(1) : null
 
   return (

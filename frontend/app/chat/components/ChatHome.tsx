@@ -14,7 +14,7 @@ import {
   Bot,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useMemo } from 'react'
 
 import { type AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { Button } from '@/components/ui/button'
@@ -91,6 +91,13 @@ export default function ChatHome({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const hasInitializedDefaultMode = useRef(false)
+
+  // Derive starter prompts from current mode
+  const starterPrompts = useMemo(() => {
+    if (!state.mode.type) return null
+    const config = modeConfigs.find((c) => c.id === state.mode.type)
+    return config?.starterPrompts && config.starterPrompts.length > 0 ? config.starterPrompts : null
+  }, [state.mode.type])
 
   // Data fetching
   const { data: deployedAgents = [], isLoading: isLoadingAgents } = useDeployedGraphs()
@@ -668,17 +675,14 @@ export default function ChatHome({
               })}
             </div>
 
-            {state.mode.type && (() => {
-              const config = modeConfigs.find((c) => c.id === state.mode.type)
-              return config?.starterPrompts && config.starterPrompts.length > 0 ? (
-                <div className="mt-4">
-                  <StarterPrompts
-                    prompts={config.starterPrompts}
-                    onSelect={(prompt) => setInput(prompt)}
-                  />
-                </div>
-              ) : null
-            })()}
+            {starterPrompts && (
+              <div className="mt-4">
+                <StarterPrompts
+                  prompts={starterPrompts}
+                  onSelect={(prompt) => setInput(prompt)}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -56,7 +56,6 @@ export default function ThreadContent({
               <MessageItem
                 key={msg.id}
                 message={msg}
-                isLast={idx === messagesToRender.length - 1}
                 onToolClick={onToolClick}
                 onRetry={
                   msg.role === 'assistant' && idx === messagesToRender.length - 1 && onRetry

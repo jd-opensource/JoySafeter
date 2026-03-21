@@ -2,7 +2,7 @@
 
 import DOMPurify from 'dompurify'
 import { User, Bot } from 'lucide-react'
-import React from 'react'
+import React, { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 
 import { ActionBar } from '../shared/ActionBar'
@@ -10,15 +10,61 @@ import { CodeBlock } from '../shared/CodeBlock'
 import { ToolCallBadge } from '../shared/ToolCallDisplay'
 import { Message, ToolCall } from '../types'
 
+// ─── Hoisted constants (stable references, no per-render allocation) ─────────
+
+const SANITIZE_CONFIG = {
+  ALLOWED_TAGS: [
+    'p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote',
+    'ul', 'ol', 'li', 'a', 'img',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr',
+    'div', 'span', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'details', 'summary', 'sup', 'sub', 'del', 's', 'ins', 'mark',
+    'abbr', 'b', 'i', 'u', 'small', 'tt', 'kbd', 'samp', 'var',
+  ],
+  ALLOWED_ATTR: [
+    'href', 'src', 'alt', 'title', 'class', 'id',
+    'width', 'height', 'target', 'rel', 'name', 'open',
+  ],
+  ALLOW_DATA_ATTR: false,
+  ALLOW_UNKNOWN_PROTOCOLS: false,
+  ADD_ATTR: ['rel'],
+  FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button'],
+  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+}
+
+const markdownComponents = {
+  code({ node, inline, className, children, ...props }: any) {
+    const match = /language-(\w+)/.exec(className || '')
+    const content = String(children).replace(/\n$/, '')
+
+    return !inline && match ? (
+      <CodeBlock language={match[1]} code={content} />
+    ) : (
+      <code
+        {...props}
+        className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-800"
+      >
+        {children}
+      </code>
+    )
+  },
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
 interface MessageItemProps {
   message: Message
-  isLast: boolean
   onToolClick?: (toolCall: ToolCall) => void
   onRetry?: () => void
 }
 
 export default function MessageItem({ message, onToolClick, onRetry }: MessageItemProps) {
   const isUser = message.role === 'user'
+
+  const sanitizedContent = useMemo(
+    () => (message.content ? DOMPurify.sanitize(message.content, SANITIZE_CONFIG) : ''),
+    [message.content],
+  )
 
   if (isUser) {
     return (
@@ -28,7 +74,6 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
             {message.content}
           </p>
         </div>
-        {/* Optional Avatar */}
         <div className="ml-3 mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-200">
           <User size={14} className="text-gray-500" />
         </div>
@@ -66,96 +111,11 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
 
         {/* Main Content */}
         <div className="prose prose-sm prose-gray max-w-none leading-7 text-gray-800">
-          {message.content ? (
-            <ReactMarkdown
-              components={{
-                code({ node, inline, className, children, ...props }: any) {
-                  const match = /language-(\w+)/.exec(className || '')
-                  const content = String(children).replace(/\n$/, '')
-
-                  return !inline && match ? (
-                    <CodeBlock language={match[1]} code={content} />
-                  ) : (
-                    <code
-                      {...props}
-                      className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-800"
-                    >
-                      {children}
-                    </code>
-                  )
-                },
-              }}
-            >
-              {DOMPurify.sanitize(message.content, {
-                ALLOWED_TAGS: [
-                  'p',
-                  'br',
-                  'strong',
-                  'em',
-                  'code',
-                  'pre',
-                  'blockquote',
-                  'ul',
-                  'ol',
-                  'li',
-                  'a',
-                  'img',
-                  'h1',
-                  'h2',
-                  'h3',
-                  'h4',
-                  'h5',
-                  'h6',
-                  'hr',
-                  'div',
-                  'span',
-                  'table',
-                  'thead',
-                  'tbody',
-                  'tr',
-                  'th',
-                  'td',
-                  'details',
-                  'summary',
-                  'sup',
-                  'sub',
-                  'del',
-                  's',
-                  'ins',
-                  'mark',
-                  'abbr',
-                  'b',
-                  'i',
-                  'u',
-                  'small',
-                  'tt',
-                  'kbd',
-                  'samp',
-                  'var',
-                ],
-                ALLOWED_ATTR: [
-                  'href',
-                  'src',
-                  'alt',
-                  'title',
-                  'class',
-                  'id',
-                  'width',
-                  'height',
-                  'target',
-                  'rel',
-                  'name',
-                  'open',
-                ],
-                ALLOW_DATA_ATTR: false,
-                ALLOW_UNKNOWN_PROTOCOLS: false,
-                ADD_ATTR: ['rel'],
-                FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button'],
-                FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
-              })}
+          {sanitizedContent ? (
+            <ReactMarkdown components={markdownComponents}>
+              {sanitizedContent}
             </ReactMarkdown>
           ) : (
-            // Streaming indicator if no content yet but active
             message.isStreaming && (
               <span className="inline-block h-4 w-1.5 animate-pulse rounded-full bg-blue-500 align-middle" />
             )

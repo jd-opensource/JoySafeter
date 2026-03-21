@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { X, FolderTree, Wrench } from 'lucide-react'
 
 import { useChatState } from '../ChatProvider'
@@ -13,7 +13,8 @@ export default function PreviewPanel() {
   const { preview, ui, threadId } = state
   const [activeTab, setActiveTab] = useState<'files' | 'tool'>('files')
 
-  const hasFiles = Object.keys(preview.fileTree).length > 0
+  const fileKeys = useMemo(() => Object.keys(preview.fileTree), [preview.fileTree])
+  const hasFiles = fileKeys.length > 0
   const hasTool = !!ui.selectedTool
 
   return (
@@ -31,7 +32,7 @@ export default function PreviewPanel() {
               }`}
             >
               <FolderTree size={14} />
-              Files ({Object.keys(preview.fileTree).length})
+              Files ({fileKeys.length})
             </button>
           )}
           {hasTool && (

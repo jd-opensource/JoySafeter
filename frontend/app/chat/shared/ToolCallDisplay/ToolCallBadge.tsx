@@ -1,7 +1,7 @@
 'use client'
 
 import { Check, Loader2, Search, ListTodo, Terminal, FileText, Code2, FolderSearch } from 'lucide-react'
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -37,7 +37,7 @@ const toolIconMap: Record<string, React.ElementType> = {
 
 export function ToolCallBadge({ name, args, status, onClick }: ToolCallBadgeProps) {
   const isCompleted = status === 'completed'
-  const display = useMemo(() => formatToolDisplay(name, args), [name, args])
+  const display = formatToolDisplay(name, args)
   const Icon = toolIconMap[name] || Terminal
 
   return (
