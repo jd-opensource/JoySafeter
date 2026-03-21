@@ -68,8 +68,8 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
 
   if (isUser) {
     return (
-      <div className="mb-6 flex justify-end duration-200 animate-in fade-in">
-        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gray-100 px-5 py-3.5 text-gray-900 shadow-sm">
+      <div className="mb-6 flex justify-end duration-200 animate-in fade-in slide-in-from-bottom-1">
+        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gray-800 px-5 py-3.5 text-white shadow-sm">
           <p className="whitespace-pre-wrap text-[15px] font-normal leading-relaxed">
             {message.content}
           </p>
@@ -84,12 +84,12 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
   // Assistant Message
   return (
     <div className="group mb-8 flex justify-start duration-300 animate-in fade-in slide-in-from-bottom-2">
-      <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-purple-600 shadow-md">
+      <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md">
         <Bot size={16} className="text-white" />
       </div>
-      <div className="min-w-[50%] max-w-[85%]">
+      <div className="min-w-[50%] max-w-[85%] rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div className="mb-2 flex items-center gap-2">
-          <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-400">
+          <span className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-500">
             AI
           </span>
         </div>
