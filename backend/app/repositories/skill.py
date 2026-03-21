@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.skill import Skill, SkillFile
+from app.models.skill_collaborator import SkillCollaborator
 
 from .base import BaseRepository
 
@@ -33,15 +34,27 @@ class SkillRepository(BaseRepository[Skill]):
         if user_id:
             # 用户自己的 Skills 或公开的 Skills
             if include_public:
+                collab_subquery = select(SkillCollaborator.skill_id).where(
+                    SkillCollaborator.user_id == user_id
+                ).scalar_subquery()
                 conditions.append(
                     or_(
                         Skill.owner_id == user_id,
+                        Skill.id.in_(collab_subquery),
                         Skill.is_public.is_(True),
                         Skill.owner_id.is_(None),  # 系统级公共 Skill
                     )
                 )
             else:
-                conditions.append(Skill.owner_id == user_id)
+                collab_subquery = select(SkillCollaborator.skill_id).where(
+                    SkillCollaborator.user_id == user_id
+                ).scalar_subquery()
+                conditions.append(
+                    or_(
+                        Skill.owner_id == user_id,
+                        Skill.id.in_(collab_subquery),
+                    )
+                )
         elif include_public:
             # 只获取公开的 Skills
             conditions.append(
