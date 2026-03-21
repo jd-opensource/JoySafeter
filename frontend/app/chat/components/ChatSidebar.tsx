@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { MessageSquare, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
-import React, { useState } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
@@ -35,7 +35,7 @@ export default function ChatSidebar({
 
   const conversations = conversationsData || []
 
-  const groupConversations = (convs: Conversation[]) => {
+  const { todayConvs, monthConvs, olderConvs } = useMemo(() => {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -44,7 +44,7 @@ export default function ChatSidebar({
     const monthConvs: Conversation[] = []
     const olderConvs: Conversation[] = []
 
-    convs.forEach((conv) => {
+    conversations.forEach((conv) => {
       const updatedAt = new Date(conv.updated_at)
       if (updatedAt >= today) {
         todayConvs.push(conv)
@@ -56,9 +56,7 @@ export default function ChatSidebar({
     })
 
     return { todayConvs, monthConvs, olderConvs }
-  }
-
-  const { todayConvs, monthConvs, olderConvs } = groupConversations(conversations)
+  }, [conversations])
 
   const queryClient = useQueryClient()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -105,7 +103,13 @@ export default function ChatSidebar({
     setConversationToDelete(null)
   }
 
-  const formatTime = (dateString: string) => {
+  const monthNames = useMemo(() => [
+    t('chat.jan'), t('chat.feb'), t('chat.mar'), t('chat.apr'),
+    t('chat.may'), t('chat.jun'), t('chat.jul'), t('chat.aug'),
+    t('chat.sep'), t('chat.oct'), t('chat.nov'), t('chat.dec'),
+  ], [t])
+
+  const formatTime = useCallback((dateString: string) => {
     try {
       const date = new Date(dateString)
       const now = new Date()
@@ -114,25 +118,11 @@ export default function ChatSidebar({
       if (diffInMinutes < 1) return t('chat.now')
       if (diffInMinutes < 60) return t('chat.minutesAgo', { m: diffInMinutes })
       if (diffInMinutes < 1440) return t('chat.hoursAgo', { h: Math.floor(diffInMinutes / 60) })
-      const monthNames = [
-        t('chat.jan'),
-        t('chat.feb'),
-        t('chat.mar'),
-        t('chat.apr'),
-        t('chat.may'),
-        t('chat.jun'),
-        t('chat.jul'),
-        t('chat.aug'),
-        t('chat.sep'),
-        t('chat.oct'),
-        t('chat.nov'),
-        t('chat.dec'),
-      ]
       return `${monthNames[date.getMonth()]} ${date.getDate()}`
     } catch {
       return ''
     }
-  }
+  }, [t, monthNames])
 
   return (
     <div className="flex h-full flex-col bg-gray-50/50">

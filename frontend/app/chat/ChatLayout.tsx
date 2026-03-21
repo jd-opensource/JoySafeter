@@ -45,22 +45,28 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   const prevPropChatIdRef = useRef<string | null | undefined>(propChatId)
   const isInitialMountRef = useRef(true)
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null)
+  const sidebarVisibleRef = useRef(state.ui.sidebarVisible)
+  sidebarVisibleRef.current = state.ui.sidebarVisible
+
+  const toggleSidebar = useCallback(() => {
+    if (sidebarVisibleRef.current) {
+      sidebarPanelRef.current?.collapse()
+    } else {
+      sidebarPanelRef.current?.expand()
+    }
+  }, [])
 
   // Keyboard shortcut: Cmd+B toggle sidebar
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault()
-        if (state.ui.sidebarVisible) {
-          sidebarPanelRef.current?.collapse()
-        } else {
-          sidebarPanelRef.current?.expand()
-        }
+        toggleSidebar()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [state.ui.sidebarVisible])
+  }, [toggleSidebar])
 
   // Sync propChatId changes
   useEffect(() => {
@@ -261,13 +267,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                if (state.ui.sidebarVisible) {
-                  sidebarPanelRef.current?.collapse()
-                } else {
-                  sidebarPanelRef.current?.expand()
-                }
-              }}
+              onClick={toggleSidebar}
               className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-gray-100"
             >
               <List size={18} className="text-gray-600" />
@@ -345,13 +345,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
         >
           <ChatSidebar
             isCollapsed={!state.ui.sidebarVisible}
-            onToggle={() => {
-              if (state.ui.sidebarVisible) {
-                sidebarPanelRef.current?.collapse()
-              } else {
-                sidebarPanelRef.current?.expand()
-              }
-            }}
+            onToggle={toggleSidebar}
             onSelectConversation={handleSelectConversation}
             currentThreadId={state.threadId}
             onNewChat={handleNewChat}

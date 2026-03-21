@@ -271,6 +271,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }
 
     case 'SET_SIDEBAR_VISIBLE':
+      if (state.ui.sidebarVisible === action.visible) return state
       return { ...state, ui: { ...state.ui, sidebarVisible: action.visible } }
 
     case 'SHOW_PREVIEW':
