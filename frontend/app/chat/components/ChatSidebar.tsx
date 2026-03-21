@@ -140,11 +140,11 @@ export default function ChatSidebar({
   }
 
   return (
-    <div className="flex h-full flex-col bg-gray-50">
+    <div className="flex h-full flex-col bg-gray-50/50">
       {/* Header */}
       <div
         className={cn(
-          'border-b border-gray-100 bg-gray-50 p-3 transition-all',
+          'border-b border-gray-100 bg-white p-3 transition-all',
           isCollapsed ? 'px-2' : 'px-4',
         )}
       >
@@ -163,9 +163,24 @@ export default function ChatSidebar({
         )}
       >
         {isLoading ? (
-          <div className="py-4 text-center text-xs text-gray-400">{t('chat.loading')}</div>
+          <div className="space-y-2 px-2 py-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+                <div className="h-4 w-4 flex-shrink-0 rounded bg-gray-200 animate-pulse" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3 w-3/4 rounded bg-gray-200 animate-pulse" />
+                  <div className="h-2.5 w-1/2 rounded bg-gray-100 animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : conversations.length === 0 ? (
-          <div className="py-4 text-center text-xs text-gray-400">{t('chat.noConversations')}</div>
+          <div className="flex flex-col items-center gap-2 py-6">
+            <div className="rounded-full bg-gray-100 p-2">
+              <MessageSquare size={16} className="text-gray-400" />
+            </div>
+            <span className="text-xs text-gray-400">{t('chat.noConversations')}</span>
+          </div>
         ) : (
           <>
             {/* Today */}
@@ -190,11 +205,11 @@ export default function ChatSidebar({
                       <div
                         key={conv.thread_id}
                         className={cn(
-                          'group relative flex w-full items-center rounded-md transition-colors',
+                          'group relative flex w-full items-center rounded-md transition-colors duration-150',
                           isCollapsed ? 'justify-center px-1.5 py-1.5' : 'gap-2 px-2 py-1.5',
                           currentThreadId === conv.thread_id
-                            ? 'bg-gray-100 text-gray-900'
-                            : 'text-gray-600 hover:bg-gray-50',
+                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-blue-50'
+                            : 'text-gray-600 hover:bg-white/60',
                         )}
                       >
                         <button
@@ -308,11 +323,11 @@ export default function ChatSidebar({
                       <div
                         key={conv.thread_id}
                         className={cn(
-                          'group relative flex w-full items-center rounded-md transition-colors',
+                          'group relative flex w-full items-center rounded-md transition-colors duration-150',
                           isCollapsed ? 'justify-center px-1.5 py-1.5' : 'gap-2 px-2 py-1.5',
                           currentThreadId === conv.thread_id
-                            ? 'bg-gray-100 text-gray-900'
-                            : 'text-gray-600 hover:bg-gray-50',
+                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-blue-50'
+                            : 'text-gray-600 hover:bg-white/60',
                         )}
                       >
                         <button
@@ -424,11 +439,11 @@ export default function ChatSidebar({
                       <div
                         key={conv.thread_id}
                         className={cn(
-                          'group relative flex w-full items-center rounded-md transition-colors',
+                          'group relative flex w-full items-center rounded-md transition-colors duration-150',
                           isCollapsed ? 'justify-center px-1.5 py-1.5' : 'gap-2 px-2 py-1.5',
                           currentThreadId === conv.thread_id
-                            ? 'bg-gray-100 text-gray-900'
-                            : 'text-gray-600 hover:bg-gray-50',
+                            ? 'bg-white text-gray-900 shadow-sm ring-1 ring-blue-50'
+                            : 'text-gray-600 hover:bg-white/60',
                         )}
                       >
                         <button
