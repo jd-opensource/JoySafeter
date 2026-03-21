@@ -88,6 +88,4 @@ class SkillVersionFile(BaseModel):
     # Relationship
     version: Mapped["SkillVersion"] = relationship("SkillVersion", back_populates="files", lazy="selectin")
 
-    __table_args__ = (
-        Index("skill_version_files_version_idx", "version_id"),
-    )
+    __table_args__ = (Index("skill_version_files_version_idx", "version_id"),)

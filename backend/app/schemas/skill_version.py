@@ -77,6 +77,7 @@ class VersionSchema(BaseModel):
 
 class VersionSummarySchema(BaseModel):
     """Lightweight version info for list endpoints."""
+
     version: str
     release_notes: Optional[str] = None
     published_at: Optional[str] = None

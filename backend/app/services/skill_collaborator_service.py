@@ -29,7 +29,10 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
     ) -> List[SkillCollaborator]:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
-            self.db, skill, current_user_id, CollaboratorRole.viewer,
+            self.db,
+            skill,
+            current_user_id,
+            CollaboratorRole.viewer,
             is_superuser=is_superuser,
         )
         return await self.repo.list_by_skill(skill_id)
@@ -44,7 +47,10 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
     ) -> SkillCollaborator:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
-            self.db, skill, current_user_id, CollaboratorRole.admin,
+            self.db,
+            skill,
+            current_user_id,
+            CollaboratorRole.admin,
             is_superuser=is_superuser,
         )
 
@@ -76,7 +82,10 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
     ) -> SkillCollaborator:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
-            self.db, skill, current_user_id, CollaboratorRole.admin,
+            self.db,
+            skill,
+            current_user_id,
+            CollaboratorRole.admin,
             is_superuser=is_superuser,
         )
 
@@ -98,7 +107,10 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
     ) -> None:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
-            self.db, skill, current_user_id, CollaboratorRole.admin,
+            self.db,
+            skill,
+            current_user_id,
+            CollaboratorRole.admin,
             is_superuser=is_superuser,
         )
 
@@ -122,9 +134,7 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
         # Check new owner doesn't have a skill with the same name
         existing = await self.skill_repo.get_by_name_and_owner(skill.name, new_owner_id)
         if existing:
-            raise BadRequestException(
-                f"New owner already has a skill named '{skill.name}'"
-            )
+            raise BadRequestException(f"New owner already has a skill named '{skill.name}'")
 
         # Remove new owner from collaborators if present
         await self.repo.delete_by_skill_and_user(skill_id, new_owner_id)

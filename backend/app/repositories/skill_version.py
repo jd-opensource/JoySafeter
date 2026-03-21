@@ -37,9 +37,7 @@ class SkillVersionRepository(BaseRepository[SkillVersion]):
         )
         return result.scalar_one_or_none()
 
-    async def get_by_version(
-        self, skill_id: uuid.UUID, version: str
-    ) -> Optional[SkillVersion]:
+    async def get_by_version(self, skill_id: uuid.UUID, version: str) -> Optional[SkillVersion]:
         result = await self.db.execute(
             select(SkillVersion)
             .where(
@@ -56,10 +54,7 @@ class SkillVersionRepository(BaseRepository[SkillVersion]):
         """Return the highest semver version string for a skill."""
         import semver
 
-        result = await self.db.execute(
-            select(SkillVersion.version)
-            .where(SkillVersion.skill_id == skill_id)
-        )
+        result = await self.db.execute(select(SkillVersion.version).where(SkillVersion.skill_id == skill_id))
         version_strs = list(result.scalars().all())
         if not version_strs:
             return None
@@ -72,9 +67,5 @@ class SkillVersionFileRepository(BaseRepository[SkillVersionFile]):
         super().__init__(SkillVersionFile, db)
 
     async def list_by_version(self, version_id: uuid.UUID) -> List[SkillVersionFile]:
-        result = await self.db.execute(
-            select(SkillVersionFile).where(
-                SkillVersionFile.version_id == version_id
-            )
-        )
+        result = await self.db.execute(select(SkillVersionFile).where(SkillVersionFile.version_id == version_id))
         return list(result.scalars().all())

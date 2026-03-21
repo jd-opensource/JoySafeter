@@ -75,8 +75,12 @@ async def test_token_scope_check_passes():
     skill = _make_skill(owner_id="owner-1")
     db = AsyncMock()
     await check_skill_access(
-        db, skill, "owner-1", CollaboratorRole.viewer,
-        token_scopes=["skills:read"], required_scope="skills:read",
+        db,
+        skill,
+        "owner-1",
+        CollaboratorRole.viewer,
+        token_scopes=["skills:read"],
+        required_scope="skills:read",
     )
 
 
@@ -86,6 +90,10 @@ async def test_token_scope_check_fails():
     db = AsyncMock()
     with pytest.raises(ForbiddenException):
         await check_skill_access(
-            db, skill, "owner-1", CollaboratorRole.viewer,
-            token_scopes=["skills:read"], required_scope="skills:write",
+            db,
+            skill,
+            "owner-1",
+            CollaboratorRole.viewer,
+            token_scopes=["skills:read"],
+            required_scope="skills:write",
         )

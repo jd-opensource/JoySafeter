@@ -37,12 +37,12 @@ from .model_provider import ModelProvider
 from .oauth_account import OAuthAccount
 from .openclaw_instance import OpenClawInstance
 from .organization import Member, Organization
+from .platform_token import PlatformToken
 from .security_audit_log import SecurityAuditLog
 from .settings import Environment, Settings, WorkspaceEnvironment
 from .skill import Skill, SkillFile
 from .skill_collaborator import CollaboratorRole, SkillCollaborator
 from .skill_version import SkillVersion, SkillVersionFile
-from .platform_token import PlatformToken
 from .user_sandbox import UserSandbox
 from .workspace import Workspace, WorkspaceFolder, WorkspaceMember, WorkspaceMemberRole, WorkspaceStatus
 from .workspace_files import WorkspaceFile, WorkspaceStoredFile

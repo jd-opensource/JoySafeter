@@ -28,6 +28,7 @@ _LAST_USED_DEBOUNCE_SECONDS = 300
 @dataclass
 class AuthContext:
     """Result of authentication — carries user + optional token scopes."""
+
     user: User
     token_scopes: Optional[List[str]] = None
 
@@ -55,6 +56,7 @@ async def get_current_user_or_token(
     raw_token = token
     if not raw_token and request:
         from app.core.settings import settings
+
         raw_token = (
             request.cookies.get(settings.cookie_name)
             or request.cookies.get("session-token")
@@ -80,9 +82,7 @@ async def _authenticate_platform_token(
     """Verify a PlatformToken and return AuthContext with scopes."""
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
 
-    result = await db.execute(
-        select(PlatformToken).where(PlatformToken.token_hash == token_hash)
-    )
+    result = await db.execute(select(PlatformToken).where(PlatformToken.token_hash == token_hash))
     pt = result.scalar_one_or_none()
 
     if not pt:

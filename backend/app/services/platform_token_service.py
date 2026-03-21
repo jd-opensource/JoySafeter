@@ -36,9 +36,7 @@ class PlatformTokenService(BaseService[PlatformToken]):
         # Check limit
         active_count = await self.repo.count_active_by_user(user_id)
         if active_count >= MAX_ACTIVE_TOKENS_PER_USER:
-            raise BadRequestException(
-                f"Maximum of {MAX_ACTIVE_TOKENS_PER_USER} active tokens reached"
-            )
+            raise BadRequestException(f"Maximum of {MAX_ACTIVE_TOKENS_PER_USER} active tokens reached")
 
         # Generate token
         raw_secret = secrets.token_urlsafe(36)  # ~48 chars

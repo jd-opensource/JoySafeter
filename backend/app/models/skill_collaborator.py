@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 class CollaboratorRole(str, enum.Enum):
     """Roles ordered by privilege: viewer < editor < publisher < admin."""
+
     viewer = "viewer"
     editor = "editor"
     publisher = "publisher"

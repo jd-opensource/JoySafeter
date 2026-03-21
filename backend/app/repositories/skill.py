@@ -32,9 +32,9 @@ class SkillRepository(BaseRepository[Skill]):
 
         conditions = []
         if user_id:
-            collab_subquery = select(SkillCollaborator.skill_id).where(
-                SkillCollaborator.user_id == user_id
-            ).scalar_subquery()
+            collab_subquery = (
+                select(SkillCollaborator.skill_id).where(SkillCollaborator.user_id == user_id).scalar_subquery()
+            )
             if include_public:
                 conditions.append(
                     or_(

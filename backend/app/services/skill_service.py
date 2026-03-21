@@ -69,7 +69,10 @@ class SkillService(BaseService[Skill]):
         # Permission check: collaborator-aware
         if current_user_id:
             await check_skill_access(
-                self.db, skill, current_user_id, CollaboratorRole.viewer,
+                self.db,
+                skill,
+                current_user_id,
+                CollaboratorRole.viewer,
             )
         elif not skill.is_public:
             raise ForbiddenException("You don't have permission to access this skill")
@@ -317,7 +320,10 @@ class SkillService(BaseService[Skill]):
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
-            self.db, skill, current_user_id, CollaboratorRole.editor,
+            self.db,
+            skill,
+            current_user_id,
+            CollaboratorRole.editor,
         )
 
         # Parse SKILL.md frontmatter if files contain SKILL.md
@@ -509,7 +515,10 @@ class SkillService(BaseService[Skill]):
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
-            self.db, skill, current_user_id, CollaboratorRole.editor,
+            self.db,
+            skill,
+            current_user_id,
+            CollaboratorRole.editor,
         )
 
         # Check if it's a system file
@@ -568,7 +577,10 @@ class SkillService(BaseService[Skill]):
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
-            self.db, skill, current_user_id, CollaboratorRole.editor,
+            self.db,
+            skill,
+            current_user_id,
+            CollaboratorRole.editor,
         )
 
         await self.file_repo.delete(file_id)
@@ -593,7 +605,10 @@ class SkillService(BaseService[Skill]):
 
         # Permission check: collaborator-aware (editor role)
         await check_skill_access(
-            self.db, skill, current_user_id, CollaboratorRole.editor,
+            self.db,
+            skill,
+            current_user_id,
+            CollaboratorRole.editor,
         )
 
         # Check if it's a system file (if path is being updated)

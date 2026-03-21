@@ -58,8 +58,10 @@ class TestSkillVersionServicePublish:
             with patch("app.services.skill_version_service.check_skill_access", new_callable=AsyncMock):
                 with pytest.raises(BadRequestException, match="Invalid version"):
                     await service.publish_version(
-                        skill_id=skill.id, current_user_id="user-1",
-                        version_str="invalid", release_notes="",
+                        skill_id=skill.id,
+                        current_user_id="user-1",
+                        version_str="invalid",
+                        release_notes="",
                     )
 
     @pytest.mark.asyncio
@@ -83,6 +85,8 @@ class TestSkillVersionServicePublish:
             with patch("app.services.skill_version_service.check_skill_access", new_callable=AsyncMock):
                 with pytest.raises(BadRequestException, match="greater"):
                     await service.publish_version(
-                        skill_id=skill.id, current_user_id="user-1",
-                        version_str="1.0.0", release_notes="",
+                        skill_id=skill.id,
+                        current_user_id="user-1",
+                        version_str="1.0.0",
+                        release_notes="",
                     )

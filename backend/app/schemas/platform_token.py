@@ -17,6 +17,7 @@ class TokenCreate(BaseModel):
 
 class TokenCreateResponse(BaseModel):
     """Returned only once at creation — contains plaintext token."""
+
     id: str
     name: str
     token: str  # plaintext, shown only once
@@ -41,6 +42,7 @@ class TokenCreateResponse(BaseModel):
 
 class TokenSchema(BaseModel):
     """List view — never contains plaintext token."""
+
     id: str
     name: str
     token_prefix: str
