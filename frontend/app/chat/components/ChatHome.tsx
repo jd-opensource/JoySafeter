@@ -642,18 +642,13 @@ export default function ChatHome({
                     key={mode.id}
                     onClick={() => handleCaseClick(mode.id, isSelected)}
                     className={cn(
-                      'group flex cursor-pointer items-start gap-4 rounded-xl border p-4 transition-all',
+                      'group flex cursor-pointer items-start gap-4 overflow-hidden rounded-xl border bg-white p-4 transition-all duration-200',
                       isSelected
                         ? 'border-blue-500 bg-blue-50 shadow-md ring-1 ring-blue-100'
-                        : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md',
+                        : 'border-gray-200 hover:border-blue-200 hover:shadow-lg',
                     )}
                   >
-                    <div
-                      className={cn(
-                        'rounded-lg p-2 transition-colors',
-                        isSelected ? 'bg-blue-100' : 'bg-gray-50 group-hover:bg-blue-50',
-                      )}
-                    >
+                    <div className="rounded-lg border border-blue-100 bg-blue-50 p-2">
                       <Icon
                         size={20}
                         className={cn(isSelected ? 'text-blue-600' : 'text-gray-600')}
