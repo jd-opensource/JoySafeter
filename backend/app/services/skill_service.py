@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 from loguru import logger
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.skill_permissions import check_skill_access
 from app.core.skill.formatter import SkillFormatter
 from app.core.skill.validators import (
     truncate_compatibility,
@@ -27,6 +28,7 @@ from app.core.skill.yaml_parser import (
     validate_file_extension,
 )
 from app.models.skill import Skill, SkillFile
+from app.models.skill_collaborator import CollaboratorRole
 from app.repositories.skill import SkillFileRepository, SkillRepository
 
 from .base import BaseService
@@ -63,8 +65,12 @@ class SkillService(BaseService[Skill]):
         if not skill or not isinstance(skill, Skill):
             raise NotFoundException("Skill not found")
 
-        # Permission check: Only owner or public Skill can be accessed
-        if skill.owner_id and skill.owner_id != current_user_id and not skill.is_public:
+        # Permission check: collaborator-aware
+        if current_user_id:
+            await check_skill_access(
+                self.db, skill, current_user_id, CollaboratorRole.viewer,
+            )
+        elif not skill.is_public:
             raise ForbiddenException("You don't have permission to access this skill")
 
         # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
@@ -307,9 +313,10 @@ class SkillService(BaseService[Skill]):
         if not skill:
             raise NotFoundException("Skill not found")
 
-        # Permission check: Only owner can update
-        if skill.owner_id != current_user_id:
-            raise ForbiddenException("You can only update your own skills")
+        # Permission check: collaborator-aware (editor role)
+        await check_skill_access(
+            self.db, skill, current_user_id, CollaboratorRole.editor,
+        )
 
         # Parse SKILL.md frontmatter if files contain SKILL.md
         if files:
@@ -472,7 +479,7 @@ class SkillService(BaseService[Skill]):
 
         # Permission check: Only owner can delete
         if skill.owner_id != current_user_id:
-            raise ForbiddenException("You can only delete your own skills")
+            raise ForbiddenException("Only the owner can delete a skill")
 
         # Delete associated files
         await self.file_repo.delete_by_skill(skill_id)
@@ -498,9 +505,10 @@ class SkillService(BaseService[Skill]):
         if not skill:
             raise NotFoundException("Skill not found")
 
-        # Permission check
-        if skill.owner_id != current_user_id:
-            raise ForbiddenException("You can only add files to your own skills")
+        # Permission check: collaborator-aware (editor role)
+        await check_skill_access(
+            self.db, skill, current_user_id, CollaboratorRole.editor,
+        )
 
         # Check if it's a system file
         if is_system_file(path) or is_system_file(file_name):
@@ -556,9 +564,10 @@ class SkillService(BaseService[Skill]):
         if not skill:
             raise NotFoundException("Skill not found")
 
-        # Permission check
-        if skill.owner_id != current_user_id:
-            raise ForbiddenException("You can only delete files from your own skills")
+        # Permission check: collaborator-aware (editor role)
+        await check_skill_access(
+            self.db, skill, current_user_id, CollaboratorRole.editor,
+        )
 
         await self.file_repo.delete(file_id)
         await self.db.commit()
@@ -580,9 +589,10 @@ class SkillService(BaseService[Skill]):
         if not skill:
             raise NotFoundException("Skill not found")
 
-        # Permission check
-        if skill.owner_id != current_user_id:
-            raise ForbiddenException("You can only update files in your own skills")
+        # Permission check: collaborator-aware (editor role)
+        await check_skill_access(
+            self.db, skill, current_user_id, CollaboratorRole.editor,
+        )
 
         # Check if it's a system file (if path is being updated)
         if path is not None:
