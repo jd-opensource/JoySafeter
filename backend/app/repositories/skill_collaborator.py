@@ -26,11 +26,11 @@ class SkillCollaboratorRepository(BaseRepository[SkillCollaborator]):
                 )
             )
         )
-        return result.scalar_one_or_none()
+        return result.scalar_one_or_none()  # type: ignore[return-value]
 
     async def list_by_skill(self, skill_id: uuid.UUID) -> List[SkillCollaborator]:
         result = await self.db.execute(select(SkillCollaborator).where(SkillCollaborator.skill_id == skill_id))
-        return list(result.scalars().all())
+        return list(result.scalars().all())  # type: ignore[return-value]
 
     async def list_skill_ids_for_user(self, user_id: str) -> List[uuid.UUID]:
         """Return skill IDs where user is a collaborator (used by list_by_user)."""

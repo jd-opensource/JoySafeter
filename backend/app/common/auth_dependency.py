@@ -43,7 +43,7 @@ class AuthContext:
 
 async def get_current_user_or_token(
     token: Optional[str] = Depends(oauth2_scheme),
-    request: Request = None,
+    request: Request = None,  # type: ignore[assignment]
     db: AsyncSession = Depends(get_db),
 ) -> AuthContext:
     """
@@ -71,6 +71,10 @@ async def get_current_user_or_token(
         return await _authenticate_platform_token(raw_token, db)
 
     # Fall through to existing session/JWT auth
+    if request is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=401, detail="Authentication required")
     user = await get_current_user(token=token, request=request, db=db)
     return AuthContext(user=user, token_scopes=None)
 

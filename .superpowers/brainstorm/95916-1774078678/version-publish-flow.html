@@ -1,0 +1,51 @@
+<h2>版本发布的入口和流程怎么设计？</h2>
+<p class="subtitle">用户从哪里触发"发布版本"？版本历史怎么展示？</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>顶部工具栏 "发布" 按钮 + 版本历史 Tab</h3>
+      <p>在 Skill 编辑器顶部（Save 按钮旁边）添加 <strong>"Publish"</strong> 按钮，点击弹出 Dialog 填写版本号和 release notes</p>
+      <p>"版本历史" Tab 内展示时间线列表，每条可展开查看详情、恢复 draft 或删除</p>
+      <div style="background:#f3f4f6;border-radius:6px;padding:12px;margin-top:8px;font-family:monospace;font-size:0.8em;line-height:1.6">
+        ┌─────────────────────────────────────────┐<br>
+        │ Skill Name &nbsp;&nbsp;&nbsp; [Save] [<strong>Publish ▾</strong>] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        ├─────────────────────────────────────────┤<br>
+        │ [编辑器] [文件] [<strong>版本历史</strong>] [协作者] &nbsp;&nbsp;│<br>
+        │ ─────────────────────────────────── &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ v1.2.0 &nbsp;2026-03-20 &nbsp;by Alice &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ &nbsp;&nbsp;新增 X 功能 &nbsp;&nbsp;&nbsp;&nbsp;[恢复] [删除] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ v1.1.0 &nbsp;2026-03-15 &nbsp;by Bob &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ v1.0.0 &nbsp;2026-03-10 &nbsp;by Alice &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        └─────────────────────────────────────────┘
+      </div>
+      <p style="color:#6b7280;font-size:0.85em;margin-top:8px">✓ 发布入口醒目 &nbsp;✓ 版本历史清晰 &nbsp;✓ 操作路径短</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>版本历史 Tab 内置发布入口</h3>
+      <p>不在顶部加按钮，发布入口放在 "版本历史" Tab 顶部，点击 "发布新版本" 展开内联表单（版本号 + notes）</p>
+      <p>版本列表在下方，同样支持恢复和删除</p>
+      <div style="background:#f3f4f6;border-radius:6px;padding:12px;margin-top:8px;font-family:monospace;font-size:0.8em;line-height:1.6">
+        ┌─────────────────────────────────────────┐<br>
+        │ Skill Name &nbsp;&nbsp;&nbsp; [Save] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        ├─────────────────────────────────────────┤<br>
+        │ [编辑器] [文件] [<strong>版本历史</strong>] [协作者] &nbsp;&nbsp;│<br>
+        │ ─────────────────────────────────── &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ [+ <strong>发布新版本</strong>] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ ┌ 版本号: [1.3.0] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ Notes: [___________] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ └ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[发布] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ ─────────────────────────────────── &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ v1.2.0 &nbsp;2026-03-20 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ v1.1.0 &nbsp;2026-03-15 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        └─────────────────────────────────────────┘
+      </div>
+      <p style="color:#6b7280;font-size:0.85em;margin-top:8px">✓ 顶部栏不拥挤 &nbsp;✓ 发布和历史同一视图 &nbsp;△ 需先切到 Tab 才能发布</p>
+    </div>
+  </div>
+</div>

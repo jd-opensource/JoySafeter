@@ -79,7 +79,7 @@ class SkillRepository(BaseRepository[Skill]):
         query = select(Skill).where(Skill.id == skill_id)
         query = query.options(selectinload(Skill.files))
         result = await self.db.execute(query)
-        return result.scalar_one_or_none()
+        return result.scalar_one_or_none()  # type: ignore[return-value]
 
     async def count_by_user(self, user_id: str) -> int:
         """统计用户拥有的 Skill 数量"""

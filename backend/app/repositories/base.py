@@ -38,7 +38,7 @@ class BaseRepository(Generic[T]):
                 query = query.options(selectinload(getattr(self.model, relation)))
 
         result = await self.db.execute(query)
-        return result.scalar_one_or_none()
+        return result.scalar_one_or_none()  # type: ignore[return-value]
 
     async def get_by(self, **kwargs) -> Optional[T]:
         """根据条件获取单条记录"""

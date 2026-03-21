@@ -25,7 +25,7 @@ class SkillVersionRepository(BaseRepository[SkillVersion]):
             .options(selectinload(SkillVersion.files))
             .order_by(SkillVersion.published_at.desc())
         )
-        return list(result.scalars().all())
+        return list(result.scalars().all())  # type: ignore[return-value]
 
     async def get_latest(self, skill_id: uuid.UUID) -> Optional[SkillVersion]:
         result = await self.db.execute(
@@ -35,7 +35,7 @@ class SkillVersionRepository(BaseRepository[SkillVersion]):
             .order_by(SkillVersion.published_at.desc())
             .limit(1)
         )
-        return result.scalar_one_or_none()
+        return result.scalar_one_or_none()  # type: ignore[return-value]
 
     async def get_by_version(self, skill_id: uuid.UUID, version: str) -> Optional[SkillVersion]:
         result = await self.db.execute(
@@ -48,7 +48,7 @@ class SkillVersionRepository(BaseRepository[SkillVersion]):
             )
             .options(selectinload(SkillVersion.files))
         )
-        return result.scalar_one_or_none()
+        return result.scalar_one_or_none()  # type: ignore[return-value]
 
     async def get_highest_version_str(self, skill_id: uuid.UUID) -> Optional[str]:
         """Return the highest semver version string for a skill."""

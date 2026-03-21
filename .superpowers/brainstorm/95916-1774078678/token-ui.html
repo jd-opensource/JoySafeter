@@ -1,0 +1,54 @@
+<h2>Token 管理页面怎么设计？</h2>
+<p class="subtitle">放在全局 Settings 对话框中的 "API Tokens" 页签</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>卡片列表式</h3>
+      <p>每个 Token 一张卡片，显示名称、prefix、scopes 标签、过期时间、最后使用时间。右上角 "Revoke" 按钮</p>
+      <p>顶部 "Create Token" 按钮弹出 Dialog（填名称、选 scopes、设过期时间），创建成功后弹出明文 token 供复制</p>
+      <div style="background:#f3f4f6;border-radius:6px;padding:12px;margin-top:8px;font-family:monospace;font-size:0.8em;line-height:1.6">
+        │ Settings > <strong>API Tokens</strong> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ ──────────────────────────────────── &nbsp;&nbsp;&nbsp;│<br>
+        │ [+ Create Token] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ ┌───────────────────────────────┐ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ CI deploy token &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[Revoke] │ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ sk_a1b2c3d4 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ [read] [write] [publish] &nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ Expires: 2026-12-31 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ Last used: 2h ago &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ └───────────────────────────────┘ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ ┌───────────────────────────────┐ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ Local dev token &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[Revoke] │ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ sk_x9y8z7w6 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ [read] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ No expiry &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ │ Last used: never &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ └───────────────────────────────┘ &nbsp;&nbsp;&nbsp;&nbsp;│<br>
+      </div>
+      <p style="color:#6b7280;font-size:0.85em;margin-top:8px">✓ 信息丰富 &nbsp;✓ 与 GitHub Personal Access Token 页面风格类似</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>紧凑表格式</h3>
+      <p>Token 以表格展示（名称、prefix、scopes、过期、最后使用、操作列），更紧凑，适合 token 数量多的场景</p>
+      <div style="background:#f3f4f6;border-radius:6px;padding:12px;margin-top:8px;font-family:monospace;font-size:0.8em;line-height:1.6">
+        │ Settings > <strong>API Tokens</strong> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ ──────────────────────────────────── &nbsp;&nbsp;&nbsp;│<br>
+        │ [+ Create Token] &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+        │ Name &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Prefix &nbsp;&nbsp;Scopes &nbsp;Exp &nbsp;Act │<br>
+        │ ─────────────────────────────────── &nbsp;&nbsp;&nbsp;│<br>
+        │ CI deploy &nbsp;&nbsp;sk_a1.. &nbsp;r/w/p &nbsp;12/31 [⌫] │<br>
+        │ Local dev &nbsp;&nbsp;sk_x9.. &nbsp;r &nbsp;&nbsp;&nbsp;&nbsp;— &nbsp;&nbsp;&nbsp;[⌫] │<br>
+        │ Staging &nbsp;&nbsp;&nbsp;&nbsp;sk_m3.. &nbsp;r/w &nbsp;&nbsp;06/30 [⌫] │<br>
+      </div>
+      <p style="color:#6b7280;font-size:0.85em;margin-top:8px">✓ 紧凑 &nbsp;✓ 一屏看更多 &nbsp;△ 信息密度高，scopes 需缩写</p>
+    </div>
+  </div>
+</div>

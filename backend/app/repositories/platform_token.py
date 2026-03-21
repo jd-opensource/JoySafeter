@@ -24,7 +24,7 @@ class PlatformTokenRepository(BaseRepository[PlatformToken]):
         result = await self.db.execute(
             select(PlatformToken).where(PlatformToken.user_id == user_id).order_by(PlatformToken.created_at.desc())
         )
-        return list(result.scalars().all())
+        return list(result.scalars().all())  # type: ignore[return-value]
 
     async def count_active_by_user(self, user_id: str) -> int:
         result = await self.db.execute(

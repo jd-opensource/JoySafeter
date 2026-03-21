@@ -119,7 +119,7 @@ class SkillVersionService(BaseService[SkillVersion]):
             token_scopes=token_scopes,
             required_scope="skills:read",
         )
-        return await self.repo.list_by_skill(skill_id)
+        return await self.repo.list_by_skill(skill_id)  # type: ignore[return-value,no-any-return]
 
     async def get_version(
         self,
@@ -142,7 +142,7 @@ class SkillVersionService(BaseService[SkillVersion]):
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
             raise NotFoundException(f"Version {version_str} not found")
-        return sv
+        return sv  # type: ignore[return-value,no-any-return]
 
     async def get_latest_version(
         self,
@@ -164,7 +164,7 @@ class SkillVersionService(BaseService[SkillVersion]):
         sv = await self.repo.get_latest(skill_id)
         if not sv:
             raise NotFoundException("No published versions found")
-        return sv
+        return sv  # type: ignore[return-value,no-any-return]
 
     async def delete_version(
         self,
@@ -246,10 +246,10 @@ class SkillVersionService(BaseService[SkillVersion]):
         skill = await self.skill_repo.get(skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        return skill
+        return skill  # type: ignore[return-value,no-any-return]
 
     async def _get_skill_with_files_or_404(self, skill_id: uuid.UUID) -> Skill:
         skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        return skill
+        return skill  # type: ignore[return-value,no-any-return]

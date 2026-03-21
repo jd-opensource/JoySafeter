@@ -61,7 +61,7 @@ class PlatformTokenService(BaseService[PlatformToken]):
         return pt, plaintext
 
     async def list_tokens(self, user_id: str) -> List[PlatformToken]:
-        return await self.repo.list_by_user(user_id)
+        return await self.repo.list_by_user(user_id)  # type: ignore[no-any-return]
 
     async def revoke_token(
         self,

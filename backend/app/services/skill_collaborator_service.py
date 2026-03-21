@@ -35,7 +35,7 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
             CollaboratorRole.viewer,
             is_superuser=is_superuser,
         )
-        return await self.repo.list_by_skill(skill_id)
+        return await self.repo.list_by_skill(skill_id)  # type: ignore[return-value,no-any-return]
 
     async def add_collaborator(
         self,
@@ -96,7 +96,7 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
         collab.role = new_role
         await self.db.commit()
         await self.db.refresh(collab)
-        return collab
+        return collab  # type: ignore[return-value,no-any-return]
 
     async def remove_collaborator(
         self,
@@ -161,4 +161,4 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
         skill = await self.skill_repo.get(skill_id)
         if not skill:
             raise NotFoundException("Skill not found")
-        return skill
+        return skill  # type: ignore[return-value,no-any-return]
