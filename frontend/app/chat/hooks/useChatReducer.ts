@@ -93,6 +93,7 @@ export type ChatAction =
   | { type: 'NODE_LOG'; entry: NodeLogEntry }
   // UI
   | { type: 'TOGGLE_SIDEBAR' }
+  | { type: 'SET_SIDEBAR_VISIBLE'; visible: boolean }
   | { type: 'SHOW_PREVIEW' }
   | { type: 'HIDE_PREVIEW' }
   | { type: 'SELECT_TOOL'; tool: ToolCall | null }
@@ -268,6 +269,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         ui: { ...state.ui, sidebarVisible: !state.ui.sidebarVisible },
       }
+
+    case 'SET_SIDEBAR_VISIBLE':
+      return { ...state, ui: { ...state.ui, sidebarVisible: action.visible } }
 
     case 'SHOW_PREVIEW':
       return {

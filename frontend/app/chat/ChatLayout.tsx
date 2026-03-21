@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
+import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
 import { useTranslation } from '@/lib/i18n'
@@ -43,18 +44,23 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
 
   const prevPropChatIdRef = useRef<string | null | undefined>(propChatId)
   const isInitialMountRef = useRef(true)
+  const sidebarPanelRef = useRef<ImperativePanelHandle>(null)
 
   // Keyboard shortcut: Cmd+B toggle sidebar
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault()
-        dispatch({ type: 'TOGGLE_SIDEBAR' })
+        if (state.ui.sidebarVisible) {
+          sidebarPanelRef.current?.collapse()
+        } else {
+          sidebarPanelRef.current?.expand()
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [dispatch])
+  }, [state.ui.sidebarVisible])
 
   // Sync propChatId changes
   useEffect(() => {
@@ -255,7 +261,13 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
+              onClick={() => {
+                if (state.ui.sidebarVisible) {
+                  sidebarPanelRef.current?.collapse()
+                } else {
+                  sidebarPanelRef.current?.expand()
+                }
+              }}
               className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-gray-100"
             >
               <List size={18} className="text-gray-600" />
@@ -320,25 +332,32 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-gray-50">
       <ResizablePanelGroup direction="horizontal" className="flex-1">
         {/* Left Sidebar */}
-        {state.ui.sidebarVisible && (
-          <>
-            <ResizablePanel
-              defaultSize={12}
-              minSize={10}
-              maxSize={25}
-              className="transition-all duration-300"
-            >
-              <ChatSidebar
-                isCollapsed={false}
-                onToggle={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
-                onSelectConversation={handleSelectConversation}
-                currentThreadId={state.threadId}
-                onNewChat={handleNewChat}
-              />
-            </ResizablePanel>
-            <ResizableHandle className="w-px bg-gray-200" />
-          </>
-        )}
+        <ResizablePanel
+          ref={sidebarPanelRef}
+          defaultSize={12}
+          minSize={10}
+          maxSize={25}
+          collapsible
+          collapsedSize={0}
+          onCollapse={() => dispatch({ type: 'SET_SIDEBAR_VISIBLE', visible: false })}
+          onExpand={() => dispatch({ type: 'SET_SIDEBAR_VISIBLE', visible: true })}
+          className="overflow-hidden transition-all duration-300"
+        >
+          <ChatSidebar
+            isCollapsed={!state.ui.sidebarVisible}
+            onToggle={() => {
+              if (state.ui.sidebarVisible) {
+                sidebarPanelRef.current?.collapse()
+              } else {
+                sidebarPanelRef.current?.expand()
+              }
+            }}
+            onSelectConversation={handleSelectConversation}
+            currentThreadId={state.threadId}
+            onNewChat={handleNewChat}
+          />
+        </ResizablePanel>
+        <ResizableHandle className="w-px bg-gray-200" />
 
         {/* Main Panel */}
         <ResizablePanel defaultSize={state.preview.visible ? 55 : 88} minSize={40}>
