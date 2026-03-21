@@ -1,14 +1,14 @@
 'use client'
 
-import { ArrowRight, Square, Loader2, Wand2, Bot, User } from 'lucide-react'
+import { ArrowRight, Square, Wand2, Bot, User } from 'lucide-react'
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
 import type { Message } from '@/app/chat/types'
+import { ToolCallBadge } from '@/app/chat/shared/ToolCallDisplay'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -60,31 +60,14 @@ function MessageBubble({ message }: { message: Message }) {
         {/* Tool calls indicator */}
         {message.tool_calls && message.tool_calls.length > 0 && (
           <div className="mt-2 space-y-1">
-            {message.tool_calls.map((tc) => {
-              const detail = tc.args?._detail as string | undefined
-              return (
-                <div
-                  key={tc.id}
-                  className={cn(
-                    'flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px]',
-                    tc.status === 'running'
-                      ? 'border border-amber-200 bg-amber-50 text-amber-700'
-                      : tc.status === 'completed'
-                        ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border border-red-200 bg-red-50 text-red-600',
-                  )}
-                >
-                  {tc.status === 'running' && <Loader2 size={10} className="animate-spin" />}
-                  <span className="font-medium">{tc.name}</span>
-                  {detail && (
-                    <span className="max-w-[180px] truncate font-mono text-gray-400">{detail}</span>
-                  )}
-                  {tc.status === 'completed' && (
-                    <span className="ml-auto text-emerald-500">done</span>
-                  )}
-                </div>
-              )
-            })}
+            {message.tool_calls.map((tc) => (
+              <ToolCallBadge
+                key={tc.id}
+                name={tc.args?._rawName || tc.name}
+                args={tc.args || {}}
+                status={tc.status}
+              />
+            ))}
           </div>
         )}
       </div>

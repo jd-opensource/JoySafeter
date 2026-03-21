@@ -15,6 +15,7 @@ interface ThreadContentProps {
   agentStatus: 'idle' | 'running' | 'connecting' | 'error'
   currentNodeLabel?: string
   onToolClick: (toolCall: ToolCall) => void
+  onRetry?: (messageContent: string) => void
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
 }
 
@@ -24,6 +25,7 @@ export default function ThreadContent({
   agentStatus,
   currentNodeLabel,
   onToolClick,
+  onRetry,
   scrollContainerRef,
 }: ThreadContentProps) {
   const { t } = useTranslation()
@@ -55,6 +57,19 @@ export default function ThreadContent({
                 message={msg}
                 isLast={idx === messagesToRender.length - 1}
                 onToolClick={onToolClick}
+                onRetry={
+                  msg.role === 'assistant' && idx === messagesToRender.length - 1 && onRetry
+                    ? () => {
+                        // Find the preceding user message to re-send
+                        for (let i = idx - 1; i >= 0; i--) {
+                          if (messagesToRender[i].role === 'user') {
+                            onRetry(messagesToRender[i].content)
+                            return
+                          }
+                        }
+                      }
+                    : undefined
+                }
               />
             ))
           )}

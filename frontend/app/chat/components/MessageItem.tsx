@@ -15,9 +15,10 @@ interface MessageItemProps {
   message: Message
   isLast: boolean
   onToolClick?: (toolCall: ToolCall) => void
+  onRetry?: () => void
 }
 
-export default function MessageItem({ message, onToolClick }: MessageItemProps) {
+export default function MessageItem({ message, onToolClick, onRetry }: MessageItemProps) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -176,7 +177,7 @@ export default function MessageItem({ message, onToolClick }: MessageItemProps) 
           )}
         </div>
 
-        <ActionBar content={message.content} />
+        <ActionBar content={message.content} onRetry={onRetry} />
       </div>
     </div>
   )

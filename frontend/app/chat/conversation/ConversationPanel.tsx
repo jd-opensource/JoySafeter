@@ -48,6 +48,15 @@ export default function ConversationPanel({ onSend, onStop }: ConversationPanelP
     [dispatch],
   )
 
+  const handleRetry = useCallback(
+    (messageContent: string) => {
+      if (!isProcessing) {
+        onSend(messageContent, state.mode.currentMode, state.mode.currentGraphId)
+      }
+    },
+    [isProcessing, onSend, state.mode.currentMode, state.mode.currentGraphId],
+  )
+
   return (
     <div className="flex h-full flex-col">
       {/* Message area */}
@@ -58,6 +67,7 @@ export default function ConversationPanel({ onSend, onStop }: ConversationPanelP
           agentStatus={agentStatus}
           currentNodeLabel={currentNodeLabel}
           onToolClick={handleToolClick}
+          onRetry={handleRetry}
           scrollContainerRef={scrollRef}
         />
       </div>

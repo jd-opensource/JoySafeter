@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { X, FolderTree, Wrench } from 'lucide-react'
 
 import { useChatState } from '../ChatProvider'
+import { ToolCallDetail } from '../shared/ToolCallDisplay'
 
 import ArtifactPanel from '../components/ArtifactPanel'
 
@@ -61,24 +62,15 @@ export default function PreviewPanel() {
           <ArtifactPanel threadId={threadId} fileTree={preview.fileTree} />
         )}
         {activeTab === 'tool' && ui.selectedTool && (
-          <div className="overflow-auto p-4">
-            <h3 className="mb-2 text-sm font-medium">{ui.selectedTool.name}</h3>
-            <div className="mb-3">
-              <p className="mb-1 text-xs text-gray-500">Input</p>
-              <pre className="rounded bg-gray-50 p-2 text-xs whitespace-pre-wrap">
-                {JSON.stringify(ui.selectedTool.args, null, 2)}
-              </pre>
-            </div>
-            {ui.selectedTool.result && (
-              <div>
-                <p className="mb-1 text-xs text-gray-500">Output</p>
-                <pre className="rounded bg-gray-50 p-2 text-xs whitespace-pre-wrap">
-                  {typeof ui.selectedTool.result === 'string'
-                    ? ui.selectedTool.result
-                    : JSON.stringify(ui.selectedTool.result, null, 2)}
-                </pre>
-              </div>
-            )}
+          <div className="overflow-auto">
+            <ToolCallDetail
+              name={ui.selectedTool.name}
+              args={ui.selectedTool.args}
+              status={ui.selectedTool.status}
+              result={ui.selectedTool.result}
+              startTime={ui.selectedTool.startTime}
+              endTime={ui.selectedTool.endTime}
+            />
           </div>
         )}
       </div>
