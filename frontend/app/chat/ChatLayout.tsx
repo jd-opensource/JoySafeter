@@ -246,6 +246,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   const hasMessages = state.messages.length > 0 || !!state.threadId || !!propChatId
 
   // ─── Header ──────────────────────────────────────────────────────────────
+  const headerTitle = (state.mode.currentMode && getModeConfig(state.mode.currentMode)?.labelKey) || 'chat.defaultChat'
   const renderHeader = () => (
     <div className="z-10 flex h-14 flex-shrink-0 items-center gap-2 border-b border-gray-100 bg-white px-6">
       <TooltipProvider>
@@ -281,7 +282,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
         </Tooltip>
         <div className="flex min-w-0 flex-1 justify-center">
           <span className="truncate text-sm font-medium text-gray-700">
-            {t(getModeConfig(state.mode.currentMode)?.labelKey || 'chat.modes.default-chat')}
+            {t(headerTitle)}
           </span>
         </div>
         {state.threadId && hasFiles && (
