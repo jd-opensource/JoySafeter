@@ -1,17 +1,14 @@
 """DeepAgents Graph Builder - Two-level star structure: Root (Manager) → Children (Workers)."""
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional, Union
 
-from loguru import logger
-
-if TYPE_CHECKING:
-    from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
-
-# DeepAgents library imports - required
 from deepagents import create_deep_agent
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from loguru import logger
 
+from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
+from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
 from app.core.database import async_session_factory
 from app.core.graph.base_graph_builder import (
     BaseGraphBuilder,
@@ -37,7 +34,7 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
         # Extract file_emitter before passing to super
         self._file_emitter = kwargs.pop("file_emitter", None)
         super().__init__(*args, **kwargs)
-        self._shared_backend: Optional["PydanticSandboxAdapter"] = None
+        self._shared_backend: Optional[Union[PydanticSandboxAdapter, FileTrackingProxy]] = None
         self._skills_manager = DeepAgentsSkillsManager(self.user_id)
         self._node_builder = DeepAgentsNodeBuilder(builder=self)
 
@@ -54,8 +51,6 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
                     f"{LOG_PREFIX} Using user sandbox: id={getattr(self._shared_backend, 'id', 'unknown')}, user_id={self.user_id}"
                 )
                 if self._shared_backend and self._file_emitter:
-                    from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
-
                     self._shared_backend = FileTrackingProxy(self._shared_backend, self._file_emitter)
                     logger.info(f"{LOG_PREFIX} Wrapped backend with FileTrackingProxy")
 
@@ -89,7 +84,7 @@ class DeepAgentsGraphBuilder(BaseGraphBuilder):
 
         return False
 
-    async def _get_user_sandbox(self) -> "PydanticSandboxAdapter":
+    async def _get_user_sandbox(self) -> PydanticSandboxAdapter:
         """Get user's private sandbox from SandboxManagerService.
 
         This method ensures that all graph executions for a user share

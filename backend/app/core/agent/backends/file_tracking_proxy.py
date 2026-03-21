@@ -18,7 +18,7 @@ from deepagents.backends.protocol import (
 from app.utils.file_event_emitter import FileEventEmitter
 
 
-class FileTrackingProxy(SandboxBackendProtocol):
+class FileTrackingProxy:
     """Transparent proxy that intercepts write operations and emits file events.
 
     All non-write methods are delegated directly to the wrapped backend.
@@ -38,7 +38,7 @@ class FileTrackingProxy(SandboxBackendProtocol):
         return result
 
     def write_overwrite(self, file_path: str, content: str) -> WriteResult:
-        result = self._backend.write_overwrite(file_path, content)
+        result: WriteResult = getattr(self._backend, "write_overwrite")(file_path, content)
         if not getattr(result, "error", None):
             self._emitter.emit("write", file_path, len(content.encode("utf-8")))
         return result
@@ -89,16 +89,16 @@ class FileTrackingProxy(SandboxBackendProtocol):
         return self._backend.id
 
     def is_started(self) -> bool:
-        return self._backend.is_started()
+        return getattr(self._backend, "is_started")()  # type: ignore[no-any-return]
 
     def start(self) -> None:
-        return self._backend.start()
+        getattr(self._backend, "start")()
 
     def stop(self) -> None:
-        return self._backend.stop()
+        getattr(self._backend, "stop")()
 
     def cleanup(self) -> None:
-        return self._backend.cleanup()
+        getattr(self._backend, "cleanup")()
 
     # ── Forward compatibility ───────────────────────────────────────────
 
