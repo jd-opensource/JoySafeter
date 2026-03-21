@@ -55,7 +55,7 @@ export default function ChatInput({
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`
     }
   }, [input])
 
@@ -131,7 +131,7 @@ export default function ChatInput({
       {/* Main Input Container */}
       <div
         className={cn(
-          'flex items-end gap-3 rounded-[24px] border border-gray-200 bg-white p-4 shadow-md transition-all',
+          'flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 transition-all',
           isDragOver && 'border-blue-400 bg-blue-50',
         )}
         onDragOver={handleDragOver}
@@ -154,7 +154,7 @@ export default function ChatInput({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('chat.describeHelpNeeded')}
-            className="max-h-[200px] min-h-[100px] flex-1 resize-none overflow-y-auto border-none bg-transparent px-0.5 pb-6 pt-4 text-base shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
+            className="max-h-[160px] min-h-[24px] flex-1 resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
             rows={1}
             disabled={isProcessing || isUploading}
           />
@@ -166,7 +166,7 @@ export default function ChatInput({
           onClick={() => fileInputRef.current?.click()}
           disabled={isProcessing || isUploading}
           className={cn(
-            'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border-[1.5px] border-gray-200 bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-gray-700',
+            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border-[1.5px] border-gray-200 bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-gray-700',
             (isUploading || isProcessing) && 'cursor-not-allowed opacity-50',
           )}
           title={t('chat.uploadFile')}
@@ -177,7 +177,7 @@ export default function ChatInput({
           <Button
             onClick={onStop}
             size="sm"
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
             title={t('chat.stop')}
           >
             <Square size={14} className="fill-white text-white" />
@@ -188,7 +188,7 @@ export default function ChatInput({
             disabled={!canSubmit || isProcessing || isUploading}
             size="sm"
             className={cn(
-              'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
               canSubmit && !isProcessing && !isUploading
                 ? 'bg-blue-600 hover:bg-blue-700'
                 : 'cursor-not-allowed bg-gray-100',

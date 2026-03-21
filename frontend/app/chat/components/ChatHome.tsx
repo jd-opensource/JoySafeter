@@ -134,7 +134,7 @@ export default function ChatHome({
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`
     }
   }, [state.input])
 
@@ -416,8 +416,8 @@ export default function ChatHome({
           </div>
 
           <div className="relative mx-auto w-full max-w-4xl">
-            <div className="rounded-[24px] border border-gray-200 bg-white shadow-sm transition-all">
-              <div className="flex w-full flex-col gap-2 p-2 pb-3">
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 transition-all">
+              <div className="flex w-full flex-col gap-2 px-4 py-3">
                 {state.selectedAgentId &&
                   (() => {
                     const selectedAgent = deployedAgents.find(
@@ -477,11 +477,11 @@ export default function ChatHome({
                       onChange={handleInputChange}
                       onKeyDown={handleKeyDown}
                       placeholder={t('chat.describeHelpNeeded')}
-                      className="max-h-[240px] min-h-[120px] w-full resize-none overflow-y-auto border-none bg-transparent px-1 pb-14 pt-5 text-base shadow-none transition-all duration-200 placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
+                      className="max-h-[160px] min-h-[24px] w-full resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
                       rows={1}
                       disabled={isProcessing}
                     />
-                    <div className="absolute bottom-2 left-1 flex items-center gap-2">
+                    <div className="absolute bottom-1 left-1 flex items-center gap-2">
                       <Button
                         variant="outline"
                         size="sm"
@@ -556,7 +556,7 @@ export default function ChatHome({
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isProcessing || state.isUploading}
                             className={cn(
-                              'flex h-10 w-10 items-center justify-center rounded-2xl border-[1.5px] border-gray-200 bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-gray-700',
+                              'flex h-8 w-8 items-center justify-center rounded-xl border-[1.5px] border-gray-200 bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-gray-700',
                               state.isUploading && 'cursor-not-allowed opacity-50',
                             )}
                           >
@@ -576,7 +576,7 @@ export default function ChatHome({
                       <Button
                         onClick={onStop}
                         size="sm"
-                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
+                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
                         title={t('chat.stop')}
                       >
                         <Square size={14} className="fill-white text-white" />
@@ -587,7 +587,7 @@ export default function ChatHome({
                         disabled={!state.input.trim() || isProcessing || state.isRedirecting}
                         size="sm"
                         className={cn(
-                          'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
+                          'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                           state.input.trim() && !isProcessing && !state.isRedirecting
                             ? 'bg-blue-600 hover:bg-blue-700'
                             : 'cursor-not-allowed bg-gray-100',
