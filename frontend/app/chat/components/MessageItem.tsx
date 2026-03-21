@@ -1,72 +1,20 @@
 'use client'
 
 import DOMPurify from 'dompurify'
-import { User, Bot, Search, Check, Loader2, ListTodo, Terminal } from 'lucide-react'
+import { User, Bot } from 'lucide-react'
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-import { cn } from '@/lib/utils'
-
+import { ActionBar } from '../shared/ActionBar'
+import { ToolCallBadge } from '../shared/ToolCallDisplay'
 import { Message, ToolCall } from '../types'
 
 interface MessageItemProps {
   message: Message
   isLast: boolean
   onToolClick?: (toolCall: ToolCall) => void
-}
-
-const ToolCallItem = ({ tool, onClick }: { tool: ToolCall; onClick?: () => void }) => {
-  const isCompleted = tool.status === 'completed'
-  // Safer rendering of args to avoid Object-as-child errors
-  const argsDisplay = React.useMemo(() => {
-    try {
-      return JSON.stringify(tool.args, null, 1)
-        .replace(/[\{\}"]/g, '')
-        .slice(0, 100)
-    } catch {
-      return '...'
-    }
-  }, [tool.args])
-
-  return (
-    <div className="group mb-2">
-      <div
-        onClick={onClick}
-        className={cn(
-          'flex w-fit items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-all',
-          isCompleted
-            ? 'border-gray-200 bg-gray-50 text-gray-600'
-            : 'border-blue-100 bg-blue-50 text-blue-700',
-          onClick && 'cursor-pointer hover:shadow-sm',
-        )}
-      >
-        {tool.name === 'web_search' ? (
-          <Search size={12} />
-        ) : tool.name === 'planner' ? (
-          <ListTodo size={12} />
-        ) : (
-          <Terminal size={12} />
-        )}
-
-        <span className="font-medium capitalize">{tool.name.replace(/_/g, ' ')}</span>
-
-        {/* Args Preview */}
-        <span className="ml-1 hidden max-w-[200px] truncate font-mono text-gray-400 group-hover:inline">
-          {argsDisplay}
-        </span>
-
-        <div className="ml-2 border-l border-gray-300/50 pl-2">
-          {isCompleted ? (
-            <Check size={12} className="text-green-500" />
-          ) : (
-            <Loader2 size={12} className="animate-spin text-blue-500" />
-          )}
-        </div>
-      </div>
-    </div>
-  )
 }
 
 export default function MessageItem({ message, onToolClick }: MessageItemProps) {
@@ -105,9 +53,11 @@ export default function MessageItem({ message, onToolClick }: MessageItemProps) 
         {message.tool_calls && message.tool_calls.length > 0 && (
           <div className="mb-4">
             {message.tool_calls.map((tool) => (
-              <ToolCallItem
+              <ToolCallBadge
                 key={tool.id}
-                tool={tool}
+                name={tool.name}
+                args={tool.args}
+                status={tool.status}
                 onClick={onToolClick ? () => onToolClick(tool) : undefined}
               />
             ))}
@@ -225,6 +175,8 @@ export default function MessageItem({ message, onToolClick }: MessageItemProps) 
             )
           )}
         </div>
+
+        <ActionBar content={message.content} />
       </div>
     </div>
   )

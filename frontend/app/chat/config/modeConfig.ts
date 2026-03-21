@@ -19,6 +19,7 @@ export interface ModeConfig {
   type?: 'template' | 'simple' | 'agent'
   templateName?: string
   templateGraphName?: string
+  starterPrompts?: string[]
 }
 
 /**
@@ -37,6 +38,11 @@ export const modeConfigs: ModeConfig[] = [
     type: 'template',
     templateName: 'default-chat',
     templateGraphName: 'Default Chat',
+    starterPrompts: [
+      '帮我分析一段代码的安全性',
+      '如何防范常见的Web漏洞？',
+      '解释一下OWASP Top 10',
+    ],
   },
   {
     id: 'mcp-scan',
@@ -44,6 +50,10 @@ export const modeConfigs: ModeConfig[] = [
     descriptionKey: 'chat.mcpScanDescription',
     icon: Server,
     type: 'simple',
+    starterPrompts: [
+      '扫描我的MCP服务配置',
+      '检查MCP权限设置是否安全',
+    ],
   },
   {
     id: 'apk-vulnerability',
@@ -53,6 +63,10 @@ export const modeConfigs: ModeConfig[] = [
     type: 'template',
     templateName: 'apk-detector',
     templateGraphName: 'APK Detector',
+    starterPrompts: [
+      '上传APK进行IntentBridge漏洞检测',
+      '分析APK的组件暴露风险',
+    ],
   },
   {
     id: 'skill-creator',
@@ -62,6 +76,10 @@ export const modeConfigs: ModeConfig[] = [
     type: 'template',
     templateName: 'skill-creator',
     templateGraphName: 'Skill Creator',
+    starterPrompts: [
+      '创建一个网络扫描技能',
+      '帮我设计一个自动化渗透测试技能',
+    ],
   },
 ]
 

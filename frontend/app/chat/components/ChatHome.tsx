@@ -42,6 +42,7 @@ import { chatModeService } from '../services/chatModeService'
 import { copilotRedirectService } from '../services/copilotRedirectService'
 import { graphResolutionService } from '../services/graphResolutionService'
 import { registerAllHandlers } from '../services/modeHandlers/registerHandlers'
+import { StarterPrompts } from '../shared/StarterPrompts'
 import type { UploadedFile, ModeSelectionResult } from '../services/modeHandlers/types'
 
 // Register all mode handlers (executed once when module loads)
@@ -666,6 +667,18 @@ export default function ChatHome({
                 )
               })}
             </div>
+
+            {state.mode.type && (() => {
+              const config = modeConfigs.find((c) => c.id === state.mode.type)
+              return config?.starterPrompts && config.starterPrompts.length > 0 ? (
+                <div className="mt-4">
+                  <StarterPrompts
+                    prompts={config.starterPrompts}
+                    onSelect={(prompt) => setInput(prompt)}
+                  />
+                </div>
+              ) : null
+            })()}
           </div>
         </div>
       </div>
