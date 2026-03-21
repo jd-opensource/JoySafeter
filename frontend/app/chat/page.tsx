@@ -2,10 +2,11 @@
 
 import { useSearchParams } from 'next/navigation'
 
-import ChatInterface from './ChatInterface'
+import { ChatProvider } from './ChatProvider'
+import ChatLayout from './ChatLayout'
 
 /**
- * Chat Canvas Page
+ * Chat Page — wraps ChatLayout in ChatProvider context
  */
 export default function ChatPage() {
   const searchParams = useSearchParams()
@@ -13,7 +14,9 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-full w-full">
-      <ChatInterface chatId={threadId} />
+      <ChatProvider>
+        <ChatLayout chatId={threadId} />
+      </ChatProvider>
     </div>
   )
 }
