@@ -131,7 +131,7 @@ export default function ChatInput({
       {/* Main Input Container */}
       <div
         className={cn(
-          'flex items-end gap-3 rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm transition-all',
+          'flex items-end gap-3 rounded-[24px] border border-gray-200 bg-white p-4 shadow-md transition-all',
           isDragOver && 'border-blue-400 bg-blue-50',
         )}
         onDragOver={handleDragOver}
@@ -190,7 +190,7 @@ export default function ChatInput({
             className={cn(
               'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
               canSubmit && !isProcessing && !isUploading
-                ? 'bg-gray-900 hover:bg-gray-800'
+                ? 'bg-blue-600 hover:bg-blue-700'
                 : 'cursor-not-allowed bg-gray-100',
             )}
           >
