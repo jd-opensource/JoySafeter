@@ -14,6 +14,8 @@ export interface ChatState {
     isProcessing: boolean
     isSubmitting: boolean // optimistic "thinking" before SSE starts
     text: string
+    messageId: string | null // id of the message being streamed
+    metadata: Record<string, any> | null // latest metadata from content events
     nodeExecutionLog: NodeLogEntry[]
   }
   preview: {
@@ -42,6 +44,8 @@ export const initialChatState: ChatState = {
     isProcessing: false,
     isSubmitting: false,
     text: '',
+    messageId: null,
+    metadata: null,
     nodeExecutionLog: [],
   },
   preview: {
@@ -77,7 +81,7 @@ export type ChatAction =
   // Streaming lifecycle
   | { type: 'STREAM_START' }
   | { type: 'STREAM_CONTENT'; delta: string; messageId: string; metadata?: Record<string, any> }
-  | { type: 'STREAM_DONE' }
+  | { type: 'STREAM_DONE'; messageId?: string }
   | { type: 'STREAM_ERROR'; error: string }
   // File & tool events
   | { type: 'FILE_EVENT'; path: string; info: FileTreeEntry }
@@ -89,7 +93,7 @@ export type ChatAction =
   | { type: 'NODE_LOG'; entry: NodeLogEntry }
   // UI
   | { type: 'TOGGLE_SIDEBAR' }
-  | { type: 'SHOW_PREVIEW'; tab?: string }
+  | { type: 'SHOW_PREVIEW' }
   | { type: 'HIDE_PREVIEW' }
   | { type: 'SELECT_TOOL'; tool: ToolCall | null }
   | { type: 'DISMISS_MODEL_NOTICE' }
@@ -137,42 +141,56 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           isProcessing: true,
           isSubmitting: false,
           text: '',
+          messageId: null,
+          metadata: null,
           nodeExecutionLog: [],
         },
         preview: { ...state.preview, userDismissed: false },
       }
 
     case 'STREAM_CONTENT': {
+      // Only update streaming state — messages[] stays stable for ChatStateContext
       return {
         ...state,
-        messages: state.messages.map((m) =>
-          m.id === action.messageId
-            ? {
-                ...m,
-                content: m.content + action.delta,
-                metadata: action.metadata
-                  ? { ...m.metadata, ...action.metadata }
-                  : m.metadata,
-              }
-            : m,
-        ),
         streaming: {
           ...state.streaming,
           text: state.streaming.text + action.delta,
+          messageId: action.messageId,
+          metadata: action.metadata || state.streaming.metadata,
         },
       }
     }
 
-    case 'STREAM_DONE':
+    case 'STREAM_DONE': {
+      // Commit accumulated streaming text to the message
+      const mid = action.messageId || state.streaming.messageId
+      const hasContent = mid && state.streaming.text
       return {
         ...state,
+        messages: hasContent
+          ? state.messages.map((m) =>
+              m.id === mid
+                ? {
+                    ...m,
+                    content: state.streaming.text,
+                    isStreaming: false,
+                    metadata: state.streaming.metadata
+                      ? { ...m.metadata, ...state.streaming.metadata }
+                      : m.metadata,
+                  }
+                : m,
+            )
+          : state.messages,
         streaming: {
           ...state.streaming,
           isProcessing: false,
           isSubmitting: false,
           text: '',
+          messageId: null,
+          metadata: null,
         },
       }
+    }
 
     case 'STREAM_ERROR':
       return {

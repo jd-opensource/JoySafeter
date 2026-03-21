@@ -5,8 +5,8 @@ import React, { useRef, useEffect, useCallback } from 'react'
 import { useChatState, useChatStream } from '../ChatProvider'
 import type { ToolCall } from '../types'
 
-import MessageList from './MessageList'
-import ChatInput from './ChatInput'
+import ThreadContent from '../components/ThreadContent'
+import ChatInput from '../components/ChatInput'
 import type { UploadedFile } from '../services/modeHandlers/types'
 
 interface ConversationPanelProps {
@@ -52,7 +52,7 @@ export default function ConversationPanel({ onSend, onStop }: ConversationPanelP
     <div className="flex h-full flex-col">
       {/* Message area */}
       <div className="flex-1 overflow-hidden">
-        <MessageList
+        <ThreadContent
           messages={state.messages}
           streamingText={streamingText}
           agentStatus={agentStatus}

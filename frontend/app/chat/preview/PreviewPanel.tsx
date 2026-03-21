@@ -5,7 +5,7 @@ import { X, FolderTree, Wrench } from 'lucide-react'
 
 import { useChatState } from '../ChatProvider'
 
-import FileTreePreview from './FileTreePreview'
+import ArtifactPanel from '../components/ArtifactPanel'
 
 export default function PreviewPanel() {
   const { state, dispatch } = useChatState()
@@ -58,7 +58,7 @@ export default function PreviewPanel() {
       {/* Content */}
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === 'files' && threadId && (
-          <FileTreePreview threadId={threadId} fileTree={preview.fileTree} />
+          <ArtifactPanel threadId={threadId} fileTree={preview.fileTree} />
         )}
         {activeTab === 'tool' && ui.selectedTool && (
           <div className="overflow-auto p-4">

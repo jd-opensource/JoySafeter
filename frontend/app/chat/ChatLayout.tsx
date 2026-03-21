@@ -288,7 +288,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
                   if (state.preview.visible) {
                     dispatch({ type: 'HIDE_PREVIEW' })
                   } else {
-                    dispatch({ type: 'SHOW_PREVIEW', tab: 'files' })
+                    dispatch({ type: 'SHOW_PREVIEW' })
                   }
                 }}
                 className="h-9 w-9 p-0 transition-colors hover:bg-gray-100"
@@ -335,22 +335,19 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
 
         {/* Main Panel */}
         <ResizablePanel defaultSize={state.preview.visible ? 55 : 88} minSize={40}>
-          {!hasMessages ? (
-            <div className="relative flex h-full flex-col overflow-hidden">
-              {renderHeader()}
+          <div className="relative flex h-full flex-col overflow-hidden">
+            {renderHeader()}
+            {!hasMessages ? (
               <ChatHome
                 onStartChat={handleSubmit}
                 onSelectConversation={handleSelectConversation}
                 isProcessing={stream.isProcessing}
                 onStop={handleStop}
               />
-            </div>
-          ) : (
-            <div className="relative flex h-full flex-col overflow-hidden">
-              {renderHeader()}
+            ) : (
               <ConversationPanel onSend={handleSubmit} onStop={handleStop} />
-            </div>
-          )}
+            )}
+          </div>
         </ResizablePanel>
 
         {/* Preview Panel */}

@@ -112,8 +112,8 @@ export const useBackendChatStream = (
           onEvent: (evt: ChatStreamEvent) => {
             const { type, thread_id, run_id, node_name, timestamp, data } = evt
 
-            // Update thread_id
-            if (thread_id) {
+            // Update thread_id (only when it actually changes)
+            if (thread_id && thread_id !== currentThreadIdRef.current) {
               latestThreadId = thread_id
               currentThreadIdRef.current = thread_id
               dispatch({ type: 'SET_THREAD', threadId: thread_id })
@@ -203,7 +203,7 @@ export const useBackendChatStream = (
 
             // ─── Done ──────────────────────────────────────────────────
             if (type === 'done') {
-              dispatch({ type: 'UPDATE_MESSAGE', id: aiMsgId, patch: { isStreaming: false } })
+              // Content committed by STREAM_DONE in finally block
               return
             }
 
@@ -360,15 +360,15 @@ export const useBackendChatStream = (
       } catch (e: any) {
         if (e?.name !== 'AbortError') {
           const msg = `Error: ${String(e?.message || e)}`
+          // Append error to streaming text — will be committed by STREAM_DONE
           dispatch({
-            type: 'UPDATE_MESSAGE',
-            id: aiMsgId,
-            patch: { content: `\n\n*${msg}*` },
+            type: 'STREAM_CONTENT',
+            delta: `\n\n*${msg}*`,
+            messageId: aiMsgId,
           })
         }
       } finally {
-        dispatch({ type: 'UPDATE_MESSAGE', id: aiMsgId, patch: { isStreaming: false } })
-        dispatch({ type: 'STREAM_DONE' })
+        dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
         if (isMountedRef.current) {
           setIsProcessing(false)
         }

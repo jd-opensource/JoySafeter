@@ -13,10 +13,8 @@ export default function ChatPage() {
   const threadId = searchParams?.get('thread') || null
 
   return (
-    <div className="flex h-full w-full">
-      <ChatProvider>
-        <ChatLayout chatId={threadId} />
-      </ChatProvider>
-    </div>
+    <ChatProvider>
+      <ChatLayout chatId={threadId} />
+    </ChatProvider>
   )
 }

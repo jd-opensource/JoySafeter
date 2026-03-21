@@ -16,7 +16,7 @@ export function usePreviewTrigger(
     const isNew = currentFileCount > prevFileCountRef.current
 
     if (isNew && currentFileCount > 0 && !state.preview.visible && !state.preview.userDismissed) {
-      dispatch({ type: 'SHOW_PREVIEW', tab: 'files' })
+      dispatch({ type: 'SHOW_PREVIEW' })
     }
 
     prevFileCountRef.current = currentFileCount
