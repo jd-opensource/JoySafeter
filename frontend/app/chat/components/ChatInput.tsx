@@ -19,8 +19,6 @@ interface ChatInputProps {
   onStop?: () => void
   currentMode?: string
   currentGraphId?: string | null
-  compactToolStatus?: React.ReactNode
-  compactArtifactStatus?: React.ReactNode
 }
 
 export default function ChatInput({
@@ -31,8 +29,6 @@ export default function ChatInput({
   onStop,
   currentMode,
   currentGraphId,
-  compactToolStatus,
-  compactArtifactStatus,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -109,12 +105,6 @@ export default function ChatInput({
 
   return (
     <div className="relative mx-auto w-full max-w-3xl">
-      {/* Compact Tool Status - Above Input, Full Width */}
-      {compactToolStatus && <div className="mb-3">{compactToolStatus}</div>}
-
-      {/* Compact Artifact Status - Above Input, Full Width */}
-      {compactArtifactStatus && <div className="mb-3">{compactArtifactStatus}</div>}
-
       {/* File List */}
       {files.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2">
