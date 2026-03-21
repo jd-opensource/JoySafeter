@@ -2,7 +2,7 @@
 
 import { Plus, Loader2 } from 'lucide-react'
 import { useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
+
 
 import { AddMcpDialog } from '@/components/settings/add-mcp-dialog'
 import { McpServerCard, BuiltinToolCard } from '@/components/settings/mcp-server-card'
@@ -15,6 +15,7 @@ import {
   type McpServer,
 } from '@/hooks/queries/mcp'
 import { useBuiltinTools } from '@/hooks/queries/tools'
+import { useTranslation } from '@/lib/i18n'
 
 export function ToolsPage() {
   const { t } = useTranslation()

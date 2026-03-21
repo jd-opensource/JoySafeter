@@ -1,11 +1,11 @@
 'use client'
 
-import { Sparkles, X, Minimize2 } from 'lucide-react'
+import { Sparkles, Minimize2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { CopilotPanel } from './CopilotPanel'
 

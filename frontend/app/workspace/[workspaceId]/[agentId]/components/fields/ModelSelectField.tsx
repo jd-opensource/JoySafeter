@@ -15,7 +15,6 @@ import {
 } from '@/components/ui/select'
 import { useAvailableModels } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
-import type { AvailableModel } from '@/types/models'
 
 import { ModelOption } from '../../services/agentService'
 

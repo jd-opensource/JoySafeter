@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, useEffect } from 'react'
 
+import { toastError } from '@/lib/utils/toast'
 import {
   streamChat,
   type ChatStreamEvent,
@@ -15,8 +16,8 @@ import {
   type RouteDecisionEventData,
 } from '@/services/chatBackend'
 
-import { toastError } from '@/lib/utils/toast'
-import { generateId, type Message, type ToolCall } from '../types'
+import { generateId, type Message } from '../types'
+
 import type { ChatAction } from './useChatReducer'
 
 function now() {

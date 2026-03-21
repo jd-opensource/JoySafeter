@@ -2,13 +2,12 @@
 
 import { X, Info, Plus, FileJson, SquarePen, Trash2, Save, Loader2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { useTranslation } from '@/lib/i18n'
+
 
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
@@ -26,12 +25,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/use-toast'
 import { useCreateMcpServer, useUpdateMcpServer, useTestMcpServer } from '@/hooks/queries/mcp'
 import type { McpServer } from '@/hooks/queries/mcp'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 import {
   serverToEditData,
   DEFAULT_MCP_FORM_CONFIG,
-  type McpServerEditData,
 } from './mcp-dialog-utils'
 
 interface AddMcpDialogProps {
@@ -81,6 +80,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
           : undefined,
         enabled: statusEnabled,
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setJsonContent(JSON.stringify(config, null, 2))
     }
   }, [mode, name, transport, address, headers, retryEnabled, maxRetries, retryDelay, statusEnabled])
@@ -89,6 +89,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
   useEffect(() => {
     if (open && editingServer) {
       const editData = serverToEditData(editingServer)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setName(editData.name)
       setTransport(editData.transport as 'streamable-http' | 'sse' | 'stdio')
       setAddress(editData.url || '')

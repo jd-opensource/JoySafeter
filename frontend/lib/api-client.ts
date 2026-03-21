@@ -382,7 +382,7 @@ export async function apiStream(
 }
 
 // ==================== Default Export ====================
-export default {
+const apiClient = {
   fetch: apiFetch,
   get: apiGet,
   post: apiPost,
@@ -392,3 +392,5 @@ export default {
   upload: apiUpload,
   stream: apiStream,
 }
+
+export default apiClient

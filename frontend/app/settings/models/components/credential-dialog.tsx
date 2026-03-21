@@ -199,7 +199,7 @@ export function ModelCredentialDialog({
           })
         }
       }
-    } catch (error) {
+    } catch {
       toast({
         title: t('settings.error'),
         description: t('settings.failedToValidateCredential'),

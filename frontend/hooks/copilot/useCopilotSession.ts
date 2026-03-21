@@ -4,8 +4,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-import { copilotService } from '@/services/copilotService'
-
 export function useCopilotSession(graphId?: string) {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const hasProcessedUrlInputRef = useRef(false)
@@ -15,6 +13,7 @@ export function useCopilotSession(graphId?: string) {
     if (!graphId) return
     const storedSessionId = localStorage.getItem(`copilot_session_${graphId}`)
     if (storedSessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentSessionId(storedSessionId)
     }
   }, [graphId])

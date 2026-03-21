@@ -15,15 +15,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/components/ui/use-toast'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+
 import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/executionStore'
 import { StateField, StateFieldType, ReducerType } from '../types/graph'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 // ─── Default value helpers ─── ────────────────────────────────
 function getDefaultValueForType(type: StateFieldType): any {
@@ -53,27 +54,6 @@ function formatDefaultValue(value: any, type: StateFieldType): string {
     return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
   }
   return String(value)
-}
-
-function parseDefaultValue(raw: string, type: StateFieldType): any {
-  try {
-    switch (type) {
-      case 'int':
-        return parseInt(raw, 10) || 0
-      case 'float':
-        return parseFloat(raw) || 0.0
-      case 'bool':
-        return raw === 'true'
-      case 'list':
-      case 'dict':
-      case 'messages':
-        return JSON.parse(raw || (type === 'dict' ? '{}' : '[]'))
-      default:
-        return raw
-    }
-  } catch {
-    return raw
-  }
 }
 
 // ─── Component ─── ────────────────────────────────────────────

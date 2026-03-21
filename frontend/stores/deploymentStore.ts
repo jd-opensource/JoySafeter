@@ -70,7 +70,7 @@ const initialState: DeploymentUIState = {
  * - useDeploymentStatus(graphId)
  * - useDeploymentVersions(graphId)
  */
-export const useDeploymentStore = create<DeploymentStore>((set, get) => ({
+export const useDeploymentStore = create<DeploymentStore>((set, _get) => ({
   ...initialState,
 
   deploy: async (graphId: string, name?: string) => {

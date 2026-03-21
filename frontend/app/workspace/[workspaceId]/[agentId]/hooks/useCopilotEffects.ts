@@ -11,8 +11,9 @@ import { useEffect, useRef } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { copilotService } from '@/services/copilotService'
 
-import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 import { hasCurrentMessage } from '../utils/copilotUtils'
+
+import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
 interface UseCopilotEffectsOptions {
   state: CopilotState
@@ -44,7 +45,7 @@ export function useCopilotEffects({
       return
 
     const restoreSession = async () => {
-      console.log('[useCopilotEffects] Restoring session:', currentSessionId)
+      console.warn('[useCopilotEffects] Restoring session:', currentSessionId)
       lastRestoredSessionIdRef.current = currentSessionId
 
       try {
@@ -88,6 +89,7 @@ export function useCopilotEffects({
     }
 
     restoreSession()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.currentSessionId, actions, refs])
 
   // Update page title to show loading status

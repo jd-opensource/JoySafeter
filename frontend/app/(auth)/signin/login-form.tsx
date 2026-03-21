@@ -1,12 +1,11 @@
 'use client'
 
+import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useTranslation } from '@/lib/i18n'
 
 import { OAuthButtons } from '@/components/auth/oauth-buttons'
 import { Button } from '@/components/ui/button'
@@ -20,10 +19,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
-import { getEnv, isFalsy, isTruthy } from '@/lib/core/config/env'
-import { cn } from '@/lib/utils'
+import { getEnv, isFalsy } from '@/lib/core/config/env'
 import { getBaseUrl } from '@/lib/core/utils/urls'
+import { useTranslation } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
+import { cn } from '@/lib/utils'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { quickValidateEmail } from '@/services/email/validation'
 import { inter } from '@/styles/fonts/inter/inter'
@@ -71,7 +71,6 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [buttonClass, setButtonClass] = useState('auth-button-gradient')
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
   const [callbackUrl, setCallbackUrl] = useState('/chat')
@@ -133,31 +132,54 @@ export default function LoginPage() {
       }
     }
 
-    const checkCustomBrand = () => {
-      const computedStyle = getComputedStyle(document.documentElement)
-      const brandAccent = computedStyle.getPropertyValue('--brand-accent-hex').trim()
+  }, [searchParams, t])
 
-      if (brandAccent && brandAccent !== '#6f3dfa') {
-        setButtonClass('auth-button-custom')
-      } else {
-        setButtonClass('auth-button-gradient')
+  const handleForgotPassword = useCallback(async () => {
+    if (!forgotPasswordEmail) {
+      toastError('Please enter your email address')
+      return
+    }
+
+    const emailValidation = quickValidateEmail(forgotPasswordEmail.trim().toLowerCase())
+    if (!emailValidation.isValid) {
+      toastError('Please enter a valid email address')
+      return
+    }
+
+    try {
+      setIsSubmittingReset(true)
+      setResetStatus({ type: null, message: '' })
+
+      await client.forgetPassword({
+        email: forgotPasswordEmail,
+        redirectTo: `${getBaseUrl()}/reset-password`,
+      })
+
+      toastSuccess('Password reset link sent to your email')
+
+      setTimeout(() => {
+        setForgotPasswordOpen(false)
+        setResetStatus({ type: null, message: '' })
+      }, 2000)
+    } catch (error) {
+      logger.error('Error requesting password reset:', { error })
+
+      let errorMessage = 'Failed to request password reset'
+      if (error instanceof Error) {
+        if (error.message.includes('invalid email')) {
+          errorMessage = 'Please enter a valid email address'
+        } else if (error.message.includes('Email is required')) {
+          errorMessage = 'Please enter your email address'
+        } else {
+          errorMessage = error.message
+        }
       }
+
+      toastError(errorMessage)
+    } finally {
+      setIsSubmittingReset(false)
     }
-
-    checkCustomBrand()
-
-    window.addEventListener('resize', checkCustomBrand)
-    const observer = new MutationObserver(checkCustomBrand)
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['style', 'class'],
-    })
-
-    return () => {
-      window.removeEventListener('resize', checkCustomBrand)
-      observer.disconnect()
-    }
-  }, [searchParams])
+  }, [forgotPasswordEmail])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -170,7 +192,7 @@ export default function LoginPage() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [forgotPasswordEmail, forgotPasswordOpen])
+  }, [forgotPasswordEmail, forgotPasswordOpen, handleForgotPassword])
 
   async function onSubmit(data: LoginFormData) {
     setIsLoading(true)
@@ -346,53 +368,6 @@ export default function LoginPage() {
       toastError(errorMessage)
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleForgotPassword = async () => {
-    if (!forgotPasswordEmail) {
-      toastError('Please enter your email address')
-      return
-    }
-
-    const emailValidation = quickValidateEmail(forgotPasswordEmail.trim().toLowerCase())
-    if (!emailValidation.isValid) {
-      toastError('Please enter a valid email address')
-      return
-    }
-
-    try {
-      setIsSubmittingReset(true)
-      setResetStatus({ type: null, message: '' })
-
-      await client.forgetPassword({
-        email: forgotPasswordEmail,
-        redirectTo: `${getBaseUrl()}/reset-password`,
-      })
-
-      toastSuccess('Password reset link sent to your email')
-
-      setTimeout(() => {
-        setForgotPasswordOpen(false)
-        setResetStatus({ type: null, message: '' })
-      }, 2000)
-    } catch (error) {
-      logger.error('Error requesting password reset:', { error })
-
-      let errorMessage = 'Failed to request password reset'
-      if (error instanceof Error) {
-        if (error.message.includes('invalid email')) {
-          errorMessage = 'Please enter a valid email address'
-        } else if (error.message.includes('Email is required')) {
-          errorMessage = 'Please enter your email address'
-        } else {
-          errorMessage = error.message
-        }
-      }
-
-      toastError(errorMessage)
-    } finally {
-      setIsSubmittingReset(false)
     }
   }
 

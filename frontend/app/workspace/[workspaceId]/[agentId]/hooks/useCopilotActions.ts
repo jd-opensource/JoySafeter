@@ -51,6 +51,7 @@ export function useCopilotActions({
       actions.clearStreaming()
 
       // Mark that we're creating a new session
+      // eslint-disable-next-line react-hooks/immutability
       refs.isCreatingSessionRef.current = true
       actions.clearSession()
 
@@ -136,6 +137,7 @@ export function useCopilotActions({
     actions.setLoading(false)
     actions.clearStreaming()
 
+    // eslint-disable-next-line react-hooks/immutability
     refs.isCreatingSessionRef.current = false
     actions.removeCurrentMessage()
     actions.addMessage({ role: 'model', text: t('workspace.requestCancelled') })
@@ -165,6 +167,7 @@ export function useCopilotActions({
     actions.setLoading(false)
     actions.clearStreaming()
     actions.clearExpandedItems()
+    // eslint-disable-next-line react-hooks/immutability
     refs.hasProcessedUrlInputRef.current = false
   }, [actions, refs, graphId, currentGraphId, queryClient])
 

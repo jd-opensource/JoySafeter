@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
 
 import AuthBackground from '@/app/(auth)/components/auth-background'
+import { useTranslation } from '@/lib/i18n'
 import { soehne } from '@/styles/fonts/soehne/soehne'
 
 // Helper to detect if a color is dark

@@ -33,7 +33,7 @@ const SANITIZE_CONFIG = {
 }
 
 const markdownComponents = {
-  code({ node, inline, className, children, ...props }: any) {
+  code({ node: _node, inline, className, children, ...props }: any) {
     const match = /language-(\w+)/.exec(className || '')
     const content = String(children).replace(/\n$/, '')
 

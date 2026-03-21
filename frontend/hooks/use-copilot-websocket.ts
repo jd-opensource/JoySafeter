@@ -69,18 +69,6 @@ function getWsBaseUrl(): string {
   return 'ws://localhost:8000'
 }
 
-function getAuthCookie(): string | null {
-  if (typeof document === 'undefined') return null
-  const cookies = document.cookie.split(';')
-  for (const cookie of cookies) {
-    const [name, value] = cookie.trim().split('=')
-    if (name === 'auth_token') {
-      return value
-    }
-  }
-  return null
-}
-
 export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
   const {
     sessionId,
@@ -94,6 +82,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  // eslint-disable-next-line react-hooks/purity
   const lastPongRef = useRef<number>(Date.now())
   const callbacksRef = useRef(callbacks)
   const queueRef = useRef<CopilotWebSocketEvent[]>([])
@@ -131,7 +120,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
         ) {
           wsRef.current.close()
         }
-      } catch (e) {
+      } catch {
         // Ignore close errors
       }
       wsRef.current = null
@@ -152,7 +141,6 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
     cleanup()
 
     const wsUrl = `${getWsBaseUrl()}/ws/copilot/${sessionId}`
-    const authToken = getAuthCookie()
 
     try {
       const ws = new WebSocket(wsUrl)
@@ -178,6 +166,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
               if (autoReconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
                 reconnectAttemptsRef.current++
                 reconnectTimeoutRef.current = setTimeout(() => {
+                  // eslint-disable-next-line react-hooks/immutability
                   connect()
                 }, reconnectInterval)
               }
@@ -331,7 +320,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
           wsRef.current !== null // Only reconnect if not manually cleaned up
         ) {
           reconnectAttemptsRef.current++
-          console.log(
+          console.warn(
             `[WebSocket] Reconnecting (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts}) in ${backoffDelay}ms...`,
           )
           reconnectTimeoutRef.current = setTimeout(() => {

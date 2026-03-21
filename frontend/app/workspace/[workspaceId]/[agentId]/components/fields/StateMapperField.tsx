@@ -2,7 +2,6 @@
 
 import { Trash2, Plus, ArrowRight, Variable, Type } from 'lucide-react'
 import React from 'react'
-import { useTranslation } from '@/lib/i18n'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,10 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+
 import { useBuilderStore } from '../../stores/builderStore'
 import { StateField } from '../../types/graph'
-import type { Node } from 'reactflow'
+
 
 interface StateMapperFieldProps {
   value: Record<string, string> | { key: string; value: string }[]

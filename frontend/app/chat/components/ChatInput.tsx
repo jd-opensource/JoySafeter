@@ -5,8 +5,8 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { ALLOWED_EXTENSIONS_STRING } from '@/lib/constants/upload-limits'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { useFileUpload } from '../hooks/useFileUpload'
 import type { UploadedFile } from '../services/modeHandlers/types'
@@ -34,6 +34,13 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
 
+  const apkAutoSubmitRef = useRef<((uploadedFile: UploadedFile, rawFile: File) => void) | undefined>(undefined)
+
+  const { files, isUploading, fileInputRef, uploadFile, handleFileSelect, removeFile, clearFiles } =
+    useFileUpload({
+      onFileUploaded: (uploadedFile, rawFile) => apkAutoSubmitRef.current?.(uploadedFile, rawFile),
+    })
+
   const handleApkAutoSubmit = useCallback(
     (uploadedFile: UploadedFile, rawFile: File) => {
       if (currentMode === 'apk-vulnerability' && rawFile.name.toLowerCase().endsWith('.apk')) {
@@ -45,11 +52,12 @@ export default function ChatInput({
         clearFiles()
       }
     },
-    [currentMode, currentGraphId, onSubmit, t],
+    [currentMode, currentGraphId, onSubmit, t, clearFiles],
   )
 
-  const { files, isUploading, fileInputRef, uploadFile, handleFileSelect, removeFile, clearFiles } =
-    useFileUpload({ onFileUploaded: handleApkAutoSubmit })
+  useEffect(() => {
+    apkAutoSubmitRef.current = handleApkAutoSubmit
+  }, [handleApkAutoSubmit])
 
   // Auto-resize textarea
   useEffect(() => {

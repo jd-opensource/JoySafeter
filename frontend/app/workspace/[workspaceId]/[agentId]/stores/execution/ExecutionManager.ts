@@ -9,7 +9,6 @@
 
 import type { ExecutionContext, GraphExecutionState, InterruptInfo } from './types'
 import { EXECUTION_CONFIG } from './types'
-import { generateId } from './utils'
 
 /**
  * Create empty Graph execution state

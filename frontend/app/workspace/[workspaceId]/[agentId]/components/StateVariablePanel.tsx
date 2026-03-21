@@ -24,13 +24,11 @@ import { SearchInput } from '@/components/ui/search-input'
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
 
 import { getNodeAvailableVariables, getGraphVariables } from '../services/variableService'
 
@@ -66,7 +64,6 @@ export function StateVariablePanel({
   onVariableSelect,
   onClose,
 }: StateVariablePanelProps) {
-  const { t } = useTranslation()
   const { toast } = useToast()
   const params = useParams()
   const graphId = params.agentId as string
@@ -543,8 +540,8 @@ function VariableItem({
 // Frontend variable analysis function (simplified version, should call backend API in production)
 function analyzeVariables(
   nodes: Node[],
-  edges: Edge[],
-  selectedNodeId?: string | null,
+  _edges: Edge[],
+  _selectedNodeId?: string | null,
 ): VariableInfo[] {
   const variables: VariableInfo[] = []
 

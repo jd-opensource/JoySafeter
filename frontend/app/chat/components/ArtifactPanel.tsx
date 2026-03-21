@@ -1,12 +1,12 @@
 'use client'
 
 import { FolderOpen } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import CodeViewer from '@/app/chat/components/CodeViewer'
 import FileBrowser, { FileNode } from '@/app/chat/components/FileBrowser'
-import { artifactService } from '@/services/artifactService'
 import { cn } from '@/lib/utils'
+import { artifactService } from '@/services/artifactService'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -128,17 +128,14 @@ interface ArtifactPanelProps {
 }
 
 export function ArtifactPanel({ threadId, fileTree, className }: ArtifactPanelProps) {
-  const [files, setFiles] = useState<FileNode[]>([])
+  const files = useMemo(() => {
+    if (fileTree && Object.keys(fileTree).length > 0) {
+      return fileTreeToNodes(fileTree)
+    }
+    return []
+  }, [fileTree])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [previewContent, setPreviewContent] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (fileTree && Object.keys(fileTree).length > 0) {
-      setFiles(fileTreeToNodes(fileTree))
-    } else {
-      setFiles([])
-    }
-  }, [fileTree])
 
   const handleSelectFile = useCallback(
     async (path: string) => {

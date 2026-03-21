@@ -33,7 +33,7 @@ export function getBaseDomain(): string {
   try {
     const url = new URL(getBaseUrl())
     return url.host
-  } catch (_e) {
+  } catch {
     const fallbackUrl = getEnv('NEXT_PUBLIC_APP_URL') || 'http://localhost:8000'
     try {
       return new URL(fallbackUrl).host
@@ -51,7 +51,7 @@ export function getEmailDomain(): string {
   try {
     const baseDomain = getBaseDomain()
     return baseDomain.startsWith('www.') ? baseDomain.substring(4) : baseDomain
-  } catch (_e) {
+  } catch {
     return isProd ? 'jd.ai' : 'localhost:3000'
   }
 }

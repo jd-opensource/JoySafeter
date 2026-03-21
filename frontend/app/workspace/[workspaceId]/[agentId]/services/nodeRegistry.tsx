@@ -5,7 +5,6 @@ import {
   Split,
   GitBranch,
   MessageSquare,
-  Globe,
   UserRound,
   LucideIcon,
   Wrench,

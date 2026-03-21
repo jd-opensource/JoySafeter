@@ -1,13 +1,12 @@
 'use client'
 
-import { Settings, User, Brain, Box } from 'lucide-react'
+import { User, Brain, Box } from 'lucide-react'
 import { useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
 
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
-
 import { useSession } from '@/lib/auth/auth-client'
+import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { ModelsPage } from './models-page'
 import { ProfilePage } from './profile-page'
@@ -45,8 +44,7 @@ const MenuItem = ({
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { t } = useTranslation()
-  const { data: session } = useSession()
-  const user = session?.user
+  useSession()
   const [activeTab, setActiveTab] = useState('profile')
 
   return (

@@ -1,8 +1,6 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-
-import { generateUUID } from '@/lib/utils/uuid'
 import {
   createContext,
   type ReactNode,
@@ -14,6 +12,7 @@ import {
 } from 'react'
 
 import { createLogger } from '@/lib/logs/console/logger'
+import { generateUUID } from '@/lib/utils/uuid'
 
 const logger = createLogger('GlobalCommands')
 

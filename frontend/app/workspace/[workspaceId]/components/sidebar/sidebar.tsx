@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { FolderPlus, Plus } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
-import { useCallback, useRef, useState, useEffect } from 'react'
+import { useCallback, useRef, useState, useEffect, useMemo } from 'react'
 
 import {
   agentService,
@@ -34,22 +34,21 @@ import {
   useDeleteFolderMutation as useDeleteFolder,
   useDuplicateFolderMutation as useDuplicateFolder,
 } from '@/hooks/queries/folders'
+import { useGraphs, graphKeys } from '@/hooks/queries/graphs'
 import {
   useWorkspaces,
   useCreateWorkspace,
   useUpdateWorkspace,
   useDeleteWorkspace,
   useDuplicateWorkspace,
-  type Workspace,
 } from '@/hooks/queries/workspaces'
-import { cn } from '@/lib/utils'
-import { createLogger } from '@/lib/logs/console/logger'
-import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
-import { useFolderStore, MAX_FOLDER_DEPTH, type WorkflowFolder } from '@/stores/folders/store'
-import { useTranslation } from '@/lib/i18n'
-import { useGraphs, graphKeys } from '@/hooks/queries/graphs'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+import { useTranslation } from '@/lib/i18n'
+import { createLogger } from '@/lib/logs/console/logger'
+import { cn } from '@/lib/utils'
+import { useFolderStore, MAX_FOLDER_DEPTH, type WorkflowFolder } from '@/stores/folders/store'
+import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
 
 const logger = createLogger('Sidebar')
 
@@ -146,7 +145,7 @@ export function Sidebar() {
   // Use unified useGraphs hook to ensure cache sharing with other components
   const { data: graphsData, isLoading: isAgentsLoading } = useGraphs(workspaceId)
 
-  const agents: AgentMetadata[] = graphsData?.map(graphToAgentMetadata) || []
+  const agents: AgentMetadata[] = useMemo(() => graphsData?.map(graphToAgentMetadata) || [], [graphsData])
 
   const createAgentMutation = useMutation({
     mutationFn: async (data: { name: string; description?: string; color?: string }) => {
@@ -358,8 +357,6 @@ export function Sidebar() {
       color: generateRandomColor(),
     })
   }, [
-    workspaceId,
-    agents.length,
     createAgentMutation,
     t,
     generateRandomColor,
@@ -393,7 +390,6 @@ export function Sidebar() {
     },
     [
       workspaceId,
-      folders,
       createFolderMutation,
       canCreateSubfolder,
       t,
@@ -654,7 +650,7 @@ export function Sidebar() {
    */
   const handleCreateWorkspace = useCallback(async () => {
     createWorkspaceMutation.mutate({ name: t('workspace.newWorkspace') })
-  }, [createWorkspaceMutation])
+  }, [createWorkspaceMutation, t])
 
   /**
    * Handle rename workspace

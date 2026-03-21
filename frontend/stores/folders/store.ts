@@ -1,10 +1,6 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
-import { createLogger } from '@/lib/logs/console/logger'
-
-const logger = createLogger('FoldersStore')
-
 /**
  * Maximum folder nesting depth (2 levels: root + 1 subfolder)
  */
@@ -105,6 +101,7 @@ export const useFolderStore = create<FolderState>()(
 
         removeFolder: (id) =>
           set((state) => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { [id]: _, ...rest } = state.folders
             return { folders: rest }
           }),

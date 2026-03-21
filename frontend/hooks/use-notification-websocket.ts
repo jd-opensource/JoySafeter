@@ -1,6 +1,5 @@
 'use client'
 
-import { useQueryClient } from '@tanstack/react-query'
 import { env as runtimeEnv } from 'next-runtime-env'
 import { useEffect, useRef, useCallback, useState } from 'react'
 
@@ -49,7 +48,6 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const queryClient = useQueryClient()
 
   const [isConnected, setIsConnected] = useState(false)
   const [lastNotification, setLastNotification] = useState<NotificationMessage | null>(null)
@@ -145,6 +143,7 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
         ) {
           reconnectAttemptsRef.current++
           reconnectTimeoutRef.current = setTimeout(() => {
+            // eslint-disable-next-line react-hooks/immutability
             connect()
           }, reconnectInterval)
         }
@@ -154,7 +153,7 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
     } catch {
       // Ignore connection errors
     }
-  }, [userId, autoReconnect, reconnectInterval, maxReconnectAttempts, cleanup, queryClient])
+  }, [userId, autoReconnect, reconnectInterval, maxReconnectAttempts, cleanup])
 
   useEffect(() => {
     if (userId) {

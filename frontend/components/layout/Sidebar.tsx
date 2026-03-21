@@ -1,6 +1,5 @@
 import {
   Plus,
-  LayoutGrid,
   Compass,
   ChevronDown,
   Clock,
@@ -8,12 +7,23 @@ import {
   Workflow,
   Loader2,
   Trash2,
-  Settings,
   ShieldCheck,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { ViewMode } from '../../types'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 
 // Local type definition (chatService was removed as empty stub)
 interface ChatSession {
@@ -28,18 +38,6 @@ const chatService = {
   getSessions: async (): Promise<ChatSession[]> => [],
   deleteSession: async (_id: string): Promise<void> => {},
 }
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '../ui/alert-dialog'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 
 interface SidebarProps {
   onNewChat: () => void
@@ -67,7 +65,7 @@ export default function Sidebar({
     try {
       const sessions = await chatService.getSessions()
       setHistoryItems(sessions || [])
-    } catch (e) {
+    } catch {
       setHistoryItems([])
     } finally {
       setLoading(false)

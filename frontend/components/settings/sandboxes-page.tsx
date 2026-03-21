@@ -1,7 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
+import { formatDistanceToNow } from 'date-fns'
 import {
   RefreshCw,
   StopCircle,
@@ -18,17 +17,8 @@ import {
   Check,
   X,
 } from 'lucide-react'
-import { useToast } from '@/components/ui/use-toast'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import React, { useEffect, useState } from 'react'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,7 +29,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -47,10 +39,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
-import { sandboxService, Sandbox } from '@/services/sandbox-service'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useToast } from '@/components/ui/use-toast'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { formatDistanceToNow } from 'date-fns'
+import { sandboxService, Sandbox } from '@/services/sandbox-service'
 
 const IMAGE_PRESETS = ['python:3.12-slim', 'python:3.11-slim', 'node:20-slim'] as const
 const CUSTOM_IMAGE_VALUE = '__custom__'
@@ -93,6 +94,7 @@ export const SandboxesPage = () => {
     fetchSandboxes()
     const interval = setInterval(fetchSandboxes, 30000)
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleAction = async () => {

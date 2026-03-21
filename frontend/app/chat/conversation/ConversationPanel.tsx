@@ -3,11 +3,10 @@
 import React, { useRef, useEffect, useCallback } from 'react'
 
 import { useChatState, useChatStream } from '../ChatProvider'
-import type { ToolCall } from '../types'
-
-import ThreadContent from '../components/ThreadContent'
 import ChatInput from '../components/ChatInput'
+import ThreadContent from '../components/ThreadContent'
 import type { UploadedFile } from '../services/modeHandlers/types'
+import type { ToolCall } from '../types'
 
 interface ConversationPanelProps {
   onSend: (text: string, mode?: string, graphId?: string | null, files?: UploadedFile[]) => void

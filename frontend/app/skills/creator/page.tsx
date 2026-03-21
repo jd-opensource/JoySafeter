@@ -5,15 +5,13 @@ import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 
+import { findOrCreateGraphByTemplate } from '@/app/chat/services/utils/graphLookup'
+import { formatToolDisplay } from '@/app/chat/shared/ToolCallDisplay'
+import { generateId, type Message, type ToolCall } from '@/app/chat/types'
 import { Button } from '@/components/ui/button'
-
+import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
 import { streamChat, type ChatStreamEvent, type ToolEndEventData } from '@/services/chatBackend'
 
-import { generateId, type Message, type ToolCall } from '@/app/chat/types'
-import { findOrCreateGraphByTemplate } from '@/app/chat/services/utils/graphLookup'
-import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
-
-import { formatToolDisplay } from '@/app/chat/shared/ToolCallDisplay'
 import SkillCreatorChat from './components/SkillCreatorChat'
 import SkillPreviewPanel from './components/SkillPreviewPanel'
 import SkillSaveDialog from './components/SkillSaveDialog'
@@ -330,7 +328,7 @@ export default function SkillCreatorPage() {
 
   // ---- Save callback ----
   const handleSaved = useCallback(
-    (skillId: string) => {
+    (_skillId: string) => {
       // Navigate to skills page after save
       router.push('/skills')
     },

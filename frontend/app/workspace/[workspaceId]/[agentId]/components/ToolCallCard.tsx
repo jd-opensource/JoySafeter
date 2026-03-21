@@ -13,8 +13,8 @@ import { useState, useMemo } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import type { ExecutionStep, ToolExecutionData } from '@/types'
 
 interface ToolCallCardProps {

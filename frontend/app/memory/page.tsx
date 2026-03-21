@@ -64,7 +64,6 @@ import {
   UserMemory,
 } from '@/hooks/queries/useMemories'
 import { useToast } from '@/hooks/use-toast'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
 export default function KnowledgePage() {

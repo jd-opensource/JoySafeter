@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 
 import { buildFileTree, parseSkillMd, generateSkillMd } from '@/services/skillService'
-import { SkillFile, FileTreeNode } from '@/types'
+import { SkillFile } from '@/types'
 
 import { SkillFormData } from '../schemas/skillFormSchema'
 

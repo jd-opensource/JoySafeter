@@ -17,6 +17,7 @@ export function useForwardedRef<T>(
     if (typeof forwardedRef === 'function') {
       forwardedRef(innerRef.current)
     } else {
+      // eslint-disable-next-line react-hooks/immutability
       forwardedRef.current = innerRef.current
     }
   }, [forwardedRef])

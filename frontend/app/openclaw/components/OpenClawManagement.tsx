@@ -10,7 +10,6 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
 import {
   Check,
   CheckCheck,
@@ -23,7 +22,7 @@ import {
   Smartphone,
   Trash2,
 } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
+import { useState } from 'react'
 
 import {
   AlertDialog,
@@ -40,6 +39,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
 import { apiDelete, apiGet, apiPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 interface InstanceStatus {

@@ -1,12 +1,12 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
 import { X, FolderTree, Wrench } from 'lucide-react'
+import React, { useState, useMemo } from 'react'
 
 import { useChatState } from '../ChatProvider'
+import ArtifactPanel from '../components/ArtifactPanel'
 import { ToolCallDetail } from '../shared/ToolCallDisplay'
 
-import ArtifactPanel from '../components/ArtifactPanel'
 
 export default function PreviewPanel() {
   const { state, dispatch } = useChatState()

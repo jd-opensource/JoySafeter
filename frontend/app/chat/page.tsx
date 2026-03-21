@@ -2,8 +2,8 @@
 
 import { useSearchParams } from 'next/navigation'
 
-import { ChatProvider } from './ChatProvider'
 import ChatLayout from './ChatLayout'
+import { ChatProvider } from './ChatProvider'
 
 /**
  * Chat Page — wraps ChatLayout in ChatProvider context

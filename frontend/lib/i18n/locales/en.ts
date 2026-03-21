@@ -1,4 +1,4 @@
-export default {
+const en = {
   translation: {
     common: {
       language: 'Language',
@@ -1152,3 +1152,5 @@ export default {
     },
   },
 }
+
+export default en

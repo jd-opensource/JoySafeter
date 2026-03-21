@@ -1,13 +1,14 @@
 'use client'
 
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { MessageSquare, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
+import { MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react'
 import React, { useState, useMemo, useCallback } from 'react'
 
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 import { conversationService, type Conversation } from '@/services/conversationService'
+
 import ConversationGroup from './ConversationGroup'
 
 // Conversation type imported from conversationService
@@ -25,7 +26,7 @@ export default function ChatSidebar({
   onToggle,
   onSelectConversation,
   currentThreadId,
-  onNewChat,
+  onNewChat: _onNewChat,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const { data: conversationsData, isLoading } = useQuery({
@@ -33,7 +34,7 @@ export default function ChatSidebar({
     queryFn: () => conversationService.listConversations({ page: 1, pageSize: 100 }),
   })
 
-  const conversations = conversationsData || []
+  const conversations = useMemo(() => conversationsData || [], [conversationsData])
 
   const { todayConvs, monthConvs, olderConvs } = useMemo(() => {
     const now = new Date()

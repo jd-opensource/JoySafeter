@@ -1,4 +1,4 @@
-export default {
+const zh = {
   translation: {
     common: {
       language: '语言',
@@ -1120,3 +1120,5 @@ export default {
     },
   },
 }
+
+export default zh

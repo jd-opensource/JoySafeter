@@ -24,7 +24,7 @@ class CopilotRedirectService {
    * @returns Redirect path, or null if failed
    */
   async redirectToCopilot(userInput: string, context: ModeContext): Promise<string | null> {
-    const { workspaces, t, router, queryClient } = context
+    const { workspaces, t, queryClient } = context
 
     try {
       // 1. Get personal workspace

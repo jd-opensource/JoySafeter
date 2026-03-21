@@ -29,7 +29,7 @@ interface NotificationProviderProps {
 export function NotificationProvider({ children }: NotificationProviderProps) {
   const user = useAuthStore((state) => state.user)
 
-  const handleNotification = (notification: NotificationMessage) => {
+  const handleNotification = (_notification: NotificationMessage) => {
     // Future notification types can be handled here
   }
 

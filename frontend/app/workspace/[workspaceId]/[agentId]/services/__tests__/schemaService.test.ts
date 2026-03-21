@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { schemaService } from '../schemaService'
+
 import * as apiClient from '@/lib/api-client'
+
+import { schemaService } from '../schemaService'
 
 // Mock the API client
 vi.mock('@/lib/api-client', () => ({

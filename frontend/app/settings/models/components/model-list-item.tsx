@@ -3,7 +3,6 @@
 import { Circle, Loader2 } from 'lucide-react'
 import React from 'react'
 
-import { Button } from '@/components/ui/button'
 import { useUpdateModelInstanceDefault } from '@/hooks/queries/models'
 import type { ModelProvider, AvailableModel } from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
@@ -34,7 +33,7 @@ function RadioIndicator({ selected, disabled }: { selected: boolean; disabled?: 
   )
 }
 
-export function ModelListItem({ model, provider, isLast }: ModelListItemProps) {
+export function ModelListItem({ model, provider: _provider, isLast }: ModelListItemProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const updateDefault = useUpdateModelInstanceDefault()

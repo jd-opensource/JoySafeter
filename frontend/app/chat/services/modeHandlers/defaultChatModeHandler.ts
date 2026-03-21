@@ -5,9 +5,10 @@
  * Creates or reuses a "Default Chat" graph from the default-chat template.
  */
 
+import { MessageSquare } from 'lucide-react'
+
 import { graphKeys } from '@/hooks/queries/graphs'
 
-import { MessageSquare } from 'lucide-react'
 
 import { getModeConfig } from '../../config/modeConfig'
 import { findGraphByName, findOrCreateGraphByTemplate } from '../utils/graphLookup'
@@ -80,13 +81,13 @@ export const defaultChatModeHandler: ModeHandler = {
 
   async onSubmit(
     input: string,
-    files: UploadedFile[],
-    context: ModeContext,
+    _files: UploadedFile[],
+    _context: ModeContext,
   ): Promise<SubmitResult> {
     return { success: true, processedInput: input }
   },
 
-  validate(input: string, files: UploadedFile[]): ValidationResult {
+  validate(_input: string, _files: UploadedFile[]): ValidationResult {
     return { valid: true }
   },
 

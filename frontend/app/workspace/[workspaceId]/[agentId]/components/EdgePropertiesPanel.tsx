@@ -38,13 +38,14 @@ import {
 import { useToast } from '@/components/ui/use-toast'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
+
 import { useBuilderStore } from '../stores/builderStore'
+import { EdgeData } from '../types/graph'
 
 // import { validateEdgeData } from '../services/edgeValidator'
-import { EdgeData } from '../types/graph'
-import { nodeRegistry } from '../services/nodeRegistry'
+
 import { ConditionExprField } from './fields/ConditionExprField'
 
 interface EdgePropertiesPanelProps {
@@ -59,7 +60,7 @@ interface EdgePropertiesPanelProps {
 export function EdgePropertiesPanel({
   edge,
   nodes,
-  edges,
+  edges: _edges,
   onUpdate,
   onDelete,
   onClose,
@@ -79,7 +80,7 @@ export function EdgePropertiesPanel({
   const sourceNode = nodes.find((n) => n.id === edge.source)
   const targetNode = nodes.find((n) => n.id === edge.target)
   const sourceNodeType = (sourceNode?.data as { type?: string })?.type || ''
-  const edgeData = (edge.data || {}) as EdgeData
+  const edgeData = useMemo(() => (edge.data || {}) as EdgeData, [edge.data])
 
   // Check if source node needs Handle ID mapping
   const isRouterNode = sourceNodeType === 'router_node'

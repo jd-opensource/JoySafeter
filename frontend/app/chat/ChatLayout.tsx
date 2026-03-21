@@ -3,25 +3,25 @@
 import { FolderOpen, List, Plus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import React, { useEffect, useRef, useCallback } from 'react'
+import type { ImperativePanelHandle } from 'react-resizable-panels'
 
 import { Button } from '@/components/ui/button'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
-import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
 import { useTranslation } from '@/lib/i18n'
 import { conversationService } from '@/services/conversationService'
 
+import { useChatState, useChatStream } from './ChatProvider'
 import ChatHome from './components/ChatHome'
 import ChatSidebar from './components/ChatSidebar'
 import { ModelNoticeDialog } from './components/ModelNoticeDialog'
+import { getModeConfig } from './config/modeConfig'
 import { ConversationPanel } from './conversation'
-import { PreviewPanel } from './preview'
-import { useChatState, useChatStream } from './ChatProvider'
 import { useBackendChatStream } from './hooks/useBackendChatStream'
 import { usePreviewTrigger } from './hooks/usePreviewTrigger'
+import { PreviewPanel } from './preview'
 import { graphResolutionService } from './services/graphResolutionService'
-import { getModeConfig } from './config/modeConfig'
 import { generateId, type Message, type ToolCall } from './types'
 
 interface ChatLayoutProps {
@@ -46,6 +46,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   const isInitialMountRef = useRef(true)
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null)
   const sidebarVisibleRef = useRef(state.ui.sidebarVisible)
+  // eslint-disable-next-line react-hooks/refs
   sidebarVisibleRef.current = state.ui.sidebarVisible
 
   const toggleSidebar = useCallback(() => {

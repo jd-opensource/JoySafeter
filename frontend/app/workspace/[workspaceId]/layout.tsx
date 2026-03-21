@@ -26,7 +26,6 @@ import { WorkspacePermissionsProvider } from './providers/workspace-permissions-
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const workspaceSidebarWidth = useSidebarStore((state) => state.sidebarWidth)
   const isWorkspaceSidebarCollapsed = useSidebarStore((state) => state.isCollapsed)
-  const isAppSidebarCollapsed = useSidebarStore((state) => state.isAppSidebarCollapsed)
 
   // Calculate workspace sidebar width for content margin
   // Only account for workspace sidebar, not AppSidebar (handled by AppShell)

@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Plus, Sparkles, AlertCircle, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Sparkles, Trash2, Loader2 } from 'lucide-react'
 import React, { useState } from 'react'
 
 import {
@@ -17,8 +17,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { useDeleteModelProvider } from '@/hooks/queries/models'
 import type { ModelProvider } from '@/hooks/queries/models'
-import { useTranslation } from '@/lib/i18n'
 import { useToast } from '@/hooks/use-toast'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 import { ModelCredentialDialog } from './credential-dialog'

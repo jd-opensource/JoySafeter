@@ -48,9 +48,6 @@ import {
   useWorkspacePermissions,
   type WorkspacePermissions,
 } from '@/hooks/use-workspace-permissions'
-import { createLogger } from '@/lib/logs/console/logger'
-
-const logger = createLogger('WorkspacePermissionsProvider')
 
 interface WorkspacePermissionsContextType {
   // Raw workspace permissions data

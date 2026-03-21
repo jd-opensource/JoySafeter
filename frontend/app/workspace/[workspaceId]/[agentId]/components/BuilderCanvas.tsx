@@ -1,6 +1,6 @@
 'use client'
 
-import { Plus, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Database } from 'lucide-react'
+import { Plus, Undo2, Redo2, ZoomIn, ZoomOut, Maximize } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import ReactFlow, { Background, BackgroundVariant, useReactFlow } from 'reactflow'
@@ -14,21 +14,17 @@ import { useSidebarStore } from '@/stores/sidebar/store'
 import { agentService } from '../services/agentService'
 import { nodeRegistry } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
-import BuilderNode from './BuilderNode'
+import { EdgeData } from '../types/graph'
+import { EDGE_COLORS } from '../utils/edgeStyles'
+import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
+
 import { EdgePropertiesPanel } from './EdgePropertiesPanel'
-import PropertiesPanel from './PropertiesPanel'
-import { StateVariablePanel } from './StateVariablePanel'
 import { GraphStatusBar } from './GraphStatusBar'
+import PropertiesPanel from './PropertiesPanel'
 import { SchemaExportPanel } from './SchemaExportPanel'
 import { ValidationSummaryPanel } from './ValidationSummaryPanel'
 
 import 'reactflow/dist/style.css'
-import { LoopBackEdge } from './LoopBackEdge'
-import { DefaultEdge } from './DefaultEdge'
-
-import { EdgeData } from '../types/graph'
-import { EDGE_COLORS } from '../utils/edgeStyles'
-import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
 
 // Custom Controls Component
 interface CustomControlsProps {
@@ -165,7 +161,6 @@ export function BuilderCanvas() {
 
   // Get sidebar state to adjust status bar position
   const isSidebarCollapsed = useSidebarStore((state) => state.isCollapsed)
-  const sidebarWidth = useSidebarStore((state) => state.sidebarWidth)
 
   const [isDragOver, setIsDragOver] = useState(false)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -389,7 +384,7 @@ export function BuilderCanvas() {
 
       addNode(type, position, label, configOverride)
     },
-    [addNode, userPermissions.canEdit, toast, t, workspaceId],
+    [addNode, userPermissions.canEdit, toast, t],
   )
 
   // Process edges for React Flow with unique types and styling

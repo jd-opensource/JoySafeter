@@ -56,7 +56,6 @@ export function decodeSSE(message: string): SSEEvent | null {
 }
 
 export function createSSEStream() {
-  const encoder = new TextEncoder()
   let controller: ReadableStreamDefaultController<Uint8Array> | null = null
 
   const stream = new ReadableStream<Uint8Array>({

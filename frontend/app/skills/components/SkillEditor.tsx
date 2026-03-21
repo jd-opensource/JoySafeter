@@ -33,7 +33,6 @@ export function SkillEditor({
   onUpdateFileContent,
 }: SkillEditorProps) {
   const { t } = useTranslation()
-  const content = form.watch('content')
 
   if (isSkillMd) {
     return (

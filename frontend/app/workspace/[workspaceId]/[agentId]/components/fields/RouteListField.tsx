@@ -18,7 +18,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, Plus, Trash2, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react'
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useMemo } from 'react'
 import { Node, Edge } from 'reactflow'
 
 import { Button } from '@/components/ui/button'
@@ -110,7 +110,6 @@ function RouteRuleItem({
   onCreateEdge,
   graphStateFields,
 }: RouteRuleItemProps) {
-  const [showCreateEdge, setShowCreateEdge] = React.useState(false)
   const [selectedTargetNodeId, setSelectedTargetNodeId] = React.useState<string>('')
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: rule.id,
@@ -281,7 +280,6 @@ function RouteRuleItem({
                       onClick={() => {
                         if (selectedTargetNodeId && rule.targetEdgeKey) {
                           onCreateEdge(selectedTargetNodeId, rule.targetEdgeKey)
-                          setShowCreateEdge(false)
                           setSelectedTargetNodeId('')
                         }
                       }}

@@ -36,20 +36,18 @@ import { create } from 'zustand'
 import { i18n } from '@/lib/i18n'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useSidebarStore } from '@/stores/sidebar/store'
-import type { GraphAction } from '@/types/copilot'
-import { ActionProcessor } from '@/utils/copilot/actionProcessor'
 import { computeGraphStateHash } from '@/utils/graphStateHash'
 
-import type { StateField } from '../types/graph'
 import { agentService } from '../services/agentService'
 import { migrateGraphData, needsMigration } from '../services/dataMigration'
 import { nodeRegistry } from '../services/nodeRegistry'
 import { schemaService } from '../services/schemaService'
+import type { StateField } from '../types/graph'
 import { EdgeData, RouteRule, ValidationError } from '../types/graph'
-import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/saveManager'
-import { getEdgeStyleByType, processEdgesForReactFlow } from '../utils/edgeStyles'
 import { determineEdgeTypeAndRouteKey, autoWireConnection } from '../utils/connectionUtils'
+import { getEdgeStyleByType, processEdgesForReactFlow } from '../utils/edgeStyles'
 import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExport'
+import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/saveManager'
 
 /**
  * Migrate legacy context variables to state fields.
@@ -73,7 +71,7 @@ function migrateLegacyContextToStateFields(variables: Record<string, any>): Stat
     description: v?.description || '',
     defaultValue: v?.value,
   }))
-  console.log('[builderStore] Migrated legacy context variables to state fields:', migrated.length)
+  console.warn('[builderStore] Migrated legacy context variables to state fields:', migrated.length)
   return migrated
 }
 
@@ -656,7 +654,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       const offsetY = 50
       let newX = nodeToDuplicate.position.x + offsetX
       const newY = nodeToDuplicate.position.y + offsetY
-      const sidebarLeftBoundary = isSidebarCollapsed ? 190 : 0
       const sidebarRightBoundary = isSidebarCollapsed ? 422 : sidebarWidth
 
       if (newX < sidebarRightBoundary + 50) {
@@ -711,9 +708,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       const { edges } = get()
       const outgoingEdges = edges.filter((e) => e.source === nodeId)
       const routeKeys = new Set(routes.map((r) => r.targetEdgeKey).filter(Boolean))
-
-      // Build a map of route_key to route for quick lookup
-      const routeMap = new Map(routes.map((r) => [r.targetEdgeKey, r]))
 
       // Update edges with matching route keys
       const updatedEdges = edges.map((edge) => {
@@ -772,7 +766,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       try {
         if (graphId) {
           const state = await agentService.loadGraphState(graphId)
-          let { nodes, edges, variables } = state
+          let { nodes, edges } = state
+          const { variables } = state
 
           // Apply data migration if needed
           if (needsMigration(nodes, edges)) {
@@ -1017,7 +1012,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     },
 
     applyAIChanges: ({ nodes, edges }) => {
-      console.log('[BuilderStore] applyAIChanges called', {
+      console.warn('[BuilderStore] applyAIChanges called', {
         nodesProvided: nodes !== undefined,
         nodesLength: nodes?.length ?? 0,
         edgesProvided: edges !== undefined,
@@ -1032,7 +1027,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         edges: edges !== undefined ? edges : state.edges,
       }))
 
-      console.log('[BuilderStore] applyAIChanges completed', {
+      console.warn('[BuilderStore] applyAIChanges completed', {
         newNodesCount: get().nodes.length,
         newEdgesCount: get().edges.length,
       })

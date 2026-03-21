@@ -31,7 +31,7 @@ interface SkillFileTreeProps {
  * Get file icon based on file path and type
  * Exported for use in other components
  */
-export const getFileIcon = (path: string, fileType: string) => {
+export const getFileIcon = (path: string, _fileType: string) => {
   const filename = getFilenameFromPath(path)
 
   if (filename === 'SKILL.md') return <FileText size={14} className="text-emerald-500" />

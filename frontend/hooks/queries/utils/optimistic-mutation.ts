@@ -4,7 +4,7 @@ import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('OptimisticMutation')
 
-export interface OptimisticMutationConfig<TData, TVariables, TItem, TContext> {
+export interface OptimisticMutationConfig<TData, TVariables, TItem> {
   name: string
   getQueryKey: (variables: TVariables) => readonly unknown[]
   getSnapshot: () => Record<string, TItem>
@@ -23,7 +23,7 @@ export interface OptimisticMutationContext<TItem> {
 
 export function createOptimisticMutationHandlers<TData, TVariables, TItem>(
   queryClient: QueryClient,
-  config: OptimisticMutationConfig<TData, TVariables, TItem, OptimisticMutationContext<TItem>>,
+  config: OptimisticMutationConfig<TData, TVariables, TItem>,
 ) {
   const {
     name,

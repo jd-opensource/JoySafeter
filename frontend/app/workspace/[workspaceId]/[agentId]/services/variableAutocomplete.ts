@@ -69,7 +69,6 @@ export function getVariableSuggestions(
     }
     const nodeType = nodeData.type || 'agent'
     const nodeLabel = nodeData.label || node.id
-    const config = nodeData.config || {}
 
     // Add node-specific variables based on type
     if (nodeType === 'loop_condition_node') {

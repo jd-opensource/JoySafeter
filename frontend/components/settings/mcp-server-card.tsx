@@ -6,7 +6,7 @@
 
 import { Server, MoreHorizontal, Wrench, Edit2, Trash2, Ban, Check } from 'lucide-react'
 import React from 'react'
-import { useTranslation } from '@/lib/i18n'
+
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { McpServer } from '@/hooks/queries/mcp'
+import { useTranslation } from '@/lib/i18n'
 import { getConnectionStatusIcon, getConnectionStatusText, formatToolCount } from '@/lib/mcp/utils'
 import { cn } from '@/lib/utils'
 
@@ -164,9 +165,9 @@ export function BuiltinToolCard({
   label,
   name,
   description,
-  toolType,
-  category,
-  tags,
+  _toolType,
+  _category,
+  _tags,
 }: BuiltinToolCardProps) {
   const { t } = useTranslation()
   const displayName = label || name || id

@@ -508,36 +508,6 @@ function toBackendSkill(skill: Partial<Skill>): any {
 }
 
 /**
- * Create default files for a new skill with SKILL.md format.
- */
-const createDefaultFiles = (name: string, description: string, body?: string): SkillFile[] => {
-  const now = new Date().toISOString()
-  const skillMdContent = generateSkillMd(
-    name,
-    description,
-    body || `# ${name}\n\n## Overview\n\nAdd your skill instructions here.`,
-  )
-
-  return [
-    {
-      id: '',
-      skill_id: '',
-      path: 'SKILL.md',
-      file_name: 'SKILL.md',
-      file_type: 'markdown',
-      content: skillMdContent,
-      storage_type: 'database',
-      storage_key: null,
-      size: skillMdContent.length,
-      created_at: now,
-      updated_at: now,
-      name: 'SKILL.md',
-      language: 'markdown',
-    },
-  ]
-}
-
-/**
  * Create a new file with proper structure.
  * @param directory - The directory path (e.g., "src", "lib/utils") or null for root level
  * @param filename - The filename
@@ -815,7 +785,6 @@ export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
   const rejectedFiles: RejectedFile[] = []
   for (const file of validFiles) {
     const relativePath = extractRelativePath(file.webkitRelativePath || file.name)
-    const filename = getFilenameFromPath(relativePath) || file.name
 
     // Skip empty files
     if (file.size === 0) continue
@@ -867,7 +836,7 @@ export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
         validation.warnings.push(...contentValidation.warnings)
         validation.valid = validation.errors.length === 0
       }
-    } catch (e) {
+    } catch {
       validation.errors.push('SKILL.md_READ_ERROR') // Will be translated in UI
       validation.valid = false
     }

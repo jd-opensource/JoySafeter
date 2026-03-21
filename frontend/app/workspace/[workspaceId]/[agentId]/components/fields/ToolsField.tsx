@@ -2,14 +2,15 @@
 
 import { Loader2, Check, Search, X, Hammer, Server } from 'lucide-react'
 import { useState, useMemo } from 'react'
-import { useTranslation } from '@/lib/i18n'
+
 
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 import { useMcpTools } from '@/hooks/use-mcp-tools'
-import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
 import { parseMcpToolId } from '@/lib/mcp/utils'
+import { cn } from '@/lib/utils'
 
 import { ToolOption } from '../../services/agentService'
 

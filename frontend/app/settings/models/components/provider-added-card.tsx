@@ -21,8 +21,8 @@ import {
   useDeleteModelProvider,
   useDeleteCredential,
 } from '@/hooks/queries/models'
-import { useTranslation } from '@/lib/i18n'
 import { useToast } from '@/hooks/use-toast'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 import { ModelCredentialDialog } from './credential-dialog'

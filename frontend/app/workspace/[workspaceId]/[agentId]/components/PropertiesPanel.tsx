@@ -1,25 +1,11 @@
 'use client'
 
 import { X, AlertCircle, Settings, BrainCircuit, Hammer, Sparkles, Database } from 'lucide-react'
-
-import { KVListField } from './fields/KVListField'
-import { VariableInputField } from './fields/VariableInputField'
-import { RouteListField } from './fields/RouteListField'
-import { ConditionExprField } from './fields/ConditionExprField'
-import { StringArrayField } from './fields/StringArrayField'
-import { DockerConfigField } from './fields/DockerConfigField'
-import { StateMapperField } from './fields/StateMapperField'
-import {
-  nodeConfigTemplates,
-  getTemplatesForNodeType,
-  applyTemplate,
-} from '../services/nodeConfigTemplates'
-// import { validateNodeConfig } from '../services/nodeConfigValidator'
-import { cn } from '@/lib/utils'
-import { Node, Edge } from 'reactflow'
-import { useTranslation } from '@/lib/i18n'
 import { useParams } from 'next/navigation'
 import React, { useMemo } from 'react'
+import { Node, Edge } from 'reactflow'
+
+// import { validateNodeConfig } from '../services/nodeConfigValidator'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,18 +16,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/components/ui/use-toast'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
+import {
+  getTemplatesForNodeType,
+  applyTemplate,
+} from '../services/nodeConfigTemplates'
 import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'
+
+import { ConditionExprField } from './fields/ConditionExprField'
+import { DockerConfigField } from './fields/DockerConfigField'
+import { KVListField } from './fields/KVListField'
 import { ModelSelectField } from './fields/ModelSelectField'
+import { RouteListField } from './fields/RouteListField'
 import { SkillsField } from './fields/SkillsField'
+import { StateMapperField } from './fields/StateMapperField'
+import { StringArrayField } from './fields/StringArrayField'
 import { ToolsField } from './fields/ToolsField'
+import { VariableInputField } from './fields/VariableInputField'
 
 interface PropertiesPanelProps {
   node: Node
@@ -330,7 +330,6 @@ const SchemaFieldRenderer = ({
     case 'modelSelect':
       // Save both provider_name and model_name simultaneously
       // Note: Need to determine if it's 'model' or 'memoryModel' based on field name
-      const isMemoryModel = schema.key === 'memoryModel'
       input = (
         <ModelSelectField
           value={value as string}
@@ -452,7 +451,7 @@ export default function PropertiesPanel({
     | undefined
   const def = nodeData ? nodeRegistry.get(nodeData.type) : undefined
 
-  const config = nodeData?.config || {}
+  const config = useMemo(() => nodeData?.config || {}, [nodeData?.config])
   const nodeType = nodeData?.type || ''
 
   // Get available templates for this node type
@@ -609,7 +608,6 @@ export default function PropertiesPanel({
   }
 
   const Icon = def?.icon || AlertCircle
-  const isAgent = nodeData.type === 'agent'
   const enableMemory = config.enableMemory === true
 
   // Check if any parent node has useDeepAgents enabled
@@ -939,7 +937,7 @@ export default function PropertiesPanel({
             <div className="space-y-3">
               <p className="text-[10px] text-gray-400">
                 Map node outputs to global state variables. Use <code>result</code> to reference the
-                node's output.
+                node&apos;s output.
               </p>
               {graphStateFields.map((field) => {
                 // Access nested key for generic config update

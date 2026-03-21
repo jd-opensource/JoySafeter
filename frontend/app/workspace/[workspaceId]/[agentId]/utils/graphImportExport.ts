@@ -1,5 +1,4 @@
 import type { Edge, Node, ReactFlowInstance } from 'reactflow'
-import { EdgeData } from '../types/graph'
 
 /**
  * Handle exporting the graph state to a JSON file.

@@ -35,7 +35,7 @@ export function useSkillManager() {
           setSelectedSkill(null)
         }
         toast({ title: t('skills.deleted') })
-      } catch (e) {
+      } catch {
         toast({ variant: 'destructive', title: t('skills.deleteFailed') })
       }
     },

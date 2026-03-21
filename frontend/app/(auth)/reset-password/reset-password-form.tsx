@@ -2,11 +2,12 @@
 
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
+
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { inter } from '@/styles/fonts/inter/inter'
@@ -32,7 +33,6 @@ export function RequestResetForm({
 }: RequestResetFormProps) {
   const { t } = useTranslation()
   const [mounted, setMounted] = useState(false)
-  const [buttonClass, setButtonClass] = useState('auth-button-gradient')
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
   useEffect(() => {
@@ -44,30 +44,6 @@ export function RequestResetForm({
       } else if (statusType === 'success') {
         toastSuccess(statusMessage)
       }
-    }
-    const checkCustomBrand = () => {
-      const computedStyle = getComputedStyle(document.documentElement)
-      const brandAccent = computedStyle.getPropertyValue('--brand-accent-hex').trim()
-
-      if (brandAccent && brandAccent !== '#6f3dfa') {
-        setButtonClass('auth-button-custom')
-      } else {
-        setButtonClass('auth-button-gradient')
-      }
-    }
-
-    checkCustomBrand()
-
-    window.addEventListener('resize', checkCustomBrand)
-    const observer = new MutationObserver(checkCustomBrand)
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['style', 'class'],
-    })
-
-    return () => {
-      window.removeEventListener('resize', checkCustomBrand)
-      observer.disconnect()
     }
   }, [statusType, statusMessage])
 
@@ -155,7 +131,6 @@ export function SetNewPasswordForm({
   const [validationMessage, setValidationMessage] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [buttonClass, setButtonClass] = useState('auth-button-gradient')
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
   useEffect(() => {
@@ -169,30 +144,6 @@ export function SetNewPasswordForm({
     }
     if (validationMessage) {
       toastError(validationMessage)
-    }
-    const checkCustomBrand = () => {
-      const computedStyle = getComputedStyle(document.documentElement)
-      const brandAccent = computedStyle.getPropertyValue('--brand-accent-hex').trim()
-
-      if (brandAccent && brandAccent !== '#6f3dfa') {
-        setButtonClass('auth-button-custom')
-      } else {
-        setButtonClass('auth-button-gradient')
-      }
-    }
-
-    checkCustomBrand()
-
-    window.addEventListener('resize', checkCustomBrand)
-    const observer = new MutationObserver(checkCustomBrand)
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['style', 'class'],
-    })
-
-    return () => {
-      window.removeEventListener('resize', checkCustomBrand)
-      observer.disconnect()
     }
   }, [statusType, statusMessage, validationMessage])
 

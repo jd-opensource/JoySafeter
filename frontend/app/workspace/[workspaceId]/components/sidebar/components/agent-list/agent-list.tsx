@@ -25,8 +25,8 @@ import type {
 } from '@/app/workspace/[workspaceId]/components/sidebar/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 /**
  * Agent item component with drag support and context menu
@@ -44,29 +44,6 @@ interface AgentItemProps {
   canEdit?: boolean
 }
 
-// Generate consistent color based on agent ID
-const generateColorFromId = (id: string): string => {
-  const colors = [
-    '#3972F6', // Blue
-    '#10B981', // Green
-    '#F59E0B', // Amber
-    '#EF4444', // Red
-    '#8B5CF6', // Purple
-    '#EC4899', // Pink
-    '#06B6D4', // Cyan
-    '#84CC16', // Lime
-    '#F97316', // Orange
-    '#6366F1', // Indigo
-    '#14B8A6', // Teal
-    '#A855F7', // Violet
-  ]
-  // Use hash of ID to consistently select a color
-  let hash = 0
-  for (let i = 0; i < id.length; i++) {
-    hash = id.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  return colors[Math.abs(hash) % colors.length]
-}
 
 function AgentItem({
   agent,
@@ -78,7 +55,7 @@ function AgentItem({
   onRename,
   onDelete,
   onDuplicate,
-  canEdit = true,
+  canEdit: _canEdit = true,
 }: AgentItemProps) {
   const { t } = useTranslation()
   const params = useParams()
@@ -89,9 +66,6 @@ function AgentItem({
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState(agent.name)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  // Get color for agent (use stored color or generate from ID)
-  const agentColor = agent.color || generateColorFromId(agent.id)
 
   // Focus input when editing starts
   useEffect(() => {

@@ -3,16 +3,17 @@
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
 import { getEnv, isFalsy } from '@/lib/core/config/env'
-import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
+import { cn } from '@/lib/utils'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { quickValidateEmail } from '@/services/email/validation'
 import { inter } from '@/styles/fonts/inter/inter'
@@ -95,20 +96,27 @@ function SignupFormContent() {
   const { t } = useTranslation()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { refetch: refetchSession } = useSession()
+  useSession()
+  const initialSearchParamValues = useMemo(() => {
+    const emailParam = searchParams.get('email') || ''
+    const redirectParam = searchParams.get('redirect') || ''
+    const inviteFlowParam = searchParams.get('invite_flow')
+    const isInvite = inviteFlowParam === 'true' || redirectParam.startsWith('/invite/')
+    return { emailParam, redirectParam, isInvite }
+  }, [searchParams])
+
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [password, setPassword] = useState('')
   const [passwordErrors, setPasswordErrors] = useState<string[]>([])
   const [showValidationError, setShowValidationError] = useState(false)
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(initialSearchParamValues.emailParam)
   const [emailError, setEmailError] = useState('')
   const [emailErrors, setEmailErrors] = useState<string[]>([])
   const [showEmailValidationError, setShowEmailValidationError] = useState(false)
-  const [redirectUrl, setRedirectUrl] = useState('')
-  const [isInviteFlow, setIsInviteFlow] = useState(false)
-  const [buttonClass, setButtonClass] = useState('auth-button-gradient')
+  const redirectUrl = initialSearchParamValues.redirectParam
+  const isInviteFlow = initialSearchParamValues.isInvite
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
   const [name, setName] = useState('')
@@ -117,49 +125,6 @@ function SignupFormContent() {
 
   useEffect(() => {
     queueMicrotask(() => setMounted(true))
-    const emailParam = searchParams.get('email')
-    if (emailParam) {
-      setEmail(emailParam)
-    }
-
-    const redirectParam = searchParams.get('redirect')
-    if (redirectParam) {
-      setRedirectUrl(redirectParam)
-
-      if (redirectParam.startsWith('/invite/')) {
-        setIsInviteFlow(true)
-      }
-    }
-
-    const inviteFlowParam = searchParams.get('invite_flow')
-    if (inviteFlowParam === 'true') {
-      setIsInviteFlow(true)
-    }
-
-    const checkCustomBrand = () => {
-      const computedStyle = getComputedStyle(document.documentElement)
-      const brandAccent = computedStyle.getPropertyValue('--brand-accent-hex').trim()
-
-      if (brandAccent && brandAccent !== '#6f3dfa') {
-        setButtonClass('auth-button-custom')
-      } else {
-        setButtonClass('auth-button-gradient')
-      }
-    }
-
-    checkCustomBrand()
-
-    window.addEventListener('resize', checkCustomBrand)
-    const observer = new MutationObserver(checkCustomBrand)
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['style', 'class'],
-    })
-
-    return () => {
-      window.removeEventListener('resize', checkCustomBrand)
-      observer.disconnect()
-    }
   }, [searchParams])
 
   const validatePassword = (passwordValue: string): string[] => {

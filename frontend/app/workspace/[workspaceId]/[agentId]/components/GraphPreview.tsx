@@ -1,5 +1,6 @@
 'use client'
 
+import { Bot, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { useMemo, useCallback } from 'react'
 import ReactFlow, {
   ReactFlowProvider,
@@ -17,8 +18,6 @@ import { cn } from '@/lib/utils'
 import type { GraphVersionState } from '@/services/graphDeploymentService'
 
 import { nodeRegistry } from '../services/nodeRegistry'
-
-import { Bot, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 
 interface GraphPreviewProps {
   state: GraphVersionState | null

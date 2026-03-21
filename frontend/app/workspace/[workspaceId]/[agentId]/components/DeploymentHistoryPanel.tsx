@@ -34,8 +34,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/use-toast'
 import { useDeploymentStatus, useDeploymentVersions, graphKeys } from '@/hooks/queries/graphs'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import {
   graphDeploymentService,
   type GraphDeploymentVersion,
@@ -61,7 +61,7 @@ export function DeploymentHistoryPanel({
   graphId,
   open,
   onOpenChange,
-  nodesCount = 0,
+  nodesCount: _nodesCount = 0,
 }: DeploymentHistoryPanelProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -77,7 +77,6 @@ export function DeploymentHistoryPanel({
   const {
     data: versionsData,
     isLoading: isLoadingVersions,
-    refetch: refetchVersions,
   } = useDeploymentVersions(graphId, currentPage, pageSize, { enabled: open })
 
   const versions = versionsData?.versions || []
@@ -85,7 +84,7 @@ export function DeploymentHistoryPanel({
   const totalPages = versionsData?.totalPages || 1
 
   // Get UI state and operation methods from Zustand store
-  const { revertToVersion, renameVersion, deleteVersion, undeploy, isDeploying, isUndeploying } =
+  const { revertToVersion, renameVersion, deleteVersion, undeploy, isUndeploying } =
     useDeploymentStore()
 
   const [editingVersion, setEditingVersion] = useState<number | null>(null)

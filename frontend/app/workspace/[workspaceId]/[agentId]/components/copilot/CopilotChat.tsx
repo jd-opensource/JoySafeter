@@ -7,8 +7,8 @@ import React, { useState } from 'react'
 
 import type { CopilotMessage } from '@/hooks/copilot/useCopilotMessages'
 import { useTranslation } from '@/lib/i18n'
-import type { GraphAction } from '@/types/copilot'
 import { copyToClipboard } from '@/lib/utils/clipboard'
+import type { GraphAction } from '@/types/copilot'
 
 import { CollapsibleList } from './CollapsibleList'
 

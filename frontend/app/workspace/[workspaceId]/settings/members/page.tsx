@@ -46,16 +46,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useUserPermissions } from '@/hooks/use-user-permissions'
-import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
-import { useTranslation } from '@/lib/i18n'
-import { toastError, toastSuccess } from '@/lib/utils/toast'
-import {
-  workspaceService,
-  type WorkspaceMember,
-  type PaginatedMembersResponse,
-} from '@/services/workspaceService'
-import { useToast } from '@/hooks/use-toast'
 import {
   Table,
   TableBody,
@@ -65,6 +55,15 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useToast } from '@/hooks/use-toast'
+import { useUserPermissions } from '@/hooks/use-user-permissions'
+import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+import { useTranslation } from '@/lib/i18n'
+import { toastError, toastSuccess } from '@/lib/utils/toast'
+import {
+  workspaceService,
+  type PaginatedMembersResponse,
+} from '@/services/workspaceService'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
 // WorkspaceMember and PaginatedMembersResponse types imported from workspaceService
@@ -90,7 +89,6 @@ export default function WorkspaceMembersPage() {
 
   // Get sidebar state to adjust layout
   const isSidebarCollapsed = useSidebarStore((state) => state.isCollapsed)
-  const sidebarWidth = useSidebarStore((state) => state.sidebarWidth)
 
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')

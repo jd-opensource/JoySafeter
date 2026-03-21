@@ -13,7 +13,6 @@ import type {
   ModeSelectionResult,
   SubmitResult,
   ValidationResult,
-  ModeMetadata,
 } from './types'
 
 /**
@@ -75,7 +74,7 @@ export const agentModeHandler: ModeHandler = {
     }
   },
 
-  validate(input: string, files: any[]): ValidationResult {
+  validate(_input: string, _files: any[]): ValidationResult {
     return { valid: true }
   },
 

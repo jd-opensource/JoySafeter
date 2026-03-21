@@ -5,6 +5,8 @@
  * from the skill-creator template, using the shared findOrCreateGraphByTemplate lock.
  */
 
+import { Wand2 } from 'lucide-react'
+
 import { graphKeys } from '@/hooks/queries/graphs'
 
 import { getModeConfig } from '../../config/modeConfig'
@@ -19,7 +21,6 @@ import type {
   UploadedFile,
 } from './types'
 
-import { Wand2 } from 'lucide-react'
 
 const SKILL_CREATOR_GRAPH_NAME = 'Skill Creator'
 
@@ -84,13 +85,13 @@ export const skillCreatorHandler: ModeHandler = {
 
   async onSubmit(
     input: string,
-    files: UploadedFile[],
-    context: ModeContext,
+    _files: UploadedFile[],
+    _context: ModeContext,
   ): Promise<SubmitResult> {
     return { success: true, processedInput: input }
   },
 
-  validate(input: string, files: UploadedFile[]): ValidationResult {
+  validate(_input: string, _files: UploadedFile[]): ValidationResult {
     return { valid: true }
   },
 

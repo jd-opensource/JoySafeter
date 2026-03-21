@@ -16,20 +16,19 @@ import { useMemo } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
+import { ModelIOCard } from '../ModelIOCard'
 import { ThoughtContent } from '../ThoughtContent'
 import { ToolCallCard } from '../ToolCallCard'
-import { ModelIOCard } from '../ModelIOCard'
 
 import { useExecutionData } from './contexts/ExecutionDataContext'
 import { useExecutionSelection } from './contexts/ExecutionSelectionContext'
 import {
   useExecutionViewPreferences,
   type DetailTab,
-  type JsonViewMode,
 } from './contexts/ExecutionViewPreferencesContext'
 
 /**

@@ -1,16 +1,15 @@
 'use client'
 
 import { Database } from 'lucide-react'
-import React, { useState, useRef, useEffect } from 'react'
+import Prism from 'prismjs'
+import React, { useState, useEffect } from 'react'
+import Editor from 'react-simple-code-editor'
 import { Node, Edge } from 'reactflow'
 
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
-import Editor from 'react-simple-code-editor'
-import Prism from 'prismjs'
 // Import a basic theme, we will override it with Tailwind classes for our custom tokens
 import 'prismjs/themes/prism.css'
 
@@ -74,7 +73,6 @@ export function VariableInputField({
   const [showVariablePanel, setShowVariablePanel] = useState(false)
   // Use local state to prevent losing focus during input
   const [localValue, setLocalValue] = useState(value)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Sync external value to local state when it changes from outside
   useEffect(() => {
@@ -94,19 +92,10 @@ export function VariableInputField({
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Keep @ key handler for variable panel if needed
-    if (e.key === '@' && !showVariablePanel) {
-      e.preventDefault()
-      setShowVariablePanel(true)
-    }
-  }
-
   const handleVariableSelect = (variablePath: string) => {
     // Try to get cursor position or default to end
     // For Editor, we might not have direct selectionStart natively easily without ref digging,
     // so appending to end is safest if cursor is lost.
-    const start = localValue.length
     const before = localValue
     const newValue =
       before + (before.endsWith(' ') || before === '' ? '' : ' ') + variablePath + ' '

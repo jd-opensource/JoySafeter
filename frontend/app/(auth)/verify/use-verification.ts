@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { client, useSession } from '@/lib/auth/auth-client'
 import { createLogger } from '@/lib/logs/console/logger'
@@ -127,7 +127,7 @@ export function useVerification({
 
   const isOtpComplete = otp.length === 6
 
-  async function verifyCode() {
+  const verifyCode = useCallback(async () => {
     if (!isOtpComplete || !email) return
 
     setIsLoading(true)
@@ -200,7 +200,7 @@ export function useVerification({
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [isOtpComplete, email, otp, refetchSession, isInviteFlow, redirectUrl])
 
   function resendCode() {
     if (!email || !hasEmailService || !isEmailVerificationEnabled) return
@@ -239,7 +239,7 @@ export function useVerification({
 
       return () => clearTimeout(timeoutId)
     }
-  }, [otp, email, isLoading, isVerified])
+  }, [otp, email, isLoading, isVerified, verifyCode])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -263,7 +263,7 @@ export function useVerification({
         handleRedirect()
       }
     }
-  }, [isEmailVerificationEnabled, router, isInviteFlow, redirectUrl])
+  }, [isEmailVerificationEnabled, router, isInviteFlow, redirectUrl, refetchSession])
 
   return {
     otp,

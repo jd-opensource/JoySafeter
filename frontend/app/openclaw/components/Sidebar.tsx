@@ -2,12 +2,14 @@
 
 import { PanelLeft } from 'lucide-react'
 import { useCallback, useRef } from 'react'
-import { useTranslation } from '@/lib/i18n'
 
-import { OpenClawManagement } from './OpenClawManagement'
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
+
+import { OpenClawManagement } from './OpenClawManagement'
 
 export function Sidebar() {
   const { t } = useTranslation()

@@ -1,7 +1,7 @@
 'use client'
 
-import React from 'react'
 import { MessageSquare, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
+import React from 'react'
 
 import {
   AlertDialog,
@@ -14,8 +14,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import type { Conversation } from '@/services/conversationService'
 
 interface ConversationItemProps {

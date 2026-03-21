@@ -16,7 +16,6 @@ export function GraphStatusBar() {
     saveRetryCount,
     isSaving,
     graphId,
-    graphName,
   } = useBuilderStore()
 
   const formatTime = (timestamp: number | null): string => {

@@ -9,7 +9,6 @@ import {
   X,
   Filter,
   Copy,
-  CheckCircle,
   FileCode,
   FileText,
   ChevronRight,
@@ -29,14 +28,15 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { usePublicSkills, skillKeys } from '@/hooks/queries/skills'
+import { useToast } from '@/hooks/use-toast'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { skillService } from '@/services/skillService'
 import { Skill, SkillFile } from '@/types'
+
 import { SkillCard } from './components/SkillCard'
 
-import { useTranslation } from '@/lib/i18n'
-import { useToast } from '@/hooks/use-toast'
-import { usePublicSkills, skillKeys } from '@/hooks/queries/skills'
 
 interface SkillsStoreProps {
   currentUserId?: string

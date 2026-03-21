@@ -10,30 +10,12 @@ import { useMemo } from 'react'
 
 import { API_ENDPOINTS, apiGet } from '@/lib/api-client'
 import { useSession } from '@/lib/auth/auth-client'
-import { createLogger } from '@/lib/logs/console/logger'
 import type { PermissionType, WorkspaceMemberRole } from '@/lib/workspaces/permissions/types'
 import { mapRoleToPermissionType } from '@/lib/workspaces/permissions/types'
-
-const logger = createLogger('useWorkspacePermissions')
 
 // ============================================================================
 // Types
 // ============================================================================
-
-/**
- * Member data format returned by backend
- */
-interface WorkspaceMemberResponse {
-  id: string
-  userId: string
-  workspaceId: string
-  email: string
-  name: string | null
-  role: 'owner' | 'admin' | 'member' | 'viewer'
-  isOwner: boolean
-  createdAt?: string | null
-  updatedAt?: string | null
-}
 
 export interface WorkspaceUser {
   userId: string
@@ -70,35 +52,6 @@ export const workspacePermissionKeys = {
 // ============================================================================
 // Fetch Function
 // ============================================================================
-
-/**
- * Fetch workspace member list and convert to permission format
- * Used only for backward compatibility; prefer fetchMyPermission for permission checks
- */
-async function fetchWorkspacePermissions(workspaceId: string): Promise<WorkspacePermissions> {
-  const result = await apiGet<{
-    items: WorkspaceMemberResponse[]
-    total: number
-    pages: number
-  }>(`${API_ENDPOINTS.workspaces}/${workspaceId}/members?page=1&page_size=100`)
-
-  const members = result.items || []
-
-  const users: WorkspaceUser[] = members.map((member) => ({
-    userId: member.userId,
-    email: member.email,
-    name: member.name,
-    image: null,
-    permissionType: mapRoleToPermissionType(member.role),
-    isOwner: member.isOwner,
-    role: member.role,
-  }))
-
-  return {
-    users,
-    total: users.length,
-  }
-}
 
 /**
  * Fetch current user's permission only (lightweight)

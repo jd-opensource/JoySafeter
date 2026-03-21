@@ -9,7 +9,7 @@ import { McpIcon } from '@/components/icons'
 import { mcpKeys, useMcpToolsQuery, type McpTool } from '@/hooks/queries/mcp'
 import { apiPost, API_BASE } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
-import { createMcpToolId, parseMcpToolId } from '@/lib/mcp/utils'
+import { createMcpToolId } from '@/lib/mcp/utils'
 
 const logger = createLogger('useMcpTools')
 

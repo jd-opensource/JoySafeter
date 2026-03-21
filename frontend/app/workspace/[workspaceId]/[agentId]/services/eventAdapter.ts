@@ -270,7 +270,7 @@ function handleNodeEvents(
           endTime: timestamp || Date.now(),
           duration: nodeData?.duration,
           data: {
-            // @ts-ignore
+            // @ts-expect-error
             payload: nodeData?.payload,
           },
         },
@@ -296,7 +296,7 @@ function handleNodeEvents(
           duration: nodeData?.duration,
           data: {
             ...nodeStep.data,
-            // @ts-ignore
+            // @ts-expect-error
             payload: nodeData?.payload,
           },
         },
@@ -316,7 +316,7 @@ function handleNodeEvents(
         endTime: timestamp || Date.now(),
         duration: nodeData?.duration,
         data: {
-          // @ts-ignore
+          // @ts-expect-error
           payload: nodeData?.payload,
         },
         ...traceFields,
@@ -554,8 +554,8 @@ function handleCodeAgentEvents(
 
 function handleMiscEvents(
   evt: ChatStreamEvent,
-  ctx: EventAdapterContext,
-  traceFields: TraceFields,
+  _ctx: EventAdapterContext,
+  _traceFields: TraceFields,
 ): AdapterResult {
   const { type, node_name, data } = evt
 

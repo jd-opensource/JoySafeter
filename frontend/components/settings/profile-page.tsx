@@ -2,9 +2,8 @@
 
 import CryptoJS from 'crypto-js'
 import { Pencil, LogOut, KeyRound, Eye, EyeOff } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import React, { useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
+
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -19,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { apiPost } from '@/lib/api-client'
 import { useSession, client } from '@/lib/auth/auth-client'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 
@@ -90,7 +90,6 @@ function getInitials(name?: string | null, email?: string): string {
 
 export function ProfilePage() {
   const { t } = useTranslation()
-  const router = useRouter()
   const session = useSession()
 
   const user = session.data?.user

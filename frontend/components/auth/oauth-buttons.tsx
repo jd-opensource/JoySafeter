@@ -2,11 +2,12 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Chrome, Github, Globe, Key, Shield } from 'lucide-react'
-import { useTranslation } from '@/lib/i18n'
+
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { API_BASE } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('OAuthButtons')
@@ -119,6 +120,7 @@ export function OAuthButtons({ callbackUrl = '/chat', showDivider = true }: OAut
     const url = `${API_BASE}/auth/oauth/${providerId}${queryString ? `?${queryString}` : ''}`
 
     logger.info('Initiating OAuth login:', { provider: providerId, callbackUrl })
+    // eslint-disable-next-line react-hooks/immutability
     window.location.href = url
   }
 

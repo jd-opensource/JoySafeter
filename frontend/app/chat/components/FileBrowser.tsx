@@ -9,7 +9,7 @@ import {
   FileCode,
   FileJson,
   FileText,
-  Image,
+  Image as ImageIcon,
 } from 'lucide-react'
 import React, { useState } from 'react'
 
@@ -72,7 +72,7 @@ export default function FileBrowser({
       return <FileText size={16} className="text-gray-500" />
     }
     if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) {
-      return <Image size={16} className="text-purple-500" />
+      return <ImageIcon size={16} className="text-purple-500" />
     }
     return <File size={16} className="text-gray-400" />
   }

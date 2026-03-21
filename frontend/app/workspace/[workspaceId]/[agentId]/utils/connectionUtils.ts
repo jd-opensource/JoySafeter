@@ -5,8 +5,9 @@
  * logic that were previously inlined in the 133-line onConnect handler.
  */
 import type { Edge, Node } from 'reactflow'
-import type { EdgeData, RouteRule } from '../types/graph'
+
 import { nodeRegistry } from '../services/nodeRegistry'
+import type { EdgeData, RouteRule } from '../types/graph'
 
 /** Conditional source node types that trigger route_key suggestions */
 const CONDITIONAL_SOURCE_TYPES = ['router_node', 'condition', 'loop_condition_node']

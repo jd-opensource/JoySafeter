@@ -17,8 +17,8 @@ import { useParams } from 'next/navigation'
 import { useCallback, useMemo, useState } from 'react'
 
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
-import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
 import { useModels } from '@/hooks/queries/models'
+import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
 import { useTranslation } from '@/lib/i18n'
 
 import { useCopilotActions } from '../hooks/useCopilotActions'
@@ -101,6 +101,7 @@ export function CopilotPanel() {
       // Clear previous timeout if exists
       if (refs.copyTimeoutRef.current) {
         clearTimeout(refs.copyTimeoutRef.current)
+        // eslint-disable-next-line react-hooks/immutability
         refs.copyTimeoutRef.current = null
       }
 

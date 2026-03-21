@@ -47,7 +47,7 @@ export function CopilotInput({
   onStop,
   onReset,
   onAIDecision,
-  onSendWithText,
+  onSendWithText: _onSendWithText,
   copilotMode,
   onModeChange,
   modelLabel,

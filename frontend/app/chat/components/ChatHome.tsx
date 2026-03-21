@@ -14,7 +14,7 @@ import {
   Bot,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import React, { useRef, useEffect, useMemo } from 'react'
+import React, { useRef, useEffect, useMemo, useCallback } from 'react'
 
 import { type AgentGraph } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { Button } from '@/components/ui/button'
@@ -32,8 +32,8 @@ import {
   ALLOWED_EXTENSIONS_STRING,
   UPLOAD_LIMITS,
 } from '@/lib/constants/upload-limits'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 
 import { modeConfigs } from '../config/modeConfig'
@@ -42,8 +42,8 @@ import { chatModeService } from '../services/chatModeService'
 import { copilotRedirectService } from '../services/copilotRedirectService'
 import { graphResolutionService } from '../services/graphResolutionService'
 import { registerAllHandlers } from '../services/modeHandlers/registerHandlers'
-import { StarterPrompts } from '../shared/StarterPrompts'
 import type { UploadedFile, ModeSelectionResult } from '../services/modeHandlers/types'
+import { StarterPrompts } from '../shared/StarterPrompts'
 
 // Register all mode handlers (executed once when module loads)
 if (typeof window !== 'undefined') {
@@ -64,7 +64,7 @@ interface ChatHomeProps {
 
 export default function ChatHome({
   onStartChat,
-  onSelectConversation,
+  onSelectConversation: _onSelectConversation,
   isProcessing = false,
   onStop,
 }: ChatHomeProps) {
@@ -113,6 +113,11 @@ export default function ChatHome({
     router,
     queryClient,
   }
+
+  const modeContextRef = useRef(modeContext)
+  useEffect(() => {
+    modeContextRef.current = modeContext
+  })
 
   // Build mode options (generated from config, ensuring config is the single source of truth)
   const modeOptions = modeConfigs.map((config) => {
@@ -212,7 +217,7 @@ export default function ChatHome({
   }
 
   // Handle mode selection
-  const handleModeSelect = async (modeId: string): Promise<ModeSelectionResult | null> => {
+  const handleModeSelect = useCallback(async (modeId: string): Promise<ModeSelectionResult | null> => {
     const handler = chatModeService.getHandler(modeId)
     if (!handler) {
       console.warn(`No handler found for mode: ${modeId}`)
@@ -221,7 +226,7 @@ export default function ChatHome({
 
     setIsRedirecting(true)
     try {
-      const result = await handler.onSelect(modeContext)
+      const result = await handler.onSelect(modeContextRef.current)
       if (result.success) {
         // Apply state updates
         if (result.stateUpdates) {
@@ -258,7 +263,7 @@ export default function ChatHome({
     } finally {
       setIsRedirecting(false)
     }
-  }
+  }, [setIsRedirecting, setInput, setMode, t])
 
   // Default chat: auto-select default-chat mode on first load (create_deep_agent + skills + Docker)
   useEffect(() => {
@@ -274,7 +279,7 @@ export default function ChatHome({
     handleModeSelect('default-chat').catch(() => {
       hasInitializedDefaultMode.current = false
     })
-  }, [state.mode.type, modeContext.personalWorkspaceId, isProcessing])
+  }, [state.mode.type, modeContext.personalWorkspaceId, isProcessing, handleModeSelect])
 
   // Handle submission
   const handleSubmit = async () => {

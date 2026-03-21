@@ -370,7 +370,7 @@ export const agentService = {
         isAvailable: model.is_available,
         isDefault: model.is_default,
       }))
-    } catch (error) {
+    } catch {
       return []
     }
   },
@@ -429,7 +429,7 @@ export const agentService = {
         mcpServer: tool.mcp_server ?? null,
         raw: tool,
       }))
-    } catch (error) {
+    } catch {
       return []
     }
   },

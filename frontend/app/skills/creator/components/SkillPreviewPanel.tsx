@@ -3,11 +3,11 @@
 import { Save, RefreshCw, AlertTriangle, CheckCircle2, PackageOpen, FileCode } from 'lucide-react'
 import React from 'react'
 
+import { ArtifactPanel } from '@/app/chat/components/ArtifactPanel'
 import { Button } from '@/components/ui/button'
 
 import type { SkillPreviewData } from '../page'
 
-import { ArtifactPanel } from '@/app/chat/components/ArtifactPanel'
 
 // ---------------------------------------------------------------------------
 // Props

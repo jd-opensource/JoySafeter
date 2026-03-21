@@ -4,8 +4,6 @@
  * Handles simple modes that only need to set the mode type, no special processing required
  */
 
-import { Server } from 'lucide-react'
-
 import type {
   ModeHandler,
   ModeContext,
@@ -25,7 +23,7 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
   return {
     metadata,
 
-    async onSelect(context: ModeContext): Promise<ModeSelectionResult> {
+    async onSelect(_context: ModeContext): Promise<ModeSelectionResult> {
       return {
         success: true,
         stateUpdates: {
@@ -34,7 +32,7 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
       }
     },
 
-    async onSubmit(input: string, files: any[], context: ModeContext): Promise<SubmitResult> {
+    async onSubmit(input: string, _files: any[], _context: ModeContext): Promise<SubmitResult> {
       return {
         success: true,
         processedInput: input,
@@ -42,7 +40,7 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
       }
     },
 
-    validate(input: string, files: any[]): ValidationResult {
+    validate(_input: string, _files: any[]): ValidationResult {
       return { valid: true }
     },
   }

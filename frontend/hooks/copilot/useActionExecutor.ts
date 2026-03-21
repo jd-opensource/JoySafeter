@@ -27,7 +27,7 @@ export function useActionExecutor(expectedGraphId?: string) {
         return
       }
 
-      console.log('[useActionExecutor] executeActions called', {
+      console.warn('[useActionExecutor] executeActions called', {
         actionsCount: actions.length,
         actions: actions,
         currentNodesCount: currentState.nodes.length,
@@ -46,7 +46,7 @@ export function useActionExecutor(expectedGraphId?: string) {
         currentEdges,
       )
 
-      console.log('[useActionExecutor] Actions processed', {
+      console.warn('[useActionExecutor] Actions processed', {
         newNodesCount: processedNodes.length,
         newEdgesCount: processedEdges.length,
         nodesAdded: processedNodes.length - currentNodes.length,
@@ -54,16 +54,16 @@ export function useActionExecutor(expectedGraphId?: string) {
       })
 
       // Apply to store
-      console.log('[useActionExecutor] Calling applyAIChanges', {
+      console.warn('[useActionExecutor] Calling applyAIChanges', {
         nodes: processedNodes.length,
         edges: processedEdges.length,
       })
       applyAIChanges({ nodes: processedNodes, edges: processedEdges })
-      console.log('[useActionExecutor] applyAIChanges completed')
+      console.warn('[useActionExecutor] applyAIChanges completed')
 
       setExecutingActions(false)
     },
-    [applyAIChanges],
+    [applyAIChanges, expectedGraphId],
   )
 
   return {

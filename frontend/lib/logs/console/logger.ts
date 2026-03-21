@@ -154,6 +154,7 @@ export class Logger {
     } else if (level === LogLevel.WARN) {
       console.warn(prefix, message, ...formattedArgs)
     } else {
+      // eslint-disable-next-line no-console
       console.log(prefix, message, ...formattedArgs)
     }
   }

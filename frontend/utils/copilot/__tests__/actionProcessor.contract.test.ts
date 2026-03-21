@@ -7,10 +7,10 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import type { Node, Edge } from 'reactflow'
 import { describe, expect, it } from 'vitest'
 
 import type { GraphAction } from '@/types/copilot'
-import type { Node, Edge } from 'reactflow'
 
 import { ActionProcessor } from '../actionProcessor'
 
@@ -70,7 +70,7 @@ describe('ActionProcessor contract', () => {
     return
   }
 
-  FIXTURES.forEach((data, caseIndex) => {
+  FIXTURES.forEach((data, _caseIndex) => {
     it(data.name, () => {
       const { initial_nodes, initial_edges, actions, expected_nodes, expected_edges } = data
       const { nodes: gotNodes, edges: gotEdges } = ActionProcessor.processActions(

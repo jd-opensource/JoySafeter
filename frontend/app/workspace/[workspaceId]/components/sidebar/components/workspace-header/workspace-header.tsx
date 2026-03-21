@@ -9,7 +9,6 @@ import {
   Pencil,
   Plus,
   Search,
-  Settings,
   Trash2,
   X,
   Users,
@@ -29,8 +28,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 interface Workspace {
   id: string
@@ -293,7 +292,7 @@ export function WorkspaceHeader({
       onDeleteWorkspace(workspaceToDelete.id)
       setDeleteConfirmOpen(false)
       setWorkspaceToDelete(null)
-    } catch (error) {
+    } catch {
       setDeleteConfirmOpen(false)
       setWorkspaceToDelete(null)
     }
@@ -406,7 +405,7 @@ export function WorkspaceHeader({
               type="text"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              onBlur={(e) => {
+              onBlur={(_e) => {
                 setTimeout(() => {
                   handleSaveHeaderRename()
                 }, 200)

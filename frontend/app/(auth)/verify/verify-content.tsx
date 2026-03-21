@@ -203,7 +203,7 @@ function VerificationForm({
           {hasEmailService && (
             <div className="text-center">
               <p className="text-sm text-muted-foreground">
-                Didn't receive a code?{' '}
+                Didn&apos;t receive a code?{' '}
                 {countdown > 0 ? (
                   <span>
                     Resend in <span className="font-medium text-foreground">{countdown}s</span>

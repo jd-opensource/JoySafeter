@@ -195,6 +195,7 @@ export function useCopilotState(graphId?: string) {
       clearExpandedItems,
       setCopiedStreaming,
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       messagesHook.addMessage,
       messagesHook.addThoughtStep,

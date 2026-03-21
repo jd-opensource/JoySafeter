@@ -15,10 +15,11 @@ import { Activity, ChevronDown, Trash2, TreePine, GanttChart, Search, X } from '
 import React, { useEffect, useState, useCallback, useRef, useDeferredValue } from 'react'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { useExecutionStore } from '../../stores/executionStore'
+import { InterruptPanel } from '../InterruptPanel'
 
 import { ExecutionDataProvider, useExecutionData } from './contexts/ExecutionDataContext'
 import {
@@ -26,10 +27,9 @@ import {
   useExecutionSelection,
 } from './contexts/ExecutionSelectionContext'
 import { ExecutionViewPreferencesProvider } from './contexts/ExecutionViewPreferencesContext'
-import { ExecutionTree } from './ExecutionTree'
-import { ExecutionTimelineView } from './ExecutionTimeline'
 import { ExecutionDetailPanel } from './ExecutionDetailPanel'
-import { InterruptPanel } from '../InterruptPanel'
+import { ExecutionTimelineView } from './ExecutionTimeline'
+import { ExecutionTree } from './ExecutionTree'
 
 type NavigationView = 'tree' | 'timeline'
 

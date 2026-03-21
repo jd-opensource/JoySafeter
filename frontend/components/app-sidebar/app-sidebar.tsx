@@ -3,7 +3,6 @@
 import {
   LayoutDashboard,
   Blocks,
-  Compass,
   ShieldCheck,
   Wrench,
   Brain,
@@ -12,9 +11,9 @@ import {
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { env as runtimeEnv } from 'next-runtime-env'
-import { useTranslation } from '@/lib/i18n'
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 import { AppLogo } from './app-logo'

@@ -19,7 +19,7 @@ import {
   Lock,
   ChevronRight,
 } from 'lucide-react'
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -40,8 +40,20 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { UnifiedDialog, ValidationBox, FileListBox } from '@/components/ui/unified-dialog'
+import { useCreateSkill, useUpdateSkill } from '@/hooks/queries/skills'
 import { useToast } from '@/hooks/use-toast'
+import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import {
   skillService,
   generateSkillMd,
@@ -51,19 +63,8 @@ import {
   validateFilePath,
   parseSkillMd,
 } from '@/services/skillService'
-import { Skill, SkillFile } from '@/types'
-import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
+import { SkillFile } from '@/types'
 import { getSkillValidationMessage } from '@/utils/skillValidationI18n'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 
 // Import extracted components and hooks
 import { SkillEditor } from './components/SkillEditor'
@@ -73,7 +74,6 @@ import { useSkillForm } from './hooks/useSkillForm'
 import { useSkillImport } from './hooks/useSkillImport'
 import { useSkillManager } from './hooks/useSkillManager'
 
-import { useCreateSkill, useUpdateSkill } from '@/hooks/queries/skills'
 
 export default function SkillsManager() {
   const { t } = useTranslation()
@@ -86,7 +86,6 @@ export default function SkillsManager() {
   // Use extracted hooks
   const skillManager = useSkillManager()
   const {
-    skills,
     loading,
     selectedSkill,
     searchQuery,
@@ -94,7 +93,6 @@ export default function SkillsManager() {
     isSaving,
     setIsSaving,
     setSelectedSkill,
-    loadSkills,
     handleSelectSkill,
     handleDelete,
     filteredSkills,
@@ -108,7 +106,6 @@ export default function SkillsManager() {
     form,
     showAdvancedFields,
     setShowAdvancedFields,
-    handleSubmit: formHandleSubmit,
   } = formHook
 
   // File management (depends on form files)

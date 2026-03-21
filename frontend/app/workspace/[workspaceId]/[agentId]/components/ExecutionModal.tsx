@@ -5,8 +5,8 @@ import { useState, useRef, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { useBuilderStore } from '../stores/builderStore'
 

@@ -9,7 +9,6 @@ import {
   Copy,
   Eye,
   MoreHorizontal,
-  Globe,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -21,8 +20,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { Skill } from '@/types'
 
 interface SkillCardProps {

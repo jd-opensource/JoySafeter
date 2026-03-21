@@ -14,7 +14,6 @@ import { useState, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -22,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/use-toast'
 import { useTranslation } from '@/lib/i18n'
 
@@ -217,15 +217,6 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
     } finally {
       setIsResuming(false)
     }
-  }
-
-  const handleStop = async () => {
-    removeInterrupt(interrupt.nodeId)
-    toast({
-      title: t('workspace.executionStopped'),
-      description: t('workspace.executionStoppedDescription'),
-    })
-    onClose?.()
   }
 
   const handleUpdateState = async () => {

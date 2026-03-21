@@ -1,6 +1,6 @@
 'use client'
 
-import { Settings, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react'
+import { CheckCircle2, AlertCircle } from 'lucide-react'
 import React, { useState } from 'react'
 
 import {
@@ -13,7 +13,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
 import type { ModelProvider, ModelCredential } from '@/hooks/queries/models'
 import { truncateValidationError, useDeleteCredential } from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
@@ -25,7 +24,7 @@ interface CredentialPanelProps {
   onSetup: () => void
 }
 
-export function CredentialPanel({ provider, credential, onSetup }: CredentialPanelProps) {
+export function CredentialPanel({ provider: _provider, credential, onSetup: _onSetup }: CredentialPanelProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const deleteCredential = useDeleteCredential()

@@ -13,12 +13,12 @@
  * Inspired by langfuse TraceTree.tsx + VirtualizedTree.tsx
  */
 
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { ChevronRight, PlayCircle } from 'lucide-react'
 import { useRef, useEffect, useCallback, useMemo } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
 
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { useExecutionData } from './contexts/ExecutionDataContext'
 import { useExecutionSelection } from './contexts/ExecutionSelectionContext'

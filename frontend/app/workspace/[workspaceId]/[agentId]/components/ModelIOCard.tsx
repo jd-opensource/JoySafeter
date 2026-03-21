@@ -6,7 +6,6 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
 import type { ExecutionStep } from '@/types'
 
 interface ModelIOCardProps {
@@ -127,7 +126,6 @@ export function ModelIOCard({
   defaultCollapsed = false,
   showHeader = true,
 }: ModelIOCardProps) {
-  const { t } = useTranslation()
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
 
   const modelData = step.data as any

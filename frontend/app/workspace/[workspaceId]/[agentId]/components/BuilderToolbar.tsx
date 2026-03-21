@@ -30,8 +30,8 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/components/ui/use-toast'
 import { useDeploymentStatus, graphKeys } from '@/hooks/queries/graphs'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { useDeploymentStore } from '@/stores/deploymentStore'
 
 import { useBuilderStore } from '../stores/builderStore'
@@ -78,7 +78,6 @@ export function BuilderToolbar({
     toggleSchemaExport,
     toggleValidationSummary,
     validateGraph,
-    isValidating,
     showAdvancedSettings,
     toggleAdvancedSettings,
   } = useBuilderStore()

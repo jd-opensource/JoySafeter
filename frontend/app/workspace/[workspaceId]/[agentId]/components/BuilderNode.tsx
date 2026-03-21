@@ -21,12 +21,13 @@ import { useModels } from '@/hooks/queries/models'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+
 import { nodeRegistry, type FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
 import { useExecutionStore } from '../stores/executionStore'
 
-import { useTranslation } from '@/lib/i18n'
 
 interface BuilderNodeProps {
   id: string
@@ -315,6 +316,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         key: field.key,
       }
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def?.schema, data.config, t, models, builtinTools])
 
   return (

@@ -208,7 +208,7 @@ const CommandItem = React.forwardRef<
     value?: string
     keywords?: string
   }
->(({ className, value, keywords, ...props }, ref) => (
+>(({ className, value, keywords: _keywords, ...props }, ref) => (
   <CommandPrimitive.Item
     ref={ref}
     className={cn(

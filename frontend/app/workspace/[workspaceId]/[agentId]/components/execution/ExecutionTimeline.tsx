@@ -12,13 +12,13 @@
  * Inspired by langfuse TraceTimeline/
  */
 
-import { useRef, useMemo, useCallback, useEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { useRef, useMemo, useEffect } from 'react'
 
 import { cn } from '@/lib/utils'
-import type { ExecutionTreeFlatItem } from '@/types'
 
 import { getTraceDuration } from '../../lib/tree-building'
+
 import { useExecutionData } from './contexts/ExecutionDataContext'
 import { useExecutionSelection } from './contexts/ExecutionSelectionContext'
 

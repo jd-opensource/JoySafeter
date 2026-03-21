@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion'
 import { AlertTriangle, Loader2, Brain, Plus, LayoutGrid, CheckCircle2 } from 'lucide-react'
 import React, { useState } from 'react'
-
 import { useMemo } from 'react'
+
 import { AddCustomModelDialog } from '@/app/settings/models/components/add-custom-model-dialog'
 import { ModelProviderAddedCard } from '@/app/settings/models/components/provider-added-card'
 import { ModelProviderCard } from '@/app/settings/models/components/provider-card'
@@ -13,15 +13,6 @@ import {
   useModelProvidersByConfig,
 } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
-
-const BUILTIN_PROVIDER_NAMES = ['openaiapicompatible', 'anthropic', 'gemini', 'zhipu'] as const
-
-function isCustomProvider(p: {
-  provider_name?: string | null
-  provider_type?: string | null
-}): boolean {
-  return p.provider_type === 'custom'
-}
 
 export function ModelsPage() {
   const { t } = useTranslation()

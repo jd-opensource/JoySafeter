@@ -31,6 +31,7 @@ export function useCopilotMessages(graphId?: string) {
 
     // Detect graphId changes and reset messages
     if (prevGraphIdRef.current && prevGraphIdRef.current !== graphId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessages([])
       currentMessageIndexRef.current = null
     }

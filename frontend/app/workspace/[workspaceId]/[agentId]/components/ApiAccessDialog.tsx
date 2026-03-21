@@ -12,8 +12,8 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useTranslation } from '@/lib/i18n'
 import { API_BASE } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
 
 interface ApiAccessDialogProps {
@@ -219,7 +219,7 @@ export function ApiAccessDialog({
                 <div className="mb-4">
                   <h3 className="text-sm font-medium text-gray-900">Workspace API Keys</h3>
                   <p className="mt-1 text-xs text-gray-500">
-                    Manage API keys that have access to this workspace's resources.
+                  Manage API keys that have access to this workspace&apos;s resources.
                   </p>
                 </div>
                 <ApiKeysTable workspaceId={workspaceId} />

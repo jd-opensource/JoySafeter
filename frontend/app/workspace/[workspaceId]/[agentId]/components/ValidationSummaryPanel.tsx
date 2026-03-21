@@ -6,8 +6,8 @@ import { Node, Edge } from 'reactflow'
 
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { useBuilderStore } from '../stores/builderStore'
 
@@ -24,7 +24,7 @@ interface ValidationSummaryPanelProps {
  */
 export function ValidationSummaryPanel({
   nodes,
-  edges,
+  edges: _edges,
   onClose,
   onSelectNode,
   onSelectEdge,
@@ -32,7 +32,7 @@ export function ValidationSummaryPanel({
   const { t } = useTranslation()
   const { validationErrors } = useBuilderStore()
 
-  const allErrors = validationErrors || []
+  const allErrors = useMemo(() => validationErrors || [], [validationErrors])
 
   // Helper to translate category names
   const translateCategory = (category: string): string => {
@@ -186,7 +186,6 @@ export function ValidationSummaryPanel({
             <div className="space-y-1">
               {categoryErrors.map((error, idx) => {
                 const node = error.nodeId ? nodes.find((n) => n.id === error.nodeId) : null
-                const edge = error.edgeId ? edges.find((e) => e.id === error.edgeId) : null
                 const nodeLabel = node ? (node.data as { label?: string })?.label || node.id : null
                 const isClickable = (error.nodeId && onSelectNode) || (error.edgeId && onSelectEdge)
 

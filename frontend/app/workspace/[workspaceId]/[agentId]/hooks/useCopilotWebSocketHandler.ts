@@ -15,8 +15,9 @@ import { graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import type { GraphAction } from '@/types/copilot'
 
-import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 import { hasCurrentMessage } from '../utils/copilotUtils'
+
+import type { CopilotState, CopilotActions, CopilotRefs } from './useCopilotState'
 
 interface UseCopilotWebSocketHandlerOptions {
   state: CopilotState

@@ -25,10 +25,10 @@ import { BuilderCanvas } from './components/BuilderCanvas'
 import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'
 import { BuilderToolbar } from './components/BuilderToolbar'
 import { ExecutionPanelNew as ExecutionPanel } from './components/execution/ExecutionPanelNew'
-import { ErrorBoundary } from './error-boundary'
 import { GraphStatePanel } from './components/GraphStatePanel'
 import { LoadModal } from './components/LoadModal'
 import { RunInputModal } from './components/RunInputModal'
+import { ErrorBoundary } from './error-boundary'
 import { agentService, AgentGraph } from './services/agentService'
 import { useBuilderStore } from './stores/builderStore'
 import { useExecutionStore } from './stores/executionStore'
@@ -47,15 +47,9 @@ const AgentBuilderContent = () => {
 
   const {
     isInitializing,
-    isSaving,
-    past,
-    future,
     rfInstance,
     nodes,
     loadGraph,
-    saveGraph,
-    undo,
-    redo,
     exportGraph,
     importGraph,
     setWorkspaceId,
@@ -64,7 +58,6 @@ const AgentBuilderContent = () => {
     startAutoSave,
     stopAutoSave,
     setDeployedAt,
-    hasPendingChanges,
   } = useBuilderStore()
 
   const { showPanel: showExecutionPanel, startExecution, setCurrentGraphId } = useExecutionStore()
@@ -73,7 +66,7 @@ const AgentBuilderContent = () => {
 
   // Use React Query hooks to fetch data (automatic caching and deduplication)
   // These hooks automatically share cache with other components like sidebar
-  const { data: graphsData, isSuccess: isGraphsLoaded } = useGraphs(workspaceId)
+  const { data: graphsData } = useGraphs(workspaceId)
   const { data: deploymentStatus } = useDeploymentStatus(agentId ?? undefined)
 
   // Use React Query to fetch graph state uniformly, avoiding duplicate requests
@@ -163,7 +156,7 @@ const AgentBuilderContent = () => {
           const url = `${apiBaseUrl}/v1/graphs/${graphId}/state`
           const blob = new Blob([payload], { type: 'application/json' })
           navigator.sendBeacon(url, blob)
-        } catch (error) {
+        } catch {
           // Silent fail for sendBeacon
         }
 
@@ -494,16 +487,6 @@ const AgentBuilderContent = () => {
     // Only reopen load modal if it was a load operation, not an import
     if (!wasImport) {
       setShowLoadModal(true)
-    }
-  }
-
-  const handleNewGraph = () => {
-    // If canvas has nodes, show confirmation dialog
-    if (nodes.length > 0) {
-      setShowNewConfirm(true)
-    } else {
-      // Canvas is empty, just reset
-      createNewGraph()
     }
   }
 

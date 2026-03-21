@@ -1,11 +1,11 @@
 'use client'
 
+import { MessageSquare } from 'lucide-react'
 import React, { useMemo } from 'react'
 
-import { MessageSquare } from 'lucide-react'
 
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 import { CopyAction } from '../shared/ActionBar'
 import { Message, ToolCall } from '../types'

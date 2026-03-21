@@ -9,8 +9,8 @@ import { Node, Edge } from 'reactflow'
 
 import { cn } from '@/lib/utils'
 
-import { VariableInputField } from './VariableInputField'
 import { StateField } from '../../types/graph'
+
 
 interface ConditionExprFieldProps {
   value: string
@@ -32,9 +32,9 @@ export function ConditionExprField({
   placeholder = "state.get('value', 0) > 10",
   description,
   variables = ['state', 'messages', 'context'],
-  nodes,
-  edges,
-  currentNodeId,
+  nodes: _nodes,
+  edges: _edges,
+  currentNodeId: _currentNodeId,
   className,
   disabled = false,
   graphStateFields,
@@ -88,6 +88,7 @@ export function ConditionExprField({
     } else if (value && value.trim() !== '') {
       setMode('code')
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleChange = (code: string) => {
