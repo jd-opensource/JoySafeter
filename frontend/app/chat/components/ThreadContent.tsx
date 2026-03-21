@@ -5,6 +5,7 @@ import React, { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 
+import { CopyAction } from '../shared/ActionBar'
 import { Message, ToolCall } from '../types'
 
 import MessageItem from './MessageItem'
@@ -76,7 +77,7 @@ export default function ThreadContent({
 
           {/* Streaming indicator - current reply at bottom */}
           {streamingText && agentStatus === 'running' && (
-            <div className="mb-6 flex justify-start duration-200 animate-in fade-in">
+            <div className="group mb-6 flex justify-start duration-200 animate-in fade-in">
               <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-purple-600 shadow-md">
                 <div className="h-3 w-3 animate-pulse rounded-full bg-white" />
               </div>
@@ -89,6 +90,9 @@ export default function ThreadContent({
                 <div className="prose prose-sm prose-gray max-w-none leading-7 text-gray-800">
                   <span className="mr-1 inline-block h-4 w-1.5 animate-pulse rounded-full bg-blue-500 align-middle" />
                   {streamingText}
+                </div>
+                <div className="mt-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <CopyAction text={streamingText} />
                 </div>
               </div>
             </div>

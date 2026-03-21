@@ -4,10 +4,9 @@ import DOMPurify from 'dompurify'
 import { User, Bot } from 'lucide-react'
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 import { ActionBar } from '../shared/ActionBar'
+import { CodeBlock } from '../shared/CodeBlock'
 import { ToolCallBadge } from '../shared/ToolCallDisplay'
 import { Message, ToolCall } from '../types'
 
@@ -72,24 +71,10 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
               components={{
                 code({ node, inline, className, children, ...props }: any) {
                   const match = /language-(\w+)/.exec(className || '')
-                  // Ensure children is a string to prevent "Object as Child" errors
                   const content = String(children).replace(/\n$/, '')
 
                   return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={oneLight}
-                      language={match[1]}
-                      PreTag="div"
-                      customStyle={{
-                        background: '#f9fafb',
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '0.5rem',
-                        fontSize: '13px',
-                        margin: '1em 0',
-                      }}
-                    >
-                      {content}
-                    </SyntaxHighlighter>
+                    <CodeBlock language={match[1]} code={content} />
                   ) : (
                     <code
                       {...props}
