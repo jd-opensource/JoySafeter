@@ -23,11 +23,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.drop_column("workspace", "allow_personal_api_keys")
+    op.drop_column("workspaces", "allow_personal_api_keys")
 
 
 def downgrade() -> None:
     op.add_column(
-        "workspace",
+        "workspaces",
         sa.Column("allow_personal_api_keys", sa.Boolean(), nullable=False, server_default=sa.text("true")),
     )

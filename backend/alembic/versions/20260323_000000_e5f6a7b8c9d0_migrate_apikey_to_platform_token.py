@@ -45,13 +45,14 @@ def upgrade() -> None:
         conn.execute(
             sa.text("""
             INSERT INTO platform_tokens
-            (user_id, name, token_hash, token_prefix, scopes, resource_type, resource_id,
+            (id, user_id, name, token_hash, token_prefix, scopes, resource_type, resource_id,
              is_active, created_at, last_used_at)
             VALUES
-            (:user_id, :name, :token_hash, :token_prefix, ARRAY['graphs:execute'], :resource_type, :resource_id,
+            (:id, :user_id, :name, :token_hash, :token_prefix, '["graphs:execute"]'::jsonb, :resource_type, :resource_id,
              true, :created_at, :last_used_at)
         """),
             {
+                "id": row.id,
                 "user_id": row.user_id,
                 "name": row.name or "Migrated API Key",
                 "token_hash": token_hash,
@@ -68,7 +69,7 @@ def upgrade() -> None:
 
     # 2. Drop FK constraint and column from graph_executions
     op.drop_constraint(
-        "graph_executions_api_key_id_fkey",
+        "fk_graph_executions_api_key_id_api_key",
         "graph_executions",
         type_="foreignkey",
     )
