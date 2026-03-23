@@ -97,7 +97,7 @@ JoySafeter 支持两种认证方式：
 1. **Session Cookie**（通过浏览器登录后自动携带）
 2. **Platform API Token**（适用于脚本、CI/CD、自动化调用）
 
-**获取 Token**：进入 **Settings → API Tokens → Create Token**，设置名称和有效期后生成。
+**获取 Token**：在技能管理或个人设置中创建 Platform API Token，设置名称和有效期后生成。具体入口请参考当前 UI 版本中的 Token 管理功能。
 
 **在 curl 中使用**：
 ```bash

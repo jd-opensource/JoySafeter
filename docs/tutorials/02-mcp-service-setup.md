@@ -246,7 +246,7 @@ curl -X POST http://localhost:8000/api/v1/mcp/tools/execute \
 建议通过以下方式实现工具级安全控制：
 1. **Graph 节点中断**：在高危工具节点前插入 Human-in-the-Loop 确认步骤（参考教程 05）
 2. **服务端 allowlist**：在 MCP Server 实现中对高危操作做白名单 + 审计日志
-3. **Platform API Token 权限**：通过 Token 的 scope 限制可调用的工具范围
+3. **Platform API Token**：通过 Token 认证确保只有授权用户可调用 API
 
 ### Q：MCP 工具和普通 Skill 有什么区别？
 
