@@ -86,6 +86,21 @@ check_docker_environment() {
     local docker_version=$(docker --version 2>/dev/null | cut -d' ' -f3 | cut -d',' -f1)
     log_success "Docker 已安装 (版本: $docker_version)"
 
+    # 检测 Docker daemon 是否正在运行
+    if ! docker info &> /dev/null; then
+        log_error "Docker daemon 未运行"
+        echo "  请启动 Docker Desktop 或执行: sudo systemctl start docker"
+        return 1
+    fi
+    log_success "Docker daemon 运行中"
+
+    # 检测 Docker CLI 路径（macOS Docker Desktop 使用 /usr/local/bin/docker）
+    local docker_bin_path=$(which docker 2>/dev/null)
+    if [ -n "$docker_bin_path" ] && [ "$docker_bin_path" != "/usr/bin/docker" ]; then
+        export DOCKER_BIN_PATH="$docker_bin_path"
+        log_info "Docker CLI 路径: $docker_bin_path"
+    fi
+
     # 检测 Docker Compose (优先检测 v2)
     if docker compose version &> /dev/null; then
         local compose_version=$(docker compose version 2>/dev/null | cut -d' ' -f4)
@@ -367,15 +382,17 @@ start_docker_compose() {
         return 1
     fi
 
-    # 等待服务就绪
-    log_info "等待服务就绪..."
+    # 等待服务启动
+    log_info "等待服务启动..."
     sleep 5
 
     # 检查服务状态
-    log_info "检查服务状态..."
+    log_info "当前服务状态:"
     $DOCKER_COMPOSE_CMD ps
 
-    log_success "服务启动完成"
+    log_success "Docker Compose 服务已启动"
+    log_warning "首次启动时后端构建可能需要 2-3 分钟，服务完全就绪前访问可能会失败"
+    log_info "查看实时启动进度: $DOCKER_COMPOSE_CMD logs -f backend"
 }
 
 # 显示服务信息
@@ -465,6 +482,13 @@ main() {
         echo ""
     else
         log_info "跳过 .env 文件初始化"
+        # 检查关键 .env 文件是否存在
+        if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
+            log_warning "backend/.env 不存在，Docker Compose 启动将会失败"
+        fi
+        if [ ! -f "$PROJECT_ROOT/frontend/.env" ]; then
+            log_warning "frontend/.env 不存在，Docker Compose 启动将会失败"
+        fi
         echo ""
     fi
 

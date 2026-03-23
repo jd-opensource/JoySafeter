@@ -97,8 +97,11 @@ services:
       - backend-logs:/app/app/logs
       - backend-files:/app/data/files  # 文件存储 volume（持久化用户上传的文件）
       - ../skills:/app/skills  # 自动加载 Skills
-      - /usr/bin/docker:/usr/bin/docker
+      # Docker socket 挂载（用于 OpenClaw 容器管理）
       - /var/run/docker.sock:/var/run/docker.sock
+      # Docker CLI 挂载：macOS Docker Desktop 使用 /usr/local/bin/docker
+      # Linux 通常使用 /usr/bin/docker。如果路径不匹配，后端无法管理 OpenClaw 容器。
+      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=5)"]
       interval: 30s

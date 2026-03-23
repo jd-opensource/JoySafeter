@@ -2,16 +2,23 @@
 
 This directory contains images and assets for documentation.
 
-## Required Assets
+## Current Assets
 
-Please add the following images for the README:
+| File | Description | Used In |
+|------|-------------|---------|
+| `joysafter.png` | Platform architecture diagram | README.md Architecture section |
+| `web-chat-group.jpg` | WeChat user group QR code | README.md Community section |
 
-| File | Description | Recommended Size |
-|------|-------------|------------------|
-| `logo.png` | Project logo | 256x256 px |
-| `screenshot-builder.png` | Agent Builder interface screenshot | 1200x800 px |
-| `screenshot-chat.png` | Chat interface screenshot (optional) | 1200x800 px |
-| `screenshot-workspace.png` | Workspace management screenshot (optional) | 1200x800 px |
+## Missing Assets (TODO)
+
+These images would significantly improve the README first impression:
+
+| File | Description | Recommended Size | Priority |
+|------|-------------|------------------|----------|
+| `logo.png` | Project logo (or SVG) | 256x256 px | **High** — README hero section is blank without it |
+| `screenshot-builder.png` | Agent Builder interface screenshot or GIF | 1200x800 px | **High** — hero demo area is commented out |
+| `screenshot-chat.png` | Chat / Copilot interface screenshot | 1200x800 px | Medium |
+| `screenshot-workspace.png` | Workspace management screenshot | 1200x800 px | Medium |
 
 ## Image Guidelines
 

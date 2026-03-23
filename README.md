@@ -6,11 +6,7 @@
 <h1 align="center">JoySafeter</h1>
 
 <p align="center">
-  <strong>Build Production-Grade AI Security Agents in 3 Minutes</strong>
-</p>
-
-<p align="center">
-  Enterprise-grade intelligent agent orchestration platform with SOTA security capabilities
+  <strong>Visual platform for building, orchestrating, and running AI security agents — from idea to production in minutes.</strong>
 </p>
 
 <p align="center">
@@ -26,53 +22,87 @@
   English | <a href="./README_CN.md">简体中文</a>
 </p>
 
-<p align="center">
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#documentation">Documentation</a> •
-  <a href="#contributing">Contributing</a> •
-  <a href="#license">License</a>
-</p>
-
-<!-- Screenshot placeholder - add docs/assets/screenshot-builder.png when available -->
+<!-- Screenshot / GIF placeholder — replace with actual product screenshot -->
 <!-- <p align="center">
   <img src="docs/assets/screenshot-builder.png" alt="Agent Builder Screenshot" width="800" />
 </p> -->
 
-## Table of Contents
+---
 
-- [Why JoySafeter?](#why-joysafeter)
-- [Quick Start](#quick-start)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
+## Quick Start
+
+Get JoySafeter running in one command:
+
+```bash
+./deploy/quick-start.sh
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API Docs | http://localhost:8000/docs |
+
+> **Prerequisites:** Docker + Docker Compose. See [INSTALL.md](INSTALL.md) for manual setup or pre-built images.
 
 ---
 
-## Why JoySafeter?
+## What's New
 
-> **JoySafeter is not just a productivity tool, but an "operating system" for security capabilities.**
-> It unifies fragmented security tools into a collaborative AI army through visual intelligent orchestration, and precipitates individual expert experience into organizational digital assets. It is the first to define a new paradigm of **AI-driven Security Operations (AISecOps)** in the industry.
+> Full history: [CHANGELOG.md](CHANGELOG.md)
+
+| Tag | Feature | What it means |
+|-----|---------|---------------|
+| **NEW** | **Skill Versioning & Collaboration** | Publish, rollback, and manage skill versions; invite collaborators with role-based permissions; platform API tokens for CI/CD integration |
+| **NEW** | **Multi-Tenant Sandbox Engine** | Per-user isolated code execution — no state leakage between sessions |
+| **NEW** | **Enterprise SSO** | Built-in GitHub / Google / Microsoft templates, plus OIDC (Keycloak, Authentik, GitLab) and JD SSO |
+| **UPGRADE** | **DeepAgents v0.4** | Latest stability improvements and performance optimizations for the multi-agent kernel |
+| **UPGRADE** | **Glass-Box Observability** | Real-time Langfuse tracing of every agent decision and state transition |
+
+---
+
+## Key Features
 
 <table>
 <tr>
 <td width="50%">
 
-### For Enterprise Security Teams
+### Build Agents Visually
 
-- **Visual Development** — No-code agent builder for rapid prototyping
-- **200+ Security Tools** — Pre-integrated Nmap, Nuclei, Trivy, and more
-- **Governance & Audit** — Full execution tracing and observability
-- **Multi-tenancy** — Isolated workspaces with role-based access
+- **No-code workflow builder** — drag-and-drop nodes with loops, conditionals, and parallel execution
+- **Rapid Mode** — describe what you need in natural language, get a running agent team in minutes
+- **Deep Mode** — fine-tune workflows with visual debugging and step-by-step observability
 
 </td>
 <td width="50%">
 
-### For AI Security Researchers
+### 200+ Security Tools Built In
 
-- **Graph-based Workflows** — Complex control flows with loops, conditionals, and parallel execution
-- **Memory Evolution** — Long/short-term memory for continuous learning
-- **MCP Protocol** — Model Context Protocol for unlimited tool extensibility
-- **DeepAgents Mode** — Multi-level hierarchical agent orchestration
+- Pre-integrated **Nmap, Nuclei, Trivy**, and more
+- **MCP Protocol** — extend with any tool via Model Context Protocol
+- **30+ pre-built skills** — penetration testing, document analysis, cloud security, and more
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### Enterprise Ready
+
+- **Multi-tenancy** — isolated workspaces with role-based access
+- **Full audit trail** — execution tracing and governance
+- **SSO integration** — GitHub, Google, Microsoft, OIDC, JD SSO
+- **Production deployment** — Docker Compose with one-click scripts
+
+</td>
+<td width="50%">
+
+### AI-Native Architecture
+
+- **DeepAgents** — manager-worker multi-level agent orchestration
+- **Memory evolution** — long/short-term memory for continuous learning
+- **Skill system** — versioned, reusable capability units with progressive disclosure
+- **LangGraph engine** — graph-based workflows with full state management
 
 </td>
 </tr>
@@ -80,45 +110,13 @@
 
 ---
 
-## Features
-
-JoySafeter is an enterprise-grade AI security agent orchestration platform, featuring:
-
-- **Rapid Mode**: Natural language → auto-orchestrated agent teams → runnable workflow in minutes
-- **Deep Mode**: Visual workflow builder + debugging + observability for complex, iterative security research
-- **Skills**: Pre-built security skills and a scalable skill system (progressive disclosure)
-- **Multi-agent orchestration**: DeepAgents manager-worker star topology
-- **Observability**: Streaming execution + tracing (Langfuse)
-- **Deployment**: Production-ready Docker deployment and scenario scripts
-
-For detailed feature descriptions and the technical matrix, see:
-- Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Developer details: [DEVELOPMENT.md](DEVELOPMENT.md)
-
----
-
-
 ## Architecture
 
-See: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> Detailed architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
----
-
-## Recent Change Log
-
-### Core Capabilities
-- **Meta-Cognitive Superpowers**: Introduced structured reasoning capabilities including Brainstorming, Strategic Planning, and Execution. This elevates the agent from simple task execution to complex problem-solving by formalizing the "thinking process" into executable semantic skills.
-- **Extensible Skill Protocol**: Established the `SKILL.md` standard with a "Progressive Disclosure" architecture. This mechanism optimizes context window usage by dynamically loading skill metadata, instructions, and resources only when needed, turning the agent into an infinitely validatable platform.
-
-### System Architecture
-- **Multi-Tenant Sandbox Engine**: Implemented strict per-user isolation for code execution environments. This enterprise-grade security feature guarantees data sovereignty and prevents state leakage between concurrent user sessions.
-- **Glass-Box Observability**: Integrated deep visualization of agent execution traces with Langfuse. Users can now observe the real-time decision-making process and state transitions, providing full transparency into the agent's "thought process".
-
-### Optimization & Infrastructure
-- **Secure Runtime Transition**: Deprecated legacy insecure execution paths, enforcing the new Sandbox architecture for all dynamic code operations.
-- **Enterprise Identity Integration**: Standardized Single Sign-On (SSO) protocols with built-in templates for GitHub, Google, and Microsoft, plus configurable OIDC providers (Keycloak, Authentik, GitLab) and JD SSO support. See backend/config/oauth_providers.yaml and backend/config/README_OAUTH_LOCAL.md.
-- **Core Kernel Upgrade**: Upgraded `deepagents` kernel to v0.4.0, incorporating the latest stability improvements and performance optimizations.
-
+<p align="center">
+  <img src="docs/assets/joysafter.png" alt="JoySafeter Architecture" width="800" />
+</p>
 
 ---
 
@@ -127,77 +125,50 @@ See: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Layer | Technology | Purpose |
 |-------|------------|---------|
 | **Frontend** | Next.js 16, React 19, TypeScript | Server-side rendering, App Router |
-| **UI Components** | Radix UI, Tailwind CSS, Framer Motion | Accessible, animated components |
-| **State Management** | Zustand, TanStack Query | Client & server state |
-| **Graph Visualization** | React Flow | Interactive node-based editor |
+| **UI** | Radix UI, Tailwind CSS, Framer Motion | Accessible, animated components |
+| **State** | Zustand, TanStack Query | Client & server state |
+| **Workflow Editor** | React Flow | Interactive node-based builder |
 | **Backend** | FastAPI, Python 3.12+ | Async API with OpenAPI docs |
-| **AI Framework** | LangChain 1.2+, LangGraph 1.0+, DeepAgents | Agent orchestration & workflows |
-| **MCP Integration** | mcp 1.20+, fastmcp 2.14+ | Tool protocol support |
+| **AI Framework** | LangChain, LangGraph, DeepAgents | Agent orchestration & workflows |
+| **MCP** | mcp 1.20+, fastmcp 2.14+ | Tool protocol support |
 | **Database** | PostgreSQL, SQLAlchemy 2.0 | Async ORM with migrations |
-| **Caching** | Redis | Session cache & rate limiting |
+| **Cache** | Redis | Session cache & rate limiting |
 | **Observability** | Langfuse, Loguru | Tracing & structured logging |
 
 ---
 
-## Quick Start
+## Documentation
 
-### Prerequisites
+### Getting Started
 
-- Docker + Docker Compose (recommended for first-time users)
-- Python 3.12+ and Node.js 20+ (only if you plan to run backend/frontend locally)
+- [INSTALL.md](INSTALL.md) — Installation guide (Docker / manual / pre-built images)
+- [DEVELOPMENT.md](DEVELOPMENT.md) — Local development setup
+- [deploy/README.md](deploy/README.md) — Docker deployment
+- [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md) — Production deployment
 
-### One-Click Run (Docker, Recommended)
+### Deep Dive
 
-```bash
-./deploy/quick-start.sh
-```
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Architecture overview
+- [backend/README.md](backend/README.md) — Backend guide
+- [frontend/README.md](frontend/README.md) — Frontend guide
 
-### Access Points
+### Tutorials
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
-| API Documentation | http://localhost:8000/docs |
+See [docs/tutorials/](docs/tutorials/) for step-by-step guides on model setup, MCP integration, skill development, and more.
 
-### Next Steps
+### Governance
 
-- Full installation options (manual deploy / pre-built images): [INSTALL.md](INSTALL.md)
-- Local development: [DEVELOPMENT.md](DEVELOPMENT.md)
-- Production deployment guide: [deploy/README.md](deploy/README.md) and [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Contributing guide
+- [SECURITY.md](SECURITY.md) — Security policy
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Code of conduct
+
+---
 
 ## Roadmap
 
 See [docs/plans/](docs/plans/) and project issues for the latest roadmap and design notes.
 
 ---
-
-
----
-
-## Documentation
-
-### Start here
-
-- Installation: [INSTALL.md](INSTALL.md)
-- Development: [DEVELOPMENT.md](DEVELOPMENT.md)
-- Deployment (Docker): [deploy/README.md](deploy/README.md)
-- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
-### Submodules
-
-- Backend: [backend/README.md](backend/README.md)
-- Frontend: [frontend/README.md](frontend/README.md)
-
-### Project governance
-
-- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
-- Security policy: [SECURITY.md](SECURITY.md)
-- Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-
----
-
-
 
 ## Community
 
@@ -209,7 +180,7 @@ Join the WeChat user group if you have questions or want to connect with other u
 
 ## Contributing
 
-We welcome contributions from the community! See our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ```bash
 # Fork and clone
@@ -252,8 +223,6 @@ This project is licensed under the **Apache License 2.0** — see the [LICENSE](
 <p align="center">
   <sub>Made with ❤️ by the JoySafeter Team</sub>
 </p>
-
----
 
 <p align="center">
   <sub>For commercial solutions, please contact JD Technology Solutions Team at <a href="mailto:org.ospo1@jd.com">org.ospo1@jd.com</a></sub>

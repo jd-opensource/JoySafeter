@@ -23,7 +23,7 @@
 - **特点**：速度快，专注于上下文更新。LLM 会直接在当前图的基础上，下发单一工具调用（如只修改某一个 node 的 `systemPrompt`），然后通过前端 `ActionApplier` 将补丁无缝还原到此时的 ReactFlow 画布上。
 
 ### 1.2 高级模式（DeepAgents Mode - SSE 流式编排）
-当检测到需要“从初创生成一个完整工作流”、或“明确构建多智能体团队”时，就会触发这条更重、更专业的链路（`/v1/graphs/copilot/deepagents/actions/stream`）。
+当检测到需要”从初创生成一个完整工作流”、或”明确构建多智能体团队”时，就会触发这条更重、更专业的链路。系统通过 `/v1/graphs/copilot/actions/create` 创建异步会话，并以 session-based 模式（`/v1/graphs/copilot/sessions/{session_id}`）推送实时状态。
 
 此模式完全基于 **LangChain DeepAgents (多智能体树形编排)** 实现深度思考：
 1. **需求分析师（requirements-analyst）**：首先拦截用户的 Prompt 和画布现状，分析这是 `create` 还是 `update` 模式？复杂度几何？是否需要多代理？此步骤会将结果格式化并“落盘”写入沙盒的 `/analysis.json`。
