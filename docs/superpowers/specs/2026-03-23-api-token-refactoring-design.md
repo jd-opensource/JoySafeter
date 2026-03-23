@@ -40,6 +40,15 @@ Refactor the API token system to unify two parallel token mechanisms (PlatformTo
 
 ## Architecture Design
 
+### 0. Terminology Clarification
+
+**Workspace vs Graph:**
+- In this system, "workspace" and "graph" refer to the same entity
+- Legacy code uses "workspace" terminology
+- New unified system uses "graph" as the canonical resource type name
+- Migration maps `workspace_id` → `resource_type='graph', resource_id=str(workspace_id)`
+- This is a naming unification, not a structural change
+
 ### 1. Unified Scope System
 
 **Three-tier resource types:**
@@ -136,11 +145,16 @@ class PlatformTokenService:
         )
 
     async def create_token(self, ..., scopes: List[str], ...) -> TokenCreateResponse:
-        # Validate scopes
+        # Validate scopes with hierarchy awareness
         invalid = set(scopes) - self.VALID_SCOPES
         if invalid:
             raise ValidationException(f"Invalid scopes: {invalid}")
-        # ... rest unchanged
+
+        # Check token limit
+        if await self.repo.count_active_by_user(user_id) >= self.MAX_ACTIVE_TOKENS_PER_USER:
+            raise ValidationException(f"Maximum {self.MAX_ACTIVE_TOKENS_PER_USER} active tokens per user")
+
+        # ... rest of token generation unchanged
 
     async def revoke_by_resource(self, resource_type: str, resource_id: str) -> int:
         """Soft-delete all tokens bound to a resource (called on resource deletion)"""
@@ -372,6 +386,7 @@ async def upgrade():
         select(ApiKey).where(ApiKey.is_active == True)
     )
 
+    migrated_count = 0
     for api_key in api_keys.scalars():
         # Hash the existing plaintext token from ApiKey
         # Prefix with 'sk_' if not already present
@@ -381,6 +396,14 @@ async def upgrade():
 
         token_hash = hashlib.sha256(existing_token.encode()).hexdigest()
 
+        # Check for hash collision (extremely unlikely but handle it)
+        existing = await db.execute(
+            select(PlatformToken).where(PlatformToken.token_hash == token_hash)
+        )
+        if existing.scalar_one_or_none():
+            logger.warning(f"Hash collision for ApiKey {api_key.id}, skipping")
+            continue
+
         platform_token = PlatformToken(
             user_id=api_key.user_id,
             name=f"Migrated: {api_key.name}",
@@ -388,15 +411,23 @@ async def upgrade():
             token_prefix=existing_token[:12],
             scopes=['graphs:execute'],
             resource_type='graph',
-            resource_id=str(api_key.workspace_id),  # workspace_id maps to graph resource_id
+            resource_id=str(api_key.workspace_id),
             expires_at=api_key.expires_at,
             is_active=True
         )
         db.add(platform_token)
+        migrated_count += 1
 
     await db.commit()
 
-    # 2. Rename api_keys table for 30-day verification period
+    # 2. Verify migration
+    original_count = await db.scalar(select(func.count()).select_from(ApiKey).where(ApiKey.is_active == True))
+    if migrated_count != original_count:
+        raise Exception(f"Migration verification failed: {migrated_count} migrated vs {original_count} original")
+
+    logger.info(f"Successfully migrated {migrated_count} ApiKeys to PlatformTokens")
+
+    # 3. Rename api_keys table for 30-day verification period
     op.rename_table('api_keys', 'api_keys_deprecated')
     op.execute("COMMENT ON TABLE api_keys_deprecated IS 'Deprecated, safe to drop after 2026-04-23'")
 
@@ -409,6 +440,13 @@ async def downgrade():
     )
     await db.commit()
 ```
+
+**Rollback Procedure (if migration issues detected):**
+1. Stop application servers
+2. Run `alembic downgrade -1` to execute downgrade script
+3. Verify `api_keys` table restored and migrated tokens deleted
+4. Restart application servers
+5. Investigate migration failure, fix script, retry
 
 #### Code Removal
 
