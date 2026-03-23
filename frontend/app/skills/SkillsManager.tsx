@@ -19,7 +19,7 @@ import {
   Lock,
   ChevronRight,
 } from 'lucide-react'
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,8 +50,10 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { UnifiedDialog, ValidationBox, FileListBox } from '@/components/ui/unified-dialog'
+import { useSkillCollaborators } from '@/hooks/queries/skillCollaborators'
 import { useCreateSkill, useUpdateSkill } from '@/hooks/queries/skills'
 import { useToast } from '@/hooks/use-toast'
+import { useSession } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -71,6 +73,7 @@ import { CollaboratorsTab } from './components/CollaboratorsTab'
 import { SkillEditor } from './components/SkillEditor'
 import { SkillFileTree } from './components/SkillFileTree'
 import { VersionHistoryTab } from './components/VersionHistoryTab'
+import { ApiTokensTab } from './components/ApiTokensTab'
 import { useSkillFiles } from './hooks/useSkillFiles'
 import { useSkillForm } from './hooks/useSkillForm'
 import { useSkillImport } from './hooks/useSkillImport'
@@ -101,7 +104,19 @@ export default function SkillsManager() {
   } = skillManager
 
   // Tab state for editor area
-  const [activeTab, setActiveTab] = useState<'editor' | 'versions' | 'collaborators'>('editor')
+  const [activeTab, setActiveTab] = useState<'editor' | 'versions' | 'collaborators' | 'api'>('editor')
+
+  // Derive user role from session + collaborators
+  const { data: session } = useSession()
+  const { data: collaborators = [] } = useSkillCollaborators(selectedSkill?.id ?? '')
+  const currentUserId = session?.user?.id
+
+  const userRole = useMemo(() => {
+    if (!selectedSkill || !currentUserId) return 'viewer'
+    if (selectedSkill.owner_id === currentUserId) return 'owner'
+    const collab = collaborators.find((c) => c.userId === currentUserId)
+    return collab?.role ?? 'viewer'
+  }, [selectedSkill, currentUserId, collaborators])
 
   // Form management - initialize form hook first
   const formHook = useSkillForm({
@@ -637,7 +652,7 @@ export default function SkillsManager() {
 
               {/* Tab Bar */}
               <div className="flex border-b border-gray-200 px-2">
-                {(['editor', 'versions', 'collaborators'] as const).map((tab) => (
+                {(['editor', 'versions', 'collaborators', 'api'] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
@@ -651,6 +666,7 @@ export default function SkillsManager() {
                     {tab === 'editor' && t('skills.editor')}
                     {tab === 'versions' && t('skillVersions.title')}
                     {tab === 'collaborators' && t('skillCollaborators.title')}
+                    {tab === 'api' && t('skills.apiAndTokens', 'API & Tokens')}
                   </button>
                 ))}
               </div>
@@ -685,13 +701,19 @@ export default function SkillsManager() {
                 </div>
               )}
               {activeTab === 'versions' && selectedSkill && (
-                <VersionHistoryTab skillId={selectedSkill.id} userRole="owner" />
+                <VersionHistoryTab skillId={selectedSkill.id} userRole={userRole} />
               )}
               {activeTab === 'collaborators' && selectedSkill && (
                 <CollaboratorsTab
                   skillId={selectedSkill.id}
                   ownerId={selectedSkill.owner_id || selectedSkill.created_by_id || ''}
-                  userRole="owner"
+                  userRole={userRole}
+                />
+              )}
+              {activeTab === 'api' && selectedSkill && (
+                <ApiTokensTab
+                  skillId={selectedSkill.id}
+                  skillName={selectedSkill.name}
                 />
               )}
             </div>
