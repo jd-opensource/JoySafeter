@@ -51,16 +51,7 @@ class PlatformTokenRepository(BaseRepository[PlatformToken]):
             .values(is_active=False)
         )
         result = await self.db.execute(query)
-        await self.db.commit()
         return int(result.rowcount)  # type: ignore[attr-defined,no-any-return]
-
-    async def list_by_user(self, user_id: str) -> List[PlatformToken]:
-        result = await self.db.execute(
-            select(PlatformToken)
-            .where(PlatformToken.user_id == user_id, PlatformToken.is_active.is_(True))
-            .order_by(PlatformToken.created_at.desc())
-        )
-        return list(result.scalars().all())
 
     async def count_active_by_user(self, user_id: str) -> int:
         result = await self.db.execute(

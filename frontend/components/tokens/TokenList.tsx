@@ -25,11 +25,8 @@ import { useTranslation } from '@/lib/i18n'
 import { TokenItem } from './TokenItem'
 
 interface TokenListProps {
-  /** Filter tokens by resource type (server-side) */
   resourceType?: TokenListParams['resourceType']
-  /** Filter tokens by resource ID (server-side) */
   resourceId?: string
-  /** Additional content rendered above the list (e.g. create button) */
   header?: React.ReactNode
 }
 
@@ -44,8 +41,6 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
 
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false)
   const [tokenToRevoke, setTokenToRevoke] = useState<PlatformToken | null>(null)
-
-  const activeTokens = (tokens ?? []).filter((tok) => tok.isActive)
 
   const openRevokeDialog = (token: PlatformToken) => {
     setTokenToRevoke(token)
@@ -81,7 +76,7 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
     <div className="flex flex-col gap-4">
       {header}
 
-      {activeTokens.length === 0 ? (
+      {!tokens || tokens.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/50 py-12">
           <div className="rounded-full border border-gray-200 bg-gray-100 p-4">
             <Key className="h-8 w-8 text-gray-300" />
@@ -90,7 +85,7 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
         </div>
       ) : (
         <div className="space-y-3">
-          {activeTokens.map((token) => (
+          {tokens.map((token) => (
             <TokenItem
               key={token.id}
               token={token}

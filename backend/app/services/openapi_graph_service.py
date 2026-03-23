@@ -236,6 +236,7 @@ class OpenApiGraphService(BaseService):
 
         return {
             "executionId": str(execution.id),
+            "graphId": str(execution.graph_id),
             "status": execution.status.value,
             "startedAt": execution.started_at.isoformat() if execution.started_at else None,
             "finishedAt": execution.finished_at.isoformat() if execution.finished_at else None,
@@ -269,6 +270,7 @@ class OpenApiGraphService(BaseService):
 
         return {
             "executionId": str(execution.id),
+            "graphId": str(execution.graph_id),
             "status": execution.status.value,
         }
 
@@ -284,6 +286,7 @@ class OpenApiGraphService(BaseService):
 
         return {
             "executionId": str(execution.id),
+            "graphId": str(execution.graph_id),
             "status": execution.status.value,
             "output": execution.output,
             "errorMessage": execution.error_message,

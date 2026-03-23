@@ -7,7 +7,7 @@ export interface PlatformToken {
   name: string
   tokenPrefix: string
   scopes: string[]
-  resourceType: string | null
+  resourceType: 'skill' | 'graph' | 'tool' | null
   resourceId: string | null
   expiresAt: string | null
   lastUsedAt: string | null

@@ -21,6 +21,7 @@ import {
   usePlatformTokens,
   type PlatformTokenCreateResponse,
 } from '@/hooks/queries/platformTokens'
+import { useCopyToClipboard } from '@/app/chat/shared/hooks/useCopyToClipboard'
 import { API_BASE } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 
@@ -39,19 +40,15 @@ export function ApiAccessDialog({
 }: ApiAccessDialogProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
-  const [copiedUrl, setCopiedUrl] = useState(false)
-  const [copiedCode, setCopiedCode] = useState(false)
+  const { copied, handleCopy } = useCopyToClipboard()
 
   // Token creation state
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [tokenName, setTokenName] = useState('')
   const [createdToken, setCreatedToken] = useState<PlatformTokenCreateResponse | null>(null)
-  const [copiedToken, setCopiedToken] = useState(false)
 
   const { data: tokens = [] } = usePlatformTokens({ resourceType: 'graph', resourceId: workspaceId })
   const createMutation = useCreateToken()
-
-  const activeCount = tokens.filter((tok) => tok.isActive).length
 
   const apiUrl = `${API_BASE}/openapi/graph/${agentId}`
 
@@ -59,28 +56,6 @@ export function ApiAccessDialog({
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"inputs": {"your_input_key": "your_input_value"}}'`
-
-  const handleCopyUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(apiUrl)
-      setCopiedUrl(true)
-      toast({ title: t('workspace.copiedToClipboard', { defaultValue: 'Copied' }) })
-      setTimeout(() => setCopiedUrl(false), 2000)
-    } catch {
-      toast({ title: t('workspace.copyFailed', { defaultValue: 'Copy failed' }), variant: 'destructive' })
-    }
-  }
-
-  const handleCopyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(curlExample)
-      setCopiedCode(true)
-      toast({ title: t('workspace.copiedToClipboard', { defaultValue: 'Copied' }) })
-      setTimeout(() => setCopiedCode(false), 2000)
-    } catch {
-      toast({ title: t('workspace.copyFailed', { defaultValue: 'Copy failed' }), variant: 'destructive' })
-    }
-  }
 
   const handleCreateToken = async () => {
     if (!tokenName.trim()) return
@@ -97,17 +72,6 @@ export function ApiAccessDialog({
       setShowCreateForm(false)
     } catch (error: any) {
       toast({ title: error?.message || t('common.error'), variant: 'destructive' })
-    }
-  }
-
-  const handleCopyToken = async () => {
-    if (!createdToken) return
-    try {
-      await navigator.clipboard.writeText(createdToken.token)
-      setCopiedToken(true)
-      setTimeout(() => setCopiedToken(false), 2000)
-    } catch {
-      toast({ title: t('workspace.copyFailed', { defaultValue: 'Copy failed' }), variant: 'destructive' })
     }
   }
 
@@ -128,12 +92,12 @@ export function ApiAccessDialog({
         size="sm"
         onClick={() => setShowCreateForm(!showCreateForm)}
         className="gap-2"
-        disabled={activeCount >= 50}
+        disabled={tokens.length >= 50}
       >
         <Plus size={14} />
         {t('settings.tokens.create')}
       </Button>
-      {activeCount >= 50 && (
+      {tokens.length >= 50 && (
         <p className="mt-1 text-xs text-amber-600">{t('settings.tokens.limitReached')}</p>
       )}
       {showCreateForm && (
@@ -212,9 +176,9 @@ export function ApiAccessDialog({
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 flex-shrink-0"
-                          onClick={handleCopyUrl}
+                          onClick={() => handleCopy(apiUrl)}
                         >
-                          {copiedUrl ? (
+                          {copied ? (
                             <Check className="h-4 w-4 text-green-600" />
                           ) : (
                             <Copy className="h-4 w-4 text-gray-500" />
@@ -259,9 +223,9 @@ export function ApiAccessDialog({
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
-                            onClick={handleCopyCode}
+                            onClick={() => handleCopy(curlExample)}
                           >
-                            {copiedCode ? (
+                            {copied ? (
                               <Check className="h-3 w-3 text-green-600" />
                             ) : (
                               <Copy className="h-3 w-3 text-gray-500" />
@@ -331,12 +295,10 @@ export function ApiAccessDialog({
                   variant="outline"
                   size="sm"
                   className="shrink-0 gap-1"
-                  onClick={handleCopyToken}
+                  onClick={() => handleCopy(createdToken.token)}
                 >
                   <Copy size={14} />
-                  {copiedToken
-                    ? t('settings.tokens.copied')
-                    : t('settings.tokens.copyToken')}
+                  {copied ? t('settings.tokens.copied') : t('settings.tokens.copyToken')}
                 </Button>
               </div>
             </div>

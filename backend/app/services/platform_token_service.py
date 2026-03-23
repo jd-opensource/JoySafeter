@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.permissions import VALID_SCOPES
 from app.models.platform_token import PlatformToken
 from app.repositories.platform_token import PlatformTokenRepository
 
@@ -19,18 +20,6 @@ TOKEN_PREFIX = "sk_"
 
 
 class PlatformTokenService(BaseService[PlatformToken]):
-    VALID_SCOPES = {
-        "skills:read",
-        "skills:write",
-        "skills:execute",
-        "skills:publish",
-        "skills:admin",
-        "graphs:read",
-        "graphs:execute",
-        "tools:read",
-        "tools:execute",
-    }
-
     VALID_RESOURCE_TYPES = {"skill", "graph", "tool"}
 
     def __init__(self, db):
@@ -53,7 +42,7 @@ class PlatformTokenService(BaseService[PlatformToken]):
             raise BadRequestException(f"Maximum of {MAX_ACTIVE_TOKENS_PER_USER} active tokens reached")
 
         # Validate scopes
-        invalid = set(scopes) - self.VALID_SCOPES
+        invalid = set(scopes) - set(VALID_SCOPES)
         if invalid:
             raise BadRequestException(f"Invalid scopes: {invalid}")
 
@@ -64,6 +53,40 @@ class PlatformTokenService(BaseService[PlatformToken]):
             raise BadRequestException(
                 f"Invalid resource_type: {resource_type}. Must be one of {self.VALID_RESOURCE_TYPES}"
             )
+
+        # Validate resource exists and user has permission
+        if resource_type is not None and resource_id is not None:
+            if resource_type == "skill":
+                from app.repositories.skill import SkillRepository
+                from app.models.skill_collaborator import CollaboratorRole
+                from app.common.skill_permissions import check_skill_access
+                skill_repo = SkillRepository(self.db)
+                skill = await skill_repo.get(resource_id)
+                if not skill:
+                    raise NotFoundException(f"Skill {resource_id} not found")
+                try:
+                    await check_skill_access(self.db, skill, user_id, CollaboratorRole.editor)
+                except ForbiddenException:
+                    raise ForbiddenException("No permission to create token for this skill")
+            elif resource_type == "graph":
+                from app.repositories.workspace import WorkspaceRepository, WorkspaceMemberRepository
+                workspace_repo = WorkspaceRepository(self.db)
+                member_repo = WorkspaceMemberRepository(self.db)
+                workspace = await workspace_repo.get(resource_id)
+                if not workspace:
+                    raise NotFoundException(f"Workspace {resource_id} not found")
+                if workspace.owner_id != user_id:
+                    member = await member_repo.get_member(resource_id, user_id)
+                    if not member or member.role not in {"admin", "owner"}:
+                        raise ForbiddenException("No permission to create token for this workspace")
+            elif resource_type == "tool":
+                from app.repositories.tool import ToolRepository
+                tool_repo = ToolRepository(self.db)
+                tool = await tool_repo.get(resource_id)
+                if not tool:
+                    raise NotFoundException(f"Tool {resource_id} not found")
+                if tool.owner_id != user_id:
+                    raise ForbiddenException("No permission to create token for this tool")
 
         # Generate token
         raw_secret = secrets.token_urlsafe(36)  # ~48 chars

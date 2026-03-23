@@ -24,8 +24,6 @@ export const TokensPage = () => {
   const [createdToken, setCreatedToken] = useState<string | null>(null)
   const [tokenCreatedDialogOpen, setTokenCreatedDialogOpen] = useState(false)
 
-  const activeCount = (tokens ?? []).filter((tok) => tok.isActive).length
-
   const handleCreateSubmit = async (data: {
     name: string
     scopes: string[]
@@ -62,12 +60,12 @@ export const TokensPage = () => {
       <Button
         size="sm"
         onClick={() => setCreateDialogOpen(true)}
-        disabled={activeCount >= 50}
+        disabled={(tokens?.length ?? 0) >= 50}
         className="gap-2 rounded-lg"
       >
         <Key className="h-3.5 w-3.5" />
         <span className="text-xs font-medium">
-          {activeCount >= 50 ? t('settings.tokens.limitReached') : t('settings.tokens.create')}
+          {(tokens?.length ?? 0) >= 50 ? t('settings.tokens.limitReached') : t('settings.tokens.create')}
         </span>
       </Button>
     </div>

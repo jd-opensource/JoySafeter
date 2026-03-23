@@ -37,11 +37,8 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
   const [tokenName, setTokenName] = useState('')
   const [createdToken, setCreatedToken] = useState<PlatformTokenCreateResponse | null>(null)
 
-  // Server-side filtering: only fetch tokens bound to this skill
   const { data: tokens = [] } = usePlatformTokens({ resourceType: 'skill', resourceId: skillId })
   const createMutation = useCreateToken()
-
-  const activeCount = tokens.filter((tok) => tok.isActive).length
 
   const handleCreate = async () => {
     if (!tokenName.trim()) return
@@ -68,12 +65,12 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
         size="sm"
         onClick={() => setShowCreateForm(!showCreateForm)}
         className="gap-2"
-        disabled={activeCount >= 50}
+        disabled={tokens.length >= 50}
       >
         <Plus size={14} />
         {t('settings.tokens.create')}
       </Button>
-      {activeCount >= 50 && (
+      {tokens.length >= 50 && (
         <p className="mt-1 text-xs text-amber-600">{t('settings.tokens.limitReached')}</p>
       )}
 

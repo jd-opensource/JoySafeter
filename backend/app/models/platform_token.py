@@ -43,6 +43,5 @@ class PlatformToken(BaseModel):
         Index("platform_tokens_user_idx", "user_id"),
         Index("platform_tokens_hash_idx", "token_hash"),
         Index("platform_tokens_active_idx", "is_active"),
-        Index("platform_tokens_resource_type_idx", "resource_type"),
-        Index("platform_tokens_resource_id_idx", "resource_id"),
+        Index("platform_tokens_resource_lookup_idx", "user_id", "is_active", "resource_type", "resource_id"),
     )

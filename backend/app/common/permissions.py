@@ -8,6 +8,12 @@ SCOPE_HIERARCHY = {
     "tools": ["execute", "read"],
 }
 
+VALID_SCOPES = [
+    f"{resource}:{action}"
+    for resource, actions in SCOPE_HIERARCHY.items()
+    for action in actions
+]
+
 
 def _scope_satisfies(token_scope: str, required_scope: str) -> bool:
     """Check if token_scope satisfies required_scope via hierarchy."""

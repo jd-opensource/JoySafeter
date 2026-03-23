@@ -232,8 +232,16 @@ class TestPlatformTokenServiceValidation:
     async def test_create_accepts_valid_resource_binding(self):
         """Should succeed with valid resource_type + resource_id pair."""
         db = _mock_db()
-        with patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo:
+        skill_id = uuid.uuid4()
+        with patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo, \
+             patch("app.repositories.skill.SkillRepository.get", new_callable=AsyncMock) as mock_get, \
+             patch("app.common.skill_permissions.check_skill_access", new_callable=AsyncMock) as mock_check:
             MockRepo.return_value.count_active_by_user = AsyncMock(return_value=0)
+            mock_skill = MagicMock()
+            mock_skill.id = skill_id
+            mock_skill.owner_id = "user-1"
+            mock_get.return_value = mock_skill
+            mock_check.return_value = None
             from app.services.platform_token_service import PlatformTokenService
 
             service = PlatformTokenService(db)
@@ -242,6 +250,6 @@ class TestPlatformTokenServiceValidation:
                 name="test",
                 scopes=["skills:execute"],
                 resource_type="skill",
-                resource_id=uuid.uuid4(),
+                resource_id=skill_id,
             )
             assert raw_token.startswith("sk_")

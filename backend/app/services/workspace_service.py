@@ -207,6 +207,11 @@ class WorkspaceService(BaseService[Workspace]):
         if workspace.type == WorkspaceType.personal:
             raise BadRequestException("个人空间不允许删除")
 
+        # Revoke all tokens bound to this workspace
+        from app.services.platform_token_service import PlatformTokenService
+        token_service = PlatformTokenService(self.db)
+        await token_service.revoke_by_resource("graph", str(workspace_id))
+
         deleted = await self.workspace_repo.delete(workspace_id)
         await self.commit()
         # 模板删除逻辑预留，当前模型中未挂载模板实体

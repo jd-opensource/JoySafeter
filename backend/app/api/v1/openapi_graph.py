@@ -124,6 +124,8 @@ async def get_execution_status(
     service = OpenApiGraphService(db)
     result = await service.get_status(execution_id, user.id)
 
+    _require_graph_execute(auth, uuid.UUID(result["graphId"]))
+
     log.info(f"openapi.graph.status success status={result['status']}")
     return {"success": True, "data": result}
 
@@ -146,6 +148,8 @@ async def abort_execution(
 
     service = OpenApiGraphService(db)
     result = await service.abort_execution(execution_id, user.id)
+
+    _require_graph_execute(auth, uuid.UUID(result["graphId"]))
 
     log.info(f"openapi.graph.abort success status={result['status']}")
     return {"success": True, "data": result}
@@ -170,6 +174,8 @@ async def get_execution_result(
 
     service = OpenApiGraphService(db)
     result = await service.get_result(execution_id, user.id)
+
+    _require_graph_execute(auth, uuid.UUID(result["graphId"]))
 
     log.info(f"openapi.graph.result success status={result['status']}")
     return {"success": True, "data": result}
