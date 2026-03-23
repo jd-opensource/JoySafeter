@@ -88,6 +88,44 @@
 
 ---
 
+## API 认证：使用 Platform API Token
+
+> **重要**：在多租户环境下，所有 REST API 调用都需要携带认证 Token。
+
+JoySafeter 支持两种认证方式：
+
+1. **Session Cookie**（通过浏览器登录后自动携带）
+2. **Platform API Token**（适用于脚本、CI/CD、自动化调用）
+
+**获取 Token**：进入 **Settings → API Tokens → Create Token**，设置名称和有效期后生成。
+
+**在 curl 中使用**：
+```bash
+# 所有 API 请求都应携带 Authorization 头
+curl http://localhost:8000/api/v1/models \
+  -H "Authorization: Bearer <your-platform-token>"
+```
+
+> 本教程后续的 curl 示例省略了 `-H "Authorization: Bearer ..."` 以保持简洁，但在生产环境中务必携带。
+
+---
+
+## 企业 SSO 登录
+
+如果你的组织使用统一身份认证，JoySafeter 支持多种 SSO 方式：
+
+| 方式 | 说明 |
+|------|------|
+| **GitHub / Google / Microsoft** | 内置模板，在 `backend/config/oauth_providers.yaml` 中填入 Client ID/Secret 即可启用 |
+| **OIDC 通用** | 支持 Keycloak、Authentik、GitLab 等标准 OIDC Provider |
+| **JD SSO** | 京东内部单点登录（非标准 OAuth2） |
+
+配置详见 `backend/config/README_OAUTH_LOCAL.md`。
+
+SSO 登录后，系统自动创建用户并关联到对应的组织/工作区，模型凭据和权限体系与手动注册用户完全一致。
+
+---
+
 ## 案例 A：配置内置 OpenAI 供应商
 
 ### 步骤 1：进入模型设置页面

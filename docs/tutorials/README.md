@@ -26,9 +26,10 @@
 |------|---------|------|
 | 技能版本化与协作者 | [教程 03](./03-skills-usage.md) | 已覆盖 |
 | 多租户沙箱引擎 (OpenClaw) | [教程 06](./06-openclaw-usage.md) | 已覆盖 |
-| Langfuse 可观测性 | 教程 04a / 04b | 待补充 |
-| 企业 SSO | 教程 01 | 待补充 |
-| Platform API Tokens | 全局 | 待补充 |
+| Langfuse 可观测性 | [教程 04a](./04a-langgraph-building.md) / [04b](./04b-deepagents-building.md) | 已覆盖 |
+| 企业 SSO | [教程 01](./01-model-provider-setup.md) | 已覆盖 |
+| Platform API Tokens | [教程 01](./01-model-provider-setup.md)（全局认证说明） | 已覆盖 |
+| DeepAgents v0.4 | [教程 04b](./04b-deepagents-building.md) | 已覆盖 |
 
 ---
 

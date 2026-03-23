@@ -5,9 +5,11 @@
 
 ---
 
-## 0. 这回是“动态的星型团队”而非“固定的流水线”
+## 0. 这回是”动态的星型团队”而非”固定的流水线”
 
-如果在前一节 04a 中，你学到的是工厂的“流水生产线（LangGraph）”。
+> **版本说明**：本教程基于 DeepAgents v0.4 内核。如果你使用的是更早版本，部分 API 行为可能有差异。
+
+如果在前一节 04a 中，你学到的是工厂的”流水生产线（LangGraph）”。
 那么这一节，带你构建的是一家真正的**公司（DeepAgents）**。
 
 在 JoySafeter 的底层源码 `GraphBuilderFactory` 中，一旦它扫描到你的画布上**有任何一个节点的主动配置里勾选了 `useDeepAgents = True`**。后端的编译引擎就会彻底切轨，抛弃了原来循规蹈矩的边，重构整个网络为一种支持自我思考分发的**动态星型拓扑（Star Topology）**。
@@ -147,6 +149,22 @@
 
 **这就是 DeepAgents 引擎的威力——动态决策图景。**
 在这个模式下，你只需专注招什么样的专业人才（配什么样的 Skill 并且写好 prompt），连同线告诉谁是老板，其他千变万化的执行分支规划，大模型底层会在每一次聊天时**即时计算排查**，完全免去了你手写几十根不同 Router 判断线的噩梦。
+
+---
+
+## 4. Langfuse 链路追踪：看透 Manager 的"思考过程"
+
+DeepAgents 的动态调度虽然强大，但"老板到底怎么想的"有时让人摸不着头脑。JoySafeter 集成的 **Langfuse 可观测性** 在此场景下尤为重要：
+
+1. **进入追踪面板**：在左侧导航栏点击 **Traces**，或在 Runner 执行完毕后点击执行记录旁的 **View Trace** 链接。
+2. **你能看到什么**：
+   - **Manager 的决策过程**：LLM 输入/输出的完整内容，包括它如何分析用户需求、选择调度哪些 SubAgent
+   - **任务分派时序**：Manager 先后（或并发）调用了哪些 Worker，每个 Worker 的执行耗时
+   - **Worker 的执行详情**：每个 SubAgent 内部的 tool 调用、代码执行结果
+   - **整体成本**：token 消耗、总延迟、各阶段耗时的瀑布图
+3. **调试技巧**：如果 Manager 总是"分错人"或"漏掉某个专家"，在 Trace 中查看 Manager 的 System Prompt 注入内容——往往是花名册描述不够清晰导致的。
+
+> 配置 Langfuse 连接：进入 **Settings → Observability**，填入 Langfuse Host、Public Key 和 Secret Key。
 
 ---
 

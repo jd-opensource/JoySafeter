@@ -118,8 +118,10 @@ Graph 节点的 tools 配置结构（后端注释写得很直白）：
 
 ## 真实可跑：用 JoySafeter 自己的 MCP API 接入一个 MCP Server（端到端示例）
 
-> 目的：给出“能跑”的最小闭环：**创建 server → 测试连接 → 刷新/列出 tools → 节点引用格式 → 执行**。
+> 目的：给出”能跑”的最小闭环：**创建 server → 测试连接 → 刷新/列出 tools → 节点引用格式 → 执行**。
 > 你可以先不改任何前端代码，直接用 curl 验证 MCP 链路打通。
+
+> **认证提示**：以下 curl 示例省略了 `Authorization` 头以保持简洁。在生产环境中，请携带 Platform API Token：`-H “Authorization: Bearer <token>”`。Token 获取方式详见 [教程 01 — API 认证](./01-model-provider-setup.md#api-认证使用-platform-api-token)。
 
 ### 前置：你需要一个可访问的 MCP Server URL（streamable-http）
 
@@ -233,13 +235,18 @@ curl -X POST http://localhost:8000/api/v1/mcp/tools/execute \
 
 ### Q：工具加载后在 Skills 列表找不到？
 
-1. 检查 `frontend/public/converted_skills.json` 是否存在
-2. 清除 LocalStorage：DevTools → Application → Local Storage → 删除 `joysafeter_skills`
+1. 确认 MCP Server 已启用且工具已通过 `refresh` 注册到 ToolRegistry
+2. 清除浏览器缓存：DevTools → Application → Local Storage → 删除 `joysafeter_skills`
 3. 刷新页面
+
+> **注意**：早期版本使用 `frontend/public/converted_skills.json` 静态文件作为 Skills 索引。当前版本中，Skills 元数据由数据库管理（支持版本化和协作者），该静态文件仅作兼容保留，不应作为排障依据。
 
 ### Q：如何给工具添加安全检查？
 
-在 `manifest.md` 中添加 `requires_authorization: true` 字段，并在工具实现中加入授权校验逻辑。
+建议通过以下方式实现工具级安全控制：
+1. **Graph 节点中断**：在高危工具节点前插入 Human-in-the-Loop 确认步骤（参考教程 05）
+2. **服务端 allowlist**：在 MCP Server 实现中对高危操作做白名单 + 审计日志
+3. **Platform API Token 权限**：通过 Token 的 scope 限制可调用的工具范围
 
 ### Q：MCP 工具和普通 Skill 有什么区别？
 
