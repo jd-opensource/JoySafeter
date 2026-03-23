@@ -19,6 +19,7 @@ import {
   Lock,
   ChevronRight,
   Wand2,
+  Terminal,
 } from 'lucide-react'
 import Link from 'next/link'
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
@@ -79,8 +80,8 @@ import { getSkillValidationMessage } from '@/utils/skillValidationI18n'
 import { CollaboratorsTab } from './components/CollaboratorsTab'
 import { SkillEditor } from './components/SkillEditor'
 import { SkillFileTree } from './components/SkillFileTree'
+import { SkillApiAccessDialog } from './components/SkillApiAccessDialog'
 import { VersionHistoryTab } from './components/VersionHistoryTab'
-import { ApiTokensTab } from './components/ApiTokensTab'
 import { useSkillFiles } from './hooks/useSkillFiles'
 import { useSkillForm } from './hooks/useSkillForm'
 import { useSkillImport } from './hooks/useSkillImport'
@@ -116,7 +117,8 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
   } = skillManager
 
   // Tab state for editor area
-  const [activeTab, setActiveTab] = useState<'editor' | 'versions' | 'collaborators' | 'api'>('editor')
+  const [activeTab, setActiveTab] = useState<'editor' | 'versions' | 'collaborators'>('editor')
+  const [showApiAccess, setShowApiAccess] = useState(false)
 
   // Derive user role from session + collaborators
   const { data: session } = useSession()
@@ -621,7 +623,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
 
                       {/* Pill Tab Bar integrated in header */}
                       <div className="hidden lg:flex items-center space-x-1 rounded-lg bg-gray-100/80 p-1">
-                        {(['editor', 'versions', 'collaborators', 'api'] as const).map((tab) => (
+                        {(['editor', 'versions', 'collaborators'] as const).map((tab) => (
                           <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
@@ -635,12 +637,24 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                             {tab === 'editor' && t('skills.editor')}
                             {tab === 'versions' && t('skillVersions.title')}
                             {tab === 'collaborators' && t('skillCollaborators.title')}
-                            {tab === 'api' && t('skills.apiAndTokens', 'API & Tokens')}
                           </button>
                         ))}
                       </div>
                     </div>
                     <div className="flex items-center gap-3 lg:gap-4">
+                      {/* Access API Button */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowApiAccess(true)}
+                        disabled={!selectedSkill}
+                        className="h-8 gap-1.5 px-3 text-xs"
+                      >
+                        <Terminal size={14} />
+                        <span className="hidden lg:inline">{t('skills.accessApi', { defaultValue: 'Access API' })}</span>
+                        <span className="lg:hidden">API</span>
+                      </Button>
+
                       {/* Publish Toggle */}
                       <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 lg:px-3 py-1.5">
                         {formData.is_public ? (
@@ -670,7 +684,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
 
                   {/* Fallback Tab Bar for smaller screens within the pane */}
                   <div className="flex lg:hidden border-b border-gray-200 px-2 overflow-x-auto hide-scrollbar">
-                    {(['editor', 'versions', 'collaborators', 'api'] as const).map((tab) => (
+                    {(['editor', 'versions', 'collaborators'] as const).map((tab) => (
                       <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
@@ -684,7 +698,6 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                         {tab === 'editor' && t('skills.editor')}
                         {tab === 'versions' && t('skillVersions.title')}
                         {tab === 'collaborators' && t('skillCollaborators.title')}
-                        {tab === 'api' && t('skills.apiAndTokens', 'API & Tokens')}
                       </button>
                     ))}
                   </div>
@@ -726,11 +739,6 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                   skillId={selectedSkill.id}
                   ownerId={selectedSkill.owner_id || selectedSkill.created_by_id || ''}
                   userRole={userRole}
-                />
-              )}
-              {activeTab === 'api' && selectedSkill && (
-                <ApiTokensTab
-                  skillId={selectedSkill.id}
                 />
               )}
                 </ResizablePanel>
@@ -1101,6 +1109,15 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Skill API Access Dialog — only mount when open to avoid unnecessary queries */}
+      {selectedSkill && showApiAccess && (
+        <SkillApiAccessDialog
+          open={showApiAccess}
+          onOpenChange={setShowApiAccess}
+          skillId={selectedSkill.id}
+        />
+      )}
     </div>
   )
 }
