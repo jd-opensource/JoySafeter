@@ -6,7 +6,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -16,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/components/ui/use-toast'
 import { TokenList } from '@/components/tokens/TokenList'
+import { TokenCreatedDialog } from '@/components/settings/token-created-dialog'
 import {
   useCreateToken,
   usePlatformTokens,
@@ -280,34 +280,11 @@ export function ApiAccessDialog({
         </div>
       </DialogContent>
 
-      {/* Token created dialog */}
-      <Dialog open={!!createdToken} onOpenChange={(open) => !open && setCreatedToken(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('settings.tokens.tokenCreatedTitle')}</DialogTitle>
-            <DialogDescription>{t('settings.tokens.tokenCreatedMessage')}</DialogDescription>
-          </DialogHeader>
-          {createdToken && (
-            <div className="py-4">
-              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <code className="flex-1 break-all text-sm">{createdToken.token}</code>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 gap-1"
-                  onClick={() => handleCopy(createdToken.token)}
-                >
-                  <Copy size={14} />
-                  {copied ? t('settings.tokens.copied') : t('settings.tokens.copyToken')}
-                </Button>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button onClick={() => setCreatedToken(null)}>{t('common.close') || 'Close'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <TokenCreatedDialog
+        open={!!createdToken}
+        onOpenChange={(open) => !open && setCreatedToken(null)}
+        tokenData={createdToken}
+      />
     </Dialog>
   )
 }

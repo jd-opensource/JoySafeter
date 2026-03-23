@@ -21,7 +21,7 @@ export const TokensPage = () => {
   const createToken = useCreateToken()
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [createdToken, setCreatedToken] = useState<string | null>(null)
+  const [createdTokenData, setCreatedTokenData] = useState<PlatformTokenCreateResponse | null>(null)
   const [tokenCreatedDialogOpen, setTokenCreatedDialogOpen] = useState(false)
 
   const handleCreateSubmit = async (data: {
@@ -31,7 +31,7 @@ export const TokensPage = () => {
   }) => {
     try {
       const response: PlatformTokenCreateResponse = await createToken.mutateAsync(data)
-      setCreatedToken(response.token)
+      setCreatedTokenData(response)
       setCreateDialogOpen(false)
       setTokenCreatedDialogOpen(true)
       toast({ title: t('settings.tokens.createdSuccess') })
@@ -87,7 +87,7 @@ export const TokensPage = () => {
       <TokenCreatedDialog
         open={tokenCreatedDialogOpen}
         onOpenChange={setTokenCreatedDialogOpen}
-        token={createdToken}
+        tokenData={createdTokenData}
       />
     </div>
   )

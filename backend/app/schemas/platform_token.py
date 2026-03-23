@@ -23,7 +23,9 @@ class TokenCreateResponse(BaseModel):
     token: str  # plaintext, shown only once
     token_prefix: str
     scopes: List[str]
+    resource_type: Optional[str] = None
     expires_at: Optional[str] = None
+    created_at: Optional[str] = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -32,7 +34,7 @@ class TokenCreateResponse(BaseModel):
             return str(v)
         return v
 
-    @field_validator("expires_at", mode="before")
+    @field_validator("expires_at", "created_at", mode="before")
     @classmethod
     def convert_datetime_to_str(cls, v):
         if isinstance(v, datetime):

@@ -21,7 +21,9 @@ export interface PlatformTokenCreateResponse {
   token: string
   tokenPrefix: string
   scopes: string[]
+  resourceType: 'skill' | 'graph' | 'tool' | null
   expiresAt: string | null
+  createdAt: string | null
 }
 
 export interface TokenCreateRequest {
@@ -56,7 +58,9 @@ function normalizeTokenCreateResponse(raw: any): PlatformTokenCreateResponse {
     token: raw.token,
     tokenPrefix: raw.token_prefix,
     scopes: raw.scopes ?? [],
+    resourceType: raw.resource_type ?? null,
     expiresAt: raw.expires_at ?? null,
+    createdAt: raw.created_at ?? null,
   }
 }
 

@@ -259,6 +259,10 @@ const en = {
         minutesAgo: '{{count}}m ago',
         hoursAgo: '{{count}}h ago',
         daysAgo: '{{count}}d ago',
+        type: 'Type',
+        permissions: 'Permissions',
+        createdAt: 'Created At',
+        global: 'Global',
       },
     },
     auth: {

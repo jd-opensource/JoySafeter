@@ -255,6 +255,10 @@ const zh = {
         minutesAgo: '{{count}} 分钟前',
         hoursAgo: '{{count}} 小时前',
         daysAgo: '{{count}} 天前',
+        type: '类型',
+        permissions: '权限',
+        createdAt: '创建时间',
+        global: '全局',
       },
     },
     auth: {

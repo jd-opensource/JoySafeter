@@ -3,6 +3,7 @@
 import { Check, Copy, X } from 'lucide-react'
 import { useState, useCallback } from 'react'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -10,29 +11,35 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
+import type { PlatformTokenCreateResponse } from '@/hooks/queries/platformTokens'
 import { useTranslation } from '@/lib/i18n'
 
 interface TokenCreatedDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  token: string | null
+  tokenData: PlatformTokenCreateResponse | null
 }
 
-export function TokenCreatedDialog({ open, onOpenChange, token }: TokenCreatedDialogProps) {
+export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreatedDialogProps) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {
-    if (!token) return
-    await navigator.clipboard.writeText(token)
+    if (!tokenData?.token) return
+    await navigator.clipboard.writeText(tokenData.token)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
-  }, [token])
+  }, [tokenData?.token])
+
+  const formatResourceType = (type: string | null) => {
+    if (!type) return t('settings.tokens.global')
+    return type.charAt(0).toUpperCase() + type.slice(1)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-md gap-0 overflow-hidden border-0 bg-[#F9F9FA] p-0 shadow-2xl sm:rounded-2xl"
+        className="max-w-2xl gap-0 overflow-hidden border-0 bg-[#F9F9FA] p-0 shadow-2xl sm:rounded-2xl"
         hideCloseButton
       >
         {/* Header */}
@@ -57,22 +64,71 @@ export function TokenCreatedDialog({ open, onOpenChange, token }: TokenCreatedDi
             {t('settings.tokens.tokenCreatedMessage')}
           </p>
 
-          {token && (
+          {tokenData && (
             <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between gap-2 px-4 py-3">
-                <span className="font-mono text-xs text-gray-700 break-all select-all flex-1">
-                  {token}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleCopy}
-                  className="h-8 w-8 shrink-0 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
-                >
-                  {copied ? <Check size={15} className="text-emerald-600" /> : <Copy size={15} />}
-                </Button>
-              </div>
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-gray-100">
+                  <tr>
+                    <td className="px-4 py-3 font-medium text-gray-700 w-32">{t('settings.tokens.name')}</td>
+                    <td className="px-4 py-3 text-gray-900">{tokenData.name}</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-3 font-medium text-gray-700">Key</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-gray-700 break-all select-all flex-1">
+                          {tokenData.token}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={handleCopy}
+                          className="h-8 w-8 shrink-0 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                        >
+                          {copied ? <Check size={15} className="text-emerald-600" /> : <Copy size={15} />}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-3 font-medium text-gray-700">{t('settings.tokens.type')}</td>
+                    <td className="px-4 py-3 text-gray-900">{formatResourceType(tokenData.resourceType)}</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-3 font-medium text-gray-700">{t('settings.tokens.permissions')}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {tokenData.scopes.map((scope) => (
+                          <Badge
+                            key={scope}
+                            variant="outline"
+                            className="rounded-full border-indigo-200 bg-indigo-50 px-2 py-0 text-[10px] font-medium text-indigo-700"
+                          >
+                            {scope}
+                          </Badge>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-3 font-medium text-gray-700">{t('settings.tokens.createdAt')}</td>
+                    <td className="px-4 py-3 text-gray-900">
+                      {tokenData.createdAt
+                        ? new Date(tokenData.createdAt).toLocaleString()
+                        : '-'}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-3 font-medium text-gray-700">{t('settings.tokens.expiresAt')}</td>
+                    <td className="px-4 py-3 text-gray-900">
+                      {tokenData.expiresAt
+                        ? new Date(tokenData.expiresAt).toLocaleString()
+                        : t('settings.tokens.noExpiry')}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -83,7 +139,7 @@ export function TokenCreatedDialog({ open, onOpenChange, token }: TokenCreatedDi
             type="button"
             onClick={handleCopy}
             className="gap-2"
-            disabled={!token}
+            disabled={!tokenData?.token}
           >
             {copied ? (
               <>
