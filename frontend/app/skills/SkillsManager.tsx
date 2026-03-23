@@ -67,8 +67,10 @@ import { SkillFile } from '@/types'
 import { getSkillValidationMessage } from '@/utils/skillValidationI18n'
 
 // Import extracted components and hooks
+import { CollaboratorsTab } from './components/CollaboratorsTab'
 import { SkillEditor } from './components/SkillEditor'
 import { SkillFileTree } from './components/SkillFileTree'
+import { VersionHistoryTab } from './components/VersionHistoryTab'
 import { useSkillFiles } from './hooks/useSkillFiles'
 import { useSkillForm } from './hooks/useSkillForm'
 import { useSkillImport } from './hooks/useSkillImport'
@@ -97,6 +99,9 @@ export default function SkillsManager() {
     handleDelete,
     filteredSkills,
   } = skillManager
+
+  // Tab state for editor area
+  const [activeTab, setActiveTab] = useState<'editor' | 'versions' | 'collaborators'>('editor')
 
   // Form management - initialize form hook first
   const formHook = useSkillForm({
@@ -630,32 +635,65 @@ export default function SkillsManager() {
                 </div>
               </div>
 
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <SkillEditor
-                  activeFilePath={activeFilePath}
-                  activeFile={activeFile}
-                  isSkillMd={isSkillMd}
-                  form={form}
-                  showAdvancedFields={showAdvancedFields}
-                  onToggleAdvancedFields={() => setShowAdvancedFields(!showAdvancedFields)}
-                  onUpdateFileContent={(filePath, content) => {
-                    const currentFiles = form.getValues('files') || []
-                    const updatedFiles = currentFiles.map((f: SkillFile) =>
-                      f.path === filePath ? { ...f, content } : f,
-                    )
-                    form.setValue('files', updatedFiles)
-
-                    // Update form fields if SKILL.md
-                    if (filePath === 'SKILL.md') {
-                      updateFileContent(filePath, content, (updates) => {
-                        Object.entries(updates).forEach(([key, value]) => {
-                          form.setValue(key as any, value)
-                        })
-                      })
-                    }
-                  }}
-                />
+              {/* Tab Bar */}
+              <div className="flex border-b border-gray-200 px-2">
+                {(['editor', 'versions', 'collaborators'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                      'px-3 py-2 text-xs font-medium transition-colors',
+                      activeTab === tab
+                        ? 'border-b-2 border-blue-500 text-blue-600'
+                        : 'text-gray-500 hover:text-gray-700'
+                    )}
+                  >
+                    {tab === 'editor' && t('skills.editor')}
+                    {tab === 'versions' && t('skillVersions.title')}
+                    {tab === 'collaborators' && t('skillCollaborators.title')}
+                  </button>
+                ))}
               </div>
+
+              {/* Tab Content */}
+              {activeTab === 'editor' && (
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  <SkillEditor
+                    activeFilePath={activeFilePath}
+                    activeFile={activeFile}
+                    isSkillMd={isSkillMd}
+                    form={form}
+                    showAdvancedFields={showAdvancedFields}
+                    onToggleAdvancedFields={() => setShowAdvancedFields(!showAdvancedFields)}
+                    onUpdateFileContent={(filePath, content) => {
+                      const currentFiles = form.getValues('files') || []
+                      const updatedFiles = currentFiles.map((f: SkillFile) =>
+                        f.path === filePath ? { ...f, content } : f,
+                      )
+                      form.setValue('files', updatedFiles)
+
+                      // Update form fields if SKILL.md
+                      if (filePath === 'SKILL.md') {
+                        updateFileContent(filePath, content, (updates) => {
+                          Object.entries(updates).forEach(([key, value]) => {
+                            form.setValue(key as any, value)
+                          })
+                        })
+                      }
+                    }}
+                  />
+                </div>
+              )}
+              {activeTab === 'versions' && selectedSkill && (
+                <VersionHistoryTab skillId={selectedSkill.id} userRole="owner" />
+              )}
+              {activeTab === 'collaborators' && selectedSkill && (
+                <CollaboratorsTab
+                  skillId={selectedSkill.id}
+                  ownerId={selectedSkill.owner_id || selectedSkill.created_by_id || ''}
+                  userRole="owner"
+                />
+              )}
             </div>
           </>
         ) : (
