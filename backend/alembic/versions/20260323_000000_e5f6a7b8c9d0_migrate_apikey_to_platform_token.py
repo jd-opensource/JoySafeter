@@ -48,7 +48,7 @@ def upgrade() -> None:
             (user_id, name, token_hash, token_prefix, scopes, resource_type, resource_id,
              is_active, created_at, last_used_at)
             VALUES
-            (:user_id, :name, :token_hash, :token_prefix, :scopes, :resource_type, :resource_id,
+            (:user_id, :name, :token_hash, :token_prefix, ARRAY['graphs:execute'], :resource_type, :resource_id,
              true, :created_at, :last_used_at)
         """),
             {
@@ -56,7 +56,6 @@ def upgrade() -> None:
                 "name": row.name or "Migrated API Key",
                 "token_hash": token_hash,
                 "token_prefix": token_prefix,
-                "scopes": ["graphs:execute"],
                 "resource_type": "graph",
                 "resource_id": row.workspace_id,
                 "created_at": row.created_at,
