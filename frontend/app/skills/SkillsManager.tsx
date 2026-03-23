@@ -18,7 +18,9 @@ import {
   Globe,
   Lock,
   ChevronRight,
+  Wand2,
 } from 'lucide-react'
+import Link from 'next/link'
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 
 import { Badge } from '@/components/ui/badge'
@@ -47,6 +49,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { UnifiedDialog, ValidationBox, FileListBox } from '@/components/ui/unified-dialog'
@@ -80,7 +87,12 @@ import { useSkillImport } from './hooks/useSkillImport'
 import { useSkillManager } from './hooks/useSkillManager'
 
 
-export default function SkillsManager() {
+interface SkillsManagerProps {
+  requestedAction?: 'manual' | 'import' | null
+  onActionConsumed?: () => void
+}
+
+export default function SkillsManager({ requestedAction, onActionConsumed }: SkillsManagerProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
 
@@ -288,7 +300,7 @@ export default function SkillsManager() {
   // Skills are now loaded via useMySkills() hook in useSkillManager
   // No need to manually call loadSkills() on mount
 
-  const handleNewSkillManual = () => {
+  const handleNewSkillManual = useCallback(() => {
     const now = new Date().toISOString()
     const name = 'new-skill'
     const description = 'A new skill description'
@@ -328,7 +340,17 @@ export default function SkillsManager() {
       is_public: false,
     })
     setActiveFilePath('SKILL.md')
-  }
+  }, [form, setSelectedSkill, setActiveFilePath])
+
+  useEffect(() => {
+    if (requestedAction === 'manual') {
+      handleNewSkillManual()
+      onActionConsumed?.()
+    } else if (requestedAction === 'import') {
+      setImportModal('local')
+      onActionConsumed?.()
+    }
+  }, [requestedAction, handleNewSkillManual, setImportModal, onActionConsumed])
 
   const handleAddFile = (directory: string | null = null) => {
     setNewFileDirectory(directory)
@@ -469,41 +491,10 @@ export default function SkillsManager() {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-white text-gray-900">
-      {/* 1. List Sidebar */}
-      <div className="flex w-52 shrink-0 flex-col border-r border-gray-100 bg-gray-50/50">
+      <ResizablePanelGroup direction="horizontal">
+        {/* 1. List Sidebar */}
+        <ResizablePanel defaultSize={20} minSize={15} maxSize={40} className="flex shrink-0 flex-col bg-gray-50/50">
         <div className="border-b border-gray-100 bg-white p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-lg font-bold">
-              <ShieldCheck className="text-emerald-500" size={20} />
-              {t('skills.title')}
-            </h2>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-full text-emerald-600 hover:bg-emerald-50"
-                >
-                  <Plus size={18} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 p-1">
-                <DropdownMenuItem
-                  onClick={handleNewSkillManual}
-                  className="cursor-pointer gap-2 py-2"
-                >
-                  <FileCode size={16} className="text-gray-400" /> {t('skills.manualEntry')}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => setImportModal('local')}
-                  className="cursor-pointer gap-2 py-2"
-                >
-                  <FolderOpen size={16} className="text-blue-500" /> {t('skills.importFromLocal')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
             <Input
@@ -578,14 +569,17 @@ export default function SkillsManager() {
             </div>
           )}
         </div>
-      </div>
+        </ResizablePanel>
 
-      {/* 2. File Explorer & Editor */}
-      <div className="flex flex-1 overflow-hidden">
-        {selectedSkill || formData.name ? (
-          <>
-            {/* Hierarchical File Explorer */}
-            <div className="flex w-48 shrink-0 flex-col border-r border-gray-100 bg-white">
+        <ResizableHandle withHandle />
+
+        {/* 2. File Explorer & Editor */}
+        <ResizablePanel defaultSize={80} className="flex flex-col bg-white outline-none">
+          <div className="flex flex-1 overflow-hidden">
+            {selectedSkill || formData.name ? (
+              <ResizablePanelGroup direction="horizontal">
+                {/* Hierarchical File Explorer */}
+                <ResizablePanel defaultSize={20} minSize={10} maxSize={30} className="flex shrink-0 flex-col border-r border-gray-100 bg-white">
               <div className="flex items-center justify-between border-b border-gray-100 p-3">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                   {t('skills.workspace') || 'Workspace'}
@@ -608,68 +602,92 @@ export default function SkillsManager() {
                 onRenameFile={openRenameDialog}
                 onAddFile={handleAddFile}
               />
-            </div>
+                </ResizablePanel>
 
-            {/* Editor Area */}
-            <div className="flex min-w-0 flex-1 flex-col bg-white">
-              <div className="flex h-14 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-6">
-                <div className="flex items-center gap-3">
-                  <div className="flex flex-col">
-                    <h1 className="text-sm font-bold leading-tight text-gray-900">
-                      {formData.name}
-                    </h1>
-                    <div className="flex items-center gap-1.5 font-mono text-[9px] text-gray-400">
-                      <ChevronRight size={10} /> {activeFilePath || 'No file selected'}
+                <ResizableHandle withHandle />
+
+                {/* Editor Area */}
+                <ResizablePanel defaultSize={80} className="flex min-w-0 flex-col bg-white outline-none">
+                  <div className="flex h-14 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-4 lg:px-6">
+                    <div className="flex items-center gap-4 lg:gap-6">
+                      <div className="flex flex-col">
+                        <h1 className="text-sm font-bold leading-tight text-gray-900 line-clamp-1 max-w-[200px]" title={formData.name}>
+                          {formData.name}
+                        </h1>
+                        <div className="flex items-center gap-1.5 font-mono text-[9px] text-gray-400">
+                          <ChevronRight size={10} /> <span className="truncate max-w-[180px]">{activeFilePath || 'No file selected'}</span>
+                        </div>
+                      </div>
+
+                      {/* Pill Tab Bar integrated in header */}
+                      <div className="hidden lg:flex items-center space-x-1 rounded-lg bg-gray-100/80 p-1">
+                        {(['editor', 'versions', 'collaborators', 'api'] as const).map((tab) => (
+                          <button
+                            key={tab}
+                            onClick={() => setActiveTab(tab)}
+                            className={cn(
+                              'px-3 py-1 text-xs font-medium rounded-md transition-colors',
+                              activeTab === tab
+                                ? 'bg-white text-gray-900 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-700'
+                            )}
+                          >
+                            {tab === 'editor' && t('skills.editor')}
+                            {tab === 'versions' && t('skillVersions.title')}
+                            {tab === 'collaborators' && t('skillCollaborators.title')}
+                            {tab === 'api' && t('skills.apiAndTokens', 'API & Tokens')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 lg:gap-4">
+                      {/* Publish Toggle */}
+                      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 lg:px-3 py-1.5">
+                        {formData.is_public ? (
+                          <Globe size={14} className="text-emerald-500" />
+                        ) : (
+                          <Lock size={14} className="text-gray-400" />
+                        )}
+                        <span className="hidden lg:inline text-xs text-gray-600">{t('skills.publishToStore')}</span>
+                        <Switch
+                          checked={formData.is_public || false}
+                          onCheckedChange={(checked) => form.setValue('is_public', checked)}
+                          className="data-[state=checked]:bg-emerald-500 scale-75 lg:scale-100"
+                        />
+                      </div>
+
+                      <Button
+                        onClick={handleSubmit}
+                        disabled={isSaving}
+                        className="h-8 gap-1.5 lg:gap-2 bg-emerald-600 px-3 lg:px-4 text-xs shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                        <span className="hidden lg:inline">{t('skills.saveChanges')}</span>
+                        <span className="lg:hidden">Save</span>
+                      </Button>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  {/* Publish Toggle */}
-                  <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5">
-                    {formData.is_public ? (
-                      <Globe size={14} className="text-emerald-500" />
-                    ) : (
-                      <Lock size={14} className="text-gray-400" />
-                    )}
-                    <span className="text-xs text-gray-600">{t('skills.publishToStore')}</span>
-                    <Switch
-                      checked={formData.is_public || false}
-                      onCheckedChange={(checked) => form.setValue('is_public', checked)}
-                      className="data-[state=checked]:bg-emerald-500"
-                    />
+
+                  {/* Fallback Tab Bar for smaller screens within the pane */}
+                  <div className="flex lg:hidden border-b border-gray-200 px-2 overflow-x-auto hide-scrollbar">
+                    {(['editor', 'versions', 'collaborators', 'api'] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={cn(
+                          'px-3 py-2 text-[10px] font-medium transition-colors whitespace-nowrap',
+                          activeTab === tab
+                            ? 'border-b-2 border-blue-500 text-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                        )}
+                      >
+                        {tab === 'editor' && t('skills.editor')}
+                        {tab === 'versions' && t('skillVersions.title')}
+                        {tab === 'collaborators' && t('skillCollaborators.title')}
+                        {tab === 'api' && t('skills.apiAndTokens', 'API & Tokens')}
+                      </button>
+                    ))}
                   </div>
-
-                  <Button
-                    onClick={handleSubmit}
-                    disabled={isSaving}
-                    className="h-8 gap-2 bg-emerald-600 px-4 text-xs shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                    {t('skills.saveChanges')}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Tab Bar */}
-              <div className="flex border-b border-gray-200 px-2">
-                {(['editor', 'versions', 'collaborators', 'api'] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={cn(
-                      'px-3 py-2 text-xs font-medium transition-colors',
-                      activeTab === tab
-                        ? 'border-b-2 border-blue-500 text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    )}
-                  >
-                    {tab === 'editor' && t('skills.editor')}
-                    {tab === 'versions' && t('skillVersions.title')}
-                    {tab === 'collaborators' && t('skillCollaborators.title')}
-                    {tab === 'api' && t('skills.apiAndTokens', 'API & Tokens')}
-                  </button>
-                ))}
-              </div>
 
               {/* Tab Content */}
               {activeTab === 'editor' && (
@@ -713,48 +731,55 @@ export default function SkillsManager() {
               {activeTab === 'api' && selectedSkill && (
                 <ApiTokensTab
                   skillId={selectedSkill.id}
-                  skillName={selectedSkill.name}
                 />
               )}
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-1 flex-col items-center justify-center bg-gray-50/20 text-gray-400">
-            <div className="mb-6 rounded-full border border-gray-100 bg-white p-8 shadow-xl">
-              <ShieldCheck size={48} className="text-emerald-200" />
-            </div>
-            <h3 className="text-sm font-bold text-gray-900">{t('skills.chooseCreationMethod')}</h3>
-            <p className="mt-1 text-xs text-gray-400">{t('skills.populateSkillsLibrary')}</p>
-            <div className="mt-8 flex max-w-lg flex-wrap justify-center gap-3">
-              <Button variant="outline" onClick={handleNewSkillManual} className="gap-2">
-                <FileCode size={16} /> {t('skills.manual')}
-              </Button>
-              <Button
-                onClick={() => setImportModal('local')}
-                className="gap-2 bg-blue-600 shadow-lg shadow-blue-100 hover:bg-blue-700"
-              >
-                <FolderOpen size={16} /> {t('skills.importFromLocal')}
-              </Button>
-            </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center bg-gray-50/20 text-gray-400">
+                <div className="mb-6 rounded-full border border-gray-100 bg-white p-8 shadow-xl">
+                  <ShieldCheck size={48} className="text-emerald-200" />
+                </div>
+                <h3 className="text-sm font-bold text-gray-900">{t('skills.chooseCreationMethod')}</h3>
+                <p className="mt-1 text-xs text-gray-400">{t('skills.populateSkillsLibrary')}</p>
+                <div className="mt-8 flex max-w-lg flex-wrap justify-center gap-3">
+                  <Link href="/skills/creator">
+                    <Button className="gap-2 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700">
+                      <Wand2 size={16} /> {t('skills.aiCreate', 'AI Create')}
+                    </Button>
+                  </Link>
+                  <Button variant="outline" onClick={handleNewSkillManual} className="gap-2">
+                    <FileCode size={16} /> {t('skills.manual')}
+                  </Button>
+                  <Button
+                    onClick={() => setImportModal('local')}
+                    variant="outline"
+                    className="gap-2 hover:bg-gray-50"
+                  >
+                    <FolderOpen size={16} /> {t('skills.importFromLocal')}
+                  </Button>
+                </div>
 
-            {/* Skill Structure Info */}
-            <div className="mt-12 max-w-md rounded-xl border border-gray-100 bg-white p-6 text-left shadow-sm">
-              <h4 className="mb-3 text-xs font-bold text-gray-700">Skill Structure</h4>
-              <pre className="font-mono text-[10px] leading-relaxed text-gray-500">
-                {`skill-name/
+                {/* Skill Structure Info */}
+                <div className="mt-12 max-w-md rounded-xl border border-gray-100 bg-white p-6 text-left shadow-sm">
+                  <h4 className="mb-3 text-xs font-bold text-gray-700">Skill Structure</h4>
+                  <pre className="font-mono text-[10px] leading-relaxed text-gray-500">
+                    {`skill-name/
 ├── SKILL.md (required)
 │   ├── YAML frontmatter (name, description)
 │   └── Markdown instructions
 └── Any files/folders (optional)
     └── Organize as you like!`}
-              </pre>
-              <p className="mt-2 text-[10px] text-gray-400">
-                You can use any directory structure. Only SKILL.md is required.
-              </p>
-            </div>
+                  </pre>
+                  <p className="mt-2 text-[10px] text-gray-400">
+                    You can use any directory structure. Only SKILL.md is required.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       {/* Local Directory Import Modal */}
       <UnifiedDialog

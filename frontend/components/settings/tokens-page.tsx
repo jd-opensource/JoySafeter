@@ -19,21 +19,10 @@ import { useToast } from '@/components/ui/use-toast'
 import { usePlatformTokens, useCreateToken, useRevokeToken } from '@/hooks/queries/platformTokens'
 import type { PlatformToken, PlatformTokenCreateResponse } from '@/hooks/queries/platformTokens'
 import { useTranslation } from '@/lib/i18n'
+import { formatRelativeTime } from '@/lib/utils/formatRelativeTime'
 
 import { CreateTokenDialog } from './create-token-dialog'
 import { TokenCreatedDialog } from './token-created-dialog'
-
-function formatRelativeTime(dateStr: string | null, t: (key: string, opts?: any) => string): string {
-  if (!dateStr) return t('settings.tokens.neverUsed')
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return t('settings.tokens.justNow')
-  if (mins < 60) return t('settings.tokens.minutesAgo', { count: mins })
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return t('settings.tokens.hoursAgo', { count: hours })
-  const days = Math.floor(hours / 24)
-  return t('settings.tokens.daysAgo', { count: days })
-}
 
 export const TokensPage = () => {
   const { t } = useTranslation()

@@ -18,15 +18,15 @@ import React, { useState, useMemo, useEffect } from 'react'
 import CodeViewer from '@/app/chat/components/CodeViewer'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePublicSkills, skillKeys } from '@/hooks/queries/skills'
 import { useToast } from '@/hooks/use-toast'
@@ -194,66 +194,64 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
     <div className="flex h-full flex-col bg-gray-50/30">
       {/* Header with search and filters */}
       <div className="flex-shrink-0 border-b border-gray-100 bg-white px-6 py-4">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Store className="h-5 w-5 text-emerald-500" />
-            <h2 className="text-lg font-bold text-gray-900">{t('skills.marketplace')}</h2>
-            <Badge variant="secondary" className="text-xs">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            {/* Search bar */}
+            <div className="relative max-w-sm flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                placeholder={t('skills.searchMarketplace')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 border-gray-200 bg-gray-50/50 pl-9 text-sm"
+              />
+            </div>
+
+            {/* Tag filters */}
+            {allTags.length > 0 && (
+              <div className="hide-scrollbar flex items-center gap-2 overflow-x-auto min-w-0 hidden md:flex">
+                <Filter className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                {allTags.slice(0, 5).map((tag) => (
+                  <Badge
+                    key={tag}
+                    variant={selectedTags.includes(tag) ? 'default' : 'outline'}
+                    className={cn(
+                      'cursor-pointer whitespace-nowrap text-xs transition-colors',
+                      selectedTags.includes(tag)
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'hover:bg-gray-100',
+                    )}
+                    onClick={() => toggleTag(tag)}
+                  >
+                    {tag}
+                  </Badge>
+                ))}
+                {allTags.length > 5 && (
+                  <Badge variant="outline" className="text-xs text-gray-400">
+                    +{allTags.length - 5}
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <Badge variant="secondary" className="text-xs shrink-0">
               {filteredSkills.length} {t('skills.skillsAvailable')}
             </Badge>
+
+            {(searchQuery || selectedTags.length > 0) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearFilters}
+                className="text-xs text-gray-500 hover:text-gray-700 px-2 h-8"
+              >
+                <X className="mr-1 h-3 w-3" />
+                {t('skills.clearFilters')}
+              </Button>
+            )}
           </div>
-
-          {(searchQuery || selectedTags.length > 0) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearFilters}
-              className="text-xs text-gray-500 hover:text-gray-700"
-            >
-              <X className="mr-1 h-3 w-3" />
-              {t('skills.clearFilters')}
-            </Button>
-          )}
-        </div>
-
-        {/* Search bar */}
-        <div className="flex items-center gap-4">
-          <div className="relative max-w-md flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input
-              placeholder={t('skills.searchMarketplace')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 border-gray-200 bg-gray-50/50 pl-9 text-sm"
-            />
-          </div>
-
-          {/* Tag filters */}
-          {allTags.length > 0 && (
-            <div className="hide-scrollbar flex items-center gap-2 overflow-x-auto">
-              <Filter className="h-4 w-4 flex-shrink-0 text-gray-400" />
-              {allTags.slice(0, 8).map((tag) => (
-                <Badge
-                  key={tag}
-                  variant={selectedTags.includes(tag) ? 'default' : 'outline'}
-                  className={cn(
-                    'cursor-pointer whitespace-nowrap text-xs transition-colors',
-                    selectedTags.includes(tag)
-                      ? 'bg-emerald-600 hover:bg-emerald-700'
-                      : 'hover:bg-gray-100',
-                  )}
-                  onClick={() => toggleTag(tag)}
-                >
-                  {tag}
-                </Badge>
-              ))}
-              {allTags.length > 8 && (
-                <Badge variant="outline" className="text-xs text-gray-400">
-                  +{allTags.length - 8}
-                </Badge>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
@@ -301,19 +299,21 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
         )}
       </div>
 
-      {/* Skill detail dialog */}
-      <Dialog
+      {/* Skill detail sheet */}
+      <Sheet
         open={!!viewSkill}
-        onOpenChange={() => {
-          setViewSkill(null)
-          setSelectedFile(null)
+        onOpenChange={(open) => {
+          if (!open) {
+            setViewSkill(null)
+            setSelectedFile(null)
+          }
         }}
       >
-        <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col overflow-hidden">
+        <SheetContent side="right" className="flex w-full flex-col overflow-hidden p-0 sm:max-w-4xl">
           {viewSkill && (
-            <>
-              <DialogHeader className="flex-shrink-0">
-                <DialogTitle className="flex items-center gap-3">
+            <div className="flex h-full flex-1 flex-col overflow-hidden bg-white p-6">
+              <SheetHeader className="flex-shrink-0 text-left">
+                <SheetTitle className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500">
                     <ShieldCheck className="h-5 w-5 text-white" />
                   </div>
@@ -325,11 +325,11 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                       </span>
                     )}
                   </div>
-                </DialogTitle>
-                <DialogDescription className="pt-2 text-left">
+                </SheetTitle>
+                <SheetDescription className="pt-2 text-left">
                   {viewSkill.description}
-                </DialogDescription>
-              </DialogHeader>
+                </SheetDescription>
+              </SheetHeader>
 
               <div className="flex flex-1 flex-col gap-4 overflow-hidden py-4">
                 {/* Tags */}
@@ -425,7 +425,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                 )}
               </div>
 
-              <DialogFooter className="flex-shrink-0">
+              <SheetFooter className="mt-4 flex-shrink-0">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -453,11 +453,11 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                     {t('skills.copyToMine')}
                   </Button>
                 )}
-              </DialogFooter>
-            </>
+              </SheetFooter>
+            </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

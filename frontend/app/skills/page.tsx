@@ -1,18 +1,23 @@
 'use client'
 
-import { Store, FolderOpen, Wand2 } from 'lucide-react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useTranslation } from '@/lib/i18n'
 
+import { Plus, Store, FolderOpen } from 'lucide-react'
+
+import { NewSkillDialog } from './components/NewSkillDialog'
 import SkillsManager from './SkillsManager'
 import SkillsStore from './SkillsStore'
 
 export default function SkillsPage() {
   const { t } = useTranslation()
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState('store')
+  const [isNewSkillDialogOpen, setIsNewSkillDialogOpen] = useState(false)
+  const [requestedAction, setRequestedAction] = useState<'manual' | 'import' | null>(null)
 
   // handleSkillCopied is now handled by React Query's invalidateQueries in SkillsStore
   const handleSkillCopied = () => {
@@ -41,12 +46,13 @@ export default function SkillsPage() {
                 {t('skills.mySkills')}
               </TabsTrigger>
             </TabsList>
-            <Link href="/skills/creator">
-              <button className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700">
-                <Wand2 className="h-4 w-4" />
-                {t('skills.aiCreate')}
-              </button>
-            </Link>
+            <button
+              onClick={() => setIsNewSkillDialogOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+            >
+              <Plus className="h-4 w-4" />
+              {t('skills.newSkill', 'New Skill')}
+            </button>
           </div>
         </div>
 
@@ -56,9 +62,25 @@ export default function SkillsPage() {
         </TabsContent>
 
         <TabsContent value="my" className="mt-0 flex-1 overflow-hidden">
-          <SkillsManager />
+          <SkillsManager 
+            requestedAction={requestedAction} 
+            onActionConsumed={() => setRequestedAction(null)} 
+          />
         </TabsContent>
       </Tabs>
+
+      <NewSkillDialog
+        open={isNewSkillDialogOpen}
+        onOpenChange={setIsNewSkillDialogOpen}
+        onSelectOption={(option) => {
+          if (option === 'ai') {
+            router.push('/skills/creator')
+          } else {
+            setActiveTab('my')
+            setRequestedAction(option)
+          }
+        }}
+      />
     </div>
   )
 }

@@ -28,6 +28,8 @@ export interface TokenCreateRequest {
   name: string
   scopes: string[]
   expires_at?: string | null
+  resource_type?: string | null
+  resource_id?: string | null
 }
 
 // ---------- Normalizers ----------
