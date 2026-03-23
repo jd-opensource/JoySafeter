@@ -1,6 +1,6 @@
 'use client'
 
-import { User, Brain, Box } from 'lucide-react'
+import { User, Brain, Box, Key } from 'lucide-react'
 import { useState } from 'react'
 
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { ModelsPage } from './models-page'
 import { ProfilePage } from './profile-page'
 import { SandboxesPage } from './sandboxes-page'
+import { TokensPage } from './tokens-page'
 
 interface SettingsDialogProps {
   open: boolean
@@ -88,6 +89,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               isActive={activeTab === 'sandboxes'}
               onClick={() => setActiveTab('sandboxes')}
             />
+
+            <MenuItem
+              icon={Key}
+              label={t('settings.tokens.title')}
+              isActive={activeTab === 'tokens'}
+              onClick={() => setActiveTab('tokens')}
+            />
           </div>
         </div>
 
@@ -102,6 +110,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           {activeTab === 'sandboxes' && (
             <div className="flex-1 overflow-hidden p-6">
               <SandboxesPage />
+            </div>
+          )}
+          {activeTab === 'tokens' && (
+            <div className="flex-1 overflow-hidden p-6">
+              <TokensPage />
             </div>
           )}
         </div>
