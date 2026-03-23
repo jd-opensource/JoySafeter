@@ -62,9 +62,9 @@ export default function SkillsPage() {
         </TabsContent>
 
         <TabsContent value="my" className="mt-0 flex-1 overflow-hidden">
-          <SkillsManager 
-            requestedAction={requestedAction} 
-            onActionConsumed={() => setRequestedAction(null)} 
+          <SkillsManager
+            requestedAction={requestedAction}
+            onActionConsumed={() => setRequestedAction(null)}
           />
         </TabsContent>
       </Tabs>
