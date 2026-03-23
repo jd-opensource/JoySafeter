@@ -80,6 +80,7 @@ class VersionSummarySchema(BaseModel):
 
     version: str
     release_notes: Optional[str] = None
+    published_by_id: str
     published_at: Optional[str] = None
 
     @field_validator("published_at", mode="before")
