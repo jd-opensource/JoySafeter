@@ -32,9 +32,8 @@ def upgrade() -> None:
     # 1. Migrate existing api_key records to platform_tokens
     result = conn.execute(
         sa.text("""
-        SELECT id, user_id, workspace_id, key, name, created_at, last_used_at
+        SELECT id, user_id, workspace_id, key, name, created_at, last_used
         FROM api_key
-        WHERE is_active = true
     """)
     )
 
@@ -61,7 +60,7 @@ def upgrade() -> None:
                 "resource_type": "graph",
                 "resource_id": row.workspace_id,
                 "created_at": row.created_at,
-                "last_used_at": row.last_used_at,
+                "last_used_at": row.last_used,
             },
         )
         migrated_count += 1
