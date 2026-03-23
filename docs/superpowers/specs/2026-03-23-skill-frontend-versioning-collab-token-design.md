@@ -87,7 +87,14 @@ Settings
 - **版本列表**: 调用 `GET /v1/skills/{skill_id}/versions` 获取所有已发布版本，按 `published_at` 降序排列。每条显示版本号、发布时间、发布人、release notes。
 - **恢复 draft**: 点击 "恢复" 弹出确认 Dialog（"恢复将覆盖当前 draft，是否继续？"），确认后调用 `POST /v1/skills/{skill_id}/restore`。成功后 invalidate skill 查询，刷新编辑器内容。
 - **删除版本**: 点击 "删除" 弹出确认 Dialog（"删除版本不可恢复，是否继续？"），确认后调用 `DELETE /v1/skills/{skill_id}/versions/{version}`。
-- **权限控制**: 根据用户角色显示/隐藏按钮。viewer 不显示发布入口，editor 不显示发布/删除，publisher 不显示删除。owner/admin 看到所有操作。
+- **权限控制**: 根据用户角色显示/隐藏操作按钮：
+
+| 角色 | 可见操作 |
+|------|---------|
+| viewer | 只读版本列表，无操作按钮 |
+| editor | 只读版本列表，无操作按钮 |
+| publisher | 发布新版本、恢复 draft（无删除） |
+| admin / owner | 发布、恢复、删除（全部操作） |
 
 ### 2.3 数据模型（TypeScript）
 
@@ -123,10 +130,11 @@ interface SkillVersionFile {
   size: number
 }
 
-// 列表接口使用轻量 summary
+// 列表接口使用轻量 summary（需扩展后端 VersionSummarySchema 以包含 published_by_id）
 interface SkillVersionSummary {
   version: string
   releaseNotes: string | null
+  publishedById: string
   publishedAt: string | null
 }
 ```
@@ -153,12 +161,12 @@ interface SkillVersionSummary {
 
 ### 3.2 交互逻辑
 
-- **添加协作者**: 点击 "添加协作者" 展开内联表单（用户 ID input + 角色 Select），提交调用 `POST /v1/skills/{skill_id}/collaborators`。
+- **添加协作者**: 点击 "添加协作者" 展开内联表单（用户 ID input + 角色 Select），提交调用 `POST /v1/skills/{skill_id}/collaborators`。v1 使用原始用户 ID 输入，后续迭代可升级为用户搜索/自动补全。
 - **修改角色**: 角色通过 Select 下拉框直接修改，onChange 调用 `PUT /v1/skills/{skill_id}/collaborators/{user_id}`。可选角色：viewer、editor、publisher、admin。
 - **移除协作者**: 点击 ✕ 弹出确认 Dialog，确认后调用 `DELETE /v1/skills/{skill_id}/collaborators/{user_id}`。
 - **转让所有权**: 点击 "转让所有权" 弹出 Dialog（选择目标用户），确认后调用 `POST /v1/skills/{skill_id}/transfer`。仅 owner 可见此按钮。转让后旧 owner 自动降为 admin。
 - **权限控制**: 仅 owner 和 admin 可见此 Tab 的管理操作。其他角色看到只读列表。
-- **Owner 行**: owner 不显示角色下拉框和删除按钮，仅显示 "(owner)" 标记。
+- **Owner 行**: owner 不显示角色下拉框和删除按钮，仅显示 "(owner)" 标记。Owner 不在 `skill_collaborators` 表中，前端需从 `skill.owner_id` 读取并作为列表首行展示。
 
 ### 3.3 数据模型（TypeScript）
 
@@ -208,7 +216,7 @@ interface SkillCollaborator {
 
 ### 4.2 交互逻辑
 
-- **创建 Token**: 点击 "Create Token" 弹出 Dialog（name input + scopes 多选 + expires_at 日期选择器）。提交调用 `POST /v1/tokens`。成功后弹出明文 token 显示 Dialog（带复制按钮），提示"此 token 仅显示一次，请妥善保管"。关闭后无法再次查看明文。
+- **创建 Token**: 点击 "Create Token" 弹出 Dialog（name input + scopes 多选 + expires_at 日期选择器）。提交调用 `POST /v1/tokens`。成功后弹出明文 token 显示 Dialog（带复制按钮），提示"此 token 仅显示一次，请妥善保管"。关闭后无法再次查看明文。**注意**: `resource_type` 和 `resource_id` 字段在 v1 不暴露到创建 UI，保留给未来资源级 token 隔离使用。
 - **Token 列表**: 调用 `GET /v1/tokens` 获取当前用户所有 token。每张卡片显示：name、token_prefix、scopes（Badge 标签）、expires_at（格式化为日期或 "No expiry"）、last_used_at（相对时间或 "never"）。
 - **撤销 Token**: 点击 "Revoke" 弹出确认 Dialog（"撤销后使用此 token 的 API 调用将立即失败"），确认后调用 `DELETE /v1/tokens/{id}`。
 - **可用 Scopes**: `skills:read`、`skills:write`、`skills:publish`、`skills:admin`。以 Checkbox 组形式展示在创建 Dialog 中。
@@ -253,7 +261,7 @@ export const skillVersionService = {
   getVersion(skillId: string, version: string): Promise<SkillVersion>,
   getLatestVersion(skillId: string): Promise<SkillVersion>,
   deleteVersion(skillId: string, version: string),
-  restoreDraft(skillId: string, data: { version: string }),
+  restoreDraft(skillId: string, data: { version: string }): Promise<Skill>,  // returns updated draft Skill, not SkillVersion
 }
 ```
 
@@ -385,6 +393,8 @@ export function useRevokeToken()        // useMutation → revokeToken, invalida
 
 - **Service 发送请求**: 直接使用 snake_case key（与后端 schema 一致）
 - **Service 接收响应**: 用 normalizer helper 转为 camelCase（复用 `skillService.ts` 中已有的模式）
+- **API 路径**: Service 层使用相对路径（如 `skills/${skillId}/versions`），`apiGet/apiPost` 等方法会自动拼接 `${API_BASE}` 前缀
+- **metadata 字段**: 后端 Pydantic schema 使用 `validation_alias="meta_data"` + `populate_by_name=True`，序列化输出 key 为 `"metadata"`，与前端 camelCase 字段名一致
 
 ---
 
@@ -398,9 +408,27 @@ export function useRevokeToken()        // useMutation → revokeToken, invalida
 
 ---
 
-## 10. 文件清单
+## 10. 空状态与加载
 
-### 新增文件（8 个）
+- **版本列表为空**: 显示 "No versions published yet" 占位文本，引导用户发布第一个版本
+- **协作者列表为空**: 仅显示 owner 行和 "添加协作者" 按钮
+- **Token 列表为空**: 显示 "No API tokens created yet" 占位文本
+- **加载中**: 使用 skeleton 占位（复用项目现有的 skeleton 组件），版本/协作者/Token 列表加载时各显示 2-3 行 skeleton
+
+---
+
+## 11. 后端适配（需同步修改）
+
+为支持前端版本列表显示 "by Alice"，需扩展后端 `VersionSummarySchema`：
+
+- `backend/app/schemas/skill_version.py` 的 `VersionSummarySchema` 新增 `published_by_id: str` 字段
+- 可选：新增 `published_by_name: Optional[str]` 通过 join 获取用户名，避免前端额外查询
+
+---
+
+## 12. 文件清单
+
+### 新增文件（11 个）
 1. `frontend/services/skillVersionService.ts` — 版本 API 服务
 2. `frontend/services/skillCollaboratorService.ts` — 协作者 API 服务
 3. `frontend/services/platformTokenService.ts` — Token API 服务
