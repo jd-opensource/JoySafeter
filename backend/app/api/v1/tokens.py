@@ -6,11 +6,13 @@ Token management is session-auth only — PlatformToken cannot manage PlatformTo
 from __future__ import annotations
 
 import uuid
+from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
+from app.common.exceptions import BadRequestException
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.schemas.platform_token import (
@@ -47,11 +49,25 @@ async def create_token(
 
 @router.get("")
 async def list_tokens(
+    resource_type: Optional[str] = Query(None),
+    resource_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Validate resource_id is a valid UUID if provided
+    parsed_resource_id = None
+    if resource_id is not None:
+        try:
+            parsed_resource_id = uuid.UUID(resource_id)
+        except ValueError:
+            raise BadRequestException("Invalid resource_id: must be a valid UUID")
+
     service = PlatformTokenService(db)
-    tokens = await service.list_tokens(user_id=current_user.id)
+    tokens = await service.list_tokens(
+        user_id=current_user.id,
+        resource_type=resource_type,
+        resource_id=parsed_resource_id,
+    )
     return {
         "success": True,
         "data": [TokenSchema.model_validate(t).model_dump() for t in tokens],

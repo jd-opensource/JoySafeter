@@ -40,11 +40,6 @@ class GraphExecution(BaseModel):
         ForeignKey("user.id", ondelete="CASCADE"),
         nullable=False,
     )
-    api_key_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("api_key.id", ondelete="SET NULL"),
-        nullable=True,
-    )
 
     status: Mapped[ExecutionStatus] = mapped_column(
         Enum(ExecutionStatus, values_callable=lambda e: [m.value for m in e]),

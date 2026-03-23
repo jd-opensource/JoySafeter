@@ -27,7 +27,6 @@ class CreateWorkspaceRequest(BaseModel):
 class UpdateWorkspaceRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=500)
-    allowPersonalApiKeys: Optional[bool] = None
     settings: Optional[dict] = None
 
 
@@ -118,7 +117,6 @@ async def update_workspace(
         workspace_id,
         name=payload.name,
         description=payload.description,
-        allow_personal_api_keys=payload.allowPersonalApiKeys,
         settings=payload.settings,
         current_user=current_user,
     )

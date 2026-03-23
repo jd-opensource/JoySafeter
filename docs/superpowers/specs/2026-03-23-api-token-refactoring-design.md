@@ -93,8 +93,12 @@ admin > publish > execute > write > read
 -- Existing columns already support the design:
 -- scopes: JSONB array
 -- resource_type: VARCHAR(50) | NULL
--- resource_id: VARCHAR(255) | NULL
+-- resource_id: UUID | NULL
 ```
+
+> **Naming convention:** Scopes use *plural* resource names (`skills:read`, `graphs:execute`) while `resource_type` column uses *singular* (`skill`, `graph`, `tool`). These are compared independently — scopes match against other scopes, resource_type matches against resource_type.
+>
+> **Pair constraint:** `resource_type` and `resource_id` must both be provided or both be NULL. A token with only one set is invalid.
 
 #### Repository Layer
 
@@ -103,9 +107,9 @@ admin > publish > execute > write > read
 class PlatformTokenRepository:
     async def list_by_user_and_resource(
         self,
-        user_id: int,
+        user_id: str,
         resource_type: Optional[str] = None,
-        resource_id: Optional[str] = None
+        resource_id: Optional[uuid.UUID] = None
     ) -> List[PlatformToken]:
         """Query tokens with optional resource filtering"""
         query = select(PlatformToken).where(
@@ -134,11 +138,13 @@ class PlatformTokenService:
         'tools:read', 'tools:execute'
     }
 
+    VALID_RESOURCE_TYPES = {'skill', 'graph', 'tool'}
+
     async def list_tokens(
         self,
-        user_id: int,
+        user_id: str,
         resource_type: Optional[str] = None,
-        resource_id: Optional[str] = None
+        resource_id: Optional[uuid.UUID] = None
     ) -> List[PlatformToken]:
         return await self.repo.list_by_user_and_resource(
             user_id, resource_type, resource_id
@@ -148,11 +154,17 @@ class PlatformTokenService:
         # Validate scopes with hierarchy awareness
         invalid = set(scopes) - self.VALID_SCOPES
         if invalid:
-            raise ValidationException(f"Invalid scopes: {invalid}")
+            raise BadRequestException(f"Invalid scopes: {invalid}")
+
+        # Validate resource_type/resource_id pair (both or neither)
+        if (resource_type is None) != (resource_id is None):
+            raise BadRequestException("resource_type and resource_id must both be provided or both be null")
+        if resource_type is not None and resource_type not in self.VALID_RESOURCE_TYPES:
+            raise BadRequestException(f"Invalid resource_type: {resource_type}")
 
         # Check token limit
         if await self.repo.count_active_by_user(user_id) >= self.MAX_ACTIVE_TOKENS_PER_USER:
-            raise ValidationException(f"Maximum {self.MAX_ACTIVE_TOKENS_PER_USER} active tokens per user")
+            raise BadRequestException(f"Maximum {self.MAX_ACTIVE_TOKENS_PER_USER} active tokens per user")
 
         # ... rest of token generation unchanged
 
@@ -239,6 +251,8 @@ def check_token_permission(
 
     return False
 ```
+
+**Integration point:** `check_token_permission` is called from `backend/app/common/skill_permissions.py` via `_check_token_scope()`, which is invoked by `check_skill_access()`. Endpoints using `get_current_user_or_token` (from `auth_dependency.py`) receive an `AuthContext` carrying `token_scopes`, `token_resource_type`, and `token_resource_id`, which are passed through to the permission check.
 
 ### 3. Frontend Architecture
 
@@ -411,7 +425,7 @@ async def upgrade():
             token_prefix=existing_token[:12],
             scopes=['graphs:execute'],
             resource_type='graph',
-            resource_id=str(api_key.workspace_id),
+            resource_id=api_key.workspace_id,  # UUID column, no str() conversion needed
             expires_at=api_key.expires_at,
             is_active=True
         )
@@ -506,17 +520,18 @@ if (error?.message.includes('Invalid scopes')) {
    - `SkillService.delete()` calls `TokenService.revoke_by_resource('skill', skill_id)`
    - `WorkspaceService.delete()` calls `TokenService.revoke_by_resource('graph', workspace_id)`
 3. **Expired tokens** — Auth checks `expires_at`, auto-reject if expired; list shows but marks as "Expired"
-4. **Workspace-to-Graph mapping** — In this system, workspace ID directly maps to graph resource_id (1:1 relationship). Migration uses `str(api_key.workspace_id)` as `resource_id`.
+4. **Workspace-to-Graph mapping** — In this system, workspace ID (UUID) directly maps to graph resource_id (1:1 relationship). Migration passes `api_key.workspace_id` (UUID) directly as `resource_id`.
+5. **resource_type/resource_id pair constraint** — Both must be provided together or both be NULL. Enforced at the service layer during token creation.
 
 ## Implementation Plan
 
 ### Phase 1: Backend Foundation
 1. Add database indexes on `resource_type` and `resource_id` columns
 2. Add `list_by_user_and_resource()` to repository
-3. Update service layer with scope validation and hierarchy
-4. Add query parameters to API endpoint
+3. Update service layer with scope validation, resource_type validation, and resource_type/resource_id pair constraint
+4. Add query parameters to API endpoint with UUID validation for `resource_id`
 5. Implement unified permission check function with hierarchy
-6. Write unit tests for hierarchical permission checking
+6. Write unit tests for hierarchical permission checking, pair validation, and resource filtering
 
 ### Phase 2: Frontend Refactoring
 1. Update service layer with `TokenListParams`

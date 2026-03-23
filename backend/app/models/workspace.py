@@ -67,9 +67,6 @@ class Workspace(BaseModel, SoftDeleteMixin):
         nullable=False,
     )
 
-    # 是否允许个人 API Key
-    allow_personal_api_keys: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
     # 关系
     owner: Mapped["AuthUser"] = relationship(
         "AuthUser",

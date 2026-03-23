@@ -43,7 +43,6 @@ class WorkspaceService(BaseService[Workspace]):
             "status": workspace.status.value,
             "type": workspace.type.value if hasattr(workspace.type, "value") else workspace.type,
             "settings": workspace.settings or {},
-            "allowPersonalApiKeys": workspace.allow_personal_api_keys,
             "createdAt": workspace.created_at,
             "updatedAt": workspace.updated_at,
             "role": role.value if isinstance(role, WorkspaceMemberRole) else role,
@@ -112,7 +111,6 @@ class WorkspaceService(BaseService[Workspace]):
                 "name": "个人空间",
                 "description": "个人空间",
                 "owner_id": current_user.id,
-                "allow_personal_api_keys": True,
                 "type": WorkspaceType.personal,
             }
         )
@@ -135,7 +133,6 @@ class WorkspaceService(BaseService[Workspace]):
                 "name": name,
                 "description": description,
                 "owner_id": current_user.id,
-                "allow_personal_api_keys": True,
                 "type": workspace_type,
             }
         )
@@ -159,7 +156,6 @@ class WorkspaceService(BaseService[Workspace]):
         *,
         name: Optional[str],
         description: Optional[str],
-        allow_personal_api_keys: Optional[bool],
         settings: Optional[dict],
         current_user: User,
     ) -> Dict:
@@ -175,8 +171,6 @@ class WorkspaceService(BaseService[Workspace]):
             update_data["name"] = name
         if description is not None:
             update_data["description"] = description
-        if allow_personal_api_keys is not None:
-            update_data["allow_personal_api_keys"] = allow_personal_api_keys
         if settings is not None:
             merged_settings = workspace.settings or {}
             merged_settings.update(settings)
@@ -247,7 +241,6 @@ class WorkspaceService(BaseService[Workspace]):
                 "name": new_name,
                 "description": source_workspace.description,
                 "owner_id": current_user.id,
-                "allow_personal_api_keys": source_workspace.allow_personal_api_keys,
                 "type": WorkspaceType.team,  # 复制的都是团队空间
                 "settings": source_workspace.settings.copy() if source_workspace.settings else None,
             }

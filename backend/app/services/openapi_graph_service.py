@@ -19,7 +19,7 @@ from langchain.messages import AIMessage, HumanMessage
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.database import AsyncSessionLocal
 from app.core.model.utils.credential_resolver import LLMCredentialResolver
 from app.models.graph_execution import ExecutionStatus, GraphExecution
@@ -44,9 +44,7 @@ class OpenApiGraphService(BaseService):
         *,
         graph_id: uuid.UUID,
         user_id: str,
-        api_key_id: uuid.UUID,
         variables: Optional[Dict[str, Any]] = None,
-        workspace_id: Optional[uuid.UUID] = None,
     ) -> Dict[str, Any]:
         """
         启动 graph 执行（后台异步）。
@@ -59,15 +57,10 @@ class OpenApiGraphService(BaseService):
         if not graph:
             raise NotFoundException("Graph not found")
 
-        # 如果 API Key 是 workspace 类型，验证 graph 属于该 workspace
-        if workspace_id and graph.workspace_id != workspace_id:
-            raise ForbiddenException("Graph does not belong to the API key's workspace")
-
         # 创建执行记录
         execution = GraphExecution(
             graph_id=graph_id,
             user_id=user_id,
-            api_key_id=api_key_id,
             status=ExecutionStatus.INIT,
             input_variables=variables or {},
         )

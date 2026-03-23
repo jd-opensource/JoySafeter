@@ -1,5 +1,5 @@
 """
-OpenAPI Graph 路由 — 通过 API Key 认证触发 Graph 执行
+OpenAPI Graph 路由 — 通过 PlatformToken 认证触发 Graph 执行
 
 端点：
 - POST /v1/openapi/graph/{graphId}/run      启动执行
@@ -18,10 +18,10 @@ from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.openapi_auth import get_api_key_user
+from app.common.auth_dependency import AuthContext, get_current_user_or_token
+from app.common.exceptions import ForbiddenException
+from app.common.permissions import check_token_permission
 from app.core.database import get_db
-from app.models.api_key import ApiKey
-from app.models.auth import AuthUser as User
 from app.services.openapi_graph_service import OpenApiGraphService
 
 router = APIRouter(prefix="/v1/openapi/graph", tags=["OpenAPI Graph"])
@@ -56,6 +56,22 @@ def _bind_log(request: Request, **kwargs):
     return logger.bind(trace_id=trace_id, **kwargs)
 
 
+def _require_graph_execute(auth: AuthContext, graph_id: uuid.UUID) -> None:
+    """Require graphs:execute scope if using token auth."""
+    if not auth.is_token_auth:
+        return
+    has_perm = check_token_permission(
+        token_scopes=auth.token_scopes or [],
+        required_scope="graphs:execute",
+        resource_type="graph",
+        resource_id=str(graph_id),
+        token_resource_type=auth.token_resource_type,
+        token_resource_id=auth.token_resource_id,
+    )
+    if not has_perm:
+        raise ForbiddenException("Token missing required scope: graphs:execute")
+
+
 # ─── Endpoints ─────────────────────────────────────
 
 
@@ -64,16 +80,17 @@ async def run_graph(
     request: Request,
     graph_id: uuid.UUID,
     payload: RunGraphRequest = RunGraphRequest(),
-    auth: tuple[User, ApiKey] = Depends(get_api_key_user),
+    auth: AuthContext = Depends(get_current_user_or_token),
     db: AsyncSession = Depends(get_db),
 ):
     """
     启动 Graph 执行
 
-    通过 API Key 认证，启动一个 Graph 的异步执行。
+    通过 PlatformToken 认证，启动一个 Graph 的异步执行。
     返回 executionId 用于后续查询状态和获取结果。
     """
-    user, api_key = auth
+    _require_graph_execute(auth, graph_id)
+    user = auth.user
     log = _bind_log(request, user_id=str(user.id), graph_id=str(graph_id))
     log.info("openapi.graph.run start")
 
@@ -81,9 +98,7 @@ async def run_graph(
     result = await service.run_graph(
         graph_id=graph_id,
         user_id=user.id,
-        api_key_id=api_key.id,
         variables=payload.variables,
-        workspace_id=api_key.workspace_id,
     )
 
     log.info(f"openapi.graph.run success execution_id={result['executionId']}")
@@ -94,7 +109,7 @@ async def run_graph(
 async def get_execution_status(
     request: Request,
     execution_id: uuid.UUID,
-    auth: tuple[User, ApiKey] = Depends(get_api_key_user),
+    auth: AuthContext = Depends(get_current_user_or_token),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -102,7 +117,7 @@ async def get_execution_status(
 
     返回执行的当前状态（init / executing / finish / failed）。
     """
-    user, api_key = auth
+    user = auth.user
     log = _bind_log(request, user_id=str(user.id), execution_id=str(execution_id))
     log.info("openapi.graph.status start")
 
@@ -117,7 +132,7 @@ async def get_execution_status(
 async def abort_execution(
     request: Request,
     execution_id: uuid.UUID,
-    auth: tuple[User, ApiKey] = Depends(get_api_key_user),
+    auth: AuthContext = Depends(get_current_user_or_token),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -125,7 +140,7 @@ async def abort_execution(
 
     中止一个正在运行的 Graph 执行。
     """
-    user, api_key = auth
+    user = auth.user
     log = _bind_log(request, user_id=str(user.id), execution_id=str(execution_id))
     log.info("openapi.graph.abort start")
 
@@ -140,7 +155,7 @@ async def abort_execution(
 async def get_execution_result(
     request: Request,
     execution_id: uuid.UUID,
-    auth: tuple[User, ApiKey] = Depends(get_api_key_user),
+    auth: AuthContext = Depends(get_current_user_or_token),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -149,7 +164,7 @@ async def get_execution_result(
     获取 Graph 执行的输出结果。
     如果执行尚未完成，output 为 null。
     """
-    user, api_key = auth
+    user = auth.user
     log = _bind_log(request, user_id=str(user.id), execution_id=str(execution_id))
     log.info("openapi.graph.result start")
 

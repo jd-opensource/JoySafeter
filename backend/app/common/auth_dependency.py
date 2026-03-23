@@ -31,6 +31,8 @@ class AuthContext:
 
     user: User
     token_scopes: Optional[List[str]] = None
+    token_resource_type: Optional[str] = None
+    token_resource_id: Optional[str] = None
 
     @property
     def is_token_auth(self) -> bool:
@@ -112,4 +114,9 @@ async def _authenticate_platform_token(
     if not user or not user.is_active:
         raise UnauthorizedException("Token owner account is inactive")
 
-    return AuthContext(user=user, token_scopes=list(pt.scopes))
+    return AuthContext(
+        user=user,
+        token_scopes=list(pt.scopes),
+        token_resource_type=pt.resource_type,
+        token_resource_id=str(pt.resource_id) if pt.resource_id else None,
+    )

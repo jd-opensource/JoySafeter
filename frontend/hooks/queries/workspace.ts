@@ -80,7 +80,6 @@ export function useWorkspaceSettings(workspaceId: string) {
 interface UpdateWorkspaceSettingsParams {
   workspaceId: string
   name?: string
-  allowPersonalApiKeys?: boolean
   settings?: Record<string, any>
 }
 

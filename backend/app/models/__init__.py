@@ -11,7 +11,6 @@ from .access_control import (
     WorkspaceInvitation,
     WorkspaceInvitationStatus,
 )
-from .api_key import ApiKey
 from .auth import AuthSession, AuthUser
 from .auth import AuthUser as User
 from .base import BaseModel, SoftDeleteMixin, TimestampMixin
@@ -76,7 +75,6 @@ __all__ = [
     "Settings",
     "WorkspaceFile",
     "WorkspaceStoredFile",
-    "ApiKey",
     "CustomTool",
     "McpServer",
     "AgentGraph",

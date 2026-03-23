@@ -1,20 +1,28 @@
-import { Key, Terminal, Copy, Check } from 'lucide-react'
+import { Key, Terminal, Copy, Check, Plus } from 'lucide-react'
 import { useState } from 'react'
 
-import { ApiKeysTable } from '@/components/api-keys/ApiKeysTable'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useToast } from '@/components/ui/use-toast'
+import { TokenList } from '@/components/tokens/TokenList'
+import {
+  useCreateToken,
+  usePlatformTokens,
+  type PlatformTokenCreateResponse,
+} from '@/hooks/queries/platformTokens'
 import { API_BASE } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
 
 interface ApiAccessDialogProps {
   open: boolean
@@ -30,8 +38,20 @@ export function ApiAccessDialog({
   workspaceId,
 }: ApiAccessDialogProps) {
   const { t } = useTranslation()
+  const { toast } = useToast()
   const [copiedUrl, setCopiedUrl] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
+
+  // Token creation state
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [tokenName, setTokenName] = useState('')
+  const [createdToken, setCreatedToken] = useState<PlatformTokenCreateResponse | null>(null)
+  const [copiedToken, setCopiedToken] = useState(false)
+
+  const { data: tokens = [] } = usePlatformTokens({ resourceType: 'graph', resourceId: workspaceId })
+  const createMutation = useCreateToken()
+
+  const activeCount = tokens.filter((tok) => tok.isActive).length
 
   const apiUrl = `${API_BASE}/openapi/graph/${agentId}`
 
@@ -44,10 +64,10 @@ export function ApiAccessDialog({
     try {
       await navigator.clipboard.writeText(apiUrl)
       setCopiedUrl(true)
-      toastSuccess(t('workspace.copiedToClipboard', { defaultValue: '已复制' }))
+      toast({ title: t('workspace.copiedToClipboard', { defaultValue: 'Copied' }) })
       setTimeout(() => setCopiedUrl(false), 2000)
     } catch {
-      toastError(t('workspace.copyFailed', { defaultValue: '复制失败' }))
+      toast({ title: t('workspace.copyFailed', { defaultValue: 'Copy failed' }), variant: 'destructive' })
     }
   }
 
@@ -55,12 +75,85 @@ export function ApiAccessDialog({
     try {
       await navigator.clipboard.writeText(curlExample)
       setCopiedCode(true)
-      toastSuccess(t('workspace.copiedToClipboard', { defaultValue: '已复制' }))
+      toast({ title: t('workspace.copiedToClipboard', { defaultValue: 'Copied' }) })
       setTimeout(() => setCopiedCode(false), 2000)
     } catch {
-      toastError(t('workspace.copyFailed', { defaultValue: '复制失败' }))
+      toast({ title: t('workspace.copyFailed', { defaultValue: 'Copy failed' }), variant: 'destructive' })
     }
   }
+
+  const handleCreateToken = async () => {
+    if (!tokenName.trim()) return
+    try {
+      const result = await createMutation.mutateAsync({
+        name: tokenName.trim(),
+        scopes: ['graphs:execute'],
+        resource_type: 'graph',
+        resource_id: workspaceId,
+      })
+      setCreatedToken(result)
+      toast({ title: t('settings.tokens.createdSuccess') })
+      setTokenName('')
+      setShowCreateForm(false)
+    } catch (error: any) {
+      toast({ title: error?.message || t('common.error'), variant: 'destructive' })
+    }
+  }
+
+  const handleCopyToken = async () => {
+    if (!createdToken) return
+    try {
+      await navigator.clipboard.writeText(createdToken.token)
+      setCopiedToken(true)
+      setTimeout(() => setCopiedToken(false), 2000)
+    } catch {
+      toast({ title: t('workspace.copyFailed', { defaultValue: 'Copy failed' }), variant: 'destructive' })
+    }
+  }
+
+  const tokenHeader = (
+    <div>
+      <div className="mb-4">
+        <h3 className="text-sm font-medium text-gray-900">
+          {t('workspace.apiKeys', { defaultValue: 'API Tokens' })}
+        </h3>
+        <p className="mt-1 text-xs text-gray-500">
+          {t('workspace.apiKeysDescription', {
+            defaultValue: "Manage API tokens that have access to this workspace's resources.",
+          })}
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setShowCreateForm(!showCreateForm)}
+        className="gap-2"
+        disabled={activeCount >= 50}
+      >
+        <Plus size={14} />
+        {t('settings.tokens.create')}
+      </Button>
+      {activeCount >= 50 && (
+        <p className="mt-1 text-xs text-amber-600">{t('settings.tokens.limitReached')}</p>
+      )}
+      {showCreateForm && (
+        <div className="mt-3 flex items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div className="flex-1">
+            <Label className="text-xs">{t('settings.tokens.name')}</Label>
+            <Input
+              value={tokenName}
+              onChange={(e) => setTokenName(e.target.value)}
+              placeholder={t('settings.tokens.namePlaceholder', { defaultValue: 'e.g. Production Key' })}
+              className="mt-1"
+            />
+          </div>
+          <Button size="sm" onClick={handleCreateToken} disabled={createMutation.isPending}>
+            <Plus size={14} />
+          </Button>
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -92,7 +185,7 @@ export function ApiAccessDialog({
               </TabsTrigger>
               <TabsTrigger value="keys">
                 <Key className="mr-2 h-4 w-4" />
-                API Keys
+                API Tokens
               </TabsTrigger>
             </TabsList>
 
@@ -140,7 +233,7 @@ export function ApiAccessDialog({
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-gray-900">Authentication</h3>
                 <p className="text-sm text-gray-500">
-                  Authenticate your API requests by including your API Key in the{' '}
+                  Authenticate your API requests by including your API Token in the{' '}
                   <code className="rounded bg-gray-100 px-1 py-0.5 text-gray-800">
                     Authorization
                   </code>{' '}
@@ -148,7 +241,7 @@ export function ApiAccessDialog({
                 </p>
                 <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
                   <code className="font-mono text-sm font-semibold text-blue-800">
-                    Authorization: Bearer YOUR_API_KEY
+                    Authorization: Bearer YOUR_API_TOKEN
                   </code>
                 </div>
               </div>
@@ -216,18 +309,43 @@ export function ApiAccessDialog({
 
             <TabsContent value="keys" className="space-y-4">
               <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <div className="mb-4">
-                  <h3 className="text-sm font-medium text-gray-900">Workspace API Keys</h3>
-                  <p className="mt-1 text-xs text-gray-500">
-                  Manage API keys that have access to this workspace&apos;s resources.
-                  </p>
-                </div>
-                <ApiKeysTable workspaceId={workspaceId} />
+                <TokenList resourceType="graph" resourceId={workspaceId} header={tokenHeader} />
               </div>
             </TabsContent>
           </Tabs>
         </div>
       </DialogContent>
+
+      {/* Token created dialog */}
+      <Dialog open={!!createdToken} onOpenChange={(open) => !open && setCreatedToken(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('settings.tokens.tokenCreatedTitle')}</DialogTitle>
+            <DialogDescription>{t('settings.tokens.tokenCreatedMessage')}</DialogDescription>
+          </DialogHeader>
+          {createdToken && (
+            <div className="py-4">
+              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <code className="flex-1 break-all text-sm">{createdToken.token}</code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1"
+                  onClick={handleCopyToken}
+                >
+                  <Copy size={14} />
+                  {copiedToken
+                    ? t('settings.tokens.copied')
+                    : t('settings.tokens.copyToken')}
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setCreatedToken(null)}>{t('common.close') || 'Close'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }

@@ -60,11 +60,19 @@ function normalizeTokenCreateResponse(raw: any): PlatformTokenCreateResponse {
   }
 }
 
-// ---------- Service ----------
+export interface TokenListParams {
+  resourceType?: 'skill' | 'graph' | 'tool'
+  resourceId?: string
+}
 
 export const platformTokenService = {
-  async listTokens(): Promise<PlatformToken[]> {
-    const data = await apiGet<any[]>('tokens')
+  async listTokens(params?: TokenListParams): Promise<PlatformToken[]> {
+    const queryParams = new URLSearchParams()
+    if (params?.resourceType) queryParams.set('resource_type', params.resourceType)
+    if (params?.resourceId) queryParams.set('resource_id', params.resourceId)
+
+    const url = `tokens${queryParams.toString() ? `?${queryParams}` : ''}`
+    const data = await apiGet<any[]>(url)
     return (Array.isArray(data) ? data : []).map(normalizeToken)
   },
 

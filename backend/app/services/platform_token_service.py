@@ -19,9 +19,23 @@ TOKEN_PREFIX = "sk_"
 
 
 class PlatformTokenService(BaseService[PlatformToken]):
+    VALID_SCOPES = {
+        "skills:read",
+        "skills:write",
+        "skills:execute",
+        "skills:publish",
+        "skills:admin",
+        "graphs:read",
+        "graphs:execute",
+        "tools:read",
+        "tools:execute",
+    }
+
+    VALID_RESOURCE_TYPES = {"skill", "graph", "tool"}
+
     def __init__(self, db):
         super().__init__(db)
-        self.repo = PlatformTokenRepository(db)
+        self.repo: PlatformTokenRepository = PlatformTokenRepository(db)
 
     async def create_token(
         self,
@@ -37,6 +51,19 @@ class PlatformTokenService(BaseService[PlatformToken]):
         active_count = await self.repo.count_active_by_user(user_id)
         if active_count >= MAX_ACTIVE_TOKENS_PER_USER:
             raise BadRequestException(f"Maximum of {MAX_ACTIVE_TOKENS_PER_USER} active tokens reached")
+
+        # Validate scopes
+        invalid = set(scopes) - self.VALID_SCOPES
+        if invalid:
+            raise BadRequestException(f"Invalid scopes: {invalid}")
+
+        # Validate resource_type/resource_id pair
+        if (resource_type is None) != (resource_id is None):
+            raise BadRequestException("resource_type and resource_id must both be provided or both be null")
+        if resource_type is not None and resource_type not in self.VALID_RESOURCE_TYPES:
+            raise BadRequestException(
+                f"Invalid resource_type: {resource_type}. Must be one of {self.VALID_RESOURCE_TYPES}"
+            )
 
         # Generate token
         raw_secret = secrets.token_urlsafe(36)  # ~48 chars
@@ -60,8 +87,17 @@ class PlatformTokenService(BaseService[PlatformToken]):
         await self.db.refresh(pt)
         return pt, plaintext
 
-    async def list_tokens(self, user_id: str) -> List[PlatformToken]:
-        return await self.repo.list_by_user(user_id)  # type: ignore[no-any-return]
+    async def list_tokens(
+        self,
+        user_id: str,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[uuid.UUID] = None,
+    ) -> List[PlatformToken]:
+        return await self.repo.list_by_user_and_resource(user_id, resource_type, resource_id)
+
+    async def revoke_by_resource(self, resource_type: str, resource_id: str) -> int:
+        """Soft-delete all tokens bound to a resource"""
+        return await self.repo.deactivate_by_resource(resource_type, resource_id)
 
     async def revoke_token(
         self,
