@@ -494,6 +494,7 @@ class SkillService(BaseService[Skill]):
 
         # Revoke all tokens bound to this skill
         from app.services.platform_token_service import PlatformTokenService
+
         token_service = PlatformTokenService(self.db)
         await token_service.revoke_by_resource("skill", str(skill_id))
 

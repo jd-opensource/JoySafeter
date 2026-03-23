@@ -30,35 +30,40 @@ def upgrade() -> None:
     conn = op.get_bind()
 
     # 1. Migrate existing api_key records to platform_tokens
-    result = conn.execute(sa.text("""
+    result = conn.execute(
+        sa.text("""
         SELECT id, user_id, workspace_id, key, name, created_at, last_used_at
         FROM api_key
         WHERE is_active = true
-    """))
+    """)
+    )
 
     migrated_count = 0
     for row in result:
         token_hash = hashlib.sha256(row.key.encode()).hexdigest()
         token_prefix = row.key[:12] if len(row.key) >= 12 else row.key
 
-        conn.execute(sa.text("""
+        conn.execute(
+            sa.text("""
             INSERT INTO platform_tokens
             (user_id, name, token_hash, token_prefix, scopes, resource_type, resource_id,
              is_active, created_at, last_used_at)
             VALUES
             (:user_id, :name, :token_hash, :token_prefix, :scopes, :resource_type, :resource_id,
              true, :created_at, :last_used_at)
-        """), {
-            "user_id": row.user_id,
-            "name": row.name or "Migrated API Key",
-            "token_hash": token_hash,
-            "token_prefix": token_prefix,
-            "scopes": ["graphs:execute"],
-            "resource_type": "graph",
-            "resource_id": row.workspace_id,
-            "created_at": row.created_at,
-            "last_used_at": row.last_used_at,
-        })
+        """),
+            {
+                "user_id": row.user_id,
+                "name": row.name or "Migrated API Key",
+                "token_hash": token_hash,
+                "token_prefix": token_prefix,
+                "scopes": ["graphs:execute"],
+                "resource_type": "graph",
+                "resource_id": row.workspace_id,
+                "created_at": row.created_at,
+                "last_used_at": row.last_used_at,
+            },
+        )
         migrated_count += 1
 
     print(f"Migrated {migrated_count} active API keys to platform_tokens")

@@ -57,9 +57,10 @@ class PlatformTokenService(BaseService[PlatformToken]):
         # Validate resource exists and user has permission
         if resource_type is not None and resource_id is not None:
             if resource_type == "skill":
-                from app.repositories.skill import SkillRepository
-                from app.models.skill_collaborator import CollaboratorRole
                 from app.common.skill_permissions import check_skill_access
+                from app.models.skill_collaborator import CollaboratorRole
+                from app.repositories.skill import SkillRepository
+
                 skill_repo = SkillRepository(self.db)
                 skill = await skill_repo.get(resource_id)
                 if not skill:
@@ -69,7 +70,8 @@ class PlatformTokenService(BaseService[PlatformToken]):
                 except ForbiddenException:
                     raise ForbiddenException("No permission to create token for this skill")
             elif resource_type == "graph":
-                from app.repositories.workspace import WorkspaceRepository, WorkspaceMemberRepository
+                from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
+
                 workspace_repo = WorkspaceRepository(self.db)
                 member_repo = WorkspaceMemberRepository(self.db)
                 workspace = await workspace_repo.get(resource_id)
@@ -81,6 +83,7 @@ class PlatformTokenService(BaseService[PlatformToken]):
                         raise ForbiddenException("No permission to create token for this workspace")
             elif resource_type == "tool":
                 from app.repositories.tool import ToolRepository
+
                 tool_repo = ToolRepository(self.db)
                 tool = await tool_repo.get(resource_id)
                 if not tool:

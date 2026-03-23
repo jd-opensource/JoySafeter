@@ -233,9 +233,11 @@ class TestPlatformTokenServiceValidation:
         """Should succeed with valid resource_type + resource_id pair."""
         db = _mock_db()
         skill_id = uuid.uuid4()
-        with patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo, \
-             patch("app.repositories.skill.SkillRepository.get", new_callable=AsyncMock) as mock_get, \
-             patch("app.common.skill_permissions.check_skill_access", new_callable=AsyncMock) as mock_check:
+        with (
+            patch("app.services.platform_token_service.PlatformTokenRepository") as MockRepo,
+            patch("app.repositories.skill.SkillRepository.get", new_callable=AsyncMock) as mock_get,
+            patch("app.common.skill_permissions.check_skill_access", new_callable=AsyncMock) as mock_check,
+        ):
             MockRepo.return_value.count_active_by_user = AsyncMock(return_value=0)
             mock_skill = MagicMock()
             mock_skill.id = skill_id

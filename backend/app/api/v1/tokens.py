@@ -8,8 +8,6 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from app.utils.string import is_valid_uuid
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +21,7 @@ from app.schemas.platform_token import (
     TokenSchema,
 )
 from app.services.platform_token_service import PlatformTokenService
+from app.utils.string import is_valid_uuid
 
 router = APIRouter(prefix="/v1/tokens", tags=["Tokens"])
 
@@ -44,7 +43,7 @@ async def create_token(
     )
     return {
         "success": True,
-        "data": {**TokenCreateResponse.model_validate(token_record).model_dump(), "token": raw_token}
+        "data": {**TokenCreateResponse.model_validate(token_record).model_dump(), "token": raw_token},
     }
 
 
