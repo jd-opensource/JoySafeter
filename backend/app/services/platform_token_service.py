@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import secrets
 import uuid
 from datetime import datetime
@@ -12,6 +11,7 @@ from app.common.exceptions import BadRequestException, ForbiddenException, NotFo
 from app.common.permissions import VALID_SCOPES
 from app.models.platform_token import PlatformToken
 from app.repositories.platform_token import PlatformTokenRepository
+from app.utils.string import hash_string_sha256
 
 from .base import BaseService
 
@@ -89,9 +89,9 @@ class PlatformTokenService(BaseService[PlatformToken]):
                     raise ForbiddenException("No permission to create token for this tool")
 
         # Generate token
-        raw_secret = secrets.token_urlsafe(36)  # ~48 chars
+        raw_secret = secrets.token_urlsafe(36)
         plaintext = f"{TOKEN_PREFIX}{raw_secret}"
-        token_hash = hashlib.sha256(plaintext.encode()).hexdigest()
+        token_hash = hash_string_sha256(plaintext)
         token_prefix = plaintext[:12]
 
         pt = PlatformToken(

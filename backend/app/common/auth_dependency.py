@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -18,6 +17,7 @@ from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.platform_token import PlatformToken
 from app.services.platform_token_service import TOKEN_PREFIX
+from app.utils.string import hash_string_sha256
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
@@ -86,7 +86,7 @@ async def _authenticate_platform_token(
     db: AsyncSession,
 ) -> AuthContext:
     """Verify a PlatformToken and return AuthContext with scopes."""
-    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    token_hash = hash_string_sha256(raw_token)
 
     result = await db.execute(select(PlatformToken).where(PlatformToken.token_hash == token_hash))
     pt = result.scalar_one_or_none()

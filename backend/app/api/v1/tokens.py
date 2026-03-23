@@ -8,6 +8,8 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
+from app.utils.string import is_valid_uuid
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,11 +42,10 @@ async def create_token(
         resource_id=payload.resource_id,
         expires_at=payload.expires_at,
     )
-    resp = TokenCreateResponse.model_validate(token_record)
-    # Inject the raw token (not stored in DB)
-    data = resp.model_dump()
-    data["token"] = raw_token
-    return {"success": True, "data": data}
+    return {
+        "success": True,
+        "data": {**TokenCreateResponse.model_validate(token_record).model_dump(), "token": raw_token}
+    }
 
 
 @router.get("")
@@ -57,10 +58,9 @@ async def list_tokens(
     # Validate resource_id is a valid UUID if provided
     parsed_resource_id = None
     if resource_id is not None:
-        try:
-            parsed_resource_id = uuid.UUID(resource_id)
-        except ValueError:
+        if not is_valid_uuid(resource_id):
             raise BadRequestException("Invalid resource_id: must be a valid UUID")
+        parsed_resource_id = uuid.UUID(resource_id)
 
     service = PlatformTokenService(db)
     tokens = await service.list_tokens(
@@ -70,7 +70,7 @@ async def list_tokens(
     )
     return {
         "success": True,
-        "data": [TokenSchema.model_validate(t).model_dump() for t in tokens],
+        "data": [TokenSchema.model_validate(t) for t in tokens],
     }
 
 
