@@ -117,6 +117,8 @@ class PlatformTokenRepository:
 ```python
 # backend/app/services/platform_token_service.py
 class PlatformTokenService:
+    MAX_ACTIVE_TOKENS_PER_USER = 50  # Configurable constant
+
     VALID_SCOPES = {
         'skills:read', 'skills:write', 'skills:execute', 'skills:publish', 'skills:admin',
         'graphs:read', 'graphs:execute',
@@ -139,6 +141,11 @@ class PlatformTokenService:
         if invalid:
             raise ValidationException(f"Invalid scopes: {invalid}")
         # ... rest unchanged
+
+    async def revoke_by_resource(self, resource_type: str, resource_id: str) -> int:
+        """Soft-delete all tokens bound to a resource (called on resource deletion)"""
+        count = await self.repo.deactivate_by_resource(resource_type, resource_id)
+        return count
 ```
 
 #### API Layer
@@ -162,6 +169,37 @@ async def list_tokens(
 
 ```python
 # backend/app/common/permissions.py
+
+# Permission hierarchy: higher levels include all lower levels
+SCOPE_HIERARCHY = {
+    'skills': ['admin', 'publish', 'execute', 'write', 'read'],
+    'graphs': ['execute', 'read'],
+    'tools': ['execute', 'read']
+}
+
+def _scope_satisfies(token_scope: str, required_scope: str) -> bool:
+    """Check if token_scope satisfies required_scope via hierarchy"""
+    if token_scope == required_scope:
+        return True
+
+    # Parse resource:action
+    try:
+        token_resource, token_action = token_scope.split(':')
+        required_resource, required_action = required_scope.split(':')
+    except ValueError:
+        return False
+
+    if token_resource != required_resource:
+        return False
+
+    hierarchy = SCOPE_HIERARCHY.get(token_resource, [])
+    try:
+        token_level = hierarchy.index(token_action)
+        required_level = hierarchy.index(required_action)
+        return token_level <= required_level  # Lower index = higher permission
+    except ValueError:
+        return False
+
 def check_token_permission(
     token_scopes: List[str],
     required_scope: str,
@@ -170,9 +208,10 @@ def check_token_permission(
     token_resource_type: Optional[str],
     token_resource_id: Optional[str]
 ) -> bool:
-    """Unified permission check logic"""
-    # 1. Check scope presence
-    if required_scope not in token_scopes:
+    """Unified permission check with hierarchical scope matching"""
+    # 1. Check scope presence (with hierarchy)
+    has_scope = any(_scope_satisfies(ts, required_scope) for ts in token_scopes)
+    if not has_scope:
         return False
 
     # 2. Check resource binding
@@ -228,8 +267,9 @@ export function useRevokeToken() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: platformTokenService.revokeToken,
-    onSuccess: () => {
-      // Invalidate all token queries
+    onSuccess: (_, tokenId) => {
+      // Granular invalidation: invalidate all token queries
+      // (we don't know which resources this token was bound to)
       queryClient.invalidateQueries({ queryKey: ['platform-tokens'] });
     }
   });
@@ -327,22 +367,28 @@ export function WorkspaceApiTokensDialog({ workspaceId }: { workspaceId: string 
 # backend/alembic/versions/20260323_migrate_apikey_to_platform_token.py
 async def upgrade():
     # 1. Migrate active ApiKeys to PlatformTokens
+    # Note: ApiKey stores plaintext tokens, we hash them directly
     api_keys = await db.execute(
         select(ApiKey).where(ApiKey.is_active == True)
     )
 
     for api_key in api_keys.scalars():
-        token_plaintext = f"sk_{secrets.token_urlsafe(36)}"
-        token_hash = hashlib.sha256(token_plaintext.encode()).hexdigest()
+        # Hash the existing plaintext token from ApiKey
+        # Prefix with 'sk_' if not already present
+        existing_token = api_key.key
+        if not existing_token.startswith('sk_'):
+            existing_token = f"sk_{existing_token}"
+
+        token_hash = hashlib.sha256(existing_token.encode()).hexdigest()
 
         platform_token = PlatformToken(
             user_id=api_key.user_id,
             name=f"Migrated: {api_key.name}",
             token_hash=token_hash,
-            token_prefix=token_plaintext[:12],
+            token_prefix=existing_token[:12],
             scopes=['graphs:execute'],
             resource_type='graph',
-            resource_id=api_key.workspace_id,
+            resource_id=str(api_key.workspace_id),  # workspace_id maps to graph resource_id
             expires_at=api_key.expires_at,
             is_active=True
         )
@@ -350,8 +396,18 @@ async def upgrade():
 
     await db.commit()
 
-    # 2. Drop api_keys table
-    op.drop_table('api_keys')
+    # 2. Rename api_keys table for 30-day verification period
+    op.rename_table('api_keys', 'api_keys_deprecated')
+    op.execute("COMMENT ON TABLE api_keys_deprecated IS 'Deprecated, safe to drop after 2026-04-23'")
+
+async def downgrade():
+    # Rollback: restore api_keys table
+    op.rename_table('api_keys_deprecated', 'api_keys')
+    # Delete migrated PlatformTokens
+    await db.execute(
+        delete(PlatformToken).where(PlatformToken.name.like('Migrated:%'))
+    )
+    await db.commit()
 ```
 
 #### Code Removal
@@ -399,41 +455,47 @@ if await token_repo.count_active_by_user(user_id) >= 50:
 const { mutate: createToken, error } = useCreateToken();
 
 if (error?.message.includes('Invalid scopes')) {
-  toast.error('选择的权限不合法');
+  toast.error('Invalid scope selection');
 } else if (error?.message.includes('Maximum 50')) {
-  toast.error('Token 数量已达上限（50个）');
+  toast.error('Token limit reached (50 tokens max)');
 }
 ```
 
 #### Edge Cases
 
 1. **Global vs resource token conflict** — Both allowed, permission check prioritizes resource-bound tokens
-2. **Resource deletion** — Cascade soft-delete bound tokens (`is_active=False`)
+2. **Resource deletion** — Cascade soft-delete bound tokens (`is_active=False`) via service layer hooks:
+   - `SkillService.delete()` calls `TokenService.revoke_by_resource('skill', skill_id)`
+   - `WorkspaceService.delete()` calls `TokenService.revoke_by_resource('graph', workspace_id)`
 3. **Expired tokens** — Auth checks `expires_at`, auto-reject if expired; list shows but marks as "Expired"
+4. **Workspace-to-Graph mapping** — In this system, workspace ID directly maps to graph resource_id (1:1 relationship). Migration uses `str(api_key.workspace_id)` as `resource_id`.
 
 ## Implementation Plan
 
 ### Phase 1: Backend Foundation
-1. Add `list_by_user_and_resource()` to repository
-2. Update service layer with scope validation
-3. Add query parameters to API endpoint
-4. Implement unified permission check function
-5. Write unit tests
+1. Add database indexes on `resource_type` and `resource_id` columns
+2. Add `list_by_user_and_resource()` to repository
+3. Update service layer with scope validation and hierarchy
+4. Add query parameters to API endpoint
+5. Implement unified permission check function with hierarchy
+6. Write unit tests for hierarchical permission checking
 
 ### Phase 2: Frontend Refactoring
 1. Update service layer with `TokenListParams`
-2. Adjust hooks to support filtering
+2. Adjust hooks to support filtering with granular invalidation
 3. Create shared `TokenList` and `TokenItem` components
 4. Refactor Settings TokensPage
 5. Refactor Skill ApiTokensTab
 6. Create Workspace WorkspaceApiTokensDialog
 
 ### Phase 3: Migration & Cleanup
-1. Write and test migration script
-2. Run migration in staging
-3. Delete ApiKey backend code
-4. Delete ApiKey frontend code
-5. Update API documentation
+1. Write and test migration script (preserves existing tokens)
+2. Run migration in staging, verify existing integrations still work
+3. Keep `api_keys_deprecated` table for 30 days
+4. Delete ApiKey backend code (keep models for migration reference)
+5. Delete ApiKey frontend code
+6. Update API documentation
+7. After 30-day verification: drop `api_keys_deprecated` table
 
 ### Phase 4: Testing & Deployment
 1. Integration tests for all three entry points
@@ -491,10 +553,11 @@ if (error?.message.includes('Invalid scopes')) {
 
 | Risk | Mitigation |
 |------|------------|
-| Migration data loss | Test migration script thoroughly in staging, keep ApiKey table for 30 days before hard delete |
-| Breaking existing integrations | Provide migration guide, support both systems for 1 week grace period |
-| Performance regression | Add database indexes on `resource_type` and `resource_id` columns |
+| Migration data loss | Preserve existing token values by hashing them; test migration script thoroughly in staging; keep `api_keys_deprecated` table for 30 days before hard delete |
+| Breaking existing integrations | Migration preserves existing token values, no integration changes needed |
+| Performance regression | Add database indexes on `resource_type` and `resource_id` columns in Phase 1 |
 | Scope confusion | Clear UI labels, inline help text explaining each scope |
+| Rate limiting attacks | Add rate limiting to token endpoints (100 req/min per user) |
 
 ## Conclusion
 
