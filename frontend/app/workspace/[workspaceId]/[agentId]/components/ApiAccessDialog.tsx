@@ -11,6 +11,13 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/components/ui/use-toast'
@@ -45,6 +52,7 @@ export function ApiAccessDialog({
   // Token creation state
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [tokenName, setTokenName] = useState('')
+  const [tokenScope, setTokenScope] = useState('graphs:execute')
   const [createdToken, setCreatedToken] = useState<PlatformTokenCreateResponse | null>(null)
 
   const { data: tokens = [] } = usePlatformTokens({ resourceType: 'graph', resourceId: workspaceId })
@@ -62,7 +70,7 @@ export function ApiAccessDialog({
     try {
       const result = await createMutation.mutateAsync({
         name: tokenName.trim(),
-        scopes: ['graphs:execute'],
+        scopes: [tokenScope],
         resource_type: 'graph',
         resource_id: workspaceId,
       })
@@ -110,6 +118,22 @@ export function ApiAccessDialog({
               placeholder={t('settings.tokens.namePlaceholder', { defaultValue: 'e.g. Production Key' })}
               className="mt-1"
             />
+          </div>
+          <div className="w-32">
+            <Label className="text-xs">{t('settings.tokens.role', { defaultValue: 'Role' })}</Label>
+            <Select value={tokenScope} onValueChange={setTokenScope}>
+              <SelectTrigger className="mt-1 bg-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="graphs:execute">
+                  {t('settings.tokens.roles.executor', { defaultValue: 'Executor' })}
+                </SelectItem>
+                <SelectItem value="graphs:read">
+                  {t('settings.tokens.roles.viewer', { defaultValue: 'Viewer' })}
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <Button size="sm" onClick={handleCreateToken} disabled={createMutation.isPending}>
             <Plus size={14} />

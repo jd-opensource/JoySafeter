@@ -41,9 +41,19 @@ async def create_token(
         resource_id=payload.resource_id,
         expires_at=payload.expires_at,
     )
+    response_data = TokenCreateResponse(
+        id=str(token_record.id),
+        name=token_record.name,
+        token=raw_token,
+        token_prefix=token_record.token_prefix,
+        scopes=token_record.scopes,
+        resource_type=token_record.resource_type,
+        expires_at=getattr(token_record, "expires_at", None),
+        created_at=getattr(token_record, "created_at", None),
+    )
     return {
         "success": True,
-        "data": {**TokenCreateResponse.model_validate(token_record).model_dump(), "token": raw_token},
+        "data": response_data.model_dump(),
     }
 
 

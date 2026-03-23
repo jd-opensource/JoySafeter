@@ -61,9 +61,9 @@ export function SkillApiAccessDialog({
           </div>
         </DialogHeader>
 
-        <div className="custom-scrollbar mt-4 flex-1 overflow-y-auto px-2">
+        <div className="custom-scrollbar mt-1 flex-1 overflow-y-auto px-2">
           <Tabs defaultValue="integration" className="w-full">
-            <TabsList className="mb-6 grid w-[400px] grid-cols-2">
+            <TabsList className="mb-3 grid w-[400px] grid-cols-2">
               <TabsTrigger value="integration">
                 <Terminal className="mr-2 h-4 w-4" />
                 {t('skills.integrationGuide', { defaultValue: 'Integration Guide' })}

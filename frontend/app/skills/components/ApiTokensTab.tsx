@@ -15,6 +15,13 @@ import {
   type PlatformTokenCreateResponse,
 } from '@/hooks/queries/platformTokens'
 import { useTranslation } from '@/lib/i18n'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface ApiTokensTabProps {
   skillId: string
@@ -26,6 +33,7 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
 
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [tokenName, setTokenName] = useState('')
+  const [tokenScope, setTokenScope] = useState('skills:execute')
   const [createdToken, setCreatedToken] = useState<PlatformTokenCreateResponse | null>(null)
 
   const { data: tokens = [] } = usePlatformTokens({ resourceType: 'skill', resourceId: skillId })
@@ -36,7 +44,7 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
     try {
       const result = await createMutation.mutateAsync({
         name: tokenName.trim(),
-        scopes: ['skills:execute'],
+        scopes: [tokenScope],
         resource_type: 'skill',
         resource_id: skillId,
       })
@@ -75,6 +83,25 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
               placeholder={t('settings.tokens.namePlaceholder')}
               className="mt-1"
             />
+          </div>
+          <div className="w-32">
+            <Label className="text-xs">{t('settings.tokens.role', { defaultValue: 'Role' })}</Label>
+            <Select value={tokenScope} onValueChange={setTokenScope}>
+              <SelectTrigger className="mt-1 bg-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="skills:execute">
+                  {t('settings.tokens.roles.executor', { defaultValue: 'Executor' })}
+                </SelectItem>
+                <SelectItem value="skills:read">
+                  {t('settings.tokens.roles.viewer', { defaultValue: 'Viewer' })}
+                </SelectItem>
+                <SelectItem value="skills:admin">
+                  {t('settings.tokens.roles.admin', { defaultValue: 'Admin' })}
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <Button size="sm" onClick={handleCreate} disabled={createMutation.isPending}>
             <Plus size={14} />

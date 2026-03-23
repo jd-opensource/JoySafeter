@@ -1,6 +1,6 @@
 'use client'
 
-import { Key, Loader2 } from 'lucide-react'
+import { Key, Loader2, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import {
@@ -13,7 +13,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import {
   usePlatformTokens,
   useRevokeToken,
@@ -21,13 +31,70 @@ import {
   type TokenListParams,
 } from '@/hooks/queries/platformTokens'
 import { useTranslation } from '@/lib/i18n'
-
-import { TokenItem } from './TokenItem'
+import { formatRelativeTime } from '@/lib/utils/formatRelativeTime'
 
 interface TokenListProps {
   resourceType?: TokenListParams['resourceType']
   resourceId?: string
   header?: React.ReactNode
+}
+
+const getTypeBadgeColor = (type?: string | null) => {
+  switch (type) {
+    case 'workspace':
+      return 'bg-purple-100 text-purple-700 hover:bg-purple-100/80 border-purple-200'
+    case 'skill':
+      return 'bg-blue-100 text-blue-700 hover:bg-blue-100/80 border-blue-200'
+    case 'personal':
+    default:
+      return 'bg-gray-100 text-gray-700 hover:bg-gray-100/80 border-gray-200'
+  }
+}
+
+const formatResourceType = (type?: string | null) => {
+  if (!type) return 'Unknown'
+  return type.charAt(0).toUpperCase() + type.slice(1)
+}
+
+function TokenTableRow({ token, onRevoke, isRevoking }: { token: PlatformToken, onRevoke: (t: PlatformToken) => void, isRevoking: boolean }) {
+  const { t } = useTranslation()
+
+  return (
+    <TableRow className="group">
+      <TableCell className="font-medium text-gray-900 border-b border-gray-100">
+        <div className="flex flex-col">
+          <span>{token.name}</span>
+        </div>
+      </TableCell>
+      <TableCell className="border-b border-gray-100">
+        <code className="bg-gray-50 px-2 py-1 rounded text-xs text-gray-600 font-mono border border-gray-100">
+          {token.tokenPrefix}...
+        </code>
+      </TableCell>
+      <TableCell className="border-b border-gray-100">
+        <Badge variant="outline" className={getTypeBadgeColor(token.resourceType)}>
+          {formatResourceType(token.resourceType)}
+        </Badge>
+      </TableCell>
+      <TableCell className="text-gray-500 text-sm border-b border-gray-100">
+        {token.createdAt ? new Date(token.createdAt).toLocaleDateString() : '-'}
+      </TableCell>
+      <TableCell className="text-gray-500 text-sm border-b border-gray-100">
+        {token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : t('settings.tokens.noExpiry', { defaultValue: 'No expiry' })}
+      </TableCell>
+      <TableCell className="text-right border-b border-gray-100">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onRevoke(token)}
+          className="h-8 w-8 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-opacity"
+          disabled={isRevoking}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </TableCell>
+    </TableRow>
+  )
 }
 
 export function TokenList({ resourceType, resourceId, header }: TokenListProps) {
@@ -79,20 +146,34 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
       {!tokens || tokens.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/50 py-12">
           <div className="rounded-full border border-gray-200 bg-gray-100 p-4">
-            <Key className="h-8 w-8 text-gray-300" />
+             <Key className="h-8 w-8 text-gray-300" />
           </div>
           <p className="text-sm font-medium text-gray-500">{t('settings.tokens.emptyState')}</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {tokens.map((token) => (
-            <TokenItem
-              key={token.id}
-              token={token}
-              onRevoke={openRevokeDialog}
-              isRevoking={revokeToken.isPending}
-            />
-          ))}
+        <div className="rounded-md border border-gray-200 bg-white shadow-sm">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50 hover:bg-gray-50">
+                <TableHead className="w-[200px] text-gray-600 font-medium">{t('settings.tokens.name', { defaultValue: '名称' })}</TableHead>
+                <TableHead className="text-gray-600 font-medium">{t('settings.tokens.key', { defaultValue: 'Key' })}</TableHead>
+                <TableHead className="text-gray-600 font-medium">{t('settings.tokens.type', { defaultValue: '类型' })}</TableHead>
+                <TableHead className="text-gray-600 font-medium">{t('settings.tokens.createdAt', { defaultValue: '创建时间' })}</TableHead>
+                <TableHead className="text-gray-600 font-medium">{t('settings.tokens.expiresAt', { defaultValue: '过期时间' })}</TableHead>
+                <TableHead className="w-[80px] text-right text-gray-600 font-medium">{t('settings.tokens.actions', { defaultValue: '操作' })}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tokens.map((token) => (
+                <TokenTableRow
+                  key={token.id}
+                  token={token}
+                  onRevoke={openRevokeDialog}
+                  isRevoking={revokeToken.isPending}
+                />
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
