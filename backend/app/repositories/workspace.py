@@ -9,8 +9,6 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.common.exceptions import NotFoundException
-from app.models.access_control import WorkspaceInvitation, WorkspaceInvitationStatus
 from app.models.workspace import Workspace, WorkspaceMember, WorkspaceMemberRole
 
 from .base import BaseRepository
@@ -103,58 +101,3 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
         result = await self.db.execute(stmt)
         return (getattr(result, "rowcount", 0) or 0) > 0
 
-
-class WorkspaceInvitationRepository(BaseRepository[WorkspaceInvitation]):
-    """工作空间邀请数据访问"""
-
-    def __init__(self, db: AsyncSession):
-        super().__init__(WorkspaceInvitation, db)
-
-    async def find_pending(self, workspace_id: uuid.UUID, email: str) -> Optional[WorkspaceInvitation]:
-        query = select(WorkspaceInvitation).where(
-            WorkspaceInvitation.workspace_id == workspace_id,
-            WorkspaceInvitation.email == email,
-            WorkspaceInvitation.status == WorkspaceInvitationStatus.pending,
-        )
-        result = await self.db.execute(query)
-        return result.scalar_one_or_none()
-
-    async def list_by_workspaces(self, workspace_ids: List[uuid.UUID]) -> List[WorkspaceInvitation]:
-        """获取多个 workspace 的所有邀请"""
-        if not workspace_ids:
-            return []
-        query = select(WorkspaceInvitation).where(WorkspaceInvitation.workspace_id.in_(workspace_ids))
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
-
-    async def get_by_token(self, token: str) -> Optional[WorkspaceInvitation]:
-        """根据 token 获取邀请"""
-        query = select(WorkspaceInvitation).where(WorkspaceInvitation.token == token)
-        result = await self.db.execute(query)
-        return result.scalar_one_or_none()
-
-    async def update_status(self, invitation_id: uuid.UUID, status: WorkspaceInvitationStatus) -> WorkspaceInvitation:
-        """更新邀请状态（使用 flush 而非 commit，由 service 层控制事务边界）"""
-        invitation = await self.get(invitation_id)
-        if not invitation:
-            raise NotFoundException("Invitation not found")
-        invitation.status = status
-        await self.db.flush()
-        await self.db.refresh(invitation)
-        return invitation
-
-    async def list_pending_by_email(self, email: str) -> List[WorkspaceInvitation]:
-        """根据邮箱获取所有待处理的邀请"""
-        from datetime import datetime, timezone
-
-        query = (
-            select(WorkspaceInvitation)
-            .where(
-                WorkspaceInvitation.email == email.lower(),
-                WorkspaceInvitation.status == WorkspaceInvitationStatus.pending,
-                WorkspaceInvitation.expires_at > datetime.now(timezone.utc),
-            )
-            .order_by(WorkspaceInvitation.created_at.desc())
-        )
-        result = await self.db.execute(query)
-        return list(result.scalars().all())

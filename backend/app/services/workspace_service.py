@@ -317,66 +317,6 @@ class WorkspaceService(BaseService[Workspace]):
     # ------------------------------------------------------------------ #
     # 成员管理
     # ------------------------------------------------------------------ #
-    async def list_members(
-        self,
-        workspace_id: uuid.UUID,
-        current_user: User,
-    ) -> List[Dict]:
-        """获取工作空间成员列表"""
-        workspace = await self.workspace_repo.get(workspace_id)
-        if not workspace:
-            raise NotFoundException("Workspace not found")
-
-        # 确保用户有权限访问
-        await self._ensure_member(workspace_id, current_user)
-
-        # 获取所有成员（包含拥有者）
-        members = await self.member_repo.list_by_workspace(workspace_id)
-
-        # 添加拥有者到成员列表（如果拥有者不在成员表中）
-        owner_in_members = any(m.user_id == workspace.owner_id for m in members)
-        if not owner_in_members:
-            from app.repositories.auth_user import AuthUserRepository
-
-            user_repo = AuthUserRepository(self.db)
-            owner = await user_repo.get_by(id=workspace.owner_id)
-            if owner:
-                # 创建虚拟成员对象用于序列化
-                class OwnerMember:
-                    def __init__(self):
-                        self.user_id = owner.id
-                        self.role = WorkspaceMemberRole.owner
-                        self.user = owner
-                        self.created_at = workspace.created_at
-                        self.updated_at = workspace.updated_at
-
-                owner_member = OwnerMember()
-                members.insert(0, owner_member)
-
-        # 序列化成员
-        result = []
-        for member in members:
-            user = member.user if hasattr(member, "user") and member.user else None
-            if not user:
-                # 如果成员没有用户信息，跳过
-                continue
-
-            result.append(
-                {
-                    "id": str(member.user_id),
-                    "userId": str(member.user_id),
-                    "workspaceId": str(workspace_id),
-                    "email": user.email,
-                    "name": user.name,
-                    "role": member.role.value if hasattr(member.role, "value") else member.role,
-                    "isOwner": workspace.owner_id == member.user_id,
-                    "createdAt": member.created_at if hasattr(member, "created_at") else None,
-                    "updatedAt": member.updated_at if hasattr(member, "updated_at") else None,
-                }
-            )
-
-        return result
-
     async def list_members_paginated(
         self,
         workspace_id: uuid.UUID,
