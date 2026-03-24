@@ -215,32 +215,6 @@ class McpServerRepository(BaseRepository[McpServer]):
         """
         return await self.update(server_id, {"enabled": enabled})
 
-    async def increment_request_count(
-        self,
-        server_id: uuid.UUID,
-    ) -> Optional[McpServer]:
-        """
-        增加请求计数
-
-        Args:
-            server_id: 服务器 ID
-
-        Returns:
-            更新后的 MCP 服务器
-        """
-        from datetime import datetime
-
-        server = await self.get(server_id)
-        if not server:
-            return None
-
-        update_data = {
-            "total_requests": (server.total_requests or 0) + 1,
-            "last_used": datetime.utcnow(),  # naive datetime for TIMESTAMP WITHOUT TIME ZONE
-        }
-
-        return await self.update(server_id, update_data)
-
     async def get_by_ids(
         self,
         server_ids: List[uuid.UUID],

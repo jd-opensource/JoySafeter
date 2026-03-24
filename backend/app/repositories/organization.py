@@ -38,11 +38,6 @@ class OrganizationRepository(BaseRepository[Organization]):
         result = await self.db.execute(query)
         return result.scalar_one_or_none() is not None
 
-    async def get_by_slug(self, slug: str) -> Optional[Organization]:
-        """根据 slug 获取组织"""
-        query = select(Organization).where(Organization.slug == slug)
-        result = await self.db.execute(query)
-        return result.scalar_one_or_none()
 
 
 class MemberRepository(BaseRepository[Member]):

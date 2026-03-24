@@ -96,40 +96,6 @@ def parse_skill_md(content: str) -> Tuple[Dict[str, Any], str]:
     return {}, content
 
 
-def generate_skill_md(name: str, description: str, body: str = "") -> str:
-    """Generate SKILL.md content with YAML frontmatter.
-
-    Args:
-        name: The skill name (required)
-        description: The skill description (required)
-        body: The markdown body content (optional)
-
-    Returns:
-        Complete SKILL.md content with YAML frontmatter
-    """
-    # Escape any special characters in the description for YAML
-    # Use literal block style if description contains newlines
-    if "\n" in description:
-        desc_yaml = f"description: |\n  {description.replace(chr(10), chr(10) + '  ')}"
-    else:
-        # Quote the description if it contains special YAML characters
-        if any(
-            c in description
-            for c in [":", "#", "[", "]", "{", "}", ",", "&", "*", "!", "|", ">", "'", '"', "%", "@", "`"]
-        ):
-            desc_yaml = f'description: "{description}"'
-        else:
-            desc_yaml = f"description: {description}"
-
-    frontmatter = f"""---
-name: {name}
-{desc_yaml}
----"""
-
-    if body:
-        return f"{frontmatter}\n\n{body}"
-    return frontmatter
-
 
 def validate_file_extension(path: str) -> Tuple[bool, Optional[str]]:
     """Validate file extension and return warning if needed.
@@ -167,18 +133,6 @@ def validate_file_extension(path: str) -> Tuple[bool, Optional[str]]:
         return False, f"File '{path}' has uncommon extension '{ext}'"
 
     return True, None
-
-
-def get_file_extension(path: str) -> str:
-    """Get the file extension from a path.
-
-    Args:
-        path: The file path
-
-    Returns:
-        The file extension (including the dot), lowercase
-    """
-    return os.path.splitext(path)[1].lower() if path else ""
 
 
 def is_system_file(path: str) -> bool:

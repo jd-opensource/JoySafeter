@@ -38,24 +38,6 @@ class GraphRepository(BaseRepository[AgentGraph]):
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def list_by_user(self, user_id: str) -> List[AgentGraph]:
-        """根据用户ID获取所有图（排除已软删除）"""
-        query = select(AgentGraph).where(AgentGraph.user_id == user_id)
-        query = _graph_not_deleted(query)
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
-
-    async def list_by_workspace(self, workspace_id: uuid.UUID) -> List[AgentGraph]:
-        """根据工作空间ID获取所有图"""
-        return []
-
-    async def list_by_parent(self, parent_id: uuid.UUID) -> List[AgentGraph]:
-        """根据父图ID获取子图列表（排除已软删除）"""
-        query = select(AgentGraph).where(AgentGraph.parent_id == parent_id)
-        query = _graph_not_deleted(query)
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
-
     async def list_by_user_with_filters(
         self,
         user_id: str,

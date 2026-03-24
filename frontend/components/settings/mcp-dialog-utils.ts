@@ -7,7 +7,7 @@ import type { McpServer } from '@/hooks/queries/mcp'
 /**
  * MCP Server edit data interface
  */
-export interface McpServerEditData {
+interface McpServerEditData {
   id: string
   name: string
   transport: string

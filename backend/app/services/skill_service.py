@@ -12,7 +12,6 @@ from loguru import logger
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.common.skill_permissions import check_skill_access
-from app.core.skill.formatter import SkillFormatter
 from app.core.skill.validators import (
     truncate_compatibility,
     truncate_description,
@@ -40,7 +39,6 @@ class SkillService(BaseService[Skill]):
         super().__init__(db)
         self.repo = SkillRepository(db)
         self.file_repo = SkillFileRepository(db)
-        self.formatter = SkillFormatter()
 
     async def list_skills(
         self,

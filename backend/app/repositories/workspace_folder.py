@@ -49,14 +49,6 @@ class WorkflowFolderRepository(BaseRepository[WorkspaceFolder]):
         current = result.scalar_one_or_none()
         return current if current is not None else -1
 
-    async def list_children(self, parent_id: uuid.UUID) -> List[WorkspaceFolder]:
-        query = select(WorkspaceFolder).where(
-            WorkspaceFolder.parent_id == parent_id,
-            WorkspaceFolder.deleted_at.is_(None),
-        )
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
-
     async def list_relations_by_workspace(self, workspace_id: uuid.UUID) -> List[Tuple[uuid.UUID, Optional[uuid.UUID]]]:
         """获取 workspace 内所有 folder 的 (id, parent_id) 关系，用于构建树/子树。"""
         query = select(WorkspaceFolder.id, WorkspaceFolder.parent_id).where(
