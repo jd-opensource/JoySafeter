@@ -14,9 +14,6 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.api import api_router
-from app.api.v1.conversations import router as conversations_router
-from app.api.v1.files import router as files_router
-from app.api.v1.memory import router as memory_router
 from app.api.v1.sessions import router as sessions_router
 from app.common.exceptions import register_exception_handlers
 from app.common.logging import LoggingMiddleware, setup_logging
@@ -317,15 +314,8 @@ async def global_exception_handler(request, exc):
 
 app.include_router(api_router, prefix="/api")
 
-# Register Conversation Management Router
-app.include_router(conversations_router, prefix="/api/v1")
-
-# Register File Management Router
-app.include_router(files_router, prefix="/api/v1")
-
-# Include API routers
+# Sessions router lives outside /api/v1 (legacy path /api/sessions)
 app.include_router(sessions_router, prefix="/api/sessions", tags=["sessions"])
-app.include_router(memory_router, prefix="/api/v1/memory", tags=["memory"])
 
 
 # Register Router
@@ -381,15 +371,9 @@ async def websocket_endpoint(
             pass
 
 
-@app.websocket("/ws/notifications")
-async def notification_websocket_endpoint(websocket: WebSocket):
+async def _run_notification_loop(websocket: WebSocket, user_id: str) -> None:
+    """Shared ping/pong loop for notification WebSocket endpoints."""
     import json
-
-    is_authenticated, user_id = await authenticate_websocket(websocket)
-
-    if not is_authenticated or not user_id:
-        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
-        return
 
     try:
         await websocket.accept()
@@ -399,15 +383,11 @@ async def notification_websocket_endpoint(websocket: WebSocket):
             try:
                 data = await websocket.receive_text()
                 message = json.loads(data)
-
                 if message.get("type") == "ping":
                     await notification_manager.send_to_connection(
                         websocket,
-                        {
-                            "type": NotificationType.PONG.value,
-                        },
+                        {"type": NotificationType.PONG.value},
                     )
-
             except WebSocketDisconnect:
                 break
             except Exception:
@@ -420,51 +400,27 @@ async def notification_websocket_endpoint(websocket: WebSocket):
     finally:
         notification_manager.disconnect(websocket)
         logger.info(f"WebSocket notification disconnected for user {user_id}")
+
+
+@app.websocket("/ws/notifications")
+async def notification_websocket_endpoint(websocket: WebSocket):
+    is_authenticated, user_id = await authenticate_websocket(websocket)
+    if not is_authenticated or not user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+    await _run_notification_loop(websocket, user_id)
 
 
 @app.websocket("/ws/notifications/{user_id}")
 async def notification_websocket_endpoint_legacy(websocket: WebSocket, user_id: str):
-    import json
-
     is_authenticated, token_user_id = await authenticate_websocket(websocket)
-
     if not is_authenticated or not token_user_id:
         await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
         return
-
     if str(token_user_id) != str(user_id):
         await reject_websocket(websocket, code=WebSocketCloseCode.FORBIDDEN, reason="User ID mismatch")
         return
-
-    try:
-        await websocket.accept()
-        await notification_manager.connect(websocket, user_id)
-
-        while True:
-            try:
-                data = await websocket.receive_text()
-                message = json.loads(data)
-
-                if message.get("type") == "ping":
-                    await notification_manager.send_to_connection(
-                        websocket,
-                        {
-                            "type": NotificationType.PONG.value,
-                        },
-                    )
-
-            except WebSocketDisconnect:
-                break
-            except Exception:
-                break
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        logger.error(f"WebSocket notification error for user {user_id}: {e}")
-    finally:
-        notification_manager.disconnect(websocket)
-        logger.info(f"WebSocket notification disconnected for user {user_id}")
+    await _run_notification_loop(websocket, user_id)
 
 
 @app.websocket("/ws/copilot/{session_id}")

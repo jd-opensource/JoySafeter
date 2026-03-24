@@ -8,6 +8,9 @@ from fastapi import APIRouter
 
 from .artifacts import router as artifacts_router
 from .auth import router as auth_router
+from .conversations import router as conversations_router
+from .files import router as files_router
+from .memory import router as memory_router
 from .chat import router as chat_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
@@ -42,6 +45,8 @@ ROUTERS = [
     sandboxes_router,
     auth_router,
     artifacts_router,
+    conversations_router,
+    files_router,
     oauth_router,
     organizations_router,
     workspaces_router,
@@ -76,5 +81,7 @@ ROUTERS = [
 api_router = APIRouter()
 for router in ROUTERS:
     api_router.include_router(router)
+# memory router has no built-in prefix; mount it explicitly
+api_router.include_router(memory_router, prefix="/memory", tags=["memory"])
 
 __all__ = ["api_router"]

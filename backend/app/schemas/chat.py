@@ -12,8 +12,6 @@ class ChatRequest(PydanticBaseModel):
     thread_id: str | None = Field(None, description="会话线程ID，不提供则创建新会话")
     graph_id: uuid.UUID | None = Field(None, description="图ID，使用指定的图进行对话")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
-    mode: str | None = Field(None, description="对话模式，如 'skill_creator', 'default-chat', 'apk-vulnerability' 等")
-    edit_skill_id: str | None = Field(None, description="编辑已有技能时的技能ID")
     # user_id 从认证中获取，不再需要在请求中提供
 
 

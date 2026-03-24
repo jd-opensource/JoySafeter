@@ -26,6 +26,7 @@ All events follow this JSON structure in the `data` field:
 """
 
 import asyncio
+import time
 import uuid
 from typing import Any, AsyncGenerator, Dict
 
@@ -714,6 +715,7 @@ async def chat(
         )
         await task_manager.register_task(thread_id, invoke_task)
 
+        t0 = time.monotonic()
         try:
             result = await invoke_task
         except asyncio.CancelledError:
@@ -729,6 +731,7 @@ async def chat(
 
         messages = result["messages"]
         await save_assistant_message(thread_id, messages, db)
+        duration_ms = int((time.monotonic() - t0) * 1000)
 
         return BaseResponse(
             success=True,
@@ -737,7 +740,7 @@ async def chat(
             data=ChatResponse(
                 thread_id=thread_id,
                 response=messages[-1].content if messages else "",
-                duration_ms=0,  # 需自行添加计时逻辑
+                duration_ms=duration_ms,
             ),
         )
     except Exception as e:
