@@ -44,6 +44,13 @@ export interface MessageMetadata {
   [key: string]: any // keep backwards compat
 }
 
+export interface InterruptState {
+  nodeName: string
+  nodeLabel?: string
+  state?: Record<string, unknown>
+  threadId: string
+}
+
 // LangGraph / OpenAI compatible message structure
 export interface Message {
   id: string

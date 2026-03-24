@@ -2,7 +2,7 @@
 
 import { useReducer } from 'react'
 
-import type { Message, ToolCall, FileTreeEntry, NodeLogEntry } from '../types'
+import type { Message, ToolCall, FileTreeEntry, NodeLogEntry, InterruptState } from '../types'
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -17,6 +17,7 @@ export interface ChatState {
     messageId: string | null // id of the message being streamed
     metadata: Record<string, any> | null // latest metadata from content events
     nodeExecutionLog: NodeLogEntry[]
+    interrupt: InterruptState | null
   }
   preview: {
     visible: boolean
@@ -47,6 +48,7 @@ export const initialChatState: ChatState = {
     messageId: null,
     metadata: null,
     nodeExecutionLog: [],
+    interrupt: null,
   },
   preview: {
     visible: false,
@@ -83,6 +85,8 @@ export type ChatAction =
   | { type: 'STREAM_CONTENT'; delta: string; messageId: string; metadata?: Record<string, any> }
   | { type: 'STREAM_DONE'; messageId?: string }
   | { type: 'STREAM_ERROR'; error: string }
+  | { type: 'SET_INTERRUPT'; interrupt: InterruptState }
+  | { type: 'CLEAR_INTERRUPT' }
   // File & tool events
   | { type: 'FILE_EVENT'; path: string; info: FileTreeEntry }
   | { type: 'TOOL_START'; tool: ToolCall }
@@ -144,6 +148,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           messageId: null,
           metadata: null,
           nodeExecutionLog: [],
+          interrupt: null,
         },
         preview: { ...state.preview, userDismissed: false },
       }
@@ -188,6 +193,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           text: '',
           messageId: null,
           metadata: null,
+          interrupt: state.streaming.interrupt,
         },
       }
     }
@@ -199,6 +205,26 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...state.streaming,
           isProcessing: false,
           isSubmitting: false,
+        },
+      }
+
+    case 'SET_INTERRUPT':
+      return {
+        ...state,
+        streaming: {
+          ...state.streaming,
+          interrupt: action.interrupt,
+          isProcessing: false,
+          isSubmitting: false,
+        },
+      }
+
+    case 'CLEAR_INTERRUPT':
+      return {
+        ...state,
+        streaming: {
+          ...state.streaming,
+          interrupt: null,
         },
       }
 

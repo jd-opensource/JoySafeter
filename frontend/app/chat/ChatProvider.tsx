@@ -4,6 +4,7 @@ import React, { createContext, useContext, useMemo } from 'react'
 
 import type { ChatState, ChatAction } from './hooks/useChatReducer'
 import { useChatReducer } from './hooks/useChatReducer'
+import { useChatWebSocket } from './hooks/useChatWebSocket'
 
 // ─── Low-frequency context: messages, UI, mode ──────────────────────────────
 
@@ -18,6 +19,18 @@ interface ChatStreamContextValue {
   text: string
   isProcessing: boolean
   isSubmitting: boolean
+  isConnected: boolean
+  sendMessage: (opts: {
+    message: string
+    threadId?: string | null
+    graphId?: string | null
+    metadata?: Record<string, any>
+  }) => Promise<{ requestId: string }>
+  stopMessage: (threadId: string | null) => void
+  resumeChat: (opts: {
+    threadId: string
+    command: { update?: Record<string, any>; goto?: string | null }
+  }) => Promise<{ requestId: string }>
 }
 
 const ChatStateContext = createContext<ChatStateContextValue | null>(null)
@@ -25,6 +38,7 @@ const ChatStreamContext = createContext<ChatStreamContextValue | null>(null)
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useChatReducer()
+  const ws = useChatWebSocket(dispatch)
 
   const stateValue = useMemo(
     () => ({ state, dispatch }),
@@ -38,8 +52,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       text: state.streaming.text,
       isProcessing: state.streaming.isProcessing,
       isSubmitting: state.streaming.isSubmitting,
+      isConnected: ws.isConnected,
+      sendMessage: ws.sendMessage,
+      stopMessage: ws.stopMessage,
+      resumeChat: ws.resumeChat,
     }),
-    [state.streaming.text, state.streaming.isProcessing, state.streaming.isSubmitting],
+    [
+      state.streaming.text,
+      state.streaming.isProcessing,
+      state.streaming.isSubmitting,
+      ws.isConnected,
+      ws.sendMessage,
+      ws.stopMessage,
+      ws.resumeChat,
+    ],
   )
 
   return (
@@ -62,4 +88,3 @@ export function useChatStream() {
   if (!ctx) throw new Error('useChatStream must be used within ChatProvider')
   return ctx
 }
-

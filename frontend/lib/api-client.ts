@@ -11,16 +11,13 @@
  *
  * @example
  * ```ts
- * import { apiGet, apiPost, apiStream } from '@/lib/api-client'
+ * import { apiGet, apiPost } from '@/lib/api-client'
  *
  * // GET request
  * const users = await apiGet<User[]>('users')
  *
  * // POST request
  * const user = await apiPost<User>('users', { name: 'John' })
- *
- * // SSE streaming request
- * const response = await apiStream('chat/stream', { message: 'Hello' })
  * ```
  */
 

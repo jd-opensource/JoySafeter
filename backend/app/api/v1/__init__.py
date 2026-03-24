@@ -8,7 +8,6 @@ from fastapi import APIRouter
 
 from .artifacts import router as artifacts_router
 from .auth import router as auth_router
-from .chat import router as chat_router
 from .conversations import router as conversations_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
@@ -66,7 +65,6 @@ ROUTERS = [
     skill_versions_router,
     skill_collaborators_router,
     tokens_router,
-    chat_router,
     graphs_router,
     traces_router,
     users_router,

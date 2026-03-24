@@ -7,7 +7,7 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -20,9 +20,8 @@ from app.common.logging import LoggingMiddleware, setup_logging
 from app.core.database import AsyncSessionLocal, close_db, engine
 from app.core.redis import RedisClient
 from app.core.settings import settings
-from app.services.session_service import SessionService
 from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
-from app.websocket.chat_handler import ChatHandler
+from app.websocket.chat_ws_handler import ChatWsHandler
 from app.websocket.copilot_handler import copilot_handler
 from app.websocket.notification_manager import NotificationType, notification_manager
 from app.websocket.openclaw_handler import openclaw_bridge_handler
@@ -330,45 +329,17 @@ async def root():
     }
 
 
-# WebSocket endpoint for real-time chat
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    session_id: str,
-):
-    """WebSocket endpoint for real-time chat with JWT authentication."""
-    # 1. Verify authentication
+@app.websocket("/ws/chat")
+async def chat_websocket_endpoint(websocket: WebSocket):
+    """Persistent WebSocket endpoint for Chat page streaming."""
     is_authenticated, user_id = await authenticate_websocket(websocket)
-
     if not is_authenticated or not user_id:
         await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
         return
 
-    try:
-        async with AsyncSessionLocal() as db:
-            session_service = SessionService(db)
-
-            # 2. Verify session ownership
-            session = await session_service.get_session_for_user(session_id, user_id)
-            if not session:
-                await reject_websocket(
-                    websocket, code=WebSocketCloseCode.FORBIDDEN, reason="Session not found or access denied"
-                )
-                return
-
-            # 3. Establish connection
-            await websocket.accept()
-            chat_handler = ChatHandler(session_service)
-            await chat_handler.handle_connection(websocket, session_id, int(user_id))
-
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for session {session_id}")
-    except Exception as e:
-        logger.error(f"WebSocket error for session {session_id}: {e}")
-        try:
-            await websocket.close(code=1011)
-        except Exception:
-            pass
+    await websocket.accept()
+    handler = ChatWsHandler(user_id=str(user_id), websocket=websocket)
+    await handler.run()
 
 
 async def _run_notification_loop(websocket: WebSocket, user_id: str) -> None:

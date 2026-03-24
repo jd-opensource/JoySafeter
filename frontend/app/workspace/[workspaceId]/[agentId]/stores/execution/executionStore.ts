@@ -13,7 +13,7 @@
 
 import { create } from 'zustand'
 
-import { streamChat, type ChatStreamEvent } from '@/services/chatBackend'
+import type { ChatStreamEvent } from '@/services/chatBackend'
 import type { ExecutionStep, ExecutionTreeNode } from '@/types'
 
 import { buildExecutionTree } from '../../lib/tree-building'
@@ -33,6 +33,7 @@ import {
 } from './ExecutionManager'
 import type { ExecutionStore, ExecutionContext, GraphExecutionState, InterruptInfo } from './types'
 import { generateId } from './utils'
+import { workspaceChatWsService } from '../../services/workspaceChatWsService'
 
 // ============ Batch Update Buffer ============
 // Used to merge high-frequency appendContent calls, reducing state update frequency
@@ -347,6 +348,14 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       set({ contexts: newContexts })
     },
 
+    setRequestId: (graphId: string, requestId: string | null) => {
+      const { contexts } = get()
+      const context = getOrCreateContext(contexts, graphId)
+      const newContexts = new Map(contexts)
+      newContexts.set(graphId, { ...context, requestId })
+      set({ contexts: newContexts })
+    },
+
     // ============ Command Mode ============
 
     updateState: (stateUpdate: Partial<GraphState>) => {
@@ -393,6 +402,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       const abortController = new AbortController()
       store.setAbortController(graphId, abortController)
+      store.setRequestId(graphId, null)
       store.setThreadId(graphId, null)
 
       store.clearInterrupts()
@@ -434,13 +444,14 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
         getContext: store.getContext,
       }
 
+      let wasStopped = false
+
       try {
-        const result = await streamChat({
+        const result = await workspaceChatWsService.sendChat({
           message: input,
           threadId: null,
           graphId,
           metadata: {},
-          signal: abortController.signal,
           onEvent: (evt: ChatStreamEvent) => {
             const s = get()
 
@@ -452,20 +463,25 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
             // Special handling for stopped event to update workflow step
             if (eventResult.shouldStop && eventResult.stopReason === 'stopped') {
+              wasStopped = true
               s.updateStep(workflowId, { status: 'error', endTime: Date.now() })
             }
           },
         })
 
         if (result.threadId) store.setThreadId(graphId, result.threadId)
+        store.setRequestId(graphId, result.requestId)
 
-        const graphContext = store.getContext(graphId)
-        const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
-        store.updateStep(workflowId, {
-          status: 'success',
-          endTime: Date.now(),
-          duration: Date.now() - (workflowStep?.startTime || Date.now()),
-        })
+        // Only mark success when not stopped by user (stopped path already set status: 'error')
+        if (!wasStopped) {
+          const graphContext = store.getContext(graphId)
+          const workflowStep = graphContext.state.steps.find((s) => s.id === workflowId)
+          store.updateStep(workflowId, {
+            status: 'success',
+            endTime: Date.now(),
+            duration: Date.now() - (workflowStep?.startTime || Date.now()),
+          })
+        }
       } catch (e: unknown) {
         const error = e as { name?: string; message?: string }
         store.updateStep(workflowId, { status: 'error', endTime: Date.now() })
@@ -484,6 +500,7 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
       } finally {
         store.updateGraphState(graphId, { isExecuting: false })
         store.setAbortController(graphId, null)
+        store.setRequestId(graphId, null)
       }
     },
 
@@ -494,21 +511,21 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => {
 
       const context = getContext(currentGraphId)
 
-      if (context.abortController) {
-        context.abortController.abort()
-        setAbortController(currentGraphId, null)
-      }
-
       if (context.threadId) {
         try {
-          const { apiPost } = await import('@/lib/api-client')
-          await apiPost('chat/stop', { thread_id: context.threadId })
+          workspaceChatWsService.stopByThreadId(context.threadId)
         } catch (error) {
           console.error('Failed to stop execution:', error)
         }
         setThreadId(currentGraphId, null)
       }
 
+      if (context.abortController) {
+        context.abortController.abort()
+        setAbortController(currentGraphId, null)
+      }
+
+      get().setRequestId(currentGraphId, null)
       updateGraphState(currentGraphId, { isExecuting: false, activeNodeId: null })
     },
   }

@@ -9,7 +9,7 @@
 1. 用户通过自然语言对话即可创建/修改完整的 Skill 包（SKILL.md + scripts/references/assets）
 2. Agent 在隔离沙箱中生成和验证 Skill，确保质量
 3. 用户预览确认后才写入 DB，保证用户控制权
-4. 复用现有 Chat SSE 架构和 Sandbox 基础设施，最小化代码改动
+4. 复用现有 Chat 实时执行架构和 Sandbox 基础设施，最小化代码改动
 5. 在 Dashboard 首页提供显眼入口
 
 ## Non-Goals
@@ -28,7 +28,7 @@
 用户在前端 Skill Creator 页面发起对话
     │
     ▼
-POST /v1/chat/stream (mode="skill_creator")
+WS /ws/chat (`type="chat"`, `metadata.mode="skill_creator"`)
     │  → GraphService 创建专用 Skill Creator Graph
     │  → SandboxManager 确保沙箱运行
     │  → 预加载 skill-creator Skill 到沙箱
@@ -41,7 +41,7 @@ Agent 在沙箱中执行:
     4. 调用 quick_validate.py 验证
     5. 调用 preview_skill tool 输出结构化结果
     ▼
-SSE 流式返回生成过程
+WS 事件流返回生成过程
     │  前端捕获 preview_skill 的 tool_end 事件
     ▼
 前端展示 Skill 预览面板 (文件树 + 内容高亮)
@@ -58,7 +58,7 @@ SSE 流式返回生成过程
 
 1. **DB 同步由前端发起** — Agent 不直接写 DB，而是通过 `preview_skill` tool 返回文件内容，前端在用户确认后调用现有 Skills API。保证用户对最终结果的控制权。
 
-2. **复用现有 Chat 流** — 不新建 API 路由，通过 `mode="skill_creator"` 参数让 `/v1/chat/stream` 选择专用 Graph 模板。复用 SSE、Agent 调度、沙箱管理全套基础设施。
+2. **复用现有 Chat 流** — 不新建专用 Skill Creator 路由，通过 chat websocket 帧里的 `mode="skill_creator"` 选择专用 Graph 模板。复用事件分发、Agent 调度、沙箱管理全套基础设施。
 
 3. **复用现有 skill-creator Skill** — 平台已内置 `skill-creator` Skill（含 `init_skill.py`、`package_skill.py`、`quick_validate.py`），Agent 直接使用这些工具。
 
@@ -70,7 +70,7 @@ SSE 流式返回生成过程
 
 ### 1. Chat API 扩展
 
-**文件**: `backend/app/api/v1/chat.py`, `backend/app/schemas/chat.py`
+**文件**: `backend/app/api/v1/chat.py`, `backend/app/websocket/chat_ws_handler.py`, `backend/app/schemas/chat.py`
 
 Request body 新增可选字段：
 
@@ -132,7 +132,7 @@ skill_name: str  # 沙箱中的 skill 目录名
 
 ### 4. 不新增的内容
 
-- 不新增 API 路由 — 复用 `/v1/chat/stream` 和 `/v1/skills`
+- 不新增 Skill Creator 专用 API 路由 — 复用 `WS /ws/chat` 和 `/v1/skills`
 - 不新增 DB 模型 — 复用 `Skill` + `SkillFile` 表
 - 不修改 SkillService — 现有 `create_skill` / `update_skill` 已完整支持
 
@@ -190,8 +190,8 @@ skill_name: str  # 沙箱中的 skill 目录名
 
 ### 4. 数据流
 
-1. 用户发消息 → `POST /v1/chat/stream` (mode=skill_creator)
-2. SSE 事件流实时渲染到 Chat 区
+1. 用户发消息 → `WS /ws/chat` chat frame (`mode=skill_creator`)
+2. WS 事件流实时渲染到 Chat 区
 3. 收到 `tool_end` 事件且 tool=`preview_skill` → 解析 JSON → 更新预览面板
 4. 用户点击 "保存到库" → SkillSaveDialog 展示确认
 5. 确认 → `POST /v1/skills` (新建) 或 `PUT /v1/skills/{id}` (编辑)
@@ -207,7 +207,7 @@ skill_name: str  # 沙箱中的 skill 目录名
 
 | 场景 | 处理方式 |
 |------|----------|
-| 沙箱启动失败 | SSE `error` 事件，前端 toast 提示 |
+| 沙箱启动失败 | WS `error` 事件，前端 toast 提示 |
 | SKILL.md 格式不合法 | Agent 调用 `quick_validate.py` 自检并自动修复 |
 | Skill name 重复 | `POST /v1/skills` 返回 409，前端提示改名或选择覆盖 |
 | 用户中途关闭 | 沙箱文件保留，可重新发起 |

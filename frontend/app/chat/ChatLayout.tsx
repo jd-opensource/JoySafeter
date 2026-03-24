@@ -18,7 +18,6 @@ import ChatSidebar from './components/ChatSidebar'
 import { ModelNoticeDialog } from './components/ModelNoticeDialog'
 import { getModeConfig } from './config/modeConfig'
 import { ConversationPanel } from './conversation'
-import { useBackendChatStream } from './hooks/useBackendChatStream'
 import { usePreviewTrigger } from './hooks/usePreviewTrigger'
 import { PreviewPanel } from './preview'
 import { graphResolutionService } from './services/graphResolutionService'
@@ -38,8 +37,6 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   const { data: deployedAgents = [] } = useDeployedGraphs()
   const { data: workspacesData } = useWorkspaces()
 
-  // Hook integrations
-  const { sendMessage, stopMessage } = useBackendChatStream(dispatch)
   usePreviewTrigger(state, dispatch)
 
   const prevPropChatIdRef = useRef<string | null | undefined>(propChatId)
@@ -241,19 +238,23 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
         }))
       }
 
-      const result = await sendMessage(text, messageOpts)
-
-      // Update threadId from backend
-      if (result?.threadId && result.threadId !== state.threadId) {
-        dispatch({ type: 'SET_THREAD', threadId: result.threadId })
+      try {
+        await stream.sendMessage({
+          message: text,
+          threadId: messageOpts.threadId,
+          graphId: messageOpts.graphId,
+          metadata: messageOpts.metadata,
+        })
+      } catch (error) {
+        console.error('Failed to send chat message:', error)
       }
     },
-    [dispatch, sendMessage, stream.isProcessing, state.threadId, state.mode, workspacesData, deployedAgents, t],
+    [dispatch, stream, state.threadId, state.mode, workspacesData, deployedAgents, t],
   )
 
   const handleStop = useCallback(() => {
-    stopMessage(state.threadId)
-  }, [stopMessage, state.threadId])
+    stream.stopMessage(state.threadId)
+  }, [stream, state.threadId])
 
   const hasFiles = Object.keys(state.preview.fileTree).length > 0
   const hasMessages = state.messages.length > 0 || !!state.threadId || !!propChatId

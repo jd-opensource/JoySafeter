@@ -206,13 +206,6 @@ export function generateSkillMd(
 // ============================================================================
 
 /**
- * Check if a file is at root level (not in any subdirectory).
- */
-export function isRootLevelFile(path: string): boolean {
-  return !path || !path.includes('/')
-}
-
-/**
  * Validate file path - just check it's not empty.
  * Any directory structure is now allowed.
  */

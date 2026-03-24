@@ -39,23 +39,9 @@ await apiPatch('users/123', { name: 'John Updated' })
 | `apiGet('graphs/123')` | `/api/v1/graphs/123` |
 | `apiPost('auth/login', {...})` | `/api/v1/auth/login` |
 
-## 流式请求 (SSE)
+## 流式请求
 
-使用 `apiStream` 处理 Server-Sent Events：
-
-```ts
-import { apiStream } from '@/lib/api-client'
-
-const response = await apiStream('chat/stream', { message: 'Hello' })
-const reader = response.body?.getReader()
-
-// 处理流式数据
-while (true) {
-  const { value, done } = await reader.read()
-  if (done) break
-  // 处理 value...
-}
-```
+需要实时双向交互的场景统一使用 WebSocket；`apiStream` 仅保留给仍使用 SSE 的通用接口，不再用于 Chat。
 
 ## 认证相关
 

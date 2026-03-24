@@ -4,6 +4,8 @@
 
 Replace the current SSE-based chat streaming (`POST /v1/chat/stream`) with a persistent WebSocket connection, unify all real-time channels under a coherent WS architecture, and delete the orphaned legacy WS chat handler.
 
+> Status on 2026-03-24: Implemented. The chat business flows have been migrated to `WS /ws/chat`, the legacy `WS /ws/{session_id}` handler has been deleted, and the public `/v1/chat*` HTTP routes are no longer registered. `backend/app/api/v1/chat.py` now serves as a shared helper module for the WS handler.
+
 ## Architecture
 
 A single persistent WS connection (`/ws/chat`) is established per user when the Chat page mounts. All chat turns (new thread, existing thread, resume-after-interrupt) are multiplexed over that connection using a `request_id`. Stop and resume operations are sent as frames on the same connection, eliminating the separate `POST /v1/chat/stop` and `POST /v1/chat/resume` HTTP endpoints. The three other WS channels (notifications, copilot, legacy session chat) are addressed independently: notifications and copilot are kept unchanged; the legacy session chat endpoint is deleted as dead code.
@@ -214,20 +216,18 @@ async def chat_websocket_endpoint(websocket: WebSocket):
 | `backend/app/websocket/chat_handler.py` | No frontend callers; replaced by `chat_ws_handler.py` |
 | `backend/app/websocket/connection_manager.py` | Only used by deleted `chat_handler.py` |
 
-### HTTP endpoints — deletion scope
+### HTTP endpoints — final state
 
-> **⚠️ IMPORTANT:** `POST /v1/chat/stop` and `POST /v1/chat/resume` have callers **outside** the chat page:
-> - `frontend/app/workspace/[workspaceId]/[agentId]/stores/execution/executionStore.ts` calls `apiPost('chat/stop', ...)`
-> - `frontend/app/workspace/[workspaceId]/[agentId]/services/commandService.ts` calls `apiStream('chat/resume', ...)`
->
-> These workspace-agent callers use HTTP and are **not** affected by the WS migration. **Do not delete these endpoints until the workspace callers are also migrated or removed.**
+The initial migration plan kept some `/v1/chat*` endpoints temporarily because workspace callers still depended on them. That transitional state is now complete:
 
-| Endpoint | Action | Condition |
+| Endpoint | Final status | Notes |
 |---|---|---|
-| `POST /v1/chat/stop` | Keep; also accept WS `stop` frame | Keep HTTP until workspace callers migrated |
-| `POST /v1/chat/resume` | Keep; also accept WS `resume` frame | Keep HTTP until workspace callers migrated |
-| `POST /v1/chat/stream` (SSE) | Delete after frontend WS migration verified | Chat-page only |
-| `POST /v1/chat` (non-streaming) | Verify no callers, then delete | Likely unused |
+| `POST /v1/chat/stop` | Deleted from public API surface | Replaced by WS `stop` frame |
+| `POST /v1/chat/resume` | Deleted from public API surface | Replaced by WS `resume` frame |
+| `POST /v1/chat/stream` (SSE) | Deleted from public API surface | Replaced by `WS /ws/chat` |
+| `POST /v1/chat` (non-streaming) | Deleted from public API surface | No live callers remained |
+
+`backend/app/api/v1/chat.py` still exists because `chat_ws_handler.py` imports shared execution helpers from it.
 
 ---
 
@@ -300,7 +300,7 @@ if (type === 'error') {
 | File | Reason |
 |---|---|
 | `frontend/app/chat/hooks/useBackendChatStream.ts` | Replaced by `useChatWebSocket.ts` |
-| `frontend/services/chatBackend.ts` — `streamChat()` function and SSE parsing | Replaced; type definitions (`ChatStreamEvent`, `StreamEventEnvelope`, etc.) move to `frontend/types/chat-events.ts` |
+| `frontend/services/chatBackend.ts` — `streamChat()` function and SSE parsing | Replaced; the file now only retains shared event type definitions used by the WS transport |
 
 ---
 
@@ -318,12 +318,12 @@ if (type === 'error') {
 
 ## Migration Sequence
 
-1. **Backend:** Implement `chat_ws_handler.py`; add `/ws/chat` endpoint; keep SSE endpoint live.
-2. **Frontend:** Implement `useChatWebSocket`; wire into `ChatProvider`; feature-flag or replace `useBackendChatStream`.
-3. **Verify:** Both SSE and WS paths work end-to-end in staging.
-4. **Cutover:** Delete `POST /v1/chat/stream` SSE endpoint and `useBackendChatStream`. **Do not yet delete `POST /v1/chat/stop` or `POST /v1/chat/resume`** — they still serve workspace callers (see HTTP endpoint table above).
-5. **Workspace migration:** Migrate `executionStore.ts` and `commandService.ts` to use WS frames or dedicated endpoints.
-6. **Cleanup:** Delete `POST /v1/chat/stop`, `POST /v1/chat/resume`, `chat_handler.py`, `connection_manager.py`, old `/ws/{session_id}` endpoint.
+1. **Backend:** Implement `chat_ws_handler.py`; add `/ws/chat` endpoint; keep SSE endpoint live during cutover.
+2. **Frontend:** Implement `useChatWebSocket`; wire into `ChatProvider`; replace `useBackendChatStream`.
+3. **Verify:** Confirm the WS path works end-to-end and that the reused event envelope remains compatible.
+4. **Cutover:** Delete `POST /v1/chat/stream` SSE endpoint and `useBackendChatStream`.
+5. **Workspace migration:** Migrate `executionStore.ts`, `commandService.ts`, and Skill Creator transport to the same WS protocol.
+6. **Cleanup:** Delete `POST /v1/chat/stop`, `POST /v1/chat/resume`, `chat_handler.py`, `connection_manager.py`, and old `/ws/{session_id}` endpoint.
 
 ---
 

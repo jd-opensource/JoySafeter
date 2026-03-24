@@ -6,5 +6,5 @@
 
 export { agentService } from './agentService'
 export { nodeRegistry } from './nodeRegistry'
-export { mapChatEventToExecutionStep, createWorkflowStep, createErrorStep } from './eventAdapter'
-export type { EventAdapterContext, AdapterResult } from './eventAdapter'
+export { mapChatEventToExecutionStep } from './eventAdapter'
+export type { AdapterResult } from './eventAdapter'
