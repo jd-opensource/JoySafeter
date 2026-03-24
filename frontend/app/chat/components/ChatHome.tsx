@@ -26,18 +26,14 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDeployedGraphs, useWorkspaces } from '@/hooks/queries'
-import { API_BASE, apiUpload } from '@/lib/api-client'
-import {
-  isAllowedFile,
-  ALLOWED_EXTENSIONS_STRING,
-  UPLOAD_LIMITS,
-} from '@/lib/constants/upload-limits'
+import { ALLOWED_EXTENSIONS_STRING } from '@/lib/constants/upload-limits'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { toastSuccess, toastError } from '@/lib/utils/toast'
+import { toastError } from '@/lib/utils/toast'
 
 import { modeConfigs } from '../config/modeConfig'
 import { useChatSession } from '../hooks/useChatSession'
+import { useFileUpload } from '../hooks/useFileUpload'
 import { chatModeService } from '../services/chatModeService'
 import { copilotRedirectService } from '../services/copilotRedirectService'
 import { graphResolutionService } from '../services/graphResolutionService'
@@ -84,12 +80,16 @@ export default function ChatHome({
     setAutoRedirect,
     setIsRedirecting,
     setShowCases,
-    setIsUploading,
     resetInput,
   } = useChatSession()
 
+  const { isUploading, fileInputRef, uploadFile, handleFileSelect } = useFileUpload({
+    onFileUploaded: (file) => {
+      addFile(file) // sync into useChatSession.state.files for submission
+    },
+  })
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const hasInitializedDefaultMode = useRef(false)
 
   // Derive starter prompts from current mode
@@ -142,79 +142,6 @@ export default function ChatHome({
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`
     }
   }, [state.input])
-
-  // File upload handling
-  const handleFileUpload = async (file: File) => {
-    const validation = isAllowedFile(file)
-    if (!validation.allowed) {
-      toastError(
-        validation.reason || t('chat.fileNotAllowed', { defaultValue: '文件不符合要求' }),
-        t('chat.fileUploadFailed'),
-      )
-      return
-    }
-
-    setIsUploading(true)
-    try {
-      const fileData = await apiUpload<{
-        filename: string
-        path: string
-        size: number
-        message: string
-      }>(`${API_BASE}/files/upload`, file)
-
-      if (fileData && fileData.filename) {
-        const uploadedFile: UploadedFile = {
-          id: Date.now().toString(),
-          filename: fileData.filename,
-          path: fileData.path,
-          size: fileData.size,
-        }
-        addFile(uploadedFile)
-        toastSuccess(fileData.filename, t('chat.fileUploaded'))
-      } else {
-        toastError(
-          t('chat.uploadFailed', { defaultValue: '上传失败，响应格式异常' }),
-          t('chat.fileUploadFailed'),
-        )
-      }
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : typeof error === 'string'
-            ? error
-            : t('chat.retry', { defaultValue: '请重试' })
-      toastError(errorMessage, t('chat.fileUploadFailed'))
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (files && files.length > 0) {
-      if (files.length > UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD) {
-        toastError(
-          t('chat.tooManyFiles', {
-            defaultValue: '最多只能同时上传 {{maxFiles}} 个文件',
-            maxFiles: UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD,
-          }),
-          t('chat.fileUploadFailed'),
-        )
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-        return
-      }
-      Array.from(files).forEach((file) => {
-        handleFileUpload(file)
-      })
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-  }
 
   // Handle mode selection
   const handleModeSelect = useCallback(async (modeId: string): Promise<ModeSelectionResult | null> => {
@@ -453,7 +380,7 @@ export default function ChatHome({
                     multiple
                     accept={ALLOWED_EXTENSIONS_STRING}
                     className="hidden"
-                    disabled={isProcessing || state.isUploading}
+                    disabled={isProcessing || isUploading}
                   />
                   {state.files.length > 0 && (
                     <div className="flex flex-wrap gap-2 px-1 pb-1 pt-2">
@@ -558,13 +485,13 @@ export default function ChatHome({
                               variant="ghost"
                               size="sm"
                               onClick={() => fileInputRef.current?.click()}
-                              disabled={isProcessing || state.isUploading}
+                              disabled={isProcessing || isUploading}
                               className={cn(
                                 'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-200 hover:text-gray-700',
-                                state.isUploading && 'cursor-not-allowed opacity-50',
+                                isUploading && 'cursor-not-allowed opacity-50',
                               )}
                             >
-                              {state.isUploading ? (
+                              {isUploading ? (
                                 <Loader2 size={18} className="animate-spin" />
                               ) : (
                                 <Paperclip size={18} />

@@ -10,57 +10,6 @@ import { artifactService } from '@/services/artifactService'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-/** MIME types treated as previewable text */
-const TEXT_MIME_PREFIXES = ['text/']
-const TEXT_MIME_EXACT = new Set([
-  'application/json',
-  'application/xml',
-  'application/javascript',
-  'application/typescript',
-  'application/x-yaml',
-  'application/x-sh',
-  'application/sql',
-  'application/x-python',
-])
-
-function isTextPreviewable(node: FileNode): boolean {
-  const ct = node.contentType
-  if (ct) {
-    if (TEXT_MIME_PREFIXES.some((p) => ct.startsWith(p))) return true
-    if (TEXT_MIME_EXACT.has(ct)) return true
-  }
-  // Fallback: check extension for files whose backend didn't return content_type
-  const ext = (node.extension ?? '').toLowerCase()
-  return [
-    'txt',
-    'md',
-    'json',
-    'py',
-    'js',
-    'ts',
-    'tsx',
-    'jsx',
-    'html',
-    'css',
-    'yaml',
-    'yml',
-    'sh',
-    'sql',
-    'xml',
-    'log',
-    'csv',
-    'toml',
-    'ini',
-    'cfg',
-    'env',
-    'rs',
-    'go',
-    'java',
-    'c',
-    'h',
-    'cpp',
-  ].includes(ext)
-}
 
 function fileTreeToNodes(
   tree: Record<string, { action: string; size?: number; timestamp?: number }>,
@@ -154,9 +103,6 @@ export function ArtifactPanel({ threadId, fileTree, className }: ArtifactPanelPr
 
   const selectedFile = selectedPath ? findFileNode(files, selectedPath) : null
   const ext = selectedFile?.extension?.toLowerCase() ?? ''
-
-  // Suppress unused variable warning — isTextPreviewable kept for future use
-  void isTextPreviewable
 
   return (
     <div className={cn('flex flex-col bg-white text-gray-900', className)}>

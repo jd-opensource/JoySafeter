@@ -92,7 +92,6 @@ export type ChatAction =
   | { type: 'NODE_END'; nodeId: string }
   | { type: 'NODE_LOG'; entry: NodeLogEntry }
   // UI
-  | { type: 'TOGGLE_SIDEBAR' }
   | { type: 'SET_SIDEBAR_VISIBLE'; visible: boolean }
   | { type: 'SHOW_PREVIEW' }
   | { type: 'HIDE_PREVIEW' }
@@ -262,12 +261,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...state.streaming,
           nodeExecutionLog: [...state.streaming.nodeExecutionLog, action.entry],
         },
-      }
-
-    case 'TOGGLE_SIDEBAR':
-      return {
-        ...state,
-        ui: { ...state.ui, sidebarVisible: !state.ui.sidebarVisible },
       }
 
     case 'SET_SIDEBAR_VISIBLE':

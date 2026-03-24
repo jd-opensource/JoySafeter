@@ -349,7 +349,6 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
             onToggle={toggleSidebar}
             onSelectConversation={handleSelectConversation}
             currentThreadId={state.threadId}
-            onNewChat={handleNewChat}
           />
         </ResizablePanel>
         <ResizableHandle className="w-px bg-gray-200" />

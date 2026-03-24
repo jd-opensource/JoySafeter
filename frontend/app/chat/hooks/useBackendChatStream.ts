@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState, useEffect } from 'react'
+import { useCallback, useRef, useEffect } from 'react'
 
 import { toastError } from '@/lib/utils/toast'
 import {
@@ -34,7 +34,6 @@ export const useBackendChatStream = (
   dispatch: React.Dispatch<ChatAction>,
 ) => {
 
-  const [isProcessing, setIsProcessing] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const currentThreadIdRef = useRef<string | null>(null)
   const currentMsgIdRef = useRef<string>('')
@@ -58,17 +57,14 @@ export const useBackendChatStream = (
     abortRef.current?.abort()
 
     if (!targetThreadId) {
-      setIsProcessing(false)
       return
     }
 
     try {
       const { apiPost } = await import('@/lib/api-client')
       await apiPost('chat/stop', { thread_id: targetThreadId })
-      setIsProcessing(false)
     } catch (error) {
       console.error('Failed to stop chat:', error)
-      setIsProcessing(false)
     }
   }, [])
 
@@ -79,7 +75,6 @@ export const useBackendChatStream = (
     ) => {
       if (!userPrompt.trim()) return { threadId: opts.threadId || undefined }
 
-      setIsProcessing(true)
       abortRef.current?.abort()
       const ac = new AbortController()
       abortRef.current = ac
@@ -370,9 +365,6 @@ export const useBackendChatStream = (
         }
       } finally {
         dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
-        if (isMountedRef.current) {
-          setIsProcessing(false)
-        }
       }
 
       return { threadId: latestThreadId }
@@ -380,5 +372,5 @@ export const useBackendChatStream = (
     [dispatch],
   )
 
-  return { sendMessage, stopMessage, isProcessing }
+  return { sendMessage, stopMessage }
 }

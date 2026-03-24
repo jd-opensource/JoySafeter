@@ -18,7 +18,6 @@ interface ChatSidebarProps {
   onToggle: () => void
   onSelectConversation: (threadId: string) => void
   currentThreadId: string | null
-  onNewChat?: () => void
 }
 
 export default function ChatSidebar({
@@ -26,7 +25,6 @@ export default function ChatSidebar({
   onToggle,
   onSelectConversation,
   currentThreadId,
-  onNewChat: _onNewChat,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const { data: conversationsData, isLoading } = useQuery({
