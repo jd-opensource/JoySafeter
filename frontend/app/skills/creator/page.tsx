@@ -10,7 +10,7 @@ import { formatToolDisplay } from '@/app/chat/shared/ToolCallDisplay'
 import { generateId, type Message, type ToolCall } from '@/app/chat/types'
 import { Button } from '@/components/ui/button'
 import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
-import { getWsBaseUrl } from '@/lib/utils/wsUrl'
+import { getWsChatUrl } from '@/lib/utils/wsUrl'
 import type { ChatStreamEvent, ToolEndEventData } from '@/services/chatBackend'
 
 import SkillCreatorChat from './components/SkillCreatorChat'
@@ -102,14 +102,14 @@ export default function SkillCreatorPage() {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
     if (connectPromiseRef.current) return connectPromiseRef.current
 
-    const wsUrl = `${getWsBaseUrl()}/ws/chat`
     connectPromiseRef.current = new Promise<void>((resolve, reject) => {
       connectResolveRef.current = resolve
       connectRejectRef.current = reject
     })
 
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    getWsChatUrl().then((wsUrl) => {
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
 
     ws.onmessage = (event) => {
       let evt: (Partial<ChatStreamEvent> & { type?: string; request_id?: string; message?: string; data?: any }) | null =
@@ -315,6 +315,12 @@ export default function SkillCreatorPage() {
         }, delay)
       }
     }
+    }).catch((err) => {
+      connectRejectRef.current?.(err instanceof Error ? err : new Error(String(err)))
+      connectPromiseRef.current = null
+      connectResolveRef.current = null
+      connectRejectRef.current = null
+    })
 
     return connectPromiseRef.current
   }, [])

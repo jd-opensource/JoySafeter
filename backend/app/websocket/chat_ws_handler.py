@@ -301,7 +301,9 @@ class ChatWsHandler:
                 try:
                     snap = await safe_get_state(built_graph, config, max_retries=2, initial_delay=0.05, log=logger)
                     if snap.values and "messages" in snap.values:
-                        state.all_messages = snap.values["messages"]
+                        msgs = snap.values["messages"]
+                        from langgraph.types import Overwrite
+                        state.all_messages = msgs.value if isinstance(msgs, Overwrite) else msgs
                 except Exception as exc:
                     logger.warning(f"Failed to fetch final state | thread_id={thread_id} | error={exc}")
 
@@ -514,7 +516,9 @@ class ChatWsHandler:
                 try:
                     snap = await safe_get_state(built_graph, config, max_retries=2, initial_delay=0.05, log=logger)
                     if snap.values and "messages" in snap.values:
-                        state.all_messages = snap.values["messages"]
+                        msgs = snap.values["messages"]
+                        from langgraph.types import Overwrite
+                        state.all_messages = msgs.value if isinstance(msgs, Overwrite) else msgs
                 except Exception as exc:
                     logger.warning(f"Failed to fetch final resume state | thread_id={thread_id} | error={exc}")
 

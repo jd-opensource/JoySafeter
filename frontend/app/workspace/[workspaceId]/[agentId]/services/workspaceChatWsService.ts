@@ -1,6 +1,6 @@
 'use client'
 
-import { getWsBaseUrl } from '@/lib/utils/wsUrl'
+import { getWsChatUrl } from '@/lib/utils/wsUrl'
 
 import type { ChatStreamEvent } from '@/services/chatBackend'
 
@@ -117,8 +117,8 @@ class WorkspaceChatWsService {
     if (this.ws?.readyState === WebSocket.OPEN) return
     if (this.connectPromise) return this.connectPromise
 
-    this.connectPromise = new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(`${getWsBaseUrl()}/ws/chat`)
+    this.connectPromise = getWsChatUrl().then((wsUrl) => new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(wsUrl)
       this.ws = ws
 
       ws.onopen = () => {
@@ -141,7 +141,7 @@ class WorkspaceChatWsService {
         this.cleanupSocket()
         this.scheduleReconnect()
       }
-    })
+    }))
 
     return this.connectPromise
   }

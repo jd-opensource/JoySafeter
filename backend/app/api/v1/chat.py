@@ -540,7 +540,9 @@ async def _dispatch_stream_event(
         data: Dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}  # type: ignore[assignment]
         output = data.get("output") if isinstance(data, dict) else None
         if output and isinstance(output, dict) and "messages" in output:
-            state.all_messages = output["messages"]
+            msgs = output["messages"]
+            from langgraph.types import Overwrite
+            state.all_messages = msgs.value if isinstance(msgs, Overwrite) else msgs
 
     # Drain file events (chat_stream only)
     if file_emitter is not None:

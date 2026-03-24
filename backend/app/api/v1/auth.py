@@ -1,7 +1,7 @@
 """Auth controller endpoints (reworked for auth.user & auth.session)."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional, cast
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Request, Response
@@ -14,7 +14,7 @@ from app.common.exceptions import UnauthorizedException
 from app.common.response import success_response
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import auth_rate_limit, strict_rate_limit
-from app.core.security import Token, decode_token
+from app.core.security import Token, create_access_token, decode_token
 from app.core.settings import settings
 from app.models.auth import AuthUser
 from app.services.auth_service import AuthService
@@ -359,6 +359,18 @@ async def get_session(
     except (UnauthorizedException, HTTPException):
         # Return null user when unauthenticated
         return success_response(data={"user": None})
+
+
+@router.get("/ws-token")
+async def get_ws_token(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    token: Optional[str] = Header(None, alias="Authorization"),
+):
+    """Return a short-lived token for WebSocket authentication (60 s)."""
+    current_user = await _get_current_auth_user(token, db, request)
+    ws_token = create_access_token(str(current_user.id), expires_delta=timedelta(seconds=60))
+    return success_response(data={"token": ws_token})
 
 
 @router.post("/refresh")

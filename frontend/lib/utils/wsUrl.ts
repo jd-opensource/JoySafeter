@@ -17,3 +17,15 @@ export function getWsBaseUrl(): string {
   }
   return 'ws://localhost:8000'
 }
+
+/** Fetch a short-lived WS token from the backend and return a ready-to-use WS URL. */
+export async function getWsChatUrl(): Promise<string> {
+  const apiUrl = runtimeEnv('NEXT_PUBLIC_API_URL') || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+  const base = apiUrl.replace(/\/api\/?$/, '')
+  const res = await fetch(`${base}/api/v1/auth/ws-token`, { credentials: 'include' })
+  if (!res.ok) throw new Error('Failed to obtain WS token')
+  const json = await res.json()
+  const token: string = json?.data?.token
+  if (!token) throw new Error('No WS token in response')
+  return `${getWsBaseUrl()}/ws/chat?token=${encodeURIComponent(token)}`
+}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getWsBaseUrl } from '@/lib/utils/wsUrl'
+import { getWsChatUrl } from '@/lib/utils/wsUrl'
 import { toastError } from '@/lib/utils/toast'
 import type {
   ChatStreamEvent,
@@ -410,13 +410,13 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
 
     cleanupSocket()
 
-    const wsUrl = `${getWsBaseUrl()}/ws/chat`
     connectPromiseRef.current = new Promise<void>((resolve, reject) => {
       connectResolveRef.current = resolve
       connectRejectRef.current = reject
     })
 
     try {
+      const wsUrl = await getWsChatUrl()
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
