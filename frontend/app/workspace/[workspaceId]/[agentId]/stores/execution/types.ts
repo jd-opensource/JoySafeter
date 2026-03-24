@@ -74,6 +74,7 @@ export interface ExecutionContext {
   graphId: string
   abortController: AbortController | null
   threadId: string | null
+  requestId: string | null
   state: GraphExecutionState
 }
 
@@ -130,6 +131,7 @@ export interface ExecutionStoreActions {
   getContext: (graphId: string) => ExecutionContext
   setAbortController: (graphId: string, controller: AbortController | null) => void
   setThreadId: (graphId: string, threadId: string | null) => void
+  setRequestId: (graphId: string, requestId: string | null) => void
 
   // Command Mode visualization
   updateState: (state: Partial<GraphState>) => void
