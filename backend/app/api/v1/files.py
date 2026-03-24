@@ -50,7 +50,7 @@ from app.utils.path_utils import sanitize_filename as _sanitize_filename
 # File storage root directory (configurable via environment variable)
 FILE_STORAGE_ROOT = os.getenv("FILE_STORAGE_ROOT", "/app/data/files")
 
-router = APIRouter(prefix="/files", tags=["Files"])
+router = APIRouter(prefix="/v1/files", tags=["Files"])
 
 # File upload security limits (matching frontend)
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50MB

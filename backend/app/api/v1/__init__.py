@@ -45,6 +45,9 @@ ROUTERS = [
     sandboxes_router,
     auth_router,
     artifacts_router,
+    conversations_router,
+    files_router,
+    memory_router,
     oauth_router,
     organizations_router,
     workspaces_router,
@@ -79,11 +82,5 @@ ROUTERS = [
 api_router = APIRouter()
 for router in ROUTERS:
     api_router.include_router(router)
-# These routers declare their own prefix without the /v1 segment; add it here
-# so their final path is consistent: /api/v1/conversations/... etc.
-api_router.include_router(conversations_router, prefix="/v1")
-api_router.include_router(files_router, prefix="/v1")
-# memory router has no built-in prefix at all; mount it at /v1/memory
-api_router.include_router(memory_router, prefix="/v1/memory", tags=["memory"])
 
 __all__ = ["api_router"]

@@ -35,8 +35,9 @@ logger = logging.getLogger(__name__)
 
 # Create router and attach routes using MemoryService (async)
 router = APIRouter(
+    prefix="/v1/memory",
     dependencies=[Depends(get_current_user)],
-    tags=["User_Memory"],
+    tags=["memory"],
     responses={
         400: {"description": "Bad Request", "model": BadRequestResponse},
         401: {"description": "Unauthorized", "model": UnauthenticatedResponse},

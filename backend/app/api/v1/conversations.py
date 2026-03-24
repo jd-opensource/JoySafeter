@@ -71,7 +71,7 @@ from app.schemas import (
 )
 from app.utils.datetime import utc_now
 
-router = APIRouter(prefix="/conversations", tags=["Conversations"])
+router = APIRouter(prefix="/v1/conversations", tags=["Conversations"])
 
 
 # ==================== Helper functions ====================
