@@ -5,10 +5,10 @@
  * - Use camelCase for types
  * - API response: { success: true, data: {...} }
  */
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
-import { apiGet, apiPatch } from '@/lib/api-client'
+import { apiGet } from '@/lib/api-client'
 import { syncThemeToNextThemes } from '@/lib/core/utils/theme'
 import { createLogger } from '@/lib/logs/console/logger'
 import { useGeneralStore } from '@/stores/settings/general/store'
@@ -99,49 +99,3 @@ export function useGeneralSettings() {
   return query
 }
 
-/**
- * Update general settings mutation
- */
-interface UpdateSettingParams {
-  key: keyof GeneralSettings
-  value: any
-}
-
-export function useUpdateGeneralSetting() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async ({ key, value }: UpdateSettingParams) => {
-      return await apiPatch('users/me/settings', { [key]: value })
-    },
-    onMutate: async ({ key, value }) => {
-      await queryClient.cancelQueries({ queryKey: generalSettingsKeys.settings() })
-
-      const previousSettings = queryClient.getQueryData<GeneralSettings>(
-        generalSettingsKeys.settings(),
-      )
-
-      if (previousSettings) {
-        const newSettings = {
-          ...previousSettings,
-          [key]: value,
-        }
-        queryClient.setQueryData<GeneralSettings>(generalSettingsKeys.settings(), newSettings)
-
-        syncSettingsToZustand(newSettings)
-      }
-
-      return { previousSettings }
-    },
-    onError: (err, _variables, context) => {
-      if (context?.previousSettings) {
-        queryClient.setQueryData(generalSettingsKeys.settings(), context.previousSettings)
-        syncSettingsToZustand(context.previousSettings)
-      }
-      logger.error('Failed to update setting:', err)
-    },
-    onSuccess: (_data, _variables, _context) => {
-      queryClient.invalidateQueries({ queryKey: generalSettingsKeys.settings() })
-    },
-  })
-}

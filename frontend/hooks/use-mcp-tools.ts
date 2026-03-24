@@ -7,13 +7,12 @@ import { useCallback, useMemo } from 'react'
 
 import { McpIcon } from '@/components/icons'
 import { mcpKeys, useMcpToolsQuery, type McpTool } from '@/hooks/queries/mcp'
-import { apiPost, API_BASE } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 import { createMcpToolId } from '@/lib/mcp/utils'
 
 const logger = createLogger('useMcpTools')
 
-export interface McpToolForUI {
+interface McpToolForUI {
   id: string
   name: string
   description?: string
@@ -68,43 +67,3 @@ export function useMcpTools() {
   }
 }
 
-export function useMcpToolExecution() {
-  const executeTool = useCallback(
-    async (serverName: string, toolName: string, args: Record<string, any>) => {
-      logger.info(`Executing MCP tool: ${toolName} on server: ${serverName}`)
-
-      try {
-        // Use unified API client, automatically handles CSRF token, authentication, and error handling
-        const result = await apiPost<{
-          success: boolean
-          data: any
-          message?: string
-          error?: string
-        }>(`${API_BASE}/mcp/tools/execute`, {
-          serverName,
-          toolName,
-          arguments: args,
-        })
-
-        // Compatible with backend response format (may be wrapped in data or returned directly)
-        if (result && typeof result === 'object' && 'success' in result) {
-          if (!result.success) {
-            throw new Error(result.message || result.error || 'Tool execution failed')
-          }
-          return result.data
-        }
-
-        // If backend returns data directly, return as is
-        return result
-      } catch (error) {
-        if (error instanceof Error) {
-          throw error
-        }
-        throw new Error('Tool execution failed')
-      }
-    },
-    [],
-  )
-
-  return { executeTool }
-}
