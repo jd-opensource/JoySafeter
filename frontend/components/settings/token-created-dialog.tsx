@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import type { PlatformTokenCreateResponse } from '@/hooks/queries/platformTokens'
 import { useTranslation } from '@/lib/i18n'
+import { formatResourceType } from '@/lib/utils/formatResourceType'
 
 interface TokenCreatedDialogProps {
   open: boolean
@@ -30,11 +31,6 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }, [tokenData?.token])
-
-  const formatResourceType = (type: string | null) => {
-    if (!type) return t('settings.tokens.global')
-    return type.charAt(0).toUpperCase() + type.slice(1)
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -1,6 +1,6 @@
 'use client'
 
-import { Key, Loader2, Trash2 } from 'lucide-react'
+import { Key, Loader2, Trash2, Copy, Check } from 'lucide-react'
 import { useState } from 'react'
 
 import {
@@ -24,6 +24,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useCopyToClipboard } from '@/app/chat/shared/hooks/useCopyToClipboard'
 import {
   usePlatformTokens,
   useRevokeToken,
@@ -31,7 +33,7 @@ import {
   type TokenListParams,
 } from '@/hooks/queries/platformTokens'
 import { useTranslation } from '@/lib/i18n'
-import { formatRelativeTime } from '@/lib/utils/formatRelativeTime'
+import { formatResourceType } from '@/lib/utils/formatResourceType'
 
 interface TokenListProps {
   resourceType?: TokenListParams['resourceType']
@@ -51,25 +53,36 @@ const getTypeBadgeColor = (type?: string | null) => {
   }
 }
 
-const formatResourceType = (type?: string | null) => {
-  if (!type) return 'Unknown'
-  return type.charAt(0).toUpperCase() + type.slice(1)
-}
-
-function TokenTableRow({ token, onRevoke, isRevoking }: { token: PlatformToken, onRevoke: (t: PlatformToken) => void, isRevoking: boolean }) {
+function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, onRevoke: (t: PlatformToken) => void, revokingId: string | null }) {
   const { t } = useTranslation()
+  const { copied, handleCopy } = useCopyToClipboard()
 
   return (
-    <TableRow className="group">
+    <TableRow>
       <TableCell className="font-medium text-gray-900 border-b border-gray-100">
-        <div className="flex flex-col">
-          <span>{token.name}</span>
-        </div>
+        {token.name}
       </TableCell>
       <TableCell className="border-b border-gray-100">
-        <code className="bg-gray-50 px-2 py-1 rounded text-xs text-gray-600 font-mono border border-gray-100">
-          {token.tokenPrefix}...
-        </code>
+        <div className="flex items-center gap-2">
+          <code className="bg-gray-50 px-2 py-1 rounded text-xs text-gray-600 font-mono border border-gray-100">
+            {token.tokenPrefix}...
+          </code>
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-gray-400 hover:text-gray-600"
+                  onClick={() => handleCopy(token.tokenPrefix)}
+                >
+                  {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('common.copy', { defaultValue: 'Copy' })}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </TableCell>
       <TableCell className="border-b border-gray-100">
         <Badge variant="outline" className={getTypeBadgeColor(token.resourceType)}>
@@ -87,8 +100,8 @@ function TokenTableRow({ token, onRevoke, isRevoking }: { token: PlatformToken, 
           variant="ghost"
           size="icon"
           onClick={() => onRevoke(token)}
-          className="h-8 w-8 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-opacity"
-          disabled={isRevoking}
+          className="h-8 w-8 text-gray-400 hover:bg-red-50 hover:text-red-600"
+          disabled={revokingId === token.id}
         >
           <Trash2 className="h-4 w-4" />
         </Button>
@@ -169,7 +182,7 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
                   key={token.id}
                   token={token}
                   onRevoke={openRevokeDialog}
-                  isRevoking={revokeToken.isPending}
+                  revokingId={revokeToken.isPending ? tokenToRevoke?.id ?? null : null}
                 />
               ))}
             </TableBody>
@@ -177,7 +190,6 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
         </div>
       )}
 
-      {/* Revoke Confirm Dialog */}
       <AlertDialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
         <AlertDialogContent className="rounded-xl border-0 shadow-xl">
           <AlertDialogHeader>
