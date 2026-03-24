@@ -379,5 +379,3 @@ In all other cases, treat the input as a task and use tools to modify the graph.
 """
 
     return prompt
-
-

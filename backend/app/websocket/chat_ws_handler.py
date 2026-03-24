@@ -4,7 +4,7 @@ import asyncio
 import json
 import time
 import uuid as uuid_lib
-from typing import Any
+from typing import Any, cast
 
 from fastapi import WebSocket, WebSocketDisconnect
 from langchain.messages import HumanMessage
@@ -79,7 +79,8 @@ class ChatWsHandler:
         message = str(frame.get("message") or "")
         thread_id = frame.get("thread_id")
         graph_id = frame.get("graph_id")
-        metadata = frame.get("metadata") if isinstance(frame.get("metadata"), dict) else {}
+        raw_metadata = frame.get("metadata")
+        metadata: dict[str, Any] = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
 
         if not request_id or not message.strip():
             await self._send({"type": "ws_error", "message": "request_id and message are required"})
@@ -114,7 +115,8 @@ class ChatWsHandler:
     async def _handle_resume(self, frame: dict[str, Any]) -> None:
         request_id = str(frame.get("request_id") or "")
         thread_id = str(frame.get("thread_id") or "")
-        command = frame.get("command") if isinstance(frame.get("command"), dict) else {}
+        raw_command = frame.get("command")
+        command: dict[str, Any] = cast(dict[str, Any], raw_command) if isinstance(raw_command, dict) else {}
 
         if not request_id or not thread_id:
             await self._send({"type": "ws_error", "message": "request_id and thread_id are required"})
@@ -209,7 +211,7 @@ class ChatWsHandler:
                     from app.repositories.user import UserRepository
 
                     user_repo = UserRepository(db)
-                    current_user = await user_repo.get(self.user_id)
+                    current_user = await user_repo.get_by_id(self.user_id)
                     built_graph = await graph_service.create_graph_by_graph_id(
                         graph_id=payload.graph_id,
                         llm_model=llm_params["llm_model"],
@@ -303,6 +305,7 @@ class ChatWsHandler:
                     if snap.values and "messages" in snap.values:
                         msgs = snap.values["messages"]
                         from langgraph.types import Overwrite
+
                         state.all_messages = msgs.value if isinstance(msgs, Overwrite) else msgs
                 except Exception as exc:
                     logger.warning(f"Failed to fetch final state | thread_id={thread_id} | error={exc}")
@@ -403,11 +406,15 @@ class ChatWsHandler:
         try:
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
-                    select(Conversation).where(Conversation.thread_id == thread_id, Conversation.user_id == self.user_id)
+                    select(Conversation).where(
+                        Conversation.thread_id == thread_id, Conversation.user_id == self.user_id
+                    )
                 )
                 conversation = result.scalar_one_or_none()
                 if not conversation:
-                    await self._send({"type": "ws_error", "request_id": request_id, "message": "conversation not found"})
+                    await self._send(
+                        {"type": "ws_error", "request_id": request_id, "message": "conversation not found"}
+                    )
                     return
 
                 if (
@@ -426,9 +433,10 @@ class ChatWsHandler:
 
                 config, _, llm_params = await get_user_config(self.user_id, thread_id, db)
 
+                from langgraph.types import Command
+
                 from app.repositories.graph import GraphRepository
                 from app.repositories.user import UserRepository
-                from langgraph.types import Command
 
                 graph_repo = GraphRepository(db)
                 graph_model = await graph_repo.get(graph_id)
@@ -438,7 +446,7 @@ class ChatWsHandler:
                     graph_display_name = getattr(graph_model, "name", None) or getattr(graph_model, "title", None)
 
                 user_repo = UserRepository(db)
-                current_user = await user_repo.get(self.user_id)
+                current_user = await user_repo.get_by_id(self.user_id)
 
                 graph_service = GraphService(db)
                 built_graph = await graph_service.create_graph_by_graph_id(
@@ -518,6 +526,7 @@ class ChatWsHandler:
                     if snap.values and "messages" in snap.values:
                         msgs = snap.values["messages"]
                         from langgraph.types import Overwrite
+
                         state.all_messages = msgs.value if isinstance(msgs, Overwrite) else msgs
                 except Exception as exc:
                     logger.warning(f"Failed to fetch final resume state | thread_id={thread_id} | error={exc}")
@@ -699,10 +708,15 @@ class ChatWsHandler:
             return None
 
         try:
-            return json.loads(payload_str)
+            payload = json.loads(payload_str)
         except json.JSONDecodeError:
             logger.warning("Failed to decode SSE payload for WS bridge")
             return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        return cast(dict[str, Any], payload)
 
     async def _send(self, event: dict[str, Any]) -> None:
         try:

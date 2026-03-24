@@ -100,4 +100,3 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
         )
         result = await self.db.execute(stmt)
         return (getattr(result, "rowcount", 0) or 0) > 0
-

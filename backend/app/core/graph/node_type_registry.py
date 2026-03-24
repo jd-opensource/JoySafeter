@@ -8,8 +8,6 @@ field dependencies (reads/writes) for the state-centric architecture.
 
 from typing import Dict, List, Optional, Type
 
-from loguru import logger
-
 from app.core.graph.node_executors import (
     AgentNodeExecutor,
     AggregatorNodeExecutor,
@@ -267,5 +265,3 @@ class NodeTypeRegistry:
         """Check if node type requires Handle ID mapping."""
         metadata = cls.get_metadata(node_type)
         return metadata.requires_handle_mapping if metadata else False
-
-

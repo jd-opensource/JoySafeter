@@ -40,6 +40,7 @@ vi.stubGlobal(
   class extends MockWs {
     constructor(_url: string) {
       super()
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
       mockWsInstance = this
       // Simulate async open so callers can attach handlers first
       Promise.resolve().then(() => this.onopen?.())

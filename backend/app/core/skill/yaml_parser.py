@@ -96,7 +96,6 @@ def parse_skill_md(content: str) -> Tuple[Dict[str, Any], str]:
     return {}, content
 
 
-
 def validate_file_extension(path: str) -> Tuple[bool, Optional[str]]:
     """Validate file extension and return warning if needed.
 

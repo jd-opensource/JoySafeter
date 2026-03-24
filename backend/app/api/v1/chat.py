@@ -542,6 +542,7 @@ async def _dispatch_stream_event(
         if output and isinstance(output, dict) and "messages" in output:
             msgs = output["messages"]
             from langgraph.types import Overwrite
+
             state.all_messages = msgs.value if isinstance(msgs, Overwrite) else msgs
 
     # Drain file events (chat_stream only)
@@ -558,4 +559,3 @@ async def _dispatch_stream_event(
                 state.thread_id,
                 state,
             )
-

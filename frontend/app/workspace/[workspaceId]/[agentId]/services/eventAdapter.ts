@@ -648,4 +648,3 @@ export function mapChatEventToExecutionStep(
       return handleMiscEvents(evt, ctx, traceFields)
   }
 }
-

@@ -527,7 +527,6 @@ class ToolRegistry:
             self._owner_workspace_index[tool_metadata.owner_workspace_id].discard(tool_name)
 
 
-
 # Global registry instance
 _global_registry: Optional[ToolRegistry] = None
 

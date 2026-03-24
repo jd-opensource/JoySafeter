@@ -360,6 +360,7 @@ def _normalize_user_id(user_id: Any | None) -> str:
     # Fallback: convert to string
     return str(user_id)
 
+
 async def resolve_tools_for_node(
     node: GraphNode, *, user_id: str | None = None, backend: Any = None
 ) -> Optional[List[Any]]:

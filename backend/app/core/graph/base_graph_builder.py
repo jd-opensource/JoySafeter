@@ -8,7 +8,7 @@ and graph structure analysis.
 import logging
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Set, Type
+from typing import Any, Dict, List, Optional, Type
 
 from langgraph.graph.state import CompiledStateGraph
 
@@ -856,6 +856,7 @@ class BaseGraphBuilder(ABC):
                 limit = config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)
                 return int(limit) if limit is not None else DEFAULT_RECURSION_LIMIT
         return DEFAULT_RECURSION_LIMIT
+
     @abstractmethod
     def build(self) -> CompiledStateGraph:
         """Build and compile the StateGraph. Must be implemented by subclasses."""

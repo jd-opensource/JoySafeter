@@ -74,6 +74,7 @@ class NodeExecutionTrace:
                 sanitized[key] = value
         return sanitized
 
+
 def create_node_trace(
     node_id: str,
     node_type: str,

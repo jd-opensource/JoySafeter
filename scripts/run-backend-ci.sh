@@ -1,10 +1,18 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 # 本地复现 GitHub Actions Backend CI 全流程
-# 用法: ./scripts/run-backend-ci.sh  或  bash scripts/run-backend-ci.sh
+# 用法: ./scripts/run-backend-ci.sh  或  sh scripts/run-backend-ci.sh
 
-set -e
+set -eu
 
-BACKEND_DIR="$(cd "$(dirname "$0")/../backend" && pwd)"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+BACKEND_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../backend" && pwd)
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "❌ 未检测到 uv"
+    echo "请先安装 uv: https://docs.astral.sh/uv/getting-started/installation/"
+    exit 1
+fi
+
 cd "$BACKEND_DIR"
 
 echo "=============================================="

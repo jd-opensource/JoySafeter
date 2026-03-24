@@ -39,7 +39,6 @@ class OrganizationRepository(BaseRepository[Organization]):
         return result.scalar_one_or_none() is not None
 
 
-
 class MemberRepository(BaseRepository[Member]):
     """成员数据访问"""
 

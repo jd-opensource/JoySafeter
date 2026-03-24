@@ -48,8 +48,8 @@ async def create_token(
         token_prefix=token_record.token_prefix,
         scopes=token_record.scopes,
         resource_type=token_record.resource_type,
-        expires_at=token_record.expires_at,
-        created_at=token_record.created_at,
+        expires_at=token_record.expires_at.isoformat() if token_record.expires_at else None,
+        created_at=token_record.created_at.isoformat() if token_record.created_at else None,
     )
     return {
         "success": True,
