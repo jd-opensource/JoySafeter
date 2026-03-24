@@ -12,20 +12,10 @@ export {
 } from './alert-dialog'
 export { Avatar, AvatarFallback, AvatarImage } from './avatar'
 export { Badge, badgeVariants } from './badge'
-export {
-  Breadcrumb,
-  BreadcrumbEllipsis,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from './breadcrumb'
 export { Button, buttonVariants } from './button'
 export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
 export { Checkbox } from './checkbox'
 export { CodeBlock } from './code-block'
-export { ColorPicker } from './color-picker'
 export {
   Command,
   CommandDialog,
@@ -79,7 +69,6 @@ export {
 } from './form'
 export { Input } from './input'
 export { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from './input-otp'
-export { OTPInputForm } from './input-otp-form'
 export { Label } from './label'
 export { Notice } from './notice'
 export { Popover, PopoverContent, PopoverTrigger } from './popover'
@@ -87,7 +76,6 @@ export { Pagination } from './pagination'
 export { Progress } from './progress'
 export { RadioGroup, RadioGroupItem } from './radio-group'
 export { ScrollArea, ScrollBar } from './scroll-area'
-export { SearchHighlight } from './search-highlight'
 export {
   Select,
   SelectContent,
@@ -114,7 +102,6 @@ export {
   SheetTrigger,
 } from './sheet'
 export { Skeleton } from './skeleton'
-export { Slider } from './slider'
 export { Switch } from './switch'
 export {
   Table,
@@ -127,7 +114,6 @@ export {
   TableRow,
 } from './table'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
-export { TagInput } from './tag-input'
 export { Textarea } from './textarea'
 export { Toggle, toggleVariants } from './toggle'
 export { Toaster } from './toaster'

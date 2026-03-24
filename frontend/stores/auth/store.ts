@@ -118,20 +118,3 @@ export const useAuthStore = create<AuthState>()(
   ),
 )
 
-/**
- * Clear all authentication-related storage data
- * Used for thorough cleanup on logout
- */
-export function clearAllAuthStorage(): void {
-  if (typeof window === 'undefined') return
-
-  // Clear auth data in sessionStorage
-  sessionStorage.removeItem('auth-state')
-
-  // Clear possibly remaining localStorage data (migrated from old version)
-  localStorage.removeItem('auth-state')
-
-  // Clear token refresh related locks
-  localStorage.removeItem('is_other_tab_refreshing')
-  localStorage.removeItem('last_refresh_time')
-}

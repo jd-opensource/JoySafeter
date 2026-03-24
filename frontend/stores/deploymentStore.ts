@@ -140,15 +140,3 @@ export const useDeploymentStore = create<DeploymentStore>((set, _get) => ({
 }))
 
 // ============================================================================
-// Compatibility exports (used during gradual migration)
-// ============================================================================
-
-/**
- * @deprecated Please use useDeploymentStatus in hooks/queries/graphs.ts
- *
- * This function is kept for backward compatibility but is no longer recommended
- * because it cannot leverage React Query's deduplication mechanism
- */
-export const fetchDeploymentStatusLegacy = async (graphId: string) => {
-  return graphDeploymentService.getDeploymentStatus(graphId)
-}
