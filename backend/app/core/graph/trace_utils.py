@@ -5,8 +5,7 @@ Provides utilities to record node execution context, input/output snapshots,
 and state history for debugging complex graphs.
 """
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, Optional, cast
 
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
@@ -74,52 +73,6 @@ class NodeExecutionTrace:
             else:
                 sanitized[key] = value
         return sanitized
-
-
-class GraphExecutionTrace:
-    """Trace for entire graph execution."""
-
-    def __init__(self, graph_id: str, graph_name: str):
-        self.graph_id = graph_id
-        self.graph_name = graph_name
-        self.start_time = datetime.now().isoformat()
-        self.node_traces: List[NodeExecutionTrace] = []
-        self.state_history: List[Dict[str, Any]] = []
-
-    def add_node_trace(self, trace: NodeExecutionTrace):
-        """Add a node execution trace."""
-        self.node_traces.append(trace)
-
-    def add_state_snapshot(self, state: GraphState, node_id: Optional[str] = None):
-        """Add a state snapshot to history."""
-        snapshot = {
-            "timestamp": datetime.now().isoformat(),
-            "node_id": node_id,
-            "state": self._sanitize_state(state),
-        }
-        self.state_history.append(snapshot)
-
-    def _sanitize_state(self, state: GraphState) -> Dict[str, Any]:
-        """Create a sanitized snapshot of state."""
-        return {
-            "current_node": state.get("current_node"),
-            "route_decision": state.get("route_decision"),
-            "loop_count": state.get("loop_count"),
-            "messages_count": len(cast(list, state.get("messages", []))),
-            "context_keys": list(cast(dict, state.get("context", {})).keys()),
-            "task_results_count": len(cast(list, state.get("task_results", []))),
-        }
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert trace to dictionary."""
-        return {
-            "graph_id": self.graph_id,
-            "graph_name": self.graph_name,
-            "start_time": self.start_time,
-            "node_traces": [trace.to_dict() for trace in self.node_traces],
-            "state_history": self.state_history,
-        }
-
 
 def create_node_trace(
     node_id: str,

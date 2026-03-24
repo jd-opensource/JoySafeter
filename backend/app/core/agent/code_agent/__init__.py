@@ -55,21 +55,11 @@ Architecture:
 - parser.py: Code extraction and validation
 - loop.py: Thought-Code-Observation iteration engine
 - planning.py: Multi-step task planning
-- compensator.py: Missing tool compensation
-- data_analysis.py: Data science presets
-- tools.py: Tool base class and @tool decorator
-- monitoring.py: Logging, metrics, and visualization
 - utils.py: Rate limiting and retry utilities
 
 """
 
 from .agent import CodeAgent, DataAnalysisAgent, get_code_agent
-from .compensator import (
-    FALLBACK_TEMPLATES,
-    CompensationResult,
-    ToolCompensator,
-    create_compensator,
-)
 from .data_analysis import (
     ALL_DATA_ANALYSIS_MODULES,
     CORE_DATA_MODULES,
@@ -244,12 +234,7 @@ __all__ = [
     "PlanStep",
     "PlanStatus",
     "create_planning_engine",
-    # Compensator
-    "ToolCompensator",
-    "CompensationResult",
-    "create_compensator",
-    "FALLBACK_TEMPLATES",
-    # Data Analysis
+    # Utils
     "DataAnalysisPreset",
     "PRESET_BASIC",
     "PRESET_VISUALIZATION",

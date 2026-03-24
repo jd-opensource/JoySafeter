@@ -13,13 +13,6 @@ from app.schemas.base import BaseResponse
 T = TypeVar("T")
 
 
-class MessageResponse(BaseModel):
-    """消息响应"""
-
-    message: str
-    success: bool = True
-
-
 class PaginatedResponse(BaseModel, Generic[T]):
     """分页响应"""
 
@@ -80,8 +73,3 @@ class SessionMessageResponse(BaseModel):
     created_at: datetime
 
 
-class SessionList(BaseModel):
-    """List of sessions."""
-
-    sessions: List[SessionResponse]
-    total: int

@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.agents.middleware import TodoListMiddleware
 from langchain.agents.middleware.summarization import SummarizationMiddleware
-from langchain.tools import tool
 from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
@@ -21,23 +20,6 @@ from app.core.agent.backends.filesystem_sandbox import FilesystemSandboxBackend
 from app.core.agent.midware import LoggingMiddleware
 
 load_dotenv()
-
-
-@tool
-def math_tool(expression: str) -> str:
-    """
-    Calculate the result of a mathematical expression.
-    Args:
-        expression: The mathematical expression to evaluate.
-
-    Returns:
-        The result of the expression as a string.
-    """
-    try:
-        result = eval(expression)
-        return str(result)
-    except Exception as e:
-        return f"Error: {e}"
 
 
 def get_default_model(

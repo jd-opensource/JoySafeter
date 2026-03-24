@@ -38,14 +38,3 @@ export const CACHE_TIME = {
   // Long cache retention (10 minutes)
   LONG: 10 * 60 * 1000,
 } as const
-
-/**
- * Default query options
- *
- * These can be used as defaults for most queries
- */
-export const DEFAULT_QUERY_OPTIONS = {
-  retry: false,
-  staleTime: STALE_TIME.STANDARD,
-  placeholderData: undefined, // Use keepPreviousData explicitly when needed
-} as const

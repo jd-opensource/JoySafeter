@@ -729,65 +729,6 @@ async def get_checkpoints(
         )  # type: ignore[unreachable]
 
 
-async def get_graph_instance(
-    llm_model: str | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    max_tokens: int = 4096,
-    user_id: Any | None = None,
-    db: AsyncSession | None = None,
-) -> Any:
-    """
-    Get a LangGraph graph instance configured per user.
-
-    Notes:
-        - This function creates a new graph instance on each call.
-        - All graph instances share the same checkpointer (state persistence).
-        - Each user has an isolated working directory at /tmp/{user_id}.
-        - If credentials are not provided, they will be fetched from database.
-
-    Args:
-        llm_model: LLM model name.
-        api_key: API key (optional, will be fetched from database if not provided).
-        base_url: API base URL (optional, will be fetched from database if not provided).
-        max_tokens: Maximum token count.
-        user_id: User ID (UUID), used to create an isolated working directory.
-        db: Database session (required if credentials are not provided).
-
-    Returns:
-        CompiledGraph: The compiled graph object.
-    """
-    # 如果没有提供凭据，从数据库获取
-    if not api_key and db:
-        from app.core.model.utils.credential_resolver import LLMCredentialResolver
-
-        fetched_api_key, fetched_base_url, fetched_model_name = await LLMCredentialResolver.get_credentials(
-            db=db,
-            api_key=api_key,
-            base_url=base_url,
-            llm_model=llm_model,
-        )
-
-        # Update values if fetched from database
-        if fetched_api_key:
-            api_key = fetched_api_key
-        if fetched_base_url:
-            base_url = fetched_base_url
-        if fetched_model_name:
-            llm_model = fetched_model_name
-
-    graph = await get_agent(
-        checkpointer=get_checkpointer(),
-        llm_model=llm_model,
-        api_key=api_key,
-        base_url=base_url,
-        max_tokens=max_tokens,
-        user_id=user_id,
-    )
-    logger.debug(f"Created new graph instance with config: model={llm_model}, max_tokens={max_tokens}")
-    return graph
-
-
 # ==================== Export/Import endpoints ====================
 
 

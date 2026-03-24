@@ -15,9 +15,6 @@ from .factory import (
 from .models import (
     BaseModelWrapper,
     ChatModelWrapper,
-    EmbeddingModelWrapper,
-    Rerank,
-    RerankModelWrapper,
 )
 from .providers import BaseProvider, ModelType, OpenAIAPICompatibleProvider
 from .utils import decrypt_credentials, encrypt_credentials
@@ -39,9 +36,6 @@ __all__ = [
     # Models
     "BaseModelWrapper",
     "ChatModelWrapper",
-    "EmbeddingModelWrapper",
-    "Rerank",
-    "RerankModelWrapper",
     # Utils
     "encrypt_credentials",
     "decrypt_credentials",

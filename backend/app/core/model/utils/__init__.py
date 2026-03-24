@@ -4,7 +4,7 @@
 
 from .credential_resolver import LLMCredentialResolver
 from .encryption import CredentialEncryption, decrypt_credentials, encrypt_credentials
-from .model_ref import format_model_ref, parse_model_ref, parse_model_ref_from_config
+from .model_ref import format_model_ref, parse_model_ref
 
 __all__ = [
     "encrypt_credentials",
@@ -12,6 +12,5 @@ __all__ = [
     "CredentialEncryption",
     "LLMCredentialResolver",
     "parse_model_ref",
-    "parse_model_ref_from_config",
     "format_model_ref",
 ]

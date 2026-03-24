@@ -333,10 +333,6 @@ def _collect_files_from_backend(backend: Any, dir_path: str, base_dir: str, file
             )
 
 
-def _safe_tool_name(tool: Any) -> str:
-    return str(getattr(tool, "name", "") or "")
-
-
 def _normalize_user_id(user_id: Any | None) -> str:
     """
     Normalize user_id to a string format.
@@ -363,70 +359,6 @@ def _normalize_user_id(user_id: Any | None) -> str:
 
     # Fallback: convert to string
     return str(user_id)
-
-
-async def _validate_mcp_servers(
-    server_names: Iterable[str],
-    user_id: str | None = None,
-) -> Set[str]:
-    """
-    Validate MCP server names exist, are enabled, and belong to the user.
-
-    Args:
-        server_names: Iterable of server names to validate
-        user_id: User ID for looking up MCP servers (normalized to string)
-
-    Returns:
-        Set of valid server names (enabled and accessible)
-    """
-    # Normalize user_id
-    normalized_user_id = _normalize_user_id(user_id)
-
-    valid_servers: Set[str] = set()
-
-    if not server_names:
-        return valid_servers
-
-    try:
-        from app.core.database import async_session_factory
-        from app.services.mcp_server_service import McpServerService
-
-        async with async_session_factory() as db:
-            service = McpServerService(db)
-
-            # Validate each server name
-            for server_name in server_names:
-                try:
-                    server = await service.repo.get_by_name(normalized_user_id, server_name)
-
-                    if not server:
-                        logger.warning(
-                            f"[_validate_mcp_servers] MCP server not found by name: '{server_name}' "
-                            f"(user_id={normalized_user_id})"
-                        )
-                        continue
-
-                    if not server.enabled:
-                        logger.warning(
-                            f"[_validate_mcp_servers] MCP server '{server_name}' is disabled "
-                            f"(user_id={normalized_user_id})"
-                        )
-                        continue
-
-                    valid_servers.add(server_name)
-                    logger.debug(f"[_validate_mcp_servers] Validated server name '{server_name}'")
-                except Exception as e:
-                    logger.error(
-                        f"[_validate_mcp_servers] Error validating server name '{server_name}': {e}", exc_info=True
-                    )
-                    continue
-
-        return valid_servers
-
-    except Exception as e:
-        logger.error(f"[_validate_mcp_servers] Error creating database session: {e}", exc_info=True)
-        return valid_servers
-
 
 async def resolve_tools_for_node(
     node: GraphNode, *, user_id: str | None = None, backend: Any = None
