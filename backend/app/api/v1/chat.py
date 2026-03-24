@@ -463,9 +463,7 @@ async def _clear_interrupt_marker(thread_id: str, log: Any) -> None:
     """Clear the interrupted_graph_id marker from Conversation metadata."""
     try:
         async with AsyncSessionLocal() as session:
-            result_query = await session.execute(
-                select(Conversation).where(Conversation.thread_id == thread_id)
-            )
+            result_query = await session.execute(select(Conversation).where(Conversation.thread_id == thread_id))
             if conv := result_query.scalar_one_or_none():
                 if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
                     del conv.meta_data["interrupted_graph_id"]

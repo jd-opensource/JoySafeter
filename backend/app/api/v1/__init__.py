@@ -8,17 +8,17 @@ from fastapi import APIRouter
 
 from .artifacts import router as artifacts_router
 from .auth import router as auth_router
-from .conversations import router as conversations_router
-from .files import router as files_router
-from .memory import router as memory_router
 from .chat import router as chat_router
+from .conversations import router as conversations_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
+from .files import router as files_router
 from .graph_deployments import router as graph_deployments_router
 from .graph_schemas import router as graph_schemas_router
 from .graph_tests import router as graph_tests_router
 from .graphs import router as graphs_router
 from .mcp import router as mcp_router
+from .memory import router as memory_router
 from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
 from .models import router as models_router

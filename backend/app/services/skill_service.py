@@ -111,17 +111,6 @@ class SkillService(BaseService[Skill]):
 
         return None
 
-    async def format_skill_content(self, skill: Skill) -> str:
-        """Format skill content as string
-
-        Args:
-            skill: Skill object (should include files relationship)
-
-        Returns:
-            Formatted skill content string
-        """
-        return str(self.formatter.format_skill_content(skill))
-
     async def create_skill(
         self,
         created_by_id: str,
@@ -686,20 +675,6 @@ class SkillService(BaseService[Skill]):
 
         await self.db.commit()
         await self.db.refresh(skill)
-
-    def get_skill_md_file(self, skill: Skill) -> Optional[SkillFile]:
-        """Get the SKILL.md file from a skill.
-
-        Args:
-            skill: The skill with loaded files
-
-        Returns:
-            The SKILL.md file if found, None otherwise
-        """
-        if not skill.files:
-            return None
-
-        return next((f for f in skill.files if f.path == "SKILL.md" or f.file_name == "SKILL.md"), None)
 
     async def import_skill_from_directory(self, skill_dir: str, owner_id: str, is_public: bool = False) -> Skill:
         """Import Skill from directory

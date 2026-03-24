@@ -32,11 +32,6 @@ class SkillCollaboratorRepository(BaseRepository[SkillCollaborator]):
         result = await self.db.execute(select(SkillCollaborator).where(SkillCollaborator.skill_id == skill_id))
         return list(result.scalars().all())  # type: ignore[return-value]
 
-    async def list_skill_ids_for_user(self, user_id: str) -> List[uuid.UUID]:
-        """Return skill IDs where user is a collaborator (used by list_by_user)."""
-        result = await self.db.execute(select(SkillCollaborator.skill_id).where(SkillCollaborator.user_id == user_id))
-        return [row[0] for row in result.all()]
-
     async def delete_by_skill_and_user(self, skill_id: uuid.UUID, user_id: str) -> bool:
         collab = await self.get_by_skill_and_user(skill_id, user_id)
         if not collab:
