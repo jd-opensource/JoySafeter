@@ -268,38 +268,4 @@ class NodeTypeRegistry:
         metadata = cls.get_metadata(node_type)
         return metadata.requires_handle_mapping if metadata else False
 
-    @classmethod
-    def register_node_type(
-        cls,
-        node_type: str,
-        executor_class: Type,
-        frontend_type: str,
-        supports_loop_body: bool = True,
-        supports_parallel: bool = True,
-        requires_handle_mapping: bool = False,
-        description: str = "",
-        default_reads: Optional[List[str]] = None,
-        default_writes: Optional[List[str]] = None,
-    ) -> None:
-        """Register a new node type (for extension)."""
-        cls._registry[node_type] = NodeTypeMetadata(
-            executor_class=executor_class,
-            frontend_type=frontend_type,
-            supports_loop_body=supports_loop_body,
-            supports_parallel=supports_parallel,
-            requires_handle_mapping=requires_handle_mapping,
-            description=description,
-            default_reads=default_reads,
-            default_writes=default_writes,
-        )
-        logger.info(f"[NodeTypeRegistry] Registered new node type: {node_type}")
 
-    @classmethod
-    def list_all_types(cls) -> Dict[str, NodeTypeMetadata]:
-        """List all registered node types."""
-        return cls._registry.copy()
-
-    @classmethod
-    def validate_node_type(cls, node_type: str) -> bool:
-        """Validate that a node type is registered."""
-        return node_type in cls._registry

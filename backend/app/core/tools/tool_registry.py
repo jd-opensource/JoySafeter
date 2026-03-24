@@ -50,22 +50,6 @@ class ToolRegistry:
         """
         return f"{server_name}{MCP_TOOL_KEY_SEPARATOR}{tool_name}"
 
-    @staticmethod
-    def parse_mcp_tool_key(key: str) -> tuple[Optional[str], Optional[str]]:
-        """
-        Parse MCP tool key
-
-        Args:
-            key: Tool key
-
-        Returns:
-            (server_name, tool_name) or (None, None) if not an MCP tool key
-        """
-        if MCP_TOOL_KEY_SEPARATOR not in key:
-            return None, None
-        parts = key.split(MCP_TOOL_KEY_SEPARATOR, 1)
-        return parts[0], parts[1] if len(parts) > 1 else None
-
     def get_mcp_tool(self, server_name: str, tool_name: str) -> Optional[EnhancedTool]:
         """
         Get MCP tool by server_name + tool_name
@@ -266,18 +250,6 @@ class ToolRegistry:
 
         return self.register(tool)
 
-    def register_batch(
-        self, tools: List[EnhancedTool], tool_metadata_list: Optional[List[ToolMetadata]] = None
-    ) -> List[EnhancedTool]:
-        """Batch register tools"""
-        registered = []
-        for i, tool in enumerate(tools):
-            if tool_metadata_list and i < len(tool_metadata_list):
-                # If metadata provided, update tool metadata
-                tool.tool_metadata = tool_metadata_list[i]
-            registered.append(self.register(tool))
-        return registered
-
     def unregister(self, tool_name: str) -> bool:
         """Unregister tool"""
         if tool_name not in self._tools:
@@ -452,11 +424,6 @@ class ToolRegistry:
 
         return tools
 
-    def get_tool_names(self, filter_config: Optional[ToolFilter] = None) -> List[str]:
-        """Get list of tool names (returns label_name, used for management and display)"""
-        tools = self.get_tools(filter_config)
-        return [tool.get_label_name() for tool in tools]
-
     def _filter_tools(self, filter_config: ToolFilter) -> List[EnhancedTool]:
         """Filter using index acceleration"""
         candidate_names: Optional[Set[str]] = None
@@ -559,40 +526,6 @@ class ToolRegistry:
         if tool_metadata.owner_workspace_id and tool_metadata.owner_workspace_id in self._owner_workspace_index:
             self._owner_workspace_index[tool_metadata.owner_workspace_id].discard(tool_name)
 
-    def list_all(self) -> Dict[str, Dict[str, Any]]:
-        """List all tools and their metadata"""
-        return {
-            name: {
-                "tool": tool,
-                "metadata": {
-                    "source_type": tool.tool_metadata.source_type.value,
-                    "tags": list(tool.tool_metadata.tags),
-                    "category": tool.tool_metadata.category,
-                    "priority": tool.tool_metadata.priority,
-                    "enabled": tool.tool_metadata.enabled,
-                    "mcp_server": tool.tool_metadata.mcp_server_name,
-                    "mcp_tool_name": tool.tool_metadata.mcp_tool_name,
-                    "toolset": tool.tool_metadata.toolset_name,
-                    "requires_confirmation": tool.tool_metadata.requires_confirmation,
-                    "external_execution": tool.tool_metadata.external_execution,
-                    "owner_user_id": tool.tool_metadata.owner_user_id,
-                    "owner_workspace_id": tool.tool_metadata.owner_workspace_id,
-                },
-            }
-            for name, tool in self._tools.items()
-        }
-
-    def get_stats(self) -> Dict[str, Any]:
-        """Get registration statistics"""
-        return {
-            "total_tools": len(self._tools),
-            "by_source_type": {source_type.value: len(tools) for source_type, tools in self._source_type_index.items()},
-            "by_category": {category: len(tools) for category, tools in self._category_index.items()},
-            "mcp_servers": list(self._mcp_server_index.keys()),
-            "tags": list(self._tag_index.keys()),
-            "owner_users": list(self._owner_user_index.keys()),
-            "owner_workspaces": list(self._owner_workspace_index.keys()),
-        }
 
 
 # Global registry instance

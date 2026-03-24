@@ -189,32 +189,6 @@ class Toolkit:
         """Return all registered Function objects in this toolkit."""
         return list(self.functions.values())
 
-    def get_tool_names(self) -> List[str]:
-        """Return names of all registered tools."""
-        return list(self.functions.keys())
-
-    def register_into_registry(self, registry) -> List[EnhancedTool]:
-        """
-        Register tools in a ToolRegistry-compatible object.
-        The registry is expected to provide a `register(EnhancedTool)` method.
-        """
-        registered: List[EnhancedTool] = []
-        for f in self.functions.values():
-            registered.append(registry.register(f))
-        return registered
-
-    def update_tool_metadata(self, tool_name: str, **kwargs) -> None:
-        """
-        Update metadata of a specific tool in-place to align behaviors with ToolRegistry/ToolFilter.
-        Example: update_tool_metadata("foo", priority=10, enabled=False, tags={"a","b"})
-        """
-        func = self.functions.get(tool_name)
-        if not func:
-            return
-        for k, v in kwargs.items():
-            if hasattr(func.tool_metadata, k):
-                setattr(func.tool_metadata, k, v)
-
     def __repr__(self):
         return f"<{self.__class__.__name__} name={self.name} functions={list(self.functions.keys())}>"
 

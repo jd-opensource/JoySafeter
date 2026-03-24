@@ -244,14 +244,6 @@ def get_all_providers() -> List[Dict[str, Any]]:
     return _factory.get_all_providers()
 
 
-def get_all_models(
-    model_type: ModelType,
-    credentials: Optional[Dict[str, Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
-    """获取所有可用模型列表"""
-    return _factory.get_all_models(model_type, credentials)
-
-
 def get_provider(provider_name: str) -> Optional[BaseProvider]:
     """获取供应商实例"""
     return _factory.get_provider(provider_name)
@@ -263,16 +255,6 @@ async def validate_provider_credentials(
 ) -> tuple[bool, Optional[str]]:
     """验证供应商凭据"""
     return await _factory.validate_provider_credentials(provider_name, credentials)
-
-
-async def validate_model_credentials(
-    provider_name: str,
-    model_name: str,
-    model_type: ModelType,
-    credentials: Dict[str, Any],
-) -> tuple[bool, Optional[str]]:
-    """验证模型凭据"""
-    return await _factory.validate_model_credentials(provider_name, model_name, model_type, credentials)
 
 
 def create_model_instance(

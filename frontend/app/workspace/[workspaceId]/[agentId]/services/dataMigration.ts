@@ -18,7 +18,7 @@ import { EdgeData, RouteRule } from '../types/graph'
  * - routeKey -> route_key
  * - edgeType -> edge_type
  */
-export function migrateEdgeData(edge: Edge): Edge {
+function migrateEdgeData(edge: Edge): Edge {
   const edgeData = (edge.data || {}) as any
 
   // Check if migration is needed
@@ -63,7 +63,7 @@ export function migrateEdgeData(edge: Edge): Edge {
  * Migrate router node routes format
  * - routes[].target -> routes[].targetEdgeKey
  */
-export function migrateRouterNodeConfig(node: Node): Node {
+function migrateRouterNodeConfig(node: Node): Node {
   const nodeData = node.data as { type?: string; config?: Record<string, unknown> }
 
   if (nodeData.type !== 'router_node' || !nodeData.config) {
