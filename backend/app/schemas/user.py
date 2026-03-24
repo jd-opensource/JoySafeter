@@ -19,23 +19,6 @@ class UserBase(BaseModel):
     avatar: Optional[str] = None
 
 
-class UserCreate(UserBase):
-    """创建用户"""
-
-    password: str
-
-
-class UserUpdate(BaseModel):
-    """更新用户"""
-
-    email: Optional[EmailStr] = None
-    username: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    avatar: Optional[str] = None
-    password: Optional[str] = None
-
-
 class UserResponse(IDSchema, UserBase):
     """用户响应"""
 
@@ -49,8 +32,3 @@ class UserResponse(IDSchema, UserBase):
             return f"{self.first_name} {self.last_name}"
         return self.username
 
-
-class UserInDB(UserResponse):
-    """数据库中的用户"""
-
-    hashed_password: str
