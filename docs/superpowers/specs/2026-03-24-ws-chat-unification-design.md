@@ -30,13 +30,17 @@ A single persistent WS connection (`/ws/chat`) is established per user when the 
 
 ### Authentication
 
-Token passed as query param (WS does not support custom headers):
+The existing `authenticate_websocket(websocket)` first tries five cookie names; it falls back to the `?token=` query param only if all cookies are absent. For same-origin browser connections, the existing auth cookie is used automatically — no extra token-passing logic needed. The `?token=` fallback exists for non-browser or cross-origin clients.
 
 ```
+# Browser (same-origin): cookies handled automatically by the browser
+wss://<host>/ws/chat
+
+# Non-browser / cross-origin fallback
 wss://<host>/ws/chat?token=<jwt>
 ```
 
-The existing `authenticate_websocket(websocket)` utility reads this param. No changes required to auth layer.
+No changes required to the auth layer.
 
 ### Client → Server frames
 
@@ -128,7 +132,19 @@ class ChatWsHandler:
         """Validate frame, start streaming Task."""
 
     async def _handle_stop(self, frame: dict) -> None:
-        """Cancel task and stop LangGraph run."""
+        """
+        Cancel task and stop LangGraph run.
+        If request_id is not in _tasks (turn already finished), silently ignore.
+        Must NOT raise — an unhandled exception here disconnects the WS.
+
+        Implementation must do:
+            entry = self._tasks.get(frame.get("request_id"))
+            if entry is None:
+                return   # already done, ignore
+            thread_id, task = entry
+            await task_manager.stop_task(thread_id)
+            task.cancel()
+        """
 
     async def _handle_resume(self, frame: dict) -> None:
         """Start resume streaming Task."""
@@ -156,16 +172,20 @@ class ChatWsHandler:
 
 **SSE → WS event conversion:**
 
-`_dispatch_stream_event()` yields strings in `"data: {...}\n\n"` format. The streaming task strips the `data: ` prefix, parses the JSON, injects `request_id`, and sends via `websocket.send_text()`.
+`_dispatch_stream_event()` yields strings in `"data: {...}\n\n"` format, but several handler paths (e.g. `handle_chat_model_stream` when there is no delta, exception paths in `handle_chat_model_start`) return `None`, which is then yielded as `None`. The conversion loop **must** guard against `None` before stripping:
 
 ```python
 async for sse_str in _dispatch_stream_event(event, handler, state, file_emitter):
+    if not sse_str:          # guard: None or empty string → skip
+        continue
     payload_str = sse_str.lstrip("data:").strip()
     if payload_str:
         obj = json.loads(payload_str)
         obj["request_id"] = request_id
         await self._send(obj)
 ```
+
+**Invariant:** every non-`None` value yielded by `_dispatch_stream_event` is a string of the form `"data: <json>\n\n"`. The `.lstrip("data:").strip()` pattern is correct for this format. The `on_chain_end` list path adds an extra `\n\n` via `event_str.strip() + "\n\n"`, but the outer `.strip()` call in the conversion loop normalises this harmlessly.
 
 ### `main.py` changes
 
@@ -194,15 +214,20 @@ async def chat_websocket_endpoint(websocket: WebSocket):
 | `backend/app/websocket/chat_handler.py` | No frontend callers; replaced by `chat_ws_handler.py` |
 | `backend/app/websocket/connection_manager.py` | Only used by deleted `chat_handler.py` |
 
-### HTTP endpoints to delete (from `chat.py`)
+### HTTP endpoints — deletion scope
 
-| Endpoint | Reason |
-|---|---|
-| `POST /v1/chat/stop` | Replaced by `{"type":"stop"}` WS frame |
-| `POST /v1/chat/resume` | Replaced by `{"type":"resume"}` WS frame |
-| `POST /v1/chat` (non-streaming) | Unused; no frontend caller (verify before deleting) |
+> **⚠️ IMPORTANT:** `POST /v1/chat/stop` and `POST /v1/chat/resume` have callers **outside** the chat page:
+> - `frontend/app/workspace/[workspaceId]/[agentId]/stores/execution/executionStore.ts` calls `apiPost('chat/stop', ...)`
+> - `frontend/app/workspace/[workspaceId]/[agentId]/services/commandService.ts` calls `apiStream('chat/resume', ...)`
+>
+> These workspace-agent callers use HTTP and are **not** affected by the WS migration. **Do not delete these endpoints until the workspace callers are also migrated or removed.**
 
-> **Note:** Verify `POST /v1/chat` has no callers before deletion. `POST /v1/chat/stream` SSE endpoint is deleted after frontend migration is confirmed working.
+| Endpoint | Action | Condition |
+|---|---|---|
+| `POST /v1/chat/stop` | Keep; also accept WS `stop` frame | Keep HTTP until workspace callers migrated |
+| `POST /v1/chat/resume` | Keep; also accept WS `resume` frame | Keep HTTP until workspace callers migrated |
+| `POST /v1/chat/stream` (SSE) | Delete after frontend WS migration verified | Chat-page only |
+| `POST /v1/chat` (non-streaming) | Verify no callers, then delete | Likely unused |
 
 ---
 
@@ -214,7 +239,7 @@ async def chat_websocket_endpoint(websocket: WebSocket):
 1. Open `WS /ws/chat?token=<jwt>` on mount; close on unmount.
 2. Auto-reconnect with exponential backoff (reuse pattern from `useNotificationWebSocket`).
 3. Expose `sendMessage(opts)` — generates `request_id`, sends `chat` frame, returns `request_id`.
-4. Expose `stopMessage(threadId)` — sends `stop` frame (looks up `request_id` from active map).
+4. Expose `stopMessage(threadId)` — performs a `threadId → requestId` reverse lookup using an internal `activeByThread: Map<threadId, requestId>` map (maintained alongside `activeRequests`), then sends `{"type":"stop", "request_id": ...}`. If no active request exists for that thread, this is a no-op. The map stores only the most recent `request_id` per `thread_id`, so when a new turn starts on an existing thread the map entry is updated and the previous (already completed) `request_id` is discarded.
 5. Expose `resumeChat(opts)` — sends `resume` frame.
 6. On incoming message: parse JSON, dispatch to `useChatReducer` using the exact same event-handling logic currently in `useBackendChatStream.ts` `onEvent` callback.
 
@@ -229,9 +254,34 @@ interface UseChatWebSocketReturn {
 }
 ```
 
-**Connection lifecycle:** Opened in `ChatProvider` (already wraps the entire chat subtree), so the connection persists across conversation switches, mode changes, and navigating between threads.
+**Concurrent turn policy:** If a `chat` frame arrives for a `thread_id` that already has an in-flight task, the handler sends `{"type":"ws_error", "message":"turn already in progress for thread_id"}` and does not start a second task. This prevents `task_manager.register_task(thread_id, ...)` from silently overwriting the first task entry. The `_tasks` map should be checked both by `request_id` (for stop) and by `thread_id` (for concurrency guard).
 
-**Token acquisition:** Use the same `getAccessToken()` utility used elsewhere in the app (currently used for HTTP Authorization header).
+```python
+# In _handle_chat:
+active_thread_ids = {tid for (tid, _) in self._tasks.values()}
+if thread_id and thread_id in active_thread_ids:
+    await self._send({"type": "ws_error", "message": "turn already in progress"})
+    return
+```
+
+**`STREAM_DONE` dispatch (frontend):** In `useBackendChatStream` the `STREAM_DONE` action is dispatched in a `finally` block wrapping the entire SSE promise — not in response to the `done` event (which is a no-op). In `useChatWebSocket` there is no wrapping promise per turn; `STREAM_DONE` must be dispatched when the server sends `{"type": "done", "request_id": ...}`, and also on `{"type": "error", ...}` (error ends the turn). The `onEvent` handler must be updated accordingly:
+
+```typescript
+if (type === 'done') {
+  dispatch({ type: 'STREAM_DONE', messageId: activeRequests[request_id].aiMsgId })
+  delete activeRequests[request_id]
+  return
+}
+if (type === 'error') {
+  // dispatch error, then finalize
+  dispatch({ type: 'STREAM_ERROR', error: errorData.message })
+  dispatch({ type: 'STREAM_DONE', messageId: activeRequests[request_id]?.aiMsgId })
+  delete activeRequests[request_id]
+  return
+}
+```
+
+**Connection lifecycle:** Opened in `ChatProvider` (already wraps the entire chat subtree), so the connection persists across conversation switches, mode changes, and navigating between threads.
 
 ### `ChatProvider.tsx` changes
 
@@ -271,8 +321,9 @@ interface UseChatWebSocketReturn {
 1. **Backend:** Implement `chat_ws_handler.py`; add `/ws/chat` endpoint; keep SSE endpoint live.
 2. **Frontend:** Implement `useChatWebSocket`; wire into `ChatProvider`; feature-flag or replace `useBackendChatStream`.
 3. **Verify:** Both SSE and WS paths work end-to-end in staging.
-4. **Cutover:** Delete SSE endpoint, `useBackendChatStream`, old `POST /v1/chat/stop`, `POST /v1/chat/resume`.
-5. **Cleanup:** Delete `chat_handler.py`, `connection_manager.py`, old `/ws/{session_id}` endpoint.
+4. **Cutover:** Delete `POST /v1/chat/stream` SSE endpoint and `useBackendChatStream`. **Do not yet delete `POST /v1/chat/stop` or `POST /v1/chat/resume`** — they still serve workspace callers (see HTTP endpoint table above).
+5. **Workspace migration:** Migrate `executionStore.ts` and `commandService.ts` to use WS frames or dedicated endpoints.
+6. **Cleanup:** Delete `POST /v1/chat/stop`, `POST /v1/chat/resume`, `chat_handler.py`, `connection_manager.py`, old `/ws/{session_id}` endpoint.
 
 ---
 
