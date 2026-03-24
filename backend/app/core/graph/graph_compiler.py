@@ -69,17 +69,6 @@ class CompilationResult:
         self.warnings: List[str] = warnings or []
 
 
-class CompilationError(Exception):
-    """Raised when graph compilation fails."""
-
-    def __init__(self, errors: List[str]):
-        self.errors = errors
-        super().__init__(f"Compilation failed with {len(errors)} error(s)")
-
-    def __str__(self) -> str:
-        return "Compilation errors:\n" + "\n".join(f"  - {e}" for e in self.errors)
-
-
 # ---------------------------------------------------------------------------
 # Compiler Session
 # ---------------------------------------------------------------------------

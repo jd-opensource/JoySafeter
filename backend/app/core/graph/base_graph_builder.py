@@ -128,29 +128,6 @@ class BaseGraphBuilder(ABC):
 
         return name
 
-    def _get_node_display_name(self, node: GraphNode) -> str:
-        """
-        Get the display name for a node.
-
-        Priority:
-        1. Node label (from data.label)
-        2. Generated unique name
-
-        Args:
-            node: GraphNode to get name for
-
-        Returns:
-            Display name string
-        """
-        data = node.data or {}
-        label = data.get("label", "")
-
-        if label:
-            return str(label)
-
-        node_name = self._node_id_to_name.get(node.id) or self._get_node_name(node)
-        return str(node_name) if node_name is not None else ""
-
     def _get_system_prompt_from_node(self, node: GraphNode) -> Optional[str]:
         """Extract system prompt from node configuration (data.config only)."""
         data = node.data or {}
@@ -161,22 +138,6 @@ class BaseGraphBuilder(ABC):
         """Get direct child nodes (nodes connected via outgoing edges)."""
         child_ids = self._outgoing_edges.get(node.id, [])
         return [self._node_map[child_id] for child_id in child_ids if child_id in self._node_map]
-
-    def _find_start_nodes(self) -> List[GraphNode]:
-        """Find nodes that should be connected to START (no incoming edges)."""
-        start_nodes = []
-        for node in self.nodes:
-            if node.id not in self._incoming_edges or len(self._incoming_edges[node.id]) == 0:
-                start_nodes.append(node)
-        return start_nodes
-
-    def _find_end_nodes(self) -> List[GraphNode]:
-        """Find nodes that should be connected to END (no outgoing edges)."""
-        end_nodes = []
-        for node in self.nodes:
-            if node.id not in self._outgoing_edges or len(self._outgoing_edges[node.id]) == 0:
-                end_nodes.append(node)
-        return end_nodes
 
     def _is_deep_agents_enabled(self, node: GraphNode) -> bool:
         """Check if DeepAgents mode is enabled for a node."""
@@ -895,154 +856,6 @@ class BaseGraphBuilder(ABC):
                 limit = config.get("recursion_limit", DEFAULT_RECURSION_LIMIT)
                 return int(limit) if limit is not None else DEFAULT_RECURSION_LIMIT
         return DEFAULT_RECURSION_LIMIT
-
-    # ==================== Graph Validation ====================
-
-    def validate_graph_structure(self) -> List[str]:
-        """
-        Validate graph structure at compile time.
-
-        Checks:
-        - Router nodes have all branches connected
-        - Handle ID to route_key mappings are complete
-        - Loop structures are valid
-        - No isolated nodes
-        - No invalid routes
-
-        Returns:
-            List of validation error messages (empty if valid)
-        """
-        errors = []
-
-        # Check for isolated nodes (no incoming or outgoing edges)
-        # Skip this check for single-node graphs - they are valid as START → Node → END
-        if len(self.nodes) > 1:
-            node_ids = {node.id for node in self.nodes}
-            nodes_with_incoming = {edge.target_node_id for edge in self.edges}
-            nodes_with_outgoing = {edge.source_node_id for edge in self.edges}
-
-            isolated_nodes = node_ids - nodes_with_incoming - nodes_with_outgoing
-            if isolated_nodes:
-                for node_id in isolated_nodes:
-                    node = self._node_map.get(node_id)
-                    if node:
-                        label = (node.data or {}).get("label", str(node_id))
-                        errors.append(f"Isolated node found: '{label}' (no incoming or outgoing edges)")
-
-        # Validate router nodes
-        for node in self.nodes:
-            node_type = self._get_node_type(node)
-            if node_type == "router_node":
-                # Check that router has outgoing edges
-                router_edges = [e for e in self.edges if e.source_node_id == node.id]
-                if not router_edges:
-                    label = (node.data or {}).get("label", str(node.id))
-                    errors.append(f"Router node '{label}' has no outgoing edges")
-
-                # Check that edges have route_key or source_handle_id
-                for edge in router_edges:
-                    edge_data = edge.data or {}
-                    if not edge_data.get("route_key") and not edge_data.get("source_handle_id"):
-                        label = (node.data or {}).get("label", str(node.id))
-                        errors.append(f"Router node '{label}' has edge without route_key or source_handle_id")
-
-        # Validate loop condition nodes
-        for node in self.nodes:
-            node_type = self._get_node_type(node)
-            if node_type == "loop_condition_node":
-                # Check that loop has continue_loop and exit_loop edges
-                loop_edges = [e for e in self.edges if e.source_node_id == node.id]
-                route_keys = {e.data.get("route_key") for e in loop_edges if e.data}
-
-                if "continue_loop" not in route_keys and "exit_loop" not in route_keys:
-                    label = (node.data or {}).get("label", str(node.id))
-                    errors.append(f"Loop condition node '{label}' missing continue_loop or exit_loop edges")
-
-                # Check for loop cycles (potential infinite loops)
-                if self._detect_potential_cycles(node.id):
-                    label = (node.data or {}).get("label", str(node.id))
-                    errors.append(f"Loop condition node '{label}' may create infinite loop - check for cycles")
-
-        # Validate for orphaned conditional edges
-        conditional_sources = set()
-        for edge in self.edges:
-            edge_data = edge.data or {}
-            if edge_data.get("edge_type") == "conditional":
-                conditional_sources.add(edge.source_node_id)
-
-        for source_id in conditional_sources:
-            source_node = self._node_map.get(source_id)
-            if source_node:
-                node_type = self._get_node_type(source_node)
-                if node_type not in ["router_node", "condition", "loop_condition_node"]:
-                    label = (source_node.data or {}).get("label", str(source_id))
-                    errors.append(f"Node '{label}' has conditional edges but is not a conditional node type")
-
-        return errors
-
-    def _detect_potential_cycles(self, start_node_id: uuid.UUID, visited: Optional[Set[str]] = None) -> bool:
-        """
-        Detect potential cycles starting from a node.
-        This is a simplified cycle detection for loop validation.
-        """
-        if visited is None:
-            visited = set()
-
-        node_key = str(start_node_id)
-        if node_key in visited:
-            return True
-
-        visited.add(node_key)
-
-        # Check outgoing edges
-        for edge in self.edges:
-            if edge.source_node_id == start_node_id:
-                # For loop back edges, check if they lead back to potential loop starters
-                edge_data = edge.data or {}
-                if edge_data.get("edge_type") == "loop_back":
-                    target_node = self._node_map.get(edge.target_node_id)
-                    if target_node and self._get_node_type(target_node) == "loop_condition_node":
-                        if self._detect_potential_cycles(edge.target_node_id, visited.copy()):
-                            return True
-
-        visited.remove(node_key)
-        return False
-
-    def validate_handle_to_route_mapping(self) -> List[str]:
-        """
-        Validate that React Flow Handle IDs map correctly to route keys.
-
-        Returns:
-            List of validation error messages (empty if valid)
-        """
-        errors = []
-
-        for node in self.nodes:
-            node_type = self._get_node_type(node)
-            if node_type in ["router_node", "condition"]:
-                # Collect edges from this node
-                node_edges = [e for e in self.edges if e.source_node_id == node.id]
-
-                # Check handle_id to route_key consistency
-                handle_to_route: Dict[str, str] = {}
-                for edge in node_edges:
-                    edge_data = edge.data or {}
-                    handle_id = edge_data.get("source_handle_id")
-                    route_key = edge_data.get("route_key")
-
-                    if handle_id and route_key:
-                        if handle_id in handle_to_route:
-                            if handle_to_route[handle_id] != route_key:
-                                label = (node.data or {}).get("label", str(node.id))
-                                errors.append(
-                                    f"Node '{label}': Handle '{handle_id}' maps to multiple route_keys: "
-                                    f"'{handle_to_route[handle_id]}' and '{route_key}'"
-                                )
-                        else:
-                            handle_to_route[handle_id] = route_key
-
-        return errors
-
     @abstractmethod
     def build(self) -> CompiledStateGraph:
         """Build and compile the StateGraph. Must be implemented by subclasses."""
