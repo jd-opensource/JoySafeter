@@ -17,10 +17,6 @@ class PlatformTokenRepository(BaseRepository[PlatformToken]):
     def __init__(self, db: AsyncSession):
         super().__init__(PlatformToken, db)
 
-    async def get_by_hash(self, token_hash: str) -> Optional[PlatformToken]:
-        result = await self.db.execute(select(PlatformToken).where(PlatformToken.token_hash == token_hash))
-        return result.scalar_one_or_none()
-
     async def list_by_user_and_resource(
         self,
         user_id: str,

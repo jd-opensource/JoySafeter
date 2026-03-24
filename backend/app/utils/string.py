@@ -28,25 +28,6 @@ def is_valid_uuid(uuid_str: str) -> bool:
         return False
 
 
-def url_safe_string(input_string):
-    # Replace spaces with dashes
-    safe_string = input_string.replace(" ", "-")
-
-    # Convert camelCase to kebab-case
-    safe_string = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", safe_string).lower()
-
-    # Convert snake_case to kebab-case
-    safe_string = safe_string.replace("_", "-")
-
-    # Remove special characters, keeping alphanumeric, dashes, and dots
-    safe_string = re.sub(r"[^\w\-.]", "", safe_string)
-
-    # Ensure no consecutive dashes
-    safe_string = re.sub(r"-+", "-", safe_string)
-
-    return safe_string
-
-
 def hash_string_sha256(input_string):
     # Encode the input string to bytes
     encoded_string = input_string.encode("utf-8")
@@ -234,17 +215,3 @@ def generate_id(seed: Optional[str] = None) -> str:
     if seed is None:
         return str(uuid4())
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
-
-
-def generate_id_from_name(name: Optional[str] = None) -> str:
-    """
-    Generate a deterministic ID from a name string.
-    If no name is provided, generate a random UUID4.
-
-    Args:
-        name (str): The name string to generate the ID from.
-    """
-    if name:
-        return name.lower().replace(" ", "-").replace("_", "-")
-    else:
-        return str(uuid4())

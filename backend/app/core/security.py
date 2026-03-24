@@ -140,35 +140,3 @@ def decode_token(token: str) -> Optional[TokenPayload]:
         return TokenPayload(**payload)
     except JWTError:
         return None
-
-
-def verify_csrf_token(csrf_token: str, user_id: str) -> bool:
-    """
-    验证 CSRF token
-
-    Args:
-        csrf_token: 从请求头获取的 CSRF token
-        user_id: 当前登录用户的 ID
-
-    Returns:
-        True if valid, False otherwise
-    """
-    if not csrf_token or not user_id:
-        return False
-
-    try:
-        payload = jwt.decode(csrf_token, settings.secret_key, algorithms=[settings.algorithm])
-
-        # 验证 token 类型
-        if payload.get("type") != "csrf":
-            return False
-
-        # 验证用户 ID 匹配
-        if payload.get("sub") != str(user_id):
-            return False
-
-        # 验证过期时间（jwt.decode 已自动检查）
-        return True
-
-    except JWTError:
-        return False

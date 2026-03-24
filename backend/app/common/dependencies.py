@@ -3,17 +3,16 @@
 """
 
 import uuid
-from collections.abc import AsyncGenerator
 from typing import Annotated, Optional
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.database import get_db
-from app.core.security import decode_token, verify_csrf_token
+from app.core.security import decode_token
 from app.core.settings import settings
 from app.models.auth import AuthUser as User
 from app.models.organization import Member as OrgMember
@@ -21,14 +20,7 @@ from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
 from app.services.auth_session_service import AuthSessionService
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
-
-
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """获取数据库会话"""
-    async for session in get_db():
-        yield session
 
 
 async def get_current_user(
@@ -225,55 +217,3 @@ def require_org_role(min_role: str):
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
-
-
-# --------------------------------------------------------------------------- #
-# CSRF Protection
-# --------------------------------------------------------------------------- #
-
-
-async def verify_csrf(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-    x_csrf_token: Optional[str] = Header(None, alias="X-CSRF-Token"),
-) -> User:
-    """
-    验证 CSRF token（用于状态修改操作）
-
-    仅对以下方法强制验证 CSRF：POST, PUT, PATCH, DELETE
-    GET, HEAD, OPTIONS 方法不需要 CSRF 保护
-
-    安全设计：
-    - CSRF token 通过登录响应返回，存储在前端内存中
-    - 前端通过 X-CSRF-Token header 发送 token
-    - 不使用 Cookie 存储，避免 XSS 窃取
-
-    Args:
-        request: FastAPI Request 对象
-        current_user: 当前登录用户（由 get_current_user 提供）
-        x_csrf_token: 从请求头 X-CSRF-Token 获取的 CSRF token
-
-    Returns:
-        当前用户对象
-
-    Raises:
-        UnauthorizedException: CSRF token 缺失或无效
-    """
-    # 只对状态修改操作验证 CSRF
-    if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
-        # 从请求头获取 CSRF token
-        csrf_token = x_csrf_token
-
-        # CSRF token 必须存在于请求头
-        if not csrf_token:
-            raise UnauthorizedException("Missing CSRF token")
-
-        # 验证 CSRF token
-        if not verify_csrf_token(csrf_token, current_user.id):
-            raise UnauthorizedException("Invalid CSRF token")
-
-    return current_user
-
-
-# 带 CSRF 保护的当前用户类型注解
-CurrentUserWithCSRF = Annotated[User, Depends(verify_csrf)]
