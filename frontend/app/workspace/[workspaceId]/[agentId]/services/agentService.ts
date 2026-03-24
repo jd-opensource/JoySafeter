@@ -434,14 +434,6 @@ export const agentService = {
     }
   },
 
-  async getMcpServers(): Promise<string[]> {
-    return []
-  },
-
-  async addMcpServer(_url: string): Promise<void> {
-    return
-  },
-
   /**
    * Get available skills for the agent
    * Uses the skills API to fetch all skills the user has access to

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, ReactNode } from 'react'
+import { createContext, ReactNode } from 'react'
 
 import { useNotificationWebSocket, NotificationMessage } from '@/hooks/use-notification-websocket'
 import { useAuthStore } from '@/stores/auth/store'
@@ -13,14 +13,6 @@ interface NotificationContextValue {
 }
 
 const NotificationContext = createContext<NotificationContextValue | null>(null)
-
-export function useNotificationContext() {
-  const context = useContext(NotificationContext)
-  if (!context) {
-    throw new Error('useNotificationContext must be used within NotificationProvider')
-  }
-  return context
-}
 
 interface NotificationProviderProps {
   children: ReactNode

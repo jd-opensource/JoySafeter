@@ -115,18 +115,6 @@ export function useMemories(params: MemoryQueryParams = {}) {
 }
 
 /**
- * Fetch a single memory by ID
- */
-export function useMemory(memoryId: string) {
-  return useQuery<UserMemory>({
-    queryKey: memoryKeys.detail(memoryId),
-    queryFn: () => apiGet<UserMemory>(`${MEMORY_API}/memories/${memoryId}`),
-    enabled: !!memoryId,
-    staleTime: STALE_TIME.STANDARD,
-  })
-}
-
-/**
  * Fetch all unique memory topics
  */
 export function useMemoryTopics() {
@@ -176,21 +164,6 @@ export function useDeleteMemory() {
 
   return useMutation({
     mutationFn: (memoryId: string) => apiDelete<void>(`${MEMORY_API}/memories/${memoryId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: memoryKeys.all })
-    },
-  })
-}
-
-/**
- * Delete multiple memories
- */
-export function useDeleteMemories() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (memoryIds: string[]) =>
-      apiDelete<void>(`${MEMORY_API}/memories`, { body: { memory_ids: memoryIds } } as any),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: memoryKeys.all })
     },
