@@ -383,8 +383,6 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession):
     from app.core.agent.langfuse_callback import get_langfuse_callbacks
     from app.core.model.utils.credential_resolver import LLMCredentialResolver
 
-    get_langfuse_callbacks(enabled=settings.langfuse_enabled)
-
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id, "user_id": str(user_id)},
         "recursion_limit": 300,
@@ -460,6 +458,24 @@ async def save_assistant_message(
     await db.commit()
 
 
+async def _clear_interrupt_marker(thread_id: str, log: Any) -> None:
+    """Clear the interrupted_graph_id marker from Conversation metadata."""
+    try:
+        async with AsyncSessionLocal() as session:
+            result_query = await session.execute(
+                select(Conversation).where(Conversation.thread_id == thread_id)
+            )
+            if conv := result_query.scalar_one_or_none():
+                if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
+                    del conv.meta_data["interrupted_graph_id"]
+                    await session.commit()
+                    log.debug(f"Cleared interrupt marker from conversation | thread_id={thread_id}")
+    except asyncio.CancelledError:
+        log.debug(f"Clear interrupt marker cancelled for thread {thread_id} (connection closing)")
+    except Exception as e:
+        log.warning(f"Failed to clear interrupt marker for conversation | thread_id={thread_id} | error={e}")
+
+
 # ==================== Message Enrichment ====================
 
 
@@ -505,6 +521,91 @@ def _extract_run_ids(event_dict: dict) -> tuple[str, str | None]:
     parent_ids = event_dict.get("parent_ids", [])
     parent_run_id = str(parent_ids[-1]) if parent_ids else None
     return run_id, parent_run_id
+
+
+async def _dispatch_stream_event(
+    event: Any,
+    handler: StreamEventHandler,
+    state: StreamState,
+    file_emitter: FileEventEmitter | None = None,
+) -> AsyncGenerator[str, None]:
+    """
+    Translate a single LangGraph v2 astream_events event into SSE strings.
+
+    Yields zero or more SSE strings. Callers: ``async for sse in _dispatch_stream_event(...): yield sse``.
+    file_emitter is only passed by chat_stream (not chat_resume).
+    """
+    event_dict: dict[str, Any]
+    if isinstance(event, dict):
+        event_dict = event  # type: ignore[assignment]
+    else:
+        event_dict = {"event": str(type(event).__name__), "data": event} if event else {}
+
+    event_type = event_dict.get("event")
+    event_name = event_dict.get("name", "")
+    metadata = event_dict.get("metadata", {}) if isinstance(event_dict.get("metadata"), dict) else {}
+    langgraph_node = metadata.get("langgraph_node")
+
+    is_node_event = langgraph_node is not None or (
+        event_name
+        and "node" in event_name.lower()
+        and "tool" not in event_name.lower()
+        and "model" not in event_name.lower()
+        and "llm" not in event_name.lower()
+        and "chat" not in event_name.lower()
+    )
+
+    run_id, parent_run_id = _extract_run_ids(event_dict)
+
+    if event_type == "on_chat_model_start":
+        yield await handler.handle_chat_model_start(event_dict, state, run_id, parent_run_id)
+
+    elif event_type == "on_chat_model_stream":
+        if sse := await handler.handle_chat_model_stream(event_dict, state, run_id, parent_run_id):
+            yield sse
+
+    elif event_type == "on_chat_model_end":
+        yield await handler.handle_chat_model_end(event_dict, state, run_id, parent_run_id)
+
+    elif event_type == "on_tool_start":
+        yield await handler.handle_tool_start(event_dict, state, run_id, parent_run_id)
+
+    elif event_type == "on_tool_end":
+        yield await handler.handle_tool_end(event_dict, state, run_id, parent_run_id)
+
+    elif event_type == "on_chain_start" and is_node_event:
+        yield await handler.handle_node_start(event_dict, state, run_id, parent_run_id)
+
+    elif event_type == "on_chain_end":
+        if is_node_event:
+            result = await handler.handle_node_end(event_dict, state, run_id, parent_run_id)
+            if isinstance(result, list):
+                for event_str in result:
+                    if event_str and event_str.strip():
+                        yield event_str.strip() + "\n\n"
+            elif isinstance(result, str) and result.strip():
+                yield result
+
+        data_raw: Any = event_dict.get("data", {})
+        data: Dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}  # type: ignore[assignment]
+        output = data.get("output") if isinstance(data, dict) else None
+        if output and isinstance(output, dict) and "messages" in output:
+            state.all_messages = output["messages"]
+
+    # Drain file events (chat_stream only)
+    if file_emitter is not None:
+        for file_evt in file_emitter.drain():
+            yield handler.format_sse(
+                "file_event",
+                {
+                    "action": file_evt.action,
+                    "path": file_evt.path,
+                    "size": file_evt.size,
+                    "timestamp": file_evt.timestamp,
+                },
+                state.thread_id,
+                state,
+            )
 
 
 # ==================== Endpoints ====================
@@ -754,7 +855,6 @@ async def chat_stream(
                 config=config,
                 version="v2",
             ):
-                # log.info(f"Event: {event}")
                 # A. 停止检测
                 if await task_manager.is_stopped(thread_id):
                     state.stopped = True
@@ -762,85 +862,8 @@ async def chat_stream(
                     break
 
                 # B. 事件分发
-                # 显式标注为 dict[str, Any]，避免 LangGraph 事件类型在 mypy 下被推断为非 dict
-                event_dict: dict[str, Any]
-                if isinstance(event, dict):
-                    event_dict = event  # type: ignore[assignment]
-                else:
-                    # Convert event to dict if needed
-                    event_dict = {"event": str(type(event).__name__), "data": event} if event else {}
-                event_type = event_dict.get("event")
-                event_name = event_dict.get("name", "")
-                metadata = event_dict.get("metadata", {}) if isinstance(event_dict.get("metadata"), dict) else {}
-                langgraph_node = metadata.get("langgraph_node")
-
-                # 判断是否是节点事件（不是工具或LLM的内部事件）
-                is_node_event = langgraph_node is not None or (
-                    event_name
-                    and "node" in event_name.lower()
-                    and "tool" not in event_name.lower()
-                    and "model" not in event_name.lower()
-                    and "llm" not in event_name.lower()
-                    and "chat" not in event_name.lower()
-                )
-
-                # 提取 run_id / parent_run_id（LangGraph v2）
-                run_id, parent_run_id = _extract_run_ids(event_dict)
-
-                if event_type == "on_chat_model_start":
-                    yield await handler.handle_chat_model_start(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_chat_model_stream":
-                    if sse := await handler.handle_chat_model_stream(event_dict, state, run_id, parent_run_id):
-                        yield sse
-
-                elif event_type == "on_chat_model_end":
-                    yield await handler.handle_chat_model_end(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_tool_start":
-                    yield await handler.handle_tool_start(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_tool_end":
-                    yield await handler.handle_tool_end(event_dict, state, run_id, parent_run_id)
-
-                # 节点生命周期事件
-                elif event_type == "on_chain_start" and is_node_event:
-                    yield await handler.handle_node_start(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_chain_end":
-                    # 如果是节点结束事件，发送节点结束事件（可能返回多个事件）
-                    if is_node_event:
-                        result = await handler.handle_node_end(event_dict, state, run_id, parent_run_id)
-                        # handle_node_end 返回 list[str]
-                        if isinstance(result, list):
-                            for event_str in result:
-                                if event_str and event_str.strip():
-                                    yield event_str.strip() + "\n\n"
-                        elif isinstance(result, str) and result.strip():
-                            yield result
-
-                    # C. 收集完整消息 (但不发送 SSE，仅用于最终状态确认)
-                    # LangGraph 有时会在 on_chain_end 的 output 中包含最终消息列表
-                    # 我们可以尝试提取以确保 all_messages 最完整
-                    data_raw: Any = event_dict.get("data", {})
-                    data: Dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}  # type: ignore[assignment]
-                    output = data.get("output") if isinstance(data, dict) else None
-                    if output and isinstance(output, dict) and "messages" in output:
-                        state.all_messages = output["messages"]
-
-                # Drain file events from FileTrackingProxy
-                for file_evt in file_emitter.drain():
-                    yield handler.format_sse(
-                        "file_event",
-                        {
-                            "action": file_evt.action,
-                            "path": file_evt.path,
-                            "size": file_evt.size,
-                            "timestamp": file_evt.timestamp,
-                        },
-                        state.thread_id,
-                        state,
-                    )
+                async for sse in _dispatch_stream_event(event, handler, state, file_emitter):
+                    yield sse
 
             # 5. 检查是否有中断
             interrupted = False
@@ -994,22 +1017,7 @@ async def chat_stream(
 
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
-                try:
-                    async with AsyncSessionLocal() as session:
-                        result_query = await session.execute(
-                            select(Conversation).where(Conversation.thread_id == thread_id)
-                        )
-                        if conv := result_query.scalar_one_or_none():
-                            if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
-                                del conv.meta_data["interrupted_graph_id"]
-                                await session.commit()
-                                log.debug(f"Cleared interrupt marker from conversation | thread_id={thread_id}")
-                except asyncio.CancelledError:
-                    log.debug(f"Clear interrupt marker cancelled for thread {thread_id} (connection closing)")
-                except Exception as e:
-                    log.warning(
-                        f"Failed to clear interrupt marker for conversation | thread_id={thread_id} | error={e}"
-                    )
+                await _clear_interrupt_marker(thread_id, log)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -1065,9 +1073,6 @@ async def chat_resume(
     # Checkpointer 会自动恢复之前的状态
     if graph_id is None:
         raise_not_found_error("Graph ID not found in conversation metadata or state")
-
-    # Type narrowing: graph_id is guaranteed to be UUID after check
-    assert graph_id is not None
 
     # 3a. 尝试从 Graph 模型补齐 workspace_id / graph_name，便于 Trace 归档与查询
     graph_workspace_id: str | None = None
@@ -1149,65 +1154,9 @@ async def chat_resume(
                     log.info(f"Task stopped by user: {thread_id}")
                     break
 
-                # B. 事件分发（复用 chat_stream 的逻辑）
-                event_dict: dict[str, Any]
-                if isinstance(event, dict):
-                    event_dict = event  # type: ignore[assignment]
-                else:
-                    # Convert event to dict if needed
-                    event_dict = {"event": str(type(event).__name__), "data": event} if event else {}
-                event_type = event_dict.get("event")
-                event_name = event_dict.get("name", "")
-                metadata = event_dict.get("metadata", {}) if isinstance(event_dict.get("metadata"), dict) else {}
-                langgraph_node = metadata.get("langgraph_node")
-
-                is_node_event = langgraph_node is not None or (
-                    event_name
-                    and "node" in event_name.lower()
-                    and "tool" not in event_name.lower()
-                    and "model" not in event_name.lower()
-                    and "llm" not in event_name.lower()
-                    and "chat" not in event_name.lower()
-                )
-
-                # 提取 run_id / parent_run_id（LangGraph v2）
-                run_id, parent_run_id = _extract_run_ids(event_dict)
-
-                if event_type == "on_chat_model_start":
-                    yield await handler.handle_chat_model_start(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_chat_model_stream":
-                    if sse := await handler.handle_chat_model_stream(event_dict, state, run_id, parent_run_id):
-                        yield sse
-
-                elif event_type == "on_chat_model_end":
-                    yield await handler.handle_chat_model_end(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_tool_start":
-                    yield await handler.handle_tool_start(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_tool_end":
-                    yield await handler.handle_tool_end(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_chain_start" and is_node_event:
-                    yield await handler.handle_node_start(event_dict, state, run_id, parent_run_id)
-
-                elif event_type == "on_chain_end":
-                    if is_node_event:
-                        result = await handler.handle_node_end(event_dict, state, run_id, parent_run_id)
-                        # handle_node_end 返回 list[str]
-                        if isinstance(result, list):
-                            for event_str in result:
-                                if event_str and event_str.strip():
-                                    yield event_str.strip() + "\n\n"
-                        elif isinstance(result, str) and result.strip():
-                            yield result
-
-                    data_raw: Any = event_dict.get("data", {})
-                    data: Dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}  # type: ignore[assignment]
-                    output = data.get("output") if isinstance(data, dict) else None
-                    if output and isinstance(output, dict) and "messages" in output:
-                        state.all_messages = output["messages"]
+                # B. 事件分发
+                async for sse in _dispatch_stream_event(event, handler, state):
+                    yield sse
 
             # 5. 检查是否有新的中断
             interrupted = False
@@ -1261,16 +1210,6 @@ async def chat_resume(
                     thread_id,
                 )
             else:
-                # 执行完成，清理 conversation 中的中断标记
-                async with AsyncSessionLocal() as session:
-                    result_query = await session.execute(
-                        select(Conversation).where(Conversation.thread_id == thread_id)
-                    )
-                    if conv := result_query.scalar_one_or_none():
-                        if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
-                            del conv.meta_data["interrupted_graph_id"]
-                            await session.commit()
-                            log.debug(f"Cleared interrupt marker from conversation | thread_id={thread_id}")
                 yield handler.format_sse("done", {"_meta": {"node_name": "system"}}, thread_id)
 
         except asyncio.CancelledError:
@@ -1302,14 +1241,6 @@ async def chat_resume(
                     log.warning(f"[Chat API Resume] Failed to cleanup backend: {e}")
             # 如果执行完成（非中断），清理 conversation 中的中断标记
             if not state.interrupted:
-                async with AsyncSessionLocal() as session:
-                    result_query = await session.execute(
-                        select(Conversation).where(Conversation.thread_id == thread_id)
-                    )
-                    if conv := result_query.scalar_one_or_none():
-                        if conv.meta_data and "interrupted_graph_id" in conv.meta_data:
-                            del conv.meta_data["interrupted_graph_id"]
-                            await session.commit()
-                            log.debug(f"Cleared interrupt marker from conversation | thread_id={thread_id}")
+                await _clear_interrupt_marker(thread_id, log)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
