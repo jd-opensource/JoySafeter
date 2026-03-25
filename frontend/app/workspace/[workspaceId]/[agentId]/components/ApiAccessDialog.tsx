@@ -86,10 +86,10 @@ export function ApiAccessDialog({
   const tokenHeader = (
     <div>
       <div className="mb-4">
-        <h3 className="text-sm font-medium text-gray-900">
+        <h3 className="text-sm font-medium text-[var(--text-primary)]">
           {t('workspace.apiKeys', { defaultValue: 'API Tokens' })}
         </h3>
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-[var(--text-tertiary)]">
           {t('workspace.apiKeysDescription', {
             defaultValue: "Manage API tokens that have access to this workspace's resources.",
           })}
@@ -109,7 +109,7 @@ export function ApiAccessDialog({
         <p className="mt-1 text-xs text-amber-600">{t('settings.tokens.limitReached')}</p>
       )}
       {showCreateForm && (
-        <div className="mt-3 flex items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <div className="mt-3 flex items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
           <div className="flex-1">
             <Label className="text-xs">{t('settings.tokens.name')}</Label>
             <Input
@@ -122,7 +122,7 @@ export function ApiAccessDialog({
           <div className="w-32">
             <Label className="text-xs">{t('settings.tokens.role', { defaultValue: 'Role' })}</Label>
             <Select value={tokenScope} onValueChange={setTokenScope}>
-              <SelectTrigger className="mt-1 bg-white">
+              <SelectTrigger className="mt-1 bg-[var(--surface-elevated)]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -148,8 +148,8 @@ export function ApiAccessDialog({
       <DialogContent className="flex max-h-[90vh] max-w-4xl flex-col overflow-hidden">
         <DialogHeader className="px-2 pt-2">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100">
-              <Terminal className="h-4 w-4 text-blue-600" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--brand-100)]">
+              <Terminal className="h-4 w-4 text-[var(--brand-600)]" />
             </div>
             <div>
               <DialogTitle className="text-xl">
@@ -180,14 +180,14 @@ export function ApiAccessDialog({
             <TabsContent value="integration" className="space-y-6">
               {/* Endpoint Information */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-gray-900">Base URL</h3>
-                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Base URL</h3>
+                <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                       ENDPOINT
                     </span>
                     <code
-                      className="truncate break-all font-mono text-sm text-gray-800"
+                      className="truncate break-all font-mono text-sm text-[var(--text-primary)]"
                       title={apiUrl}
                     >
                       {apiUrl}
@@ -205,7 +205,7 @@ export function ApiAccessDialog({
                           {copied ? (
                             <Check className="h-4 w-4 text-green-600" />
                           ) : (
-                            <Copy className="h-4 w-4 text-gray-500" />
+                            <Copy className="h-4 w-4 text-[var(--text-tertiary)]" />
                           )}
                         </Button>
                       </TooltipTrigger>
@@ -219,16 +219,16 @@ export function ApiAccessDialog({
 
               {/* Authentication */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-gray-900">Authentication</h3>
-                <p className="text-sm text-gray-500">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Authentication</h3>
+                <p className="text-sm text-[var(--text-tertiary)]">
                   Authenticate your API requests by including your API Token in the{' '}
-                  <code className="rounded bg-gray-100 px-1 py-0.5 text-gray-800">
+                  <code className="rounded bg-[var(--surface-3)] px-1 py-0.5 text-[var(--text-primary)]">
                     Authorization
                   </code>{' '}
                   HTTP header as a Bearer token.
                 </p>
-                <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
-                  <code className="font-mono text-sm font-semibold text-blue-800">
+                <div className="rounded-lg border border-[var(--brand-100)] bg-[var(--brand-50)]/50 p-4">
+                  <code className="font-mono text-sm font-semibold text-[var(--brand-600)]">
                     Authorization: Bearer YOUR_API_TOKEN
                   </code>
                 </div>
@@ -236,10 +236,10 @@ export function ApiAccessDialog({
 
               {/* Example Request */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-gray-900">Example Request</h3>
-                <div className="relative overflow-hidden rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between border-b border-gray-200 bg-gray-100 px-4 py-2">
-                    <span className="text-mono text-xs font-semibold text-gray-600">cURL</span>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Example Request</h3>
+                <div className="relative overflow-hidden rounded-lg border border-[var(--border)]">
+                  <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-3)] px-4 py-2">
+                    <span className="text-mono text-xs font-semibold text-[var(--text-secondary)]">cURL</span>
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -252,7 +252,7 @@ export function ApiAccessDialog({
                             {copied ? (
                               <Check className="h-3 w-3 text-green-600" />
                             ) : (
-                              <Copy className="h-3 w-3 text-gray-500" />
+                              <Copy className="h-3 w-3 text-[var(--text-tertiary)]" />
                             )}
                           </Button>
                         </TooltipTrigger>
@@ -262,7 +262,7 @@ export function ApiAccessDialog({
                       </Tooltip>
                     </TooltipProvider>
                   </div>
-                  <pre className="overflow-x-auto bg-[#0d1117] p-4 font-mono text-xs text-gray-300">
+                  <pre className="overflow-x-auto bg-[#0d1117] p-4 font-mono text-xs text-[var(--text-subtle)]">
                     <code>{curlExample}</code>
                   </pre>
                 </div>
@@ -274,7 +274,7 @@ export function ApiAccessDialog({
                   href="https://github.com/jd-opensource/JoySafeter/blob/main/docs/api/openapi.md"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                  className="inline-flex items-center text-sm font-medium text-[var(--brand-600)] hover:text-[var(--brand-600)] hover:underline"
                 >
                   {t('workspace.viewFullApiDocs', { defaultValue: 'View Full API Documentation' })}
                   <svg
@@ -296,7 +296,7 @@ export function ApiAccessDialog({
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-4">
-              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm">
                 <TokenList resourceType="graph" resourceId={workspaceId} header={tokenHeader} />
               </div>
             </TabsContent>

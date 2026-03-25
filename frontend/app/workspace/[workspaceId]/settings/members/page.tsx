@@ -242,9 +242,9 @@ export default function WorkspaceMembersPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <Shield className="mx-auto mb-4 h-12 w-12 text-gray-400" />
-          <h2 className="mb-2 text-base font-semibold text-gray-900">{t('workspace.noAccess')}</h2>
-          <p className="text-xs text-gray-500">{t('workspace.noAccessDescription')}</p>
+          <Shield className="mx-auto mb-4 h-12 w-12 text-[var(--text-muted)]" />
+          <h2 className="mb-2 text-base font-semibold text-[var(--text-primary)]">{t('workspace.noAccess')}</h2>
+          <p className="text-xs text-[var(--text-tertiary)]">{t('workspace.noAccessDescription')}</p>
         </div>
       </div>
     )
@@ -253,15 +253,15 @@ export default function WorkspaceMembersPage() {
   return (
     <div className="flex h-full flex-col">
       <div
-        className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-4 transition-all duration-300"
+        className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-4 transition-all duration-300"
         style={{
           marginLeft: isSidebarCollapsed ? '280px' : '0px',
         }}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Users className="h-6 w-6 text-gray-700" />
-            <h1 className="text-base font-semibold text-gray-900">
+            <Users className="h-6 w-6 text-[var(--text-secondary)]" />
+            <h1 className="text-base font-semibold text-[var(--text-primary)]">
               {t('workspace.membersManagement')}
             </h1>
           </div>
@@ -280,7 +280,7 @@ export default function WorkspaceMembersPage() {
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div>
-                    <label className="mb-2 block text-xs font-medium text-gray-700">
+                    <label className="mb-2 block text-xs font-medium text-[var(--text-secondary)]">
                       {t('workspace.emailAddress')}
                     </label>
                     <div className="relative">
@@ -309,14 +309,14 @@ export default function WorkspaceMembersPage() {
                       />
                       {emailPopoverOpen && (
                         <div
-                          className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg"
+                          className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg"
                           onMouseDown={(e) => {
                             e.preventDefault()
                           }}
                         >
                           {isSearching ? (
                             <div className="flex items-center justify-center py-6">
-                              <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                              <Loader2 className="h-4 w-4 animate-spin text-[var(--text-muted)]" />
                             </div>
                           ) : searchResults?.users && searchResults.users.length > 0 ? (
                             <div className="p-1">
@@ -328,29 +328,29 @@ export default function WorkspaceMembersPage() {
                                     setEmailPopoverOpen(false)
                                     emailInputRef.current?.blur()
                                   }}
-                                  className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 transition-colors hover:bg-gray-50"
+                                  className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 transition-colors hover:bg-[var(--surface-2)]"
                                 >
-                                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100">
-                                    <Users className="h-4 w-4 text-gray-600" />
+                                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-3)]">
+                                    <Users className="h-4 w-4 text-[var(--text-secondary)]" />
                                   </div>
                                   <div className="min-w-0 flex-1">
-                                    <p className="truncate text-xs font-medium text-gray-900">
+                                    <p className="truncate text-xs font-medium text-[var(--text-primary)]">
                                       {user.name || user.email}
                                     </p>
                                     {user.name && (
-                                      <p className="truncate text-[10px] text-gray-500">
+                                      <p className="truncate text-[10px] text-[var(--text-tertiary)]">
                                         {user.email}
                                       </p>
                                     )}
                                   </div>
                                   {inviteEmail === user.email && (
-                                    <Check className="h-4 w-4 text-blue-600" />
+                                    <Check className="h-4 w-4 text-[var(--brand-600)]" />
                                   )}
                                 </div>
                               ))}
                             </div>
                           ) : emailSearchQuery.length >= 2 ? (
-                            <div className="px-3 py-6 text-center text-xs text-gray-500">
+                            <div className="px-3 py-6 text-center text-xs text-[var(--text-tertiary)]">
                               {t('workspace.noUsersFound')}
                             </div>
                           ) : null}
@@ -359,31 +359,31 @@ export default function WorkspaceMembersPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="mb-2 block text-xs font-medium text-gray-700">
+                    <label className="mb-2 block text-xs font-medium text-[var(--text-secondary)]">
                       {t('workspace.role')}
                     </label>
                     <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as any)}>
-                      <SelectTrigger className="h-10 w-full border-gray-300 transition-colors hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                      <SelectTrigger className="h-10 w-full border-[var(--border-strong)] transition-colors hover:border-[var(--border-strong)] focus:border-[var(--brand-500)] focus:ring-2 focus:ring-[var(--brand-500)]">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="z-[10000001] min-w-[8rem] rounded-lg border border-gray-200 bg-white py-1.5 shadow-xl [&_span[data-radix-select-item-indicator]]:left-2 [&_span[data-radix-select-item-indicator]]:flex [&_span[data-radix-select-item-indicator]]:h-5 [&_span[data-radix-select-item-indicator]]:w-5 [&_span[data-radix-select-item-indicator]]:items-center [&_span[data-radix-select-item-indicator]]:justify-center [&_span[data-radix-select-item-indicator]]:rounded-full [&_span[data-radix-select-item-indicator]]:bg-blue-50 [&_span[data-radix-select-item-indicator]]:shadow-sm [&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:stroke-[2.5] [&_svg]:text-blue-600">
+                      <SelectContent className="z-[10000001] min-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] py-1.5 shadow-xl [&_span[data-radix-select-item-indicator]]:left-2 [&_span[data-radix-select-item-indicator]]:flex [&_span[data-radix-select-item-indicator]]:h-5 [&_span[data-radix-select-item-indicator]]:w-5 [&_span[data-radix-select-item-indicator]]:items-center [&_span[data-radix-select-item-indicator]]:justify-center [&_span[data-radix-select-item-indicator]]:rounded-full [&_span[data-radix-select-item-indicator]]:bg-[var(--brand-50)] [&_span[data-radix-select-item-indicator]]:shadow-sm [&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:stroke-[2.5] [&_svg]:text-[var(--brand-600)]">
                         {userPermissions.role === 'owner' && (
                           <SelectItem
                             value="admin"
-                            className="mx-1 cursor-pointer rounded-md py-2.5 pl-10 pr-3 transition-colors hover:bg-blue-50 focus:bg-blue-50 active:bg-blue-100"
+                            className="mx-1 cursor-pointer rounded-md py-2.5 pl-10 pr-3 transition-colors hover:bg-[var(--brand-50)] focus:bg-[var(--brand-50)] active:bg-[var(--brand-100)]"
                           >
                             {t('workspace.roles.admin')}
                           </SelectItem>
                         )}
                         <SelectItem
                           value="member"
-                          className="mx-1 cursor-pointer rounded-md py-2.5 pl-10 pr-3 transition-colors hover:bg-blue-50 focus:bg-blue-50 active:bg-blue-100"
+                          className="mx-1 cursor-pointer rounded-md py-2.5 pl-10 pr-3 transition-colors hover:bg-[var(--brand-50)] focus:bg-[var(--brand-50)] active:bg-[var(--brand-100)]"
                         >
                           {t('workspace.roles.member')}
                         </SelectItem>
                         <SelectItem
                           value="viewer"
-                          className="mx-1 cursor-pointer rounded-md py-2.5 pl-10 pr-3 transition-colors hover:bg-blue-50 focus:bg-blue-50 active:bg-blue-100"
+                          className="mx-1 cursor-pointer rounded-md py-2.5 pl-10 pr-3 transition-colors hover:bg-[var(--brand-50)] focus:bg-[var(--brand-50)] active:bg-[var(--brand-100)]"
                         >
                           {t('workspace.roles.viewer')}
                         </SelectItem>
@@ -423,13 +423,13 @@ export default function WorkspaceMembersPage() {
       >
         {membersLoading ? (
           <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            <Loader2 className="h-8 w-8 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : members.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center text-center">
-            <Users className="mb-4 h-16 w-16 text-gray-300" />
-            <h3 className="mb-2 text-base font-medium text-gray-900">{t('workspace.noMembers')}</h3>
-            <p className="mb-4 text-xs text-gray-500">{t('workspace.noMembersDescription')}</p>
+            <Users className="mb-4 h-16 w-16 text-[var(--text-subtle)]" />
+            <h3 className="mb-2 text-base font-medium text-[var(--text-primary)]">{t('workspace.noMembers')}</h3>
+            <p className="mb-4 text-xs text-[var(--text-tertiary)]">{t('workspace.noMembersDescription')}</p>
             {userPermissions.canAdmin && (
               <Button onClick={() => setInviteDialogOpen(true)}>
                 <UserPlus className="mr-2 h-4 w-4" />
@@ -439,23 +439,23 @@ export default function WorkspaceMembersPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="rounded-lg bg-white shadow-sm">
+            <div className="rounded-lg bg-[var(--surface-elevated)] shadow-sm">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-none bg-gray-50/50 hover:bg-gray-50/50">
-                    <TableHead className="h-12 border-none text-xs font-semibold text-gray-700">
+                  <TableRow className="border-none bg-[var(--surface-1)]/50 hover:bg-[var(--surface-1)]/50">
+                    <TableHead className="h-12 border-none text-xs font-semibold text-[var(--text-secondary)]">
                       {t('workspace.user')}
                     </TableHead>
-                    <TableHead className="h-12 border-none text-xs font-semibold text-gray-700">
+                    <TableHead className="h-12 border-none text-xs font-semibold text-[var(--text-secondary)]">
                       {t('workspace.emailAddress')}
                     </TableHead>
-                    <TableHead className="h-12 border-none text-xs font-semibold text-gray-700">
+                    <TableHead className="h-12 border-none text-xs font-semibold text-[var(--text-secondary)]">
                       {t('workspace.role')}
                     </TableHead>
-                    <TableHead className="h-12 border-none text-xs font-semibold text-gray-700">
+                    <TableHead className="h-12 border-none text-xs font-semibold text-[var(--text-secondary)]">
                       {t('workspace.joinedAt')}
                     </TableHead>
-                    <TableHead className="h-12 w-[140px] border-none text-right text-xs font-semibold text-gray-700">
+                    <TableHead className="h-12 w-[140px] border-none text-right text-xs font-semibold text-[var(--text-secondary)]">
                       {t('workspace.actions')}
                     </TableHead>
                   </TableRow>
@@ -487,16 +487,16 @@ export default function WorkspaceMembersPage() {
                     return (
                       <TableRow
                         key={member.id}
-                        className="border-none transition-colors hover:bg-gray-50/50"
+                        className="border-none transition-colors hover:bg-[var(--surface-1)]/50"
                       >
                         <TableCell className="border-0 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-xs font-semibold text-white shadow-sm">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-600)] text-xs font-semibold text-white shadow-sm">
                               {initials}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
-                                <p className="truncate text-xs font-semibold text-gray-900">
+                                <p className="truncate text-xs font-semibold text-[var(--text-primary)]">
                                   {member.name || '-'}
                                 </p>
                                 {member.isOwner && (
@@ -513,7 +513,7 @@ export default function WorkspaceMembersPage() {
                           </div>
                         </TableCell>
                         <TableCell className="border-0 py-4">
-                          <p className="text-xs text-gray-700">{member.email}</p>
+                          <p className="text-xs text-[var(--text-secondary)]">{member.email}</p>
                         </TableCell>
                         <TableCell className="border-0 py-4">
                           {updateMemberId === member.userId ? (
@@ -522,7 +522,7 @@ export default function WorkspaceMembersPage() {
                                 value={updateRole || member.role}
                                 onValueChange={(v) => setUpdateRole(v as any)}
                               >
-                                <SelectTrigger className="h-9 w-36 border-gray-300">
+                                <SelectTrigger className="h-9 w-36 border-[var(--border-strong)]">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -572,17 +572,17 @@ export default function WorkspaceMembersPage() {
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
-                              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100">
-                                <RoleIcon className="h-4 w-4 text-gray-600" />
+                              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--surface-3)]">
+                                <RoleIcon className="h-4 w-4 text-[var(--text-secondary)]" />
                               </div>
-                              <span className="text-xs font-medium text-gray-700">
+                              <span className="text-xs font-medium text-[var(--text-secondary)]">
                                 {t(`workspace.roles.${member.role}`)}
                               </span>
                             </div>
                           )}
                         </TableCell>
                         <TableCell className="border-0 py-4">
-                          <p className="text-xs text-gray-600">{joinedDate}</p>
+                          <p className="text-xs text-[var(--text-secondary)]">{joinedDate}</p>
                         </TableCell>
                         <TableCell className="border-0 py-4 text-right">
                           {canModify && updateMemberId !== member.userId ? (
@@ -593,7 +593,7 @@ export default function WorkspaceMembersPage() {
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600"
+                                      className="h-8 w-8 p-0 hover:bg-[var(--brand-50)] hover:text-[var(--brand-600)]"
                                       onClick={() => {
                                         setUpdateMemberId(member.userId)
                                         setUpdateRole(member.role as any)
@@ -624,7 +624,7 @@ export default function WorkspaceMembersPage() {
                               </div>
                             </TooltipProvider>
                           ) : (
-                            <span className="text-xs text-gray-400">-</span>
+                            <span className="text-xs text-[var(--text-muted)]">-</span>
                           )}
                         </TableCell>
                       </TableRow>

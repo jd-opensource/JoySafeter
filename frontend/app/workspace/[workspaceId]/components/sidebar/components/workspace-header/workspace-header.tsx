@@ -448,7 +448,7 @@ export function WorkspaceHeader({
                   <TooltipContent
                     side="bottom"
                     sideOffset={4}
-                    className="rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg"
+                    className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
                   >
                     {activeWorkspace
                       ? getWorkspaceDisplayName(activeWorkspace)
@@ -457,7 +457,7 @@ export function WorkspaceHeader({
                 </Tooltip>
               </TooltipProvider>
               {activeWorkspace?.type === 'personal' ? (
-                <span className="w-[32px] shrink-0 rounded-[4px] bg-blue-100 px-[3px] py-[1px] text-center text-[9px] font-medium text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                <span className="w-[32px] shrink-0 rounded-[4px] bg-[var(--brand-100)] px-[3px] py-[1px] text-center text-[9px] font-medium text-[var(--brand-600)]">
                   {t('workspace.personal')}
                 </span>
               ) : activeWorkspace?.type === 'team' ? (
@@ -481,7 +481,7 @@ export function WorkspaceHeader({
                   <TooltipContent
                     side="bottom"
                     sideOffset={4}
-                    className="rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg"
+                    className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
                   >
                     {t('workspace.renameWorkspace')}
                   </TooltipContent>
@@ -514,7 +514,7 @@ export function WorkspaceHeader({
             <TooltipContent
               side="bottom"
               sideOffset={4}
-              className="rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg"
+              className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
             >
               {t('workspace.switchWorkspace')}
             </TooltipContent>
@@ -537,7 +537,7 @@ export function WorkspaceHeader({
               <TooltipContent
                 side="bottom"
                 sideOffset={4}
-                className="rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg"
+                className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
               >
                 {isCollapsed ? t('workspace.expandSidebar') : t('workspace.collapseSidebar')}
               </TooltipContent>
@@ -573,7 +573,7 @@ export function WorkspaceHeader({
                   <TooltipContent
                     side="bottom"
                     sideOffset={4}
-                    className="rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg"
+                    className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
                   >
                     {t('workspace.createWorkspace')}
                   </TooltipContent>
@@ -698,7 +698,7 @@ export function WorkspaceHeader({
 
                         <div className="flex w-[44px] shrink-0 justify-center">
                           {workspace.type === 'personal' ? (
-                            <span className="w-[36px] rounded-[4px] bg-blue-100 px-[4px] py-[1px] text-center text-[10px] font-medium text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                            <span className="w-[36px] rounded-[4px] bg-[var(--brand-100)] px-[4px] py-[1px] text-center text-[10px] font-medium text-[var(--brand-600)]">
                               {t('workspace.personal')}
                             </span>
                           ) : workspace.type === 'team' ? (

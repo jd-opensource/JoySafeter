@@ -74,49 +74,49 @@ function CustomControls({
 
   return (
     <div className="absolute bottom-4 left-1/2 z-[100] -translate-x-1/2 transform">
-      <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-lg">
+      <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-1 shadow-lg">
         {/* Zoom Controls */}
         <button
           onClick={() => zoomIn()}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)]"
           title={zoomInTitle}
         >
-          <ZoomIn size={15} className="text-gray-600" />
+          <ZoomIn size={15} className="text-[var(--text-secondary)]" />
         </button>
         <button
           onClick={() => zoomOut()}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)]"
           title={zoomOutTitle}
         >
-          <ZoomOut size={15} className="text-gray-600" />
+          <ZoomOut size={15} className="text-[var(--text-secondary)]" />
         </button>
         <button
           onClick={() => fitView({ padding: 0.2 })}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)]"
           title={fitViewTitle}
         >
-          <Maximize size={15} className="text-gray-600" />
+          <Maximize size={15} className="text-[var(--text-secondary)]" />
         </button>
 
         {/* Divider */}
-        <div className="mx-1 h-5 w-px bg-gray-200" />
+        <div className="mx-1 h-5 w-px bg-[var(--surface-5)]" />
 
         {/* Undo/Redo */}
         <button
           onClick={handleUndo}
           disabled={past.length === 0 || !canEdit}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)] disabled:cursor-not-allowed disabled:opacity-40"
           title={undoTitle}
         >
-          <Undo2 size={15} className="text-gray-600" />
+          <Undo2 size={15} className="text-[var(--text-secondary)]" />
         </button>
         <button
           onClick={handleRedo}
           disabled={future.length === 0 || !canEdit}
-          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-gray-100 active:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--surface-3)] active:bg-[var(--surface-5)] disabled:cursor-not-allowed disabled:opacity-40"
           title={redoTitle}
         >
-          <Redo2 size={15} className="text-gray-600" />
+          <Redo2 size={15} className="text-[var(--text-secondary)]" />
         </button>
       </div>
     </div>
@@ -409,16 +409,16 @@ export function BuilderCanvas() {
 
   return (
     <div
-      className="relative h-full flex-1 overflow-hidden bg-gray-50"
+      className="relative h-full flex-1 overflow-hidden bg-[var(--surface-1)]"
       ref={reactFlowWrapper}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
       <div
-        className={`pointer-events-none absolute inset-4 z-50 flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 ${isDragOver ? 'scale-100 border-blue-500/50 bg-blue-500/5 opacity-100 backdrop-blur-[1px]' : 'scale-95 border-transparent opacity-0'}`}
+        className={`pointer-events-none absolute inset-4 z-50 flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 ${isDragOver ? 'scale-100 border-[var(--brand-500)]/50 bg-[var(--brand-500)]/5 opacity-100 backdrop-blur-[1px]' : 'scale-95 border-transparent opacity-0'}`}
       >
-        <div className="flex animate-bounce items-center gap-3 rounded-xl border border-blue-100 bg-white px-6 py-3 font-medium text-blue-600 shadow-xl">
+        <div className="flex animate-bounce items-center gap-3 rounded-xl border border-[var(--brand-100)] bg-[var(--surface-elevated)] px-6 py-3 font-medium text-[var(--brand-600)] shadow-xl">
           <Plus size={20} /> <span className="text-lg">{t('workspace.dropToAddNode')}</span>
         </div>
       </div>
@@ -451,7 +451,7 @@ export function BuilderCanvas() {
         onNodeDragStart={() => takeSnapshot()}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        className="h-full w-full bg-gray-50"
+        className="h-full w-full bg-[var(--surface-1)]"
         defaultEdgeOptions={{
           style: { stroke: EDGE_COLORS.normal, strokeWidth: 1.5 },
           animated: true,

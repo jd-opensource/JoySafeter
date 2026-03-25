@@ -161,7 +161,7 @@ function AgentItem({
 
         {isEditing ? (
           <div className="flex flex-1 items-center gap-[6px] py-[3px] pr-[6px] duration-150 animate-in fade-in">
-            <Bot className="ml-[2px] h-[14px] w-[14px] flex-shrink-0 text-blue-500" />
+            <Bot className="ml-[2px] h-[14px] w-[14px] flex-shrink-0 text-[var(--brand-500)]" />
             <div className="relative flex flex-1 items-center">
               <input
                 ref={inputRef}
@@ -207,7 +207,7 @@ function AgentItem({
                     handleStartRename()
                   }}
                 >
-                  <Bot className="mr-[6px] h-[14px] w-[14px] flex-shrink-0 text-blue-500" />
+                  <Bot className="mr-[6px] h-[14px] w-[14px] flex-shrink-0 text-[var(--brand-500)]" />
                   <span className="truncate text-[12px] font-medium">{agent.name}</span>
                 </Link>
               </TooltipTrigger>
