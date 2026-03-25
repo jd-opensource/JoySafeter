@@ -126,7 +126,7 @@ export function SkillCard({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <Button
             variant="ghost"
             size="sm"

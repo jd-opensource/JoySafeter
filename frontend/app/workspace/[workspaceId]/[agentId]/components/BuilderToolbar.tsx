@@ -219,13 +219,13 @@ export function BuilderToolbar({
                   onClick={() => toggleAdvancedSettings()}
                   className="font-medium text-[var(--brand-600)]"
                 >
-                  {showAdvancedSettings ? 'Hide Advanced Mode' : 'Show Advanced Mode'}
+                  {showAdvancedSettings ? t('workspace.hideAdvancedMode', { defaultValue: 'Hide Advanced Mode' }) : t('workspace.showAdvancedMode', { defaultValue: 'Show Advanced Mode' })}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {showAdvancedSettings && (
                   <>
                     <DropdownMenuItem onClick={() => toggleGraphStatePanel(true)}>
-                      <Database size={14} className="mr-2" /> Graph State Schema
+                      <Database size={14} className="mr-2" /> {t('workspace.graphStateSchema', { defaultValue: 'Graph State Schema' })}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => toggleSchemaExport(true)}>
                       <FileJson size={14} className="mr-2" /> Schema
@@ -345,7 +345,7 @@ export function BuilderToolbar({
                 {agentId && (
                   <DropdownMenuItem onClick={() => setShowApiAccess(true)}>
                     <Terminal size={14} className="mr-2" />
-                    Access API
+                    {t('workspace.accessApi', { defaultValue: 'Access API' })}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

@@ -229,6 +229,7 @@ export default function ChatSidebar({
             isCollapsed ? 'px-0' : 'gap-2 px-2',
           )}
           title={isCollapsed ? t('chat.expand') : t('chat.collapse')}
+          aria-label={isCollapsed ? t('chat.expand') : t('chat.collapse')}
         >
           {isCollapsed ? (
             <ChevronRight size={14} />
