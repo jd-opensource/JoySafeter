@@ -43,7 +43,7 @@ function MessageBubble({ message }: { message: Message }) {
           'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
           isUser
             ? 'rounded-br-md bg-gray-900 text-white'
-            : 'rounded-bl-md border border-[var(--border-muted)] bg-[var(--surface-1)] text-[var(--text-primary)]',
+            : 'rounded-bl-md border border-[var(--border-muted)] bg-[var(--surface-2)] text-[var(--text-primary)]',
         )}
       >
         {isUser ? (
@@ -168,7 +168,7 @@ export default function SkillCreatorChat({
 
       {/* Input area */}
       <div className="border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] p-4">
-        <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] px-4 py-3">
+        <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
           <textarea
             ref={textareaRef}
             value={input}

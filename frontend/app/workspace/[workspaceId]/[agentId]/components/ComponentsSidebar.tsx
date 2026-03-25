@@ -19,7 +19,7 @@ export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps)
   const groupedTools = nodeRegistry.getGrouped()
 
   return (
-    <div className="flex h-full flex-col bg-[var(--surface-1)]">
+    <div className="flex h-full flex-col bg-[var(--surface-2)]">
       {/* Header */}
       {showHeader && (
         <div className="flex items-center gap-2 border-b border-[var(--border-muted)] px-3 py-3">

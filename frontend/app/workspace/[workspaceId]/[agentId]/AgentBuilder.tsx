@@ -613,7 +613,7 @@ const AgentBuilderContent = () => {
       </div>
 
       {/* RIGHT: Panel - Fixed Position (combines Toolbar and Sidebar) */}
-      <aside className="fixed inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-[var(--border-muted)] bg-[var(--surface-1)]">
+      <aside className="fixed inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-[var(--border-muted)] bg-[var(--surface-2)]">
         {/* Header with Toolbar */}
         <div className="flex-shrink-0 border-b border-[var(--border)]">
           <BuilderToolbar

@@ -303,7 +303,7 @@ export function BuilderToolbar({
                             ? needsRedeployment
                               ? 'border border-primary border-r-white/20 bg-primary text-primary-foreground hover:bg-primary/90'
                               : 'border border-[var(--status-success-border)] border-r-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
-                            : 'border border-[var(--border)] border-r-black/10 bg-[var(--surface-1)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)]',
+                            : 'border border-[var(--border)] border-r-black/10 bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
                         )}
                         style={{ borderRightWidth: '1px' }}
                       >
@@ -329,7 +329,7 @@ export function BuilderToolbar({
                         ? needsRedeployment
                           ? 'border border-l-0 border-primary bg-primary text-primary-foreground hover:bg-primary/90'
                           : 'border border-l-0 border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
-                        : 'border border-l-0 border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)]',
+                        : 'border border-l-0 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
                     )}
                   >
                     <ChevronDown size={14} />

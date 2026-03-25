@@ -14,7 +14,7 @@ export function BuilderSidebarTabs() {
   return (
     <Tabs defaultValue="copilot" className="flex h-full flex-col">
       {/* Tab Headers */}
-      <div className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-1)] px-5 pb-0 pt-0">
+      <div className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-2)] px-5 pb-0 pt-0">
         <TabsList className="flex h-auto w-full space-x-6 bg-transparent p-0">
           <TabsTrigger
             value="copilot"
