@@ -207,7 +207,7 @@ export default function SkillSaveDialog({
 
           {/* Name input */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Skill Name</label>
+            <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">Skill Name</label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -218,8 +218,8 @@ export default function SkillSaveDialog({
 
           {/* Description input */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Description <span className="font-normal text-gray-400">(optional)</span>
+            <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
+              Description <span className="font-normal text-[var(--text-muted)]">(optional)</span>
             </label>
             <Input
               value={description}
@@ -231,11 +231,11 @@ export default function SkillSaveDialog({
 
           {/* File count */}
           {(fileTree && Object.keys(fileTree).length > 0) ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-[var(--text-tertiary)]">
               {Object.keys(fileTree).length} file{Object.keys(fileTree).length !== 1 ? 's' : ''} will be saved.
             </p>
           ) : previewData ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-[var(--text-tertiary)]">
               {previewData.files.length} file{previewData.files.length !== 1 ? 's' : ''} will be saved.
             </p>
           ) : null}
@@ -248,7 +248,7 @@ export default function SkillSaveDialog({
           <Button
             onClick={handleSave}
             disabled={isSaving || !name.trim() || hasErrors}
-            className="bg-emerald-600 text-white hover:bg-emerald-700"
+            className="bg-[var(--skill-brand-600)] text-white hover:bg-[var(--skill-brand-700)]"
           >
             {isSaving ? (
               <>

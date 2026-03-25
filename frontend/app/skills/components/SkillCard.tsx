@@ -61,15 +61,15 @@ export function SkillCard({
   if (variant === 'list') {
     // List variant - similar to Memory page cards
     return (
-      <Card className="group flex items-start justify-between border-gray-200 bg-white p-4 transition-all hover:border-emerald-200 hover:shadow-md">
+      <Card className="group flex items-start justify-between border-[var(--border)] bg-[var(--surface-1)] p-4 transition-all hover:border-[var(--skill-brand-200)] hover:shadow-md">
         <div className="flex min-w-0 flex-1 items-start gap-4">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] text-[var(--skill-brand-600)]">
             <ShieldCheck size={18} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex items-center gap-2">
               <h3
-                className="cursor-default truncate text-sm font-semibold text-gray-900"
+                className="cursor-default truncate text-sm font-semibold text-[var(--text-primary)]"
                 title={skill.name}
               >
                 {skill.name}
@@ -77,7 +77,7 @@ export function SkillCard({
               {isOwner && (
                 <Badge
                   variant="outline"
-                  className="border-emerald-100 bg-emerald-50 px-1.5 py-0 text-[9px] text-emerald-600"
+                  className="border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1.5 py-0 text-[9px] text-[var(--skill-brand-600)]"
                 >
                   {t('skills.yours')}
                 </Badge>
@@ -85,13 +85,13 @@ export function SkillCard({
               {skill.license && (
                 <Badge
                   variant="outline"
-                  className="border-gray-200 bg-gray-50 px-1.5 py-0 text-[9px] text-gray-500"
+                  className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-[9px] text-[var(--text-muted)]"
                 >
                   {skill.license}
                 </Badge>
               )}
             </div>
-            <p className="mb-2 line-clamp-2 text-xs leading-relaxed text-gray-500">
+            <p className="mb-2 line-clamp-2 text-xs leading-relaxed text-[var(--text-muted)]">
               {skill.description || t('skills.noDescription')}
             </p>
             <div className="flex flex-wrap items-center gap-3">
@@ -101,17 +101,17 @@ export function SkillCard({
                     <Badge
                       key={i}
                       variant="outline"
-                      className="border-gray-200 bg-gray-50 px-1.5 py-0 text-[9px] text-gray-600"
+                      className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-[9px] text-[var(--text-secondary)]"
                     >
                       {tag}
                     </Badge>
                   ))}
                   {skill.tags.length > 3 && (
-                    <span className="text-[9px] text-gray-400">+{skill.tags.length - 3}</span>
+                    <span className="text-[9px] text-[var(--text-muted)]">+{skill.tags.length - 3}</span>
                   )}
                 </div>
               )}
-              <div className="flex items-center gap-2 text-[10px] text-gray-400">
+              <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
                 <span className="flex items-center gap-1">
                   <FileText size={10} />
                   {fileCount} {t('skills.files')}
@@ -130,7 +130,7 @@ export function SkillCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-3 text-xs text-gray-600 hover:text-emerald-600"
+            className="h-8 px-3 text-xs text-[var(--text-secondary)] hover:text-[var(--skill-brand)]"
             onClick={() => onView?.(skill)}
           >
             <Eye size={14} className="mr-1" />
@@ -140,7 +140,7 @@ export function SkillCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 px-3 text-xs text-emerald-600 hover:bg-emerald-50"
+              className="h-8 px-3 text-xs text-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-50)]"
               onClick={() => onCopy?.(skill)}
             >
               <Copy size={14} className="mr-1" />
@@ -156,8 +156,8 @@ export function SkillCard({
   return (
     <Card
       className={cn(
-        'group relative overflow-hidden border-gray-200 bg-white',
-        'transition-all duration-200 hover:border-emerald-200 hover:shadow-lg',
+        'group relative overflow-hidden border-[var(--border)] bg-[var(--surface-1)]',
+        'transition-all duration-200 hover:border-[var(--skill-brand-200)] hover:shadow-lg',
         'flex h-full flex-col',
       )}
     >
@@ -165,13 +165,13 @@ export function SkillCard({
       <div className="flex flex-1 flex-col p-4">
         {/* Header: Icon + Name + License */}
         <div className="mb-3 flex items-start gap-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] text-[var(--skill-brand-600)]">
             <ShieldCheck size={18} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h3
-                className="cursor-default truncate text-sm font-semibold text-gray-900"
+                className="cursor-default truncate text-sm font-semibold text-[var(--text-primary)]"
                 title={skill.name}
               >
                 {skill.name}
@@ -180,14 +180,14 @@ export function SkillCard({
             <div className="mt-0.5 flex items-center gap-2">
               {skill.license && (
                 <div className="flex items-center gap-1">
-                  <Scale size={10} className="text-gray-400" />
-                  <span className="text-[10px] text-gray-500">{skill.license}</span>
+                  <Scale size={10} className="text-[var(--text-muted)]" />
+                  <span className="text-[10px] text-[var(--text-muted)]">{skill.license}</span>
                 </div>
               )}
               {isOwner && (
                 <Badge
                   variant="outline"
-                  className="h-3.5 border-emerald-100 bg-emerald-50 px-1 py-0 text-[8px] text-emerald-600"
+                  className="h-3.5 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1 py-0 text-[8px] text-[var(--skill-brand-600)]"
                 >
                   {t('skills.yours')}
                 </Badge>
@@ -201,7 +201,7 @@ export function SkillCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-gray-400 opacity-0 transition-opacity hover:text-gray-900 group-hover:opacity-100"
+                className="h-7 w-7 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
               >
                 <MoreHorizontal size={14} />
               </Button>
@@ -222,7 +222,7 @@ export function SkillCard({
         </div>
 
         {/* Description */}
-        <p className="mb-3 line-clamp-2 flex-1 text-xs leading-relaxed text-gray-500">
+        <p className="mb-3 line-clamp-2 flex-1 text-xs leading-relaxed text-[var(--text-muted)]">
           {skill.description || t('skills.noDescription')}
         </p>
 
@@ -233,7 +233,7 @@ export function SkillCard({
               <Badge
                 key={index}
                 variant="outline"
-                className="border-gray-200 bg-gray-50 px-1.5 py-0 text-[9px] text-gray-600 hover:bg-gray-100"
+                className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-[9px] text-[var(--text-secondary)] hover:bg-[var(--surface-2)]"
               >
                 {tag}
               </Badge>
@@ -241,7 +241,7 @@ export function SkillCard({
             {skill.tags.length > 3 && (
               <Badge
                 variant="outline"
-                className="border-gray-200 bg-gray-50 px-1.5 py-0 text-[9px] text-gray-400"
+                className="border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0 text-[9px] text-[var(--text-muted)]"
               >
                 +{skill.tags.length - 3}
               </Badge>
@@ -250,7 +250,7 @@ export function SkillCard({
         )}
 
         {/* Meta info row */}
-        <div className="flex items-center gap-3 border-t border-gray-100 pt-3 text-[10px] text-gray-400">
+        <div className="flex items-center gap-3 border-t border-[var(--border)] pt-3 text-[10px] text-[var(--text-muted)]">
           {skill.owner_id && (
             <div className="flex items-center gap-1">
               <User size={10} />
@@ -271,11 +271,11 @@ export function SkillCard({
       </div>
 
       {/* Quick action footer */}
-      <div className="flex gap-2 border-t border-gray-100 bg-gray-50/50 px-4 py-3">
+      <div className="flex gap-2 border-t border-[var(--border)] bg-[var(--surface-1)]/50 px-4 py-3">
         <Button
           variant="outline"
           size="sm"
-          className="h-8 flex-1 gap-1.5 text-xs hover:bg-white"
+          className="h-8 flex-1 gap-1.5 text-xs hover:bg-[var(--surface-1)]"
           onClick={() => onView?.(skill)}
         >
           <Eye size={12} />
@@ -285,7 +285,7 @@ export function SkillCard({
           <Button
             variant="default"
             size="sm"
-            className="h-8 flex-1 gap-1.5 bg-emerald-600 text-xs hover:bg-emerald-700"
+            className="h-8 flex-1 gap-1.5 bg-[var(--skill-brand-600)] text-xs hover:bg-[var(--skill-brand-700)]"
             onClick={() => onCopy?.(skill)}
           >
             <Copy size={12} />

@@ -96,7 +96,7 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-strong)] border-t-[var(--text-secondary)]" />
       </div>
     )
   }
@@ -119,7 +119,7 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
           {showPublishForm && (
             <form
               onSubmit={form.handleSubmit(handlePublish)}
-              className="mt-3 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4"
+              className="mt-3 space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4"
             >
               <div>
                 <Label className="text-xs">{t('skillVersions.versionNumber')}</Label>
@@ -154,27 +154,27 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
       {/* Version list */}
       {versions.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-12 text-center">
-          <History className="h-8 w-8 text-gray-300" />
-          <p className="text-sm text-gray-500">{t('skillVersions.emptyState')}</p>
+          <History className="h-8 w-8 text-[var(--text-subtle)]" />
+          <p className="text-sm text-[var(--text-tertiary)]">{t('skillVersions.emptyState')}</p>
         </div>
       ) : (
         <div className="space-y-2">
           {versions.map((v) => (
             <div
               key={v.version}
-              className="flex items-start justify-between rounded-lg border border-gray-200 bg-white p-3"
+              className="flex items-start justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm font-semibold">{v.version}</span>
                   {v.publishedAt && (
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-[var(--text-muted)]">
                       {new Date(v.publishedAt).toLocaleDateString()}
                     </span>
                   )}
                 </div>
                 {v.releaseNotes && (
-                  <p className="mt-1 text-xs text-gray-600">{v.releaseNotes}</p>
+                  <p className="mt-1 text-xs text-[var(--text-secondary)]">{v.releaseNotes}</p>
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-1">

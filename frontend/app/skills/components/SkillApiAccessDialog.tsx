@@ -45,8 +45,8 @@ export function SkillApiAccessDialog({
       <DialogContent className="flex max-h-[90vh] max-w-4xl flex-col overflow-hidden">
         <DialogHeader className="px-2 pt-2">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
-              <Terminal className="h-4 w-4 text-emerald-600" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--skill-brand-100)]">
+              <Terminal className="h-4 w-4 text-[var(--skill-brand-600)]" />
             </div>
             <div>
               <DialogTitle className="text-xl">
@@ -77,14 +77,14 @@ export function SkillApiAccessDialog({
             <TabsContent value="integration" className="space-y-6">
               {/* Endpoint Information */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-gray-900">Base URL</h3>
-                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Base URL</h3>
+                <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-2.5">
                   <div className="flex flex-col gap-1 overflow-hidden">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                       ENDPOINT
                     </span>
                     <code
-                      className="truncate break-all font-mono text-sm text-gray-800"
+                      className="truncate break-all font-mono text-sm text-[var(--text-primary)]"
                       title={apiUrl}
                     >
                       {apiUrl}
@@ -102,7 +102,7 @@ export function SkillApiAccessDialog({
                           {copiedUrl ? (
                             <Check className="h-4 w-4 text-green-600" />
                           ) : (
-                            <Copy className="h-4 w-4 text-gray-500" />
+                            <Copy className="h-4 w-4 text-[var(--text-tertiary)]" />
                           )}
                         </Button>
                       </TooltipTrigger>
@@ -116,15 +116,15 @@ export function SkillApiAccessDialog({
 
               {/* Authentication */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-gray-900">Authentication</h3>
-                <p className="text-sm text-gray-500">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Authentication</h3>
+                <p className="text-sm text-[var(--text-tertiary)]">
                   {t('skills.authDescription', {
                     defaultValue:
                       'Authenticate your API requests by including your API Token in the Authorization HTTP header as a Bearer token.',
                   })}
                 </p>
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
-                  <code className="font-mono text-sm font-semibold text-emerald-800">
+                <div className="rounded-lg border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] p-4">
+                  <code className="font-mono text-sm font-semibold text-[var(--skill-brand-700)]">
                     Authorization: Bearer YOUR_API_TOKEN
                   </code>
                 </div>
@@ -132,10 +132,10 @@ export function SkillApiAccessDialog({
 
               {/* Example Request */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-gray-900">Example Request</h3>
-                <div className="relative overflow-hidden rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between border-b border-gray-200 bg-gray-100 px-4 py-2">
-                    <span className="text-mono text-xs font-semibold text-gray-600">cURL</span>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Example Request</h3>
+                <div className="relative overflow-hidden rounded-lg border border-[var(--border)]">
+                  <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-3)] px-4 py-2">
+                    <span className="text-mono text-xs font-semibold text-[var(--text-secondary)]">cURL</span>
                     <TooltipProvider delayDuration={300}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -148,7 +148,7 @@ export function SkillApiAccessDialog({
                             {copiedCode ? (
                               <Check className="h-3 w-3 text-green-600" />
                             ) : (
-                              <Copy className="h-3 w-3 text-gray-500" />
+                              <Copy className="h-3 w-3 text-[var(--text-tertiary)]" />
                             )}
                           </Button>
                         </TooltipTrigger>
@@ -166,12 +166,12 @@ export function SkillApiAccessDialog({
             </TabsContent>
 
             <TabsContent value="tokens" className="space-y-4">
-              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm">
                 <div className="mb-4">
-                  <h3 className="text-sm font-medium text-gray-900">
+                  <h3 className="text-sm font-medium text-[var(--text-primary)]">
                     {t('skills.skillApiTokens', { defaultValue: 'Skill API Tokens' })}
                   </h3>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                     {t('skills.skillApiTokensDescription', {
                       defaultValue:
                         'Manage tokens scoped to this skill for programmatic execution.',

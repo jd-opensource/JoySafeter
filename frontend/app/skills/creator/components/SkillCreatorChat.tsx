@@ -32,8 +32,8 @@ function MessageBubble({ message }: { message: Message }) {
     <div className={cn('flex w-full gap-3', isUser ? 'justify-end' : 'justify-start')}>
       {/* Avatar */}
       {!isUser && (
-        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100">
-          <Bot size={14} className="text-emerald-600" />
+        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[var(--skill-brand-100)]">
+          <Bot size={14} className="text-[var(--skill-brand-600)]" />
         </div>
       )}
 
@@ -43,7 +43,7 @@ function MessageBubble({ message }: { message: Message }) {
           'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
           isUser
             ? 'rounded-br-md bg-gray-900 text-white'
-            : 'rounded-bl-md border border-gray-100 bg-gray-50 text-gray-800',
+            : 'rounded-bl-md border border-[var(--border-muted)] bg-[var(--surface-1)] text-[var(--text-primary)]',
         )}
       >
         {isUser ? (
@@ -52,7 +52,7 @@ function MessageBubble({ message }: { message: Message }) {
           <div className="prose prose-sm max-w-none prose-headings:my-2 prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
             <ReactMarkdown>{message.content || (message.isStreaming ? '' : '...')}</ReactMarkdown>
             {message.isStreaming && (
-              <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-emerald-500 align-middle" />
+              <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-[var(--skill-brand)] align-middle" />
             )}
           </div>
         )}
@@ -74,8 +74,8 @@ function MessageBubble({ message }: { message: Message }) {
 
       {/* User avatar */}
       {isUser && (
-        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-gray-200">
-          <User size={14} className="text-gray-600" />
+        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[var(--surface-5)]">
+          <User size={14} className="text-[var(--text-secondary)]" />
         </div>
       )}
     </div>
@@ -132,11 +132,11 @@ export default function SkillCreatorChat({
         {!hasMessages ? (
           /* Empty state */
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50">
-              <Wand2 size={24} className="text-emerald-500" />
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--skill-brand-50)]">
+              <Wand2 size={24} className="text-[var(--skill-brand)]" />
             </div>
-            <h3 className="mb-2 text-lg font-semibold text-gray-800">Skill Creator</h3>
-            <p className="max-w-md text-sm leading-relaxed text-gray-500">
+            <h3 className="mb-2 text-lg font-semibold text-[var(--text-primary)]">Skill Creator</h3>
+            <p className="max-w-md text-sm leading-relaxed text-[var(--text-tertiary)]">
               Describe the skill you want to create and the AI will generate the files for you. You
               can iterate on the result by continuing the conversation.
             </p>
@@ -148,7 +148,7 @@ export default function SkillCreatorChat({
                     setInput(prompt.text)
                     textareaRef.current?.focus()
                   }}
-                  className="rounded-full border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50"
+                  className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]"
                 >
                   {prompt.label}
                 </button>
@@ -167,15 +167,15 @@ export default function SkillCreatorChat({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-gray-100 bg-white p-4">
-        <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+      <div className="border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] p-4">
+        <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] px-4 py-3">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Describe the skill you want to create..."
-            className="max-h-[160px] min-h-[24px] flex-1 resize-none border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none"
+            className="max-h-[160px] min-h-[24px] flex-1 resize-none border-none bg-transparent text-sm shadow-none placeholder:text-[var(--text-muted)] focus:outline-none"
             rows={1}
             disabled={isProcessing}
           />
@@ -196,11 +196,11 @@ export default function SkillCreatorChat({
               className={cn(
                 'h-8 w-8 flex-shrink-0 rounded-full p-0 transition-colors',
                 input.trim()
-                  ? 'bg-emerald-600 hover:bg-emerald-700'
-                  : 'cursor-not-allowed bg-gray-200',
+                  ? 'bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]'
+                  : 'cursor-not-allowed bg-[var(--surface-5)]',
               )}
             >
-              <ArrowRight size={14} className={input.trim() ? 'text-white' : 'text-gray-400'} />
+              <ArrowRight size={14} className={input.trim() ? 'text-white' : 'text-[var(--text-muted)]'} />
             </Button>
           )}
         </div>

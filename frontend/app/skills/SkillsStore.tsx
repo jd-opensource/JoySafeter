@@ -172,8 +172,8 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
 
   // Loading skeleton
   const SkillCardSkeleton = () => (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5">
-      <div className="mb-4 h-1.5 w-full rounded bg-gray-100" />
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
+      <div className="mb-4 h-1.5 w-full rounded bg-[var(--surface-3)]" />
       <div className="mb-3 flex items-start gap-3">
         <Skeleton className="h-10 w-10 rounded-xl" />
         <div className="flex-1">
@@ -191,26 +191,26 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
   )
 
   return (
-    <div className="flex h-full flex-col bg-gray-50/30">
+    <div className="flex h-full flex-col bg-[var(--surface-1)]">
       {/* Header with search and filters */}
-      <div className="flex-shrink-0 border-b border-gray-100 bg-white px-6 py-4">
+      <div className="flex-shrink-0 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] px-6 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4 flex-1 min-w-0">
             {/* Search bar */}
             <div className="relative max-w-sm flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
               <Input
                 placeholder={t('skills.searchMarketplace')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-9 border-gray-200 bg-gray-50/50 pl-9 text-sm"
+                className="h-9 border-[var(--border)] bg-[var(--surface-1)] pl-9 text-sm"
               />
             </div>
 
             {/* Tag filters */}
             {allTags.length > 0 && (
               <div className="hide-scrollbar flex items-center gap-2 overflow-x-auto min-w-0 hidden md:flex">
-                <Filter className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                <Filter className="h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" />
                 {allTags.slice(0, 5).map((tag) => (
                   <Badge
                     key={tag}
@@ -218,8 +218,8 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                     className={cn(
                       'cursor-pointer whitespace-nowrap text-xs transition-colors',
                       selectedTags.includes(tag)
-                        ? 'bg-emerald-600 hover:bg-emerald-700'
-                        : 'hover:bg-gray-100',
+                        ? 'bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]'
+                        : 'hover:bg-[var(--surface-3)]',
                     )}
                     onClick={() => toggleTag(tag)}
                   >
@@ -227,7 +227,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                   </Badge>
                 ))}
                 {allTags.length > 5 && (
-                  <Badge variant="outline" className="text-xs text-gray-400">
+                  <Badge variant="outline" className="text-xs text-[var(--text-muted)]">
                     +{allTags.length - 5}
                   </Badge>
                 )}
@@ -245,7 +245,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                 variant="ghost"
                 size="sm"
                 onClick={clearFilters}
-                className="text-xs text-gray-500 hover:text-gray-700 px-2 h-8"
+                className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-2 h-8"
               >
                 <X className="mr-1 h-3 w-3" />
                 {t('skills.clearFilters')}
@@ -265,15 +265,15 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
           </div>
         ) : filteredSkills.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center py-16 text-center">
-            <div className="mb-4 rounded-full bg-gray-100 p-6">
-              <ShieldCheck className="h-12 w-12 text-gray-300" />
+            <div className="mb-4 rounded-full bg-[var(--surface-3)] p-6">
+              <ShieldCheck className="h-12 w-12 text-[var(--text-subtle)]" />
             </div>
-            <h3 className="mb-2 text-lg font-semibold text-gray-700">
+            <h3 className="mb-2 text-lg font-semibold text-[var(--text-secondary)]">
               {searchQuery || selectedTags.length > 0
                 ? t('skills.noMatchingSkills')
                 : t('skills.noPublicSkills')}
             </h3>
-            <p className="max-w-md text-sm text-gray-500">
+            <p className="max-w-md text-sm text-[var(--text-tertiary)]">
               {searchQuery || selectedTags.length > 0
                 ? t('skills.tryDifferentFilters')
                 : t('skills.beFirstToPublish')}
@@ -311,7 +311,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
       >
         <SheetContent side="right" className="flex w-full flex-col overflow-hidden p-0 sm:max-w-4xl">
           {viewSkill && (
-            <div className="flex h-full flex-1 flex-col overflow-hidden bg-white p-6">
+            <div className="flex h-full flex-1 flex-col overflow-hidden bg-[var(--surface-elevated)] p-6">
               <SheetHeader className="flex-shrink-0 text-left">
                 <SheetTitle className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500">
@@ -320,7 +320,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                   <div>
                     <span className="text-xl">{viewSkill.name}</span>
                     {viewSkill.license && (
-                      <span className="ml-2 text-xs font-normal text-gray-400">
+                      <span className="ml-2 text-xs font-normal text-[var(--text-muted)]">
                         {viewSkill.license}
                       </span>
                     )}
@@ -335,7 +335,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                 {/* Tags */}
                 {viewSkill.tags && viewSkill.tags.length > 0 && (
                   <div className="flex-shrink-0">
-                    <h4 className="mb-2 text-xs font-medium text-gray-500">{t('skills.tags')}</h4>
+                    <h4 className="mb-2 text-xs font-medium text-[var(--text-tertiary)]">{t('skills.tags')}</h4>
                     <div className="flex flex-wrap gap-1.5">
                       {viewSkill.tags.map((tag, i) => (
                         <Badge key={i} variant="secondary" className="text-xs">
@@ -349,22 +349,22 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                 {/* Files section with preview */}
                 {viewSkill.files && viewSkill.files.length > 0 && (
                   <div className="flex flex-1 flex-col overflow-hidden">
-                    <h4 className="mb-2 flex-shrink-0 text-xs font-medium text-gray-500">
+                    <h4 className="mb-2 flex-shrink-0 text-xs font-medium text-[var(--text-tertiary)]">
                       {t('skills.includedFiles')} ({viewSkill.files.length})
                     </h4>
                     <div className="flex min-h-0 flex-1 gap-4">
                       {/* File list */}
-                      <div className="flex w-1/3 flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+                      <div className="flex w-1/3 flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-1)]">
                         <div className="flex-1 overflow-y-auto">
                           {viewSkill.files.map((file, i) => (
                             <button
                               key={i}
                               onClick={() => setSelectedFile(file)}
                               className={cn(
-                                'flex w-full items-center gap-2 border-b border-gray-100 px-3 py-2 text-left transition-colors last:border-b-0',
+                                'flex w-full items-center gap-2 border-b border-[var(--border-muted)] px-3 py-2 text-left transition-colors last:border-b-0',
                                 selectedFile?.path === file.path
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'text-gray-600 hover:bg-gray-100',
+                                  ? 'bg-[var(--skill-brand-50)] text-[var(--skill-brand-700)]'
+                                  : 'text-[var(--text-secondary)] hover:bg-[var(--surface-3)]',
                               )}
                             >
                               {isCodeFile(file.path) ? (
@@ -372,8 +372,8 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                                   size={14}
                                   className={cn(
                                     selectedFile?.path === file.path
-                                      ? 'text-emerald-500'
-                                      : 'text-gray-400',
+                                      ? 'text-[var(--skill-brand)]'
+                                      : 'text-[var(--text-muted)]',
                                   )}
                                 />
                               ) : (
@@ -381,8 +381,8 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                                   size={14}
                                   className={cn(
                                     selectedFile?.path === file.path
-                                      ? 'text-emerald-500'
-                                      : 'text-gray-400',
+                                      ? 'text-[var(--skill-brand)]'
+                                      : 'text-[var(--text-muted)]',
                                   )}
                                 />
                               )}
@@ -392,8 +392,8 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                                 className={cn(
                                   'flex-shrink-0 transition-colors',
                                   selectedFile?.path === file.path
-                                    ? 'text-emerald-500'
-                                    : 'text-gray-300',
+                                    ? 'text-[var(--skill-brand)]'
+                                    : 'text-[var(--text-subtle)]',
                                 )}
                               />
                             </button>
@@ -412,8 +412,8 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                             maxHeight="100%"
                           />
                         ) : (
-                          <div className="flex h-full items-center justify-center rounded-lg border border-gray-200 bg-gray-50">
-                            <div className="text-center text-gray-400">
+                          <div className="flex h-full items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-1)]">
+                            <div className="text-center text-[var(--text-muted)]">
                               <FileCode size={32} className="mx-auto mb-2 opacity-50" />
                               <p className="text-xs">{t('skills.selectFileToPreview')}</p>
                             </div>
@@ -437,7 +437,7 @@ export default function SkillsStore({ currentUserId, onSkillCopied }: SkillsStor
                 </Button>
                 {viewSkill.owner_id !== currentUserId && (
                   <Button
-                    className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                    className="gap-2 bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]"
                     onClick={() => {
                       handleCopySkill(viewSkill)
                       setViewSkill(null)

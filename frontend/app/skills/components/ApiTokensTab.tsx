@@ -74,7 +74,7 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
       )}
 
       {showCreateForm && (
-        <div className="mt-3 flex items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <div className="mt-3 flex items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
           <div className="flex-1">
             <Label className="text-xs">{t('settings.tokens.name')}</Label>
             <Input
@@ -87,7 +87,7 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
           <div className="w-32">
             <Label className="text-xs">{t('settings.tokens.role', { defaultValue: 'Role' })}</Label>
             <Select value={tokenScope} onValueChange={setTokenScope}>
-              <SelectTrigger className="mt-1 bg-white">
+              <SelectTrigger className="mt-1 bg-[var(--surface-elevated)]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

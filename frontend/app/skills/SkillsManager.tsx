@@ -492,16 +492,16 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
   const formData = form.watch()
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-white text-gray-900">
+    <div className="flex h-full w-full overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">
       <ResizablePanelGroup direction="horizontal">
         {/* 1. List Sidebar */}
-        <ResizablePanel defaultSize={20} minSize={15} maxSize={40} className="flex shrink-0 flex-col bg-gray-50/50">
-        <div className="border-b border-gray-100 bg-white p-4">
+        <ResizablePanel defaultSize={20} minSize={15} maxSize={40} className="flex shrink-0 flex-col bg-[var(--surface-1)]">
+        <div className="border-b border-[var(--border-muted)] bg-[var(--surface-2)] p-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" size={14} />
             <Input
               placeholder={t('skills.searchCapabilities')}
-              className="h-9 border-gray-200 bg-gray-50/50 pl-9 text-xs"
+              className="h-9 border-[var(--border)] bg-[var(--surface-1)] pl-9 text-xs"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -511,7 +511,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
         <div className="custom-scrollbar flex-1 overflow-y-auto p-2">
           {loading ? (
             <div className="flex justify-center p-8">
-              <Loader2 className="animate-spin text-gray-300" />
+              <Loader2 className="animate-spin text-[var(--text-subtle)]" />
             </div>
           ) : (
             <div className="space-y-1">
@@ -522,16 +522,16 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                   className={cn(
                     'group min-w-0 cursor-pointer rounded-xl border p-3 transition-all',
                     selectedSkill?.id === skill.id
-                      ? 'border-emerald-100 bg-white shadow-sm ring-1 ring-emerald-50'
-                      : 'border-transparent hover:border-gray-200 hover:bg-white',
+                      ? 'border-[var(--skill-brand-100)] bg-[var(--surface-elevated)] shadow-sm ring-1 ring-[var(--skill-brand-50)]'
+                      : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--surface-elevated)]',
                   )}
                 >
                   <div className="mb-1 flex min-w-0 items-start justify-between gap-2">
                     <div className="flex min-w-0 flex-1 items-center gap-2">
-                      <ShieldCheck size={12} className="shrink-0 text-emerald-400" />
+                      <ShieldCheck size={12} className="shrink-0 text-[var(--skill-brand-600)]" />
                       <TooltipProvider delayDuration={300}>
                         <Tooltip>
-                          <TooltipTrigger className="min-w-0 truncate text-left text-sm font-semibold text-gray-800">
+                          <TooltipTrigger className="min-w-0 truncate text-left text-sm font-semibold text-[var(--text-primary)]">
                             {skill.name}
                           </TooltipTrigger>
                           <TooltipContent side="top">{skill.name}</TooltipContent>
@@ -540,7 +540,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                       {skill.is_public && (
                         <Badge
                           variant="outline"
-                          className="h-3.5 shrink-0 border-emerald-200 bg-emerald-50 px-1 py-0 text-[8px] text-emerald-600"
+                          className="h-3.5 shrink-0 border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1 py-0 text-[8px] text-[var(--skill-brand-600)]"
                         >
                           <Globe size={8} className="mr-0.5" />
                           {t('skills.published')}
@@ -552,16 +552,16 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                         e.stopPropagation()
                         handleDelete(skill.id)
                       }}
-                      className="shrink-0 p-1 text-gray-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                      className="shrink-0 p-1 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
                     >
                       <Trash2 size={12} />
                     </button>
                   </div>
-                  <p className="line-clamp-2 min-w-0 text-[10px] text-gray-500">
+                  <p className="line-clamp-2 min-w-0 text-[10px] text-[var(--text-tertiary)]">
                     {skill.description}
                   </p>
                   {skill.files && skill.files.length > 0 && (
-                    <div className="mt-1.5 flex items-center gap-1 text-[9px] text-gray-400">
+                    <div className="mt-1.5 flex items-center gap-1 text-[9px] text-[var(--text-muted)]">
                       <Folder size={10} />
                       <span>{skill.files.length} files</span>
                     </div>
@@ -576,20 +576,20 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
         <ResizableHandle withHandle />
 
         {/* 2. File Explorer & Editor */}
-        <ResizablePanel defaultSize={80} className="flex flex-col bg-white outline-none">
+        <ResizablePanel defaultSize={80} className="flex flex-col bg-[var(--surface-2)] outline-none">
           <div className="flex flex-1 overflow-hidden">
             {selectedSkill || formData.name ? (
               <ResizablePanelGroup direction="horizontal">
                 {/* Hierarchical File Explorer */}
-                <ResizablePanel defaultSize={20} minSize={10} maxSize={30} className="flex shrink-0 flex-col border-r border-gray-100 bg-white">
-              <div className="flex items-center justify-between border-b border-gray-100 p-3">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                <ResizablePanel defaultSize={20} minSize={10} maxSize={30} className="flex shrink-0 flex-col border-r border-[var(--border-muted)] bg-[var(--surface-2)]">
+              <div className="flex items-center justify-between border-b border-[var(--border-muted)] p-3">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                   {t('skills.workspace') || 'Workspace'}
                 </span>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6 hover:bg-gray-100"
+                  className="h-6 w-6 hover:bg-[var(--surface-3)]"
                   onClick={() => handleAddFile(null)}
                   title="Add file to root"
                 >
@@ -609,20 +609,20 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                 <ResizableHandle withHandle />
 
                 {/* Editor Area */}
-                <ResizablePanel defaultSize={80} className="flex min-w-0 flex-col bg-white outline-none">
-                  <div className="flex h-14 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-4 lg:px-6">
+                <ResizablePanel defaultSize={80} className="flex min-w-0 flex-col bg-[var(--surface-2)] outline-none">
+                  <div className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-2)] px-4 lg:px-6">
                     <div className="flex items-center gap-4 lg:gap-6">
                       <div className="flex flex-col">
-                        <h1 className="text-sm font-bold leading-tight text-gray-900 line-clamp-1 max-w-[200px]" title={formData.name}>
+                        <h1 className="text-sm font-bold leading-tight text-[var(--text-primary)] line-clamp-1 max-w-[200px]" title={formData.name}>
                           {formData.name}
                         </h1>
-                        <div className="flex items-center gap-1.5 font-mono text-[9px] text-gray-400">
+                        <div className="flex items-center gap-1.5 font-mono text-[9px] text-[var(--text-muted)]">
                           <ChevronRight size={10} /> <span className="truncate max-w-[180px]">{activeFilePath || 'No file selected'}</span>
                         </div>
                       </div>
 
                       {/* Pill Tab Bar integrated in header */}
-                      <div className="hidden lg:flex items-center space-x-1 rounded-lg bg-gray-100/80 p-1">
+                      <div className="hidden lg:flex items-center space-x-1 rounded-lg bg-[var(--surface-3)] p-1">
                         {(['editor', 'versions', 'collaborators'] as const).map((tab) => (
                           <button
                             key={tab}
@@ -630,8 +630,8 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                             className={cn(
                               'px-3 py-1 text-xs font-medium rounded-md transition-colors',
                               activeTab === tab
-                                ? 'bg-white text-gray-900 shadow-sm'
-                                : 'text-gray-500 hover:text-gray-700'
+                                ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
+                                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
                             )}
                           >
                             {tab === 'editor' && t('skills.editor')}
@@ -656,24 +656,24 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                       </Button>
 
                       {/* Publish Toggle */}
-                      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 lg:px-3 py-1.5">
+                      <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-2 lg:px-3 py-1.5">
                         {formData.is_public ? (
-                          <Globe size={14} className="text-emerald-500" />
+                          <Globe size={14} className="text-[var(--skill-brand)]" />
                         ) : (
-                          <Lock size={14} className="text-gray-400" />
+                          <Lock size={14} className="text-[var(--text-muted)]" />
                         )}
-                        <span className="hidden lg:inline text-xs text-gray-600">{t('skills.publishToStore')}</span>
+                        <span className="hidden lg:inline text-xs text-[var(--text-secondary)]">{t('skills.publishToStore')}</span>
                         <Switch
                           checked={formData.is_public || false}
                           onCheckedChange={(checked) => form.setValue('is_public', checked)}
-                          className="data-[state=checked]:bg-emerald-500 scale-75 lg:scale-100"
+                          className="data-[state=checked]:bg-[var(--skill-brand)] scale-75 lg:scale-100"
                         />
                       </div>
 
                       <Button
                         onClick={handleSubmit}
                         disabled={isSaving}
-                        className="h-8 gap-1.5 lg:gap-2 bg-emerald-600 px-3 lg:px-4 text-xs shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="h-8 gap-1.5 lg:gap-2 bg-[var(--skill-brand-600)] px-3 lg:px-4 text-xs shadow-sm hover:bg-[var(--skill-brand-700)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                         <span className="hidden lg:inline">{t('skills.saveChanges')}</span>
@@ -683,7 +683,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                   </div>
 
                   {/* Fallback Tab Bar for smaller screens within the pane */}
-                  <div className="flex lg:hidden border-b border-gray-200 px-2 overflow-x-auto hide-scrollbar">
+                  <div className="flex lg:hidden border-b border-[var(--border)] px-2 overflow-x-auto hide-scrollbar">
                     {(['editor', 'versions', 'collaborators'] as const).map((tab) => (
                       <button
                         key={tab}
@@ -692,7 +692,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                           'px-3 py-2 text-[10px] font-medium transition-colors whitespace-nowrap',
                           activeTab === tab
                             ? 'border-b-2 border-blue-500 text-blue-600'
-                            : 'text-gray-500 hover:text-gray-700'
+                            : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
                         )}
                       >
                         {tab === 'editor' && t('skills.editor')}
@@ -744,15 +744,15 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                 </ResizablePanel>
               </ResizablePanelGroup>
             ) : (
-              <div className="flex flex-1 flex-col items-center justify-center bg-gray-50/20 text-gray-400">
-                <div className="mb-6 rounded-full border border-gray-100 bg-white p-8 shadow-xl">
-                  <ShieldCheck size={48} className="text-emerald-200" />
+              <div className="flex flex-1 flex-col items-center justify-center bg-[var(--surface-1)] text-[var(--text-muted)]">
+                <div className="mb-6 rounded-full border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-8 shadow-xl">
+                  <ShieldCheck size={48} className="text-[var(--skill-brand-200)]" />
                 </div>
-                <h3 className="text-sm font-bold text-gray-900">{t('skills.chooseCreationMethod')}</h3>
-                <p className="mt-1 text-xs text-gray-400">{t('skills.populateSkillsLibrary')}</p>
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">{t('skills.chooseCreationMethod')}</h3>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">{t('skills.populateSkillsLibrary')}</p>
                 <div className="mt-8 flex max-w-lg flex-wrap justify-center gap-3">
                   <Link href="/skills/creator">
-                    <Button className="gap-2 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700">
+                    <Button className="gap-2 bg-[var(--skill-brand-600)] text-white shadow-sm hover:bg-[var(--skill-brand-700)]">
                       <Wand2 size={16} /> {t('skills.aiCreate', 'AI Create')}
                     </Button>
                   </Link>
@@ -762,16 +762,16 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
                   <Button
                     onClick={() => setImportModal('local')}
                     variant="outline"
-                    className="gap-2 hover:bg-gray-50"
+                    className="gap-2 hover:bg-[var(--surface-2)]"
                   >
                     <FolderOpen size={16} /> {t('skills.importFromLocal')}
                   </Button>
                 </div>
 
                 {/* Skill Structure Info */}
-                <div className="mt-12 max-w-md rounded-xl border border-gray-100 bg-white p-6 text-left shadow-sm">
-                  <h4 className="mb-3 text-xs font-bold text-gray-700">Skill Structure</h4>
-                  <pre className="font-mono text-[10px] leading-relaxed text-gray-500">
+                <div className="mt-12 max-w-md rounded-xl border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6 text-left shadow-sm">
+                  <h4 className="mb-3 text-xs font-bold text-[var(--text-secondary)]">Skill Structure</h4>
+                  <pre className="font-mono text-[10px] leading-relaxed text-[var(--text-tertiary)]">
                     {`skill-name/
 ├── SKILL.md (required)
 │   ├── YAML frontmatter (name, description)
@@ -779,7 +779,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
 └── Any files/folders (optional)
     └── Organize as you like!`}
                   </pre>
-                  <p className="mt-2 text-[10px] text-gray-400">
+                  <p className="mt-2 text-[10px] text-[var(--text-muted)]">
                     You can use any directory structure. Only SKILL.md is required.
                   </p>
                 </div>
@@ -803,7 +803,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
               type="button"
               variant="outline"
               onClick={() => resetImport()}
-              className="h-10 border-gray-200 px-4 hover:bg-gray-50"
+              className="h-10 border-[var(--border)] px-4 hover:bg-[var(--surface-2)]"
             >
               {t('common.cancel')}
             </Button>
@@ -856,13 +856,13 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
             type="button"
             variant="outline"
             onClick={() => folderInputRef.current?.click()}
-            className="h-10 gap-2 border-gray-200 bg-white transition-colors hover:border-gray-300 hover:bg-gray-50"
+            className="h-10 gap-2 border-[var(--border)] bg-[var(--surface-elevated)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]"
           >
             <FolderOpen size={16} />
             {t('skills.selectFolder')}
           </Button>
           {localImportFiles.length > 0 && (
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-[var(--text-tertiary)]">
               {localImportFiles.length} {t('skills.filesSelected')}
             </span>
           )}
@@ -919,7 +919,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
               />
             )}
             {rejectedFiles.length > 0 && (
-              <div className="mt-2 rounded bg-gray-50 p-2 text-xs text-gray-500">
+              <div className="mt-2 rounded bg-[var(--surface-1)] p-2 text-xs text-[var(--text-tertiary)]">
                 <strong>{t('common.tip') || '提示'}:</strong> {t('skills.binaryFileNotSupported')}
               </div>
             )}
@@ -946,14 +946,14 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Plus size={20} className="text-emerald-500" />
+              <Plus size={20} className="text-[var(--skill-brand)]" />
               Add New File
             </DialogTitle>
             <DialogDescription>
               {newFileDirectory ? (
                 <>
                   Create a new file in{' '}
-                  <code className="rounded bg-gray-100 px-1">{newFileDirectory}/</code>
+                  <code className="rounded bg-[var(--surface-3)] px-1">{newFileDirectory}/</code>
                 </>
               ) : (
                 <>Create a new file at root level</>
@@ -1001,7 +1001,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
               </div>
             </div>
             <DialogFooter>
-              <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">
+              <Button type="submit" className="w-full bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]">
                 <Plus size={16} className="mr-2" />
                 Create File
               </Button>
@@ -1074,9 +1074,9 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
               className="mt-2"
             />
             {fileToRename && fileToRename.path.includes('/') && (
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="mt-2 text-xs text-[var(--text-tertiary)]">
                 {t('skills.fileWillBeLocated')}:{' '}
-                <code className="rounded bg-gray-100 px-1">
+                <code className="rounded bg-[var(--surface-3)] px-1">
                   {fileToRename.path.substring(0, fileToRename.path.lastIndexOf('/'))}/
                   {renameValue || '...'}
                 </code>

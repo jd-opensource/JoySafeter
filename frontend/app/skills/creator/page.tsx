@@ -354,17 +354,17 @@ export default function SkillCreatorPage() {
   )
 
   return (
-    <div className="flex h-screen flex-col bg-white">
+    <div className="flex h-screen flex-col bg-[var(--bg)]">
       {/* Top bar */}
-      <div className="flex flex-shrink-0 items-center gap-3 border-b border-gray-100 px-4 py-2.5">
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-[var(--border-muted)] px-4 py-2.5">
         <Link href="/skills">
-          <Button variant="ghost" size="sm" className="gap-1.5 text-gray-600 hover:text-gray-800">
+          <Button variant="ghost" size="sm" className="gap-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
             <ArrowLeft size={14} />
             <span className="text-xs">Skills</span>
           </Button>
         </Link>
-        <div className="h-4 w-px bg-gray-200" />
-        <h1 className="text-sm font-semibold text-gray-800">
+        <div className="h-4 w-px bg-[var(--border)]" />
+        <h1 className="text-sm font-semibold text-[var(--text-primary)]">
           {editSkillId ? 'Edit Skill' : 'Create Skill'}
         </h1>
       </div>
@@ -372,13 +372,13 @@ export default function SkillCreatorPage() {
       {/* Main split layout */}
       <div className="flex min-h-0 flex-1">
         {/* Left: Chat panel */}
-        <div className="flex min-w-0 flex-1 flex-col border-r border-gray-100">
+        <div className="flex min-w-0 flex-1 flex-col border-r border-[var(--border-muted)]">
           {graphError ? (
             <div className="flex flex-1 items-center justify-center text-sm text-red-500">
               {graphError}
             </div>
           ) : !graphReady ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-gray-400">
+            <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
               Initializing Skill Creator...
             </div>
           ) : (

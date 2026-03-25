@@ -46,12 +46,12 @@ export function SkillEditor({
 
         {/* Markdown Content Section */}
         <div className="flex flex-1 flex-col space-y-2">
-          <Label className="text-[10px] font-bold uppercase text-gray-400">
+          <Label className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
             {t('skills.content') || 'Instructions'} (Markdown)
           </Label>
           <Textarea
             {...form.register('content')}
-            className="min-h-[350px] flex-1 resize-none border-gray-200 bg-white p-4 font-mono text-xs"
+            className="min-h-[350px] flex-1 resize-none border-[var(--border)] bg-[var(--surface-elevated)] p-4 font-mono text-xs"
             placeholder="# Skill Instructions
 
 ## Overview
@@ -67,17 +67,17 @@ How to use this skill..."
 
   if (activeFile) {
     return (
-      <div className="flex flex-1 flex-col bg-gray-50 p-2">
-        <div className="mb-2 flex items-center gap-2 px-2 py-1 text-xs text-gray-500">
+      <div className="flex flex-1 flex-col bg-[var(--surface-1)] p-2">
+        <div className="mb-2 flex items-center gap-2 px-2 py-1 text-xs text-[var(--text-tertiary)]">
           {getFileIcon(activeFile.path, activeFile.file_type)}
           <span className="font-mono">{activeFilePath}</span>
-          <span className="text-gray-300">|</span>
-          <span className="text-gray-400">{activeFile.file_type || 'text'}</span>
+          <span className="text-[var(--text-subtle)]">|</span>
+          <span className="text-[var(--text-muted)]">{activeFile.file_type || 'text'}</span>
         </div>
         <Textarea
           value={activeFile?.content || ''}
           onChange={(e) => onUpdateFileContent(activeFilePath!, e.target.value)}
-          className="flex-1 resize-none rounded-xl border-gray-200 p-6 font-mono text-xs shadow-sm focus-visible:ring-emerald-50"
+          className="flex-1 resize-none rounded-xl border-[var(--border)] p-6 font-mono text-xs shadow-sm focus-visible:ring-[var(--skill-brand-50)]"
           placeholder={t('skills.codingLogicPlaceholder') || 'Enter file content...'}
         />
       </div>
@@ -85,9 +85,9 @@ How to use this skill..."
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center text-gray-400">
+    <div className="flex flex-1 items-center justify-center text-[var(--text-muted)]">
       <div className="text-center">
-        <FileText size={32} className="mx-auto mb-2 text-gray-200" />
+        <FileText size={32} className="mx-auto mb-2 text-[var(--text-subtle)]" />
         <p className="text-xs">Select a file to edit</p>
       </div>
     </div>

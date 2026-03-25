@@ -38,10 +38,10 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
   const compatibility = form.watch('compatibility')
 
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+    <div className="rounded-xl border border-[var(--border-muted)] bg-[var(--surface-1)] p-4">
       <div className="mb-4 flex items-center gap-2">
-        <FileText size={16} className="text-emerald-500" />
-        <span className="text-xs font-bold text-gray-600">
+        <FileText size={16} className="text-[var(--skill-brand)]" />
+        <span className="text-xs font-bold text-[var(--text-secondary)]">
           SKILL.md Metadata (YAML Frontmatter)
         </span>
       </div>
@@ -55,7 +55,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
             render={({ field }) => (
               <FormItem>
                 <div className="flex items-center justify-between">
-                  <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
+                  <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
                     {t('skills.name') || 'Name'} *
                   </FormLabel>
                   <span
@@ -64,7 +64,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                         ? 'text-red-500'
                         : (name?.length || 0) > 50
                           ? 'text-amber-500'
-                          : 'text-gray-400'
+                          : 'text-[var(--text-muted)]'
                     }`}
                   >
                     {name?.length || 0}/{MAX_SKILL_NAME_LENGTH}
@@ -90,7 +90,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
             render={({ field }) => (
               <FormItem>
                 <div className="flex items-center justify-between">
-                  <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
+                  <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
                     {t('skills.description') || 'Description'} *
                   </FormLabel>
                   <span
@@ -99,7 +99,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                         ? 'text-red-500'
                         : (description?.length || 0) > 900
                           ? 'text-amber-500'
-                          : 'text-gray-400'
+                          : 'text-[var(--text-muted)]'
                     }`}
                   >
                     {description?.length || 0}/{MAX_SKILL_DESCRIPTION_LENGTH}
@@ -124,7 +124,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
             name="license"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
+                <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
                   {t('skills.license') || 'License'}
                 </FormLabel>
                 <FormControl>
@@ -144,7 +144,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
           <button
             type="button"
             onClick={onToggleAdvancedFields}
-            className="mt-2 flex items-center gap-2 text-[10px] text-gray-500 transition-colors hover:text-gray-700"
+            className="mt-2 flex items-center gap-2 text-[10px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
           >
             <ChevronDown
               size={12}
@@ -155,7 +155,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
 
           {/* Advanced Fields (Collapsible) */}
           {showAdvancedFields && (
-            <div className="space-y-4 border-t border-gray-200 pt-2">
+            <div className="space-y-4 border-t border-[var(--border)] pt-2">
               {/* Compatibility Field */}
               <FormField
                 control={form.control}
@@ -163,9 +163,9 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                 render={({ field }) => (
                   <FormItem>
                     <div className="flex items-center justify-between">
-                      <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
+                      <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
                         Compatibility
-                        <span className="ml-1 font-normal text-gray-400">(optional)</span>
+                        <span className="ml-1 font-normal text-[var(--text-muted)]">(optional)</span>
                       </FormLabel>
                       <span
                         className={`text-[10px] ${
@@ -173,7 +173,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                             ? 'text-red-500'
                             : (compatibility?.length || 0) > 450
                               ? 'text-amber-500'
-                              : 'text-gray-400'
+                              : 'text-[var(--text-muted)]'
                         }`}
                       >
                         {compatibility?.length || 0}/{MAX_COMPATIBILITY_LENGTH}
@@ -188,7 +188,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                         maxLength={MAX_COMPATIBILITY_LENGTH}
                       />
                     </FormControl>
-                    <FormDescription className="text-[10px] text-gray-500">
+                    <FormDescription className="text-[10px] text-[var(--text-tertiary)]">
                       Environment requirements (max {MAX_COMPATIBILITY_LENGTH} chars)
                     </FormDescription>
                     <FormMessage className="text-[10px]" />
@@ -202,9 +202,9 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                 name="allowed_tools"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
+                    <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
                       Allowed Tools
-                      <span className="ml-1 font-normal text-gray-400">
+                      <span className="ml-1 font-normal text-[var(--text-muted)]">
                         (optional, experimental)
                       </span>
                     </FormLabel>
@@ -220,7 +220,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                         placeholder="search read write (space-separated)"
                       />
                     </FormControl>
-                    <FormDescription className="text-[10px] text-gray-500">
+                    <FormDescription className="text-[10px] text-[var(--text-tertiary)]">
                       Space-delimited list of pre-approved tools
                     </FormDescription>
                     <FormMessage className="text-[10px]" />
@@ -234,9 +234,9 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                 name="metadata"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-[10px] font-bold uppercase text-gray-400">
+                    <FormLabel className="text-[10px] font-bold uppercase text-[var(--text-muted)]">
                       Metadata
-                      <span className="ml-1 font-normal text-gray-400">(optional, JSON)</span>
+                      <span className="ml-1 font-normal text-[var(--text-muted)]">(optional, JSON)</span>
                     </FormLabel>
                     <FormControl>
                       <Textarea
@@ -263,7 +263,7 @@ export function SkillForm({ form, showAdvancedFields, onToggleAdvancedFields }: 
                         placeholder='{\n  "version": "1.0",\n  "author": "team-name"\n}'
                       />
                     </FormControl>
-                    <FormDescription className="text-[10px] text-gray-500">
+                    <FormDescription className="text-[10px] text-[var(--text-tertiary)]">
                       Key-value pairs (all values must be strings)
                     </FormDescription>
                     <FormMessage className="text-[10px]" />

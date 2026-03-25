@@ -120,7 +120,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-strong)] border-t-[var(--text-secondary)]" />
       </div>
     )
   }
@@ -141,7 +141,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
           </Button>
 
           {showAddForm && (
-            <div className="mt-3 flex items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="mt-3 flex items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
               <div className="flex-1">
                 <Label className="text-xs">{t('skillCollaborators.userId')}</Label>
                 <Input
@@ -180,22 +180,22 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       {/* Collaborator list */}
       <div className="space-y-1">
         {/* Owner row (always first) */}
-        <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-200">
-            <User size={12} className="text-gray-500" />
+        <div className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2">
+          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--surface-5)]">
+            <User size={12} className="text-[var(--text-tertiary)]" />
           </div>
           <span className="flex-1 text-sm font-medium">{ownerId}</span>
-          <span className="text-xs text-gray-400">({t('skillCollaborators.owner')})</span>
+          <span className="text-xs text-[var(--text-muted)]">({t('skillCollaborators.owner')})</span>
         </div>
 
         {/* Collaborator rows */}
         {collaborators.map((c) => (
           <div
             key={c.userId}
-            className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
+            className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2"
           >
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-200">
-              <User size={12} className="text-gray-500" />
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--surface-5)]">
+              <User size={12} className="text-[var(--text-tertiary)]" />
             </div>
             <span className="flex-1 text-sm">{c.userId}</span>
             {canManage ? (
@@ -215,7 +215,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
                 </SelectContent>
               </Select>
             ) : (
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-[var(--text-tertiary)]">
                 {t(`skillCollaborators.${c.role}`)}
               </span>
             )}
@@ -223,7 +223,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0 text-gray-400 hover:text-red-500"
+                className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-red-500"
                 onClick={() => setRemoveTarget({ userId: c.userId, open: true })}
               >
                 <X size={14} />
@@ -233,7 +233,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
         ))}
 
         {collaborators.length === 0 && (
-          <p className="py-4 text-center text-xs text-gray-400">
+          <p className="py-4 text-center text-xs text-[var(--text-muted)]">
             {t('skillCollaborators.emptyState')}
           </p>
         )}
@@ -241,7 +241,7 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
 
       {/* Transfer ownership button */}
       {isOwner && (
-        <div className="border-t border-gray-200 pt-4">
+        <div className="border-t border-[var(--border)] pt-4">
           <Button
             variant="outline"
             size="sm"

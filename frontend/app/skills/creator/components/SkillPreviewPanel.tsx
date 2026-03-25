@@ -39,14 +39,14 @@ export default function SkillPreviewPanel({
   // ---- Empty state ----
   if (!previewData) {
     return (
-      <div className="flex h-full flex-col bg-gray-50/50">
+      <div className="flex h-full flex-col bg-[var(--surface-1)]">
         <div className="flex flex-1 items-center justify-center">
           <div className="px-6 text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100">
-              <PackageOpen size={22} className="text-gray-400" />
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--surface-3)]">
+              <PackageOpen size={22} className="text-[var(--text-muted)]" />
             </div>
-            <h4 className="mb-1 text-sm font-medium text-gray-600">No preview yet</h4>
-            <p className="max-w-[220px] text-xs leading-relaxed text-gray-400">
+            <h4 className="mb-1 text-sm font-medium text-[var(--text-secondary)]">No preview yet</h4>
+            <p className="max-w-[220px] text-xs leading-relaxed text-[var(--text-muted)]">
               Start a conversation to generate skill files. The preview will appear here.
             </p>
           </div>
@@ -62,15 +62,15 @@ export default function SkillPreviewPanel({
 
   // ---- Preview content ----
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col bg-[var(--surface-elevated)]">
       {/* Header */}
-      <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-[var(--border-muted)] px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <FileCode size={16} className="flex-shrink-0 text-emerald-600" />
-          <h3 className="truncate text-sm font-semibold text-gray-800">
+          <FileCode size={16} className="flex-shrink-0 text-[var(--skill-brand-600)]" />
+          <h3 className="truncate text-sm font-semibold text-[var(--text-primary)]">
             {previewData.skill_name || 'Unnamed Skill'}
           </h3>
-          <span className="flex-shrink-0 text-[10px] text-gray-400">
+          <span className="flex-shrink-0 text-[10px] text-[var(--text-muted)]">
             {fileCount} file{fileCount !== 1 ? 's' : ''}
           </span>
         </div>
@@ -95,7 +95,7 @@ export default function SkillPreviewPanel({
 
       {/* Validation errors / warnings */}
       {validation && (!validation.valid || validation.warnings.length > 0) && (
-        <div className="flex-shrink-0 space-y-1 border-b border-gray-100 px-4 py-2">
+        <div className="flex-shrink-0 space-y-1 border-b border-[var(--border-muted)] px-4 py-2">
           {validation.errors.map((err, i) => (
             <div key={`e-${i}`} className="flex items-center gap-1.5 text-[10px] text-red-600">
               <AlertTriangle size={10} className="flex-shrink-0" />
@@ -119,13 +119,13 @@ export default function SkillPreviewPanel({
           className="min-h-0 flex-1"
         />
       ) : (
-        <div className="flex flex-1 items-center justify-center text-xs text-gray-400">
+        <div className="flex flex-1 items-center justify-center text-xs text-[var(--text-muted)]">
           No files yet
         </div>
       )}
 
       {/* Action buttons */}
-      <div className="flex flex-shrink-0 items-center gap-2 border-t border-gray-100 bg-gray-50/50 px-4 py-3">
+      <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--border-muted)] bg-[var(--surface-1)] px-4 py-3">
         <Button
           variant="outline"
           size="sm"
@@ -140,7 +140,7 @@ export default function SkillPreviewPanel({
           size="sm"
           onClick={onSave}
           disabled={isProcessing || (validation ? !validation.valid : false)}
-          className="ml-auto gap-1.5 bg-emerald-600 text-xs text-white hover:bg-emerald-700"
+          className="ml-auto gap-1.5 bg-[var(--skill-brand-600)] text-xs text-white hover:bg-[var(--skill-brand-700)]"
         >
           <Save size={12} />
           Save to Library
