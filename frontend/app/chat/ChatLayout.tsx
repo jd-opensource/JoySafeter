@@ -262,7 +262,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   // ─── Header ──────────────────────────────────────────────────────────────
   const headerTitle = (state.mode.currentMode && getModeConfig(state.mode.currentMode)?.labelKey) || 'chat.defaultChat'
   const renderHeader = () => (
-    <div className="z-10 flex h-14 flex-shrink-0 items-center gap-2 border-b border-gray-100 bg-white px-6">
+    <div className="z-10 flex h-14 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-1)] px-6">
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -270,9 +270,10 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
               variant="ghost"
               size="sm"
               onClick={toggleSidebar}
-              className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-gray-100"
+              aria-label={state.ui.sidebarVisible ? t('chat.hideHistory') : t('chat.showHistory')}
+              className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-[var(--surface-2)]"
             >
-              <List size={18} className="text-gray-600" />
+              <List size={18} className="text-[var(--text-secondary)]" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
@@ -285,7 +286,8 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
               variant="ghost"
               size="sm"
               onClick={handleNewChat}
-              className="h-9 w-9 rounded-full bg-blue-600 p-0 text-white transition-colors hover:bg-blue-700"
+              aria-label={t('chat.newChat')}
+              className="h-9 w-9 rounded-full bg-primary p-0 text-white transition-colors hover:bg-primary/90"
             >
               <Plus size={18} />
             </Button>
@@ -295,7 +297,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
           </TooltipContent>
         </Tooltip>
         <div className="flex min-w-0 flex-1 justify-center">
-          <span className="truncate text-sm font-medium text-gray-700">
+          <span className="truncate text-sm font-medium text-[var(--text-primary)]">
             {t(headerTitle)}
           </span>
         </div>
@@ -312,9 +314,12 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
                     dispatch({ type: 'SHOW_PREVIEW' })
                   }
                 }}
-                className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-gray-100"
+                aria-label={state.preview.visible
+                  ? t('chat.closeArtifacts', { defaultValue: 'Close artifacts' })
+                  : t('chat.openArtifacts', { defaultValue: 'Open artifacts' })}
+                className="h-9 w-9 rounded-lg p-0 transition-colors hover:bg-[var(--surface-2)]"
               >
-                <FolderOpen size={18} className="text-gray-600" />
+                <FolderOpen size={18} className="text-[var(--text-secondary)]" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -331,7 +336,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   )
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-gray-50">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg)]">
       <ResizablePanelGroup direction="horizontal" className="flex-1">
         {/* Left Sidebar */}
         <ResizablePanel
@@ -352,7 +357,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
             currentThreadId={state.threadId}
           />
         </ResizablePanel>
-        <ResizableHandle className="w-px bg-gray-200" />
+        <ResizableHandle className="w-px bg-[var(--border)]" />
 
         {/* Main Panel */}
         <ResizablePanel defaultSize={state.preview.visible ? 55 : 88} minSize={40}>
@@ -374,7 +379,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
         {/* Preview Panel */}
         {state.preview.visible && (
           <>
-            <ResizableHandle className="w-px bg-gray-200" />
+            <ResizableHandle className="w-px bg-[var(--border)]" />
             <ResizablePanel defaultSize={45} minSize={30} maxSize={60}>
               <PreviewPanel />
             </ResizablePanel>

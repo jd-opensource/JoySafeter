@@ -124,17 +124,17 @@ export default function ChatSidebar({
   }, [t, monthNames])
 
   return (
-    <div className="flex h-full flex-col bg-gray-50/50">
+    <div className="flex h-full flex-col bg-[var(--surface-1)]">
       {/* Header */}
       <div
         className={cn(
-          'border-b border-gray-100 bg-white p-3 transition-all',
+          'border-b border-[var(--border)] bg-[var(--surface-1)] p-3 transition-all',
           isCollapsed ? 'px-2' : 'px-4',
         )}
       >
         <div className={cn('flex items-center', isCollapsed ? 'justify-center' : 'justify-start')}>
           {!isCollapsed && (
-            <h2 className="text-sm font-semibold text-gray-800">{t('chat.history')}</h2>
+            <h2 className="text-sm font-semibold text-[var(--text-primary)]">{t('chat.history')}</h2>
           )}
         </div>
       </div>
@@ -150,20 +150,20 @@ export default function ChatSidebar({
           <div className="space-y-2 px-2 py-3">
             {[0, 1, 2].map((i) => (
               <div key={i} className="flex items-center gap-2 rounded-md px-2 py-1.5">
-                <div className="h-4 w-4 flex-shrink-0 rounded bg-gray-200 animate-pulse" />
+                <div className="h-4 w-4 flex-shrink-0 rounded bg-[var(--surface-3)] animate-pulse" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-3 w-3/4 rounded bg-gray-200 animate-pulse" />
-                  <div className="h-2.5 w-1/2 rounded bg-gray-100 animate-pulse" />
+                  <div className="h-3 w-3/4 rounded bg-[var(--surface-3)] animate-pulse" />
+                  <div className="h-2.5 w-1/2 rounded bg-[var(--surface-2)] animate-pulse" />
                 </div>
               </div>
             ))}
           </div>
         ) : conversations.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-6">
-            <div className="rounded-full bg-gray-100 p-2">
-              <MessageSquare size={16} className="text-gray-400" />
+            <div className="rounded-full bg-[var(--surface-2)] p-2">
+              <MessageSquare size={16} className="text-[var(--text-muted)]" />
             </div>
-            <span className="text-xs text-gray-400">{t('chat.noConversations')}</span>
+            <span className="text-xs text-[var(--text-muted)]">{t('chat.noConversations')}</span>
           </div>
         ) : (
           <>
@@ -221,11 +221,11 @@ export default function ChatSidebar({
       </div>
 
       {/* Collapse Button */}
-      <div className="flex-shrink-0 border-t border-gray-100 p-2">
+      <div className="flex-shrink-0 border-t border-[var(--border)] p-2">
         <button
           onClick={onToggle}
           className={cn(
-            'flex w-full items-center justify-center rounded-lg py-1.5 text-gray-600 transition-colors hover:bg-gray-100',
+            'flex w-full items-center justify-center rounded-lg py-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-2)]',
             isCollapsed ? 'px-0' : 'gap-2 px-2',
           )}
           title={isCollapsed ? t('chat.expand') : t('chat.collapse')}
@@ -235,7 +235,7 @@ export default function ChatSidebar({
           ) : (
             <>
               <ChevronLeft size={14} />
-              <span className="text-xs text-gray-500">{t('chat.collapse')}</span>
+              <span className="text-xs text-[var(--text-muted)]">{t('chat.collapse')}</span>
             </>
           )}
         </button>

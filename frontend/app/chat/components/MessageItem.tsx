@@ -43,7 +43,7 @@ const markdownComponents = {
     ) : (
       <code
         {...props}
-        className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-800"
+        className="rounded border border-[var(--border)] bg-[var(--surface-3)] px-1.5 py-0.5 font-mono text-xs text-[var(--text-primary)]"
       >
         {children}
       </code>
@@ -85,8 +85,8 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
             {message.content}
           </p>
         </div>
-        <div className="ml-3 mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-200">
-          <User size={14} className="text-gray-500" />
+        <div className="ml-3 mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--surface-4)]">
+          <User size={14} className="text-[var(--text-muted)]" />
         </div>
       </motion.div>
     )
@@ -100,12 +100,12 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
       initial="hidden"
       animate="visible"
     >
-      <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md">
+      <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-700)] shadow-md">
         <Bot size={16} className="text-white" />
       </div>
-      <div className="min-w-[50%] max-w-[85%] rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div className="min-w-[50%] max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] shadow-sm">
         <div className="mb-2 flex items-center gap-2">
-          <span className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-500">
+          <span className="rounded border border-[var(--brand-200)] bg-[var(--brand-50)] px-1.5 py-0.5 text-[10px] text-[var(--brand-500)]">
             AI
           </span>
         </div>
@@ -126,14 +126,14 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
         )}
 
         {/* Main Content */}
-        <div className="prose prose-sm prose-gray max-w-none leading-7 text-gray-800">
+        <div className="prose prose-sm max-w-none leading-7 text-[var(--text-primary)]">
           {sanitizedContent ? (
             <ReactMarkdown components={markdownComponents}>
               {sanitizedContent}
             </ReactMarkdown>
           ) : (
             message.isStreaming && (
-              <span className="inline-block h-4 w-1.5 animate-pulse rounded-full bg-blue-500 align-middle" />
+              <span className="inline-block h-4 w-1.5 animate-pulse rounded-full bg-[var(--brand-500)] align-middle" />
             )
           )}
         </div>
