@@ -33,14 +33,14 @@ export default function SkillsPage() {
             <TabsList className="h-10 rounded-lg bg-gray-100/80 p-1">
               <TabsTrigger
                 value="store"
-                className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm"
+                className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-sm"
               >
                 <Store className="h-4 w-4" />
                 {t('skills.marketplace')}
               </TabsTrigger>
               <TabsTrigger
                 value="my"
-                className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm"
+                className="gap-2 px-4 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-sm"
               >
                 <FolderOpen className="h-4 w-4" />
                 {t('skills.mySkills')}
@@ -48,7 +48,7 @@ export default function SkillsPage() {
             </TabsList>
             <button
               onClick={() => setIsNewSkillDialogOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Plus className="h-4 w-4" />
               {t('skills.newSkill', 'New Skill')}

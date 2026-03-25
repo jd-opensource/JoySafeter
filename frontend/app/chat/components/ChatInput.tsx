@@ -140,7 +140,7 @@ export default function ChatInput({
       <div
         className={cn(
           'flex flex-col gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 transition-all',
-          isDragOver && 'border-blue-400 bg-blue-50',
+          isDragOver && 'border-primary/50 bg-primary/5',
         )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -201,7 +201,7 @@ export default function ChatInput({
                 className={cn(
                   'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                   canSubmit && !isProcessing && !isUploading
-                    ? 'bg-blue-600 hover:bg-blue-700'
+                    ? 'bg-primary hover:bg-primary/90'
                     : 'cursor-not-allowed bg-gray-100',
                 )}
               >

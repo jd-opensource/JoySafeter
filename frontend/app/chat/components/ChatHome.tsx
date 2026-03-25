@@ -422,7 +422,7 @@ export default function ChatHome({
                         className={cn(
                           'flex h-9 items-center gap-2 rounded-full border-[1.5px] bg-transparent px-3 transition-all duration-200',
                           state.autoRedirect
-                            ? 'border-emerald-200 text-emerald-600 hover:border-emerald-300 hover:bg-emerald-50'
+                            ? 'border-primary/30 text-primary hover:border-primary/50 hover:bg-primary/5'
                             : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700',
                         )}
                       >
@@ -520,7 +520,7 @@ export default function ChatHome({
                           className={cn(
                             'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                             state.input.trim() && !isProcessing && !state.isRedirecting
-                              ? 'bg-blue-600 hover:bg-blue-700'
+                              ? 'bg-primary hover:bg-primary/90'
                               : 'cursor-not-allowed bg-gray-100',
                           )}
                         >
