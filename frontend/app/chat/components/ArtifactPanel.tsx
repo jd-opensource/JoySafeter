@@ -94,7 +94,10 @@ export function ArtifactPanel({ threadId, fileTree, className, filePathResolver,
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevFileTreeRef = useRef<typeof fileTree>(undefined)
   const selectedPathRef = useRef<string | null>(null)
-  selectedPathRef.current = selectedPath
+
+  useEffect(() => {
+    selectedPathRef.current = selectedPath
+  }, [selectedPath])
 
   const fetchContent = useCallback(
     async (path: string) => {

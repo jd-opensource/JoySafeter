@@ -2,6 +2,7 @@
 
 import DOMPurify from 'dompurify'
 import { motion } from 'framer-motion'
+import type { Variants } from 'framer-motion'
 import { User, Bot } from 'lucide-react'
 import React, { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
@@ -51,7 +52,7 @@ const markdownComponents = {
   },
 }
 
-const messageVariants = {
+const messageVariants: Variants = {
   hidden: { opacity: 0, y: 8 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.2, ease: 'easeOut' } },
 }
