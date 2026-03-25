@@ -7,6 +7,13 @@ vi.mock('next-runtime-env', () => ({ env: vi.fn(() => undefined) }))
 
 // Mock toast so it does not throw during error paths
 vi.mock('@/lib/utils/toast', () => ({ toastError: vi.fn() }))
+vi.stubGlobal(
+  'fetch',
+  vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ data: { token: 'test-token' } }),
+  })),
+)
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -81,8 +88,10 @@ async function renderConnectedHook() {
 // ---------------------------------------------------------------------------
 
 describe('useChatWebSocket', () => {
-  afterEach(() => {
+  afterEach(async () => {
     vi.clearAllMocks()
+    const { getChatWsClient } = await import('@/lib/ws/chat/chatWsClient')
+    getChatWsClient().dispose()
   })
 
   // -------------------------------------------------------------------------

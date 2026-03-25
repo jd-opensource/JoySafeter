@@ -2,6 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Mock next-runtime-env so getWsBaseUrl falls through to the ws://localhost:8000 default
 vi.mock('next-runtime-env', () => ({ env: vi.fn(() => undefined) }))
+vi.stubGlobal(
+  'fetch',
+  vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ data: { token: 'test-token' } }),
+  })),
+)
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -68,7 +75,9 @@ import type { workspaceChatWsService as WorkspaceChatWsServiceType } from '../wo
 // ---------------------------------------------------------------------------
 
 describe('workspaceChatWsService', () => {
-  afterEach(() => {
+  afterEach(async () => {
+    const { getChatWsClient } = await import('@/lib/ws/chat/chatWsClient')
+    getChatWsClient().dispose()
     vi.resetModules()
   })
 

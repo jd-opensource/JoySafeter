@@ -10,7 +10,7 @@ import { formatToolDisplay } from '@/app/chat/shared/ToolCallDisplay'
 import { generateId, type Message, type ToolCall } from '@/app/chat/types'
 import { Button } from '@/components/ui/button'
 import { apiGet, API_ENDPOINTS } from '@/lib/api-client'
-import { getWsChatUrl } from '@/lib/utils/wsUrl'
+import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
 import type { ChatStreamEvent, ToolEndEventData } from '@/services/chatBackend'
 
 import SkillCreatorChat from './components/SkillCreatorChat'
@@ -51,12 +51,7 @@ export default function SkillCreatorPage() {
   const threadIdRef = useRef<string | null>(null)
   const currentRequestIdRef = useRef<string | null>(null)
   const currentAssistantMsgIdRef = useRef<string | null>(null)
-  const wsRef = useRef<WebSocket | null>(null)
-  const connectPromiseRef = useRef<Promise<void> | null>(null)
-  const connectResolveRef = useRef<(() => void) | null>(null)
-  const connectRejectRef = useRef<((error: Error) => void) | null>(null)
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const reconnectAttemptsRef = useRef(0)
+  const clientRef = useRef(getChatWsClient())
 
   // Preview state
   const [previewData, setPreviewData] = useState<SkillPreviewData | null>(null)
@@ -76,253 +71,9 @@ export default function SkillCreatorPage() {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
       currentRequestIdRef.current = null
       currentAssistantMsgIdRef.current = null
-      if (wsRef.current) {
-        wsRef.current.onopen = null
-        wsRef.current.onmessage = null
-        wsRef.current.onclose = null
-        wsRef.current.onerror = null
-        if (
-          wsRef.current.readyState === WebSocket.OPEN ||
-          wsRef.current.readyState === WebSocket.CONNECTING
-        ) {
-          wsRef.current.close()
-        }
-        wsRef.current = null
-      }
     }
-  }, [])
-
-  const ensureWsConnected = useCallback(async () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
-    if (connectPromiseRef.current) return connectPromiseRef.current
-
-    connectPromiseRef.current = new Promise<void>((resolve, reject) => {
-      connectResolveRef.current = resolve
-      connectRejectRef.current = reject
-    })
-
-    getWsChatUrl().then((wsUrl) => {
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
-
-    ws.onmessage = (event) => {
-      let evt: (Partial<ChatStreamEvent> & { type?: string; request_id?: string; message?: string; data?: any }) | null =
-        null
-      try {
-        evt = JSON.parse(event.data)
-      } catch {
-        return
-      }
-      if (!evt) return
-
-      const currentRequestId = currentRequestIdRef.current
-      const type = evt.type as string | undefined
-      if (type === 'pong') return
-      if (type === 'ws_error') {
-        console.error('Skill creator ws error:', evt.message)
-        const aiMsgId = currentAssistantMsgIdRef.current
-        if (aiMsgId) {
-          safeSetMessages((prev) =>
-            prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
-          )
-        }
-        currentRequestIdRef.current = null
-        currentAssistantMsgIdRef.current = null
-        if (isMountedRef.current) setIsProcessing(false)
-        return
-      }
-      if (!currentRequestId || evt.request_id !== currentRequestId) return
-
-      const { thread_id, timestamp, data } = evt
-      if (thread_id) {
-        threadIdRef.current = thread_id
-      }
-
-      const aiMsgId = currentAssistantMsgIdRef.current
-      if (!aiMsgId) return
-
-      if (type === 'thread_id') return
-
-      if (type === 'file_event') {
-        const { action, path, size, timestamp } = data as {
-          action: string
-          path: string
-          size?: number
-          timestamp?: number
-        }
-        setFileTree((prev) => {
-          const next = { ...prev }
-          if (action === 'delete') {
-            delete next[path]
-          } else {
-            next[path] = { action, size, timestamp }
-          }
-          return next
-        })
-        return
-      }
-
-      if (type === 'content') {
-        const delta = (data as { delta?: string })?.delta || ''
-        if (!delta) return
-        safeSetMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, content: m.content + delta } : m)),
-        )
-        return
-      }
-
-      if (type === 'tool_start') {
-        const toolData = data as { tool_name?: string; tool_input?: any }
-        const toolName = toolData?.tool_name || 'tool'
-        const toolInput = toolData?.tool_input || {}
-        const toolId = generateId()
-        const { label, detail } = formatToolDisplay(toolName, toolInput)
-        const tool: ToolCall = {
-          id: toolId,
-          name: label,
-          args: { ...toolInput, _detail: detail, _rawName: toolName },
-          status: 'running',
-          startTime: timestamp || Date.now(),
-        }
-        safeSetMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMsgId ? { ...m, tool_calls: [...(m.tool_calls || []), tool] } : m,
-          ),
-        )
-        return
-      }
-
-      if (type === 'tool_end') {
-        const toolData = data as ToolEndEventData
-        const toolName = toolData?.tool_name || 'tool'
-        const toolOutput = toolData?.tool_output
-
-        if (toolName === 'preview_skill' && toolOutput) {
-          try {
-            const parsed: SkillPreviewData =
-              typeof toolOutput === 'string' ? JSON.parse(toolOutput) : toolOutput
-            if (parsed && parsed.files) {
-              setPreviewData(parsed)
-            }
-          } catch {
-            if (toolOutput?.skill_name && toolOutput?.files) {
-              setPreviewData(toolOutput as SkillPreviewData)
-            }
-          }
-        }
-
-        safeSetMessages((prev) =>
-          prev.map((m) => {
-            if (m.id !== aiMsgId) return m
-            const targetTool = [...(m.tool_calls || [])].reverse().find((t) => t.status === 'running')
-            if (!targetTool) return m
-            return {
-              ...m,
-              tool_calls: (m.tool_calls || []).map((t) =>
-                t.id === targetTool.id
-                  ? {
-                      ...t,
-                      status: 'completed' as const,
-                      endTime: timestamp || Date.now(),
-                      result: toolOutput,
-                    }
-                  : t,
-              ),
-            }
-          }),
-        )
-        return
-      }
-
-      if (type === 'error') {
-        const errMsg = (data as { message?: string })?.message || 'Unknown error'
-        if (errMsg === 'Stream stopped' || errMsg.includes('stopped')) {
-          safeSetMessages((prev) =>
-            prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
-          )
-        } else {
-          safeSetMessages((prev) =>
-            prev.map((m) =>
-              m.id === aiMsgId
-                ? { ...m, content: (m.content || '') + `\n\n*Error: ${errMsg}*` }
-                : m,
-            ),
-          )
-        }
-        currentRequestIdRef.current = null
-        currentAssistantMsgIdRef.current = null
-        setIsProcessing(false)
-        return
-      }
-
-      if (type === 'done' || type === 'interrupt') {
-        safeSetMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
-        )
-        currentRequestIdRef.current = null
-        currentAssistantMsgIdRef.current = null
-        setIsProcessing(false)
-      }
-    }
-
-    ws.onopen = () => {
-      reconnectAttemptsRef.current = 0
-      connectResolveRef.current?.()
-      connectPromiseRef.current = null
-      connectResolveRef.current = null
-      connectRejectRef.current = null
-    }
-
-    ws.onerror = () => {
-      connectRejectRef.current?.(new Error('WebSocket connection failed'))
-      connectPromiseRef.current = null
-      connectResolveRef.current = null
-      connectRejectRef.current = null
-    }
-
-    ws.onclose = () => {
-      const aiMsgId = currentAssistantMsgIdRef.current
-      if (aiMsgId) {
-        safeSetMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
-        )
-      }
-      currentAssistantMsgIdRef.current = null
-      if (isMountedRef.current && currentRequestIdRef.current) {
-        setIsProcessing(false)
-      }
-      currentRequestIdRef.current = null
-      connectPromiseRef.current = null
-      connectResolveRef.current = null
-      connectRejectRef.current = null
-      wsRef.current = null
-
-      // Reconnect with exponential backoff while page is mounted and idle
-      if (isMountedRef.current && !currentRequestIdRef.current) {
-        const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 15000)
-        reconnectAttemptsRef.current += 1
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null
-          if (isMountedRef.current) {
-            ensureWsConnected().catch(() => {/* will retry on next close */})
-          }
-        }, delay)
-      }
-    }
-    }).catch((err) => {
-      connectRejectRef.current?.(err instanceof Error ? err : new Error(String(err)))
-      connectPromiseRef.current = null
-      connectResolveRef.current = null
-      connectRejectRef.current = null
-    })
-
-    return connectPromiseRef.current
   }, [])
 
   // Resolve skill-creator graph ID on mount (uses shared lock to prevent duplicate creation)
@@ -365,6 +116,157 @@ export default function SkillCreatorPage() {
     if (isMountedRef.current) setMessages(updater)
   }, [])
 
+  const handleStreamEvent = useCallback((evt: Partial<ChatStreamEvent> & { type?: string; request_id?: string; message?: string; data?: any }) => {
+    const currentRequestId = currentRequestIdRef.current
+    const type = evt.type as string | undefined
+    if (type === 'pong') return
+    if (type === 'ws_error') {
+      console.error('Skill creator ws error:', evt.message)
+      const aiMsgId = currentAssistantMsgIdRef.current
+      if (aiMsgId) {
+        safeSetMessages((prev) =>
+          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
+        )
+      }
+      currentRequestIdRef.current = null
+      currentAssistantMsgIdRef.current = null
+      if (isMountedRef.current) setIsProcessing(false)
+      return
+    }
+    if (!currentRequestId || evt.request_id !== currentRequestId) return
+
+    const { thread_id, timestamp, data } = evt
+    if (thread_id) {
+      threadIdRef.current = thread_id
+    }
+
+    const aiMsgId = currentAssistantMsgIdRef.current
+    if (!aiMsgId) return
+
+    if (type === 'thread_id') return
+
+    if (type === 'file_event') {
+      const { action, path, size, timestamp } = data as {
+        action: string
+        path: string
+        size?: number
+        timestamp?: number
+      }
+      setFileTree((prev) => {
+        const next = { ...prev }
+        if (action === 'delete') {
+          delete next[path]
+        } else {
+          next[path] = { action, size, timestamp }
+        }
+        return next
+      })
+      return
+    }
+
+    if (type === 'content') {
+      const delta = (data as { delta?: string })?.delta || ''
+      if (!delta) return
+      safeSetMessages((prev) =>
+        prev.map((m) => (m.id === aiMsgId ? { ...m, content: m.content + delta } : m)),
+      )
+      return
+    }
+
+    if (type === 'tool_start') {
+      const toolData = data as { tool_name?: string; tool_input?: any }
+      const toolName = toolData?.tool_name || 'tool'
+      const toolInput = toolData?.tool_input || {}
+      const toolId = generateId()
+      const { label, detail } = formatToolDisplay(toolName, toolInput)
+      const tool: ToolCall = {
+        id: toolId,
+        name: label,
+        args: { ...toolInput, _detail: detail, _rawName: toolName },
+        status: 'running',
+        startTime: timestamp || Date.now(),
+      }
+      safeSetMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId ? { ...m, tool_calls: [...(m.tool_calls || []), tool] } : m,
+        ),
+      )
+      return
+    }
+
+    if (type === 'tool_end') {
+      const toolData = data as ToolEndEventData
+      const toolName = toolData?.tool_name || 'tool'
+      const toolOutput = toolData?.tool_output
+
+      if (toolName === 'preview_skill' && toolOutput) {
+        try {
+          const parsed: SkillPreviewData =
+            typeof toolOutput === 'string' ? JSON.parse(toolOutput) : toolOutput
+          if (parsed && parsed.files) {
+            setPreviewData(parsed)
+          }
+        } catch {
+          if (toolOutput?.skill_name && toolOutput?.files) {
+            setPreviewData(toolOutput as SkillPreviewData)
+          }
+        }
+      }
+
+      safeSetMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== aiMsgId) return m
+          const targetTool = [...(m.tool_calls || [])].reverse().find((t) => t.status === 'running')
+          if (!targetTool) return m
+          return {
+            ...m,
+            tool_calls: (m.tool_calls || []).map((t) =>
+              t.id === targetTool.id
+                ? {
+                    ...t,
+                    status: 'completed' as const,
+                    endTime: timestamp || Date.now(),
+                    result: toolOutput,
+                  }
+                : t,
+            ),
+          }
+        }),
+      )
+      return
+    }
+
+    if (type === 'error') {
+      const errMsg = (data as { message?: string })?.message || 'Unknown error'
+      if (errMsg === 'Stream stopped' || errMsg.includes('stopped')) {
+        safeSetMessages((prev) =>
+          prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
+        )
+      } else {
+        safeSetMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId
+              ? { ...m, content: (m.content || '') + `\n\n*Error: ${errMsg}*` }
+              : m,
+          ),
+        )
+      }
+      currentRequestIdRef.current = null
+      currentAssistantMsgIdRef.current = null
+      setIsProcessing(false)
+      return
+    }
+
+    if (type === 'done' || type === 'interrupt') {
+      safeSetMessages((prev) =>
+        prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m)),
+      )
+      currentRequestIdRef.current = null
+      currentAssistantMsgIdRef.current = null
+      setIsProcessing(false)
+    }
+  }, [safeSetMessages])
+
   // ---- Send message (inlined streaming logic so we can intercept preview_skill) ----
   const sendMessage = useCallback(
     async (userPrompt: string) => {
@@ -395,41 +297,42 @@ export default function SkillCreatorPage() {
       safeSetMessages((prev) => [...prev, initialAiMsg])
       currentAssistantMsgIdRef.current = aiMsgId
       try {
-        await ensureWsConnected()
         const requestId = crypto.randomUUID()
         currentRequestIdRef.current = requestId
-        wsRef.current?.send(
-          JSON.stringify({
-            type: 'chat',
-            request_id: requestId,
-            thread_id: threadIdRef.current,
-            graph_id: graphIdRef.current,
-            message: userPrompt,
-            metadata: {
-              ...(editSkillId ? { edit_skill_id: editSkillId } : {}),
-            },
-          }),
-        )
+        await clientRef.current.sendChat({
+          requestId,
+          message: userPrompt,
+          threadId: threadIdRef.current,
+          graphId: graphIdRef.current,
+          metadata: {
+            ...(editSkillId ? { edit_skill_id: editSkillId } : {}),
+          },
+          onEvent: handleStreamEvent,
+        })
       } catch (e: any) {
-        safeSetMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMsgId
-              ? { ...m, isStreaming: false, content: (m.content || '') + `\n\n*Error: ${String(e?.message || e)}*` }
-              : m,
-          ),
-        )
+        if (currentAssistantMsgIdRef.current === aiMsgId) {
+          safeSetMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId
+                ? { ...m, isStreaming: false, content: (m.content || '') + `\n\n*Error: ${String(e?.message || e)}*` }
+                : m,
+            ),
+          )
+        }
         currentRequestIdRef.current = null
         currentAssistantMsgIdRef.current = null
         if (isMountedRef.current) setIsProcessing(false)
       }
     },
-    [isProcessing, editSkillId, safeSetMessages, graphReady, ensureWsConnected],
+    [isProcessing, editSkillId, safeSetMessages, graphReady, handleStreamEvent],
   )
 
   // ---- Stop streaming ----
   const stopMessage = useCallback(() => {
-    if (currentRequestIdRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'stop', request_id: currentRequestIdRef.current }))
+    if (currentRequestIdRef.current) {
+      clientRef.current.stopByRequestId(currentRequestIdRef.current)
+    } else if (threadIdRef.current) {
+      clientRef.current.stopByThreadId(threadIdRef.current)
     }
     currentRequestIdRef.current = null
     currentAssistantMsgIdRef.current = null

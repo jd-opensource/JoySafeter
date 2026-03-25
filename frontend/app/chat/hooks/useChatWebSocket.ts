@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getWsChatUrl } from '@/lib/utils/wsUrl'
+import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
+import type { IncomingChatWsEvent } from '@/lib/ws/chat/types'
 import { toastError } from '@/lib/utils/toast'
 import type {
   ChatStreamEvent,
@@ -48,52 +49,12 @@ export interface UseChatWebSocketReturn {
   resumeChat: (opts: ResumeOpts) => Promise<{ requestId: string }>
 }
 
-type IncomingChatWsEvent = Partial<ChatStreamEvent> & {
-  type?: string
-  request_id?: string
-  message?: string
-  thread_id?: string
-  data?: any
-  run_id?: string
-  node_name?: string
-  timestamp?: number
-}
-
 export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatWebSocketReturn {
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const reconnectAttemptsRef = useRef(0)
+  const clientRef = useRef(getChatWsClient())
   const activeRequestsRef = useRef<Record<string, ActiveRequest>>({})
   const activeByThreadRef = useRef(new Map<string, string>())
   const activeThreadIdRef = useRef<string | null>(null)
-  const isUnmountingRef = useRef(false)
-  const connectPromiseRef = useRef<Promise<void> | null>(null)
-  const connectResolveRef = useRef<(() => void) | null>(null)
-  const connectRejectRef = useRef<((error: Error) => void) | null>(null)
-
-  const [isConnected, setIsConnected] = useState(false)
-
-  const cleanupSocket = useCallback(() => {
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current)
-      pingIntervalRef.current = null
-    }
-    if (wsRef.current) {
-      wsRef.current.onopen = null
-      wsRef.current.onmessage = null
-      wsRef.current.onclose = null
-      wsRef.current.onerror = null
-      if (
-        wsRef.current.readyState === WebSocket.OPEN ||
-        wsRef.current.readyState === WebSocket.CONNECTING
-      ) {
-        wsRef.current.close()
-      }
-      wsRef.current = null
-    }
-    setIsConnected(false)
-  }, [])
+  const [isConnected, setIsConnected] = useState(clientRef.current.getConnectionState().isConnected)
 
   const finalizeActiveRequests = useCallback(
     (errorMessage: string) => {
@@ -108,16 +69,6 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
     },
     [dispatch],
   )
-
-  const scheduleReconnect = useCallback(() => {
-    if (isUnmountingRef.current) return
-    const delay = Math.min(1000 * (2 ** reconnectAttemptsRef.current), 10000)
-    reconnectAttemptsRef.current += 1
-    reconnectTimeoutRef.current = setTimeout(() => {
-      reconnectTimeoutRef.current = null
-      void connect()
-    }, delay)
-  }, [])
 
   const handleEvent = useCallback(
     (evt: IncomingChatWsEvent) => {
@@ -399,115 +350,30 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
     [dispatch],
   )
 
-  const connect = useCallback(async () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
-    if (connectPromiseRef.current) return connectPromiseRef.current
-
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current)
-      reconnectTimeoutRef.current = null
-    }
-
-    cleanupSocket()
-
-    connectPromiseRef.current = new Promise<void>((resolve, reject) => {
-      connectResolveRef.current = resolve
-      connectRejectRef.current = reject
+  useEffect(() => {
+    const client = clientRef.current
+    let prevConnected = client.getConnectionState().isConnected
+    const unsubscribe = client.subscribeConnectionState((state) => {
+      setIsConnected(state.isConnected)
+      if (prevConnected && !state.isConnected && Object.keys(activeRequestsRef.current).length > 0) {
+        finalizeActiveRequests('Chat connection lost')
+      }
+      prevConnected = state.isConnected
+    })
+    void client.connect().catch(() => {
+      setIsConnected(false)
     })
 
-    try {
-      const wsUrl = await getWsChatUrl()
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        setIsConnected(true)
-        reconnectAttemptsRef.current = 0
-        connectResolveRef.current?.()
-        connectPromiseRef.current = null
-        connectResolveRef.current = null
-        connectRejectRef.current = null
-
-        pingIntervalRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' }))
-          }
-        }, 30000)
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          handleEvent(JSON.parse(event.data))
-        } catch {
-          // Ignore malformed frames
-        }
-      }
-
-      ws.onclose = (event) => {
-        setIsConnected(false)
-        connectPromiseRef.current = null
-        connectRejectRef.current?.(new Error(`socket closed: ${event.code}`))
-        connectResolveRef.current = null
-        connectRejectRef.current = null
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current)
-          pingIntervalRef.current = null
-        }
-
-        if (event.code === 4001) {
-          finalizeActiveRequests('Authentication expired')
-          window.location.assign('/signin')
-          return
-        }
-
-        if (Object.keys(activeRequestsRef.current).length > 0) {
-          finalizeActiveRequests('Chat connection lost')
-        }
-
-        if (!isUnmountingRef.current && event.code !== 1000) {
-          scheduleReconnect()
-        }
-      }
-
-      ws.onerror = () => {
-        setIsConnected(false)
-      }
-
-      return connectPromiseRef.current
-    } catch (error) {
-      connectPromiseRef.current = null
-      connectResolveRef.current = null
-      connectRejectRef.current = null
-      throw error
-    }
-  }, [cleanupSocket, finalizeActiveRequests, handleEvent, scheduleReconnect])
-
-  const ensureConnected = useCallback(async () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
-    await connect()
-  }, [connect])
-
-  useEffect(() => {
-    isUnmountingRef.current = false
-    void connect()
-
     return () => {
-      isUnmountingRef.current = true
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-        reconnectTimeoutRef.current = null
-      }
-      cleanupSocket()
-      finalizeActiveRequests('Chat session closed')
+      unsubscribe()
+      activeRequestsRef.current = {}
+      activeByThreadRef.current.clear()
+      activeThreadIdRef.current = null
     }
-  }, [cleanupSocket, connect, finalizeActiveRequests])
+  }, [finalizeActiveRequests])
 
   const sendMessage = useCallback(
     async ({ message, threadId, graphId, metadata }: SendMessageOpts) => {
-      if (!message.trim()) {
-        throw new Error('Message cannot be empty')
-      }
-
       const requestId = crypto.randomUUID()
       const aiMsgId = generateId()
       const initialAiMsg: Message = {
@@ -530,36 +396,35 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
       }
 
       try {
-        await ensureConnected()
-        wsRef.current?.send(
-          JSON.stringify({
-            type: 'chat',
-            request_id: requestId,
-            thread_id: threadId || null,
-            graph_id: graphId || null,
-            message,
-            metadata: metadata || {},
-          }),
-        )
-        return { requestId }
+        const result = await clientRef.current.sendChat({
+          requestId,
+          message,
+          threadId,
+          graphId,
+          metadata,
+          onEvent: (evt) => handleEvent(evt as IncomingChatWsEvent),
+        })
+        return { requestId: result.requestId }
       } catch (error) {
+        const pending = activeRequestsRef.current[requestId]
         delete activeRequestsRef.current[requestId]
         if (threadId) {
           activeByThreadRef.current.delete(threadId)
         }
-        dispatch({ type: 'STREAM_ERROR', error: error instanceof Error ? error.message : 'Connection failed' })
-        dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
+        if (pending) {
+          const messageText = error instanceof Error ? error.message : 'Connection failed'
+          dispatch({ type: 'STREAM_ERROR', error: messageText })
+          dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
+        }
         throw error
       }
     },
-    [dispatch, ensureConnected],
+    [dispatch, handleEvent],
   )
 
   const stopMessage = useCallback((threadId: string | null) => {
     if (!threadId) return
-    const requestId = activeByThreadRef.current.get(threadId)
-    if (!requestId || wsRef.current?.readyState !== WebSocket.OPEN) return
-    wsRef.current.send(JSON.stringify({ type: 'stop', request_id: requestId }))
+    clientRef.current.stopByThreadId(threadId)
   }, [])
 
   const resumeChat = useCallback(
@@ -584,25 +449,26 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
       activeByThreadRef.current.set(threadId, requestId)
 
       try {
-        await ensureConnected()
-        wsRef.current?.send(
-          JSON.stringify({
-            type: 'resume',
-            request_id: requestId,
-            thread_id: threadId,
-            command,
-          }),
-        )
-        return { requestId }
+        const result = await clientRef.current.sendResume({
+          requestId,
+          threadId,
+          command,
+          onEvent: (evt) => handleEvent(evt as IncomingChatWsEvent),
+        })
+        return { requestId: result.requestId }
       } catch (error) {
+        const pending = activeRequestsRef.current[requestId]
         delete activeRequestsRef.current[requestId]
         activeByThreadRef.current.delete(threadId)
-        dispatch({ type: 'STREAM_ERROR', error: error instanceof Error ? error.message : 'Connection failed' })
-        dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
+        if (pending) {
+          const messageText = error instanceof Error ? error.message : 'Connection failed'
+          dispatch({ type: 'STREAM_ERROR', error: messageText })
+          dispatch({ type: 'STREAM_DONE', messageId: aiMsgId })
+        }
         throw error
       }
     },
-    [dispatch, ensureConnected],
+    [dispatch, handleEvent],
   )
 
   return {
