@@ -4,6 +4,7 @@ import { getWsChatUrl } from '@/lib/utils/wsUrl'
 import type { ChatStreamEvent } from '@/services/chatBackend'
 
 import { ChatWsError } from './errors'
+import { HEARTBEAT, UNRECOVERABLE_CLOSE_CODES, WS_CLOSE_CODE } from '../constants'
 import type {
   ChatResumeParams,
   ChatSendParams,
@@ -21,7 +22,6 @@ interface PendingRequest {
   reject: (error: Error) => void
 }
 
-const HEARTBEAT_INTERVAL_MS = 30000
 const MAX_RECONNECT_DELAY_MS = 15000
 
 class SharedChatWsClient implements ChatWsClient {
@@ -31,6 +31,10 @@ class SharedChatWsClient implements ChatWsClient {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private reconnectAttempts = 0
   private isDisposed = false
+  private lastPongTime = Date.now()
+  private consecutiveParseFailures = 0
+  private static readonly MAX_RECONNECT_ATTEMPTS = 20
+  private static readonly MAX_PARSE_FAILURES = 10
   private pending = new Map<string, PendingRequest>()
   private threadToRequest = new Map<string, string>()
   private state: ConnectionState = { isConnected: false }
@@ -68,9 +72,17 @@ class SharedChatWsClient implements ChatWsClient {
 
           ws.onmessage = (event) => {
             try {
-              this.handleInboundMessage(JSON.parse(event.data) as IncomingChatWsEvent)
+              const parsed = JSON.parse(event.data) as IncomingChatWsEvent
+              this.consecutiveParseFailures = 0
+              this.handleInboundMessage(parsed)
             } catch {
-              // Ignore malformed frames from the server.
+              this.consecutiveParseFailures++
+              console.warn(`[ChatWS] Malformed frame (${this.consecutiveParseFailures} consecutive)`)
+              if (this.consecutiveParseFailures >= SharedChatWsClient.MAX_PARSE_FAILURES) {
+                console.error('[ChatWS] Too many consecutive parse failures, reconnecting')
+                this.consecutiveParseFailures = 0
+                this.ws?.close()
+              }
             }
           }
 
@@ -84,22 +96,34 @@ class SharedChatWsClient implements ChatWsClient {
 
           ws.onclose = (event) => {
             this.stopHeartbeat()
-            this.setConnectionState(false)
+            this.ws = null
 
             if (this.connectPromise) {
               this.connectPromise = null
               reject(new ChatWsError('WS_CONNECTION_FAILED', `WebSocket connection failed (${event.code})`))
             }
 
-            this.ws = null
+            if (event.code === WS_CLOSE_CODE.UNAUTHORIZED) {
+              this.state = { isConnected: false, authExpired: true }
+              this.stateListeners.forEach((l) => l(this.state))
+              this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Authentication expired'))
+              return
+            }
 
-            if (event.code === 1000 || this.isDisposed) {
+            this.setConnectionState(false)
+
+            if (event.code === WS_CLOSE_CODE.NORMAL || this.isDisposed) {
               return
             }
 
             this.rejectAllPending(
-              new ChatWsError('WS_CONNECTION_LOST', event.code === 4001 ? 'Authentication expired' : 'WebSocket disconnected'),
+              new ChatWsError('WS_CONNECTION_LOST', 'WebSocket disconnected'),
             )
+
+            if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as any)) {
+              return
+            }
+
             this.scheduleReconnect()
           }
         }),
@@ -226,11 +250,18 @@ class SharedChatWsClient implements ChatWsClient {
 
   private startHeartbeat() {
     this.stopHeartbeat()
+    this.lastPongTime = Date.now()
     this.heartbeatTimer = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping' }))
+      if (this.ws?.readyState !== WebSocket.OPEN) return
+
+      if (Date.now() - this.lastPongTime > HEARTBEAT.PONG_TIMEOUT_MS) {
+        console.warn('[ChatWS] Heartbeat timeout — no pong in 60s, reconnecting')
+        this.ws.close()
+        return
       }
-    }, HEARTBEAT_INTERVAL_MS)
+
+      this.ws.send(JSON.stringify({ type: 'ping' }))
+    }, HEARTBEAT.PING_INTERVAL_MS)
   }
 
   private stopHeartbeat() {
@@ -242,13 +273,18 @@ class SharedChatWsClient implements ChatWsClient {
 
   private scheduleReconnect() {
     if (this.isDisposed || this.reconnectTimer) return
+
+    if (this.reconnectAttempts >= SharedChatWsClient.MAX_RECONNECT_ATTEMPTS) {
+      console.error('[ChatWS] Max reconnect attempts reached')
+      this.rejectAllPending(new ChatWsError('WS_CONNECTION_LOST', 'Connection lost. Please refresh the page.'))
+      return
+    }
+
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, MAX_RECONNECT_DELAY_MS)
     this.reconnectAttempts += 1
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
-      void this.connect().catch(() => {
-        // Retry continues on next close/connect call.
-      })
+      void this.connect().catch(() => {})
     }, delay)
   }
 
@@ -261,7 +297,11 @@ class SharedChatWsClient implements ChatWsClient {
 
   private handleInboundMessage(evt: IncomingChatWsEvent) {
     const type: string | undefined = evt.type
-    if (!type || type === 'pong') return
+    if (!type) return
+    if (type === 'pong') {
+      this.lastPongTime = Date.now()
+      return
+    }
 
     const requestId = evt.request_id
     if (type === 'ws_error') {

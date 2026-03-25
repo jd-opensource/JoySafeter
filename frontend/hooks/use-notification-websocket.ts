@@ -1,7 +1,9 @@
 'use client'
 
-import { env as runtimeEnv } from 'next-runtime-env'
 import { useEffect, useRef, useCallback, useState } from 'react'
+
+import { getWsBaseUrl } from '@/lib/utils/wsUrl'
+import { NO_RECONNECT_CLOSE_CODES } from '@/lib/ws/constants'
 
 export enum NotificationType {
   PING = 'ping',
@@ -22,17 +24,6 @@ export interface UseNotificationWebSocketOptions {
   autoReconnect?: boolean
   reconnectInterval?: number
   maxReconnectAttempts?: number
-}
-
-function getWsBaseUrl(): string {
-  const apiUrl = runtimeEnv('NEXT_PUBLIC_API_URL') || process.env.NEXT_PUBLIC_API_URL
-  if (apiUrl) {
-    return apiUrl
-      .replace(/^https:/, 'wss:')
-      .replace(/^http:/, 'ws:')
-      .replace(/\/api\/?$/, '')
-  }
-  return 'ws://localhost:8000'
 }
 
 export function useNotificationWebSocket(options: UseNotificationWebSocketOptions) {
@@ -134,7 +125,7 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
           pingIntervalRef.current = null
         }
 
-        const noReconnectCodes = [1000, 4001, 4003]
+        const noReconnectCodes: readonly number[] = NO_RECONNECT_CLOSE_CODES
 
         if (
           autoReconnect &&
@@ -149,7 +140,9 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
         }
       }
 
-      ws.onerror = () => {}
+      ws.onerror = (event) => {
+        console.error('[NotificationWS] Connection error:', event)
+      }
     } catch {
       // Ignore connection errors
     }

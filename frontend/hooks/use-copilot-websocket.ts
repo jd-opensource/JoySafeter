@@ -7,8 +7,10 @@
  * Client-only: pong (server response to ping).
  */
 
-import { env as runtimeEnv } from 'next-runtime-env'
 import { useEffect, useRef, useCallback, useState } from 'react'
+
+import { getWsBaseUrl } from '@/lib/utils/wsUrl'
+import { NO_RECONNECT_CLOSE_CODES, WS_CLOSE_CODE } from '@/lib/ws/constants'
 
 import type { StreamGraphActionsCallbacks } from '@/services/copilotService'
 import type { GraphActionType } from '@/types/copilot'
@@ -56,17 +58,6 @@ export interface UseCopilotWebSocketOptions {
   autoReconnect?: boolean
   reconnectInterval?: number
   maxReconnectAttempts?: number
-}
-
-function getWsBaseUrl(): string {
-  const apiUrl = runtimeEnv('NEXT_PUBLIC_API_URL') || process.env.NEXT_PUBLIC_API_URL
-  if (apiUrl) {
-    return apiUrl
-      .replace(/^https:/, 'wss:')
-      .replace(/^http:/, 'ws:')
-      .replace(/\/api\/?$/, '')
-  }
-  return 'ws://localhost:8000'
 }
 
 export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
@@ -292,6 +283,13 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
       ws.onclose = (event) => {
         setIsConnected(false)
 
+        // Auth expired — redirect to login, don't reconnect
+        if (event.code === WS_CLOSE_CODE.UNAUTHORIZED) {
+          cleanup()
+          window.location.assign('/signin')
+          return
+        }
+
         // Notify disconnection
         callbacksRef.current.onDisconnect?.()
 
@@ -301,11 +299,7 @@ export function useCopilotWebSocket(options: UseCopilotWebSocketOptions) {
           heartbeatIntervalRef.current = null
         }
 
-        // Don't reconnect if:
-        // - Normal closure (1000) - session completed
-        // - Max attempts reached
-        // - Manual close (cleanup was called)
-        const noReconnectCodes = [1000]
+        const noReconnectCodes: readonly number[] = NO_RECONNECT_CLOSE_CODES
 
         // Calculate exponential backoff (cap at 30 seconds)
         const backoffDelay = Math.min(

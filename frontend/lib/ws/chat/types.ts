@@ -42,6 +42,7 @@ export interface ChatTerminalResult {
 
 export interface ConnectionState {
   isConnected: boolean
+  authExpired?: boolean
 }
 
 export interface ChatWsClient {
