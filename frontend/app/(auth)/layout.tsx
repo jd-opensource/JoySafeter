@@ -84,7 +84,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                   >
                     JoySafeter
                   </span>
-                  <p className="text-xs font-medium text-gray-500">
+                  <p className="text-xs font-medium text-[var(--text-tertiary)]">
                     Security Intelligence Platform
                   </p>
                 </div>
@@ -93,7 +93,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               {/* Main title area */}
               <div className="space-y-5">
                 <h1
-                  className={`${soehne.className} whitespace-nowrap text-[22px] font-bold leading-tight tracking-tight text-gray-900 xl:text-[26px]`}
+                  className={`${soehne.className} whitespace-nowrap text-[22px] font-bold leading-tight tracking-tight text-[var(--text-primary)] xl:text-[26px]`}
                   suppressHydrationWarning
                 >
                   {mounted ? t('auth.platformTitle') : 'Your Intelligent Security Command Center'}
@@ -118,7 +118,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[#6f3dfa] to-[#a78bfa] opacity-60 blur-sm" />
                   </div>
                   <p
-                    className={`${soehne.className} text-[15px] font-medium text-gray-600 transition-colors group-hover:text-gray-800`}
+                    className={`${soehne.className} text-[15px] font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
                     suppressHydrationWarning
                   >
                     {mounted
@@ -132,7 +132,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     <div className="absolute inset-0 h-[3px] w-10 rounded-full bg-gradient-to-r from-[#0ea5e9] to-[#67e8f9] opacity-60 blur-sm" />
                   </div>
                   <p
-                    className={`${soehne.className} text-[15px] font-medium text-gray-600 transition-colors group-hover:text-gray-800`}
+                    className={`${soehne.className} text-[15px] font-medium text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]`}
                     suppressHydrationWarning
                   >
                     {mounted
@@ -144,7 +144,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
               {/* Feature tags - 2x2 grid */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="group flex items-center gap-2.5 rounded-xl border border-gray-200/60 bg-white/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-blue-300/60 hover:bg-blue-50/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-blue-300/60 hover:bg-blue-50/40">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -161,13 +161,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     </svg>
                   </div>
                   <span
-                    className="text-sm font-semibold text-gray-700 transition-colors group-hover:text-blue-700"
+                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-blue-700"
                     suppressHydrationWarning
                   >
                     {mounted ? t('auth.featureIntelligentOrchestration') : 'Auto Orchestration'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-gray-200/60 bg-white/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-violet-300/60 hover:bg-violet-50/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-violet-300/60 hover:bg-violet-50/40">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -184,13 +184,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     </svg>
                   </div>
                   <span
-                    className="text-sm font-semibold text-gray-700 transition-colors group-hover:text-violet-700"
+                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-violet-700"
                     suppressHydrationWarning
                   >
                     {mounted ? t('auth.featureSecure') : 'Security Agent'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-gray-200/60 bg-white/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-cyan-300/60 hover:bg-cyan-50/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-cyan-300/60 hover:bg-cyan-50/40">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-blue-500 shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -207,13 +207,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     </svg>
                   </div>
                   <span
-                    className="text-sm font-semibold text-gray-700 transition-colors group-hover:text-cyan-700"
+                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-cyan-700"
                     suppressHydrationWarning
                   >
                     {mounted ? t('auth.featureMultiAgent') : 'Modular'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-gray-200/60 bg-white/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-purple-300/60 hover:bg-purple-50/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-purple-300/60 hover:bg-purple-50/40">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -230,7 +230,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     </svg>
                   </div>
                   <span
-                    className="text-sm font-semibold text-gray-700 transition-colors group-hover:text-purple-700"
+                    className="text-sm font-semibold text-[var(--text-secondary)] transition-colors group-hover:text-purple-700"
                     suppressHydrationWarning
                   >
                     {mounted ? t('auth.featureEfficient') : 'Self-Iterating'}
@@ -241,7 +241,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </div>
 
           <div className="flex w-full items-center justify-center px-4 py-12 sm:px-8 lg:w-[45%] lg:px-12 xl:w-[40%] xl:px-16">
-            <div className="w-full max-w-md rounded-2xl border border-blue-200/50 bg-white/30 px-8 py-10 shadow-2xl backdrop-blur-xl">
+            <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/30 px-8 py-10 shadow-2xl backdrop-blur-xl">
               {children}
             </div>
           </div>

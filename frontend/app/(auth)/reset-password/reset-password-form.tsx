@@ -69,7 +69,7 @@ export function RequestResetForm({
             type="email"
             disabled={isSubmitting}
             required
-            className="rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100"
+            className="rounded-[10px] shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]"
           />
           <p className="text-sm text-muted-foreground" suppressHydrationWarning>
             {mounted
@@ -225,7 +225,7 @@ export function SetNewPasswordForm({
               required
               placeholder={mounted ? t('auth.enterNewPassword') : 'Enter new password'}
               className={cn(
-                'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
+                'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                 validationMessage &&
                   'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
               )}
@@ -233,7 +233,7 @@ export function SetNewPasswordForm({
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition hover:text-gray-700"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] transition hover:text-[var(--text-secondary)]"
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -259,7 +259,7 @@ export function SetNewPasswordForm({
               required
               placeholder={mounted ? t('auth.confirmNewPassword') : 'Confirm new password'}
               className={cn(
-                'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
+                'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                 validationMessage &&
                   'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
               )}
@@ -267,7 +267,7 @@ export function SetNewPasswordForm({
             <button
               type="button"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition hover:text-gray-700"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] transition hover:text-[var(--text-secondary)]"
               aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
             >
               {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}

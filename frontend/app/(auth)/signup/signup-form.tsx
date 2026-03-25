@@ -330,7 +330,7 @@ function SignupFormContent() {
     <>
       <div className="space-y-1 text-center">
         <h1
-          className={`${soehne.className} text-[32px] font-medium tracking-tight text-black`}
+          className={`${soehne.className} text-[32px] font-medium tracking-tight text-[var(--text-primary)]`}
           suppressHydrationWarning
         >
           {mounted ? t('auth.createAccount') : 'Create Account'}
@@ -363,7 +363,7 @@ function SignupFormContent() {
                 value={name}
                 onChange={handleNameChange}
                 className={cn(
-                  'rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
+                  'rounded-[10px] shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                   showNameValidationError &&
                     nameErrors.length > 0 &&
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
@@ -386,7 +386,7 @@ function SignupFormContent() {
                 value={email}
                 onChange={handleEmailChange}
                 className={cn(
-                  'rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
+                  'rounded-[10px] shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                   (emailError || (showEmailValidationError && emailErrors.length > 0)) &&
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                 )}
@@ -410,7 +410,7 @@ function SignupFormContent() {
                   value={password}
                   onChange={handlePasswordChange}
                   className={cn(
-                    'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
+                    'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--border-muted)]',
                     showValidationError &&
                       passwordErrors.length > 0 &&
                       'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
@@ -419,7 +419,7 @@ function SignupFormContent() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition hover:text-gray-700"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] transition hover:text-[var(--text-secondary)]"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}

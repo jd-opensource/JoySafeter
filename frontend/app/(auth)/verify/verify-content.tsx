@@ -100,7 +100,7 @@ function VerificationForm({
   return (
     <>
       <div className="space-y-1 text-center">
-        <h1 className={`${soehne.className} text-[32px] font-medium tracking-tight text-black`}>
+        <h1 className={`${soehne.className} text-[32px] font-medium tracking-tight text-[var(--text-primary)]`}>
           {isVerified ? 'Email Verified!' : 'Verify Your Email'}
         </h1>
         <p className={`${inter.className} text-[16px] font-[380] text-muted-foreground`}>
@@ -136,54 +136,54 @@ function VerificationForm({
                   <InputOTPSlot
                     index={0}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
-                      'border-gray-300 hover:border-gray-400',
-                      'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
+                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
+                      'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={1}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
-                      'border-gray-300 hover:border-gray-400',
-                      'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
+                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
+                      'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={2}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
-                      'border-gray-300 hover:border-gray-400',
-                      'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
+                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
+                      'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={3}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
-                      'border-gray-300 hover:border-gray-400',
-                      'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
+                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
+                      'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={4}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
-                      'border-gray-300 hover:border-gray-400',
-                      'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
+                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
+                      'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
                   <InputOTPSlot
                     index={5}
                     className={cn(
-                      'h-12 w-12 !rounded-[10px] border bg-white text-center text-lg font-medium shadow-sm transition-all duration-200',
-                      'border-gray-300 hover:border-gray-400',
-                      'focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-100',
+                      'h-12 w-12 !rounded-[10px] border bg-[var(--surface-2)] text-center text-lg font-medium shadow-sm transition-all duration-200',
+                      'border-[var(--border-strong)] hover:border-[var(--border-strong)]',
+                      'focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--border-muted)]',
                       isInvalidOtp && 'border-red-500 focus:border-red-500 focus:ring-red-100',
                     )}
                   />
