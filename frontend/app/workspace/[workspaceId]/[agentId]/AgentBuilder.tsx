@@ -597,7 +597,7 @@ const AgentBuilderContent = () => {
       </AlertDialog>
 
       {(isInitializing || isLoadingGraph) && (
-        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-[var(--bg)]/80 backdrop-blur-sm">
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-[var(--bg)] backdrop-blur-sm">
           <Loader2 size={40} className="mb-3 animate-spin text-[var(--brand-500)]" />
           <p className="font-medium text-[var(--text-muted)]">
             {isLoadingGraph ? t('workspace.loadingGraph') : t('workspace.loadingWorkspace')}
@@ -613,7 +613,7 @@ const AgentBuilderContent = () => {
       </div>
 
       {/* RIGHT: Panel - Fixed Position (combines Toolbar and Sidebar) */}
-      <aside className="fixed inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface-1)]">
+      <aside className="fixed inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-[var(--border-muted)] bg-[var(--surface-1)]">
         {/* Header with Toolbar */}
         <div className="flex-shrink-0 border-b border-[var(--border)]">
           <BuilderToolbar

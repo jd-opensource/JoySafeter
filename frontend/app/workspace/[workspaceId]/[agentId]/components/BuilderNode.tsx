@@ -322,7 +322,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   return (
     <div
       className={cn(
-        'group relative min-w-[140px] rounded-xl border bg-[var(--surface-elevated)]/95 shadow-sm backdrop-blur-sm transition-all duration-500',
+        'group relative min-w-[140px] rounded-xl border bg-[var(--surface-elevated)] shadow-sm backdrop-blur-sm transition-all duration-500',
         selected
           ? 'border-primary ring-2 ring-primary/10'
           : 'border-[var(--border)] hover:border-[var(--border-strong)]',
@@ -332,7 +332,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         // State Highlighting
         isReadingHighlighted &&
           !isWritingHighlighted &&
-          'z-30 border-[var(--brand-400)] shadow-[0_0_15px_rgba(96,165,250,0.3)] ring-2 ring-[var(--brand-400)]/30',
+          'z-30 border-[var(--brand-400)] shadow-[0_0_15px_rgba(96,165,250,0.3)] ring-2 ring-[var(--brand-400)]',
         isWritingHighlighted &&
           !isReadingHighlighted &&
           'z-30 border-[var(--status-warning)] shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-2 ring-amber-400/30',
@@ -483,7 +483,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
         {/* Property Display */}
         {displayProperties.length > 0 && (
-          <div className="mt-2 space-y-1 border-t border-[var(--border-muted)]/50 pt-2">
+          <div className="mt-2 space-y-1 border-t border-[var(--divider)] pt-2">
             {displayProperties.map((prop) => (
               <div key={prop.key} className="flex items-center gap-[8px]">
                 <span
@@ -523,7 +523,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
           if (!actualGoto) return null
 
           return (
-            <div className="mt-2 border-t border-[var(--border-muted)]/50 pt-2">
+            <div className="mt-2 border-t border-[var(--divider)] pt-2">
               <div className="flex items-center gap-1 text-[7px] text-primary">
                 <ArrowRight size={8} className="text-primary" />
                 <span className="truncate font-mono font-semibold" title={actualGoto}>
@@ -536,7 +536,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
         {/* State Dependencies (Reads/Writes) */}
         {(stateUsage.reads.length > 0 || stateUsage.writes.length > 0) && (
-          <div className="mt-2 flex flex-col gap-1.5 border-t border-[var(--border-muted)]/50 pt-2">
+          <div className="mt-2 flex flex-col gap-1.5 border-t border-[var(--divider)] pt-2">
             {/* Reads */}
             {stateUsage.reads.length > 0 && stateUsage.reads.some((r) => r !== '*') && (
               <div className="flex flex-wrap items-center gap-1">
@@ -579,7 +579,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         )}
 
         {isExecuting && (
-          <div className="mt-2 flex items-center gap-1.5 border-t border-[var(--border-muted)]/50 pt-2">
+          <div className="mt-2 flex items-center gap-1.5 border-t border-[var(--divider)] pt-2">
             <Loader2 size={8} className="animate-spin text-primary" />
             <span className="animate-pulse text-[7px] font-bold text-primary">
               {t('workspace.synchronizing')}

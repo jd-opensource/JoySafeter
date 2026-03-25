@@ -101,7 +101,7 @@ export function ToolsPage() {
         </Button>
       </div>
 
-      <div className="flex-1 space-y-6 overflow-y-auto bg-[var(--surface-1)]/50 p-6">
+      <div className="flex-1 space-y-6 overflow-y-auto bg-[var(--surface-1)] p-6">
         {isLoading || isLoadingBuiltin ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />

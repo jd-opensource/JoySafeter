@@ -97,7 +97,7 @@ export function ExecutionTimelineView() {
   return (
     <div className="flex h-full flex-col">
       {/* Time Scale Header */}
-      <div className="flex h-6 shrink-0 select-none border-b border-[var(--border)] bg-[var(--surface-2)]/80">
+      <div className="flex h-6 shrink-0 select-none border-b border-[var(--border)] bg-[var(--surface-2)]">
         <div className="shrink-0 border-r border-[var(--border)]" style={{ width: NAME_WIDTH }} />
         <div className="relative flex-1">
           {ticks.map((tick, i) => (

@@ -449,7 +449,7 @@ export function RouteListField({
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-3">
+    <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
       {rules.length === 0 && (
         <div className="py-4 text-center text-[10px] text-[var(--text-muted)]">
           No routing rules defined. Rules are evaluated in order (top to bottom).

@@ -71,7 +71,7 @@ export function ModelListItem({ model, provider: _provider, isLast }: ModelListI
 
   return (
     <div
-      className={`group flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-[var(--brand-50)]/50 ${!isLast ? 'border-b border-[var(--surface-1)]' : ''} ${model.is_default ? 'bg-[var(--brand-50)]/30' : 'bg-[var(--surface-elevated)]'} ${model.is_available && !model.is_default ? 'cursor-pointer' : ''} `}
+      className={`group flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-[var(--brand-50)] ${!isLast ? 'border-b border-[var(--surface-1)]' : ''} ${model.is_default ? 'bg-[var(--brand-50)]' : 'bg-[var(--surface-elevated)]'} ${model.is_available && !model.is_default ? 'cursor-pointer' : ''} `}
       onClick={model.is_available && !model.is_default ? handleSetDefault : undefined}
     >
       {/* Left: Radio + Name */}

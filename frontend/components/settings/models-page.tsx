@@ -254,7 +254,7 @@ export function ModelsPage() {
         )}
 
         {providers.length === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-[var(--border)] bg-[var(--surface-1)]/50 py-20">
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] py-20">
             <div className="mb-6 rounded-full border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-8 shadow-sm">
               <Brain size={48} className="text-[var(--surface-5)]" />
             </div>

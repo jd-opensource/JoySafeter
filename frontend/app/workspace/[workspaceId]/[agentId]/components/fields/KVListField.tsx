@@ -25,7 +25,7 @@ export function KVListField({ value, onChange }: KVListFieldProps) {
   const handleRemove = (index: number) => onChange(items.filter((_, i) => i !== index))
 
   return (
-    <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-3">
+    <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
       {items.length === 0 && (
         <div className="py-2 text-center text-[10px] text-[var(--text-muted)]">
           {t('workspace.noParametersDefined')}

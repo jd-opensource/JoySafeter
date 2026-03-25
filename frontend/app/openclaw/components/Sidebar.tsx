@@ -143,7 +143,7 @@ export function Sidebar() {
 
       {/* Resize Handle */}
       <div
-        className="hover:bg-[var(--brand-primary)]/50 absolute inset-y-0 right-0 w-[4px] cursor-col-resize transition-colors active:bg-[var(--brand-primary)]"
+        className="hover:bg-[var(--brand-primary)] absolute inset-y-0 right-0 w-[4px] cursor-col-resize transition-colors active:bg-[var(--brand-primary)]"
         onMouseDown={handleMouseDown}
       />
     </aside>

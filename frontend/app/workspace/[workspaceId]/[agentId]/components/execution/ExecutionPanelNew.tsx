@@ -126,7 +126,7 @@ function ExecutionPanelContent() {
         <Panel defaultSize={35} minSize={25} maxSize={60}>
           <div className="flex h-full flex-col border-r border-[var(--border)] bg-[var(--surface-elevated)]">
             {/* Panel Header */}
-            <div className="flex h-9 shrink-0 select-none items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)]/80 px-3 backdrop-blur-sm">
+            <div className="flex h-9 shrink-0 select-none items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-3 backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <Activity size={13} className="text-primary" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]">

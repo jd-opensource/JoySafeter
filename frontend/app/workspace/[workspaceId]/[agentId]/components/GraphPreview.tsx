@@ -115,7 +115,7 @@ function PreviewContent({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) {
       />
 
       {/* Control buttons */}
-      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)]/90 p-0.5 shadow-sm">
+      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-0.5 shadow-sm">
         <Button
           size="sm"
           variant="ghost"

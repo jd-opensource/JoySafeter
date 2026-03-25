@@ -95,7 +95,7 @@ export function ModelProviderAddedCard({ provider, credential }: ModelProviderAd
           <div className="flex items-start gap-4">
             <ProviderIcon
               provider={provider}
-              className="mt-1 border border-[var(--border-muted)]/50 shadow-sm"
+              className="mt-1 border border-[var(--border-muted)] shadow-sm"
             />
 
             <div className="grow">
@@ -177,7 +177,7 @@ export function ModelProviderAddedCard({ provider, credential }: ModelProviderAd
         {/* Models Bar */}
         <div
           className={cn(
-            'flex cursor-pointer items-center justify-between border-t border-[var(--border-muted)]/60 bg-[var(--surface-1)]/30 px-5 py-3 transition-colors hover:bg-[var(--surface-1)]',
+            'flex cursor-pointer items-center justify-between border-t border-[var(--border-muted)] bg-[var(--surface-1)] px-5 py-3 transition-colors hover:bg-[var(--surface-1)]',
             !collapsed && 'bg-[var(--surface-1)]',
           )}
           onClick={() => setCollapsed(!collapsed)}

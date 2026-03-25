@@ -119,7 +119,7 @@ export function CopilotPanel() {
 
   return (
     <CopilotErrorBoundary>
-      <div className="relative flex h-full flex-col bg-[var(--surface-1)]">
+      <div className="relative flex h-full flex-col bg-[var(--surface-2)]">
         {/* Messages and streaming area */}
         <div className="custom-scrollbar flex-1 space-y-5 overflow-y-auto p-3" ref={refs.scrollRef}>
           {/* Loading history indicator */}

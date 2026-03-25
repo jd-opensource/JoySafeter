@@ -442,7 +442,7 @@ export default function WorkspaceMembersPage() {
             <div className="rounded-lg bg-[var(--surface-elevated)] shadow-sm">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-none bg-[var(--surface-1)]/50 hover:bg-[var(--surface-1)]/50">
+                  <TableRow className="border-none bg-[var(--surface-1)] hover:bg-[var(--surface-1)]">
                     <TableHead className="h-12 border-none text-xs font-semibold text-[var(--text-secondary)]">
                       {t('workspace.user')}
                     </TableHead>
@@ -487,7 +487,7 @@ export default function WorkspaceMembersPage() {
                     return (
                       <TableRow
                         key={member.id}
-                        className="border-none transition-colors hover:bg-[var(--surface-1)]/50"
+                        className="border-none transition-colors hover:bg-[var(--surface-1)]"
                       >
                         <TableCell className="border-0 py-4">
                           <div className="flex items-center gap-3">

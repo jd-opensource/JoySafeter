@@ -116,7 +116,7 @@ export function ToolCallCard({
     <div className={cn('rounded-lg border transition-all duration-200', getStatusColor())}>
       {showHeader && (
         <div
-          className="flex cursor-pointer items-center justify-between px-3 py-2 transition-colors hover:bg-[var(--surface-elevated)]/50"
+          className="flex cursor-pointer items-center justify-between px-3 py-2 transition-colors hover:bg-[var(--surface-elevated)]"
           onClick={() => setIsCollapsed(!isCollapsed)}
         >
           <div className="flex min-w-0 flex-1 items-center gap-2">

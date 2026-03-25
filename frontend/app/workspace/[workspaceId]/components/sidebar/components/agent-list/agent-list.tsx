@@ -170,7 +170,7 @@ function AgentItem({
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={handleSaveRename}
                 onKeyDown={handleKeyDown}
-                className="border-[var(--brand-primary)]/60 ring-[var(--brand-primary)]/20 focus:ring-[var(--brand-primary)]/30 w-full rounded-[6px] border bg-[var(--surface-1)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 transition-all placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-primary)]"
+                className="border-[var(--brand-primary)] ring-[var(--brand-primary)] focus:ring-[var(--brand-primary)] w-full rounded-[6px] border bg-[var(--surface-1)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 transition-all placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-primary)]"
                 onClick={(e) => e.stopPropagation()}
                 placeholder="Enter name..."
               />
@@ -178,7 +178,7 @@ function AgentItem({
             <div className="flex items-center gap-[2px]">
               <button
                 type="button"
-                className="hover:bg-[var(--brand-primary)]/90 flex h-[24px] w-[24px] items-center justify-center rounded-[6px] bg-[var(--brand-primary)] text-white shadow-sm transition-all hover:shadow active:scale-95"
+                className="hover:bg-[var(--brand-primary)] flex h-[24px] w-[24px] items-center justify-center rounded-[6px] bg-[var(--brand-primary)] text-white shadow-sm transition-all hover:shadow active:scale-95"
                 onClick={handleSaveRename}
                 title="Save"
               >
@@ -410,7 +410,7 @@ function FolderItem({
         className={cn(
           'group flex items-center rounded-[6px] py-[5px] pr-[6px] text-[var(--text-secondary)] transition-all',
           isDragOver
-            ? 'bg-[var(--brand-primary)]/20 ring-2 ring-[var(--brand-primary)]'
+            ? 'bg-[var(--brand-primary)] ring-2 ring-[var(--brand-primary)]'
             : 'hover:bg-[var(--surface-5)]',
           isDragActive && !isDragOver && 'ring-dashed ring-1 ring-[var(--border)]',
         )}
@@ -438,13 +438,13 @@ function FolderItem({
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={handleSaveRename}
                 onKeyDown={handleKeyDown}
-                className="border-[var(--brand-primary)]/60 ring-[var(--brand-primary)]/20 focus:ring-[var(--brand-primary)]/30 flex-1 rounded-[5px] border bg-[var(--surface-1)] px-[6px] py-[2px] text-[12px] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 transition-all focus:border-[var(--brand-primary)]"
+                className="border-[var(--brand-primary)] ring-[var(--brand-primary)] focus:ring-[var(--brand-primary)] flex-1 rounded-[5px] border bg-[var(--surface-1)] px-[6px] py-[2px] text-[12px] font-medium text-[var(--text-primary)] shadow-sm outline-none ring-2 transition-all focus:border-[var(--brand-primary)]"
                 autoFocus
                 onClick={(e) => e.stopPropagation()}
               />
               <button
                 type="button"
-                className="hover:bg-[var(--brand-primary)]/90 flex h-[20px] w-[20px] items-center justify-center rounded-[5px] bg-[var(--brand-primary)] text-white shadow-sm transition-all active:scale-95"
+                className="hover:bg-[var(--brand-primary)] flex h-[20px] w-[20px] items-center justify-center rounded-[5px] bg-[var(--brand-primary)] text-white shadow-sm transition-all active:scale-95"
                 onClick={(e) => {
                   e.stopPropagation()
                   handleSaveRename()
@@ -613,7 +613,7 @@ function FolderItem({
               className={cn(
                 'rounded-[6px] py-[8px] text-[11px] font-normal',
                 isDragOver
-                  ? 'bg-[var(--brand-primary)]/10 text-[var(--text-secondary)]'
+                  ? 'bg-[var(--brand-primary)] text-[var(--text-secondary)]'
                   : 'text-[var(--text-subtle)] opacity-60',
               )}
               style={{ marginLeft: `${24 + indentPadding}px` }}

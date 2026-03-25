@@ -61,7 +61,7 @@ export function ToolCallBadge({ name, args, status, onClick }: ToolCallBadgeProp
           </span>
         )}
 
-        <div className="ml-2 border-l border-[var(--border-strong)]/50 pl-2">
+        <div className="ml-2 border-l border-[var(--border-strong)] pl-2">
           {isCompleted ? (
             <Check size={12} className="text-green-500" />
           ) : (

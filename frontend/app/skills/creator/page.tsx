@@ -48,6 +48,7 @@ export default function SkillCreatorPage() {
   // Chat state
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [threadId, setThreadId] = useState<string | null>(null)
   const threadIdRef = useRef<string | null>(null)
   const currentRequestIdRef = useRef<string | null>(null)
   const currentAssistantMsgIdRef = useRef<string | null>(null)
@@ -138,6 +139,7 @@ export default function SkillCreatorPage() {
     const { thread_id, timestamp, data } = evt
     if (thread_id) {
       threadIdRef.current = thread_id
+      if (isMountedRef.current) setThreadId(thread_id)
     }
 
     const aiMsgId = currentAssistantMsgIdRef.current
@@ -396,7 +398,7 @@ export default function SkillCreatorPage() {
           <SkillPreviewPanel
             previewData={previewData}
             fileTree={fileTree}
-            threadId={threadIdRef.current}
+            threadId={threadId}
             isProcessing={isProcessing}
             onSave={() => setShowSaveDialog(true)}
             onRegenerate={handleRegenerate}
@@ -410,7 +412,7 @@ export default function SkillCreatorPage() {
         onOpenChange={setShowSaveDialog}
         previewData={previewData}
         fileTree={fileTree}
-        threadId={threadIdRef.current}
+        threadId={threadId}
         editSkillId={editSkillId}
         onSaved={handleSaved}
       />

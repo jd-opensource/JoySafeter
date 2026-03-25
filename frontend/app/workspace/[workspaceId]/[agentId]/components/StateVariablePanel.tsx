@@ -174,7 +174,7 @@ export function StateVariablePanel({
       case 'node':
         return 'bg-emerald-50/80 text-emerald-700 border-emerald-200/60 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/40'
       default:
-        return 'bg-[var(--surface-1)]/80 text-[var(--text-secondary)] border-[var(--border)]/60'
+        return 'bg-[var(--surface-1)] text-[var(--text-secondary)] border-[var(--border)]'
     }
   }
 
@@ -249,7 +249,7 @@ export function StateVariablePanel({
             placeholder="Search variables..."
             value={searchQuery}
             onValueChange={setSearchQuery}
-            className="focus-within:border-[var(--brand-500)]/40 bg-[var(--surface-2)] transition-all focus-within:bg-[var(--surface-elevated)] focus-within:shadow-sm hover:bg-[var(--surface-3)]"
+            className="focus-within:border-[var(--brand-500)] bg-[var(--surface-2)] transition-all focus-within:bg-[var(--surface-elevated)] focus-within:shadow-sm hover:bg-[var(--surface-3)]"
           />
           <div className="flex flex-wrap gap-1.5">
             {(['all', 'global', 'loop', 'task', 'node'] as const).map((scope) => (
@@ -261,7 +261,7 @@ export function StateVariablePanel({
                 className={cn(
                   'h-7 px-2.5 text-xs font-medium transition-all',
                   selectedScope === scope
-                    ? 'hover:bg-[var(--brand-500)]/90 bg-[var(--brand-500)] text-white shadow-sm'
+                    ? 'hover:bg-[var(--brand-500)] bg-[var(--brand-500)] text-white shadow-sm'
                     : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]',
                 )}
               >
@@ -448,7 +448,7 @@ function VariableItem({
     <div
       className={cn(
         'group relative rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3.5',
-        'hover:border-[var(--brand-500)]/30 cursor-pointer hover:bg-[var(--surface-3)]',
+        'hover:border-[var(--brand-500)] cursor-pointer hover:bg-[var(--surface-3)]',
         'shadow-sm transition-all duration-200 hover:shadow-md',
         onClick && 'hover:shadow-[0_0_0_1px_var(--brand-500)/20]',
       )}
@@ -474,7 +474,7 @@ function VariableItem({
           </div>
 
           {/* Variable Path */}
-          <div className="border-[var(--border)]/50 break-all rounded border bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs text-[var(--text-tertiary)]">
+          <div className="border-[var(--border)] break-all rounded border bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs text-[var(--text-tertiary)]">
             {variable.path}
           </div>
 

@@ -43,7 +43,7 @@ export const DraggableItem = ({ def }: { def: NodeDefinition }) => {
 
   return (
     <div
-      className={`group flex cursor-grab select-none items-center gap-2 rounded-xl border border-transparent bg-[var(--surface-elevated)] p-2 transition-all hover:border-[var(--border)] hover:bg-[var(--surface-3)]/80 hover:shadow-sm active:cursor-grabbing`}
+      className={`group flex cursor-grab select-none items-center gap-2 rounded-xl border border-transparent bg-[var(--surface-elevated)] p-2 transition-all hover:border-[var(--border)] hover:bg-[var(--surface-3)] hover:shadow-sm active:cursor-grabbing`}
       onDragStart={(event) => onDragStart(event, def.type, def.label)}
       draggable
     >

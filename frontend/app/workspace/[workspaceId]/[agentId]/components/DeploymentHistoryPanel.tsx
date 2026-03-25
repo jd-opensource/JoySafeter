@@ -422,7 +422,7 @@ export function DeploymentHistoryPanel({
 
                 <div className="relative">
                   {isLoadingPreview && previewMode === 'selected' && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[var(--surface-elevated)]/80">
+                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[var(--surface-elevated)]">
                       <Loader2 size={24} className="animate-spin text-[var(--text-muted)]" />
                     </div>
                   )}

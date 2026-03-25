@@ -227,7 +227,7 @@ export function ApiAccessDialog({
                   </code>{' '}
                   HTTP header as a Bearer token.
                 </p>
-                <div className="rounded-lg border border-[var(--brand-100)] bg-[var(--brand-50)]/50 p-4">
+                <div className="rounded-lg border border-[var(--brand-100)] bg-[var(--brand-50)] p-4">
                   <code className="font-mono text-sm font-semibold text-[var(--brand-600)]">
                     Authorization: Bearer YOUR_API_TOKEN
                   </code>

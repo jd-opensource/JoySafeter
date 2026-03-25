@@ -165,7 +165,7 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
       </div>
 
       {/* 3. Available Selection List */}
-      <div className="custom-scrollbar mt-1 max-h-[160px] divide-y divide-[var(--border-muted)] overflow-y-auto rounded-lg border border-[var(--border-muted)] bg-[var(--surface-2)]/30">
+      <div className="custom-scrollbar mt-1 max-h-[160px] divide-y divide-[var(--border-muted)] overflow-y-auto rounded-lg border border-[var(--border-muted)] bg-[var(--surface-2)]">
         {isLoadingData ? (
           <div className="flex flex-col items-center justify-center gap-2 p-4 text-[var(--text-muted)]">
             <Loader2 size={14} className="animate-spin text-primary" />

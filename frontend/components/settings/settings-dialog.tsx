@@ -55,7 +55,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <DialogDescription className="sr-only">{t('settings.description')}</DialogDescription>
 
         {/* Sidebar Navigation */}
-        <div className="flex w-60 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface-1)]/80 p-4 backdrop-blur-sm">
+        <div className="flex w-60 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface-1)] p-4 backdrop-blur-sm">
           <div className="mb-6 px-2">
             <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
               {t('settings.title')}

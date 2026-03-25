@@ -144,7 +144,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
               {/* Feature tags - 2x2 grid */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-blue-300/60 hover:bg-blue-50/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-blue-300/60 hover:bg-blue-50/40">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -167,7 +167,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     {mounted ? t('auth.featureIntelligentOrchestration') : 'Auto Orchestration'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-violet-300/60 hover:bg-violet-50/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-violet-300/60 hover:bg-violet-50/40">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -190,7 +190,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     {mounted ? t('auth.featureSecure') : 'Security Agent'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-cyan-300/60 hover:bg-cyan-50/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-cyan-300/60 hover:bg-cyan-50/40">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-blue-500 shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -213,7 +213,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                     {mounted ? t('auth.featureMultiAgent') : 'Modular'}
                   </span>
                 </div>
-                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 px-4 py-3 backdrop-blur-sm transition-all hover:border-purple-300/60 hover:bg-purple-50/40">
+                <div className="group flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 backdrop-blur-sm transition-all hover:border-purple-300/60 hover:bg-purple-50/40">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 shadow-sm">
                     <svg
                       className="h-4 w-4 text-white"
@@ -241,7 +241,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </div>
 
           <div className="flex w-full items-center justify-center px-4 py-12 sm:px-8 lg:w-[45%] lg:px-12 xl:w-[40%] xl:px-16">
-            <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/30 px-8 py-10 shadow-2xl backdrop-blur-xl">
+            <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] px-8 py-10 shadow-2xl backdrop-blur-xl">
               {children}
             </div>
           </div>

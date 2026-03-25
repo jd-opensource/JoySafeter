@@ -114,7 +114,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
       </div>
 
       {/* 3. Available Skills List */}
-      <div className="custom-scrollbar mt-1 max-h-[200px] divide-y divide-[var(--border-muted)] overflow-y-auto rounded-lg border border-[var(--border-muted)] bg-[var(--surface-2)]/30">
+      <div className="custom-scrollbar mt-1 max-h-[200px] divide-y divide-[var(--border-muted)] overflow-y-auto rounded-lg border border-[var(--border-muted)] bg-[var(--surface-2)]">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center gap-2 p-4 text-[var(--text-muted)]">
             <Loader2 size={14} className="animate-spin text-amber-500" />

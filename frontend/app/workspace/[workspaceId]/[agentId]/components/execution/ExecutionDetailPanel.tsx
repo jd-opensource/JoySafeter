@@ -415,7 +415,7 @@ export function ExecutionDetailPanel() {
   return (
     <div className="flex h-full flex-col bg-[var(--surface-elevated)]">
       {/* Header */}
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)]/80 px-3">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-3">
         <div className="flex min-w-0 items-center gap-2">
           <AlignLeft size={13} className="shrink-0 text-[var(--text-tertiary)]" />
           <span className="truncate text-[11px] font-semibold text-[var(--text-primary)]">

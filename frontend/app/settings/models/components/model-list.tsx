@@ -33,7 +33,7 @@ export function ModelList({ provider, models, onCollapse }: ModelListProps) {
   return (
     <div className="border-t border-[var(--border-muted)]">
       {/* Header */}
-      <div className="flex items-center justify-between bg-[var(--surface-1)]/80 px-4 py-2.5">
+      <div className="flex items-center justify-between bg-[var(--surface-1)] px-4 py-2.5">
         <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-tertiary)]">
           <Sparkles size={12} className="text-[var(--text-muted)]" />
           <span>{t('settings.modelsNum', { num: models.length })}</span>

@@ -365,7 +365,7 @@ export function AddMcpDialog({ open, onOpenChange, editingServer }: AddMcpDialog
                   <Button
                     variant="outline"
                     onClick={handleHeaderAdd}
-                    className="h-9 w-full gap-2 border-dashed border-[var(--border-strong)] text-xs text-[var(--text-tertiary)] hover:border-primary/30 hover:bg-[var(--brand-50)]/50 hover:text-[var(--brand-600)]"
+                    className="h-9 w-full gap-2 border-dashed border-[var(--border-strong)] text-xs text-[var(--text-tertiary)] hover:border-primary/30 hover:bg-[var(--brand-50)] hover:text-[var(--brand-600)]"
                   >
                     <Plus size={14} /> {t('settings.addHeader')}
                   </Button>

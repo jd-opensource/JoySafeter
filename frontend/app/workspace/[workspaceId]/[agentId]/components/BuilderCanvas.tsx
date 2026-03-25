@@ -416,7 +416,7 @@ export function BuilderCanvas() {
       onDrop={onDrop}
     >
       <div
-        className={`pointer-events-none absolute inset-4 z-50 flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 ${isDragOver ? 'scale-100 border-[var(--brand-500)]/50 bg-[var(--brand-500)]/5 opacity-100 backdrop-blur-[1px]' : 'scale-95 border-transparent opacity-0'}`}
+        className={`pointer-events-none absolute inset-4 z-50 flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 ${isDragOver ? 'scale-100 border-[var(--brand-500)] bg-[var(--brand-500)] opacity-100 backdrop-blur-[1px]' : 'scale-95 border-transparent opacity-0'}`}
       >
         <div className="flex animate-bounce items-center gap-3 rounded-xl border border-[var(--brand-100)] bg-[var(--surface-elevated)] px-6 py-3 font-medium text-[var(--brand-600)] shadow-xl">
           <Plus size={20} /> <span className="text-lg">{t('workspace.dropToAddNode')}</span>

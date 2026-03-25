@@ -70,8 +70,8 @@ interface DeviceResponse {
 const instanceStatusStyles: Record<string, string> = {
   running: 'bg-green-500/15 text-green-700 border-green-200',
   starting: 'bg-blue-500/15 text-blue-700 border-blue-200',
-  pending: 'bg-[var(--text-tertiary)]/15 text-[var(--text-secondary)] border-[var(--border)]',
-  stopped: 'bg-[var(--text-tertiary)]/15 text-[var(--text-secondary)] border-[var(--border)]',
+  pending: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
+  stopped: 'bg-[var(--text-tertiary)] text-[var(--text-secondary)] border-[var(--border)]',
   failed: 'bg-red-500/15 text-red-700 border-red-200',
 }
 
@@ -527,7 +527,7 @@ export function OpenClawManagement() {
             </div>
           ) : pending.length === 0 && paired.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center">
-              <div className="bg-[var(--muted)]/50 mb-3 flex h-12 w-12 items-center justify-center rounded-full">
+              <div className="bg-[var(--muted)] mb-3 flex h-12 w-12 items-center justify-center rounded-full">
                 <Smartphone className="h-5 w-5 text-[var(--text-tertiary)]" />
               </div>
               <p className="text-sm font-medium text-[var(--text-secondary)]">
@@ -542,7 +542,7 @@ export function OpenClawManagement() {
               {pending.map((d) => (
                 <li
                   key={d.deviceId}
-                  className="hover:bg-[var(--muted)]/30 flex flex-col justify-between gap-3 p-3 transition-colors sm:flex-row sm:items-center sm:px-4"
+                  className="hover:bg-[var(--muted)] flex flex-col justify-between gap-3 p-3 transition-colors sm:flex-row sm:items-center sm:px-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
@@ -576,7 +576,7 @@ export function OpenClawManagement() {
               {paired.map((d) => (
                 <li
                   key={d.deviceId}
-                  className="hover:bg-[var(--muted)]/30 flex items-center justify-between p-3 transition-colors sm:px-4"
+                  className="hover:bg-[var(--muted)] flex items-center justify-between p-3 transition-colors sm:px-4"
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-green-500/10 text-green-600 dark:bg-green-500/20 dark:text-green-400">

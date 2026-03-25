@@ -273,7 +273,7 @@ export const SandboxesPage = () => {
           <div className="flex-1 overflow-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[var(--surface-1)]/80 hover:bg-[var(--surface-1)]/80">
+                <TableRow className="bg-[var(--surface-1)] hover:bg-[var(--surface-1)]">
                   <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.user')}
                   </TableHead>
@@ -314,7 +314,7 @@ export const SandboxesPage = () => {
                     return (
                       <TableRow
                         key={sandbox.id}
-                        className="group transition-colors hover:bg-[var(--surface-1)]/50"
+                        className="group transition-colors hover:bg-[var(--surface-1)]"
                       >
                         <TableCell className="py-3">
                           <div className="flex items-center gap-3">

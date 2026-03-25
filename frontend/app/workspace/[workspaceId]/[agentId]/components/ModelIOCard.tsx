@@ -73,7 +73,7 @@ function DataSection({
     <div className={cn('overflow-hidden rounded border', bgColor)}>
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full items-center justify-between p-2 transition-colors hover:bg-[var(--surface-3)]/50"
+        className="flex w-full items-center justify-between p-2 transition-colors hover:bg-[var(--surface-3)]"
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>

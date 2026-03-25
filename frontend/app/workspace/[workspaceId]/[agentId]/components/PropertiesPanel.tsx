@@ -947,7 +947,7 @@ export default function PropertiesPanel({
                 return (
                   <div
                     key={field.name}
-                    className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-2.5"
+                    className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2.5"
                   >
                     <div className="flex items-center justify-between">
                       <Label className="font-mono text-[11px] font-medium text-[var(--text-secondary)]">

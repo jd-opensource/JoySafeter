@@ -109,11 +109,11 @@ export default function ThreadContent({
               <div
                 className={cn(
                   'flex min-w-0 max-w-[85%] items-center gap-4 rounded-2xl px-4 py-3',
-                  'border border-[var(--border)] bg-[var(--surface-1)]/90 shadow-sm backdrop-blur-sm',
+                  'border border-[var(--border)] bg-[var(--surface-1)] shadow-sm backdrop-blur-sm',
                 )}
               >
                 <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
-                  <div className="absolute inset-0 h-10 w-10 animate-pulse rounded-full bg-[var(--brand-400)]/20" />
+                  <div className="absolute inset-0 h-10 w-10 animate-pulse rounded-full bg-[var(--brand-400)]" />
                   <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-700)] shadow-md">
                     <div className="flex gap-0.5">
                       <span className="h-2 w-2 animate-bounce rounded-full bg-white [animation-delay:0ms]" />

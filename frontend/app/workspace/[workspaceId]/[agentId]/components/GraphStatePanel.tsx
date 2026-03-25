@@ -354,7 +354,7 @@ export function GraphStatePanel() {
                       return (
                         <div
                           key={field.name}
-                          className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-3 transition-colors hover:border-primary/30 hover:bg-primary/5"
+                          className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 transition-colors hover:border-primary/30 hover:bg-primary/5"
                           onMouseEnter={() => setHighlightedStateVariable(field.name)}
                           onMouseLeave={() => setHighlightedStateVariable(null)}
                         >

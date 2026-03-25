@@ -162,7 +162,7 @@ export function ConditionExprField({
       </div>
 
       {mode === 'builder' ? (
-        <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-3">
+        <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
           {/* Builder UI */}
           <div className="space-y-1">
             <label className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Variable</label>

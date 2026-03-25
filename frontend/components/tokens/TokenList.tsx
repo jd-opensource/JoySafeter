@@ -49,7 +49,7 @@ const getTypeBadgeColor = (type?: string | null) => {
       return 'bg-blue-100 text-blue-700 hover:bg-blue-100/80 border-blue-200'
     case 'personal':
     default:
-      return 'bg-[var(--surface-3)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]/80 border-[var(--border)]'
+      return 'bg-[var(--surface-3)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)] border-[var(--border)]'
   }
 }
 
@@ -157,7 +157,7 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
       {header}
 
       {!tokens || tokens.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)]/50 py-12">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] py-12">
           <div className="rounded-full border border-[var(--border)] bg-[var(--surface-3)] p-4">
              <Key className="h-8 w-8 text-[var(--text-subtle)]" />
           </div>

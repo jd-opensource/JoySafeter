@@ -271,7 +271,7 @@ export function SkillCard({
       </div>
 
       {/* Quick action footer */}
-      <div className="flex gap-2 border-t border-[var(--border)] bg-[var(--surface-1)]/50 px-4 py-3">
+      <div className="flex gap-2 border-t border-[var(--border)] bg-[var(--surface-1)] px-4 py-3">
         <Button
           variant="outline"
           size="sm"

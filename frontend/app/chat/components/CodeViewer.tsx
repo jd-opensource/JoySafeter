@@ -118,7 +118,7 @@ export default function CodeViewer({
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-1)]/80 px-3 py-2">
+      <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-1)] px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {collapsible && (
             <button
