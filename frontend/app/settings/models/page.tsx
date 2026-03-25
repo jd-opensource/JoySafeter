@@ -74,17 +74,17 @@ export default function ModelsPage() {
   if (providersLoading || credentialsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white p-6">
+    <div className="flex h-full flex-col bg-[var(--surface-elevated)]">
+      <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">{t('settings.modelsTitle')}</h2>
-          <p className="mt-1 text-xs text-gray-500">{t('settings.modelsDescription')}</p>
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">{t('settings.modelsTitle')}</h2>
+          <p className="mt-1 text-xs text-[var(--text-tertiary)]">{t('settings.modelsDescription')}</p>
         </div>
       </div>
 
@@ -93,21 +93,21 @@ export default function ModelsPage() {
           className={`mb-4 flex h-8 items-center justify-between ${noValidCredential && 'rounded-lg border border-[#FEF0C7] bg-[#FFFAEB] px-3'}`}
         >
           {noValidCredential ? (
-            <div className="flex items-center text-xs font-medium text-gray-700">
+            <div className="flex items-center text-xs font-medium text-[var(--text-secondary)]">
               <AlertTriangle className="mr-1 h-3 w-3 text-[#F79009]" />
               {t('settings.noValidCredential')}
             </div>
           ) : (
-            <div className="text-sm font-medium text-gray-800">{t('settings.models')}</div>
+            <div className="text-sm font-medium text-[var(--text-primary)]">{t('settings.models')}</div>
           )}
         </div>
 
         {/* 系统内置供应商：已配置的 */}
         {builtinConfigured.length > 0 && (
           <div className="mb-6">
-            <div className="mb-3 flex items-center text-xs font-semibold text-gray-500">
+            <div className="mb-3 flex items-center text-xs font-semibold text-[var(--text-tertiary)]">
               {t('settings.builtinProviders', { defaultValue: '系统内置供应商' })}
-              <span className="ml-3 h-[1px] grow bg-gradient-to-r from-[#f3f4f6]" />
+              <span className="ml-3 h-[1px] grow bg-gradient-to-r from-[var(--surface-3)]" />
             </div>
             <div className="space-y-3">
               {builtinConfigured.map((provider) => {
@@ -127,9 +127,9 @@ export default function ModelsPage() {
         {/* 自定义模型：已配置的（含 custom 模板与 custom-{ts}） */}
         {customConfigured.length > 0 && (
           <div className="mb-6">
-            <div className="mb-3 flex items-center text-xs font-semibold text-gray-500">
+            <div className="mb-3 flex items-center text-xs font-semibold text-[var(--text-tertiary)]">
               {t('settings.customModels', { defaultValue: '自定义模型' })}
-              <span className="ml-3 h-[1px] grow bg-gradient-to-r from-[#f3f4f6]" />
+              <span className="ml-3 h-[1px] grow bg-gradient-to-r from-[var(--surface-3)]" />
             </div>
             <div className="space-y-3">
               {customConfigured.map((provider) => {
@@ -149,9 +149,9 @@ export default function ModelsPage() {
         {/* 内置供应商（未配置的） */}
         {builtinNotConfigured.length > 0 && (
           <div className="mb-6">
-            <div className="mb-3 flex items-center text-xs font-semibold text-gray-500">
+            <div className="mb-3 flex items-center text-xs font-semibold text-[var(--text-tertiary)]">
               {t('settings.builtinProvidersNotConfigured')}
-              <span className="ml-3 h-[1px] grow bg-gradient-to-r from-[#f3f4f6]" />
+              <span className="ml-3 h-[1px] grow bg-gradient-to-r from-[var(--surface-3)]" />
             </div>
             <div className="grid grid-cols-3 gap-3">
               {builtinNotConfigured.map((provider) => (
@@ -164,9 +164,9 @@ export default function ModelsPage() {
         {/* 自定义模型：未配置时一步添加入口 */}
         {customNotConfigured && customProvider && (
           <div className="mb-6">
-            <div className="mb-3 flex items-center text-xs font-semibold text-gray-500">
+            <div className="mb-3 flex items-center text-xs font-semibold text-[var(--text-tertiary)]">
               {t('settings.customModels', { defaultValue: '自定义模型' })}
-              <span className="ml-3 h-[1px] grow bg-gradient-to-r from-[#f3f4f6]" />
+              <span className="ml-3 h-[1px] grow bg-gradient-to-r from-[var(--surface-3)]" />
             </div>
             <div className="flex">
               <Button
@@ -188,7 +188,7 @@ export default function ModelsPage() {
         )}
 
         {providers.length === 0 && (
-          <div className="flex h-64 flex-col items-center justify-center text-gray-400">
+          <div className="flex h-64 flex-col items-center justify-center text-[var(--text-muted)]">
             <p className="text-sm">{t('settings.noModelProviders')}</p>
           </div>
         )}

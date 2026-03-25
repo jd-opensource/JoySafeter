@@ -147,8 +147,8 @@ export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustom
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-2xl sm:max-w-md">
-        <DialogHeader className="border-b border-gray-100 px-6 py-4">
+      <DialogContent className="gap-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-2xl sm:max-w-md">
+        <DialogHeader className="border-b border-[var(--border-muted)] px-6 py-4">
           <DialogTitle className="text-sm font-bold">
             {t('settings.addCustomModel', { defaultValue: '添加自定义模型' })}
           </DialogTitle>
@@ -243,7 +243,7 @@ export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustom
               />
             </div>
           </div>
-          <DialogFooter className="flex justify-end gap-2 border-t border-gray-100 px-6 py-4">
+          <DialogFooter className="flex justify-end gap-2 border-t border-[var(--border-muted)] px-6 py-4">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t('settings.cancel')}
             </Button>

@@ -49,7 +49,7 @@ const getTypeBadgeColor = (type?: string | null) => {
       return 'bg-blue-100 text-blue-700 hover:bg-blue-100/80 border-blue-200'
     case 'personal':
     default:
-      return 'bg-gray-100 text-gray-700 hover:bg-gray-100/80 border-gray-200'
+      return 'bg-[var(--surface-3)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]/80 border-[var(--border)]'
   }
 }
 
@@ -59,12 +59,12 @@ function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, 
 
   return (
     <TableRow>
-      <TableCell className="font-medium text-gray-900 border-b border-gray-100">
+      <TableCell className="font-medium text-[var(--text-primary)] border-b border-[var(--border-muted)]">
         {token.name}
       </TableCell>
-      <TableCell className="border-b border-gray-100">
+      <TableCell className="border-b border-[var(--border-muted)]">
         <div className="flex items-center gap-2">
-          <code className="bg-gray-50 px-2 py-1 rounded text-xs text-gray-600 font-mono border border-gray-100">
+          <code className="bg-[var(--surface-1)] px-2 py-1 rounded text-xs text-[var(--text-secondary)] font-mono border border-[var(--border-muted)]">
             {token.tokenPrefix}...
           </code>
           <TooltipProvider delayDuration={300}>
@@ -73,7 +73,7 @@ function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, 
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6 text-gray-400 hover:text-gray-600"
+                  className="h-6 w-6 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                   onClick={() => handleCopy(token.tokenPrefix)}
                 >
                   {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
@@ -84,23 +84,23 @@ function TokenTableRow({ token, onRevoke, revokingId }: { token: PlatformToken, 
           </TooltipProvider>
         </div>
       </TableCell>
-      <TableCell className="border-b border-gray-100">
+      <TableCell className="border-b border-[var(--border-muted)]">
         <Badge variant="outline" className={getTypeBadgeColor(token.resourceType)}>
           {formatResourceType(token.resourceType)}
         </Badge>
       </TableCell>
-      <TableCell className="text-gray-500 text-sm border-b border-gray-100">
+      <TableCell className="text-[var(--text-tertiary)] text-sm border-b border-[var(--border-muted)]">
         {token.createdAt ? new Date(token.createdAt).toLocaleDateString() : '-'}
       </TableCell>
-      <TableCell className="text-gray-500 text-sm border-b border-gray-100">
+      <TableCell className="text-[var(--text-tertiary)] text-sm border-b border-[var(--border-muted)]">
         {token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : t('settings.tokens.noExpiry', { defaultValue: 'No expiry' })}
       </TableCell>
-      <TableCell className="text-right border-b border-gray-100">
+      <TableCell className="text-right border-b border-[var(--border-muted)]">
         <Button
           variant="ghost"
           size="icon"
           onClick={() => onRevoke(token)}
-          className="h-8 w-8 text-gray-400 hover:bg-red-50 hover:text-red-600"
+          className="h-8 w-8 text-[var(--text-muted)] hover:bg-red-50 hover:text-red-600"
           disabled={revokingId === token.id}
         >
           <Trash2 className="h-4 w-4" />
@@ -147,7 +147,7 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
   if (isLoading) {
     return (
       <div className="flex h-full min-h-[200px] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
       </div>
     )
   }
@@ -157,23 +157,23 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
       {header}
 
       {!tokens || tokens.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/50 py-12">
-          <div className="rounded-full border border-gray-200 bg-gray-100 p-4">
-             <Key className="h-8 w-8 text-gray-300" />
+        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)]/50 py-12">
+          <div className="rounded-full border border-[var(--border)] bg-[var(--surface-3)] p-4">
+             <Key className="h-8 w-8 text-[var(--text-subtle)]" />
           </div>
-          <p className="text-sm font-medium text-gray-500">{t('settings.tokens.emptyState')}</p>
+          <p className="text-sm font-medium text-[var(--text-tertiary)]">{t('settings.tokens.emptyState')}</p>
         </div>
       ) : (
-        <div className="rounded-md border border-gray-200 bg-white shadow-sm">
+        <div className="rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] shadow-sm">
           <Table>
             <TableHeader>
-              <TableRow className="bg-gray-50 hover:bg-gray-50">
-                <TableHead className="w-[200px] text-gray-600 font-medium">{t('settings.tokens.name', { defaultValue: '名称' })}</TableHead>
-                <TableHead className="text-gray-600 font-medium">{t('settings.tokens.key', { defaultValue: 'Key' })}</TableHead>
-                <TableHead className="text-gray-600 font-medium">{t('settings.tokens.type', { defaultValue: '类型' })}</TableHead>
-                <TableHead className="text-gray-600 font-medium">{t('settings.tokens.createdAt', { defaultValue: '创建时间' })}</TableHead>
-                <TableHead className="text-gray-600 font-medium">{t('settings.tokens.expiresAt', { defaultValue: '过期时间' })}</TableHead>
-                <TableHead className="w-[80px] text-right text-gray-600 font-medium">{t('settings.tokens.actions', { defaultValue: '操作' })}</TableHead>
+              <TableRow className="bg-[var(--surface-1)] hover:bg-[var(--surface-1)]">
+                <TableHead className="w-[200px] text-[var(--text-secondary)] font-medium">{t('settings.tokens.name', { defaultValue: '名称' })}</TableHead>
+                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.key', { defaultValue: 'Key' })}</TableHead>
+                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.type', { defaultValue: '类型' })}</TableHead>
+                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.createdAt', { defaultValue: '创建时间' })}</TableHead>
+                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.expiresAt', { defaultValue: '过期时间' })}</TableHead>
+                <TableHead className="w-[80px] text-right text-[var(--text-secondary)] font-medium">{t('settings.tokens.actions', { defaultValue: '操作' })}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -196,7 +196,7 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
             <AlertDialogTitle className="text-lg font-semibold">
               {t('settings.tokens.revokeConfirmTitle')}
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm text-gray-500">
+            <AlertDialogDescription className="text-sm text-[var(--text-tertiary)]">
               {t('settings.tokens.revokeConfirmMessage')}
             </AlertDialogDescription>
           </AlertDialogHeader>

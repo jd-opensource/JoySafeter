@@ -61,8 +61,8 @@ export class CopilotErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex min-h-[200px] flex-col items-center justify-center p-8 text-center">
           <AlertCircle className="mb-4 h-12 w-12 text-red-500" />
-          <h3 className="mb-2 text-lg font-semibold text-gray-900">Something went wrong</h3>
-          <p className="mb-4 max-w-md text-sm text-gray-600">
+          <h3 className="mb-2 text-lg font-semibold text-[var(--text-primary)]">Something went wrong</h3>
+          <p className="mb-4 max-w-md text-sm text-[var(--text-secondary)]">
             {isNetworkError
               ? 'Network connection error. Please check your internet connection and try again.'
               : isWebSocketError
@@ -79,10 +79,10 @@ export class CopilotErrorBoundary extends Component<Props, State> {
           </div>
           {process.env.NODE_ENV === 'development' && this.state.errorInfo && (
             <details className="mt-4 max-w-2xl text-left">
-              <summary className="mb-2 cursor-pointer text-xs text-gray-500">
+              <summary className="mb-2 cursor-pointer text-xs text-[var(--text-tertiary)]">
                 Error Details (Development Only)
               </summary>
-              <pre className="max-h-64 overflow-auto rounded bg-gray-100 p-4 text-xs">
+              <pre className="max-h-64 overflow-auto rounded bg-[var(--surface-3)] p-4 text-xs">
                 {this.state.error?.stack}
                 {'\n\n'}
                 {this.state.errorInfo.componentStack}

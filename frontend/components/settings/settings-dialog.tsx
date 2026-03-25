@@ -34,11 +34,11 @@ const MenuItem = ({
     className={cn(
       'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
       isActive
-        ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
-        : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900',
+        ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm ring-1 ring-[var(--border)]'
+        : 'text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]',
     )}
   >
-    <Icon size={16} className={cn(isActive ? 'text-blue-600' : 'text-gray-400')} />
+    <Icon size={16} className={cn(isActive ? 'text-[var(--brand-600)]' : 'text-[var(--text-muted)]')} />
     {label}
   </button>
 )
@@ -50,20 +50,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[700px] max-w-5xl flex-row gap-0 overflow-hidden border-0 bg-white p-0 shadow-2xl">
+      <DialogContent className="flex h-[700px] max-w-5xl flex-row gap-0 overflow-hidden border-0 bg-[var(--surface-elevated)] p-0 shadow-2xl">
         <DialogTitle className="sr-only">{t('settings.title')}</DialogTitle>
         <DialogDescription className="sr-only">{t('settings.description')}</DialogDescription>
 
         {/* Sidebar Navigation */}
-        <div className="flex w-60 flex-shrink-0 flex-col border-r border-gray-200 bg-gray-50/80 p-4 backdrop-blur-sm">
+        <div className="flex w-60 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface-1)]/80 p-4 backdrop-blur-sm">
           <div className="mb-6 px-2">
-            <h2 className="text-lg font-bold tracking-tight text-gray-900">
+            <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
               {t('settings.title')}
             </h2>
           </div>
 
           <div className="flex-1 space-y-1">
-            <div className="mb-2 mt-4 px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            <div className="mb-2 mt-4 px-3 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
               {t('settings.account')}
             </div>
             <MenuItem
@@ -73,7 +73,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               onClick={() => setActiveTab('profile')}
             />
 
-            <div className="mb-2 mt-6 px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            <div className="mb-2 mt-6 px-3 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
               {t('settings.workspace')}
             </div>
             <MenuItem
@@ -100,7 +100,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </div>
 
         {/* Main Content Area */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-white">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--surface-elevated)]">
           {activeTab === 'models' && (
             <div className="flex-1 overflow-hidden p-6">
               <ModelsPage />

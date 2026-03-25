@@ -181,7 +181,7 @@ export const SandboxesPage = () => {
     switch (status.toLowerCase()) {
       case 'running':
         return {
-          color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          color: 'bg-[var(--status-success-bg)] text-[var(--status-success)] border-[var(--status-success-border)]',
           dot: 'bg-emerald-500',
           animate: true,
         }
@@ -193,8 +193,8 @@ export const SandboxesPage = () => {
         }
       case 'stopped':
         return {
-          color: 'bg-gray-50 text-gray-600 border-gray-200',
-          dot: 'bg-gray-400',
+          color: 'bg-[var(--surface-1)] text-[var(--text-secondary)] border-[var(--border)]',
+          dot: 'bg-[var(--text-muted)]',
           animate: false,
         }
       case 'failed':
@@ -205,8 +205,8 @@ export const SandboxesPage = () => {
         }
       default:
         return {
-          color: 'bg-gray-50 text-gray-600 border-gray-200',
-          dot: 'bg-gray-400',
+          color: 'bg-[var(--surface-1)] text-[var(--text-secondary)] border-[var(--border)]',
+          dot: 'bg-[var(--text-muted)]',
           animate: false,
         }
     }
@@ -215,7 +215,7 @@ export const SandboxesPage = () => {
   if (loading) {
     return (
       <div className="flex h-full min-h-[400px] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
       </div>
     )
   }
@@ -230,10 +230,10 @@ export const SandboxesPage = () => {
               <Box className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-bold tracking-tight text-gray-900">
+              <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
                 {t('settings.sandboxes.title')}
               </h2>
-              <p className="mt-0.5 text-xs text-gray-500">{t('settings.sandboxes.description')}</p>
+              <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{t('settings.sandboxes.description')}</p>
             </div>
           </div>
           <Button
@@ -243,7 +243,7 @@ export const SandboxesPage = () => {
               setLoading(true)
               fetchSandboxes()
             }}
-            className="gap-2 rounded-lg border-gray-200 transition-all hover:border-gray-300 hover:bg-gray-50"
+            className="gap-2 rounded-lg border-[var(--border)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]"
           >
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
             <span className="text-xs font-medium">{t('settings.sandboxes.refresh')}</span>
@@ -252,15 +252,15 @@ export const SandboxesPage = () => {
 
         {/* Stats Bar */}
         <div className="mb-4 flex items-center gap-4 px-1">
-          <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
             <Activity className="h-3.5 w-3.5" />
             <span>
               {sandboxes.filter((s) => s.status === 'running').length}{' '}
               {t('settings.sandboxes.running', 'running')}
             </span>
           </div>
-          <div className="h-3 w-px bg-gray-200" />
-          <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="h-3 w-px bg-[var(--border)]" />
+          <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
             <User className="h-3.5 w-3.5" />
             <span>
               {sandboxes.length} {t('settings.sandboxes.total', 'total')}
@@ -269,27 +269,27 @@ export const SandboxesPage = () => {
         </div>
 
         {/* Table Container */}
-        <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-sm">
           <div className="flex-1 overflow-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-gray-50/80 hover:bg-gray-50/80">
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                <TableRow className="bg-[var(--surface-1)]/80 hover:bg-[var(--surface-1)]/80">
+                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.user')}
                   </TableHead>
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.status')}
                   </TableHead>
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.image')}
                   </TableHead>
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.resources')}
                   </TableHead>
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.runtime')}
                   </TableHead>
-                  <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.actions')}
                   </TableHead>
                 </TableRow>
@@ -299,10 +299,10 @@ export const SandboxesPage = () => {
                   <TableRow>
                     <TableCell colSpan={6} className="py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
-                        <div className="rounded-full border border-gray-200 bg-gray-100 p-4">
-                          <Box className="h-8 w-8 text-gray-300" />
+                        <div className="rounded-full border border-[var(--border)] bg-[var(--surface-3)] p-4">
+                          <Box className="h-8 w-8 text-[var(--text-subtle)]" />
                         </div>
-                        <p className="text-sm font-medium text-gray-500">
+                        <p className="text-sm font-medium text-[var(--text-tertiary)]">
                           {t('settings.sandboxes.noSandboxes')}
                         </p>
                       </div>
@@ -314,18 +314,18 @@ export const SandboxesPage = () => {
                     return (
                       <TableRow
                         key={sandbox.id}
-                        className="group transition-colors hover:bg-gray-50/50"
+                        className="group transition-colors hover:bg-[var(--surface-1)]/50"
                       >
                         <TableCell className="py-3">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-gray-100 to-gray-200">
-                              <User className="h-4 w-4 text-gray-500" />
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[var(--surface-3)] to-[var(--surface-5)]">
+                              <User className="h-4 w-4 text-[var(--text-tertiary)]" />
                             </div>
                             <div className="flex flex-col">
-                              <span className="text-sm font-medium text-gray-900">
+                              <span className="text-sm font-medium text-[var(--text-primary)]">
                                 {sandbox.user?.name || sandbox.user?.email || 'Unknown'}
                               </span>
-                              <span className="font-mono text-[10px] text-gray-400">
+                              <span className="font-mono text-[10px] text-[var(--text-muted)]">
                                 {sandbox.id.substring(0, 8)}...
                               </span>
                             </div>
@@ -410,7 +410,7 @@ export const SandboxesPage = () => {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 px-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                                  className="h-7 px-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
                                   onClick={() => setInlineEdit(null)}
                                   disabled={inlineSaving}
                                 >
@@ -422,7 +422,7 @@ export const SandboxesPage = () => {
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                className="max-w-[140px] cursor-pointer truncate text-left font-mono text-xs text-gray-700 hover:text-violet-600 hover:underline"
+                                className="max-w-[140px] cursor-pointer truncate text-left font-mono text-xs text-[var(--text-secondary)] hover:text-violet-600 hover:underline"
                                 title={sandbox.image}
                                 onClick={() => openInlineEdit(sandbox)}
                                 disabled={actionLoading === sandbox.id}
@@ -442,13 +442,13 @@ export const SandboxesPage = () => {
                         </TableCell>
                         <TableCell className="py-3">
                           <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                              <Cpu className="h-3.5 w-3.5 text-gray-400" />
+                            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+                              <Cpu className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                               <span className="font-medium">{sandbox.cpu_limit}</span>
                             </div>
-                            <div className="h-3 w-px bg-gray-200" />
-                            <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                              <MemoryStick className="h-3.5 w-3.5 text-gray-400" />
+                            <div className="h-3 w-px bg-[var(--border)]" />
+                            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+                              <MemoryStick className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                               <span className="font-medium">{sandbox.memory_limit}M</span>
                             </div>
                           </div>
@@ -462,7 +462,7 @@ export const SandboxesPage = () => {
                               </span>
                             </div>
                           ) : (
-                            <span className="text-xs text-gray-400">—</span>
+                            <span className="text-xs text-[var(--text-muted)]">—</span>
                           )}
                         </TableCell>
                         <TableCell className="py-3">
@@ -582,7 +582,7 @@ export const SandboxesPage = () => {
                 {confirmDialog.type === 'rebuild' && t('settings.sandboxes.rebuild')}
                 {confirmDialog.type === 'delete' && t('settings.sandboxes.delete')}
               </AlertDialogTitle>
-              <AlertDialogDescription className="text-sm text-gray-500">
+              <AlertDialogDescription className="text-sm text-[var(--text-tertiary)]">
                 {confirmDialog.type === 'stop' && t('settings.sandboxes.stopConfirm')}
                 {confirmDialog.type === 'restart' && t('settings.sandboxes.restartConfirm')}
                 {confirmDialog.type === 'rebuild' && t('settings.sandboxes.rebuildConfirm')}

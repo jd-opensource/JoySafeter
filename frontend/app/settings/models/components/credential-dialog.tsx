@@ -211,18 +211,18 @@ export function ModelCredentialDialog({
   }
 
   const dialogContentClassName =
-    'sm:max-w-lg p-0 gap-0 overflow-hidden bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]'
+    'sm:max-w-lg p-0 gap-0 overflow-hidden bg-[var(--surface-elevated)] border border-[var(--border)] rounded-2xl shadow-2xl flex flex-col max-h-[85vh]'
   const headerClassName =
-    'px-6 py-4 border-b border-gray-100 shrink-0 flex flex-row items-center gap-3'
+    'px-6 py-4 border-b border-[var(--border-muted)] shrink-0 flex flex-row items-center gap-3'
   const bodyClassName = 'p-6 space-y-4 max-h-[60vh] overflow-y-auto'
   const footerClassName =
-    'border-t border-gray-100 px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2'
+    'border-t border-[var(--border-muted)] px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={dialogContentClassName}>
         <DialogHeader className={headerClassName}>
-          <div className="shrink-0 rounded-lg border border-gray-50 bg-violet-50 p-1.5 text-violet-600 shadow-sm">
+          <div className="shrink-0 rounded-lg border border-[var(--surface-1)] bg-violet-50 p-1.5 text-violet-600 shadow-sm">
             <KeyRound size={14} />
           </div>
           <div className="flex min-w-0 flex-col">

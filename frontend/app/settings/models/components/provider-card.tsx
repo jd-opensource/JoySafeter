@@ -51,7 +51,7 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
           'group relative flex min-h-[160px] cursor-pointer flex-col overflow-hidden rounded-2xl border p-4 transition-all duration-300',
           isCustom
             ? 'border-violet-200/60 bg-gradient-to-br from-violet-50/50 via-indigo-50/30 to-blue-50/20 hover:border-violet-400 hover:shadow-xl hover:shadow-violet-200/40'
-            : 'border-gray-100 bg-white shadow-sm hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50',
+            : 'border-[var(--border-muted)] bg-[var(--surface-elevated)] shadow-sm hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50',
         )}
         onClick={() => setShowCredentialDialog(true)}
       >
@@ -75,12 +75,12 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
 
         {/* Header */}
         <div className="mb-3 flex items-start gap-3">
-          <ProviderIcon provider={provider} className="mt-1 border border-gray-50 shadow-sm" />
+          <ProviderIcon provider={provider} className="mt-1 border border-[var(--surface-1)] shadow-sm" />
           <div className="grow">
-            <h3 className="text-sm font-bold leading-tight text-gray-900">
+            <h3 className="text-sm font-bold leading-tight text-[var(--text-primary)]">
               {provider.display_name}
             </h3>
-            <div className="mt-1 flex items-center gap-1 text-[10px] text-gray-400">
+            <div className="mt-1 flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
               <Sparkles size={10} className={isCustom ? 'text-violet-400' : 'text-blue-400'} />
               <span>
                 {modelCount} {t('settings.modelsLabel')}
@@ -91,7 +91,7 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
 
         {/* Description & Action Group */}
         <div className="relative mb-2 flex-1">
-          <p className="line-clamp-2 h-[32px] pr-8 text-xs leading-relaxed text-gray-500 transition-colors group-hover:text-gray-600">
+          <p className="line-clamp-2 h-[32px] pr-8 text-xs leading-relaxed text-[var(--text-tertiary)] transition-colors group-hover:text-[var(--text-secondary)]">
             {provider.description || t('settings.providerDescriptionPlaceholder')}
           </p>
 
@@ -134,7 +134,7 @@ export function ModelProviderCard({ provider }: ModelProviderCardProps) {
           {supportedTypes.map((modelType) => (
             <span
               key={modelType}
-              className="rounded-md border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[9px] font-bold text-gray-500"
+              className="rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--text-tertiary)]"
             >
               {t(`settings.modelTypes.${modelType}` as any, {
                 defaultValue: modelType.toUpperCase(),

@@ -31,17 +31,17 @@ export function ModelList({ provider, models, onCollapse }: ModelListProps) {
   })
 
   return (
-    <div className="border-t border-gray-100">
+    <div className="border-t border-[var(--border-muted)]">
       {/* Header */}
-      <div className="flex items-center justify-between bg-gray-50/80 px-4 py-2.5">
-        <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
-          <Sparkles size={12} className="text-gray-400" />
+      <div className="flex items-center justify-between bg-[var(--surface-1)]/80 px-4 py-2.5">
+        <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-tertiary)]">
+          <Sparkles size={12} className="text-[var(--text-muted)]" />
           <span>{t('settings.modelsNum', { num: models.length })}</span>
           {isCustomProvider && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 px-2 text-[10px] text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+              className="h-6 px-2 text-[10px] text-[var(--brand-600)] hover:bg-[var(--brand-50)] hover:text-blue-700"
               onClick={(e) => {
                 e.stopPropagation()
                 setShowAddCustomModel(true)
@@ -55,7 +55,7 @@ export function ModelList({ provider, models, onCollapse }: ModelListProps) {
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 px-2 text-[10px] text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+          className="h-6 px-2 text-[10px] text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
           onClick={onCollapse}
         >
           <ChevronUp className="mr-1 h-3 w-3" />
@@ -75,10 +75,10 @@ export function ModelList({ provider, models, onCollapse }: ModelListProps) {
         ))}
         {models.length === 0 && (
           <div className="px-4 py-8 text-center">
-            <div className="mb-2 text-gray-300">
+            <div className="mb-2 text-[var(--text-subtle)]">
               <Sparkles size={24} className="mx-auto" />
             </div>
-            <p className="text-sm text-gray-400">{t('settings.noModelsAvailable')}</p>
+            <p className="text-sm text-[var(--text-muted)]">{t('settings.noModelsAvailable')}</p>
             {isCustomProvider && (
               <Button
                 variant="outline"

@@ -39,8 +39,8 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
         hideCloseButton
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 bg-white px-6 py-4">
-          <DialogTitle className="text-base font-bold text-gray-900">
+        <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] px-6 py-4">
+          <DialogTitle className="text-base font-bold text-[var(--text-primary)]">
             {t('settings.tokens.tokenCreatedTitle')}
           </DialogTitle>
           <DialogDescription className="sr-only">
@@ -48,7 +48,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
           </DialogDescription>
           <button
             onClick={() => onOpenChange(false)}
-            className="rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className="rounded-full p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
           >
             <X size={18} />
           </button>
@@ -61,18 +61,18 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
           </p>
 
           {tokenData && (
-            <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-sm overflow-hidden">
               <table className="w-full text-sm">
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-[var(--border-muted)]">
                   <tr>
-                    <td className="px-4 py-3 font-medium text-gray-700 w-32">{t('settings.tokens.name')}</td>
-                    <td className="px-4 py-3 text-gray-900">{tokenData.name}</td>
+                    <td className="px-4 py-3 font-medium text-[var(--text-secondary)] w-32">{t('settings.tokens.name')}</td>
+                    <td className="px-4 py-3 text-[var(--text-primary)]">{tokenData.name}</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-3 font-medium text-gray-700">Key</td>
+                    <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">Key</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-gray-700 break-all select-all flex-1">
+                        <span className="font-mono text-xs text-[var(--text-secondary)] break-all select-all flex-1">
                           {tokenData.token}
                         </span>
                         <Button
@@ -80,7 +80,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                           variant="ghost"
                           size="icon"
                           onClick={handleCopy}
-                          className="h-8 w-8 shrink-0 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                          className="h-8 w-8 shrink-0 text-[var(--text-tertiary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
                         >
                           {copied ? <Check size={15} className="text-emerald-600" /> : <Copy size={15} />}
                         </Button>
@@ -88,11 +88,11 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                     </td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-3 font-medium text-gray-700">{t('settings.tokens.type')}</td>
-                    <td className="px-4 py-3 text-gray-900">{formatResourceType(tokenData.resourceType)}</td>
+                    <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">{t('settings.tokens.type')}</td>
+                    <td className="px-4 py-3 text-[var(--text-primary)]">{formatResourceType(tokenData.resourceType)}</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-3 font-medium text-gray-700">{t('settings.tokens.permissions')}</td>
+                    <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">{t('settings.tokens.permissions')}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
                         {tokenData.scopes.map((scope) => (
@@ -108,16 +108,16 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
                     </td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-3 font-medium text-gray-700">{t('settings.tokens.createdAt')}</td>
-                    <td className="px-4 py-3 text-gray-900">
+                    <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">{t('settings.tokens.createdAt')}</td>
+                    <td className="px-4 py-3 text-[var(--text-primary)]">
                       {tokenData.createdAt
                         ? new Date(tokenData.createdAt).toLocaleString()
                         : '-'}
                     </td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-3 font-medium text-gray-700">{t('settings.tokens.expiresAt')}</td>
-                    <td className="px-4 py-3 text-gray-900">
+                    <td className="px-4 py-3 font-medium text-[var(--text-secondary)]">{t('settings.tokens.expiresAt')}</td>
+                    <td className="px-4 py-3 text-[var(--text-primary)]">
                       {tokenData.expiresAt
                         ? new Date(tokenData.expiresAt).toLocaleString()
                         : t('settings.tokens.noExpiry')}
@@ -130,7 +130,7 @@ export function TokenCreatedDialog({ open, onOpenChange, tokenData }: TokenCreat
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-gray-100 bg-white p-6">
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6">
           <Button
             type="button"
             onClick={handleCopy}

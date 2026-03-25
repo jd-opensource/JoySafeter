@@ -19,7 +19,7 @@ export function ProviderIcon({ provider, className = '' }: ProviderIconProps) {
     return (
       <div
         className={cn(
-          'relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-gray-100 bg-gray-50 shadow-sm',
+          'relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-[var(--border-muted)] bg-[var(--surface-1)] shadow-sm',
           className,
         )}
       >

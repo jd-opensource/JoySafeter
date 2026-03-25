@@ -317,9 +317,9 @@ export function ProfilePage() {
 
       {/* Reset Password Dialog */}
       <Dialog open={isResetDialogOpen} onOpenChange={handleCloseDialog}>
-        <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-2xl sm:max-w-[425px]">
-          <DialogHeader className="flex shrink-0 flex-row items-center gap-3 border-b border-gray-100 px-6 py-4">
-            <div className="shrink-0 rounded-lg border border-gray-50 bg-violet-50 p-1.5 text-violet-600 shadow-sm">
+        <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-2xl sm:max-w-[425px]">
+          <DialogHeader className="flex shrink-0 flex-row items-center gap-3 border-b border-[var(--border-muted)] px-6 py-4">
+            <div className="shrink-0 rounded-lg border border-[var(--surface-1)] bg-violet-50 p-1.5 text-violet-600 shadow-sm">
               <KeyRound size={14} />
             </div>
             <div className="flex min-w-0 flex-col">
@@ -396,7 +396,7 @@ export function ProfilePage() {
               </div>
             </div>
 
-            <div className="flex flex-col-reverse gap-2 border-t border-gray-100 px-6 py-4 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-2 border-t border-[var(--border-muted)] px-6 py-4 sm:flex-row sm:justify-end">
               <Button
                 type="button"
                 variant="outline"

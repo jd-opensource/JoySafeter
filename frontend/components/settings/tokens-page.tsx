@@ -51,10 +51,10 @@ export const TokensPage = () => {
           <Key className="h-5 w-5 text-white" />
         </div>
         <div>
-          <h2 className="text-lg font-bold tracking-tight text-gray-900">
+          <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
             {t('settings.tokens.title')}
           </h2>
-          <p className="mt-0.5 text-xs text-gray-500">{t('settings.tokens.description')}</p>
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{t('settings.tokens.description')}</p>
         </div>
       </div>
       <Button

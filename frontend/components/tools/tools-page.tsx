@@ -74,7 +74,7 @@ export function ToolsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col bg-[var(--surface-elevated)]">
       <AddMcpDialog
         open={showAddMcp || !!editingServer}
         onOpenChange={(open) => {
@@ -88,10 +88,10 @@ export function ToolsPage() {
         editingServer={editingServer}
       />
 
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white p-6">
+      <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">{t('settings.toolsAndMcpTitle')}</h2>
-          <p className="mt-1 text-xs text-gray-500">{t('settings.toolsAndMcpDescription')}</p>
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">{t('settings.toolsAndMcpTitle')}</h2>
+          <p className="mt-1 text-xs text-[var(--text-tertiary)]">{t('settings.toolsAndMcpDescription')}</p>
         </div>
         <Button
           onClick={() => setShowAddMcp(true)}
@@ -101,10 +101,10 @@ export function ToolsPage() {
         </Button>
       </div>
 
-      <div className="flex-1 space-y-6 overflow-y-auto bg-gray-50/50 p-6">
+      <div className="flex-1 space-y-6 overflow-y-auto bg-[var(--surface-1)]/50 p-6">
         {isLoading || isLoadingBuiltin ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : (
           <>
@@ -146,17 +146,17 @@ export function ToolsPage() {
 
             {builtinTools.length === 0 && mcpServers.length === 0 && (
               <div
-                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-center transition-colors hover:border-gray-400 hover:bg-white"
+                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-1)] p-4 text-center transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--surface-elevated)]"
                 onClick={() => setShowAddMcp(true)}
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 shadow-sm">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-muted)] shadow-sm">
                   <Plus size={20} />
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900">
+                  <h4 className="text-sm font-medium text-[var(--text-primary)]">
                     {t('settings.connectNewServer')}
                   </h4>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                     {t('settings.connectNewServerDescription')}
                   </p>
                 </div>
@@ -165,17 +165,17 @@ export function ToolsPage() {
 
             {(builtinTools.length > 0 || mcpServers.length > 0) && (
               <div
-                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-center transition-colors hover:border-gray-400 hover:bg-white"
+                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-1)] p-4 text-center transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--surface-elevated)]"
                 onClick={() => setShowAddMcp(true)}
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 shadow-sm">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-muted)] shadow-sm">
                   <Plus size={20} />
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900">
+                  <h4 className="text-sm font-medium text-[var(--text-primary)]">
                     {t('settings.connectNewServer')}
                   </h4>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                     {t('settings.connectNewServerDescription')}
                   </p>
                 </div>

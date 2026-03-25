@@ -64,8 +64,8 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
         hideCloseButton
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 bg-white px-6 py-4">
-          <DialogTitle className="text-base font-bold text-gray-900">
+        <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] px-6 py-4">
+          <DialogTitle className="text-base font-bold text-[var(--text-primary)]">
             {t('settings.tokens.create')}
           </DialogTitle>
           <DialogDescription className="sr-only">
@@ -73,7 +73,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
           </DialogDescription>
           <button
             onClick={() => onOpenChange(false)}
-            className="rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className="rounded-full p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
           >
             <X size={18} />
           </button>
@@ -83,23 +83,23 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
         <div className="space-y-5 bg-[#F9F9FA] p-6">
           {/* Name */}
           <div className="space-y-1.5">
-            <Label className="flex items-center gap-1 text-xs font-semibold text-gray-700">
+            <Label className="flex items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
               <span className="text-red-500">*</span> {t('settings.tokens.name')}
             </Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('settings.tokens.namePlaceholder')}
-              className="h-10 border-gray-200 bg-white text-sm focus-visible:border-emerald-500 focus-visible:ring-emerald-500/20"
+              className="h-10 border-[var(--border)] bg-[var(--surface-elevated)] text-sm focus-visible:border-primary focus-visible:ring-primary"
             />
           </div>
 
           {/* Scopes */}
           <div className="space-y-2">
-            <Label className="text-xs font-semibold text-gray-700">
+            <Label className="text-xs font-semibold text-[var(--text-secondary)]">
               {t('settings.tokens.scopes')}
             </Label>
-            <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
+            <div className="rounded-xl border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-3 shadow-sm">
               <div className="grid grid-cols-2 gap-3">
                 {AVAILABLE_SCOPES.map((scope) => (
                   <div key={scope.value} className="flex items-center gap-2">
@@ -110,7 +110,7 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
                     />
                     <label
                       htmlFor={`scope-${scope.value}`}
-                      className="cursor-pointer text-sm font-medium text-gray-700 select-none"
+                      className="cursor-pointer text-sm font-medium text-[var(--text-secondary)] select-none"
                     >
                       {scope.label}
                     </label>
@@ -122,24 +122,24 @@ export function CreateTokenDialog({ open, onOpenChange, onSubmit, isPending }: C
 
           {/* Expiration */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-gray-700">
+            <Label className="text-xs font-semibold text-[var(--text-secondary)]">
               {t('settings.tokens.expiresAt')}
             </Label>
             <Input
               type="date"
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
-              className="h-10 border-gray-200 bg-white text-sm focus-visible:border-emerald-500 focus-visible:ring-emerald-500/20"
+              className="h-10 border-[var(--border)] bg-[var(--surface-elevated)] text-sm focus-visible:border-primary focus-visible:ring-primary"
               placeholder={t('settings.tokens.noExpiry')}
             />
             {!expiresAt && (
-              <p className="text-[11px] text-gray-400">{t('settings.tokens.noExpiry')}</p>
+              <p className="text-[11px] text-[var(--text-muted)]">{t('settings.tokens.noExpiry')}</p>
             )}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-gray-100 bg-white p-6">
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] p-6">
           <Button
             type="button"
             variant="outline"

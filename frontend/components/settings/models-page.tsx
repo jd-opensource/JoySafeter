@@ -56,8 +56,8 @@ export function ModelsPage() {
     return (
       <div className="flex h-full min-h-[400px] items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-          <p className="animate-pulse text-sm font-medium text-gray-500">
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--brand-500)]" />
+          <p className="animate-pulse text-sm font-medium text-[var(--text-tertiary)]">
             {t('common.loading', { defaultValue: 'Loading models...' })}
           </p>
         </div>
@@ -82,13 +82,13 @@ export function ModelsPage() {
     >
       <header className="mb-8 flex items-center justify-between">
         <div>
-          <h2 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-gray-900">
-            <div className="rounded-xl bg-blue-50 p-2">
-              <Brain className="text-blue-600" size={24} />
+          <h2 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-[var(--text-primary)]">
+            <div className="rounded-xl bg-[var(--brand-50)] p-2">
+              <Brain className="text-[var(--brand-600)]" size={24} />
             </div>
             {t('settings.models')}
           </h2>
-          <p className="ml-12 mt-1 text-sm text-gray-500">
+          <p className="ml-12 mt-1 text-sm text-[var(--text-tertiary)]">
             Manage your AI model providers and API configurations
           </p>
         </div>
@@ -122,10 +122,10 @@ export function ModelsPage() {
               <div className="rounded-md bg-green-50 p-1 px-2">
                 <CheckCircle2 size={14} className="text-green-600" />
               </div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-700">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                 {t('settings.builtinProviders', { defaultValue: '系统内置供应商' })}
               </h3>
-              <div className="h-px flex-1 bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="grid grid-cols-1 gap-4">
               {builtinConfigured.map((provider) => {
@@ -149,10 +149,10 @@ export function ModelsPage() {
               <div className="rounded-md bg-violet-50 p-1 px-2">
                 <CheckCircle2 size={14} className="text-violet-600" />
               </div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-700">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                 {t('settings.customModels')}
               </h3>
-              <div className="h-px flex-1 bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="grid grid-cols-1 gap-4">
               {customConfigured.map((provider) => {
@@ -173,13 +173,13 @@ export function ModelsPage() {
         {notConfiguredSystemProviders.length > 0 && (
           <section>
             <div className="mb-5 flex items-center gap-3">
-              <div className="rounded-md bg-blue-50 p-1 px-2">
-                <LayoutGrid size={14} className="text-blue-600" />
+              <div className="rounded-md bg-[var(--brand-50)] p-1 px-2">
+                <LayoutGrid size={14} className="text-[var(--brand-600)]" />
               </div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-700">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                 {t('settings.builtinProvidersNotConfigured')}
               </h3>
-              <div className="h-px flex-1 bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {notConfiguredSystemProviders.map((provider) => (
@@ -196,10 +196,10 @@ export function ModelsPage() {
               <div className="rounded-md bg-violet-50 p-1 px-2">
                 <LayoutGrid size={14} className="text-violet-600" />
               </div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-700">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                 {t('settings.addedCustomProviders', { defaultValue: '已添加的自定义供应商' })}
               </h3>
-              <div className="h-px flex-1 bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {customNotConfigured.map((provider) => (
@@ -216,10 +216,10 @@ export function ModelsPage() {
               <div className="rounded-md bg-violet-50 p-1 px-2">
                 <Plus size={14} className="text-violet-600" />
               </div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-700">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                 {t('settings.customModels')}
               </h3>
-              <div className="h-px flex-1 bg-gradient-to-r from-gray-200 to-transparent" />
+              <div className="h-px flex-1 bg-gradient-to-r from-[var(--border)] to-transparent" />
             </div>
             <div className="flex flex-col gap-5">
               {templateProviders.some((p) => p.provider_name === 'custom') && (
@@ -254,12 +254,12 @@ export function ModelsPage() {
         )}
 
         {providers.length === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-gray-200 bg-gray-50/50 py-20">
-            <div className="mb-6 rounded-full border border-gray-100 bg-white p-8 shadow-sm">
-              <Brain size={48} className="text-gray-200" />
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-[var(--border)] bg-[var(--surface-1)]/50 py-20">
+            <div className="mb-6 rounded-full border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-8 shadow-sm">
+              <Brain size={48} className="text-[var(--surface-5)]" />
             </div>
-            <h3 className="mb-2 text-lg font-bold text-gray-900">No Providers Found</h3>
-            <p className="max-w-xs text-center text-sm font-medium leading-relaxed text-gray-500">
+            <h3 className="mb-2 text-lg font-bold text-[var(--text-primary)]">No Providers Found</h3>
+            <p className="max-w-xs text-center text-sm font-medium leading-relaxed text-[var(--text-tertiary)]">
               {t('settings.noModelProviders')}
             </p>
           </div>

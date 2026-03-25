@@ -60,14 +60,14 @@ export function McpServerCard({
   const displayToolCount = toolCount ?? server.toolCount ?? 0
 
   return (
-    <div className="group flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-blue-200 hover:shadow-md">
+    <div className="group flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm transition-all hover:border-blue-200 hover:shadow-md">
       <div className="flex items-center gap-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-purple-100 bg-purple-50 text-purple-600">
           <Server size={18} />
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold text-gray-900">{server.name}</h3>
+            <h3 className="text-sm font-bold text-[var(--text-primary)]">{server.name}</h3>
             <Badge
               variant="outline"
               className="border-purple-100 bg-purple-50 px-1.5 py-0 text-[9px] text-purple-600"
@@ -76,13 +76,13 @@ export function McpServerCard({
             </Badge>
           </div>
           <div className="mt-0.5 flex items-center gap-3">
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-[var(--text-tertiary)]">
               {server.url || `${t('settings.transport')}: ${server.transport}`}
             </p>
             {displayToolCount > 0 && (
               <Badge
                 variant="outline"
-                className="border-blue-100 bg-blue-50 px-1.5 py-0 text-[9px] text-blue-600"
+                className="border-blue-100 bg-[var(--brand-50)] px-1.5 py-0 text-[9px] text-[var(--brand-600)]"
               >
                 {formatToolCount(displayToolCount, t)}
               </Badge>
@@ -93,19 +93,19 @@ export function McpServerCard({
 
       <div className="flex items-center gap-3">
         {/* Connection Status */}
-        <div className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+        <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1">
           {getConnectionStatusIcon(connectionStatus)}
-          <span className="text-[10px] font-medium text-gray-600">
+          <span className="text-[10px] font-medium text-[var(--text-secondary)]">
             {getConnectionStatusText(connectionStatus, t)}
           </span>
         </div>
 
         {/* Active Status */}
-        <div className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+        <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1">
           <div
-            className={cn('h-1.5 w-1.5 rounded-full', isActive ? 'bg-emerald-500' : 'bg-gray-300')}
+            className={cn('h-1.5 w-1.5 rounded-full', isActive ? 'bg-emerald-500' : 'bg-[var(--text-subtle)]')}
           />
-          <span className="text-[10px] font-medium uppercase text-gray-600">
+          <span className="text-[10px] font-medium uppercase text-[var(--text-secondary)]">
             {isActive ? t('settings.active') : t('settings.inactive')}
           </span>
         </div>
@@ -117,7 +117,7 @@ export function McpServerCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-gray-400 hover:text-gray-900"
+                className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               >
                 <MoreHorizontal size={16} />
               </Button>
@@ -182,29 +182,29 @@ export function BuiltinToolCard({
     <TooltipProvider>
       <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
-          <div className="group flex cursor-default items-center justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-blue-200 hover:shadow-md">
+          <div className="group flex cursor-default items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-sm transition-all hover:border-blue-200 hover:shadow-md">
             <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-blue-100 bg-[var(--brand-50)] text-[var(--brand-600)]">
                 <Wrench size={18} />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-gray-900">{displayName}</h3>
+                  <h3 className="text-sm font-bold text-[var(--text-primary)]">{displayName}</h3>
                   <Badge
                     variant="outline"
-                    className="bg-gray-100 px-1.5 py-0 text-[9px] text-gray-500"
+                    className="bg-[var(--surface-3)] px-1.5 py-0 text-[9px] text-[var(--text-tertiary)]"
                   >
                     {t('settings.builtinTag')}
                   </Badge>
                 </div>
-                <p className="mt-0.5 text-xs text-gray-500">{truncatedDescription}</p>
+                <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{truncatedDescription}</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-2 py-1">
+              <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] px-2 py-1">
                 <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span className="text-[10px] font-medium uppercase text-gray-600">
+                <span className="text-[10px] font-medium uppercase text-[var(--text-secondary)]">
                   {t('settings.active')}
                 </span>
               </div>
@@ -214,11 +214,11 @@ export function BuiltinToolCard({
         <TooltipContent
           side="top"
           align="start"
-          className="max-w-[90vw] space-y-1 rounded-md border border-gray-200 bg-white p-3 text-gray-900 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 sm:max-w-md"
+          className="max-w-[90vw] space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-[var(--text-primary)] shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 sm:max-w-md"
         >
           <div className="text-[11px] font-semibold">{name || label || id}</div>
           {fullDescription && (
-            <div className="whitespace-pre-line text-[11px] text-gray-700 dark:text-slate-100/80">
+            <div className="whitespace-pre-line text-[11px] text-[var(--text-secondary)] dark:text-slate-100/80">
               {fullDescription}
             </div>
           )}

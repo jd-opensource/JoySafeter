@@ -80,7 +80,7 @@ export function ModelProviderAddedCard({ provider, credential }: ModelProviderAd
           'relative overflow-hidden rounded-2xl border shadow-sm transition-all duration-300',
           isCustom
             ? 'border-violet-200 bg-gradient-to-br from-violet-50/40 via-indigo-50/20 to-violet-50/40'
-            : 'border-gray-100 bg-white',
+            : 'border-[var(--border-muted)] bg-[var(--surface-elevated)]',
         )}
       >
         {isCustom && (
@@ -95,12 +95,12 @@ export function ModelProviderAddedCard({ provider, credential }: ModelProviderAd
           <div className="flex items-start gap-4">
             <ProviderIcon
               provider={provider}
-              className="mt-1 border border-gray-100/50 shadow-sm"
+              className="mt-1 border border-[var(--border-muted)]/50 shadow-sm"
             />
 
             <div className="grow">
               <div className="mb-1 flex items-baseline gap-2">
-                <h3 className="text-base font-bold text-gray-900">{provider.display_name}</h3>
+                <h3 className="text-base font-bold text-[var(--text-primary)]">{provider.display_name}</h3>
                 {provider.credential_schema && (
                   <CredentialPanel
                     provider={provider}
@@ -114,7 +114,7 @@ export function ModelProviderAddedCard({ provider, credential }: ModelProviderAd
                 {supportedTypes.map((modelType) => (
                   <span
                     key={modelType}
-                    className="rounded border border-gray-100 bg-gray-50 px-1.5 py-0.5 text-[10px] font-bold text-gray-500"
+                    className="rounded border border-[var(--border-muted)] bg-[var(--surface-1)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--text-tertiary)]"
                   >
                     {t(`settings.modelTypes.${modelType}` as any, {
                       defaultValue: modelType.toUpperCase(),
@@ -146,7 +146,7 @@ export function ModelProviderAddedCard({ provider, credential }: ModelProviderAd
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 rounded-lg p-0 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500"
+                  className="h-8 w-8 rounded-lg p-0 text-[var(--text-muted)] transition-colors hover:bg-red-50 hover:text-red-500"
                   onClick={(e) => {
                     e.stopPropagation()
                     setShowClearConfirm(true)
@@ -161,7 +161,7 @@ export function ModelProviderAddedCard({ provider, credential }: ModelProviderAd
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 rounded-lg p-0 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                className="h-8 w-8 rounded-lg p-0 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
                 onClick={(e) => {
                   e.stopPropagation()
                   setShowCredentialDialog(true)
@@ -177,25 +177,25 @@ export function ModelProviderAddedCard({ provider, credential }: ModelProviderAd
         {/* Models Bar */}
         <div
           className={cn(
-            'flex cursor-pointer items-center justify-between border-t border-gray-100/60 bg-gray-50/30 px-5 py-3 transition-colors hover:bg-gray-50',
-            !collapsed && 'bg-gray-50',
+            'flex cursor-pointer items-center justify-between border-t border-[var(--border-muted)]/60 bg-[var(--surface-1)]/30 px-5 py-3 transition-colors hover:bg-[var(--surface-1)]',
+            !collapsed && 'bg-[var(--surface-1)]',
           )}
           onClick={() => setCollapsed(!collapsed)}
         >
-          <div className="flex items-center gap-2.5 text-xs font-semibold text-gray-500">
+          <div className="flex items-center gap-2.5 text-xs font-semibold text-[var(--text-tertiary)]">
             <Sparkles
               size={14}
-              className={cn('transition-colors', hasModels ? 'text-blue-500' : 'text-gray-400')}
+              className={cn('transition-colors', hasModels ? 'text-[var(--brand-500)]' : 'text-[var(--text-muted)]')}
             />
             <span>
               {hasModels
                 ? t('settings.showModelsNum', { num: providerModels.length })
                 : t('settings.showModels')}
             </span>
-            {modelsLoading && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
+            {modelsLoading && <Loader2 className="h-3 w-3 animate-spin text-[var(--text-muted)]" />}
           </div>
           <motion.div animate={{ rotate: collapsed ? 0 : 180 }} transition={{ duration: 0.3 }}>
-            <ChevronDown className="h-4 w-4 text-gray-400" />
+            <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
           </motion.div>
         </div>
 
