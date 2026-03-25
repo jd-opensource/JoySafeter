@@ -90,15 +90,13 @@ const AlertDialogContent = React.forwardRef<
           ref={ref}
           className={cn(
             // Base styles
-            'fixed left-[50%] top-[50%] z-[10000151] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden rounded-2xl bg-white px-6 py-6 shadow-2xl duration-200',
+            'fixed left-[50%] top-[50%] z-[10000151] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden rounded-2xl bg-[var(--surface-elevated)] px-6 py-6 shadow-2xl duration-200',
             // Animation
             'data-[state=open]:animate-in data-[state=closed]:animate-out',
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
             'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
             'data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]',
             'data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]',
-            // Dark mode
-            'dark:bg-[#1a222b] dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)]',
             className,
           )}
           onPointerDown={(e) => {
@@ -123,7 +121,7 @@ const AlertDialogContent = React.forwardRef<
           {children}
           {!hideCloseButton && (
             <AlertDialogPrimitive.Cancel
-              className="absolute right-5 top-5 flex h-6 w-6 items-center justify-center rounded-full border-0 bg-gray-100 p-0 text-gray-400 transition-all hover:bg-gray-200 hover:text-gray-600 focus:outline-none disabled:pointer-events-none dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-gray-200"
+              className="absolute right-5 top-5 flex h-6 w-6 items-center justify-center rounded-full border-0 bg-[var(--surface-3)] p-0 text-[var(--text-muted)] transition-all hover:bg-[var(--surface-5)] hover:text-gray-600 focus:outline-none disabled:pointer-events-none"
               disabled={!isInteractionReady}
               tabIndex={-1}
             >
@@ -162,7 +160,7 @@ const AlertDialogTitle = React.forwardRef<
   <AlertDialogPrimitive.Title
     ref={ref}
     className={cn(
-      'text-lg font-semibold tracking-tight text-gray-900 dark:text-gray-100',
+      'text-lg font-semibold tracking-tight text-[var(--text-primary)]',
       className,
     )}
     {...props}
@@ -176,7 +174,7 @@ const AlertDialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Description
     ref={ref}
-    className={cn('text-sm leading-relaxed text-gray-500 dark:text-gray-400', className)}
+    className={cn('text-sm leading-relaxed text-[var(--text-tertiary)]', className)}
     {...props}
   />
 ))
@@ -206,7 +204,7 @@ const AlertDialogCancel = React.forwardRef<
     ref={ref}
     className={cn(
       buttonVariants({ variant: 'outline' }),
-      'min-w-[80px] border-gray-200 bg-white font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-600 dark:bg-transparent dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-gray-100',
+      'min-w-[80px] border-[var(--border)] bg-[var(--surface-elevated)] font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-1)] hover:text-[var(--text-primary)]',
       className,
     )}
     {...props}

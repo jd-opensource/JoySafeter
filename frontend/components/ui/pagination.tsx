@@ -58,7 +58,7 @@ export function Pagination({
   return (
     <div className={cn('flex items-center justify-between', className)}>
       {showTotal && (
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-[var(--text-tertiary)]">
           {total} {t('common.items')}, {t('common.page')} {page} / {totalPages}
         </div>
       )}
