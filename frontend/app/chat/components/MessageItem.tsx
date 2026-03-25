@@ -1,6 +1,7 @@
 'use client'
 
 import DOMPurify from 'dompurify'
+import { motion } from 'framer-motion'
 import { User, Bot } from 'lucide-react'
 import React, { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
@@ -50,6 +51,11 @@ const markdownComponents = {
   },
 }
 
+const messageVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.2, ease: 'easeOut' } },
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 interface MessageItemProps {
@@ -68,7 +74,12 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
 
   if (isUser) {
     return (
-      <div className="mb-6 flex justify-end duration-200 animate-in fade-in slide-in-from-bottom-1">
+      <motion.div
+        className="mb-6 flex justify-end"
+        variants={messageVariants}
+        initial="hidden"
+        animate="visible"
+      >
         <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gray-800 px-5 py-3.5 text-white shadow-sm">
           <p className="whitespace-pre-wrap text-[15px] font-normal leading-relaxed">
             {message.content}
@@ -77,13 +88,18 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
         <div className="ml-3 mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-200">
           <User size={14} className="text-gray-500" />
         </div>
-      </div>
+      </motion.div>
     )
   }
 
   // Assistant Message
   return (
-    <div className="group mb-8 flex justify-start duration-300 animate-in fade-in slide-in-from-bottom-2">
+    <motion.div
+      className="group mb-8 flex justify-start"
+      variants={messageVariants}
+      initial="hidden"
+      animate="visible"
+    >
       <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md">
         <Bot size={16} className="text-white" />
       </div>
@@ -124,6 +140,6 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
 
         <ActionBar content={message.content} onRetry={onRetry} />
       </div>
-    </div>
+    </motion.div>
   )
 }
