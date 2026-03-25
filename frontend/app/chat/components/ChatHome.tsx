@@ -338,17 +338,25 @@ export default function ChatHome({
   }
 
   return (
-    <div className="flex h-full w-full bg-gray-50">
+    <div className="flex h-full w-full bg-[var(--bg)]">
       <div className="relative flex flex-1 flex-col items-center justify-center p-8">
-        <div className="flex w-full max-w-3xl flex-col gap-8">
+        {/* Subtle radial gradient ambient */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-40"
+          style={{
+            background:
+              'radial-gradient(ellipse 60% 40% at 50% 0%, hsl(var(--primary) / 0.08) 0%, transparent 70%)',
+          }}
+        />
+        <div className="relative flex w-full max-w-3xl flex-col gap-8">
           <div className="text-center">
-            <h1 className="mb-2 text-4xl font-light tracking-tight text-gray-900">
+            <h1 className="mb-2 text-[32px] font-semibold tracking-tight text-[var(--text-primary)]">
               {t('chat.createSomethingAwesome')}
             </h1>
           </div>
 
           <div className="relative mx-auto w-full max-w-4xl">
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 transition-all">
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] shadow-sm transition-all focus-within:border-[hsl(var(--primary)/0.4)] focus-within:shadow-md">
               <div className="flex w-full flex-col gap-2 px-4 py-3">
                 {state.selectedAgentId &&
                   (() => {
@@ -408,7 +416,7 @@ export default function ChatHome({
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
                     placeholder={t('chat.describeHelpNeeded')}
-                    className="max-h-[160px] min-h-[44px] w-full resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
+                    className="max-h-[160px] min-h-[44px] w-full resize-none overflow-y-auto border-none bg-transparent text-sm text-[var(--text-primary)] shadow-none placeholder:text-[var(--text-muted)] focus:outline-none focus-visible:ring-0"
                     rows={1}
                     disabled={isProcessing}
                   />
@@ -574,28 +582,28 @@ export default function ChatHome({
                     key={mode.id}
                     onClick={() => handleCaseClick(mode.id, isSelected)}
                     className={cn(
-                      'group flex cursor-pointer items-start gap-4 overflow-hidden rounded-xl border bg-white p-4 transition-all duration-200',
+                      'group flex cursor-pointer items-start gap-4 overflow-hidden rounded-xl border bg-[var(--surface-2)] p-4 transition-all duration-200',
                       isSelected
-                        ? 'border-blue-500 bg-blue-50 shadow-md ring-1 ring-blue-100'
-                        : 'border-gray-200 hover:border-blue-200 hover:shadow-lg',
+                        ? 'border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.05)] shadow-md ring-1 ring-[hsl(var(--primary)/0.15)]'
+                        : 'border-[var(--border)] hover:border-[hsl(var(--primary)/0.3)] hover:shadow-lg',
                     )}
                   >
-                    <div className="rounded-lg border border-blue-100 bg-blue-50 p-2">
+                    <div className="rounded-lg border border-[hsl(var(--primary)/0.2)] bg-[hsl(var(--primary)/0.08)] p-2">
                       <Icon
                         size={20}
-                        className={cn(isSelected ? 'text-blue-600' : 'text-gray-600')}
+                        className={cn(isSelected ? 'text-primary' : 'text-[var(--text-tertiary)]')}
                       />
                     </div>
                     <div>
                       <h3
                         className={cn(
                           'text-sm font-medium',
-                          isSelected ? 'text-blue-700' : 'text-gray-800 group-hover:text-blue-700',
+                          isSelected ? 'text-primary' : 'text-[var(--text-primary)] group-hover:text-primary',
                         )}
                       >
                         {mode.label}
                       </h3>
-                      <p className="mt-1 text-xs text-gray-500">{mode.description}</p>
+                      <p className="mt-1 text-xs text-[var(--text-muted)]">{mode.description}</p>
                     </div>
                   </div>
                 )
