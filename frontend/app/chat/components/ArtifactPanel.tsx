@@ -1,7 +1,7 @@
 'use client'
 
 import { FolderOpen } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import CodeViewer from '@/app/chat/components/CodeViewer'
 import FileBrowser, { FileNode } from '@/app/chat/components/FileBrowser'
@@ -74,9 +74,13 @@ interface ArtifactPanelProps {
   threadId: string
   fileTree?: Record<string, { action: string; size?: number; timestamp?: number }>
   className?: string
+  /** Maps a display path (fileTree key) to the actual path passed to liveReadFile. Defaults to identity. */
+  filePathResolver?: (displayPath: string) => string
+  /** When true, automatically selects and previews the most recently modified file on each file_event. */
+  autoPreview?: boolean
 }
 
-export function ArtifactPanel({ threadId, fileTree, className }: ArtifactPanelProps) {
+export function ArtifactPanel({ threadId, fileTree, className, filePathResolver, autoPreview }: ArtifactPanelProps) {
   const files = useMemo(() => {
     if (fileTree && Object.keys(fileTree).length > 0) {
       return fileTreeToNodes(fileTree)
@@ -86,20 +90,65 @@ export function ArtifactPanel({ threadId, fileTree, className }: ArtifactPanelPr
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [previewContent, setPreviewContent] = useState<string | null>(null)
 
-  const handleSelectFile = useCallback(
+  // Refs for auto-preview debounce and previous fileTree snapshot
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevFileTreeRef = useRef<typeof fileTree>(undefined)
+  const selectedPathRef = useRef<string | null>(null)
+  selectedPathRef.current = selectedPath
+
+  const fetchContent = useCallback(
     async (path: string) => {
       setSelectedPath(path)
       setPreviewContent(null)
       if (!threadId) return
       try {
-        const text = await artifactService.liveReadFile(threadId, path)
+        const resolvedPath = filePathResolver ? filePathResolver(path) : path
+        const text = await artifactService.liveReadFile(threadId, resolvedPath)
         setPreviewContent(text)
       } catch {
         setPreviewContent('(Failed to load preview)')
       }
     },
-    [threadId],
+    [threadId, filePathResolver],
   )
+
+  const handleSelectFile = useCallback((path: string) => fetchContent(path), [fetchContent])
+
+  // Auto-preview: detect changed files on each fileTree update, debounce fetch
+  useEffect(() => {
+    if (!autoPreview || !fileTree) return
+
+    const prev = prevFileTreeRef.current
+    prevFileTreeRef.current = fileTree
+
+    // Find files whose timestamp changed (newly written or edited)
+    const changedPaths = Object.keys(fileTree).filter((p) => {
+      const prevEntry = prev?.[p]
+      const currEntry = fileTree[p]
+      // New file, or same file with updated timestamp
+      return !prevEntry || prevEntry.timestamp !== currEntry.timestamp
+    })
+
+    if (changedPaths.length === 0) return
+
+    // Pick the file with the latest timestamp among changed paths
+    const latestPath = changedPaths.reduce((a, b) =>
+      (fileTree[a]?.timestamp ?? 0) >= (fileTree[b]?.timestamp ?? 0) ? a : b,
+    )
+
+    // Only auto-switch if nothing is selected, or if the currently selected file was just modified
+    const current = selectedPathRef.current
+    if (current !== null && current !== latestPath) return
+
+    // Debounce: agent may write many small chunks; wait for a quiet moment
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = setTimeout(() => fetchContent(latestPath), 600)
+  }, [fileTree, autoPreview, fetchContent])
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+  }, [])
 
   const selectedFile = selectedPath ? findFileNode(files, selectedPath) : null
   const ext = selectedFile?.extension?.toLowerCase() ?? ''

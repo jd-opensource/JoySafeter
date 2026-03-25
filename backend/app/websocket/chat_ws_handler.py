@@ -221,6 +221,7 @@ class ChatWsHandler:
                         user_id=self.user_id,
                         current_user=current_user,
                         file_emitter=file_emitter,
+                        thread_id=thread_id,
                     )
             # Phase 2: streaming — DB session is closed, no connection held
 

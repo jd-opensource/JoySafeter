@@ -137,7 +137,9 @@ export default function SkillCreatorPage() {
     if (!currentRequestId || evt.request_id !== currentRequestId) return
 
     const { thread_id, timestamp, data } = evt
-    if (thread_id) {
+    if (thread_id && thread_id !== threadIdRef.current) {
+      // threadIdRef: read in sendMessage/stopMessage callbacks (stable ref avoids dep churn)
+      // threadId state: passed to child components that need reactive re-renders
       threadIdRef.current = thread_id
       if (isMountedRef.current) setThreadId(thread_id)
     }

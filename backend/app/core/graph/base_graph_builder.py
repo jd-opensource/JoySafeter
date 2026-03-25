@@ -77,6 +77,7 @@ class BaseGraphBuilder(ABC):
         max_tokens: int = 4096,
         user_id: Optional[Any] = None,
         model_service: Optional[Any] = None,
+        thread_id: Optional[str] = None,
     ):
         self.graph = graph
         self.nodes = nodes
@@ -86,6 +87,7 @@ class BaseGraphBuilder(ABC):
         self.base_url = base_url
         self.max_tokens = max_tokens
         self.user_id = user_id
+        self.thread_id = thread_id
         # 可选：提供 ModelService，用于根据 model_name 实例化运行时模型
         self.model_service = model_service
 
@@ -129,10 +131,13 @@ class BaseGraphBuilder(ABC):
         return name
 
     def _get_system_prompt_from_node(self, node: GraphNode) -> Optional[str]:
-        """Extract system prompt from node configuration (data.config only)."""
+        """Extract system prompt from node configuration, substituting runtime context vars."""
         data = node.data or {}
         config: Dict[str, Any] = data.get("config", {})
-        return config.get("systemPrompt", "") or config.get("system_prompt", "") or config.get("prompt", "") or None
+        prompt = config.get("systemPrompt", "") or config.get("system_prompt", "") or config.get("prompt", "") or None
+        if prompt and self.thread_id:
+            prompt = prompt.replace("{thread_id}", self.thread_id)
+        return prompt
 
     def _get_direct_children(self, node: GraphNode) -> List[GraphNode]:
         """Get direct child nodes (nodes connected via outgoing edges)."""

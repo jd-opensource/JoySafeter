@@ -752,6 +752,7 @@ class GraphService(BaseService):
         user_id: Optional[Any] = None,
         current_user: Optional[AuthUser] = None,
         file_emitter: Optional[Any] = None,
+        thread_id: Optional[str] = None,
     ) -> CompiledStateGraph:
         """
         Create a LangGraph StateGraph from a graph stored in the database.
@@ -839,6 +840,7 @@ class GraphService(BaseService):
             user_id=user_id,
             model_service=model_service,
             file_emitter=file_emitter,
+            thread_id=thread_id,
         )
 
         # 异步构建
