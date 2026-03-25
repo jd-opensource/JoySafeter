@@ -11,6 +11,7 @@ import type {
   ChatTerminalResult,
   ChatWsClient,
   ConnectionState,
+  IncomingChatAcceptedEvent,
   IncomingChatWsEvent,
 } from './types'
 
@@ -18,6 +19,7 @@ interface PendingRequest {
   requestId: string
   threadId?: string
   onEvent?: (evt: ChatStreamEvent) => void
+  onAccepted?: (evt: IncomingChatAcceptedEvent) => void
   resolve: (value: ChatTerminalResult) => void
   reject: (error: Error) => void
 }
@@ -155,6 +157,7 @@ class SharedChatWsClient implements ChatWsClient {
         requestId,
         threadId: params.threadId || undefined,
         onEvent: params.onEvent,
+        onAccepted: params.onAccepted,
         resolve,
         reject,
       })
@@ -187,6 +190,7 @@ class SharedChatWsClient implements ChatWsClient {
         requestId,
         threadId: params.threadId,
         onEvent: params.onEvent,
+        onAccepted: params.onAccepted,
         resolve,
         reject,
       })
@@ -321,6 +325,11 @@ class SharedChatWsClient implements ChatWsClient {
     if (evt.thread_id) {
       pending.threadId = evt.thread_id
       this.threadToRequest.set(evt.thread_id, requestId)
+    }
+
+    if (type === 'accepted') {
+      pending.onAccepted?.(evt as IncomingChatAcceptedEvent)
+      return
     }
 
     pending.onEvent?.(evt as ChatStreamEvent)

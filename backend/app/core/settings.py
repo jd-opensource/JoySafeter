@@ -64,6 +64,21 @@ class Settings(BaseSettings):
     workers: int = Field(
         default=1, validation_alias=AliasChoices("WORKERS", "UVICORN_WORKERS"), description="Number of worker processes"
     )
+    run_runtime_instance_id: str = Field(
+        default=socket.gethostname(),
+        validation_alias=AliasChoices("RUN_RUNTIME_INSTANCE_ID", "APP_RUNTIME_INSTANCE_ID"),
+        description="Stable runtime owner id for in-process long-task recovery",
+    )
+    run_heartbeat_interval_seconds: int = Field(
+        default=15,
+        validation_alias=AliasChoices("RUN_HEARTBEAT_INTERVAL_SECONDS", "AGENT_RUN_HEARTBEAT_INTERVAL_SECONDS"),
+        description="Heartbeat interval for active durable runs",
+    )
+    run_heartbeat_timeout_seconds: int = Field(
+        default=90,
+        validation_alias=AliasChoices("RUN_HEARTBEAT_TIMEOUT_SECONDS", "AGENT_RUN_HEARTBEAT_TIMEOUT_SECONDS"),
+        description="Heartbeat timeout before a running durable run is considered orphaned",
+    )
 
     # Database
     database_echo: bool = Field(

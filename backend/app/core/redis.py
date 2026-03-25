@@ -296,6 +296,41 @@ class RedisClient:
             await cls._client.delete(*keys)
         return True
 
+    # ==================== Generic Run Methods ====================
+
+    @classmethod
+    async def publish_run_event(cls, run_id: str, event: Dict[str, Any]) -> bool:
+        """Publish a durable run event to subscribers."""
+        if not cls._client:
+            return False
+        channel = f"runs:{run_id}:events"
+        event_str = json.dumps(event, ensure_ascii=False)
+        await cls._client.publish(channel, event_str)
+        return True
+
+    @classmethod
+    async def set_run_snapshot(cls, run_id: str, snapshot: Dict[str, Any], ttl: int = 86400) -> bool:
+        """Cache the latest run snapshot."""
+        if not cls._client:
+            return False
+        key = f"runs:{run_id}:snapshot"
+        await cls._client.set(key, json.dumps(snapshot, ensure_ascii=False), ex=ttl)
+        return True
+
+    @classmethod
+    async def get_run_snapshot(cls, run_id: str) -> Optional[Dict[str, Any]]:
+        """Get the latest cached run snapshot."""
+        if not cls._client:
+            return None
+        key = f"runs:{run_id}:snapshot"
+        data = await cls._client.get(key)
+        if data is None:
+            return None
+        try:
+            return cast(Dict[str, Any], json.loads(data))
+        except (TypeError, ValueError):
+            return None
+
 
 # Helper function
 async def get_redis() -> Optional[redis_async.Redis]:

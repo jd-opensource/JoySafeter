@@ -50,7 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
 from app.common.exceptions import raise_internal_error, raise_not_found_error
-from app.common.pagination import PageResult, PaginationParams, Paginator
+from app.common.pagination import ConversationMessagesPaginationParams, PageResult, PaginationParams, Paginator
 from app.core.agent.checkpointer.checkpointer import get_checkpointer
 from app.core.agent.sample_agent import get_agent
 from app.core.database import get_db
@@ -613,7 +613,7 @@ async def reset_conversation(
 async def get_messages(
     thread_id: str,
     current_user: CurrentUser,
-    page_query: PaginationParams = Depends(),
+    page_query: ConversationMessagesPaginationParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[PageResult[ConversationMessageResponse]]:
     """

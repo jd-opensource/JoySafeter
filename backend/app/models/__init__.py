@@ -11,6 +11,7 @@ from .access_control import (
     WorkspaceInvitation,
     WorkspaceInvitationStatus,
 )
+from .agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
 from .auth import AuthSession, AuthUser
 from .auth import AuthUser as User
 from .base import BaseModel, SoftDeleteMixin, TimestampMixin
@@ -48,6 +49,10 @@ from .workspace_files import WorkspaceFile, WorkspaceStoredFile
 
 __all__ = [
     "BaseModel",
+    "AgentRun",
+    "AgentRunEvent",
+    "AgentRunSnapshot",
+    "AgentRunStatus",
     "Conversation",
     "Message",
     "TimestampMixin",

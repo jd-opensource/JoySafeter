@@ -7,6 +7,7 @@ import {
   Wrench,
   Brain,
   Clapperboard,
+  Activity,
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -49,6 +50,12 @@ const menuItems = [
     labelKey: 'sidebar.skillsHub',
     icon: ShieldCheck,
     href: '/skills',
+  },
+  {
+    id: 'runs',
+    labelKey: 'sidebar.runCenter',
+    icon: Activity,
+    href: '/runs',
   },
   {
     id: 'memory',

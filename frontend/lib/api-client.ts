@@ -54,6 +54,7 @@ export const API_ENDPOINTS = {
   users: 'users',
   conversations: 'conversations',
   skills: 'skills',
+  runs: 'runs',
 } as const
 
 // ==================== Types ====================

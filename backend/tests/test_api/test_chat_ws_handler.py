@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.websocket.chat_ws_handler import ChatWsHandler
+from app.websocket.chat_ws_handler import ChatTaskEntry, ChatWsHandler
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -59,7 +59,7 @@ async def test_duplicate_request_id_sends_ws_error() -> None:
     handler, ws = make_handler()
     # Pre-populate _tasks with a fake entry for the same request_id
     fake_task = MagicMock(spec=asyncio.Task)
-    handler._tasks["req-1"] = (None, fake_task)
+    handler._tasks["req-1"] = ChatTaskEntry(thread_id=None, task=fake_task)
 
     frame = json.dumps({"type": "chat", "request_id": "req-1", "message": "hello"})
     await handler._handle_frame(frame)
@@ -96,7 +96,7 @@ async def test_handle_stop_cancels_known_task() -> None:
             raise
 
     task = asyncio.create_task(slow())
-    handler._tasks["req-stop"] = ("thread-1", task)
+    handler._tasks["req-stop"] = ChatTaskEntry(thread_id="thread-1", task=task)
 
     with patch("app.websocket.chat_ws_handler.task_manager") as mock_tm:
         mock_tm.stop_task = AsyncMock()
@@ -131,7 +131,7 @@ async def test_cancel_all_tasks_on_disconnect() -> None:
             raise
 
     task = asyncio.create_task(long_running())
-    handler._tasks["req-dc"] = (None, task)
+    handler._tasks["req-dc"] = ChatTaskEntry(thread_id=None, task=task)
 
     # Simulate disconnect: receive_text raises WebSocketDisconnect
     ws_mock = MagicMock()
@@ -221,3 +221,76 @@ async def test_cancelled_error_sends_done_frame() -> None:
 
     sent_types = [f["type"] for f in ws.sent]
     assert "done" in sent_types, "done frame must be sent on CancelledError"
+
+
+# ---------------------------------------------------------------------------
+# Accepted ack: emitted after task registration and before first status frame
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_chat_turn_emits_accepted_before_status() -> None:
+    handler, ws = make_handler()
+
+    from app.schemas.chat import ChatRequest
+
+    payload = ChatRequest(message="hello", thread_id=None, graph_id=None, metadata={})
+
+    class FakeGraph:
+        async def astream_events(self, *_args, **_kwargs):
+            if False:
+                yield None
+
+    class FakeGraphService:
+        def __init__(self, _db):
+            pass
+
+        async def create_default_deep_agents_graph(self, **_kwargs):
+            return FakeGraph()
+
+    async def fake_safe_get_state(*_args, **_kwargs):
+        return MagicMock(tasks=[], values={})
+
+    with (
+        patch("app.websocket.chat_ws_handler.AsyncSessionLocal") as mock_session_cls,
+        patch("app.websocket.chat_ws_handler.get_or_create_conversation", AsyncMock(return_value=("thread-ack", True))),
+        patch("app.websocket.chat_ws_handler.save_user_message", AsyncMock()),
+        patch(
+            "app.websocket.chat_ws_handler.get_user_config",
+            AsyncMock(
+                return_value=(
+                    {"configurable": {"thread_id": "thread-ack"}},
+                    {},
+                    {
+                        "llm_model": "gpt-test",
+                        "api_key": "test",
+                        "base_url": "http://example.invalid",
+                        "max_tokens": 1024,
+                    },
+                )
+            ),
+        ),
+        patch("app.websocket.chat_ws_handler.GraphService", FakeGraphService),
+        patch("app.websocket.chat_ws_handler.safe_get_state", side_effect=fake_safe_get_state),
+        patch("app.websocket.chat_ws_handler.task_manager") as mock_tm,
+        patch.object(handler, "_finalize_task", AsyncMock()),
+        patch("app.websocket.chat_ws_handler.ArtifactCollector") as mock_artifacts,
+    ):
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cls.return_value = mock_cm
+        mock_tm.register_task = AsyncMock()
+        mock_tm.is_stopped = AsyncMock(return_value=False)
+        mock_artifacts.return_value.ensure_run_dir = MagicMock()
+
+        await handler._run_chat_turn(request_id="req-accepted", payload=payload)
+
+    sent_types = [f["type"] for f in ws.sent]
+    assert "accepted" in sent_types, "accepted ack must be emitted once the turn is registered"
+    assert "status" in sent_types, "connected status must still be emitted"
+    assert sent_types.index("accepted") < sent_types.index("status")
+
+    accepted_frame = ws.frames_of_type("accepted")[0]
+    assert accepted_frame["request_id"] == "req-accepted"
+    assert accepted_frame["thread_id"] == "thread-ack"

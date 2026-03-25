@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 import uuid as uuid_lib
+from dataclasses import dataclass
 from typing import Any, cast
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -23,13 +24,25 @@ from app.api.v1.chat import (
     save_user_message,
 )
 from app.core.agent.artifacts import ArtifactCollector
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, async_session_factory
+from app.core.settings import settings
 from app.models import Conversation
+from app.models.agent_run import AgentRunStatus
 from app.schemas.chat import ChatRequest
 from app.services.graph_service import GraphService
+from app.services.run_service import RunService
 from app.utils.file_event_emitter import FileEventEmitter
 from app.utils.stream_event_handler import StreamEventHandler, StreamState
 from app.utils.task_manager import task_manager
+
+
+@dataclass
+class ChatTaskEntry:
+    thread_id: str | None
+    task: asyncio.Task[Any]
+    heartbeat_task: asyncio.Task[Any] | None = None
+    run_id: uuid_lib.UUID | None = None
+    persist_on_disconnect: bool = False
 
 
 class ChatWsHandler:
@@ -38,8 +51,10 @@ class ChatWsHandler:
     def __init__(self, user_id: str, websocket: WebSocket):
         self.user_id = user_id
         self.websocket = websocket
-        self._tasks: dict[str, tuple[str | None, asyncio.Task[Any]]] = {}
+        self._tasks: dict[str, ChatTaskEntry] = {}
         self._send_lock = asyncio.Lock()
+        self._socket_connected = True
+        self._runtime_owner_id = settings.run_runtime_instance_id
 
     async def run(self) -> None:
         try:
@@ -47,6 +62,7 @@ class ChatWsHandler:
                 raw = await self.websocket.receive_text()
                 await self._handle_frame(raw)
         except WebSocketDisconnect:
+            self._socket_connected = False
             logger.info(f"Chat WebSocket disconnected | user_id={self.user_id}")
         finally:
             await self._cancel_all_tasks()
@@ -98,6 +114,8 @@ class ChatWsHandler:
             )
             return
 
+        agent_run_id = self._extract_agent_run_id(metadata)
+
         async def runner() -> None:
             await self._run_chat_turn(
                 request_id=request_id,
@@ -110,7 +128,12 @@ class ChatWsHandler:
             )
 
         task = asyncio.create_task(runner(), name=f"chat-ws:{request_id}")
-        self._tasks[request_id] = (str(thread_id) if thread_id else None, task)
+        self._tasks[request_id] = ChatTaskEntry(
+            thread_id=str(thread_id) if thread_id else None,
+            task=task,
+            run_id=agent_run_id,
+            persist_on_disconnect=agent_run_id is not None,
+        )
 
     async def _handle_resume(self, frame: dict[str, Any]) -> None:
         request_id = str(frame.get("request_id") or "")
@@ -138,7 +161,7 @@ class ChatWsHandler:
             await self._run_resume_turn(request_id=request_id, thread_id=thread_id, command=command)
 
         task = asyncio.create_task(runner(), name=f"chat-ws-resume:{request_id}")
-        self._tasks[request_id] = (thread_id, task)
+        self._tasks[request_id] = ChatTaskEntry(thread_id=thread_id, task=task)
 
     async def _handle_stop(self, frame: dict[str, Any]) -> None:
         request_id = str(frame.get("request_id") or "")
@@ -149,13 +172,189 @@ class ChatWsHandler:
         if entry is None:
             return
 
-        thread_id, task = entry
+        thread_id = entry.thread_id
+        task = entry.task
         if thread_id:
             try:
                 await task_manager.stop_task(thread_id)
             except Exception:
                 pass
         task.cancel()
+        if entry.heartbeat_task is not None:
+            entry.heartbeat_task.cancel()
+
+    def _extract_agent_run_id(self, metadata: dict[str, Any]) -> uuid_lib.UUID | None:
+        if metadata.get("mode") != "skill_creator":
+            return None
+        run_id_raw = metadata.get("run_id")
+        if not run_id_raw:
+            return None
+        try:
+            return uuid_lib.UUID(str(run_id_raw))
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid skill creator run_id in chat metadata | user_id={self.user_id}")
+            return None
+
+    @staticmethod
+    def _parse_uuid(value: Any) -> uuid_lib.UUID | None:
+        if not value:
+            return None
+        try:
+            return uuid_lib.UUID(str(value))
+        except (ValueError, TypeError):
+            return None
+
+    async def _append_run_event(
+        self,
+        *,
+        run_id: uuid_lib.UUID,
+        event_type: str,
+        payload: dict[str, Any],
+        trace_id: uuid_lib.UUID | None = None,
+        observation_id: uuid_lib.UUID | None = None,
+        parent_observation_id: uuid_lib.UUID | None = None,
+    ) -> None:
+        async with async_session_factory() as db:
+            service = RunService(db)
+            await service.append_event(
+                run_id=run_id,
+                event_type=event_type,
+                payload=payload,
+                trace_id=trace_id,
+                observation_id=observation_id,
+                parent_observation_id=parent_observation_id,
+            )
+
+    async def _mark_run_status(
+        self,
+        *,
+        run_id: uuid_lib.UUID,
+        status: AgentRunStatus,
+        runtime_owner_id: str | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        result_summary: dict[str, Any] | None = None,
+    ) -> None:
+        async with async_session_factory() as db:
+            service = RunService(db)
+            await service.mark_status(
+                run_id=run_id,
+                user_id=self.user_id,
+                status=status,
+                runtime_owner_id=runtime_owner_id,
+                error_code=error_code,
+                error_message=error_message,
+                result_summary=result_summary,
+            )
+
+    async def _touch_run_heartbeat(self, *, run_id: uuid_lib.UUID) -> None:
+        async with async_session_factory() as db:
+            service = RunService(db)
+            await service.touch_run_heartbeat(
+                run_id=run_id,
+                runtime_owner_id=self._runtime_owner_id,
+            )
+
+    async def _run_persisted_run_heartbeat(self, run_id: uuid_lib.UUID) -> None:
+        while True:
+            try:
+                await asyncio.sleep(settings.run_heartbeat_interval_seconds)
+                await self._touch_run_heartbeat(run_id=run_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(f"Persisted run heartbeat failed, will retry | run_id={run_id} | error={exc}")
+                await asyncio.sleep(5)  # brief backoff before retry
+
+    async def _mirror_run_stream_event(
+        self,
+        *,
+        run_id: uuid_lib.UUID,
+        event: dict[str, Any],
+        assistant_message_id: str | None,
+    ) -> None:
+        event_type = str(event.get("type") or "")
+        raw_data = event.get("data")
+        data = raw_data if isinstance(raw_data, dict) else {}
+        timestamp = int(event.get("timestamp") or int(time.time() * 1000))
+        observation_id = self._parse_uuid(event.get("observation_id"))
+
+        payload: dict[str, Any] | None = None
+        if event_type == "status":
+            message = str(data.get("status") or "")
+            payload = {"message": message, "status": message}
+        elif event_type == "content" and assistant_message_id:
+            delta = data.get("delta")
+            if delta:
+                payload = {"message_id": assistant_message_id, "delta": str(delta)}
+        elif event_type == "tool_start" and assistant_message_id:
+            tool_input = data.get("tool_input")
+            payload = {
+                "message_id": assistant_message_id,
+                "tool": {
+                    "id": str(observation_id or uuid_lib.uuid4()),
+                    "name": str(data.get("tool_name") or "tool"),
+                    "args": tool_input if isinstance(tool_input, dict) else {},
+                    "status": "running",
+                    "startTime": timestamp,
+                },
+            }
+        elif event_type == "tool_end" and assistant_message_id:
+            payload = {
+                "message_id": assistant_message_id,
+                "tool_id": str(observation_id) if observation_id else None,
+                "tool_name": data.get("tool_name"),
+                "tool_output": data.get("tool_output"),
+                "end_time": timestamp,
+            }
+        elif event_type == "file_event":
+            payload = {
+                "action": data.get("action"),
+                "path": data.get("path"),
+                "size": data.get("size"),
+                "timestamp": data.get("timestamp"),
+            }
+        elif event_type == "interrupt":
+            payload = {"interrupt": data}
+        elif event_type == "error":
+            payload = {"message": data.get("message"), "code": data.get("code")}
+        elif event_type == "done":
+            payload = {}
+
+        if payload is None:
+            return
+
+        await self._append_run_event(
+            run_id=run_id,
+            event_type="content_delta" if event_type == "content" else event_type,
+            payload=payload,
+            trace_id=self._parse_uuid(event.get("trace_id")),
+            observation_id=observation_id,
+            parent_observation_id=self._parse_uuid(event.get("parent_observation_id")),
+        )
+
+    async def _emit_event(
+        self,
+        event: dict[str, Any],
+        *,
+        request_id: str | None = None,
+        tolerate_disconnect: bool = False,
+        agent_run_id: uuid_lib.UUID | None = None,
+        assistant_message_id: str | None = None,
+    ) -> None:
+        outbound = dict(event)
+        if request_id is not None:
+            outbound["request_id"] = request_id
+        if agent_run_id is not None:
+            asyncio.create_task(
+                self._mirror_run_stream_event(
+                    run_id=agent_run_id,
+                    event=outbound,
+                    assistant_message_id=assistant_message_id,
+                ),
+                name=f"mirror-event:{agent_run_id}",
+            )
+        await self._send(outbound, tolerate_disconnect=tolerate_disconnect)
 
     async def _run_chat_turn(self, request_id: str, payload: ChatRequest) -> None:
         state: StreamState | None = None
@@ -164,6 +363,10 @@ class ChatWsHandler:
         graph_workspace_id: str | None = None
         graph_display_name: str | None = None
         artifact_collector = ArtifactCollector()
+        task_entry = self._tasks.get(request_id)
+        agent_run_id = task_entry.run_id if task_entry else None
+        tolerate_disconnect = bool(task_entry and task_entry.persist_on_disconnect)
+        assistant_message_id = f"msg-assistant-{uuid_lib.uuid4()}"
 
         try:
             file_emitter = FileEventEmitter()
@@ -229,8 +432,52 @@ class ChatWsHandler:
             current_task = asyncio.current_task()
             if current_task is None:
                 raise RuntimeError("missing current asyncio task")
-            self._tasks[request_id] = (thread_id, current_task)
+            self._tasks[request_id] = ChatTaskEntry(
+                thread_id=thread_id,
+                task=current_task,
+                run_id=agent_run_id,
+                persist_on_disconnect=tolerate_disconnect,
+            )
             await task_manager.register_task(thread_id, current_task)
+
+            if agent_run_id is not None:
+                await self._mark_run_status(
+                    run_id=agent_run_id,
+                    status=AgentRunStatus.RUNNING,
+                    runtime_owner_id=self._runtime_owner_id,
+                )
+                heartbeat_task = asyncio.create_task(
+                    self._run_persisted_run_heartbeat(agent_run_id),
+                    name=f"run-heartbeat:{agent_run_id}",
+                )
+                current_entry = self._tasks.get(request_id)
+                if current_entry is not None:
+                    current_entry.heartbeat_task = heartbeat_task
+                await self._append_run_event(
+                    run_id=agent_run_id,
+                    event_type="assistant_message_started",
+                    payload={
+                        "message": {
+                            "id": assistant_message_id,
+                            "role": "assistant",
+                            "content": "",
+                            "timestamp": int(time.time() * 1000),
+                            "tool_calls": [],
+                        }
+                    },
+                )
+
+            await self._send(
+                {
+                    "type": "accepted",
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                    "run_id": str(agent_run_id) if agent_run_id is not None else None,
+                    "timestamp": int(time.time() * 1000),
+                    "data": {"status": "accepted"},
+                },
+                tolerate_disconnect=tolerate_disconnect,
+            )
 
             handler = StreamEventHandler()
             artifact_collector.ensure_run_dir(self.user_id, thread_id, state.artifact_run_id)
@@ -238,6 +485,9 @@ class ChatWsHandler:
             await self._send_event_from_sse(
                 handler.format_sse("status", {"status": "connected", "_meta": {"node_name": "system"}}, thread_id),
                 request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
             )
 
             enriched_message = _enrich_message(
@@ -259,7 +509,13 @@ class ChatWsHandler:
                     break
 
                 async for sse_str in _dispatch_stream_event(event, handler, state, file_emitter):
-                    await self._send_event_from_sse(sse_str, request_id)
+                    await self._send_event_from_sse(
+                        sse_str,
+                        request_id,
+                        tolerate_disconnect=tolerate_disconnect,
+                        agent_run_id=agent_run_id,
+                        assistant_message_id=assistant_message_id,
+                    )
 
             try:
                 snap = await safe_get_state(built_graph, config, max_retries=3, initial_delay=0.1, log=logger)
@@ -269,10 +525,9 @@ class ChatWsHandler:
                     if payload.graph_id is None:
                         logger.warning(f"Default agent interrupted, resume not supported | thread_id={thread_id}")
                     else:
-                        await self._send(
+                        await self._emit_event(
                             {
                                 "type": "interrupt",
-                                "request_id": request_id,
                                 "thread_id": thread_id,
                                 "node_name": next_node or "unknown",
                                 "node_label": next_node.replace("_", " ").title() if next_node else "Unknown Node",
@@ -282,7 +537,11 @@ class ChatWsHandler:
                                     "state": current_state,
                                     "thread_id": thread_id,
                                 },
-                            }
+                            },
+                            request_id=request_id,
+                            tolerate_disconnect=tolerate_disconnect,
+                            agent_run_id=agent_run_id,
+                            assistant_message_id=assistant_message_id,
                         )
                         async with AsyncSessionLocal() as session:
                             result_query = await session.execute(
@@ -315,44 +574,53 @@ class ChatWsHandler:
                 return
 
             if state.stopped:
-                await self._send(
+                await self._emit_event(
                     {
                         "type": "error",
-                        "request_id": request_id,
                         "thread_id": thread_id,
                         "node_name": "system",
                         "run_id": "",
                         "timestamp": int(time.time() * 1000),
                         "data": {"message": "Stopped by user", "code": "stopped"},
-                    }
+                    },
+                    request_id=request_id,
+                    tolerate_disconnect=tolerate_disconnect,
+                    agent_run_id=agent_run_id,
+                    assistant_message_id=assistant_message_id,
                 )
 
-            await self._send(
+            await self._emit_event(
                 {
                     "type": "done",
-                    "request_id": request_id,
                     "thread_id": thread_id,
                     "node_name": "system",
                     "run_id": "",
                     "timestamp": int(time.time() * 1000),
                     "data": {},
-                }
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
             )
 
         except asyncio.CancelledError:
             if state is not None:
                 state.stopped = True
             try:
-                await self._send(
+                await self._emit_event(
                     {
                         "type": "done",
-                        "request_id": request_id,
                         "thread_id": thread_id or payload.thread_id or "",
                         "node_name": "system",
                         "run_id": "",
                         "timestamp": int(time.time() * 1000),
                         "data": {},
-                    }
+                    },
+                    request_id=request_id,
+                    tolerate_disconnect=tolerate_disconnect,
+                    agent_run_id=agent_run_id,
+                    assistant_message_id=assistant_message_id,
                 )
             except Exception:
                 pass
@@ -360,27 +628,33 @@ class ChatWsHandler:
         except Exception as exc:
             if state is not None and not (GraphBubbleUp is not None and type(exc) is GraphBubbleUp):
                 state.has_error = True
-            await self._send(
+            await self._emit_event(
                 {
                     "type": "error",
-                    "request_id": request_id,
                     "thread_id": thread_id or payload.thread_id or "",
                     "node_name": "system",
                     "run_id": "",
                     "timestamp": int(time.time() * 1000),
                     "data": {"message": str(exc)},
-                }
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
             )
-            await self._send(
+            await self._emit_event(
                 {
                     "type": "done",
-                    "request_id": request_id,
                     "thread_id": thread_id or payload.thread_id or "",
                     "node_name": "system",
                     "run_id": "",
                     "timestamp": int(time.time() * 1000),
                     "data": {},
-                }
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
             )
         finally:
             await self._finalize_task(
@@ -471,9 +745,19 @@ class ChatWsHandler:
                 current_task = asyncio.current_task()
                 if current_task is None:
                     raise RuntimeError("missing current asyncio task")
-                self._tasks[request_id] = (thread_id, current_task)
+                self._tasks[request_id] = ChatTaskEntry(thread_id=thread_id, task=current_task)
                 await task_manager.register_task(thread_id, current_task)
             # Phase 2: streaming — DB session is closed, no connection held
+
+            await self._send(
+                {
+                    "type": "accepted",
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                    "timestamp": int(time.time() * 1000),
+                    "data": {"status": "accepted"},
+                }
+            )
 
             handler = StreamEventHandler()
             ws_command = Command(
@@ -627,7 +911,16 @@ class ChatWsHandler:
         workspace_id: str | None,
         graph_name: str | None,
     ) -> None:
-        self._tasks.pop(request_id, None)
+        task_entry = self._tasks.pop(request_id, None)
+        agent_run_id = task_entry.run_id if task_entry else None
+        heartbeat_task = task_entry.heartbeat_task if task_entry else None
+
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
 
         if thread_id:
             try:
@@ -687,12 +980,73 @@ class ChatWsHandler:
         if thread_id and state is not None and not state.interrupted:
             await _clear_interrupt_marker(thread_id, logger.bind(user_id=self.user_id, thread_id=thread_id))
 
-    async def _send_event_from_sse(self, sse_str: str | None, request_id: str) -> None:
+        if agent_run_id is not None:
+            result_summary = {
+                "thread_id": thread_id,
+                "graph_id": graph_id,
+                "workspace_id": workspace_id,
+                "graph_name": graph_name,
+                "artifact_run_id": state.artifact_run_id if state is not None else None,
+            }
+            try:
+                if state is None:
+                    await self._mark_run_status(
+                        run_id=agent_run_id,
+                        status=AgentRunStatus.FAILED,
+                        error_code="missing_state",
+                        error_message="Run finalized without stream state",
+                        result_summary=result_summary,
+                    )
+                elif state.interrupted:
+                    await self._mark_run_status(
+                        run_id=agent_run_id,
+                        status=AgentRunStatus.INTERRUPT_WAIT,
+                        result_summary=result_summary,
+                    )
+                elif state.stopped:
+                    await self._mark_run_status(
+                        run_id=agent_run_id,
+                        status=AgentRunStatus.CANCELLED,
+                        error_code="stopped",
+                        error_message="Stopped by user",
+                        result_summary=result_summary,
+                    )
+                elif state.has_error:
+                    await self._mark_run_status(
+                        run_id=agent_run_id,
+                        status=AgentRunStatus.FAILED,
+                        error_code="stream_error",
+                        error_message="Skill Creator run failed",
+                        result_summary=result_summary,
+                    )
+                else:
+                    await self._mark_run_status(
+                        run_id=agent_run_id,
+                        status=AgentRunStatus.COMPLETED,
+                        result_summary=result_summary,
+                    )
+            except Exception as exc:
+                logger.warning(f"Failed to update persisted run status | run_id={agent_run_id} | error={exc}")
+
+    async def _send_event_from_sse(
+        self,
+        sse_str: str | None,
+        request_id: str,
+        *,
+        tolerate_disconnect: bool = False,
+        agent_run_id: uuid_lib.UUID | None = None,
+        assistant_message_id: str | None = None,
+    ) -> None:
         event = self._parse_sse_event(sse_str)
         if not event:
             return
-        event["request_id"] = request_id
-        await self._send(event)
+        await self._emit_event(
+            event,
+            request_id=request_id,
+            tolerate_disconnect=tolerate_disconnect,
+            agent_run_id=agent_run_id,
+            assistant_message_id=assistant_message_id,
+        )
 
     def _parse_sse_event(self, sse_str: str | None) -> dict[str, Any] | None:
         if not sse_str:
@@ -719,29 +1073,47 @@ class ChatWsHandler:
 
         return cast(dict[str, Any], payload)
 
-    async def _send(self, event: dict[str, Any]) -> None:
+    async def _send(self, event: dict[str, Any], *, tolerate_disconnect: bool = False) -> bool:
+        if not self._socket_connected:
+            if tolerate_disconnect:
+                return False
+            raise WebSocketDisconnect()
         try:
             async with self._send_lock:
                 await self.websocket.send_text(json.dumps(event))
+            return True
         except WebSocketDisconnect:
+            self._socket_connected = False
+            if tolerate_disconnect:
+                return False
             raise
         except RuntimeError:
+            self._socket_connected = False
+            if tolerate_disconnect:
+                return False
             raise WebSocketDisconnect()
 
     def _is_thread_active(self, thread_id: str) -> bool:
-        return any(active_thread_id == thread_id for active_thread_id, _ in self._tasks.values())
+        return any(entry.thread_id == thread_id for entry in self._tasks.values())
 
     async def _cancel_all_tasks(self) -> None:
         tasks = list(self._tasks.items())
-        self._tasks.clear()
-        for _, (thread_id, task) in tasks:
+        retained: dict[str, ChatTaskEntry] = {}
+        cancellable: list[tuple[str | None, asyncio.Task[Any]]] = []
+        for request_id, entry in tasks:
+            if entry.persist_on_disconnect:
+                retained[request_id] = entry
+                continue
+            cancellable.append((entry.thread_id, entry.task))
+        self._tasks = retained
+        for thread_id, task in cancellable:
             if thread_id:
                 try:
                     await task_manager.stop_task(thread_id)
                 except Exception:
                     pass
             task.cancel()
-        for _, (_, task) in tasks:
+        for _, task in cancellable:
             try:
                 await task
             except BaseException:

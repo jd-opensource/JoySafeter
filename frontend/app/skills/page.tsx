@@ -8,6 +8,7 @@ import { useTranslation } from '@/lib/i18n'
 
 import { Plus, Store, FolderOpen } from 'lucide-react'
 
+import { ActiveSkillCreatorRunCard } from './components/ActiveSkillCreatorRunCard'
 import { NewSkillDialog } from './components/NewSkillDialog'
 import SkillsManager from './SkillsManager'
 import SkillsStore from './SkillsStore'
@@ -26,6 +27,8 @@ export default function SkillsPage() {
 
   return (
     <div className="flex h-full w-full flex-col">
+      <ActiveSkillCreatorRunCard />
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full flex-col">
         {/* Tab navigation header */}
         <div className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-elevated)] px-6 py-3">

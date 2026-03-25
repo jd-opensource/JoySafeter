@@ -28,6 +28,7 @@ from .openclaw_devices import router as openclaw_devices_router
 from .openclaw_instances import router as openclaw_instances_router
 from .openclaw_proxy import router as openclaw_proxy_router
 from .organizations import router as organizations_router
+from .runs import router as runs_router
 from .sandboxes import router as sandboxes_router
 from .skill_collaborators import router as skill_collaborators_router
 from .skill_versions import router as skill_versions_router
@@ -49,6 +50,7 @@ ROUTERS = [
     memory_router,
     oauth_router,
     organizations_router,
+    runs_router,
     workspaces_router,
     workspace_folders_router,
     workspace_files_router,

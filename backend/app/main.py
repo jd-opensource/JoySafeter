@@ -5,6 +5,7 @@ FastAPI Main Application
 import asyncio
 import traceback
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -25,6 +26,7 @@ from app.websocket.chat_ws_handler import ChatWsHandler
 from app.websocket.copilot_handler import copilot_handler
 from app.websocket.notification_manager import NotificationType, notification_manager
 from app.websocket.openclaw_handler import openclaw_bridge_handler
+from app.websocket.run_subscription_handler import run_subscription_handler
 
 setup_logging()
 
@@ -93,6 +95,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     # Check Redis connection (if configured)
     await _check_redis_connection()
+
+    # Recover stale in-process durable runs that lost their executing runtime.
+    try:
+        from app.services.run_service import RunService
+
+        stale_before = datetime.now(timezone.utc) - timedelta(seconds=settings.run_heartbeat_timeout_seconds)
+        async with RedisClient.lock("init:durable_run_recovery", timeout=60, blocking_timeout=60):
+            async with AsyncSessionLocal() as db:
+                service = RunService(db)
+                recovered_runs = await service.recover_stale_incomplete_runs(
+                    runtime_owner_id=settings.run_runtime_instance_id,
+                    stale_before=stale_before,
+                )
+        if recovered_runs:
+            logger.warning(
+                f"   ⚠️  Recovered {len(recovered_runs)} stale durable runs for runtime owner "
+                f"{settings.run_runtime_instance_id}"
+            )
+        else:
+            logger.info(
+                f"   ✓ Durable run recovery sweep completed for runtime owner " f"{settings.run_runtime_instance_id}"
+            )
+    except Exception as e:
+        logger.warning(f"   ⚠️  Durable run recovery sweep failed: {e}")
 
     # Automatically sync providers and models to database on startup (if not present)
     try:
@@ -412,6 +438,18 @@ async def copilot_websocket_endpoint(websocket: WebSocket, session_id: str):
 
     # Handle connection
     await copilot_handler.handle_connection(websocket, session_id)
+
+
+@app.websocket("/ws/runs")
+async def runs_websocket_endpoint(websocket: WebSocket):
+    """Subscription endpoint for durable run snapshot/replay/live events."""
+    is_authenticated, user_id = await authenticate_websocket(websocket)
+
+    if not is_authenticated or not user_id:
+        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
+        return
+
+    await run_subscription_handler.handle_connection(websocket, str(user_id))
 
 
 @app.websocket("/ws/openclaw/dashboard")

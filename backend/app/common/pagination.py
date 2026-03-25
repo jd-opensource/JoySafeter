@@ -27,6 +27,12 @@ class PaginationParams(BaseModel):
         return self.page_size
 
 
+class ConversationMessagesPaginationParams(PaginationParams):
+    """会话消息分页参数，允许读取更长的历史记录。"""
+
+    page_size: int = Field(default=20, ge=1, le=200, description="每页数量")
+
+
 class PageResult(BaseModel, Generic[T]):
     """分页结果"""
 

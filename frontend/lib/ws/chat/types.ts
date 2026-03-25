@@ -1,5 +1,16 @@
 import type { ChatStreamEvent } from '@/services/chatBackend'
 
+export interface IncomingChatAcceptedEvent {
+  type: 'accepted'
+  request_id: string
+  thread_id?: string
+  run_id?: string
+  timestamp?: number
+  data?: {
+    status?: string
+  }
+}
+
 export type IncomingChatWsEvent = Partial<ChatStreamEvent> & {
   type?: string
   request_id?: string
@@ -23,6 +34,7 @@ export interface ChatSendParams {
   graphId?: string | null
   metadata?: Record<string, unknown>
   onEvent?: (evt: ChatStreamEvent) => void
+  onAccepted?: (evt: IncomingChatAcceptedEvent) => void
 }
 
 export interface ChatResumeParams {
@@ -30,6 +42,7 @@ export interface ChatResumeParams {
   threadId: string
   command: ChatResumeCommand
   onEvent?: (evt: ChatStreamEvent) => void
+  onAccepted?: (evt: IncomingChatAcceptedEvent) => void
 }
 
 export type ChatTerminal = 'done' | 'interrupt' | 'stopped'

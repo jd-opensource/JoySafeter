@@ -17,7 +17,9 @@ import { cn } from '@/lib/utils'
 interface SkillCreatorChatProps {
   messages: Message[]
   isProcessing: boolean
-  onSendMessage: (text: string) => void
+  isSubmitting?: boolean
+  inputDisabled?: boolean
+  onSendMessage: (text: string) => Promise<boolean>
   onStop: () => void
 }
 
@@ -89,6 +91,8 @@ function MessageBubble({ message }: { message: Message }) {
 export default function SkillCreatorChat({
   messages,
   isProcessing,
+  isSubmitting = false,
+  inputDisabled = false,
   onSendMessage,
   onStop,
 }: SkillCreatorChatProps) {
@@ -109,17 +113,19 @@ export default function SkillCreatorChat({
     }
   }, [input])
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const text = input.trim()
-    if (!text || isProcessing) return
-    onSendMessage(text)
-    setInput('')
-  }, [input, isProcessing, onSendMessage])
+    if (!text || isProcessing || isSubmitting || inputDisabled) return
+    const sent = await onSendMessage(text)
+    if (sent) {
+      setInput('')
+    }
+  }, [input, inputDisabled, isProcessing, isSubmitting, onSendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSubmit()
+      void handleSubmit()
     }
   }
 
@@ -174,10 +180,10 @@ export default function SkillCreatorChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe the skill you want to create..."
+            placeholder={inputDisabled ? 'Initializing Skill Creator...' : 'Describe the skill you want to create...'}
             className="max-h-[160px] min-h-[24px] flex-1 resize-none border-none bg-transparent text-sm shadow-none placeholder:text-[var(--text-muted)] focus:outline-none"
             rows={1}
-            disabled={isProcessing}
+            disabled={isProcessing || isSubmitting || inputDisabled}
           />
           {isProcessing ? (
             <Button
@@ -190,12 +196,14 @@ export default function SkillCreatorChat({
             </Button>
           ) : (
             <Button
-              onClick={handleSubmit}
-              disabled={!input.trim()}
+              onClick={() => {
+                void handleSubmit()
+              }}
+              disabled={!input.trim() || inputDisabled || isSubmitting}
               size="sm"
               className={cn(
                 'h-8 w-8 flex-shrink-0 rounded-full p-0 transition-colors',
-                input.trim()
+                input.trim() && !inputDisabled
                   ? 'bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]'
                   : 'cursor-not-allowed bg-[var(--surface-5)]',
               )}
