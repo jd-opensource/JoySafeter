@@ -53,8 +53,8 @@ function ConversationItem({
         'group relative flex w-full items-center rounded-md transition-colors duration-150',
         isCollapsed ? 'justify-center px-1.5 py-1.5' : 'gap-2 px-2 py-1.5',
         isActive
-          ? 'bg-white text-gray-900 shadow-sm ring-1 ring-blue-50'
-          : 'text-gray-600 hover:bg-white/60',
+          ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm ring-1 ring-primary/10'
+          : 'text-[var(--text-secondary)] hover:bg-[var(--surface-2)]',
       )}
     >
       <button
@@ -69,7 +69,7 @@ function ConversationItem({
           size={14}
           className={cn(
             'flex-shrink-0',
-            isActive ? 'text-blue-500' : 'text-gray-400',
+            isActive ? 'text-primary' : 'text-[var(--text-muted)]',
           )}
         />
         {!isCollapsed && (
@@ -77,7 +77,7 @@ function ConversationItem({
             <div className="min-w-0 flex-1 truncate text-xs">
               {conv.title || t('chat.newChat')}
             </div>
-            <div className="flex-shrink-0 text-[10px] text-gray-400">
+            <div className="flex-shrink-0 text-[10px] text-[var(--text-muted)]">
               {formatTime(conv.updated_at)}
             </div>
           </>
@@ -102,7 +102,7 @@ function ConversationItem({
               className="flex-shrink-0 rounded p-1 opacity-0 transition-all hover:bg-red-100 group-hover:opacity-100"
               title={t('chat.delete')}
             >
-              <Trash2 size={12} className="text-gray-400 hover:text-red-600" />
+              <Trash2 size={12} className="text-[var(--text-muted)] hover:text-red-600" />
             </button>
           </AlertDialogTrigger>
           <AlertDialogContent variant="destructive">
@@ -178,13 +178,13 @@ export default function ConversationGroup({
       {!isCollapsed && (
         <button
           onClick={onToggleExpand}
-          className="mb-1.5 flex w-full items-center justify-between px-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-400 transition-colors hover:text-gray-700"
+          className="mb-1.5 flex w-full items-center justify-between px-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
         >
           <span>{label}</span>
           {isExpanded ? (
-            <ChevronDown size={14} className="text-gray-400" />
+            <ChevronDown size={14} className="text-[var(--text-muted)]" />
           ) : (
-            <ChevronRight size={14} className="text-gray-400" />
+            <ChevronRight size={14} className="text-[var(--text-muted)]" />
           )}
         </button>
       )}

@@ -105,14 +105,14 @@ export function ArtifactPanel({ threadId, fileTree, className }: ArtifactPanelPr
   const ext = selectedFile?.extension?.toLowerCase() ?? ''
 
   return (
-    <div className={cn('flex flex-col bg-white text-gray-900', className)}>
+    <div className={cn('flex flex-col bg-[var(--surface-1)] text-[var(--text-primary)]', className)}>
       <div className="flex min-h-0 flex-1">
-        <div className="custom-scrollbar w-[168px] flex-shrink-0 overflow-y-auto border-r border-gray-200">
+        <div className="custom-scrollbar w-[168px] flex-shrink-0 overflow-y-auto border-r border-[var(--border)]">
           <FileBrowser files={files} selectedPath={selectedPath} onSelect={handleSelectFile} />
         </div>
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {selectedPath && (
-            <div className="flex shrink-0 items-center gap-2 border-b border-gray-100 bg-white p-3">
+            <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-muted)] bg-[var(--surface-1)] p-3">
               <span className="flex-1 truncate text-sm">{selectedPath}</span>
             </div>
           )}
@@ -126,7 +126,7 @@ export function ArtifactPanel({ threadId, fileTree, className }: ArtifactPanelPr
               />
             )}
             {!selectedPath && (
-              <div className="flex flex-col items-center justify-center py-8 text-sm text-gray-400">
+              <div className="flex flex-col items-center justify-center py-8 text-sm text-[var(--text-muted)]">
                 <FolderOpen className="mb-2 h-10 w-10 opacity-50" />
                 Select a file to preview
               </div>

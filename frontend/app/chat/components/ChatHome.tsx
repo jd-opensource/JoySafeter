@@ -365,12 +365,12 @@ export default function ChatHome({
                     )
                     return selectedAgent ? (
                       <div className="flex items-center gap-2 px-3 pt-2">
-                        <div className="flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700">
+                        <div className="flex items-center gap-1.5 rounded-full bg-[var(--surface-3)] px-3 py-1.5 text-sm font-medium text-[var(--text-secondary)]">
                           <MessageSquare size={14} />
                           <span className="max-w-[120px] truncate">{selectedAgent.name}</span>
                           <button
                             onClick={() => setSelectedAgentId(null)}
-                            className="ml-1 rounded-full p-0.5 transition-colors hover:bg-gray-200"
+                            className="ml-1 rounded-full p-0.5 transition-colors hover:bg-[var(--surface-5)]"
                             aria-label={t('chat.clearAgent')}
                           >
                             <X size={12} />
@@ -395,13 +395,13 @@ export default function ChatHome({
                       {state.files.map((file) => (
                         <div
                           key={file.id}
-                          className="flex items-center gap-1.5 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-700"
+                          className="flex items-center gap-1.5 rounded-md bg-[var(--surface-3)] px-2 py-1 text-xs text-[var(--text-secondary)]"
                         >
-                          <Paperclip size={12} className="text-gray-500" />
+                          <Paperclip size={12} className="text-[var(--text-tertiary)]" />
                           <span className="max-w-[150px] truncate">{file.filename}</span>
                           <button
                             onClick={() => removeFile(file.id)}
-                            className="ml-1 rounded-full p-0.5 transition-colors hover:bg-gray-200"
+                            className="ml-1 rounded-full p-0.5 transition-colors hover:bg-[var(--surface-5)]"
                             aria-label="Remove file"
                           >
                             <X size={10} />
@@ -431,7 +431,7 @@ export default function ChatHome({
                           'flex h-9 items-center gap-2 rounded-full border-[1.5px] bg-transparent px-3 transition-all duration-200',
                           state.autoRedirect
                             ? 'border-primary/30 text-primary hover:border-primary/50 hover:bg-primary/5'
-                            : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700',
+                            : 'border-[var(--border)] text-[var(--text-tertiary)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]',
                         )}
                       >
                         <Zap size={16} />
@@ -444,7 +444,7 @@ export default function ChatHome({
                           <Button
                             variant="outline"
                             size="sm"
-                            className="flex h-9 items-center gap-2 rounded-full border-[1.5px] border-gray-200 bg-transparent px-3 text-gray-500 transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
+                            className="flex h-9 items-center gap-2 rounded-full border-[1.5px] border-[var(--border)] bg-transparent px-3 text-[var(--text-tertiary)] transition-all duration-200 hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]"
                             disabled={isLoadingAgents}
                           >
                             <Bot size={16} />
@@ -469,13 +469,13 @@ export default function ChatHome({
                                   onClick={() => handleAgentSelect(agent.id)}
                                   className={cn(
                                     'flex items-center gap-2',
-                                    state.selectedAgentId === agent.id && 'bg-gray-100',
+                                    state.selectedAgentId === agent.id && 'bg-[var(--surface-3)]',
                                   )}
                                 >
-                                  <MessageSquare size={14} className="text-gray-400" />
+                                  <MessageSquare size={14} className="text-[var(--text-muted)]" />
                                   <span className="flex-1 truncate">{agent.name}</span>
                                   {state.selectedAgentId === agent.id && (
-                                    <span className="text-xs text-gray-400">✓</span>
+                                    <span className="text-xs text-[var(--text-muted)]">✓</span>
                                   )}
                                 </DropdownMenuItem>
                               ))}
@@ -495,7 +495,7 @@ export default function ChatHome({
                               onClick={() => fileInputRef.current?.click()}
                               disabled={isProcessing || isUploading}
                               className={cn(
-                                'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-200 hover:text-gray-700',
+                                'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-[var(--text-tertiary)] transition-all duration-200 hover:bg-[var(--surface-5)] hover:text-[var(--text-secondary)]',
                                 isUploading && 'cursor-not-allowed opacity-50',
                               )}
                             >
@@ -529,18 +529,18 @@ export default function ChatHome({
                             'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                             state.input.trim() && !isProcessing && !state.isRedirecting
                               ? 'bg-primary hover:bg-primary/90'
-                              : 'cursor-not-allowed bg-gray-100',
+                              : 'cursor-not-allowed bg-[var(--surface-3)]',
                           )}
                         >
                           {state.isRedirecting ? (
-                            <Loader2 size={18} className="animate-spin text-gray-400" />
+                            <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" />
                           ) : (
                             <ArrowRight
                               size={18}
                               className={
                                 state.input.trim() && !isProcessing && !state.isRedirecting
                                   ? 'text-white'
-                                  : 'text-gray-300'
+                                  : 'text-[var(--text-subtle)]'
                               }
                             />
                           )}
@@ -556,7 +556,7 @@ export default function ChatHome({
           <div className="mt-4 w-full">
             <button
               onClick={() => setShowCases(!state.showCases)}
-              className="flex w-full items-center justify-between p-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-700"
+              className="flex w-full items-center justify-between p-2 text-sm font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
             >
               <div className="flex items-center gap-2">
                 <Sparkles size={14} />

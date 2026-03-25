@@ -80,7 +80,7 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
         initial="hidden"
         animate="visible"
       >
-        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gray-800 px-5 py-3.5 text-white shadow-sm">
+        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-[var(--surface-12)] px-5 py-3.5 text-white shadow-sm">
           <p className="whitespace-pre-wrap text-[15px] font-normal leading-relaxed">
             {message.content}
           </p>
