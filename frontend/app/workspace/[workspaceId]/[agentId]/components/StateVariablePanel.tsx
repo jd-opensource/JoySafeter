@@ -174,7 +174,7 @@ export function StateVariablePanel({
       case 'node':
         return 'bg-emerald-50/80 text-emerald-700 border-emerald-200/60 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/40'
       default:
-        return 'bg-gray-50/80 text-gray-700 border-gray-200/60 dark:bg-gray-950/30 dark:text-gray-400 dark:border-gray-800/40'
+        return 'bg-[var(--surface-1)]/80 text-[var(--text-secondary)] border-[var(--border)]/60'
     }
   }
 

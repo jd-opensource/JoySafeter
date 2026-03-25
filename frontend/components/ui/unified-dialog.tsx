@@ -90,7 +90,7 @@ export function UnifiedDialog({
           </div>
           <button
             onClick={() => onOpenChange(false)}
-            className="shrink-0 rounded-full p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-gray-600"
+            className="shrink-0 rounded-full p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
           >
             <X size={16} />
           </button>
@@ -185,7 +185,7 @@ export function FileListBox({ title, files, maxShow = 20, moreText }: FileListBo
       <div className="mb-3 text-xs font-semibold text-[var(--text-secondary)]">{title}</div>
       <div className="space-y-2">
         {files.slice(0, maxShow).map((file, i) => (
-          <div key={i} className="flex items-center gap-2 text-xs text-gray-600">
+          <div key={i} className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
             {file.icon && <span className="shrink-0 text-[var(--text-muted)]">{file.icon}</span>}
             <span className="truncate font-mono">{file.name}</span>
             {file.size !== undefined && (
