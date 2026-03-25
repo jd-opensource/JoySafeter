@@ -123,8 +123,8 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
 
   // Fallback defaults if type not found
   const Icon = def?.icon || Bot
-  const colorClass = def?.style.color || 'text-gray-500'
-  const bgClass = def?.style.bg || 'bg-gray-50'
+  const colorClass = def?.style.color || 'text-[var(--text-tertiary)]'
+  const bgClass = def?.style.bg || 'bg-[var(--surface-1)]'
   const title = data.label || getNodeLabel(data.type)
   const subLabel = getNodeSubLabel(data.type)
   const useDeepAgents = data.config?.useDeepAgents === true

@@ -36,8 +36,8 @@ const PreviewNode = ({
 }) => {
   const def = nodeRegistry.get(data.type)
   const Icon = def?.icon || Bot
-  const colorClass = def?.style?.color || 'text-gray-500'
-  const bgClass = def?.style?.bg || 'bg-gray-50'
+  const colorClass = def?.style?.color || 'text-[var(--text-tertiary)]'
+  const bgClass = def?.style?.bg || 'bg-[var(--surface-1)]'
   const label = data.label || def?.label || 'Node'
 
   return (

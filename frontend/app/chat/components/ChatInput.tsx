@@ -119,13 +119,13 @@ export default function ChatInput({
           {files.map((file) => (
             <div
               key={file.id}
-              className="flex items-center gap-1.5 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700"
+              className="flex items-center gap-1.5 rounded-md bg-[var(--surface-3)] px-3 py-1.5 text-sm text-[var(--text-secondary)]"
             >
-              <Paperclip size={14} className="text-gray-500" />
+              <Paperclip size={14} className="text-[var(--text-tertiary)]" />
               <span className="max-w-[200px] truncate">{file.filename}</span>
               <button
                 onClick={() => removeFile(file.id)}
-                className="ml-1 rounded-full p-0.5 transition-colors hover:bg-gray-200"
+                className="ml-1 rounded-full p-0.5 transition-colors hover:bg-[var(--surface-5)]"
                 aria-label="Remove file"
                 disabled={isProcessing || isUploading}
               >
@@ -139,7 +139,7 @@ export default function ChatInput({
       {/* Main Input Container */}
       <div
         className={cn(
-          'flex flex-col gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 transition-all',
+          'flex flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] px-4 py-3 transition-all',
           isDragOver && 'border-primary/50 bg-primary/5',
         )}
         onDragOver={handleDragOver}
@@ -161,7 +161,7 @@ export default function ChatInput({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={t('chat.describeHelpNeeded')}
-          className="max-h-[160px] min-h-[44px] w-full resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-gray-400 focus:outline-none focus-visible:ring-0"
+          className="max-h-[160px] min-h-[44px] w-full resize-none overflow-y-auto border-none bg-transparent text-sm shadow-none placeholder:text-[var(--text-muted)] focus:outline-none focus-visible:ring-0"
           rows={1}
           disabled={isProcessing || isUploading}
         />
@@ -177,7 +177,7 @@ export default function ChatInput({
               onClick={() => fileInputRef.current?.click()}
               disabled={isProcessing || isUploading}
               className={cn(
-                'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-gray-500 transition-all duration-200 hover:bg-gray-200 hover:text-gray-700',
+                'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-[var(--text-tertiary)] transition-all duration-200 hover:bg-[var(--surface-5)] hover:text-[var(--text-secondary)]',
                 (isUploading || isProcessing) && 'cursor-not-allowed opacity-50',
               )}
               title={t('chat.uploadFile')}
@@ -202,13 +202,13 @@ export default function ChatInput({
                   'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                   canSubmit && !isProcessing && !isUploading
                     ? 'bg-primary hover:bg-primary/90'
-                    : 'cursor-not-allowed bg-gray-100',
+                    : 'cursor-not-allowed bg-[var(--surface-3)]',
                 )}
               >
                 <ArrowRight
                   size={18}
                   className={
-                    canSubmit && !isProcessing && !isUploading ? 'text-white' : 'text-gray-300'
+                    canSubmit && !isProcessing && !isUploading ? 'text-white' : 'text-[var(--text-subtle)]'
                   }
                 />
               </Button>

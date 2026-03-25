@@ -77,7 +77,7 @@ export function Sidebar() {
               <TooltipContent
                 side="bottom"
                 sideOffset={4}
-                className="rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg"
+                className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
               >
                 {t('sidebar.expand')}
               </TooltipContent>
@@ -126,7 +126,7 @@ export function Sidebar() {
                 <TooltipContent
                   side="bottom"
                   sideOffset={4}
-                  className="rounded-[8px] border border-[var(--border)] bg-white px-[8px] py-[4px] text-[12px] font-medium text-black shadow-lg"
+                  className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-elevated)] px-[8px] py-[4px] text-[12px] font-medium text-[var(--text-primary)] shadow-lg"
                 >
                   {t('sidebar.collapse')}
                 </TooltipContent>

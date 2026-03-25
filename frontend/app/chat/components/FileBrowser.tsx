@@ -69,12 +69,12 @@ export default function FileBrowser({
       return <FileJson size={16} className="text-yellow-500" />
     }
     if (['md', 'txt'].includes(ext)) {
-      return <FileText size={16} className="text-gray-500" />
+      return <FileText size={16} className="text-[var(--text-tertiary)]" />
     }
     if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) {
       return <ImageIcon size={16} className="text-purple-500" />
     }
-    return <File size={16} className="text-gray-400" />
+    return <File size={16} className="text-[var(--text-muted)]" />
   }
 
   const renderNode = (node: FileNode, level: number = 0): React.ReactNode => {
@@ -86,7 +86,7 @@ export default function FileBrowser({
       <div key={node.path}>
         <div
           className={cn(
-            'flex cursor-pointer items-center gap-1.5 py-1.5 text-sm transition-colors hover:bg-gray-100',
+            'flex cursor-pointer items-center gap-1.5 py-1.5 text-sm transition-colors hover:bg-[var(--surface-3)]',
             isSelected && 'bg-blue-50 hover:bg-blue-100',
           )}
           style={{ paddingLeft: `${paddingLeft}px` }}
@@ -118,7 +118,7 @@ export default function FileBrowser({
   return (
     <div className={cn('h-full overflow-y-auto', className)}>
       {files.length === 0 ? (
-        <div className="mt-8 text-center text-sm text-gray-400">No files available</div>
+        <div className="mt-8 text-center text-sm text-[var(--text-muted)]">No files available</div>
       ) : (
         <div className="py-2">{files.map((file) => renderNode(file))}</div>
       )}

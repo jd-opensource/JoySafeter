@@ -63,7 +63,7 @@ function LanguageBadge({ language }: { language: string }) {
     typescript: 'bg-blue-100 text-blue-700 border-blue-200',
     javascript: 'bg-yellow-100 text-yellow-700 border-yellow-200',
     json: 'bg-purple-100 text-purple-700 border-purple-200',
-    markdown: 'bg-gray-100 text-gray-700 border-gray-200',
+    markdown: 'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]',
     bash: 'bg-red-100 text-red-700 border-red-200',
     shell: 'bg-red-100 text-red-700 border-red-200',
     yaml: 'bg-pink-100 text-pink-700 border-pink-200',
@@ -72,7 +72,7 @@ function LanguageBadge({ language }: { language: string }) {
     sql: 'bg-cyan-100 text-cyan-700 border-cyan-200',
   }
 
-  const colorClass = colors[language.toLowerCase()] || 'bg-gray-100 text-gray-700 border-gray-200'
+  const colorClass = colors[language.toLowerCase()] || 'bg-[var(--surface-3)] text-[var(--text-secondary)] border-[var(--border)]'
 
   return (
     <span className={cn('rounded border px-2 py-0.5 text-[10px] font-medium', colorClass)}>
@@ -113,37 +113,37 @@ export default function CodeViewer({
   return (
     <div
       className={cn(
-        'flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white',
+        'flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)]',
         className,
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/80 px-3 py-2">
+      <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-1)]/80 px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {collapsible && (
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="rounded p-0.5 transition-colors hover:bg-gray-200"
+              className="rounded p-0.5 transition-colors hover:bg-[var(--surface-5)]"
             >
               {isCollapsed ? (
-                <ChevronRight size={14} className="text-gray-500" />
+                <ChevronRight size={14} className="text-[var(--text-tertiary)]" />
               ) : (
-                <ChevronDown size={14} className="text-gray-500" />
+                <ChevronDown size={14} className="text-[var(--text-tertiary)]" />
               )}
             </button>
           )}
-          <FileCode size={14} className="flex-shrink-0 text-gray-400" />
-          <span className="truncate text-xs font-medium text-gray-700">
+          <FileCode size={14} className="flex-shrink-0 text-[var(--text-muted)]" />
+          <span className="truncate text-xs font-medium text-[var(--text-secondary)]">
             {filename || 'untitled'}
           </span>
           <LanguageBadge language={prismLanguage} />
-          <span className="text-[10px] text-gray-400">{lineCount} lines</span>
+          <span className="text-[10px] text-[var(--text-muted)]">{lineCount} lines</span>
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={handleCopy}
-          className="h-7 gap-1.5 px-2 text-gray-500 hover:text-gray-700"
+          className="h-7 gap-1.5 px-2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
         >
           {copied ? (
             <>
@@ -195,12 +195,12 @@ export default function CodeViewer({
 
       {/* Collapsed preview */}
       {isCollapsed && (
-        <div className="bg-gray-50 px-3 py-2 text-xs text-gray-500">
+        <div className="bg-[var(--surface-1)] px-3 py-2 text-xs text-[var(--text-tertiary)]">
           <span className="font-mono">
             {lines[0]?.slice(0, 60)}
             {lines[0]?.length > 60 ? '...' : ''}
           </span>
-          {lineCount > 1 && <span className="ml-2 text-gray-400">+{lineCount - 1} more lines</span>}
+          {lineCount > 1 && <span className="ml-2 text-[var(--text-muted)]">+{lineCount - 1} more lines</span>}
         </div>
       )}
     </div>

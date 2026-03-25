@@ -355,6 +355,11 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
     let prevConnected = client.getConnectionState().isConnected
     const unsubscribe = client.subscribeConnectionState((state) => {
       setIsConnected(state.isConnected)
+      if (state.authExpired) {
+        finalizeActiveRequests('Authentication expired')
+        window.location.assign('/signin')
+        return
+      }
       if (prevConnected && !state.isConnected && Object.keys(activeRequestsRef.current).length > 0) {
         finalizeActiveRequests('Chat connection lost')
       }

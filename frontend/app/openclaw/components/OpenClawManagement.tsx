@@ -70,8 +70,8 @@ interface DeviceResponse {
 const instanceStatusStyles: Record<string, string> = {
   running: 'bg-green-500/15 text-green-700 border-green-200',
   starting: 'bg-blue-500/15 text-blue-700 border-blue-200',
-  pending: 'bg-gray-500/15 text-gray-600 border-gray-200',
-  stopped: 'bg-gray-500/15 text-gray-600 border-gray-200',
+  pending: 'bg-[var(--text-tertiary)]/15 text-[var(--text-secondary)] border-[var(--border)]',
+  stopped: 'bg-[var(--text-tertiary)]/15 text-[var(--text-secondary)] border-[var(--border)]',
   failed: 'bg-red-500/15 text-red-700 border-red-200',
 }
 
