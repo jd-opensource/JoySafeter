@@ -6,7 +6,8 @@
  * CSS-based layout dimensions
  */
 :root {
-  --sidebar-width: 256px;
+  --sidebar-width: 140px;
+  --sidebar-width-collapsed: 64px;
   --panel-width: 280px;
   --terminal-height: 200px;
   --toolbar-triggers-height: 300px;

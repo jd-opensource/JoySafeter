@@ -5,7 +5,6 @@ import { useEffect } from 'react'
 
 import { AppSidebar } from '@/components/app-sidebar'
 import { isPublicRoute } from '@/lib/core/constants/routes'
-import { cn } from '@/lib/utils'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
 /**
@@ -39,10 +38,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-[var(--bg)]">
       <div
-        className={cn(
-          'flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out',
-          isAppSidebarCollapsed ? 'w-[64px]' : 'w-[140px]',
-        )}
+        style={{
+          width: isAppSidebarCollapsed
+            ? 'var(--sidebar-width-collapsed)'
+            : 'var(--sidebar-width)',
+        }}
+        className="flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out"
       >
         <AppSidebar isCollapsed={isAppSidebarCollapsed} />
       </div>
