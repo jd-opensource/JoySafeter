@@ -13,6 +13,16 @@
   --toolbar-triggers-height: 300px;
 }
 
+/* Z-index scale */
+:root {
+  --z-sidebar: 10;
+  --z-panel: 20;
+  --z-dropdown: 100;
+  --z-modal-overlay: 500;
+  --z-modal: 501;
+  --z-toast: 600;
+}
+
 .sidebar-container {
   width: var(--sidebar-width);
 }
