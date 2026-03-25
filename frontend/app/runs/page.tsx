@@ -130,12 +130,13 @@ export default function RunsPage() {
         if (!existing) {
           return run
         }
+        const wsIsFresher = existing.last_seq > run.last_seq
         return {
           ...run,
-          status: existing.status || run.status,
+          status: wsIsFresher ? existing.status : run.status,
           last_seq: Math.max(existing.last_seq, run.last_seq),
-          error_code: existing.error_code ?? run.error_code,
-          error_message: existing.error_message ?? run.error_message,
+          error_code: wsIsFresher ? (existing.error_code ?? run.error_code) : run.error_code,
+          error_message: wsIsFresher ? (existing.error_message ?? run.error_message) : run.error_message,
           updated_at:
             new Date(existing.updated_at).getTime() > new Date(run.updated_at).getTime()
               ? existing.updated_at

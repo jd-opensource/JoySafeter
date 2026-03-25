@@ -54,4 +54,3 @@ class RunSubscriptionManager:
 
 
 run_subscription_manager = RunSubscriptionManager()
-

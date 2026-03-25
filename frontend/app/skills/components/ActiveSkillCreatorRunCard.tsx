@@ -35,13 +35,14 @@ export function ActiveSkillCreatorRunCard() {
     }
     setLiveRun((current) => {
       if (!current || current.run_id !== activeRun.run_id) return activeRun
-      // Keep WS-updated fields if they are more recent
+      // Keep WS-updated fields only if they are fresher (higher seq)
+      const wsIsFresher = current.last_seq > activeRun.last_seq
       return {
         ...activeRun,
-        status: current.status || activeRun.status,
+        status: wsIsFresher ? current.status : activeRun.status,
         last_seq: Math.max(current.last_seq, activeRun.last_seq),
-        error_code: current.error_code ?? activeRun.error_code,
-        error_message: current.error_message ?? activeRun.error_message,
+        error_code: wsIsFresher ? (current.error_code ?? activeRun.error_code) : activeRun.error_code,
+        error_message: wsIsFresher ? (current.error_message ?? activeRun.error_message) : activeRun.error_message,
       }
     })
   }, [activeRun])

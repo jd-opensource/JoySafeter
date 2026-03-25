@@ -201,9 +201,7 @@ async def cancel_run(
         AgentRunStatus.INTERRUPT_WAIT,
     }:
         try:
-            stop_requested = await task_manager.stop_task(run.thread_id)
-            if stop_requested:
-                return BaseResponse(success=True, code=200, msg="Run stop requested", data=_to_run_summary(run))
+            await task_manager.stop_task(run.thread_id)
         except Exception:
             pass
 

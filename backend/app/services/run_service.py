@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Awaitable, Optional
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -200,22 +200,26 @@ class RunService:
 
         await self.db.commit()
         try:
-            coros = []
+            coros: list[Awaitable[Any]] = []
             if snapshot:
-                coros.append(RedisClient.set_run_snapshot(
+                coros.append(
+                    RedisClient.set_run_snapshot(
+                        str(run.id),
+                        _build_snapshot_dict(str(run.id), snapshot),
+                    )
+                )
+            coros.append(
+                run_subscription_manager.broadcast_event(
                     str(run.id),
-                    _build_snapshot_dict(str(run.id), snapshot),
-                ))
-            coros.append(run_subscription_manager.broadcast_event(
-                str(run.id),
-                {
-                    "type": "run_status",
-                    "run_id": str(run.id),
-                    "status": status.value,
-                    "error_code": error_code,
-                    "error_message": error_message,
-                },
-            ))
+                    {
+                        "type": "run_status",
+                        "run_id": str(run.id),
+                        "status": status.value,
+                        "error_code": error_code,
+                        "error_message": error_message,
+                    },
+                )
+            )
             await asyncio.gather(*coros)
         except Exception as exc:
             logger.warning(f"Failed to publish run status to Redis/WS | run_id={run_id} | error={exc}")
@@ -233,7 +237,7 @@ class RunService:
         if run.status not in {AgentRunStatus.QUEUED, AgentRunStatus.RUNNING}:
             return run
 
-        run.runtime_owner_id = runtime_owner_id or run.runtime_owner_id or get_runtime_owner_id()
+        run.runtime_owner_id = runtime_owner_id or run.runtime_owner_id or settings.run_runtime_instance_id
         run.last_heartbeat_at = utc_now()
         await self.db.commit()
         return run

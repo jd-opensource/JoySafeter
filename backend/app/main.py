@@ -103,8 +103,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         stale_before = datetime.now(timezone.utc) - timedelta(seconds=settings.run_heartbeat_timeout_seconds)
         async with RedisClient.lock("init:durable_run_recovery", timeout=60, blocking_timeout=60):
             async with AsyncSessionLocal() as db:
-                service = RunService(db)
-                recovered_runs = await service.recover_stale_incomplete_runs(
+                run_service = RunService(db)
+                recovered_runs = await run_service.recover_stale_incomplete_runs(
                     runtime_owner_id=settings.run_runtime_instance_id,
                     stale_before=stale_before,
                 )
@@ -115,7 +115,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             )
         else:
             logger.info(
-                f"   ✓ Durable run recovery sweep completed for runtime owner " f"{settings.run_runtime_instance_id}"
+                f"   ✓ Durable run recovery sweep completed for runtime owner {settings.run_runtime_instance_id}"
             )
     except Exception as e:
         logger.warning(f"   ⚠️  Durable run recovery sweep failed: {e}")
@@ -140,8 +140,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                     logger.info(
                         f"   Provider count mismatch (DB: {provider_count}, Factory: {factory_provider_count}), starting auto-sync..."
                     )
-                    service = ModelProviderService(db)
-                    result = await service.sync_all()
+                    provider_service = ModelProviderService(db)
+                    result = await provider_service.sync_all()
                     logger.info(f"   ✓ Auto-sync completed: {result['providers']} providers, {result['models']} models")
                     if result.get("errors"):
                         for error in result["errors"]:

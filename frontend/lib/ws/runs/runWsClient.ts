@@ -45,59 +45,64 @@ class SharedRunWsClient implements RunWsClient {
       this.reconnectTimer = null
     }
 
-    this.connectPromise = getWsRunsUrl().then(
-      (wsUrl) =>
-        new Promise<void>((resolve, reject) => {
-          const ws = new WebSocket(wsUrl)
-          this.ws = ws
+    this.connectPromise = getWsRunsUrl()
+      .then(
+        (wsUrl) =>
+          new Promise<void>((resolve, reject) => {
+            const ws = new WebSocket(wsUrl)
+            this.ws = ws
 
-          ws.onopen = () => {
-            this.reconnectAttempts = 0
-            this.setConnectionState(true)
-            this.startHeartbeat()
-            this.connectPromise = null
-            resolve()
-          }
-
-          ws.onmessage = (event) => {
-            try {
-              const parsed = JSON.parse(event.data) as IncomingRunWsFrame
-              this.handleMessage(parsed)
-            } catch {
-              // Ignore malformed frames for now; replay can recover.
-            }
-          }
-
-          ws.onerror = () => {
-            this.setConnectionState(false)
-            if (this.connectPromise) {
+            ws.onopen = () => {
+              this.reconnectAttempts = 0
+              this.setConnectionState(true)
+              this.startHeartbeat()
               this.connectPromise = null
-              reject(new Error('Run WebSocket connection failed'))
-            }
-          }
-
-          ws.onclose = (event) => {
-            this.stopHeartbeat()
-            this.ws = null
-
-            if (this.connectPromise) {
-              this.connectPromise = null
-              reject(new Error(`Run WebSocket connection failed (${event.code})`))
+              resolve()
             }
 
-            if (event.code === WS_CLOSE_CODE.UNAUTHORIZED) {
-              this.state = { isConnected: false, authExpired: true }
-              this.stateListeners.forEach((listener) => listener(this.state))
-              return
+            ws.onmessage = (event) => {
+              try {
+                const parsed = JSON.parse(event.data) as IncomingRunWsFrame
+                this.handleMessage(parsed)
+              } catch {
+                // Ignore malformed frames for now; replay can recover.
+              }
             }
 
-            this.setConnectionState(false)
-            if (event.code === WS_CLOSE_CODE.NORMAL || this.isDisposed) return
-            if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as any)) return
-            this.scheduleReconnect()
-          }
-        }),
-    )
+            ws.onerror = () => {
+              this.setConnectionState(false)
+              if (this.connectPromise) {
+                this.connectPromise = null
+                reject(new Error('Run WebSocket connection failed'))
+              }
+            }
+
+            ws.onclose = (event) => {
+              this.stopHeartbeat()
+              this.ws = null
+
+              if (this.connectPromise) {
+                this.connectPromise = null
+                reject(new Error(`Run WebSocket connection failed (${event.code})`))
+              }
+
+              if (event.code === WS_CLOSE_CODE.UNAUTHORIZED) {
+                this.state = { isConnected: false, authExpired: true }
+                this.stateListeners.forEach((listener) => listener(this.state))
+                return
+              }
+
+              this.setConnectionState(false)
+              if (event.code === WS_CLOSE_CODE.NORMAL || this.isDisposed) return
+              if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as any)) return
+              this.scheduleReconnect()
+            }
+          }),
+      )
+      .catch((err) => {
+        this.connectPromise = null
+        throw err
+      })
 
     return this.connectPromise
   }
@@ -164,7 +169,13 @@ class SharedRunWsClient implements RunWsClient {
     }
 
     if (frame.type === 'ws_error') {
-      this.subscriptions.forEach(({ callbacks }) => callbacks.onError?.(frame.message))
+      const targetRunId = 'run_id' in frame ? (frame as any).run_id : undefined
+      if (targetRunId) {
+        const sub = this.subscriptions.get(targetRunId)
+        sub?.callbacks.onError?.(frame.message)
+      } else {
+        this.subscriptions.forEach(({ callbacks }) => callbacks.onError?.(frame.message))
+      }
       return
     }
 
