@@ -68,7 +68,7 @@ function getNodeIcon(node: ExecutionTreeNode) {
     case 'code_agent_error':
       return <AlertTriangle size={13} className="text-red-500" />
     default:
-      return <Terminal size={13} className="text-gray-500" />
+      return <Terminal size={13} className="text-[var(--text-tertiary)]" />
   }
 }
 
@@ -83,7 +83,7 @@ function getStatusDot(status: string) {
     case 'waiting':
       return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
     default:
-      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gray-300" />
+      return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--text-subtle)]" />
   }
 }
 
@@ -107,14 +107,14 @@ export function ExecutionTreeNodeContent({
       onClick={onClick}
       className={cn(
         'group flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 transition-all duration-150',
-        isSelected ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-gray-50',
+        isSelected ? 'bg-primary/5 ring-1 ring-primary/20' : 'hover:bg-[var(--surface-2)]',
       )}
     >
       {/* Icon */}
       <div
         className={cn(
           'flex h-5 w-5 shrink-0 items-center justify-center rounded',
-          isParentNode ? 'border border-gray-200 bg-gray-100' : 'border-gray-150 border bg-white',
+          isParentNode ? 'border border-[var(--border)] bg-[var(--surface-3)]' : 'border border-[var(--border-muted)] bg-[var(--surface-elevated)]',
         )}
       >
         {getNodeIcon(node)}
@@ -124,8 +124,8 @@ export function ExecutionTreeNodeContent({
       <span
         className={cn(
           'min-w-0 flex-1 truncate text-[11px] font-medium',
-          isParentNode ? 'font-semibold text-gray-800' : 'text-gray-600',
-          isSelected && 'text-blue-800',
+          isParentNode ? 'font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]',
+          isSelected && 'text-primary',
         )}
       >
         {node.name}
@@ -134,7 +134,7 @@ export function ExecutionTreeNodeContent({
       {/* Right side: duration + status */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {duration !== undefined && duration > 0 && (
-          <span className="flex items-center gap-0.5 font-mono text-[9px] text-gray-400">
+          <span className="flex items-center gap-0.5 font-mono text-[9px] text-[var(--text-muted)]">
             <Clock size={8} className="opacity-60" />
             {formatDuration(duration)}
           </span>

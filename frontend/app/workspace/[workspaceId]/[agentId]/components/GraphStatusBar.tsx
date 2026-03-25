@@ -65,7 +65,7 @@ export function GraphStatusBar() {
     // Currently saving
     if (isSaving) {
       return (
-        <span className="flex items-center gap-1 text-blue-500">
+        <span className="flex items-center gap-1 text-primary">
           <Loader2 size={12} className="animate-spin" />
           {t('status.saving', { defaultValue: '保存中...' })}
         </span>
@@ -94,7 +94,7 @@ export function GraphStatusBar() {
     // Graph not ready for saving
     if (!isGraphReady) {
       return (
-        <span className="text-gray-400" title="等待图表初始化...">
+        <span className="text-[var(--text-muted)]" title="等待图表初始化...">
           {t('status.waiting', { defaultValue: '等待中...' })}
         </span>
       )
@@ -103,7 +103,7 @@ export function GraphStatusBar() {
     // Has unsaved changes
     if (hasPendingChanges) {
       return (
-        <span className="text-gray-400">
+        <span className="text-[var(--text-muted)]">
           {t('status.unsavedChanges', { defaultValue: '有未保存的更改' })}
         </span>
       )
@@ -119,18 +119,18 @@ export function GraphStatusBar() {
       )
     }
 
-    return <span className="text-gray-400">{t('workspace.autoSaved')} --:--:--</span>
+    return <span className="text-[var(--text-muted)]">{t('workspace.autoSaved')} --:--:--</span>
   }
 
   return (
-    <div className="text-xs text-gray-700">
+    <div className="text-xs text-[var(--text-secondary)]">
       <div className="flex items-center gap-2">
         {renderSaveStatus()}
-        <span className="text-gray-300">·</span>
+        <span className="text-[var(--text-subtle)]">·</span>
         {deployedAt ? (
           <span>{formatPublishedTime(deployedAt)}</span>
         ) : (
-          <span className="text-gray-400">{t('workspace.unpublished')}</span>
+          <span className="text-[var(--text-muted)]">{t('workspace.unpublished')}</span>
         )}
       </div>
     </div>

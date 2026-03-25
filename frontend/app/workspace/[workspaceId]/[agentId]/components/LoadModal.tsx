@@ -77,20 +77,20 @@ export function LoadModal({ onClose, onLoad }: LoadModalProps) {
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-gray-800">
-            <FolderOpen size={18} className="text-blue-500" />
+          <DialogTitle className="flex items-center gap-2 text-[var(--text-primary)]">
+            <FolderOpen size={18} className="text-primary" />
             {t('workspace.loadSavedGraph')}
           </DialogTitle>
         </DialogHeader>
 
         <div className="custom-scrollbar max-h-[60vh] min-h-[200px] overflow-y-auto p-1">
           {loading ? (
-            <div className="flex h-40 flex-col items-center justify-center gap-2 text-gray-400">
-              <Loader2 size={24} className="animate-spin text-blue-500" />
+            <div className="flex h-40 flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
+              <Loader2 size={24} className="animate-spin text-primary" />
               <span className="text-sm">{t('workspace.fetchingProjects')}</span>
             </div>
           ) : graphs.length === 0 ? (
-            <div className="flex h-40 flex-col items-center justify-center gap-2 text-gray-400">
+            <div className="flex h-40 flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
               <Box size={32} className="opacity-20" />
               <span className="text-sm">{t('workspace.noSavedGraphs')}</span>
             </div>
@@ -100,14 +100,14 @@ export function LoadModal({ onClose, onLoad }: LoadModalProps) {
                 <div
                   key={g.id}
                   onClick={() => onLoad(g)}
-                  className="group flex cursor-pointer items-center justify-between rounded-xl border border-transparent p-3 transition-all hover:border-blue-100 hover:bg-blue-50"
+                  className="group flex cursor-pointer items-center justify-between rounded-xl border border-transparent p-3 transition-all hover:border-primary/20 hover:bg-primary/5"
                 >
                   <div className="flex flex-col gap-1">
-                    <span className="text-sm font-medium text-gray-700">{g.name}</span>
-                    <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                    <span className="text-sm font-medium text-[var(--text-secondary)]">{g.name}</span>
+                    <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
                       <Clock size={10} />
                       <span>{new Date(g.createdAt).toLocaleString()}</span>
-                      <span className="h-1 w-1 rounded-full bg-gray-300" />
+                      <span className="h-1 w-1 rounded-full bg-[var(--text-subtle)]" />
                       <span>
                         {g.nodeCount ?? 0} {t('workspace.nodes')}
                       </span>
@@ -117,7 +117,7 @@ export function LoadModal({ onClose, onLoad }: LoadModalProps) {
                     variant="ghost"
                     size="icon"
                     onClick={(e) => handleDeleteRequest(e, g.id, g.name)}
-                    className="h-8 w-8 text-gray-400 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                    className="h-8 w-8 text-[var(--text-muted)] opacity-0 transition-all hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)] group-hover:opacity-100"
                   >
                     <Trash2 size={14} />
                   </Button>

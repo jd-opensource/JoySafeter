@@ -142,22 +142,22 @@ const SchemaFieldRenderer = ({
         <div
           className={cn(
             'flex cursor-pointer select-none items-center justify-between rounded-lg border p-2 transition-all',
-            value ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50',
+            value ? 'border-[var(--brand-200)] bg-[var(--brand-50)]' : 'border-[var(--border)] bg-[var(--surface-2)]',
           )}
           onClick={() => onChange(!value)}
         >
-          <span className="text-[11px] font-medium text-gray-700">
+          <span className="text-[11px] font-medium text-[var(--text-secondary)]">
             {value ? t('workspace.enabled') : t('workspace.disabled')}
           </span>
           <div
             className={cn(
               'relative h-4 w-7 rounded-full border transition-all',
-              value ? 'border-blue-600 bg-blue-500' : 'border-gray-400 bg-gray-300',
+              value ? 'border-[var(--brand-600)] bg-[var(--brand-500)]' : 'border-[var(--border-strong)] bg-[var(--surface-4)]',
             )}
           >
             <div
               className={cn(
-                'absolute top-[2px] h-2.5 w-2.5 rounded-full bg-white transition-all',
+                'absolute top-[2px] h-2.5 w-2.5 rounded-full bg-[var(--surface-1)] transition-all',
                 value ? 'right-[2px]' : 'left-[2px]',
               )}
             />
@@ -218,7 +218,7 @@ const SchemaFieldRenderer = ({
           onChange={(e) => onChange(e.target.value)}
           placeholder={schema.placeholder}
           spellCheck={false}
-          className="min-h-[120px] resize-y border-slate-200 bg-slate-50 px-3 py-3 font-mono text-[11px] text-slate-800 shadow-inner focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="min-h-[120px] resize-y border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 font-mono text-[11px] text-[var(--text-primary)] shadow-inner focus-visible:ring-1 focus-visible:ring-[var(--brand-500)]"
         />
       )
       break
@@ -253,7 +253,7 @@ const SchemaFieldRenderer = ({
               </SelectItem>
             ))}
             {(!graphStateFields || graphStateFields.length === 0) && (
-              <div className="p-2 text-center text-[10px] text-gray-400">
+              <div className="p-2 text-center text-[10px] text-[var(--text-muted)]">
                 No state variables defined
               </div>
             )}
@@ -373,7 +373,7 @@ const SchemaFieldRenderer = ({
       break
     default:
       input = (
-        <div className="text-xs text-red-500">
+        <div className="text-xs text-[var(--status-error)]">
           {t('workspace.unknownFieldType', {
             type: schema.type,
             defaultValue: `Unknown field type: ${schema.type}`,
@@ -384,12 +384,12 @@ const SchemaFieldRenderer = ({
 
   return (
     <div className="space-y-1.5 duration-200 animate-in fade-in">
-      <Label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-        {translatedLabel} {schema.required && <span className="text-red-500">*</span>}
+      <Label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+        {translatedLabel} {schema.required && <span className="text-[var(--status-error)]">*</span>}
       </Label>
       {input}
       {schema.description && (
-        <p className="text-[9px] italic leading-tight text-gray-400">{schema.description}</p>
+        <p className="text-[9px] italic leading-tight text-[var(--text-muted)]">{schema.description}</p>
       )}
     </div>
   )
@@ -405,18 +405,18 @@ const SectionHeader = ({
   tooltip?: string
 }) => (
   <div className="mb-3 mt-2 flex items-center gap-2">
-    <Icon size={14} className="text-gray-400" />
+    <Icon size={14} className="text-[var(--text-muted)]" />
     <div className="flex items-center gap-1.5">
-      <h4 className="text-[11px] font-bold uppercase tracking-[0.1em] text-gray-500">{title}</h4>
+      <h4 className="text-[11px] font-bold uppercase tracking-[0.1em] text-[var(--text-muted)]">{title}</h4>
       {tooltip && (
         <TooltipProvider delayDuration={300}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <AlertCircle size={11} className="cursor-help text-gray-400" />
+              <AlertCircle size={11} className="cursor-help text-[var(--text-muted)]" />
             </TooltipTrigger>
             <TooltipContent
               side="top"
-              className="max-w-[200px] text-[11px] font-normal normal-case leading-relaxed tracking-normal text-slate-700"
+              className="max-w-[200px] text-[11px] font-normal normal-case leading-relaxed tracking-normal text-[var(--text-secondary)]"
             >
               {tooltip}
             </TooltipContent>
@@ -424,7 +424,7 @@ const SectionHeader = ({
         </TooltipProvider>
       )}
     </div>
-    <div className="ml-1 h-[1px] flex-1 bg-gray-100" />
+    <div className="ml-1 h-[1px] flex-1 bg-[var(--surface-2)]" />
   </div>
 )
 
@@ -639,13 +639,13 @@ export default function PropertiesPanel({
   const descriptionField = def?.schema.find((s) => s.key === 'description')
 
   return (
-    <div className="absolute bottom-[60px] right-[336px] top-[56px] z-50 flex w-[400px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10">
+    <div className="absolute bottom-[60px] right-[336px] top-[56px] z-50 flex w-[400px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-4 py-3.5">
-        <div className="flex items-center gap-3 overflow-hidden text-gray-900">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-3.5">
+        <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">
           <div
             className={cn(
-              'shrink-0 rounded-lg border border-gray-50 p-1.5 shadow-sm',
+              'shrink-0 rounded-lg border border-[var(--border)] p-1.5 shadow-sm',
               def?.style.bg,
               def?.style.color,
             )}
@@ -656,7 +656,7 @@ export default function PropertiesPanel({
             <h3 className="truncate text-sm font-bold leading-tight">
               {nodeData.label || def?.label}
             </h3>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
               {def?.label}
             </span>
           </div>
@@ -666,7 +666,7 @@ export default function PropertiesPanel({
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="h-7 w-7 text-gray-300 hover:bg-gray-100 hover:text-gray-600"
+            className="h-7 w-7 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]"
           >
             <X size={16} />
           </Button>
@@ -678,7 +678,7 @@ export default function PropertiesPanel({
         {/* Configuration Templates */}
         {templates.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
               Quick Templates
             </Label>
             <div className="space-y-1">
@@ -687,10 +687,10 @@ export default function PropertiesPanel({
                   key={template.name}
                   onClick={() => applyTemplateConfig(template.name)}
                   disabled={!userPermissions.canEdit}
-                  className="w-full rounded border border-gray-200 px-3 py-2 text-left text-xs transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <div className="font-medium text-gray-900">{template.name}</div>
-                  <div className="mt-0.5 text-gray-500">{template.description}</div>
+                  <div className="font-medium text-[var(--text-primary)]">{template.name}</div>
+                  <div className="mt-0.5 text-[var(--text-muted)]">{template.description}</div>
                 </button>
               ))}
             </div>
@@ -700,19 +700,19 @@ export default function PropertiesPanel({
         {/* Validation Errors */}
         {validationErrors.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-red-400">
+            <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--status-error)]">
               Configuration Errors
             </Label>
             <div className="space-y-1">
               {validationErrors.map((error, idx) => (
                 <div
                   key={idx}
-                  className="flex items-start gap-2 rounded border border-red-200 bg-red-50 p-2 text-xs"
+                  className="flex items-start gap-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-bg)] p-2 text-xs"
                 >
-                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-red-600" />
-                  <div className="text-red-800">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-[var(--status-error)]" />
+                  <div className="text-[var(--status-error-strong)]">
                     <div className="font-medium">{error.field}</div>
-                    <div className="text-red-600">{error.message}</div>
+                    <div className="text-[var(--status-error)]">{error.message}</div>
                   </div>
                 </div>
               ))}
@@ -725,7 +725,7 @@ export default function PropertiesPanel({
           <SectionHeader icon={Settings} title={t('workspace.general')} />
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 {t('workspace.displayName')}
               </Label>
               <Input
@@ -770,7 +770,7 @@ export default function PropertiesPanel({
 
             {/* DeepAgents Description Field (Conditional - shown when parent has useDeepAgents=true) */}
             {hasParentWithDeepAgents && descriptionField && (
-              <div className="space-y-1.5 border-l-2 border-purple-100 pl-4 duration-300 animate-in slide-in-from-top-2">
+              <div className="space-y-1.5 border-l-2 border-[var(--brand-200)] pl-4 duration-300 animate-in slide-in-from-top-2">
                 <SchemaFieldRenderer
                   schema={{ ...descriptionField, required: true }}
                   value={config[descriptionField.key]}
@@ -861,7 +861,7 @@ export default function PropertiesPanel({
 
             {/* Nested conditional fields */}
             {enableMemory && (
-              <div className="space-y-4 border-l-2 border-blue-100 pl-4 duration-300 animate-in slide-in-from-top-2">
+              <div className="space-y-4 border-l-2 border-[var(--brand-100)] pl-4 duration-300 animate-in slide-in-from-top-2">
                 {memoryFields
                   .filter((f) => f.key !== 'enableMemory')
                   .map((field) => (
@@ -901,7 +901,7 @@ export default function PropertiesPanel({
             )}
 
             {!enableMemory && (
-              <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-2 text-[10px] italic text-gray-400">
+              <p className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-2 text-[10px] italic text-[var(--text-muted)]">
                 {t('workspace.memoryDisabled')}
               </p>
             )}
@@ -935,7 +935,7 @@ export default function PropertiesPanel({
               tooltip="Advanced: Map node outputs directly to global state variables. Useful for long-term memory across loops."
             />
             <div className="space-y-3">
-              <p className="text-[10px] text-gray-400">
+              <p className="text-[10px] text-[var(--text-muted)]">
                 Map node outputs to global state variables. Use <code>result</code> to reference the
                 node&apos;s output.
               </p>
@@ -947,18 +947,18 @@ export default function PropertiesPanel({
                 return (
                   <div
                     key={field.name}
-                    className="space-y-1.5 rounded-lg border border-gray-100 bg-gray-50/50 p-2.5"
+                    className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-2.5"
                   >
                     <div className="flex items-center justify-between">
-                      <Label className="font-mono text-[11px] font-medium text-gray-700">
+                      <Label className="font-mono text-[11px] font-medium text-[var(--text-secondary)]">
                         {field.name}
                       </Label>
-                      <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[9px] uppercase text-gray-400">
+                      <span className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0.5 text-[9px] uppercase text-[var(--text-muted)]">
                         {field.type}
                       </span>
                     </div>
                     {field.description && (
-                      <p className="truncate text-[9px] text-gray-400">{field.description}</p>
+                      <p className="truncate text-[9px] text-[var(--text-muted)]">{field.description}</p>
                     )}
                     <VariableInputField
                       label=""
@@ -996,14 +996,14 @@ export default function PropertiesPanel({
             />
             {def?.stateReads && def.stateReads.length > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   Reads
                 </Label>
                 <div className="flex flex-wrap gap-1">
                   {def.stateReads.map((field) => (
                     <span
                       key={field}
-                      className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[9px] font-medium text-emerald-700"
+                      className="inline-flex items-center rounded-full border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-2 py-0.5 font-mono text-[9px] font-medium text-[var(--skill-brand-700)]"
                     >
                       {field === '*' ? 'all state' : field}
                     </span>
@@ -1013,14 +1013,14 @@ export default function PropertiesPanel({
             )}
             {def?.stateWrites && def.stateWrites.length > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   Writes
                 </Label>
                 <div className="flex flex-wrap gap-1">
                   {def.stateWrites.map((field) => (
                     <span
                       key={field}
-                      className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-mono text-[9px] font-medium text-blue-700"
+                      className="inline-flex items-center rounded-full border border-[var(--brand-200)] bg-[var(--brand-50)] px-2 py-0.5 font-mono text-[9px] font-medium text-[var(--brand-600)]"
                     >
                       {field}
                     </span>
@@ -1033,10 +1033,10 @@ export default function PropertiesPanel({
       </div>
 
       {/* Footer Info */}
-      <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-4 py-2 font-mono text-[9px] text-gray-400">
+      <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 font-mono text-[9px] text-[var(--text-muted)]">
         <span className="truncate">TYPE: {nodeData.type}</span>
         <span className="flex items-center gap-1">
-          <div className="h-1.5 w-1.5 rounded-full bg-green-500" /> {t('workspace.synced')}
+          <div className="h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" /> {t('workspace.synced')}
         </span>
       </div>
     </div>

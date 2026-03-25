@@ -319,16 +319,16 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
         {/* State Summary */}
         {!isEditing && keyStateFields.length > 0 && (
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">State Summary</label>
-            <div className="space-y-1 rounded-md border border-gray-200 bg-white p-3">
+            <label className="text-sm font-medium text-[var(--text-secondary)]">State Summary</label>
+            <div className="space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
               {keyStateFields.slice(0, 5).map((field, idx) => (
                 <div key={idx} className="text-xs">
-                  <span className="font-mono font-semibold text-gray-700">{field.key}:</span>{' '}
-                  <span className="text-gray-600">{String(field.value)}</span>
+                  <span className="font-mono font-semibold text-[var(--text-secondary)]">{field.key}:</span>{' '}
+                  <span className="text-[var(--text-tertiary)]">{String(field.value)}</span>
                 </div>
               ))}
               {keyStateFields.length > 5 && (
-                <div className="pt-1 text-xs text-gray-500">
+                <div className="pt-1 text-xs text-[var(--text-tertiary)]">
                   and {keyStateFields.length - 5} more fields...
                 </div>
               )}
@@ -339,7 +339,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
         {/* Full State Edit */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-700">
+            <label className="text-sm font-medium text-[var(--text-secondary)]">
               {isEditing ? 'Edit State (JSON)' : 'Full State'}
             </label>
             {!isEditing && (
@@ -365,7 +365,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
                     // Invalid JSON, keep as is
                   }
                 }}
-                className="h-32 w-full rounded-md border border-gray-300 bg-white p-2 font-mono text-xs"
+                className="h-32 w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface-elevated)] p-2 font-mono text-xs"
                 placeholder="Edit state JSON..."
               />
               <div className="flex gap-2">
@@ -393,8 +393,8 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
               </div>
             </div>
           ) : (
-            <div className="max-h-32 overflow-auto rounded-md border border-gray-200 bg-white p-3">
-              <pre className="font-mono text-xs text-gray-600">
+            <div className="max-h-32 overflow-auto rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
+              <pre className="font-mono text-xs text-[var(--text-secondary)]">
                 {JSON.stringify(filterSensitiveFields(interrupt.state), null, 2)}
               </pre>
             </div>
@@ -418,8 +418,8 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
         )}
 
         {showGotoSelector && (
-          <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3">
-            <label className="text-sm font-medium text-gray-700">Select Node to Jump To</label>
+          <div className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
+            <label className="text-sm font-medium text-[var(--text-secondary)]">Select Node to Jump To</label>
             <Select value={selectedNodeId} onValueChange={setSelectedNodeId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select node..." />
@@ -462,7 +462,7 @@ export function InterruptPanel({ interrupt, onClose }: InterruptPanelProps) {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-indigo-500" />
-              <label className="text-sm font-medium text-gray-700">
+              <label className="text-sm font-medium text-[var(--text-secondary)]">
                 {gateMode === 'input' ? 'Your Response' : 'Review Feedback'}
               </label>
             </div>

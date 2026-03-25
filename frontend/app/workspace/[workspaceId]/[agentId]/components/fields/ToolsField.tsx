@@ -115,13 +115,13 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
             <Badge
               key={id}
               variant="secondary"
-              className="gap-1 border-blue-200 bg-blue-50 py-0.5 pl-2 pr-1 text-[10px] text-blue-700 shadow-sm"
+              className="gap-1 border-primary/20 bg-primary/5 py-0.5 pl-2 pr-1 text-[10px] text-primary shadow-sm"
             >
               <Hammer size={10} className="shrink-0" />
               {getToolLabel(id)}
               <button
                 onClick={() => toggleBuiltin(id)}
-                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-blue-200"
+                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-primary/20"
               >
                 <X size={10} />
               </button>
@@ -154,27 +154,27 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
       <div className="group relative">
         <Search
           size={13}
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors group-focus-within:text-blue-500"
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] transition-colors group-focus-within:text-primary"
         />
         <Input
           placeholder={t('workspace.searchTools')}
-          className="h-8 border-gray-200 bg-white pl-8 text-[11px] shadow-none focus-visible:ring-blue-100"
+          className="h-8 border-[var(--border)] bg-[var(--surface-elevated)] pl-8 text-[11px] shadow-none focus-visible:ring-primary/10"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
       </div>
 
       {/* 3. Available Selection List */}
-      <div className="custom-scrollbar mt-1 max-h-[160px] divide-y divide-gray-50 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/30">
+      <div className="custom-scrollbar mt-1 max-h-[160px] divide-y divide-[var(--border-muted)] overflow-y-auto rounded-lg border border-[var(--border-muted)] bg-[var(--surface-2)]/30">
         {isLoadingData ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-4 text-gray-400">
-            <Loader2 size={14} className="animate-spin text-blue-500" />
+          <div className="flex flex-col items-center justify-center gap-2 p-4 text-[var(--text-muted)]">
+            <Loader2 size={14} className="animate-spin text-primary" />
             <span className="text-[10px] font-medium tracking-tight">
               {t('workspace.syncingCatalog')}
             </span>
           </div>
         ) : filteredTools.length === 0 ? (
-          <div className="p-6 text-center text-[10px] italic text-gray-400">
+          <div className="p-6 text-center text-[10px] italic text-[var(--text-muted)]">
             {searchQuery ? t('workspace.noMatchingCapabilities') : t('workspace.catalogEmpty')}
           </div>
         ) : (
@@ -197,8 +197,8 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
                 key={tool.id}
                 onClick={handleClick}
                 className={cn(
-                  'group flex cursor-pointer items-center justify-between p-2 transition-all hover:bg-white',
-                  isSelected ? 'bg-white' : '',
+                  'group flex cursor-pointer items-center justify-between p-2 transition-all hover:bg-[var(--surface-elevated)]',
+                  isSelected ? 'bg-[var(--surface-elevated)]' : '',
                 )}
               >
                 <div className="flex min-w-0 flex-col pr-2">
@@ -206,25 +206,25 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
                     {isBuiltin ? (
                       <Hammer
                         size={11}
-                        className={isSelected ? 'text-blue-500' : 'text-gray-300'}
+                        className={isSelected ? 'text-primary' : 'text-[var(--text-subtle)]'}
                       />
                     ) : (
                       <Server
                         size={11}
-                        className={isSelected ? 'text-purple-500' : 'text-gray-300'}
+                        className={isSelected ? 'text-purple-500' : 'text-[var(--text-subtle)]'}
                       />
                     )}
                     <span
                       className={cn(
                         'truncate text-[11px] font-medium',
-                        isSelected ? 'text-blue-700' : 'text-gray-600',
+                        isSelected ? 'text-primary' : 'text-[var(--text-secondary)]',
                       )}
                     >
                       {tool.label}
                     </span>
                   </div>
                   {tool.description && (
-                    <p className="mt-0.5 truncate pl-4 text-[9px] text-gray-400">
+                    <p className="mt-0.5 truncate pl-4 text-[9px] text-[var(--text-muted)]">
                       {tool.description}
                     </p>
                   )}
@@ -233,8 +233,8 @@ export function ToolsField({ value, onChange }: ToolsFieldProps) {
                   className={cn(
                     'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all',
                     isSelected
-                      ? 'border-blue-600 bg-blue-500 text-white'
-                      : 'border-gray-200 bg-white group-hover:border-gray-300',
+                      ? 'border-primary bg-primary text-white'
+                      : 'border-[var(--border)] bg-[var(--surface-elevated)] group-hover:border-[var(--border-strong)]',
                   )}
                 >
                   {isSelected && <Check size={10} strokeWidth={3} />}

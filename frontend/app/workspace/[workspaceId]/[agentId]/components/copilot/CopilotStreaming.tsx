@@ -68,7 +68,7 @@ export function CopilotStreaming({
 
   return (
     <div className="flex gap-2">
-      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-purple-100 bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600 shadow-sm">
+      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--brand-200)] bg-gradient-to-br from-[var(--brand-100)] to-[var(--brand-50)] text-[var(--brand-600)] shadow-sm">
         <Sparkles size={16} />
       </div>
       <div className="flex max-w-[85%] flex-col gap-2">
@@ -80,7 +80,7 @@ export function CopilotStreaming({
                 {currentStage ? stageConfig[currentStage.stage]?.icon || '⏳' : '⏳'}
               </span>
               <span
-                className={`text-xs font-medium ${currentStage ? stageConfig[currentStage.stage]?.color || 'text-gray-600' : 'text-gray-600'}`}
+                className={`text-xs font-medium ${currentStage ? stageConfig[currentStage.stage]?.color || 'text-[var(--text-tertiary)]' : 'text-[var(--text-tertiary)]'}`}
               >
                 {currentStage?.message || '正在处理中...'}
               </span>
@@ -107,7 +107,7 @@ export function CopilotStreaming({
         {(streamingContent || currentToolCall) && (
           <div
             className={`overflow-hidden rounded-2xl rounded-bl-none border shadow-sm duration-200 animate-in fade-in ${
-              streamingContent ? 'border-gray-100 bg-white' : 'border-amber-200 bg-amber-50'
+              streamingContent ? 'border-[var(--border-muted)] bg-[var(--surface-elevated)]' : 'border-amber-200 bg-amber-50'
             }`}
           >
             {/* Tool call info - fixed at top, always visible */}
@@ -139,13 +139,13 @@ export function CopilotStreaming({
                 {/* Copy button */}
                 <button
                   onClick={onCopyStreaming}
-                  className="absolute right-1 top-1 z-10 rounded p-1.5 opacity-0 transition-opacity hover:bg-gray-100 group-hover:opacity-100"
+                  className="absolute right-1 top-1 z-10 rounded p-1.5 opacity-0 transition-opacity hover:bg-[var(--surface-3)] group-hover:opacity-100"
                   title="复制"
                 >
                   {copiedStreaming ? (
                     <Check size={12} className="text-green-600" />
                   ) : (
-                    <Copy size={12} className="text-gray-500" />
+                    <Copy size={12} className="text-[var(--text-tertiary)]" />
                   )}
                 </button>
                 {/* Scrollable content */}
@@ -153,7 +153,7 @@ export function CopilotStreaming({
                   ref={streamingContentRef}
                   className="custom-scrollbar max-h-64 overflow-y-auto p-3 pr-5"
                 >
-                  <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-700">
+                  <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--text-secondary)]">
                     {streamingContent}
                   </p>
                 </div>

@@ -117,23 +117,23 @@ function ExecutionPanelContent() {
 
   return (
     <div
-      className="z-40 flex h-[320px] w-[calc(100%-320px)] shrink-0 flex-col border-t border-gray-200 bg-white font-sans shadow-[0_-4px_20px_rgba(0,0,0,0.05)] duration-300 animate-in slide-in-from-bottom-10"
+      className="z-40 flex h-[320px] w-[calc(100%-320px)] shrink-0 flex-col border-t border-[var(--border)] bg-[var(--surface-elevated)] font-sans shadow-[0_-4px_20px_rgba(0,0,0,0.05)] duration-300 animate-in slide-in-from-bottom-10"
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
       <PanelGroup direction="horizontal" className="min-h-0 flex-1">
         {/* Left Panel: Navigation (Tree / Timeline) */}
         <Panel defaultSize={35} minSize={25} maxSize={60}>
-          <div className="flex h-full flex-col border-r border-gray-200 bg-white">
+          <div className="flex h-full flex-col border-r border-[var(--border)] bg-[var(--surface-elevated)]">
             {/* Panel Header */}
-            <div className="flex h-9 shrink-0 select-none items-center justify-between border-b border-gray-200 bg-gray-50/80 px-3 backdrop-blur-sm">
+            <div className="flex h-9 shrink-0 select-none items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)]/80 px-3 backdrop-blur-sm">
               <div className="flex items-center gap-2">
-                <Activity size={13} className="text-blue-600" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-700">
+                <Activity size={13} className="text-primary" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]">
                   {t('workspace.executionStream', { defaultValue: 'Trace' })}
                 </span>
-                <div className="h-3 w-[1px] bg-gray-300" />
-                <span className="font-mono text-[9px] text-gray-500">
+                <div className="h-3 w-[1px] bg-[var(--border-strong)]" />
+                <span className="font-mono text-[9px] text-[var(--text-tertiary)]">
                   {deferredSteps.length} {t('workspace.ops', { defaultValue: 'OPS' })}
                 </span>
                 {isExecuting && (
@@ -142,14 +142,14 @@ function ExecutionPanelContent() {
               </div>
               <div className="flex items-center gap-1">
                 {/* View Toggle: Tree / Timeline */}
-                <div className="flex items-center gap-0.5 rounded border border-gray-200 bg-gray-100 p-0.5">
+                <div className="flex items-center gap-0.5 rounded border border-[var(--border)] bg-[var(--surface-3)] p-0.5">
                   <button
                     onClick={() => setNavigationView('tree')}
                     className={cn(
                       'rounded p-0.5 transition-colors',
                       navigationView === 'tree'
-                        ? 'bg-white text-blue-600 shadow-sm'
-                        : 'text-gray-400 hover:text-gray-600',
+                        ? 'bg-[var(--surface-elevated)] text-primary shadow-sm'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
                     )}
                     title="Tree View"
                   >
@@ -160,8 +160,8 @@ function ExecutionPanelContent() {
                     className={cn(
                       'rounded p-0.5 transition-colors',
                       navigationView === 'timeline'
-                        ? 'bg-white text-blue-600 shadow-sm'
-                        : 'text-gray-400 hover:text-gray-600',
+                        ? 'bg-[var(--surface-elevated)] text-primary shadow-sm'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
                     )}
                     title="Timeline View"
                   >
@@ -182,8 +182,8 @@ function ExecutionPanelContent() {
                   className={cn(
                     'rounded p-1 transition-colors',
                     isSearching
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-gray-400 hover:bg-gray-200 hover:text-gray-700',
+                      ? 'bg-primary/5 text-primary'
+                      : 'text-[var(--text-muted)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]',
                   )}
                   title="Search (press /)"
                 >
@@ -192,14 +192,14 @@ function ExecutionPanelContent() {
 
                 <button
                   onClick={() => clearExecution()}
-                  className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700"
+                  className="rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
                   title={t('workspace.clearTrace', { defaultValue: 'Clear Trace' })}
                 >
                   <Trash2 size={12} />
                 </button>
                 <button
                   onClick={() => toggleExecutionPanel(false)}
-                  className="flex items-center gap-0.5 rounded border border-transparent px-1.5 py-0.5 text-gray-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                  className="flex items-center gap-0.5 rounded border border-transparent px-1.5 py-0.5 text-[var(--text-muted)] transition-colors hover:border-[var(--status-error-border)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)]"
                   title={t('workspace.closePanel', { defaultValue: 'Close Panel' })}
                 >
                   <ChevronDown size={12} />
@@ -212,15 +212,15 @@ function ExecutionPanelContent() {
 
             {/* Search Bar */}
             {isSearching && (
-              <div className="flex h-8 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3">
-                <Search size={12} className="shrink-0 text-gray-400" />
+              <div className="flex h-8 shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-elevated)] px-3">
+                <Search size={12} className="shrink-0 text-[var(--text-muted)]" />
                 <input
                   ref={searchInputRef}
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search steps..."
-                  className="flex-1 bg-transparent font-mono text-[11px] text-gray-700 outline-none placeholder:text-gray-300"
+                  className="flex-1 bg-transparent font-mono text-[11px] text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-subtle)]"
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') {
                       setIsSearching(false)
@@ -231,7 +231,7 @@ function ExecutionPanelContent() {
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="p-0.5 text-gray-400 hover:text-gray-600"
+                    className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                   >
                     <X size={10} />
                   </button>
@@ -251,11 +251,11 @@ function ExecutionPanelContent() {
         </Panel>
 
         {/* Resize Handle */}
-        <PanelResizeHandle className="relative w-px bg-gray-200 transition-colors after:absolute after:inset-y-0 after:-left-0.5 after:w-1.5 after:content-[''] hover:bg-blue-300 data-[resize-handle-state=drag]:bg-blue-400" />
+        <PanelResizeHandle className="relative w-px bg-[var(--border)] transition-colors after:absolute after:inset-y-0 after:-left-0.5 after:w-1.5 after:content-[''] hover:bg-primary/30 data-[resize-handle-state=drag]:bg-primary/50" />
 
         {/* Right Panel: Details or Interrupt */}
         <Panel defaultSize={65} minSize={40}>
-          <div className="h-full min-w-0 bg-gray-50">
+          <div className="h-full min-w-0 bg-[var(--surface-2)]">
             {firstInterrupt ? (
               <div className="h-full overflow-auto p-4">
                 <InterruptPanel interrupt={firstInterrupt} onClose={() => {}} />

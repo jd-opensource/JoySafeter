@@ -75,8 +75,8 @@ export function ExecutionTree({ searchQuery = '' }: ExecutionTreeProps) {
 
   if (flatItems.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-gray-400 opacity-60">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-gray-100 bg-gray-50">
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-[var(--text-muted)] opacity-60">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border-muted)] bg-[var(--surface-2)]">
           <PlayCircle size={20} strokeWidth={1} />
         </div>
         <span className="font-mono text-xs font-medium">
@@ -88,7 +88,7 @@ export function ExecutionTree({ searchQuery = '' }: ExecutionTreeProps) {
 
   if (searchQuery && filteredItems.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-gray-400">
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
         <span className="font-mono text-xs">No results for &quot;{searchQuery}&quot;</span>
       </div>
     )
@@ -139,13 +139,13 @@ export function ExecutionTree({ searchQuery = '' }: ExecutionTreeProps) {
                     {Array.from({ length: depth }, (_, i) => (
                       <div
                         key={i}
-                        className="absolute bottom-0 top-0 w-px bg-gray-200"
+                        className="absolute bottom-0 top-0 w-px bg-[var(--border)]"
                         style={{ left: `${(i + 1) * TREE_INDENT_PX - 4}px` }}
                       />
                     ))}
                     {/* Horizontal connector */}
                     <div
-                      className="absolute h-px bg-gray-200"
+                      className="absolute h-px bg-[var(--border)]"
                       style={{
                         left: `${depth * TREE_INDENT_PX - 4}px`,
                         width: '8px',
@@ -163,12 +163,12 @@ export function ExecutionTree({ searchQuery = '' }: ExecutionTreeProps) {
                         e.stopPropagation()
                         toggleCollapse(node.id)
                       }}
-                      className="rounded p-0.5 transition-colors hover:bg-gray-200"
+                      className="rounded p-0.5 transition-colors hover:bg-[var(--surface-3)]"
                     >
                       <ChevronRight
                         size={12}
                         className={cn(
-                          'text-gray-400 transition-transform duration-150',
+                          'text-[var(--text-muted)] transition-transform duration-150',
                           isExpanded && 'rotate-90',
                         )}
                       />

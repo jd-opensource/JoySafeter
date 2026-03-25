@@ -48,7 +48,7 @@ function JsonView({ data, label }: { data: any; label?: string }) {
   return (
     <div className="space-y-1">
       {label && (
-        <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
           {label}
         </div>
       )}
@@ -66,7 +66,7 @@ function JsonView({ data, label }: { data: any; label?: string }) {
         customStyle={{
           margin: 0,
           padding: '0.75rem',
-          background: 'rgb(249 250 251)',
+          background: 'var(--surface-2)',
           fontSize: '11px',
           lineHeight: '1.6',
           fontFamily: 'JetBrains Mono, monospace',
@@ -75,7 +75,7 @@ function JsonView({ data, label }: { data: any; label?: string }) {
           overflowWrap: 'break-word',
           maxWidth: '100%',
           borderRadius: '6px',
-          border: '1px solid rgb(229 231 235)',
+          border: '1px solid var(--border)',
         }}
         wrapLongLines={true}
       >
@@ -92,11 +92,11 @@ function FormattedView({ data, label }: { data: any; label?: string }) {
     return (
       <div className="space-y-1">
         {label && (
-          <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+          <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
             {label}
           </div>
         )}
-        <div className="whitespace-pre-wrap rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-xs leading-relaxed text-gray-700">
+        <div className="whitespace-pre-wrap rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3 font-mono text-xs leading-relaxed text-[var(--text-secondary)]">
           {data}
         </div>
       </div>
@@ -166,11 +166,11 @@ function PreviewTab() {
             customStyle={{
               margin: 0,
               padding: '1rem',
-              background: 'rgb(249 250 251)',
+              background: 'var(--surface-2)',
               fontSize: '11px',
               lineHeight: '1.6',
               borderRadius: '6px',
-              border: '1px solid rgb(229 231 235)',
+              border: '1px solid var(--border)',
             }}
           >
             {step.content || ''}
@@ -353,13 +353,13 @@ function MetadataTab() {
         {Object.entries(metadata).map(([key, value]) => (
           <div
             key={key}
-            className="flex items-start gap-3 border-b border-gray-100 py-1.5 last:border-b-0"
+            className="flex items-start gap-3 border-b border-[var(--border-muted)] py-1.5 last:border-b-0"
           >
-            <span className="w-24 shrink-0 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="w-24 shrink-0 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
               {key}
             </span>
-            <span className="break-all font-mono text-[11px] text-gray-700">
-              {value === null ? <span className="italic text-gray-300">null</span> : String(value)}
+            <span className="break-all font-mono text-[11px] text-[var(--text-secondary)]">
+              {value === null ? <span className="italic text-[var(--text-subtle)]">null</span> : String(value)}
             </span>
           </div>
         ))}
@@ -368,7 +368,7 @@ function MetadataTab() {
       {/* Raw data section */}
       {step.data && (
         <div className="mt-4">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
             Raw Data
           </div>
           <JsonView data={step.data} />
@@ -380,8 +380,8 @@ function MetadataTab() {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-gray-400">
-      <Braces size={32} strokeWidth={0.5} className="text-gray-300" />
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-[var(--text-muted)]">
+      <Braces size={32} strokeWidth={0.5} className="text-[var(--text-subtle)]" />
       <p className="font-mono text-xs">{message}</p>
     </div>
   )
@@ -401,8 +401,8 @@ export function ExecutionDetailPanel() {
 
   if (!step) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-gray-400">
-        <Braces size={40} strokeWidth={0.5} className="text-gray-300" />
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
+        <Braces size={40} strokeWidth={0.5} className="text-[var(--text-subtle)]" />
         <p className="font-mono text-xs">
           {t('workspace.selectStepToInspectPayload', {
             defaultValue: 'Select a step to inspect payload',
@@ -413,28 +413,28 @@ export function ExecutionDetailPanel() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col bg-[var(--surface-elevated)]">
       {/* Header */}
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-gray-200 bg-gray-50/80 px-3">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)]/80 px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <AlignLeft size={13} className="shrink-0 text-gray-500" />
-          <span className="truncate text-[11px] font-semibold text-gray-800">
+          <AlignLeft size={13} className="shrink-0 text-[var(--text-tertiary)]" />
+          <span className="truncate text-[11px] font-semibold text-[var(--text-primary)]">
             {step.title || step.nodeLabel}
           </span>
-          <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-[9px] text-gray-400">
+          <span className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface-3)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--text-muted)]">
             {step.stepType}
           </span>
         </div>
 
         {/* Formatted / JSON toggle */}
-        <div className="flex items-center gap-0.5 rounded-md border border-gray-200 bg-gray-100 p-0.5">
+        <div className="flex items-center gap-0.5 rounded-md border border-[var(--border)] bg-[var(--surface-3)] p-0.5">
           <button
             onClick={() => setJsonViewMode('formatted')}
             className={cn(
               'rounded px-2 py-0.5 text-[9px] font-medium transition-colors',
               jsonViewMode === 'formatted'
-                ? 'bg-white text-gray-800 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700',
+                ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
+                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
             )}
           >
             <FileText size={10} className="mr-1 inline" />
@@ -445,8 +445,8 @@ export function ExecutionDetailPanel() {
             className={cn(
               'rounded px-2 py-0.5 text-[9px] font-medium transition-colors',
               jsonViewMode === 'json'
-                ? 'bg-white text-gray-800 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700',
+                ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)] shadow-sm'
+                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
             )}
           >
             <Code2 size={10} className="mr-1 inline" />
@@ -461,24 +461,24 @@ export function ExecutionDetailPanel() {
         onValueChange={(v) => setActiveDetailTab(v as DetailTab)}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <TabsList className="h-8 shrink-0 justify-start gap-0 rounded-none border-b border-gray-200 bg-transparent px-3">
+        <TabsList className="h-8 shrink-0 justify-start gap-0 rounded-none border-b border-[var(--border)] bg-transparent px-3">
           <TabsTrigger
             value="preview"
-            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <Eye size={12} className="mr-1" />
             Preview
           </TabsTrigger>
           <TabsTrigger
             value="output"
-            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <AlignLeft size={12} className="mr-1" />
             Output
           </TabsTrigger>
           <TabsTrigger
             value="metadata"
-            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-blue-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            className="h-8 rounded-none border-b-2 border-transparent px-3 text-[11px] data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
           >
             <Info size={12} className="mr-1" />
             Metadata

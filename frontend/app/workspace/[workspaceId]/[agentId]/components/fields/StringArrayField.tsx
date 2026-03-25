@@ -37,30 +37,30 @@ export function StringArrayField({
 
   return (
     <div className="space-y-2">
-      <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/30 p-3">
+      <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-3">
         {items.length === 0 && (
-          <div className="py-2 text-center text-[10px] text-gray-400">
+          <div className="py-2 text-center text-[10px] text-[var(--text-muted)]">
             {t('field.array.empty', { defaultValue: '暂无选项，点击下方按钮添加' })}
           </div>
         )}
         {items.map((item, index) => (
           <div key={index} className="flex items-center gap-2">
             <div className="flex flex-1 items-center gap-2">
-              <span className="w-6 text-right font-mono text-[10px] text-gray-400">
+              <span className="w-6 text-right font-mono text-[10px] text-[var(--text-muted)]">
                 {index + 1}
               </span>
               <Input
                 value={item}
                 onChange={(e) => handleChange(index, e.target.value)}
                 placeholder={finalPlaceholder}
-                className="h-8 flex-1 bg-white text-xs"
+                className="h-8 flex-1 bg-[var(--surface-elevated)] text-xs"
               />
             </div>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => handleRemove(index)}
-              className="h-8 w-8 text-gray-400 hover:text-red-500"
+              className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--status-error)]"
             >
               <Trash2 size={12} />
             </Button>
@@ -70,14 +70,14 @@ export function StringArrayField({
           variant="outline"
           size="sm"
           onClick={handleAdd}
-          className="mt-1 h-8 w-full border-dashed text-xs text-gray-500"
+          className="mt-1 h-8 w-full border-dashed text-xs text-[var(--text-tertiary)]"
         >
           <Plus size={12} className="mr-1" />{' '}
           {t('field.array.addOption', { defaultValue: '添加选项' })}
         </Button>
       </div>
       {description && (
-        <p className="text-[9px] italic leading-tight text-gray-400">{description}</p>
+        <p className="text-[9px] italic leading-tight text-[var(--text-muted)]">{description}</p>
       )}
     </div>
   )

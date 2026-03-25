@@ -57,7 +57,7 @@ export function CopilotChat({
   if (loadingHistory) {
     return (
       <div className="flex items-center justify-center py-4">
-        <span className="text-xs text-gray-500">{t('workspace.loadingHistory')}</span>
+      <span className="text-xs text-[var(--text-tertiary)]">{t('workspace.loadingHistory')}</span>
       </div>
     )
   }
@@ -66,14 +66,14 @@ export function CopilotChat({
   if (messages.length === 0) {
     return (
       <div className="flex flex-col items-center pb-2 pt-4 text-center">
-        <div className="mb-3 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-purple-100 bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600">
+        <div className="mb-3 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[var(--brand-200)] bg-gradient-to-br from-[var(--brand-100)] to-[var(--brand-50)] text-[var(--brand-600)]">
           <Sparkles size={24} />
         </div>
-        <p className="mb-6 px-2 text-sm font-medium text-gray-700">
+        <p className="mb-6 px-2 text-sm font-medium text-[var(--text-secondary)]">
           {t('workspace.copilotEmptyHeading')}
         </p>
 
-        <p className="mb-3 w-full px-1 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <p className="mb-3 w-full px-1 text-left text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
           {t('workspace.copilotStartWithBlueprint')}
         </p>
         <div className="w-full space-y-3">
@@ -85,16 +85,16 @@ export function CopilotChat({
                 key={i}
                 type="button"
                 onClick={() => onBlueprintSelect?.(prompt)}
-                className="group w-full rounded-xl border border-gray-200 bg-gray-50/80 p-3 text-left transition-all hover:border-purple-200 hover:bg-gray-100"
+                className="group w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/80 p-3 text-left transition-all hover:border-[var(--brand-200)] hover:bg-[var(--surface-3)]"
               >
                 <div className="mb-1 flex items-center gap-2">
                   <Icon
                     size={16}
-                    className="shrink-0 text-purple-500 group-hover:text-purple-600"
+                    className="shrink-0 text-[var(--brand-600)] group-hover:text-[var(--brand-500)]"
                   />
-                  <span className="text-sm font-semibold text-gray-800">{t(bp.titleKey)}</span>
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">{t(bp.titleKey)}</span>
                 </div>
-                <p className="line-clamp-2 text-xs text-gray-500">{t(bp.descKey)}</p>
+                <p className="line-clamp-2 text-xs text-[var(--text-tertiary)]">{t(bp.descKey)}</p>
               </button>
             )
           })}
@@ -114,12 +114,12 @@ export function CopilotChat({
           className={`flex gap-2 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
         >
           <div
-            className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-sm ${m.role === 'model' ? 'border border-purple-100 bg-gradient-to-br from-purple-100 to-blue-50 text-purple-600' : 'bg-gray-100 text-gray-600'} `}
+            className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-sm ${m.role === 'model' ? 'border border-[var(--brand-200)] bg-gradient-to-br from-[var(--brand-100)] to-[var(--brand-50)] text-[var(--brand-600)]' : 'bg-[var(--surface-3)] text-[var(--text-tertiary)]'} `}
           >
             {m.role === 'model' ? (
               <Sparkles size={16} />
             ) : (
-              <div className="h-2 w-2 rounded-full bg-gray-400" />
+              <div className="h-2 w-2 rounded-full bg-[var(--text-muted)]" />
             )}
           </div>
 
@@ -128,8 +128,8 @@ export function CopilotChat({
             <div
               className={`group relative rounded-2xl text-xs leading-relaxed shadow-sm ${
                 m.role === 'user'
-                  ? 'rounded-br-none bg-blue-600 text-white'
-                  : 'rounded-bl-none border border-gray-100 bg-white text-gray-800'
+                  ? 'rounded-br-none bg-primary text-white'
+                  : 'rounded-bl-none border border-[var(--border-muted)] bg-[var(--surface-elevated)] text-[var(--text-primary)]'
               } `}
             >
               {/* Copy button */}
@@ -156,7 +156,7 @@ export function CopilotChat({
                 ) : (
                   <Copy
                     size={12}
-                    className={m.role === 'user' ? 'text-white/80' : 'text-gray-500'}
+                    className={m.role === 'user' ? 'text-white/80' : 'text-[var(--text-tertiary)]'}
                   />
                 )}
               </button>
@@ -181,7 +181,7 @@ export function CopilotChat({
                       <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-600">
                         {step.index}
                       </div>
-                      <p className="flex-1 text-[10px] leading-relaxed text-gray-700">
+                      <p className="flex-1 text-[10px] leading-relaxed text-[var(--text-secondary)]">
                         {step.content}
                       </p>
                     </div>
@@ -215,7 +215,7 @@ export function CopilotChat({
                       <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-purple-100 text-[10px] font-bold text-purple-600">
                         {idx + 1}
                       </div>
-                      <p className="flex-1 text-[10px] leading-relaxed text-gray-700">
+                      <p className="flex-1 text-[10px] leading-relaxed text-[var(--text-secondary)]">
                         {formatActionContent(action)}
                       </p>
                     </div>

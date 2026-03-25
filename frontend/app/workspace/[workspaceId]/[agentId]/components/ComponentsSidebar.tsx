@@ -19,12 +19,12 @@ export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps)
   const groupedTools = nodeRegistry.getGrouped()
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col bg-[var(--surface-1)]">
       {/* Header */}
       {showHeader && (
-        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-3">
-          <Wrench size={14} className="text-gray-500" />
-          <span className="text-[13px] font-medium text-gray-700">{t('workspace.components')}</span>
+        <div className="flex items-center gap-2 border-b border-[var(--border-muted)] px-3 py-3">
+          <Wrench size={14} className="text-[var(--text-tertiary)]" />
+          <span className="text-[13px] font-medium text-[var(--text-secondary)]">{t('workspace.components')}</span>
         </div>
       )}
 
@@ -53,7 +53,7 @@ export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps)
 
           return (
             <div key={category} className="space-y-2">
-              <div className="pl-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+              <div className="pl-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 {t(categoryKey)}
               </div>
               {filteredItems.map((def) => (

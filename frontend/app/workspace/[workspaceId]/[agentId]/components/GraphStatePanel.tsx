@@ -255,18 +255,18 @@ export function GraphStatePanel() {
     <Dialog open={showGraphStatePanel} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent
         hideCloseButton
-        className="flex max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-2xl sm:max-w-[520px]"
+        className="flex max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-2xl sm:max-w-[520px]"
       >
-        <DialogHeader className="flex shrink-0 flex-row items-center justify-between border-b border-gray-100 px-4 py-3.5">
-          <div className="flex items-center gap-3 overflow-hidden text-gray-900">
-            <div className="shrink-0 rounded-lg border border-gray-50 bg-blue-50 p-1.5 text-blue-600 shadow-sm">
+        <DialogHeader className="flex shrink-0 flex-row items-center justify-between border-b border-[var(--border-muted)] px-4 py-3.5">
+          <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">
+            <div className="shrink-0 rounded-lg border border-[var(--border)] bg-primary/5 p-1.5 text-primary shadow-sm">
               <Database size={14} />
             </div>
             <div className="flex min-w-0 flex-col">
               <DialogTitle className="truncate text-sm font-bold leading-tight">
                 Graph State Schema
               </DialogTitle>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                 Global Variables & State
               </span>
             </div>
@@ -275,7 +275,7 @@ export function GraphStatePanel() {
             variant="ghost"
             size="icon"
             onClick={handleClose}
-            className="h-7 w-7 shrink-0 text-gray-300 hover:bg-gray-100 hover:text-gray-600"
+            className="h-7 w-7 shrink-0 text-[var(--text-disabled)] hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)]"
           >
             <X size={16} />
           </Button>
@@ -284,7 +284,7 @@ export function GraphStatePanel() {
         {/* Body */}
         <div className="custom-scrollbar flex flex-1 flex-col overflow-y-auto p-0">
           <Tabs defaultValue="global" className="flex flex-1 flex-col">
-            <div className="border-b border-gray-100 px-4 pt-2">
+            <div className="border-b border-[var(--border-muted)] px-4 pt-2">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="global">State Fields</TabsTrigger>
                 <TabsTrigger value="execution">Execution State</TabsTrigger>
@@ -299,7 +299,7 @@ export function GraphStatePanel() {
             >
               {/* Fallback node (global error handler) */}
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   Global error handler (fallback node)
                 </Label>
                 <Select
@@ -321,21 +321,21 @@ export function GraphStatePanel() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[9px] text-gray-400">
+                <p className="text-[9px] text-[var(--text-muted)]">
                   On node error, execution jumps to this node when set.
                 </p>
               </div>
 
               {/* Info Banner */}
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-[var(--text-primary)]">
                 <div className="flex items-start gap-2">
                   <AlertCircle size={14} className="mt-0.5 shrink-0" />
                   <div>
                     <div className="mb-1 font-medium">Global State Variables</div>
-                    <p className="text-blue-600">
+                    <p className="text-[var(--text-secondary)]">
                       Define variables that persist across node executions. Access via{' '}
-                      <code className="rounded bg-blue-100 px-1">state.get(&apos;name&apos;)</code>{' '}
-                      or <code className="rounded bg-blue-100 px-1">state.name</code> in expressions
+                      <code className="rounded bg-primary/10 px-1">state.get(&apos;name&apos;)</code>{' '}
+                      or <code className="rounded bg-primary/10 px-1">state.name</code> in expressions
                       and Data Pills.
                     </p>
                   </div>
@@ -345,7 +345,7 @@ export function GraphStatePanel() {
               {/* Existing Fields */}
               {graphStateFields.length > 0 && (
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                     Defined Fields ({graphStateFields.length})
                   </Label>
                   <div className="space-y-2">
@@ -354,17 +354,17 @@ export function GraphStatePanel() {
                       return (
                         <div
                           key={field.name}
-                          className="space-y-2 rounded-lg border border-gray-200 bg-gray-50/50 p-3 transition-colors hover:border-blue-300 hover:bg-blue-50/30"
+                          className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-3 transition-colors hover:border-primary/30 hover:bg-primary/5"
                           onMouseEnter={() => setHighlightedStateVariable(field.name)}
                           onMouseLeave={() => setHighlightedStateVariable(null)}
                         >
                           {/* Header row */}
                           <div className="flex items-center justify-between">
                             <div className="flex flex-wrap items-center gap-2">
-                              <code className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-xs font-medium text-blue-600">
+                              <code className="rounded bg-primary/5 px-1.5 py-0.5 font-mono text-xs font-medium text-primary">
                                 {field.name}
                               </code>
-                              <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[9px] uppercase text-gray-400">
+                              <span className="rounded border border-[var(--border)] bg-[var(--surface-3)] px-1.5 py-0.5 text-[9px] uppercase text-[var(--text-muted)]">
                                 {field.type}
                               </span>
                               {field.reducer && (
@@ -389,7 +389,7 @@ export function GraphStatePanel() {
                                   size="icon"
                                   onClick={() => startEditing(field)}
                                   disabled={!userPermissions.canEdit || field.isSystem}
-                                  className="h-6 w-6 text-gray-400 hover:text-blue-500"
+                                  className="h-6 w-6 text-[var(--text-muted)] hover:text-primary"
                                 >
                                   <Pencil size={12} />
                                 </Button>
@@ -399,7 +399,7 @@ export function GraphStatePanel() {
                                 size="icon"
                                 onClick={() => deleteStateField(field.name)}
                                 disabled={!userPermissions.canEdit || field.isSystem}
-                                className="h-6 w-6 text-gray-400 hover:text-red-500"
+                                className="h-6 w-6 text-[var(--text-muted)] hover:text-[var(--status-error)]"
                               >
                                 <Trash2 size={12} />
                               </Button>
@@ -417,13 +417,13 @@ export function GraphStatePanel() {
                               placeholder="Description..."
                             />
                           ) : field.description ? (
-                            <p className="text-[10px] text-gray-500">{field.description}</p>
+                            <p className="text-[10px] text-[var(--text-tertiary)]">{field.description}</p>
                           ) : null}
 
                           {/* Default Value */}
                           {isEditing ? (
                             <div className="space-y-1">
-                              <Label className="text-[9px] font-bold text-gray-400">
+                              <Label className="text-[9px] font-bold text-[var(--text-muted)]">
                                 Default Value
                               </Label>
                               {renderDefaultValueInput(
@@ -437,8 +437,8 @@ export function GraphStatePanel() {
                           ) : field.defaultValue !== undefined &&
                             field.defaultValue !== null &&
                             field.defaultValue !== '' ? (
-                            <div className="rounded border border-gray-100 bg-white px-2 py-1 font-mono text-[10px] text-gray-500">
-                              <span className="text-gray-400">default: </span>
+                            <div className="rounded border border-[var(--border-muted)] bg-[var(--surface-elevated)] px-2 py-1 font-mono text-[10px] text-[var(--text-tertiary)]">
+                              <span className="text-[var(--text-muted)]">default: </span>
                               {formatDefaultValue(field.defaultValue, field.type)}
                             </div>
                           ) : null}
@@ -446,7 +446,7 @@ export function GraphStatePanel() {
                           {/* Reducer (inline edit) */}
                           {isEditing && (
                             <div className="space-y-1">
-                              <Label className="text-[9px] font-bold text-gray-400">Reducer</Label>
+                              <Label className="text-[9px] font-bold text-[var(--text-muted)]">Reducer</Label>
                               <Select
                                 value={editValues.reducer || 'none'}
                                 onValueChange={(v) =>
@@ -475,7 +475,7 @@ export function GraphStatePanel() {
                               <TooltipTrigger asChild>
                                 <button
                                   onClick={() => copyUsage(field.name)}
-                                  className="group flex w-full items-center justify-between rounded border border-gray-100 bg-white px-2 py-1 text-left font-mono text-[9px] text-gray-400 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                                  className="group flex w-full items-center justify-between rounded border border-[var(--border-muted)] bg-[var(--surface-elevated)] px-2 py-1 text-left font-mono text-[9px] text-[var(--text-muted)] transition-colors hover:border-primary/20 hover:bg-primary/5 hover:text-primary"
                                 >
                                   <span>state.get(&apos;{field.name}&apos;)</span>
                                   <Copy
@@ -497,15 +497,15 @@ export function GraphStatePanel() {
               )}
 
               {/* Add New Field */}
-              <div className="space-y-3 rounded-lg border border-dashed border-gray-300 bg-white p-3">
-                <Label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+              <div className="space-y-3 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-elevated)] p-3">
+                <Label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   <Plus size={12} />
                   Add New State Field
                 </Label>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <Label className="text-[9px] font-bold text-gray-400">Field Name</Label>
+                    <Label className="text-[9px] font-bold text-[var(--text-muted)]">Field Name</Label>
                     <Input
                       value={newField.name}
                       onChange={(e) => setNewField({ ...newField, name: e.target.value })}
@@ -515,7 +515,7 @@ export function GraphStatePanel() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[9px] font-bold text-gray-400">Type</Label>
+                    <Label className="text-[9px] font-bold text-[var(--text-muted)]">Type</Label>
                     <Select
                       value={newField.type}
                       onValueChange={(v) =>
@@ -544,7 +544,7 @@ export function GraphStatePanel() {
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[9px] font-bold text-gray-400">Default Value</Label>
+                  <Label className="text-[9px] font-bold text-[var(--text-muted)]">Default Value</Label>
                   {renderDefaultValueInput(
                     newField.defaultValue ??
                       getDefaultValueForType((newField.type || 'string') as StateFieldType),
@@ -555,7 +555,7 @@ export function GraphStatePanel() {
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[9px] font-bold text-gray-400">Reducer (Optional)</Label>
+                  <Label className="text-[9px] font-bold text-[var(--text-muted)]">Reducer (Optional)</Label>
                   <Select
                     value={newField.reducer || 'none'}
                     onValueChange={(v) =>
@@ -576,13 +576,13 @@ export function GraphStatePanel() {
                       <SelectItem value="merge">Merge (Dict)</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-[9px] text-gray-400">
+                  <p className="text-[9px] text-[var(--text-muted)]">
                     Determines how new values are merged with existing state.
                   </p>
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-[9px] font-bold text-gray-400">Description</Label>
+                  <Label className="text-[9px] font-bold text-[var(--text-muted)]">Description</Label>
                   <Input
                     value={newField.description || ''}
                     onChange={(e) => setNewField({ ...newField, description: e.target.value })}
@@ -606,7 +606,7 @@ export function GraphStatePanel() {
 
               {/* Empty state */}
               {graphStateFields.length === 0 && (
-                <div className="py-6 text-center text-gray-400">
+                <div className="py-6 text-center text-[var(--text-muted)]">
                   <Database size={32} className="mx-auto mb-2 opacity-30" />
                   <p className="text-xs">No state fields defined yet.</p>
                   <p className="mt-1 text-[9px]">Add variables to share data across nodes.</p>
@@ -632,17 +632,17 @@ export function GraphStatePanel() {
               </div>
 
               {!executionState || Object.keys(executionState).length === 0 ? (
-                <div className="rounded-lg border border-dashed py-8 text-center text-sm italic text-gray-500">
+                <div className="rounded-lg border border-dashed py-8 text-center text-sm italic text-[var(--text-tertiary)]">
                   Graph is not running or state is empty.
                 </div>
               ) : (
-                <div className="flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
-                  <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)]">
+                  <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
                     <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-green-700">
                       Current State Variables
                     </div>
                   </div>
-                  <pre className="overflow-x-auto whitespace-pre-wrap p-3 text-sm text-gray-700">
+                  <pre className="overflow-x-auto whitespace-pre-wrap p-3 text-sm text-[var(--text-secondary)]">
                     <code>{JSON.stringify(executionState, null, 2)}</code>
                   </pre>
                 </div>
@@ -668,7 +668,7 @@ export function GraphStatePanel() {
               </div>
 
               {nodeOutputs.length === 0 ? (
-                <div className="rounded-lg border border-dashed py-8 text-center text-sm italic text-gray-500">
+                <div className="rounded-lg border border-dashed py-8 text-center text-sm italic text-[var(--text-tertiary)]">
                   No node outputs recorded yet. Run the graph to see data!
                 </div>
               ) : (
@@ -676,15 +676,15 @@ export function GraphStatePanel() {
                   {nodeOutputs.map((output, i) => (
                     <div
                       key={`${output.nodeId}-${i}`}
-                      className="flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white"
+                      className="flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)]"
                     >
-                      <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-2">
+                      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
                         <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-purple-700">
-                          <span className="text-gray-400">node:</span>{' '}
+                          <span className="text-[var(--text-muted)]">node:</span>{' '}
                           {output.nodeLabel || output.nodeId}
                         </div>
                       </div>
-                      <pre className="whitespace-pre-wrap text-gray-700">
+                      <pre className="whitespace-pre-wrap text-[var(--text-secondary)]">
                         <code>{JSON.stringify(output.payload, null, 2)}</code>
                       </pre>
                     </div>
@@ -696,7 +696,7 @@ export function GraphStatePanel() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-4 py-2 font-mono text-[9px] text-gray-400">
+        <div className="flex items-center justify-between border-t border-[var(--border-muted)] bg-[var(--surface-2)] px-4 py-2 font-mono text-[9px] text-[var(--text-muted)]">
           <span>
             {graphStateFields.length} field{graphStateFields.length !== 1 ? 's' : ''} defined
           </span>

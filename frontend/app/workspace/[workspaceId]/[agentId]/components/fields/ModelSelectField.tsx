@@ -94,7 +94,7 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
 
   if (loading) {
     return (
-      <div className="flex h-8 w-full items-center rounded-md border border-gray-200 bg-white px-3 text-[10px] italic text-gray-400">
+      <div className="flex h-8 w-full items-center rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 text-[10px] italic text-[var(--text-muted)]">
         <Loader2 className="mr-2 h-3 w-3 animate-spin" />
         {t('workspace.initializing')}
       </div>
@@ -183,9 +183,9 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
           const providerModels = availableGroups.get(provider)!
           return (
             <SelectGroup key={provider}>
-              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                 <span>{provider}</span>
-                <div className="h-px flex-1 bg-gray-200" />
+                <div className="h-px flex-1 bg-[var(--border)]" />
               </SelectLabel>
               {providerModels.map((model) => (
                 <SelectItem key={model.id} value={model.id} className="text-xs">
@@ -206,15 +206,15 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
           const providerModels = unavailableGroups.get(provider)!
           return (
             <SelectGroup key={`unavailable-${provider}`}>
-              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              <SelectLabel className="flex items-center gap-2 px-2 py-1.5 !pl-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
                 <span>{provider}</span>
-                <div className="h-px flex-1 bg-gray-200" />
+                <div className="h-px flex-1 bg-[var(--border)]" />
               </SelectLabel>
               {providerModels.map((model) => (
                 <SelectItem
                   key={model.id}
                   value={model.id}
-                  className="text-xs text-gray-400"
+                  className="text-xs text-[var(--text-muted)]"
                   disabled
                 >
                   {model.label}

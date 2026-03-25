@@ -539,7 +539,7 @@ const AgentBuilderContent = () => {
   }
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-gray-50 text-gray-900">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">
       {showLoadModal && (
         <LoadModal onClose={() => setShowLoadModal(false)} onLoad={handleLoadAttempt} />
       )}
@@ -547,7 +547,7 @@ const AgentBuilderContent = () => {
       <AlertDialog open={showOverwriteConfirm} onOpenChange={setShowOverwriteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <div className="mb-2 flex items-center gap-1 text-amber-600">
+            <div className="mb-2 flex items-center gap-1 text-[var(--status-warning)]">
               <AlertTriangle size={20} />
               <AlertDialogTitle>{t('workspace.overwriteCanvas')}</AlertDialogTitle>
             </div>
@@ -565,7 +565,7 @@ const AgentBuilderContent = () => {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmOverwrite}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-primary hover:bg-primary/90"
             >
               {pendingGraph && 'type' in pendingGraph && pendingGraph.type === 'import'
                 ? t('workspace.import')
@@ -578,7 +578,7 @@ const AgentBuilderContent = () => {
       <AlertDialog open={showNewConfirm} onOpenChange={setShowNewConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <div className="mb-2 flex items-center gap-1 text-green-600">
+            <div className="mb-2 flex items-center gap-1 text-[var(--status-success)]">
               <FilePlus size={20} />
               <AlertDialogTitle>{t('workspace.createNewGraph')}</AlertDialogTitle>
             </div>
@@ -588,7 +588,7 @@ const AgentBuilderContent = () => {
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmNew}
-              className="bg-green-600 hover:bg-green-700"
+              className="bg-[var(--status-success)] hover:bg-[var(--status-success-hover)]"
             >
               {t('workspace.createNew')}
             </AlertDialogAction>
@@ -597,9 +597,9 @@ const AgentBuilderContent = () => {
       </AlertDialog>
 
       {(isInitializing || isLoadingGraph) && (
-        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-gray-50/80 backdrop-blur-sm">
-          <Loader2 size={40} className="mb-3 animate-spin text-blue-500" />
-          <p className="font-medium text-gray-500">
+        <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-[var(--bg)]/80 backdrop-blur-sm">
+          <Loader2 size={40} className="mb-3 animate-spin text-[var(--brand-500)]" />
+          <p className="font-medium text-[var(--text-muted)]">
             {isLoadingGraph ? t('workspace.loadingGraph') : t('workspace.loadingWorkspace')}
           </p>
         </div>
@@ -613,9 +613,9 @@ const AgentBuilderContent = () => {
       </div>
 
       {/* RIGHT: Panel - Fixed Position (combines Toolbar and Sidebar) */}
-      <aside className="fixed inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-gray-200 bg-white">
+      <aside className="fixed inset-y-0 right-0 z-20 flex w-[320px] flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface-1)]">
         {/* Header with Toolbar */}
-        <div className="flex-shrink-0 border-b border-gray-200">
+        <div className="flex-shrink-0 border-b border-[var(--border)]">
           <BuilderToolbar
             onImport={handleImport}
             onExport={exportGraph}

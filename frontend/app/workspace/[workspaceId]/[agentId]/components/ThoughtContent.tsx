@@ -32,11 +32,11 @@ export function ThoughtContent({ step, showHeader = true }: ThoughtContentProps)
       <div className="prose prose-sm max-w-none">
         <div
           className={cn(
-            'whitespace-pre-wrap font-mono text-xs leading-7 text-gray-700',
+            'whitespace-pre-wrap font-mono text-xs leading-7 text-[var(--text-secondary)]',
             'rounded-lg border border-purple-100 bg-purple-50/50 p-3',
           )}
         >
-          {content || <span className="italic text-gray-400">Thinking...</span>}
+          {content || <span className="italic text-[var(--text-muted)]">Thinking...</span>}
           {isStreaming && (
             <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-purple-500 align-middle" />
           )}

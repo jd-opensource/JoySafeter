@@ -380,8 +380,8 @@ export function DeploymentHistoryPanel({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-2xl sm:max-w-[800px]">
-          <DialogHeader className="shrink-0 border-b border-gray-100 px-4 py-3.5">
+        <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-0 shadow-2xl sm:max-w-[800px]">
+          <DialogHeader className="shrink-0 border-b border-[var(--border-muted)] px-4 py-3.5">
             <DialogTitle className="flex items-center gap-2">
               <History size={20} />
               {t('workspace.deploymentHistory')}
@@ -393,7 +393,7 @@ export function DeploymentHistoryPanel({
               {/* Left: Preview area */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">
+                  <span className="text-sm font-medium text-[var(--text-secondary)]">
                     {previewMode === 'selected' && selectedVersionInfo
                       ? selectedVersionInfo.name || `v${selectedVersion}`
                       : t('workspace.currentDraft')}
@@ -422,11 +422,11 @@ export function DeploymentHistoryPanel({
 
                 <div className="relative">
                   {isLoadingPreview && previewMode === 'selected' && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white/80">
-                      <Loader2 size={24} className="animate-spin text-gray-400" />
+                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[var(--surface-elevated)]/80">
+                      <Loader2 size={24} className="animate-spin text-[var(--text-muted)]" />
                     </div>
                   )}
-                  <GraphPreview state={previewState} height={300} className="bg-gray-50" />
+                  <GraphPreview state={previewState} height={300} className="bg-[var(--surface-2)]" />
                 </div>
               </div>
 
@@ -434,13 +434,13 @@ export function DeploymentHistoryPanel({
               <div className="space-y-3">
                 {/* Current deployment status */}
                 {deploymentStatus && (
-                  <div className="rounded-lg border bg-gray-50 p-2 text-sm">
+                  <div className="rounded-lg border bg-[var(--surface-2)] p-2 text-sm">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Rocket
                           size={14}
                           className={
-                            deploymentStatus.isDeployed ? 'text-green-600' : 'text-gray-400'
+                            deploymentStatus.isDeployed ? 'text-green-600' : 'text-[var(--text-muted)]'
                           }
                         />
                         <span className="font-medium">
@@ -449,7 +449,7 @@ export function DeploymentHistoryPanel({
                             : t('workspace.notDeployed')}
                         </span>
                         {deploymentStatus.deployment && (
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-[var(--text-tertiary)]">
                             v{deploymentStatus.deployment.version}
                           </span>
                         )}
@@ -485,10 +485,10 @@ export function DeploymentHistoryPanel({
                 <div className="max-h-[240px] space-y-1.5 overflow-y-auto">
                   {isLoadingVersions ? (
                     <div className="flex items-center justify-center py-8">
-                      <Loader2 size={24} className="animate-spin text-gray-400" />
+                      <Loader2 size={24} className="animate-spin text-[var(--text-muted)]" />
                     </div>
                   ) : versions.length === 0 ? (
-                    <div className="py-8 text-center text-gray-500">
+                    <div className="py-8 text-center text-[var(--text-tertiary)]">
                       <History size={32} className="mx-auto mb-2 opacity-50" />
                       <p className="text-xs">{t('workspace.noDeployments')}</p>
                     </div>
@@ -500,9 +500,9 @@ export function DeploymentHistoryPanel({
                           'cursor-pointer rounded-lg border-2 p-2 transition-all',
                           version.isActive
                             ? 'border-green-500 bg-green-50 shadow-sm shadow-green-100'
-                            : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50',
+                            : 'border-[var(--border)] bg-[var(--surface-elevated)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]',
                           selectedVersion === version.version &&
-                            'ring-2 ring-blue-500 ring-offset-1',
+                            'ring-2 ring-primary ring-offset-1',
                         )}
                         onClick={() => handleSelectVersion(version.version)}
                       >
@@ -559,14 +559,14 @@ export function DeploymentHistoryPanel({
                               </div>
                             ) : (
                               version.name && (
-                                <p className="mb-0.5 truncate text-xs text-gray-600">
+                                <p className="mb-0.5 truncate text-xs text-[var(--text-secondary)]">
                                   {version.name}
                                 </p>
                               )
                             )}
 
                             {/* Time and username */}
-                            <div className="flex items-center gap-2 text-[10px] text-gray-600">
+                            <div className="flex items-center gap-2 text-[10px] text-[var(--text-secondary)]">
                               <div className="flex items-center gap-0.5">
                                 <Clock size={10} />
                                 <span>{formatDate(version.createdAt)}</span>
@@ -609,7 +609,7 @@ export function DeploymentHistoryPanel({
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-6 w-6 p-0 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                                className="h-6 w-6 p-0 text-[var(--text-muted)] hover:bg-[var(--status-error-bg)] hover:text-[var(--status-error)]"
                                 onClick={() => handleDeleteClick(version.version)}
                                 title={t('workspace.deleteVersion')}
                               >
@@ -625,8 +625,8 @@ export function DeploymentHistoryPanel({
 
                 {/* Pagination controls */}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t border-gray-100 pt-2">
-                    <span className="text-[10px] text-gray-400">
+                  <div className="flex items-center justify-between border-t border-[var(--border-muted)] pt-2">
+                    <span className="text-[10px] text-[var(--text-muted)]">
                       {t('workspace.totalVersions', { total: totalVersions })}
                     </span>
                     <div className="flex items-center gap-1">
@@ -639,7 +639,7 @@ export function DeploymentHistoryPanel({
                       >
                         <ChevronLeft size={14} />
                       </Button>
-                      <span className="min-w-[50px] text-center text-[10px] text-gray-500">
+                      <span className="min-w-[50px] text-center text-[10px] text-[var(--text-tertiary)]">
                         {currentPage} / {totalPages}
                       </span>
                       <Button
@@ -669,7 +669,7 @@ export function DeploymentHistoryPanel({
               {versionToRevert !== null ? (
                 <>
                   {t('workspace.revertConfirmMessagePrefix')}{' '}
-                  <span className="font-semibold text-[#ef4444]">
+                  <span className="font-semibold text-[var(--status-error)]">
                     {versions.find((v) => v.version === versionToRevert)?.name ||
                       `v${versionToRevert}`}
                   </span>{' '}
@@ -693,7 +693,7 @@ export function DeploymentHistoryPanel({
             <AlertDialogAction
               onClick={handleConfirmRevert}
               disabled={isReverting}
-              className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
+              className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
             >
               {isReverting ? (
                 <>
@@ -717,7 +717,7 @@ export function DeploymentHistoryPanel({
               {versionToDelete !== null ? (
                 <>
                   {t('workspace.deleteVersionConfirmMessagePrefix')}{' '}
-                  <span className="font-semibold text-[#ef4444]">
+                  <span className="font-semibold text-[var(--status-error)]">
                     {versions.find((v) => v.version === versionToDelete)?.name ||
                       `v${versionToDelete}`}
                   </span>{' '}
@@ -741,7 +741,7 @@ export function DeploymentHistoryPanel({
             <AlertDialogAction
               onClick={handleConfirmDelete}
               disabled={isDeleting}
-              className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
+              className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
             >
               {isDeleting ? (
                 <>
@@ -773,7 +773,7 @@ export function DeploymentHistoryPanel({
             <AlertDialogAction
               onClick={handleConfirmUndeploy}
               disabled={isUndeploying}
-              className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
+              className="bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]"
             >
               {isUndeploying ? (
                 <>

@@ -50,9 +50,9 @@ export function DockerConfigField({
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
-          <Label className="text-xs font-semibold text-gray-700">{label}</Label>
+          <Label className="text-xs font-semibold text-[var(--text-secondary)]">{label}</Label>
           {description && (
-            <p className="text-[10px] leading-relaxed text-gray-500">{description}</p>
+            <p className="text-[10px] leading-relaxed text-[var(--text-tertiary)]">{description}</p>
           )}
         </div>
         <Button
@@ -64,18 +64,18 @@ export function DockerConfigField({
           className="h-6 w-6 p-0"
         >
           {isExpanded ? (
-            <ChevronUp size={14} className="text-gray-400" />
+            <ChevronUp size={14} className="text-[var(--text-muted)]" />
           ) : (
-            <ChevronDown size={14} className="text-gray-400" />
+            <ChevronDown size={14} className="text-[var(--text-muted)]" />
           )}
         </Button>
       </div>
 
       {isExpanded && (
-        <div className="space-y-3 rounded-r-md border-l-2 border-blue-100 bg-blue-50/30 p-3 pl-4 duration-200 animate-in slide-in-from-top-2">
+        <div className="space-y-3 rounded-r-md border-l-2 border-primary/20 bg-primary/5 p-3 pl-4 duration-200 animate-in slide-in-from-top-2">
           {/* Docker Image */}
           <div className="space-y-1">
-            <Label className="text-[10px] font-medium text-gray-600">Docker Image</Label>
+            <Label className="text-[10px] font-medium text-[var(--text-secondary)]">Docker Image</Label>
             <Input
               value={config.image || 'python:3.12-slim'}
               onChange={(e) => updateField('image', e.target.value)}
@@ -83,12 +83,12 @@ export function DockerConfigField({
               disabled={disabled}
               className="h-7 text-xs"
             />
-            <p className="text-[9px] text-gray-400">Docker image to use for the sandbox</p>
+            <p className="text-[9px] text-[var(--text-muted)]">Docker image to use for the sandbox</p>
           </div>
 
           {/* Working Directory */}
           <div className="space-y-1">
-            <Label className="text-[10px] font-medium text-gray-600">Working Directory</Label>
+            <Label className="text-[10px] font-medium text-[var(--text-secondary)]">Working Directory</Label>
             <Input
               value={config.working_dir || '/workspace'}
               onChange={(e) => updateField('working_dir', e.target.value)}
@@ -96,12 +96,12 @@ export function DockerConfigField({
               disabled={disabled}
               className="h-7 text-xs"
             />
-            <p className="text-[9px] text-gray-400">Working directory in container</p>
+            <p className="text-[9px] text-[var(--text-muted)]">Working directory in container</p>
           </div>
 
           {/* Auto Remove */}
           <div className="space-y-1">
-            <Label className="text-[10px] font-medium text-gray-600">Auto Remove</Label>
+            <Label className="text-[10px] font-medium text-[var(--text-secondary)]">Auto Remove</Label>
             <Select
               value={String(config.auto_remove !== false)}
               onValueChange={(val) => updateField('auto_remove', val === 'true')}
@@ -115,12 +115,12 @@ export function DockerConfigField({
                 <SelectItem value="false">false</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-[9px] text-gray-400">Auto-remove container on exit</p>
+            <p className="text-[9px] text-[var(--text-muted)]">Auto-remove container on exit</p>
           </div>
 
           {/* Max Output Size */}
           <div className="space-y-1">
-            <Label className="text-[10px] font-medium text-gray-600">Max Output Size</Label>
+            <Label className="text-[10px] font-medium text-[var(--text-secondary)]">Max Output Size</Label>
             <Input
               type="number"
               value={config.max_output_size || 100000}
@@ -129,12 +129,12 @@ export function DockerConfigField({
               disabled={disabled}
               className="h-7 text-xs"
             />
-            <p className="text-[9px] text-gray-400">Maximum command output size in characters</p>
+            <p className="text-[9px] text-[var(--text-muted)]">Maximum command output size in characters</p>
           </div>
 
           {/* Command Timeout */}
           <div className="space-y-1">
-            <Label className="text-[10px] font-medium text-gray-600">Command Timeout</Label>
+            <Label className="text-[10px] font-medium text-[var(--text-secondary)]">Command Timeout</Label>
             <Input
               type="number"
               value={config.command_timeout || 30}
@@ -143,7 +143,7 @@ export function DockerConfigField({
               disabled={disabled}
               className="h-7 text-xs"
             />
-            <p className="text-[9px] text-gray-400">Command execution timeout in seconds</p>
+            <p className="text-[9px] text-[var(--text-muted)]">Command execution timeout in seconds</p>
           </div>
         </div>
       )}

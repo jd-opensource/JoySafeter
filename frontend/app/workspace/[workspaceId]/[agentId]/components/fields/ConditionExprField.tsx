@@ -142,8 +142,8 @@ export function ConditionExprField({
           className={cn(
             'rounded-full border px-2 py-0.5 text-[10px] transition-all',
             mode === 'builder'
-              ? 'border-blue-200 bg-blue-50 font-medium text-blue-700'
-              : 'border-transparent bg-transparent text-gray-400 hover:text-gray-600',
+              ? 'border-primary/20 bg-primary/5 font-medium text-primary'
+              : 'border-transparent bg-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
           )}
         >
           Visual
@@ -154,7 +154,7 @@ export function ConditionExprField({
             'rounded-full border px-2 py-0.5 text-[10px] transition-all',
             mode === 'code'
               ? 'border-purple-200 bg-purple-50 font-medium text-purple-700'
-              : 'border-transparent bg-transparent text-gray-400 hover:text-gray-600',
+              : 'border-transparent bg-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
           )}
         >
           Code
@@ -162,12 +162,12 @@ export function ConditionExprField({
       </div>
 
       {mode === 'builder' ? (
-        <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+        <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 p-3">
           {/* Builder UI */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-gray-400">Variable</label>
+            <label className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Variable</label>
             <select
-              className="h-8 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-blue-400"
+              className="h-8 w-full rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-2 text-xs outline-none focus:border-primary"
               value={builderState.variable}
               onChange={(e) => updateBuilder('variable', e.target.value)}
             >
@@ -191,9 +191,9 @@ export function ConditionExprField({
 
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 space-y-1">
-              <label className="text-[10px] font-bold uppercase text-gray-400">Condition</label>
+              <label className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Condition</label>
               <select
-                className="h-8 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-blue-400"
+                className="h-8 w-full rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-2 text-xs outline-none focus:border-primary"
                 value={builderState.operator}
                 onChange={(e) => updateBuilder('operator', e.target.value)}
               >
@@ -210,10 +210,10 @@ export function ConditionExprField({
             </div>
 
             <div className="col-span-2 space-y-1">
-              <label className="text-[10px] font-bold uppercase text-gray-400">Value</label>
+              <label className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Value</label>
               {!['is_empty', 'is_not_empty'].includes(builderState.operator) && (
                 <input
-                  className="h-8 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-blue-400"
+                  className="h-8 w-full rounded border border-[var(--border)] bg-[var(--surface-elevated)] px-2 text-xs outline-none focus:border-primary"
                   placeholder="Value..."
                   value={builderState.value}
                   onChange={(e) => updateBuilder('value', e.target.value)}
@@ -222,9 +222,9 @@ export function ConditionExprField({
             </div>
           </div>
 
-          <div className="border-t border-gray-100 pt-2">
-            <p className="truncate font-mono text-[9px] text-gray-400">
-              Preview: <span className="text-blue-500">{localValue || '(empty)'}</span>
+          <div className="border-t border-[var(--border-muted)] pt-2">
+            <p className="truncate font-mono text-[9px] text-[var(--text-muted)]">
+              Preview: <span className="text-primary">{localValue || '(empty)'}</span>
             </p>
           </div>
         </div>
@@ -232,9 +232,9 @@ export function ConditionExprField({
         <div className="relative">
           <div
             className={cn(
-              'relative min-h-[80px] rounded-lg border bg-white font-mono text-xs',
-              'focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500',
-              disabled && 'cursor-not-allowed bg-gray-50 opacity-60',
+              'relative min-h-[80px] rounded-lg border bg-[var(--surface-elevated)] font-mono text-xs',
+              'focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20',
+              disabled && 'cursor-not-allowed bg-[var(--surface-2)] opacity-60',
             )}
           >
             <Editor
@@ -260,11 +260,11 @@ export function ConditionExprField({
       )}
 
       {description && mode === 'code' && (
-        <p className="text-[9px] italic leading-tight text-gray-400">{description}</p>
+        <p className="text-[9px] italic leading-tight text-[var(--text-muted)]">{description}</p>
       )}
 
       {variables && variables.length > 0 && mode === 'code' && (
-        <div className="text-[9px] text-gray-500">
+        <div className="text-[9px] text-[var(--text-tertiary)]">
           <span className="font-medium">Available variables:</span> {variables.join(', ')}
         </div>
       )}

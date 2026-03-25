@@ -193,7 +193,7 @@ export function BuilderToolbar({
   return (
     <>
       <TooltipProvider delayDuration={300}>
-        <div className="flex items-center justify-between border-b border-gray-200/60 px-3 py-1">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-1">
           {/* Left: Menu and Controls */}
           <div className="flex items-center gap-1">
             <input
@@ -209,15 +209,15 @@ export function BuilderToolbar({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 rounded-md hover:bg-gray-100/80"
+                  className="h-7 w-7 rounded-md hover:bg-[var(--surface-2)]"
                 >
-                  <MoreHorizontal size={16} className="text-gray-600" />
+                  <MoreHorizontal size={16} className="text-[var(--text-secondary)]" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="bottom" sideOffset={8}>
                 <DropdownMenuItem
                   onClick={() => toggleAdvancedSettings()}
-                  className="font-medium text-blue-600"
+                  className="font-medium text-[var(--brand-600)]"
                 >
                   {showAdvancedSettings ? 'Hide Advanced Mode' : 'Show Advanced Mode'}
                 </DropdownMenuItem>
@@ -258,9 +258,9 @@ export function BuilderToolbar({
                   variant="ghost"
                   size="icon"
                   onClick={() => toggleValidationSummary(true)}
-                  className="h-7 w-7 rounded-md hover:bg-gray-100/80"
+                  className="h-7 w-7 rounded-md hover:bg-[var(--surface-2)]"
                 >
-                  <ShieldCheck size={16} className="text-gray-600" />
+                  <ShieldCheck size={16} className="text-[var(--text-secondary)]" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">{t('workspace.validateGraph')}</TooltipContent>
@@ -274,9 +274,9 @@ export function BuilderToolbar({
                     variant="ghost"
                     size="icon"
                     onClick={() => toggleExecutionPanel(true)}
-                    className="h-7 w-7 rounded-md hover:bg-gray-100/80"
+                    className="h-7 w-7 rounded-md hover:bg-[var(--surface-2)]"
                   >
-                    <ChevronDown size={16} className="text-gray-600" />
+                    <ChevronDown size={16} className="text-[var(--text-secondary)]" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('workspace.showExecutionPanel')}</TooltipContent>
@@ -302,8 +302,8 @@ export function BuilderToolbar({
                           isDeployed
                             ? needsRedeployment
                               ? 'border border-primary border-r-white/20 bg-primary text-primary-foreground hover:bg-primary/90'
-                              : 'border border-green-300 border-r-green-400/50 bg-green-100 text-green-800 hover:bg-green-200'
-                            : 'border border-gray-200 border-r-black/10 bg-white text-gray-700 hover:bg-gray-50',
+                              : 'border border-[var(--status-success-border)] border-r-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
+                            : 'border border-[var(--border)] border-r-black/10 bg-[var(--surface-1)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)]',
                         )}
                         style={{ borderRightWidth: '1px' }}
                       >
@@ -328,8 +328,8 @@ export function BuilderToolbar({
                       isDeployed
                         ? needsRedeployment
                           ? 'border border-l-0 border-primary bg-primary text-primary-foreground hover:bg-primary/90'
-                          : 'border border-l-0 border-green-300 bg-green-100 text-green-800 hover:bg-green-200'
-                        : 'border border-l-0 border-gray-200 bg-white text-gray-700 hover:bg-gray-50',
+                          : 'border border-l-0 border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-strong)] hover:bg-[var(--status-success-bg)]'
+                        : 'border border-l-0 border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)]',
                     )}
                   >
                     <ChevronDown size={14} />
@@ -358,8 +358,8 @@ export function BuilderToolbar({
               className={cn(
                 'h-7 gap-1.5 rounded-md px-3 text-[13px] font-medium shadow-sm transition-all hover:shadow',
                 isExecuting
-                  ? 'bg-red-500 text-white hover:bg-red-600'
-                  : 'bg-blue-600 text-white hover:bg-blue-700',
+                  ? 'bg-[var(--status-error)] text-white hover:bg-[var(--status-error-hover)]'
+                  : 'bg-primary text-white hover:bg-primary/90',
               )}
             >
               {isExecuting ? (

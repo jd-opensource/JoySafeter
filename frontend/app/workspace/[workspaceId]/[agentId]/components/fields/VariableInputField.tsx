@@ -160,9 +160,9 @@ export function VariableInputField({
           dangerouslySetInnerHTML={{
             __html: `
           .editor-container .token.magic-pill {
-            background-color: var(--blue-100, #e0f2fe);
-            color: var(--blue-700, #0369a1);
-            border: 1px solid var(--blue-200, #bae6fd);
+            background-color: hsl(var(--primary) / 0.1);
+            color: hsl(var(--primary));
+            border: 1px solid hsl(var(--primary) / 0.2);
             border-radius: 9999px;
             padding: 2px 6px;
             font-size: 11px;
@@ -186,7 +186,7 @@ export function VariableInputField({
       </div>
 
       {/* Description */}
-      {description && <p className="text-[10px] text-gray-500">{description}</p>}
+      {description && <p className="text-[10px] text-[var(--text-tertiary)]">{description}</p>}
 
       {/* Variable Panel */}
       {showVariablePanel && (

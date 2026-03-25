@@ -94,7 +94,7 @@ export function ToolCallCard({
       case 'error':
         return <AlertCircle size={12} className="text-red-500" />
       default:
-        return <Wrench size={12} className="text-gray-400" />
+        return <Wrench size={12} className="text-[var(--text-muted)]" />
     }
   }
 
@@ -108,7 +108,7 @@ export function ToolCallCard({
       case 'error':
         return 'border-red-200 bg-red-50'
       default:
-        return 'border-gray-200 bg-gray-50'
+        return 'border-[var(--border)] bg-[var(--surface-2)]'
     }
   }
 
@@ -116,23 +116,23 @@ export function ToolCallCard({
     <div className={cn('rounded-lg border transition-all duration-200', getStatusColor())}>
       {showHeader && (
         <div
-          className="flex cursor-pointer items-center justify-between px-3 py-2 transition-colors hover:bg-white/50"
+          className="flex cursor-pointer items-center justify-between px-3 py-2 transition-colors hover:bg-[var(--surface-elevated)]/50"
           onClick={() => setIsCollapsed(!isCollapsed)}
         >
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {isCollapsed ? (
-              <ChevronRight size={14} className="shrink-0 text-gray-400" />
+              <ChevronRight size={14} className="shrink-0 text-[var(--text-muted)]" />
             ) : (
-              <ChevronDown size={14} className="shrink-0 text-gray-400" />
+              <ChevronDown size={14} className="shrink-0 text-[var(--text-muted)]" />
             )}
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               {getStatusIcon()}
-              <span className="truncate text-[11px] font-semibold text-gray-700">{step.title}</span>
+              <span className="truncate text-[11px] font-semibold text-[var(--text-secondary)]">{step.title}</span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {duration !== undefined && (
-              <div className="flex items-center gap-1 text-[9px] text-gray-500">
+              <div className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)]">
                 <Clock size={10} />
                 <span className="font-mono">{duration}ms</span>
               </div>
@@ -143,7 +143,7 @@ export function ToolCallCard({
                 step.status === 'running' && 'bg-cyan-100 text-cyan-700',
                 step.status === 'success' && 'bg-emerald-100 text-emerald-700',
                 step.status === 'error' && 'bg-red-100 text-red-700',
-                step.status === 'pending' && 'bg-gray-100 text-gray-700',
+                step.status === 'pending' && 'bg-[var(--surface-3)] text-[var(--text-secondary)]',
               )}
             >
               {step.status}
@@ -153,7 +153,7 @@ export function ToolCallCard({
       )}
 
       {!isCollapsed && (
-        <div className="space-y-3 border-t border-gray-200 bg-white p-3">
+        <div className="space-y-3 border-t border-[var(--border)] bg-[var(--surface-elevated)] p-3">
           {/* Input Section */}
           {input !== undefined && (
             <div className="space-y-1.5">
@@ -261,7 +261,7 @@ export function ToolCallCard({
               )}
             </div>
           ) : step.status === 'running' ? (
-            <div className="flex items-center gap-2 py-2 text-gray-400">
+            <div className="flex items-center gap-2 py-2 text-[var(--text-muted)]">
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-500" />
               <span className="font-mono text-[10px]">
                 {t('workspace.waitingForResponse', { defaultValue: 'Waiting for response...' })}

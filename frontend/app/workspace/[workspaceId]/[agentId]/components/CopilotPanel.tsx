@@ -119,14 +119,14 @@ export function CopilotPanel() {
 
   return (
     <CopilotErrorBoundary>
-      <div className="relative flex h-full flex-col bg-white">
+      <div className="relative flex h-full flex-col bg-[var(--surface-1)]">
         {/* Messages and streaming area */}
         <div className="custom-scrollbar flex-1 space-y-5 overflow-y-auto p-3" ref={refs.scrollRef}>
           {/* Loading history indicator */}
           {state.loadingHistory && (
             <div className="flex items-center justify-center py-4">
               <Loader2 size={16} className="mr-2 animate-spin text-purple-500" />
-              <span className="text-xs text-gray-500">{t('workspace.loadingHistory')}</span>
+              <span className="text-xs text-[var(--text-tertiary)]">{t('workspace.loadingHistory')}</span>
             </div>
           )}
 

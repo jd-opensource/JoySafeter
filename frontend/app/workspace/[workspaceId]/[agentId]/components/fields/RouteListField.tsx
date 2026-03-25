@@ -172,7 +172,7 @@ function RouteRuleItem({
       ref={setNodeRef}
       style={style}
       className={cn(
-        'space-y-3 rounded-lg border bg-white p-3',
+        'space-y-3 rounded-lg border bg-[var(--surface-elevated)] p-3',
         hasErrors && 'border-red-200 bg-red-50/30',
         isDragging && 'shadow-lg',
       )}
@@ -182,13 +182,13 @@ function RouteRuleItem({
         <button
           {...attributes}
           {...listeners}
-          className="mt-1 cursor-grab text-gray-400 hover:text-gray-600 active:cursor-grabbing"
+          className="mt-1 cursor-grab text-[var(--text-muted)] hover:text-[var(--text-secondary)] active:cursor-grabbing"
         >
           <GripVertical size={16} />
         </button>
 
         {/* Rule Number */}
-        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-700">
+        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
           {index + 1}
         </div>
 
@@ -196,7 +196,7 @@ function RouteRuleItem({
         <div className="flex-1 space-y-3">
           {/* Condition Expression */}
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold text-gray-500">Condition</Label>
+            <Label className="text-[10px] font-bold text-[var(--text-tertiary)]">Condition</Label>
             <ConditionExprField
               value={rule.condition}
               onChange={(val) => handleFieldChange('condition', val)}
@@ -210,7 +210,7 @@ function RouteRuleItem({
 
           {/* Target Edge Selection */}
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold text-gray-500">Target Edge</Label>
+            <Label className="text-[10px] font-bold text-[var(--text-tertiary)]">Target Edge</Label>
             <Select
               value={
                 rule.targetEdgeKey && rule.targetEdgeKey.trim() !== ''
@@ -238,7 +238,7 @@ function RouteRuleItem({
               </SelectTrigger>
               <SelectContent>
                 {edgeOptions.length === 0 ? (
-                  <div className="px-2 py-1.5 text-center text-xs text-gray-400">
+                  <div className="px-2 py-1.5 text-center text-xs text-[var(--text-muted)]">
                     No outgoing edges available
                   </div>
                 ) : (
@@ -299,8 +299,8 @@ function RouteRuleItem({
               rule.targetEdgeKey &&
               !edgeOptions.find((opt) => opt.routeKey === rule.targetEdgeKey) &&
               onCreateEdge && (
-                <div className="space-y-1.5 border-t border-gray-100 pt-1">
-                  <Label className="text-[9px] font-bold text-gray-400">Quick Create Edge</Label>
+                <div className="space-y-1.5 border-t border-[var(--border-muted)] pt-1">
+                  <Label className="text-[9px] font-bold text-[var(--text-muted)]">Quick Create Edge</Label>
                   <Select value={selectedTargetNodeId} onValueChange={setSelectedTargetNodeId}>
                     <SelectTrigger className="h-7 text-xs">
                       <SelectValue placeholder="Select target node" />
@@ -336,7 +336,7 @@ function RouteRuleItem({
 
           {/* Label */}
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold text-gray-500">Label</Label>
+            <Label className="text-[10px] font-bold text-[var(--text-tertiary)]">Label</Label>
             <Input
               value={rule.label}
               onChange={(e) => handleFieldChange('label', e.target.value)}
@@ -374,7 +374,7 @@ function RouteRuleItem({
           variant="ghost"
           size="icon"
           onClick={onDelete}
-          className="h-7 w-7 flex-shrink-0 text-gray-400 hover:text-red-500"
+          className="h-7 w-7 flex-shrink-0 text-[var(--text-muted)] hover:text-[var(--status-error)]"
         >
           <Trash2 size={14} />
         </Button>
@@ -449,9 +449,9 @@ export function RouteListField({
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/30 p-3">
+    <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-3">
       {rules.length === 0 && (
-        <div className="py-4 text-center text-[10px] text-gray-400">
+        <div className="py-4 text-center text-[10px] text-[var(--text-muted)]">
           No routing rules defined. Rules are evaluated in order (top to bottom).
         </div>
       )}
@@ -483,14 +483,14 @@ export function RouteListField({
         variant="outline"
         size="sm"
         onClick={handleAddRule}
-        className="h-8 w-full border-dashed text-xs text-gray-500"
+        className="h-8 w-full border-dashed text-xs text-[var(--text-tertiary)]"
       >
         <Plus size={12} className="mr-1" />
         Add Route Rule
       </Button>
 
       {rules.length > 0 && (
-        <p className="text-[9px] italic text-gray-400">
+        <p className="text-[9px] italic text-[var(--text-muted)]">
           Rules are evaluated from top to bottom. The first matching condition determines the route.
         </p>
       )}

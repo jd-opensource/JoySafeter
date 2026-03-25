@@ -121,9 +121,9 @@ export function StateMapperField({
   }
 
   return (
-    <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/30 p-3">
+    <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-3">
       {items.length === 0 && (
-        <div className="py-2 text-center text-[10px] text-gray-400">
+        <div className="py-2 text-center text-[10px] text-[var(--text-muted)]">
           {t('workspace.noParametersDefined', { defaultValue: 'No parameters defined' })}
         </div>
       )}
@@ -137,11 +137,11 @@ export function StateMapperField({
                 value={item.key}
                 onChange={(e) => handleChange(index, 'key', e.target.value)}
                 placeholder="Parameter Name"
-                className="h-8 bg-white font-mono text-xs"
+                className="h-8 bg-[var(--surface-elevated)] font-mono text-xs"
               />
             </div>
 
-            <ArrowRight size={12} className="mt-2.5 shrink-0 text-gray-300" />
+            <ArrowRight size={12} className="mt-2.5 shrink-0 text-[var(--text-subtle)]" />
 
             {/* Value Input */}
             <div className="relative flex flex-[1.5] gap-1">
@@ -151,9 +151,9 @@ export function StateMapperField({
                 className={cn(
                   'flex h-8 w-6 shrink-0 items-center justify-center rounded border transition-colors',
                   item.mode === 'static' &&
-                    'border-gray-200 bg-gray-100 text-gray-500 hover:bg-gray-200',
+                    'border-[var(--border)] bg-[var(--surface-3)] text-[var(--text-tertiary)] hover:bg-[var(--surface-5)]',
                   item.mode === 'variable' &&
-                    'border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100',
+                    'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10',
                   item.mode === 'upstream_output' &&
                     'border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100',
                 )}
@@ -179,24 +179,24 @@ export function StateMapperField({
                   value={item.value}
                   onChange={(e) => handleChange(index, 'value', e.target.value)}
                   placeholder="Value"
-                  className="h-8 bg-white text-xs"
+                  className="h-8 bg-[var(--surface-elevated)] text-xs"
                 />
               ) : item.mode === 'variable' ? (
                 <Select
                   value={item.value}
                   onValueChange={(val) => handleChange(index, 'value', val)}
                 >
-                  <SelectTrigger className="h-8 w-full bg-white text-xs">
+                  <SelectTrigger className="h-8 w-full bg-[var(--surface-elevated)] text-xs">
                     <SelectValue placeholder="Select state variable..." />
                   </SelectTrigger>
                   <SelectContent>
                     {graphStateFields.map((field) => (
                       <SelectItem key={field.name} value={field.name} className="text-xs">
-                        {field.name} <span className="ml-1 text-gray-400">({field.type})</span>
+                        {field.name} <span className="ml-1 text-[var(--text-muted)]">({field.type})</span>
                       </SelectItem>
                     ))}
                     {graphStateFields.length === 0 && (
-                      <div className="p-2 text-center text-[10px] text-gray-400">
+                      <div className="p-2 text-center text-[10px] text-[var(--text-muted)]">
                         No state variables defined
                       </div>
                     )}
@@ -208,7 +208,7 @@ export function StateMapperField({
                     value={item.value ? item.value.split('.')[0] : ''}
                     onValueChange={(val) => handleChange(index, 'value', val)} // Note: this just sets the node ID for now. User needs to append path manually below.
                   >
-                    <SelectTrigger className="h-8 w-1/2 shrink-0 bg-white text-xs">
+                    <SelectTrigger className="h-8 w-1/2 shrink-0 bg-[var(--surface-elevated)] text-xs">
                       <SelectValue placeholder="Node..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -235,7 +235,7 @@ export function StateMapperField({
                       }
                     }}
                     placeholder="Path (e.g. result.messages)"
-                    className="h-8 w-1/2 min-w-0 bg-white text-xs"
+                    className="h-8 w-1/2 min-w-0 bg-[var(--surface-elevated)] text-xs"
                   />
                 </div>
               )}
@@ -246,7 +246,7 @@ export function StateMapperField({
               variant="ghost"
               size="icon"
               onClick={() => handleRemove(index)}
-              className="h-8 w-8 shrink-0 text-gray-400 hover:text-red-500"
+              className="h-8 w-8 shrink-0 text-[var(--text-muted)] hover:text-[var(--status-error)]"
             >
               <Trash2 size={12} />
             </Button>
@@ -258,7 +258,7 @@ export function StateMapperField({
         variant="outline"
         size="sm"
         onClick={handleAdd}
-        className="mt-1 h-8 w-full border-dashed text-xs text-gray-500"
+        className="mt-1 h-8 w-full border-dashed text-xs text-[var(--text-tertiary)]"
       >
         <Plus size={12} /> {t('workspace.addParameter', { defaultValue: 'Add Parameter' })}
       </Button>

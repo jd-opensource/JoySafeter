@@ -298,7 +298,7 @@ export function LoopBackEdge({
               pointerEvents: 'all',
             }}
             className={cn(
-              'nodrag nopan z-10 rounded-md border bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm',
+              'nodrag nopan z-10 rounded-md border bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm',
               isSelected
                 ? 'border-violet-200 text-violet-600'
                 : 'border-violet-200 text-violet-500',
@@ -326,7 +326,7 @@ export function LoopBackEdge({
           >
             <div
               className={cn(
-                'rounded-full border bg-white p-1.5 shadow-md transition-all',
+                'rounded-full border bg-[var(--surface-elevated)] p-1.5 shadow-md transition-all',
                 draggingHandle === 'vertical'
                   ? 'scale-110 border-violet-500 bg-violet-100 shadow-lg'
                   : 'border-violet-300 hover:border-violet-400 hover:bg-violet-50 active:scale-95',
@@ -357,7 +357,7 @@ export function LoopBackEdge({
           >
             <div
               className={cn(
-                'rounded-full border bg-white p-1.5 shadow-md transition-all',
+                'rounded-full border bg-[var(--surface-elevated)] p-1.5 shadow-md transition-all',
                 draggingHandle === 'left'
                   ? 'scale-110 border-violet-500 bg-violet-100 shadow-lg'
                   : 'border-violet-300 hover:border-violet-400 hover:bg-violet-50 active:scale-95',
@@ -388,7 +388,7 @@ export function LoopBackEdge({
           >
             <div
               className={cn(
-                'rounded-full border bg-white p-1.5 shadow-md transition-all',
+                'rounded-full border bg-[var(--surface-elevated)] p-1.5 shadow-md transition-all',
                 draggingHandle === 'right'
                   ? 'scale-110 border-violet-500 bg-violet-100 shadow-lg'
                   : 'border-violet-300 hover:border-violet-400 hover:bg-violet-50 active:scale-95',

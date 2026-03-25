@@ -32,7 +32,7 @@ function getBarColor(status: string, stepType?: string): string {
 
   switch (stepType) {
     case 'node_lifecycle':
-      return 'bg-blue-400'
+      return 'bg-primary'
     case 'tool_execution':
       return 'bg-amber-400'
     case 'model_io':
@@ -40,13 +40,13 @@ function getBarColor(status: string, stepType?: string): string {
     case 'agent_thought':
       return 'bg-purple-400'
     case 'code_agent_code':
-      return 'bg-blue-500'
+      return 'bg-primary'
     case 'code_agent_thought':
       return 'bg-indigo-400'
     case 'code_agent_observation':
       return 'bg-teal-400'
     default:
-      return 'bg-gray-400'
+      return 'bg-[var(--text-muted)]'
   }
 }
 
@@ -97,8 +97,8 @@ export function ExecutionTimelineView() {
   return (
     <div className="flex h-full flex-col">
       {/* Time Scale Header */}
-      <div className="flex h-6 shrink-0 select-none border-b border-gray-200 bg-gray-50/80">
-        <div className="shrink-0 border-r border-gray-200" style={{ width: NAME_WIDTH }} />
+      <div className="flex h-6 shrink-0 select-none border-b border-[var(--border)] bg-[var(--surface-2)]/80">
+        <div className="shrink-0 border-r border-[var(--border)]" style={{ width: NAME_WIDTH }} />
         <div className="relative flex-1">
           {ticks.map((tick, i) => (
             <div
@@ -106,8 +106,8 @@ export function ExecutionTimelineView() {
               className="absolute bottom-0 top-0 flex flex-col items-center"
               style={{ left: `${tick.percent}%` }}
             >
-              <div className="h-2 w-px bg-gray-300" />
-              <span className="mt-0.5 font-mono text-[8px] text-gray-400">
+              <div className="h-2 w-px bg-[var(--text-subtle)]" />
+              <span className="mt-0.5 font-mono text-[8px] text-[var(--text-muted)]">
                 {formatTimeLabel(tick.ms)}
               </span>
             </div>
@@ -153,20 +153,20 @@ export function ExecutionTimelineView() {
                   height: ROW_HEIGHT,
                 }}
                 className={cn(
-                  'flex cursor-pointer items-center border-b border-gray-100 transition-colors',
-                  isSelected ? 'bg-blue-50' : 'hover:bg-gray-50',
+                  'flex cursor-pointer items-center border-b border-[var(--border-muted)] transition-colors',
+                  isSelected ? 'bg-primary/5' : 'hover:bg-[var(--surface-2)]',
                 )}
                 onClick={() => selectNode(node.id)}
               >
                 {/* Name column */}
                 <div
-                  className="flex min-w-0 shrink-0 items-center border-r border-gray-200 px-2"
+                  className="flex min-w-0 shrink-0 items-center border-r border-[var(--border)] px-2"
                   style={{
                     width: NAME_WIDTH,
                     paddingLeft: `${node.depth * 16 + 8}px`,
                   }}
                 >
-                  <span className="truncate text-[10px] font-medium text-gray-600">
+                  <span className="truncate text-[10px] font-medium text-[var(--text-secondary)]">
                     {node.name}
                   </span>
                 </div>
@@ -178,7 +178,7 @@ export function ExecutionTimelineView() {
                       'absolute top-1/2 h-4 -translate-y-1/2 rounded-sm transition-all',
                       getBarColor(node.status, node.step?.stepType),
                       node.status === 'running' && 'animate-pulse',
-                      isSelected && 'ring-1 ring-blue-400',
+                      isSelected && 'ring-1 ring-primary',
                     )}
                     style={{
                       left: `${leftPercent}%`,

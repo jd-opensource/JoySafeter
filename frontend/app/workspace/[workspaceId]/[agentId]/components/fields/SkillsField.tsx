@@ -103,27 +103,27 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
       <div className="group relative">
         <Search
           size={13}
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors group-focus-within:text-amber-500"
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] transition-colors group-focus-within:text-amber-500"
         />
         <Input
           placeholder={t('workspace.searchSkills', { defaultValue: 'Search skills...' })}
-          className="h-8 border-gray-200 bg-white pl-8 text-[11px] shadow-none focus-visible:ring-amber-100"
+          className="h-8 border-[var(--border)] bg-[var(--surface-elevated)] pl-8 text-[11px] shadow-none focus-visible:ring-amber-100"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
       </div>
 
       {/* 3. Available Skills List */}
-      <div className="custom-scrollbar mt-1 max-h-[200px] divide-y divide-gray-50 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/30">
+      <div className="custom-scrollbar mt-1 max-h-[200px] divide-y divide-[var(--border-muted)] overflow-y-auto rounded-lg border border-[var(--border-muted)] bg-[var(--surface-2)]/30">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-4 text-gray-400">
+          <div className="flex flex-col items-center justify-center gap-2 p-4 text-[var(--text-muted)]">
             <Loader2 size={14} className="animate-spin text-amber-500" />
             <span className="text-[10px] font-medium tracking-tight">
               {t('workspace.loadingSkills', { defaultValue: 'Loading skills...' })}
             </span>
           </div>
         ) : filteredSkills.length === 0 ? (
-          <div className="p-6 text-center text-[10px] italic text-gray-400">
+          <div className="p-6 text-center text-[10px] italic text-[var(--text-muted)]">
             {searchQuery
               ? t('workspace.noMatchingSkills', { defaultValue: 'No matching skills found' })
               : t('workspace.noSkillsAvailable', { defaultValue: 'No skills available' })}
@@ -137,27 +137,27 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                 key={skill.id}
                 onClick={() => toggleSkill(skill.id)}
                 className={cn(
-                  'group flex cursor-pointer items-start justify-between p-2.5 transition-all hover:bg-white',
-                  isSelected ? 'bg-white' : '',
+                  'group flex cursor-pointer items-start justify-between p-2.5 transition-all hover:bg-[var(--surface-elevated)]',
+                  isSelected ? 'bg-[var(--surface-elevated)]' : '',
                 )}
               >
                 <div className="flex min-w-0 flex-1 flex-col pr-2">
                   <div className="flex items-center gap-1.5">
                     <Sparkles
                       size={11}
-                      className={isSelected ? 'text-amber-500' : 'text-gray-300'}
+                      className={isSelected ? 'text-amber-500' : 'text-[var(--text-subtle)]'}
                     />
                     <span
                       className={cn(
                         'truncate text-[11px] font-medium',
-                        isSelected ? 'text-amber-700' : 'text-gray-600',
+                        isSelected ? 'text-amber-700' : 'text-[var(--text-secondary)]',
                       )}
                     >
                       {skill.name}
                     </span>
                   </div>
                   {skill.description && (
-                    <p className="mt-0.5 line-clamp-2 truncate pl-4 text-[9px] text-gray-400">
+                    <p className="mt-0.5 line-clamp-2 truncate pl-4 text-[9px] text-[var(--text-muted)]">
                       {skill.description}
                     </p>
                   )}
@@ -166,14 +166,14 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                       {skill.tags.slice(0, 3).map((tag) => (
                         <span
                           key={tag}
-                          className="inline-flex items-center gap-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[8px] text-gray-500"
+                          className="inline-flex items-center gap-0.5 rounded bg-[var(--surface-3)] px-1.5 py-0.5 text-[8px] text-[var(--text-tertiary)]"
                         >
                           <Tag size={8} />
                           {tag}
                         </span>
                       ))}
                       {skill.tags.length > 3 && (
-                        <span className="text-[8px] text-gray-400">+{skill.tags.length - 3}</span>
+                        <span className="text-[8px] text-[var(--text-muted)]">+{skill.tags.length - 3}</span>
                       )}
                     </div>
                   )}
@@ -183,7 +183,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
                     'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all',
                     isSelected
                       ? 'border-amber-600 bg-amber-500 text-white'
-                      : 'border-gray-200 bg-white group-hover:border-gray-300',
+                      : 'border-[var(--border)] bg-[var(--surface-elevated)] group-hover:border-[var(--border-strong)]',
                   )}
                 >
                   {isSelected && <Check size={10} strokeWidth={3} />}
@@ -195,7 +195,7 @@ export function SkillsField({ value, onChange }: SkillsFieldProps) {
       </div>
 
       {/* 4. Info text */}
-      <p className="mt-1 text-[9px] italic text-gray-400">
+      <p className="mt-1 text-[9px] italic text-[var(--text-muted)]">
         {t('workspace.skillsHint', {
           defaultValue:
             'Skills provide specialized instructions. The agent can load skill content on-demand.',

@@ -43,7 +43,7 @@ export const DraggableItem = ({ def }: { def: NodeDefinition }) => {
 
   return (
     <div
-      className={`group flex cursor-grab select-none items-center gap-2 rounded-xl border border-transparent bg-white p-2 transition-all hover:border-gray-200 hover:bg-gray-100/80 hover:shadow-sm active:cursor-grabbing`}
+      className={`group flex cursor-grab select-none items-center gap-2 rounded-xl border border-transparent bg-[var(--surface-elevated)] p-2 transition-all hover:border-[var(--border)] hover:bg-[var(--surface-3)]/80 hover:shadow-sm active:cursor-grabbing`}
       onDragStart={(event) => onDragStart(event, def.type, def.label)}
       draggable
     >
@@ -53,12 +53,12 @@ export const DraggableItem = ({ def }: { def: NodeDefinition }) => {
         <Icon size={16} />
       </div>
       <div className="flex min-w-0 flex-col">
-        <span className="truncate text-[13px] font-semibold text-gray-700">{translatedLabel}</span>
-        <span className="truncate text-[10px] text-gray-400">{t('workspace.dragToAdd')}</span>
+        <span className="truncate text-[13px] font-semibold text-[var(--text-secondary)]">{translatedLabel}</span>
+        <span className="truncate text-[10px] text-[var(--text-muted)]">{t('workspace.dragToAdd')}</span>
       </div>
       <GripVertical
         size={12}
-        className="ml-auto flex-shrink-0 text-gray-300 group-hover:text-gray-400"
+        className="ml-auto flex-shrink-0 text-[var(--text-subtle)] group-hover:text-[var(--text-muted)]"
       />
     </div>
   )

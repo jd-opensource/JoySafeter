@@ -58,7 +58,7 @@ export function CopilotInput({
     'flex-shrink-0 text-[11px] px-2.5 py-1 rounded-full transition flex items-center gap-1 whitespace-nowrap'
 
   return (
-    <div className="flex-shrink-0 border-t border-gray-100 bg-white/90 px-1 py-0 backdrop-blur">
+    <div className="flex-shrink-0 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)]/90 px-1 py-0 backdrop-blur">
       {/* AI 自动完善 + Mode selection in one row */}
       <div className="mb-0.25 no-scrollbar flex min-h-0 items-center gap-1 overflow-x-auto pb-0.5">
         <button
@@ -76,7 +76,7 @@ export function CopilotInput({
             onValueChange={(value) => onModeChange(value as CopilotMode)}
             disabled={loading || executingActions}
           >
-            <SelectTrigger className="h-6 min-w-[5rem] max-w-[5.5rem] border-gray-200 px-2 py-0.5 text-[10px] text-gray-700">
+            <SelectTrigger className="h-6 min-w-[5rem] max-w-[5.5rem] border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -99,7 +99,7 @@ export function CopilotInput({
                     type="button"
                     onClick={onReset}
                     disabled={loading}
-                    className="flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-gray-500 transition hover:bg-gray-200 hover:text-gray-700 disabled:opacity-50"
+                    className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--text-tertiary)] transition hover:bg-[var(--surface-5)] hover:text-[var(--text-secondary)] disabled:opacity-50"
                   >
                     <RotateCcw size={12} />
                   </button>
@@ -116,7 +116,7 @@ export function CopilotInput({
       {/* Input Container */}
       <div className="relative flex gap-2 rounded-xl shadow-sm">
         <input
-          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-xs transition-all focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100/50"
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2.5 text-xs transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
           placeholder={t('workspace.describeFlowChanges')}
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
@@ -128,7 +128,7 @@ export function CopilotInput({
             variant="default"
             size="icon"
             onClick={onStop}
-            className="!bg-red-600 hover:!bg-red-700"
+            className="!bg-[var(--status-error)] hover:!bg-[var(--status-error-hover)]"
           >
             <Square size={14} fill="currentColor" />
           </Button>
@@ -138,14 +138,14 @@ export function CopilotInput({
             size="icon"
             onClick={onSend}
             disabled={executingActions || !input.trim()}
-            className="!bg-purple-600 hover:!bg-purple-700"
+            className="!bg-primary hover:!bg-primary/90"
           >
             <Send size={14} />
           </Button>
         )}
       </div>
       {/* Status bar: Mode + default model */}
-      <div className="mt-2 flex items-center justify-between px-1 text-[10px] text-gray-500">
+      <div className="mt-2 flex items-center justify-between px-1 text-[10px] text-[var(--text-tertiary)]">
         <span className="flex items-center gap-1">
           <LayoutGrid size={10} className="shrink-0" />
           {t('workspace.copilotStatusMode')}

@@ -77,13 +77,13 @@ export function ValidationSummaryPanel({
   }
 
   return (
-    <div className="absolute right-4 top-4 z-50 flex max-h-[calc(100vh-120px)] w-[360px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl duration-300 animate-in fade-in slide-in-from-right-10">
+    <div className="absolute right-4 top-4 z-50 flex max-h-[calc(100vh-120px)] w-[360px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-xl duration-300 animate-in fade-in slide-in-from-right-10">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-3 py-2.5">
-        <div className="flex items-center gap-2.5 overflow-hidden text-gray-900">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] px-3 py-2.5">
+        <div className="flex items-center gap-2.5 overflow-hidden text-[var(--text-primary)]">
           <div
             className={cn(
-              'shrink-0 rounded-md border border-gray-100 p-1 shadow-sm',
+              'shrink-0 rounded-md border border-[var(--border-muted)] p-1 shadow-sm',
               hasErrors
                 ? 'bg-red-50 text-red-600'
                 : hasWarnings
@@ -103,7 +103,7 @@ export function ValidationSummaryPanel({
             <h3 className="truncate text-sm font-bold leading-tight">
               {t('workspace.validationSummary')}
             </h3>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
               {allErrors.length}{' '}
               {allErrors.length !== 1 ? t('workspace.issues') : t('workspace.issue')}
             </span>
@@ -113,7 +113,7 @@ export function ValidationSummaryPanel({
           variant="ghost"
           size="icon"
           onClick={onClose}
-          className="h-6 w-6 shrink-0 text-gray-300 hover:bg-gray-100 hover:text-gray-600"
+          className="h-6 w-6 shrink-0 text-[var(--text-subtle)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
         >
           <X size={14} />
         </Button>
@@ -126,24 +126,24 @@ export function ValidationSummaryPanel({
           <div
             className={cn(
               'rounded-md border px-1.5 py-1 text-center',
-              hasErrors ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50',
+              hasErrors ? 'border-red-200 bg-red-50' : 'border-[var(--border)] bg-[var(--surface-2)]',
             )}
           >
             <div className="text-sm font-bold leading-tight text-red-600">
               {criticalErrors.length}
             </div>
-            <div className="mt-0.5 text-[9px] uppercase leading-tight text-gray-600">
+            <div className="mt-0.5 text-[9px] uppercase leading-tight text-[var(--text-secondary)]">
               {t('workspace.errors')}
             </div>
           </div>
           <div
             className={cn(
               'rounded-md border px-1.5 py-1 text-center',
-              hasWarnings ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50',
+              hasWarnings ? 'border-amber-200 bg-amber-50' : 'border-[var(--border)] bg-[var(--surface-2)]',
             )}
           >
             <div className="text-sm font-bold leading-tight text-amber-600">{warnings.length}</div>
-            <div className="mt-0.5 text-[9px] uppercase leading-tight text-gray-600">
+            <div className="mt-0.5 text-[9px] uppercase leading-tight text-[var(--text-secondary)]">
               {t('workspace.warnings')}
             </div>
           </div>
@@ -152,11 +152,11 @@ export function ValidationSummaryPanel({
               'rounded-md border px-1.5 py-1 text-center',
               allErrors.length === 0
                 ? 'border-green-200 bg-green-50'
-                : 'border-gray-200 bg-gray-50',
+                : 'border-[var(--border)] bg-[var(--surface-2)]',
             )}
           >
             <div className="text-sm font-bold leading-tight text-green-600">{nodes.length}</div>
-            <div className="mt-0.5 text-[9px] uppercase leading-tight text-gray-600">
+            <div className="mt-0.5 text-[9px] uppercase leading-tight text-[var(--text-secondary)]">
               {t('workspace.nodes')}
             </div>
           </div>
@@ -166,17 +166,17 @@ export function ValidationSummaryPanel({
         {allErrors.length === 0 && (
           <div className="flex flex-col items-center justify-center py-6 text-center">
             <CheckCircle2 size={36} className="mb-2 text-green-500" />
-            <h4 className="mb-1 text-sm font-semibold text-gray-900">
+            <h4 className="mb-1 text-sm font-semibold text-[var(--text-primary)]">
               {t('workspace.allValidationsPassed')}
             </h4>
-            <p className="text-xs text-gray-500">{t('workspace.graphReadyToDeploy')}</p>
+            <p className="text-xs text-[var(--text-tertiary)]">{t('workspace.graphReadyToDeploy')}</p>
           </div>
         )}
 
         {/* Errors by Category */}
         {Object.entries(errorsByCategory).map(([category, categoryErrors]) => (
           <div key={category} className="space-y-1.5">
-            <Label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            <Label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
               {category === 'Graph Structure' && <FileX size={11} />}
               {category === 'Node Configuration' && <GitBranch size={11} />}
               {category === 'Edge Configuration' && <ArrowRight size={11} />}
@@ -199,7 +199,7 @@ export function ValidationSummaryPanel({
                         ? 'border-red-200 bg-red-50'
                         : error.severity === 'warning'
                           ? 'border-amber-200 bg-amber-50'
-                          : 'border-blue-200 bg-blue-50',
+                          : 'border-primary/20 bg-primary/5',
                       isClickable && 'cursor-pointer hover:shadow-sm',
                     )}
                   >
@@ -211,13 +211,13 @@ export function ValidationSummaryPanel({
                           ? 'text-red-600'
                           : error.severity === 'warning'
                             ? 'text-amber-600'
-                            : 'text-blue-600',
+                            : 'text-primary',
                       )}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="mb-0.5 font-medium">
                         {error.field}
-                        {nodeLabel && <span className="ml-1 text-gray-500">({nodeLabel})</span>}
+                        {nodeLabel && <span className="ml-1 text-[var(--text-tertiary)]">({nodeLabel})</span>}
                       </div>
                       <div
                         className={cn(
@@ -226,13 +226,13 @@ export function ValidationSummaryPanel({
                             ? 'text-red-800'
                             : error.severity === 'warning'
                               ? 'text-amber-800'
-                              : 'text-blue-800',
+                              : 'text-[var(--text-primary)]',
                         )}
                       >
                         {error.message}
                       </div>
                       {isClickable && (
-                        <div className="mt-1 text-[9px] italic text-gray-400">
+                        <div className="mt-1 text-[9px] italic text-[var(--text-muted)]">
                           {t('workspace.clickToNavigate')}
                         </div>
                       )}
@@ -246,7 +246,7 @@ export function ValidationSummaryPanel({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-3 py-1.5 font-mono text-[9px] text-gray-400">
+      <div className="flex items-center justify-between border-t border-[var(--border-muted)] bg-[var(--surface-2)] px-3 py-1.5 font-mono text-[9px] text-[var(--text-muted)]">
         <span>
           {hasErrors
             ? t('workspace.cannotDeploy')

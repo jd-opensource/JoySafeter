@@ -73,21 +73,21 @@ function DataSection({
     <div className={cn('overflow-hidden rounded border', bgColor)}>
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full items-center justify-between p-2 transition-colors hover:bg-gray-100/50"
+        className="flex w-full items-center justify-between p-2 transition-colors hover:bg-[var(--surface-3)]/50"
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>
-          <span className="text-[10px] font-semibold uppercase text-gray-600">{title}</span>
+          <span className="text-[10px] font-semibold uppercase text-[var(--text-secondary)]">{title}</span>
         </div>
         {collapsed ? (
-          <ChevronRight size={12} className="text-gray-400" />
+          <ChevronRight size={12} className="text-[var(--text-muted)]" />
         ) : (
-          <ChevronDown size={12} className="text-gray-400" />
+          <ChevronDown size={12} className="text-[var(--text-muted)]" />
         )}
       </button>
 
       {!collapsed && (
-        <div className="border-t border-gray-200 bg-white">
+        <div className="border-t border-[var(--border)] bg-[var(--surface-elevated)]">
           <SyntaxHighlighter
             language="json"
             style={oneLight}
@@ -142,13 +142,13 @@ export function ModelIOCard({
   if (!showHeader) {
     // Full screen view in ExecutionPanel
     return (
-      <div className="custom-scrollbar h-full overflow-auto bg-white p-4">
+      <div className="custom-scrollbar h-full overflow-auto bg-[var(--surface-elevated)] p-4">
         <div className="space-y-4">
           {/* Model Info Header */}
-          <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
+          <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2">
             <Brain size={14} className="text-purple-600" />
-            <span className="text-xs font-semibold text-gray-700">Model I/O</span>
-            <span className="font-mono text-[10px] text-gray-500">
+            <span className="text-xs font-semibold text-[var(--text-secondary)]">Model I/O</span>
+            <span className="font-mono text-[10px] text-[var(--text-tertiary)]">
               ({modelProvider}/{modelName})
             </span>
             {isRunning && (
@@ -207,13 +207,13 @@ export function ModelIOCard({
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {isCollapsed ? (
-            <ChevronRight size={14} className="shrink-0 text-gray-500" />
+            <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
           ) : (
-            <ChevronDown size={14} className="shrink-0 text-gray-500" />
+            <ChevronDown size={14} className="shrink-0 text-[var(--text-tertiary)]" />
           )}
           <Brain size={14} className="shrink-0 text-purple-600" />
-          <span className="truncate text-xs font-semibold text-gray-700">Model I/O</span>
-          <span className="truncate font-mono text-[10px] text-gray-500">
+          <span className="truncate text-xs font-semibold text-[var(--text-secondary)]">Model I/O</span>
+          <span className="truncate font-mono text-[10px] text-[var(--text-tertiary)]">
             {modelProvider}/{modelName}
           </span>
 
@@ -224,7 +224,7 @@ export function ModelIOCard({
                 IN
               </span>
             )}
-            {hasInput && hasOutput && <ArrowRight size={10} className="text-gray-400" />}
+            {hasInput && hasOutput && <ArrowRight size={10} className="text-[var(--text-muted)]" />}
             {hasOutput ? (
               <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[9px] font-medium text-purple-700">
                 OUT
@@ -242,7 +242,7 @@ export function ModelIOCard({
 
       {/* Content */}
       {!isCollapsed && (
-        <div className="space-y-2 border-t border-gray-200 bg-white p-3">
+        <div className="space-y-2 border-t border-[var(--border)] bg-[var(--surface-elevated)] p-3">
           {/* Input Section */}
           {hasInput && (
             <DataSection

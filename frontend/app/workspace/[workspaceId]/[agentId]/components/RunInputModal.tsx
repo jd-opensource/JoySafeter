@@ -34,14 +34,14 @@ export function RunInputModal({
 
   return (
     <div className="pointer-events-none fixed right-[12px] top-[68px] z-[100] w-[380px]">
-      <div className="pointer-events-auto overflow-hidden rounded-2xl border border-gray-200 bg-white/95 shadow-2xl backdrop-blur-xl duration-300 animate-in slide-in-from-top-4">
+      <div className="pointer-events-auto overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)]/95 shadow-2xl backdrop-blur-xl duration-300 animate-in slide-in-from-top-4">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 bg-white/50 px-4 py-3">
+        <div className="flex items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]/50 px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="rounded-md bg-blue-600 p-1 text-white">
+            <div className="rounded-md bg-primary p-1 text-white">
               <Activity size={14} />
             </div>
-            <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-900">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
               {t('workspace.readyToStart')}
             </h3>
           </div>
@@ -49,7 +49,7 @@ export function RunInputModal({
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="h-6 w-6 text-gray-400 hover:text-gray-900"
+            className="h-6 w-6 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           >
             <X size={12} />
           </Button>
@@ -58,9 +58,9 @@ export function RunInputModal({
         {/* Content */}
         <div className="space-y-4 p-4">
           {/* Info Banner */}
-          <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
-            <Sparkles className="mt-0.5 shrink-0 text-blue-500" size={16} />
-            <p className="text-[10px] font-medium leading-relaxed text-blue-700">
+          <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
+            <Sparkles className="mt-0.5 shrink-0 text-primary" size={16} />
+            <p className="text-[10px] font-medium leading-relaxed text-[var(--text-primary)]">
               {t('workspace.enterPrompt')}
             </p>
           </div>
@@ -69,7 +69,7 @@ export function RunInputModal({
           <div className="flex gap-2">
             <Input
               placeholder={t('workspace.simulateUserInput')}
-              className="h-9 border-gray-200 bg-white text-[11px] focus-visible:ring-blue-100"
+              className="h-9 border-[var(--border)] bg-[var(--surface-elevated)] text-[11px] focus-visible:ring-primary/10"
               value={input}
               onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -77,7 +77,7 @@ export function RunInputModal({
             />
             <Button
               size="sm"
-              className="h-9 gap-2 bg-blue-600 px-4 text-[11px] font-bold hover:bg-blue-700"
+              className="h-9 gap-2 bg-primary px-4 text-[11px] font-bold hover:bg-primary/90"
               onClick={onStart}
               disabled={!input.trim()}
             >

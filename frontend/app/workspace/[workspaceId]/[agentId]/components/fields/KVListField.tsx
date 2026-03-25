@@ -25,9 +25,9 @@ export function KVListField({ value, onChange }: KVListFieldProps) {
   const handleRemove = (index: number) => onChange(items.filter((_, i) => i !== index))
 
   return (
-    <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/30 p-3">
+    <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-3">
       {items.length === 0 && (
-        <div className="py-2 text-center text-[10px] text-gray-400">
+        <div className="py-2 text-center text-[10px] text-[var(--text-muted)]">
           {t('workspace.noParametersDefined')}
         </div>
       )}
@@ -37,20 +37,20 @@ export function KVListField({ value, onChange }: KVListFieldProps) {
             value={item.key}
             onChange={(e) => handleChange(index, 'key', e.target.value)}
             placeholder={t('workspace.parameterName', { defaultValue: 'Name' })}
-            className="h-8 bg-white text-xs"
+            className="h-8 bg-[var(--surface-elevated)] text-xs"
           />
-          <span className="font-mono text-gray-300">:</span>
+          <span className="font-mono text-[var(--text-subtle)]">:</span>
           <Input
             value={item.value}
             onChange={(e) => handleChange(index, 'value', e.target.value)}
             placeholder={t('workspace.parameterType', { defaultValue: 'Type' })}
-            className="h-8 bg-white text-xs"
+            className="h-8 bg-[var(--surface-elevated)] text-xs"
           />
           <Button
             variant="ghost"
             size="icon"
             onClick={() => handleRemove(index)}
-            className="h-8 w-8 text-gray-400 hover:text-red-500"
+            className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--status-error)]"
           >
             <Trash2 size={12} />
           </Button>
@@ -60,7 +60,7 @@ export function KVListField({ value, onChange }: KVListFieldProps) {
         variant="outline"
         size="sm"
         onClick={handleAdd}
-        className="mt-1 h-8 w-full border-dashed text-xs text-gray-500"
+        className="mt-1 h-8 w-full border-dashed text-xs text-[var(--text-tertiary)]"
       >
         <Plus size={12} /> {t('workspace.addParameter')}
       </Button>
