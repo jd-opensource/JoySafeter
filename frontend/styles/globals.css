@@ -97,12 +97,46 @@
     --divider: #f3f4f6;
     --border-muted: #f3f4f6;
 
-    /* Brand */
+    /* Brand - full scale */
+    --brand-50:  #f5f3ff;
+    --brand-100: #ede9fe;
+    --brand-200: #ddd6fe;
     --brand-400: #8e4cfb;
     --brand-500: #6f3dfa;
+    --brand-600: #7c3aed;
+    --brand-700: #6d28d9;
     --brand-secondary: #33b4ff;
     --brand-tertiary: #22c55e;
-    --warning: #ea580c;
+
+    /* Status - success */
+    --status-success:        #16a34a;
+    --status-success-bg:     #f0fdf4;
+    --status-success-border: #bbf7d0;
+    --status-success-hover:  #15803d;
+    --status-success-strong: #14532d;
+
+    /* Status - warning */
+    --status-warning:        #d97706;
+    --status-warning-bg:     #fffbeb;
+    --status-warning-border: #fde68a;
+
+    /* Status - error */
+    --status-error:        #dc2626;
+    --status-error-bg:     #fef2f2;
+    --status-error-border: #fecaca;
+    --status-error-hover:  #b91c1c;
+    --status-error-strong: #991b1b;
+
+    /* Skills brand (emerald) */
+    --skill-brand:     #059669;
+    --skill-brand-50:  #ecfdf5;
+    --skill-brand-100: #d1fae5;
+    --skill-brand-200: #a7f3d0;
+    --skill-brand-600: #059669;
+    --skill-brand-700: #047857;
+
+    /* Text extras */
+    --text-disabled: #d1d5db;
 
     /* Utility */
     --white: #ffffff;
@@ -162,12 +196,46 @@
     --divider: #1a222b;
     --border-muted: #1a222b;
 
-    /* Brand - 青色系科技感 */
+    /* Brand - full scale (sky/cyan tech palette) */
+    --brand-50:  #0c1a24;
+    --brand-100: #0d2535;
+    --brand-200: #0f3347;
     --brand-400: #38bdf8;
     --brand-500: #0ea5e9;
+    --brand-600: #0284c7;
+    --brand-700: #0369a1;
     --brand-secondary: #06b6d4;
     --brand-tertiary: #10b981;
-    --warning: #f59e0b;
+
+    /* Status - success */
+    --status-success:        #4ade80;
+    --status-success-bg:     #052e16;
+    --status-success-border: #166534;
+    --status-success-hover:  #86efac;
+    --status-success-strong: #bbf7d0;
+
+    /* Status - warning */
+    --status-warning:        #fbbf24;
+    --status-warning-bg:     #1c0f00;
+    --status-warning-border: #78350f;
+
+    /* Status - error */
+    --status-error:        #f87171;
+    --status-error-bg:     #1c0505;
+    --status-error-border: #7f1d1d;
+    --status-error-hover:  #fca5a5;
+    --status-error-strong: #fecaca;
+
+    /* Skills brand (emerald - dark adapted) */
+    --skill-brand:     #34d399;
+    --skill-brand-50:  #022c22;
+    --skill-brand-100: #064e3b;
+    --skill-brand-200: #065f46;
+    --skill-brand-600: #34d399;
+    --skill-brand-700: #6ee7b7;
+
+    /* Text extras */
+    --text-disabled: #354252;
 
     /* Utility */
     --white: #ffffff;
