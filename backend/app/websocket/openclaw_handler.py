@@ -2,6 +2,10 @@
 WebSocket handlers for OpenClaw integration.
 
 Endpoint: /ws/openclaw/bridge/{user_id} — Bidirectional bridge to OpenClaw Gateway WS
+
+Note: Dead client connections are detected by Uvicorn's ws_ping_interval/ws_ping_timeout
+at the protocol layer (configured in main.py). The upstream gateway connection is
+covered by the websockets library's built-in ping (default ping_interval=20s).
 """
 
 import asyncio
