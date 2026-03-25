@@ -124,7 +124,7 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
             >
               <div className="px-2 py-1.5">
                 <p className="truncate text-[13px] font-medium">{user?.name || t('user.user')}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{user?.email}</p>
+                <p className="truncate text-[11px] text-[var(--text-muted)]">{user?.email}</p>
               </div>
               <DropdownMenuSeparator />
 
@@ -136,7 +136,7 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
                 <DropdownMenuSubContent
                   sideOffset={4}
                   alignOffset={-5}
-                  className="min-w-[110px] bg-white"
+                  className="min-w-[110px] bg-[var(--surface-1)]"
                 >
                   {languages.map((lang) => (
                     <DropdownMenuItem
@@ -146,7 +146,7 @@ export function UserInfo({ isCollapsed: _isCollapsed = false, showContent = true
                     >
                       <span>{lang.label}</span>
                       {i18n.language === lang.code && (
-                        <Check className="h-3.5 w-3.5 text-blue-600" />
+                        <Check className="h-3.5 w-3.5 text-[var(--brand-600)]" />
                       )}
                     </DropdownMenuItem>
                   ))}

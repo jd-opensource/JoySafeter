@@ -65,6 +65,7 @@ import {
 } from '@/hooks/queries/useMemories'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 export default function KnowledgePage() {
   const { t } = useTranslation()
@@ -219,19 +220,19 @@ export default function KnowledgePage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col bg-[var(--surface-1)]">
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-gray-100 bg-white p-6">
+      <div className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-1)] p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] text-[var(--skill-brand-600)]">
               <Brain size={18} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-900">
+              <h2 className="text-lg font-bold text-[var(--text-primary)]">
                 {t('memory.title', { defaultValue: 'Knowledge & Memory' })}
               </h2>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
                 {t('memory.subtitle', {
                   defaultValue: 'Long-term memories stored across conversations',
                 })}
@@ -256,7 +257,7 @@ export default function KnowledgePage() {
             <Button
               size="sm"
               onClick={openCreate}
-              className="h-9 gap-1.5 bg-emerald-600 text-xs shadow-lg shadow-emerald-100 hover:bg-emerald-700"
+              className="h-9 gap-1.5 bg-[var(--skill-brand-600)] text-xs shadow-lg shadow-emerald-100 hover:bg-[var(--skill-brand-700)]"
             >
               <Plus className="h-3.5 w-3.5" />
               {t('memory.addMemory', { defaultValue: 'Add Memory' })}
@@ -310,13 +311,13 @@ export default function KnowledgePage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 space-y-6 overflow-y-auto bg-gray-50/50 p-6">
+      <div className="flex-1 space-y-6 overflow-y-auto bg-[var(--bg)] p-6">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            <Loader2 className="h-6 w-6 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+          <div className="flex flex-col items-center justify-center py-12 text-[var(--text-tertiary)]">
             <AlertCircle className="mb-3 h-10 w-10 text-red-400" />
             <p>{t('memory.loadError', { defaultValue: 'Failed to load memories' })}</p>
           </div>
@@ -326,19 +327,22 @@ export default function KnowledgePage() {
             const hasFilters = searchQuery.trim() || selectedTopic
             return (
               <div
-                className={`flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-center ${hasFilters ? '' : 'cursor-pointer transition-colors hover:border-gray-400 hover:bg-white'} py-12`}
+                className={cn(
+                  'flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-1)] p-4 text-center py-12',
+                  !hasFilters && 'cursor-pointer transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]',
+                )}
                 onClick={hasFilters ? undefined : openCreate}
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 shadow-sm">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)] shadow-sm">
                   {hasFilters ? <AlertCircle size={20} /> : <Plus size={20} />}
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900">
+                  <h4 className="text-sm font-medium text-[var(--text-primary)]">
                     {hasFilters
                       ? t('memory.noMemoriesFiltered', { defaultValue: 'No memories found' })
                       : t('memory.noMemories', { defaultValue: 'No memories yet' })}
                   </h4>
-                  <p className="mt-1 max-w-md text-xs text-gray-500">
+                  <p className="mt-1 max-w-md text-xs text-[var(--text-tertiary)]">
                     {hasFilters
                       ? t('memory.noMemoriesFilteredDescription', {
                           defaultValue: 'Try adjusting your search or filter criteria',
@@ -357,25 +361,25 @@ export default function KnowledgePage() {
             {memories.map((memory) => (
               <Card
                 key={memory.memory_id}
-                className="group flex items-start justify-between border-gray-200 bg-white p-4 transition-all hover:border-emerald-200 hover:shadow-md"
+                className="group flex items-start justify-between border-[var(--border)] bg-[var(--surface-1)] p-4 transition-all hover:border-[var(--skill-brand-200)] hover:shadow-md"
               >
                 <div className="flex min-w-0 flex-1 items-start gap-4">
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] text-[var(--skill-brand-600)]">
                     <Brain size={18} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
+                    <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">
                       {memory.memory}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-3">
                       {memory.topics && memory.topics.length > 0 && (
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <Tag className="h-3 w-3 text-gray-400" />
+                          <Tag className="h-3 w-3 text-[var(--text-muted)]" />
                           {memory.topics.map((topic) => (
                             <Badge
                               key={topic}
                               variant="outline"
-                              className="border-emerald-100 bg-emerald-50 px-1.5 py-0 text-[9px] text-emerald-600"
+                              className="border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-1.5 py-0 text-[9px] text-[var(--skill-brand-600)]"
                             >
                               {topic}
                             </Badge>
@@ -383,7 +387,7 @@ export default function KnowledgePage() {
                         </div>
                       )}
                       {memory.updated_at && (
-                        <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                        <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
                           <Calendar className="h-3 w-3" />
                           {formatDate(memory.updated_at)}
                         </div>
@@ -398,7 +402,7 @@ export default function KnowledgePage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-gray-400 opacity-0 transition-opacity hover:text-gray-900 group-hover:opacity-100"
+                      className="h-8 w-8 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100"
                     >
                       <MoreHorizontal size={16} />
                     </Button>
@@ -442,7 +446,7 @@ export default function KnowledgePage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Brain className="h-5 w-5 text-emerald-600" />
+              <Brain className="h-5 w-5 text-[var(--skill-brand-600)]" />
               {t('memory.createMemory', { defaultValue: 'Create Memory' })}
             </DialogTitle>
             <DialogDescription>
@@ -487,7 +491,7 @@ export default function KnowledgePage() {
             <Button
               onClick={handleCreate}
               disabled={createMutation.isPending}
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+              className="gap-1.5 bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]"
             >
               {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('memory.create', { defaultValue: 'Create' })}
@@ -501,7 +505,7 @@ export default function KnowledgePage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Edit3 className="h-5 w-5 text-emerald-600" />
+              <Edit3 className="h-5 w-5 text-[var(--skill-brand-600)]" />
               {t('memory.editMemory', { defaultValue: 'Edit Memory' })}
             </DialogTitle>
           </DialogHeader>
@@ -538,7 +542,7 @@ export default function KnowledgePage() {
             <Button
               onClick={handleUpdate}
               disabled={updateMutation.isPending}
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+              className="gap-1.5 bg-[var(--skill-brand-600)] hover:bg-[var(--skill-brand-700)]"
             >
               {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('memory.save', { defaultValue: 'Save' })}
@@ -569,7 +573,7 @@ export default function KnowledgePage() {
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleteMutation.isPending}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-[var(--status-error)] hover:bg-[var(--status-error-hover)]"
             >
               {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('memory.delete', { defaultValue: 'Delete' })}

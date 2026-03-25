@@ -375,7 +375,7 @@ export default function LoginPage() {
     <>
       <div className="space-y-1 text-center">
         <h1
-          className={`${soehne.className} text-[32px] font-medium tracking-tight text-black`}
+          className={`${soehne.className} text-[32px] font-medium tracking-tight text-[var(--text-primary)]`}
           suppressHydrationWarning
         >
           {mounted ? t('auth.signIn') : 'Sign In'}
@@ -390,7 +390,7 @@ export default function LoginPage() {
 
       {/* OAuth 错误提示 */}
       {oauthError && (
-        <div className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{oauthError}</div>
+        <div className="mt-4 rounded-md bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error)]">{oauthError}</div>
       )}
 
       {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
@@ -413,8 +413,7 @@ export default function LoginPage() {
                 autoCorrect="off"
                 {...form.register('email')}
                 className={cn(
-                  'rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
-                  form.formState.errors.email &&
+                  'rounded-[10px] shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                 )}
               />
@@ -443,7 +442,7 @@ export default function LoginPage() {
                   placeholder={mounted ? t('auth.enterYourPassword') : 'Enter your password'}
                   {...form.register('password')}
                   className={cn(
-                    'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
+                    'rounded-[10px] pr-10 shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
                     form.formState.errors.password &&
                       'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                   )}
@@ -451,7 +450,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition hover:text-gray-700"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] transition hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-500)]"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -464,7 +463,7 @@ export default function LoginPage() {
             type="submit"
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
-            className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all"
+            className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
             disabled={isLoading}
             suppressHydrationWarning
           >
@@ -541,8 +540,7 @@ export default function LoginPage() {
                 required
                 type="email"
                 className={cn(
-                  'rounded-[10px] shadow-sm transition-colors focus:border-gray-400 focus:ring-2 focus:ring-gray-100',
-                  resetStatus.type === 'error' &&
+                  'rounded-[10px] shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
                     'border-red-500 focus:border-red-500 focus:ring-red-100 focus-visible:ring-red-500',
                 )}
               />
@@ -552,7 +550,7 @@ export default function LoginPage() {
               onClick={handleForgotPassword}
               onMouseEnter={() => setIsResetButtonHovered(true)}
               onMouseLeave={() => setIsResetButtonHovered(false)}
-              className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[#6F3DFA] bg-gradient-to-b from-[#8357FF] to-[#6F3DFA] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_#9B77FF] transition-all"
+              className="group inline-flex w-full items-center justify-center gap-2 rounded-[10px] border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-[6px] pl-[12px] pr-[10px] text-[15px] text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
               disabled={isSubmittingReset}
             >
               <span className="flex items-center gap-1" suppressHydrationWarning>
