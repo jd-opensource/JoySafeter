@@ -41,12 +41,12 @@ const PreviewNode = ({
   const label = data.label || def?.label || 'Node'
 
   return (
-    <div className="relative min-w-[100px] rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
+    <div className="relative min-w-[100px] rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-2 shadow-sm">
       {/* Left input connection point */}
       <Handle
         type="target"
         position={Position.Left}
-        className="!-left-[4px] !h-1.5 !w-1.5 !border-0 !bg-gray-300"
+        className="!-left-[4px] !h-1.5 !w-1.5 !border-0 !bg-[var(--surface-7)]"
       />
 
       <div className="flex items-center gap-2">
@@ -54,8 +54,8 @@ const PreviewNode = ({
           <Icon size={12} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[9px] font-semibold text-gray-900">{label}</div>
-          <div className="text-[7px] uppercase tracking-wider text-gray-400">
+          <div className="truncate text-[9px] font-semibold text-[var(--text-primary)]">{label}</div>
+          <div className="text-[7px] uppercase tracking-wider text-[var(--text-muted)]">
             {def?.subLabel || data.type}
           </div>
         </div>
@@ -65,7 +65,7 @@ const PreviewNode = ({
       <Handle
         type="source"
         position={Position.Right}
-        className="!-right-[4px] !h-1.5 !w-1.5 !border-0 !bg-gray-300"
+        className="!-right-[4px] !h-1.5 !w-1.5 !border-0 !bg-[var(--surface-7)]"
       />
     </div>
   )
@@ -115,7 +115,7 @@ function PreviewContent({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) {
       />
 
       {/* Control buttons */}
-      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-gray-200 bg-white/90 p-0.5 shadow-sm">
+      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)]/90 p-0.5 shadow-sm">
         <Button
           size="sm"
           variant="ghost"
@@ -134,7 +134,7 @@ function PreviewContent({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) {
         >
           <ZoomOut size={12} />
         </Button>
-        <div className="h-3 w-px bg-gray-200" />
+        <div className="h-3 w-px bg-[var(--border)]" />
         <Button
           size="sm"
           variant="ghost"
@@ -201,11 +201,11 @@ export function GraphPreview({
       <div
         style={{ height, width }}
         className={cn(
-          'flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50',
+          'flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-1)]',
           className,
         )}
       >
-        <span className="text-xs text-gray-400">No node data</span>
+        <span className="text-xs text-[var(--text-muted)]">No node data</span>
       </div>
     )
   }
@@ -214,7 +214,7 @@ export function GraphPreview({
     <ReactFlowProvider>
       <div
         style={{ height, width }}
-        className={cn('relative overflow-hidden rounded-lg border border-gray-200', className)}
+        className={cn('relative overflow-hidden rounded-lg border border-[var(--border)]', className)}
       >
         <PreviewContent nodes={nodes} edges={edges} />
       </div>

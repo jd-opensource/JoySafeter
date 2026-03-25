@@ -252,16 +252,16 @@ export function EdgePropertiesPanel({
   }
 
   return (
-    <div className="absolute bottom-[60px] right-[336px] top-[56px] z-50 flex w-[400px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10">
+    <div className="absolute bottom-[60px] right-[336px] top-[56px] z-50 flex w-[400px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-2xl duration-300 animate-in fade-in slide-in-from-right-10">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-4 py-3.5">
-        <div className="flex items-center gap-3 overflow-hidden text-gray-900">
-          <div className="shrink-0 rounded-lg border border-gray-50 bg-blue-50 p-1.5 text-blue-600 shadow-sm">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-1)] px-4 py-3.5">
+        <div className="flex items-center gap-3 overflow-hidden text-[var(--text-primary)]">
+          <div className="shrink-0 rounded-lg border border-[var(--border-muted)] bg-[var(--brand-50)] p-1.5 text-[var(--brand-500)] shadow-sm">
             <ArrowRight size={14} />
           </div>
           <div className="flex min-w-0 flex-col">
             <h3 className="truncate text-sm font-bold leading-tight">Edge Properties</h3>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
               Connection
             </span>
           </div>
@@ -270,7 +270,7 @@ export function EdgePropertiesPanel({
           variant="ghost"
           size="icon"
           onClick={onClose}
-          className="h-7 w-7 shrink-0 text-gray-300 hover:bg-gray-100 hover:text-gray-600"
+          className="h-7 w-7 shrink-0 text-[var(--text-subtle)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
         >
           <X size={16} />
         </Button>
@@ -279,7 +279,7 @@ export function EdgePropertiesPanel({
       {/* Body */}
       <div className="custom-scrollbar flex-1 space-y-4 overflow-y-auto p-4 pb-12">
         {/* Source -> Target Display */}
-        <div className="flex items-center gap-2 border-b border-gray-100 pb-2 text-xs text-gray-500">
+        <div className="flex items-center gap-2 border-b border-[var(--border-muted)] pb-2 text-xs text-[var(--text-tertiary)]">
           <Badge variant="outline" className="text-[10px]">
             {(sourceNode?.data as { label?: string })?.label || sourceNode?.id}
           </Badge>
@@ -328,14 +328,14 @@ export function EdgePropertiesPanel({
 
         {/* Smart Condition Editor */}
         {showSmartEditor && (
-          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
             <div className="mb-1 flex items-center gap-2">
               {getSourceIcon()}
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">
                 Logic Condition ({sourceNodeType.replace('_node', '')})
               </Label>
             </div>
-            <p className="mb-2 text-[10px] text-slate-400">
+            <p className="mb-2 text-[10px] text-[var(--text-muted)]">
               {isRouterNode
                 ? `Edits condition for route "${edgeData.route_key}"`
                 : isConditionNode
@@ -365,7 +365,7 @@ export function EdgePropertiesPanel({
         {/* Route Key (Smart Select) */}
         {isConditionalSource && (
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
               Route Key
             </Label>
 
@@ -408,7 +408,7 @@ export function EdgePropertiesPanel({
               />
             )}
 
-            <p className="text-[9px] text-gray-400">
+            <p className="text-[9px] text-[var(--text-muted)]">
               {isRouterNode
                 ? 'Select a route defined in the source node'
                 : 'Logic branch for this connection'}
@@ -418,8 +418,8 @@ export function EdgePropertiesPanel({
       </div>
 
       {/* Footer Actions */}
-      <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-4 py-2">
-        <div className="flex items-center gap-2 font-mono text-[9px] text-gray-400">
+      <div className="flex items-center justify-between border-t border-[var(--border-muted)] bg-[var(--surface-1)] px-4 py-2">
+        <div className="flex items-center gap-2 font-mono text-[9px] text-[var(--text-muted)]">
           <span className="truncate">EDGE: {edge.id.slice(0, 8)}</span>
           <span className="flex items-center gap-1">
             <div
@@ -451,7 +451,7 @@ export function EdgePropertiesPanel({
               <AlertDialogDescription>
                 确定要删除这条连接吗？此操作无法撤销。
                 <br />
-                <span className="mt-1 block text-xs text-gray-500">
+                <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
                   从{' '}
                   <strong>{(sourceNode?.data as { label?: string })?.label || edge.source}</strong>{' '}
                   到{' '}
