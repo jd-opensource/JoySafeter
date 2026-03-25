@@ -16,7 +16,7 @@ export function StarterPrompts({ prompts, onSelect }: StarterPromptsProps) {
         <button
           key={prompt}
           onClick={() => onSelect(prompt)}
-          className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+          className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-all hover:border-primary/30 hover:bg-[var(--brand-50)] hover:text-[var(--brand-700)]"
         >
           <Lightbulb size={12} className="flex-shrink-0" />
           <span className="max-w-[250px] truncate">{prompt}</span>

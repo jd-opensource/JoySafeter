@@ -109,7 +109,7 @@ export default function ConversationPanel({ onSend, onStop }: ConversationPanelP
       </div>
 
       {/* Input area */}
-      <div className="border-t border-gray-100 bg-white p-4">
+      <div className="border-t border-[var(--border-muted)] bg-[var(--surface-1)] p-4">
         <ChatInput
           input={state.input}
           setInput={handleSetInput}

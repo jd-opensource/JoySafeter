@@ -18,7 +18,7 @@ export default function PreviewPanel() {
   const hasTool = !!ui.selectedTool
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col bg-[var(--surface-elevated)]">
       {/* Header with tabs */}
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div className="flex gap-1">
@@ -27,8 +27,8 @@ export default function PreviewPanel() {
               onClick={() => setActiveTab('files')}
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-all duration-200 ${
                 activeTab === 'files'
-                  ? 'bg-gray-100 font-medium'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-[var(--surface-3)] font-medium'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
               }`}
             >
               <FolderTree size={14} />
@@ -40,8 +40,8 @@ export default function PreviewPanel() {
               onClick={() => setActiveTab('tool')}
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-all duration-200 ${
                 activeTab === 'tool'
-                  ? 'bg-gray-100 font-medium'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-[var(--surface-3)] font-medium'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
               }`}
             >
               <Wrench size={14} />
@@ -51,7 +51,7 @@ export default function PreviewPanel() {
         </div>
         <button
           onClick={() => dispatch({ type: 'HIDE_PREVIEW' })}
-          className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
         >
           <X size={16} />
         </button>

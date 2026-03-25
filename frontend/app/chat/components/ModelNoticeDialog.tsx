@@ -90,7 +90,7 @@ export function ModelNoticeDialog() {
               }
               dispatch({ type: 'DISMISS_MODEL_NOTICE' })
             }}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-primary hover:bg-primary/90"
           >
             {t('chat.goToModelSettings')}
           </AlertDialogAction>

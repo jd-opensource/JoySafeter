@@ -14,7 +14,7 @@ export function CopyAction({ text }: CopyActionProps) {
   return (
     <button
       onClick={() => handleCopy(text)}
-      className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+      className="rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]"
       aria-label="Copy message"
     >
       {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}

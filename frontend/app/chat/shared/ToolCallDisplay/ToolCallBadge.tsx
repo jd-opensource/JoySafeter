@@ -47,7 +47,7 @@ export function ToolCallBadge({ name, args, status, onClick }: ToolCallBadgeProp
         className={cn(
           'flex w-fit items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-all',
           isCompleted
-            ? 'border-gray-200 bg-gray-50 text-gray-600'
+            ? 'border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)]'
             : 'border-blue-100 bg-blue-50 text-blue-700',
           onClick && 'cursor-pointer hover:shadow-sm',
         )}
@@ -56,12 +56,12 @@ export function ToolCallBadge({ name, args, status, onClick }: ToolCallBadgeProp
         <span className="font-medium">{display.label}</span>
 
         {display.detail && (
-          <span className="ml-1 hidden max-w-[200px] truncate font-mono text-gray-400 group-hover/tool:inline">
+          <span className="ml-1 hidden max-w-[200px] truncate font-mono text-[var(--text-muted)] group-hover/tool:inline">
             {display.detail}
           </span>
         )}
 
-        <div className="ml-2 border-l border-gray-300/50 pl-2">
+        <div className="ml-2 border-l border-[var(--border-strong)]/50 pl-2">
           {isCompleted ? (
             <Check size={12} className="text-green-500" />
           ) : (

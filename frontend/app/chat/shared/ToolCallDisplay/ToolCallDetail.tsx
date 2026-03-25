@@ -18,7 +18,7 @@ export function ToolCallDetail({ name, args, status, result, startTime, endTime 
   return (
     <div className="space-y-3 p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-900">{display.label}</h3>
+        <h3 className="text-sm font-medium text-[var(--text-primary)]">{display.label}</h3>
         <span className={`rounded-full px-2 py-0.5 text-xs ${
           status === 'completed' ? 'bg-green-100 text-green-700' :
           status === 'failed' ? 'bg-red-100 text-red-700' :
@@ -29,17 +29,17 @@ export function ToolCallDetail({ name, args, status, result, startTime, endTime 
       </div>
 
       {display.detail && (
-        <p className="font-mono text-xs text-gray-500">{display.detail}</p>
+        <p className="font-mono text-xs text-[var(--text-tertiary)]">{display.detail}</p>
       )}
 
       {duration && (
-        <p className="text-xs text-gray-400">{duration}s</p>
+        <p className="text-xs text-[var(--text-muted)]">{duration}s</p>
       )}
 
       {Object.keys(args).length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Arguments</summary>
-          <pre className="mt-1 max-h-[200px] overflow-auto rounded bg-gray-50 p-2 text-gray-600">
+          <summary className="cursor-pointer text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Arguments</summary>
+          <pre className="mt-1 max-h-[200px] overflow-auto rounded bg-[var(--surface-1)] p-2 text-[var(--text-secondary)]">
             {JSON.stringify(args, null, 2)}
           </pre>
         </details>
@@ -47,8 +47,8 @@ export function ToolCallDetail({ name, args, status, result, startTime, endTime 
 
       {result !== undefined && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Result</summary>
-          <pre className="mt-1 max-h-[300px] overflow-auto rounded bg-gray-50 p-2 text-gray-600">
+          <summary className="cursor-pointer text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Result</summary>
+          <pre className="mt-1 max-h-[300px] overflow-auto rounded bg-[var(--surface-1)] p-2 text-[var(--text-secondary)]">
             {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
           </pre>
         </details>

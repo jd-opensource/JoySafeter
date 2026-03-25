@@ -12,8 +12,8 @@ interface CodeBlockProps {
 }
 
 const highlighterStyle = {
-  background: '#f9fafb',
-  border: '1px solid #e5e7eb',
+  background: 'var(--surface-1)',
+  border: '1px solid var(--border)',
   borderRadius: '0.5rem',
   fontSize: '13px',
   margin: '1em 0',
@@ -26,7 +26,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
     <div className="group/code relative">
       <button
         onClick={() => handleCopy(code)}
-        className="absolute right-2 top-2 z-10 rounded-md border border-gray-200 bg-white p-1.5 text-gray-400 opacity-0 transition-all hover:bg-gray-50 hover:text-gray-600 group-hover/code:opacity-100"
+        className="absolute right-2 top-2 z-10 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-1.5 text-[var(--text-muted)] opacity-0 transition-all hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)] group-hover/code:opacity-100"
         aria-label="Copy code"
       >
         {copied ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
