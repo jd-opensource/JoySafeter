@@ -11,6 +11,7 @@ Provides analysis of:
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
+from app.core.graph.runtime_prompt_template import extract_runtime_template_variables, get_prompt_text_from_config
 from app.models.graph import GraphEdge, GraphNode
 
 
@@ -267,13 +268,9 @@ class StateVariableTracker:
 
         Agent 节点可能通过 systemPrompt 或其他配置使用变量。
         """
-        system_prompt = config.get("systemPrompt", "")
+        system_prompt = get_prompt_text_from_config(config) or ""
         if system_prompt:
-            # 检查模板变量 {{variable}}
-            import re
-
-            template_vars = re.findall(r"\{\{(\w+)\}\}", system_prompt)
-            for var_name in template_vars:
+            for var_name in extract_runtime_template_variables(system_prompt):
                 self._add_variable_usage(
                     var_name,
                     str(node.id),

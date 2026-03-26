@@ -39,6 +39,7 @@ class GraphBuilder:
         max_tokens: int = 4096,
         user_id: Optional[Any] = None,
         model_service: Optional[Any] = None,
+        thread_id: Optional[str] = None,
         **kwargs,
     ):
         self.graph = graph
@@ -51,6 +52,7 @@ class GraphBuilder:
         self.user_id = user_id
         # 可选：传入 ModelService，便于在 Builder 中按 model_name 解析模型
         self.model_service = model_service
+        self.thread_id = thread_id
         self.file_emitter = kwargs.pop("file_emitter", None)
 
     def _has_deep_agents_nodes(self) -> bool:
@@ -78,6 +80,7 @@ class GraphBuilder:
                 self.max_tokens,
                 self.user_id,
                 self.model_service,
+                thread_id=self.thread_id,
                 file_emitter=self.file_emitter,
             )
         else:
@@ -92,6 +95,7 @@ class GraphBuilder:
                 self.max_tokens,
                 self.user_id,
                 self.model_service,
+                thread_id=self.thread_id,
             )
 
     async def build(self) -> CompiledStateGraph:

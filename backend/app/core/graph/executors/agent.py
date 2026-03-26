@@ -22,6 +22,7 @@ except ImportError:
 from app.core.agent.node_tools import resolve_tools_for_node
 from app.core.agent.sample_agent import get_agent
 from app.core.graph.graph_state import GraphState
+from app.core.graph.runtime_prompt_template import get_prompt_text_from_config
 from app.models.graph import GraphNode
 
 
@@ -56,6 +57,17 @@ class BaseLLMNodeExecutor:
         self.checkpointer = checkpointer
         self.resolved_model = resolved_model
         self.builder = builder
+
+    def _resolve_system_prompt(self) -> str:
+        """Resolve the node system prompt via builder when runtime rendering is available."""
+        if self.builder and hasattr(self.builder, "_get_system_prompt_from_node"):
+            prompt = self.builder._get_system_prompt_from_node(self.node)
+            return str(prompt) if prompt is not None else ""
+
+        data = self.node.data or {}
+        config = data.get("config", {})
+        result = get_prompt_text_from_config(config)
+        return str(result) if result is not None else ""
 
 
 class AgentNodeExecutor(BaseLLMNodeExecutor):
@@ -96,20 +108,11 @@ class AgentNodeExecutor(BaseLLMNodeExecutor):
             resolved_model=resolved_model,
             builder=builder,
         )
-        self.system_prompt = self._get_system_prompt()
+        self.system_prompt = self._resolve_system_prompt()
         self.messages_window = messages_window
 
         self._agent: Runnable | None = None
         self._agent_lock = asyncio.Lock()
-
-    def _get_system_prompt(self) -> str:
-        """Extract system prompt from node configuration (data.config only)."""
-        data = self.node.data or {}
-        config = data.get("config", {})
-        system_prompt = config.get("systemPrompt", "")
-        prompt = config.get("prompt", "")
-        result = system_prompt or prompt
-        return str(result) if result is not None else ""
 
     async def _ensure_agent(self) -> Runnable:
         """Lazily create the underlying LangChain agent graph once per node."""

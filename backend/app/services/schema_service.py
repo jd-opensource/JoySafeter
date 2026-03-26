@@ -111,6 +111,7 @@ class SchemaService(BaseService):
         base_url: Optional[str] = None,
         max_tokens: int = 4096,
         user_id: Optional[Any] = None,
+        thread_id: Optional[str] = None,
     ) -> CompilationResult:
         """Compile a graph from its schema using the new pipeline.
 
@@ -121,7 +122,7 @@ class SchemaService(BaseService):
         ----------
         graph_id : uuid.UUID
             The graph to compile.
-        llm_model, api_key, base_url, max_tokens, user_id
+        llm_model, api_key, base_url, max_tokens, user_id, thread_id
             Standard LLM configuration forwarded to the builder.
 
         Returns
@@ -147,6 +148,7 @@ class SchemaService(BaseService):
             max_tokens=max_tokens,
             user_id=user_id,
             model_service=model_service,
+            thread_id=thread_id,
         )
         # Use the schema-based builder path
         inner_builder = builder._create_builder()

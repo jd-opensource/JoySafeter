@@ -90,6 +90,18 @@ def test_read_delegates_without_emit():
     backend.read.assert_called_once_with("/app/hello.py")
 
 
+def test_raw_read_delegates_without_emit():
+    backend = _make_mock_backend()
+    backend.raw_read.return_value = "raw file content"
+    emitter = FileEventEmitter()
+    proxy = FileTrackingProxy(backend, emitter)
+
+    result = proxy.raw_read("/app/hello.py")
+    assert result == "raw file content"
+    assert emitter.drain() == []
+    backend.raw_read.assert_called_once_with("/app/hello.py")
+
+
 def test_getattr_fallback():
     backend = _make_mock_backend()
     backend.some_new_method.return_value = "ok"

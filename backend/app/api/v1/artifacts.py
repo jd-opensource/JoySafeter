@@ -122,7 +122,11 @@ async def live_read_file(
         raise HTTPException(status_code=404, detail="Sandbox not running")
 
     try:
-        content = adapter.read(file_path)
+        raw_read = getattr(adapter, "raw_read", None)
+        if callable(raw_read):
+            content = raw_read(file_path)
+        else:
+            content = adapter.read(file_path)
         if content.startswith("[Error:") or content.startswith("Error:"):
             raise HTTPException(status_code=404, detail=content)
         return PlainTextResponse(content)

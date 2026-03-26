@@ -166,6 +166,7 @@ export default function CodeViewer({
             language={prismLanguage}
             style={oneLight}
             showLineNumbers={showLineNumbers}
+            showInlineLineNumbers={false}
             lineNumberStyle={{
               minWidth: '2.5em',
               paddingRight: '1em',
@@ -173,6 +174,10 @@ export default function CodeViewer({
               fontSize: '11px',
               textAlign: 'right',
               userSelect: 'none',
+            }}
+            lineNumberContainerStyle={{
+              float: 'left',
+              paddingRight: '1em',
             }}
             customStyle={{
               margin: 0,

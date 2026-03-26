@@ -308,6 +308,15 @@ class TestPydanticSandboxAdapterFileOps:
         assert "line1" in result
         assert "line2" in result
 
+    def test_raw_read_returns_unformatted_content(self, adapter_with_mock):
+        """Test that raw_read() returns original text without line numbers."""
+        adapter, mock_sandbox = adapter_with_mock
+        mock_sandbox.read = lambda path, offset, limit: "line1\nline2\nline3"
+
+        result = adapter.raw_read("/workspace/test.txt", offset=0, limit=10)
+
+        assert result == "line1\nline2\nline3"
+
     def test_read_handles_error_from_sandbox(self, adapter_with_mock):
         """Test that read() handles errors from upstream."""
         adapter, mock_sandbox = adapter_with_mock

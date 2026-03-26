@@ -106,9 +106,7 @@ class SandboxManagerService:
 
         持有行锁直到调用方提交或回滚，确保同一用户不会被多个 worker 并发创建容器。
         """
-        result = await self.db.execute(
-            select(UserSandbox).where(UserSandbox.user_id == user_id).with_for_update()
-        )
+        result = await self.db.execute(select(UserSandbox).where(UserSandbox.user_id == user_id).with_for_update())
         record = result.scalar_one_or_none()
         if record:
             return record

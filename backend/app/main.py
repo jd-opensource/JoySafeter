@@ -2,7 +2,6 @@
 FastAPI Main Application
 """
 
-import asyncio
 import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone

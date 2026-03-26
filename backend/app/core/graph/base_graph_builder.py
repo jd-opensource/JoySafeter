@@ -30,6 +30,11 @@ from app.core.graph.node_executors import (
     ToolNodeExecutor,
 )
 from app.core.graph.node_type_registry import NodeTypeRegistry
+from app.core.graph.runtime_prompt_template import (
+    build_runtime_prompt_context,
+    get_prompt_text_from_config,
+    render_runtime_template,
+)
 from app.core.model.utils.model_ref import parse_model_ref
 from app.core.tools.tool import EnhancedTool
 from app.core.tools.tool_registry import get_global_registry
@@ -88,6 +93,7 @@ class BaseGraphBuilder(ABC):
         self.max_tokens = max_tokens
         self.user_id = user_id
         self.thread_id = thread_id
+        self.runtime_prompt_context = self._build_runtime_prompt_context()
         # 可选：提供 ModelService，用于根据 model_name 实例化运行时模型
         self.model_service = model_service
 
@@ -134,10 +140,20 @@ class BaseGraphBuilder(ABC):
         """Extract system prompt from node configuration, substituting runtime context vars."""
         data = node.data or {}
         config: Dict[str, Any] = data.get("config", {})
-        prompt = config.get("systemPrompt", "") or config.get("system_prompt", "") or config.get("prompt", "") or None
-        if prompt and self.thread_id:
-            prompt = prompt.replace("{thread_id}", self.thread_id)
-        return prompt
+        prompt = get_prompt_text_from_config(config)
+        return self._render_runtime_context_vars(prompt)
+
+    def _build_runtime_prompt_context(self) -> Dict[str, Any]:
+        """Build runtime prompt context from builder built-ins and graph context overrides."""
+        return build_runtime_prompt_context(self.graph, user_id=self.user_id, thread_id=self.thread_id)
+
+    def _render_prompt_text_with_runtime_context(self, text: Optional[str]) -> Optional[str]:
+        """Render prompt text using the builder's runtime prompt context."""
+        return render_runtime_template(text, self.runtime_prompt_context)
+
+    def _render_runtime_context_vars(self, text: Optional[str]) -> Optional[str]:
+        """Substitute supported runtime context vars into prompt text."""
+        return self._render_prompt_text_with_runtime_context(text)
 
     def _get_direct_children(self, node: GraphNode) -> List[GraphNode]:
         """Get direct child nodes (nodes connected via outgoing edges)."""

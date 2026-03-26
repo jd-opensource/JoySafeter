@@ -2,6 +2,8 @@
 Graph 相关 Service
 """
 
+import hashlib
+import json
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,6 +19,7 @@ from app.core.graph.node_secrets import (
     prepare_node_data_for_save,
     store_a2a_auth_headers,
 )
+from app.core.graph.runtime_prompt_template import build_runtime_prompt_context
 from app.models.auth import AuthUser
 from app.models.graph import AgentGraph, GraphEdge, GraphNode, GraphNodeSecret
 from app.models.workspace import WorkspaceMemberRole
@@ -26,8 +29,8 @@ from .base import BaseService
 from .model_service import ModelService
 from .workspace_permission import check_workspace_access
 
-# In-memory compile cache: (graph_id, updated_at_iso) -> (compiled_graph, cached_at_ts). TTL 300s.
-_compile_cache: Dict[Tuple[str, str], Tuple[CompiledStateGraph, float]] = {}
+# In-memory compile cache: (graph_id, updated_at_iso, runtime_context_fingerprint) -> (compiled_graph, cached_at_ts).
+_compile_cache: Dict[Tuple[str, str, str], Tuple[CompiledStateGraph, float]] = {}
 _COMPILE_CACHE_TTL = 300.0
 
 
@@ -36,6 +39,53 @@ def _invalidate_compile_cache(graph_id: uuid.UUID) -> None:
     to_drop = [k for k in _compile_cache if k[0] == str(graph_id)]
     for k in to_drop:
         _compile_cache.pop(k, None)
+
+
+def _build_runtime_prompt_context_for_cache(
+    graph: AgentGraph,
+    *,
+    user_id: Optional[Any],
+    thread_id: Optional[str],
+) -> Dict[str, Any]:
+    """Build effective runtime prompt context used by GraphBuilder for cache-keying."""
+    return build_runtime_prompt_context(graph, user_id=user_id, thread_id=thread_id)
+
+
+def _normalize_runtime_prompt_context_for_cache(value: Any) -> Any:
+    """Normalize runtime context into a JSON-serializable deterministic structure."""
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_runtime_prompt_context_for_cache(value[key])
+            for key in sorted(value, key=lambda item: str(item))
+        }
+    if isinstance(value, list):
+        return [_normalize_runtime_prompt_context_for_cache(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_runtime_prompt_context_for_cache(item) for item in value]
+    if isinstance(value, set):
+        normalized_items = [_normalize_runtime_prompt_context_for_cache(item) for item in value]
+        return sorted(
+            normalized_items,
+            key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+        )
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _build_runtime_aware_compile_cache_key(
+    graph: AgentGraph,
+    *,
+    user_id: Optional[Any],
+    thread_id: Optional[str],
+) -> Tuple[str, str, str]:
+    """Build compile cache key that includes effective runtime prompt context fingerprint."""
+    runtime_context = _build_runtime_prompt_context_for_cache(graph, user_id=user_id, thread_id=thread_id)
+    normalized_context = _normalize_runtime_prompt_context_for_cache(runtime_context)
+    serialized_context = json.dumps(normalized_context, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    context_fingerprint = hashlib.sha256(serialized_context.encode("utf-8")).hexdigest()
+    updated_at_iso = graph.updated_at.isoformat() if graph.updated_at else ""
+    return (str(graph.id), updated_at_iso, context_fingerprint)
 
 
 class GraphService(BaseService):
@@ -803,8 +853,8 @@ class GraphService(BaseService):
             await self._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
             logger.debug("[GraphService] Access permission check passed")
 
-        # Check in-memory compile cache (keyed by graph_id + updated_at)
-        cache_key = (str(graph_id), graph.updated_at.isoformat() if graph.updated_at else "")
+        # Check in-memory compile cache (keyed by graph + runtime prompt context)
+        cache_key = _build_runtime_aware_compile_cache_key(graph, user_id=user_id, thread_id=thread_id)
         now_ts = time.time()
         if cache_key in _compile_cache:
             cached_graph, cached_at = _compile_cache[cache_key]

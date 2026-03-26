@@ -94,12 +94,17 @@ class TestService:
 
         # 2. Compile graph using the standard builder factory
         # This ensures we get the correct builder (Standard or DeepAgents) and all executors
+        import uuid
+
         from app.core.graph.graph_builder_factory import GraphBuilder
+
+        test_thread_id = str(uuid.uuid4())
 
         builder = GraphBuilder(
             graph=graph,
             nodes=graph.nodes,
             edges=graph.edges,
+            thread_id=test_thread_id,
             # We can pass specific testing configs here if needed
             # For now, we use defaults which means it uses env vars for LLM
         )
@@ -137,11 +142,9 @@ class TestService:
                 # But if checkpointer is enabled, we should probably provide a thread_id to avoid polluting global state?
                 # Actually, without thread_id in config, LangGraph with checkpointer might error or behave differently.
                 # Let's generate a temporary thread_id for isolation.
-                import uuid
-
                 from langchain_core.runnables import RunnableConfig
 
-                config = RunnableConfig(configurable={"thread_id": str(uuid.uuid4())})
+                config = RunnableConfig(configurable={"thread_id": test_thread_id})
 
                 output_state = await compiled_graph.ainvoke(inputs, config=config)
 

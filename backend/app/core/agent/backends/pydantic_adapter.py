@@ -494,19 +494,9 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         """
         logger.info(f"[{self._id}] Reading file: {file_path}")
         try:
-            # Use upstream DockerSandbox.read() which uses Docker get_archive API
-            # Get full content (large limit) then apply our formatting
-            content_raw = self._sandbox.read(file_path, offset=0, limit=100000)
-            content = content_raw if isinstance(content_raw, str) else str(content_raw)
-
-            # Check for error from upstream
+            content = self.raw_read(file_path, offset=0, limit=100000)
             if content.startswith("[Error:") or content.startswith("Error:"):
                 return content
-
-            # Remove any pagination footer from upstream
-            # (e.g., "[... N more lines. Use offset=M to read more.]")
-            if "\n\n[..." in content:
-                content = content.split("\n\n[...")[0]
 
             # Format with line numbers using deepagents utility
             lines = content.splitlines()
@@ -521,6 +511,30 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         except Exception as e:
             logger.error(f"[{self._id}] Failed to read file {file_path}: {e}")
             return f"Error: {str(e)}"
+
+    def raw_read(
+        self,
+        file_path: str,
+        offset: int = 0,
+        limit: int = 100000,
+    ) -> str:
+        """Read raw file content without injecting line numbers.
+
+        This is intended for UI/API consumers that need the original file text
+        and will handle presentation concerns such as line-number gutters.
+        """
+        logger.info(f"[{self._id}] Raw reading file: {file_path}")
+        content_raw = self._sandbox.read(file_path, offset=offset, limit=limit)
+        content = content_raw if isinstance(content_raw, str) else str(content_raw)
+
+        if content.startswith("[Error:") or content.startswith("Error:"):
+            return content
+
+        # Remove upstream pagination footer to keep API consumers on raw file text.
+        if "\n\n[..." in content:
+            content = content.split("\n\n[...")[0]
+
+        return content
 
     def write(
         self,
@@ -861,6 +875,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         """Force-remove a Docker container by ID, ignoring all errors."""
         try:
             import docker
+
             docker.from_env().containers.get(container_id).remove(force=True)
             logger.info(f"Force-removed stale container {container_id[:12]}")
         except Exception as e:

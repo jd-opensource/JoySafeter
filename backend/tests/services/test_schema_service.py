@@ -13,13 +13,17 @@ from __future__ import annotations
 # pydantic_adapter → pydantic_ai_backends will fail without this.
 import sys
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 if "pydantic_ai_backends" not in sys.modules:
     sys.modules["pydantic_ai_backends"] = MagicMock()
+if "langchain_google_genai" not in sys.modules:
+    sys.modules["langchain_google_genai"] = MagicMock()
 
+import app.services.schema_service as schema_service_module
 from app.core.graph.graph_schema import EdgeType, GraphSchema
 from app.services.schema_service import SchemaService
 
@@ -308,6 +312,37 @@ class TestExportCode:
 
         code = await svc.export_code(graph.id, include_main=False)
         assert "__main__" not in code
+
+
+class TestCompileGraph:
+    """SchemaService.compile_graph integration tests."""
+
+    @pytest.mark.asyncio
+    async def test_compile_graph_forwards_thread_id_to_builder(self, monkeypatch: pytest.MonkeyPatch):
+        graph = _make_graph()
+        node = _make_node(label="Agent", node_type="agent")
+        captured_kwargs = {}
+        expected_result = SimpleNamespace(build_time_ms=12.34, warnings=[])
+
+        class _InnerBuilder:
+            async def build_from_schema(self):
+                return expected_result
+
+        class _CapturingGraphBuilder:
+            def __init__(self, *args, **kwargs):
+                captured_kwargs.update(kwargs)
+
+            def _create_builder(self):
+                return _InnerBuilder()
+
+        monkeypatch.setattr(schema_service_module, "GraphBuilder", _CapturingGraphBuilder)
+        monkeypatch.setattr(schema_service_module, "ModelService", lambda db: "model-service")
+
+        svc = _build_mock_service(graph=graph, nodes=[node], edges=[])
+        result = await svc.compile_graph(graph.id, user_id="user-1", thread_id="thread-123")
+
+        assert result is expected_result
+        assert captured_kwargs["thread_id"] == "thread-123"
 
 
 # ---------------------------------------------------------------------------
