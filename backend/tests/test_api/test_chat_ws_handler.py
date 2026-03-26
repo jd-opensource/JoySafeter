@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -107,34 +108,154 @@ async def test_duplicate_request_id_sends_ws_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_frame_with_non_skill_creator_mode_keeps_mode_in_metadata_only() -> None:
+async def test_legacy_skill_creator_metadata_maps_to_command() -> None:
     handler, ws = make_handler()
 
     captured_payload = None
 
     async def fake_run_chat_turn(*, request_id: str, payload) -> None:
         nonlocal captured_payload
-        assert request_id == "req-mode"
+        assert request_id == "req-legacy"
+        captured_payload = payload
+
+    legacy_frame = json.dumps(
+        {
+            "type": "chat",
+            "request_id": "req-legacy",
+            "message": "build me a skill",
+            "metadata": {
+                "mode": "skill_creator",
+                "run_id": str(uuid.uuid4()),
+                "edit_skill_id": "legacy-skill",
+            },
+        }
+    )
+
+    with patch.object(handler, "_run_chat_turn", side_effect=fake_run_chat_turn) as mock_run_chat_turn:
+        await handler._handle_frame(legacy_frame)
+        task = handler._tasks["req-legacy"].task
+        await task
+
+    mock_run_chat_turn.assert_awaited_once()
+    assert captured_payload is not None
+    assert captured_payload.metadata["edit_skill_id"] == "legacy-skill"
+    assert ws.sent == []
+
+
+# ---------------------------------------------------------------------------
+# Command parsing edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_non_object_json_frame_returns_ws_error() -> None:
+    handler, ws = make_handler()
+
+    await handler._handle_frame(json.dumps(["unexpected", "array"]))
+
+    errors = ws.frames_of_type("ws_error")
+    assert errors, "non-object JSON should emit ws_error instead of crashing"
+    assert "object" in errors[0].get("message", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_chat_start_with_invalid_extension_data_is_rejected() -> None:
+    handler, ws = make_handler()
+
+    await handler._handle_frame(
+        json.dumps(
+            {
+                "type": "chat.start",
+                "request_id": "req-invalid",
+                "input": {"message": "hello"},
+                "extension": {"kind": "unknown"},
+                "metadata": {},
+            }
+        )
+    )
+
+    assert ws.frames_of_type("ws_error") == [
+        {
+            "type": "ws_error",
+            "request_id": "req-invalid",
+            "message": "unsupported extension kind: unknown",
+        }
+    ]
+    assert "req-invalid" not in handler._tasks
+
+
+@pytest.mark.asyncio
+async def test_typed_skill_creator_extension_propagates_run_metadata() -> None:
+    handler, ws = make_handler()
+    captured_payload = None
+    run_id = uuid.uuid4()
+
+    async def fake_run_chat_turn(*, request_id: str, payload) -> None:
+        nonlocal captured_payload
+        assert request_id == "req-skill"
         captured_payload = payload
 
     frame = json.dumps(
         {
-            "type": "chat",
-            "request_id": "req-mode",
-            "message": "hello",
-            "metadata": {"mode": "apk-vulnerability"},
+            "type": "chat.start",
+            "request_id": "req-skill",
+            "thread_id": None,
+            "input": {"message": "build a skill", "files": []},
+            "extension": {
+                "kind": "skill_creator",
+                "run_id": str(run_id),
+                "edit_skill_id": "skill-42",
+            },
+            "metadata": {},
         }
     )
 
     with patch.object(handler, "_run_chat_turn", side_effect=fake_run_chat_turn) as mock_run_chat_turn:
         await handler._handle_frame(frame)
-        task = handler._tasks["req-mode"].task
-        await task
+        entry = handler._tasks["req-skill"]
+        await entry.task
 
     mock_run_chat_turn.assert_awaited_once()
     assert captured_payload is not None
-    assert captured_payload.mode is None
-    assert captured_payload.metadata == {"mode": "apk-vulnerability"}
+    assert captured_payload.metadata["edit_skill_id"] == "skill-42"
+    assert handler._tasks["req-skill"].run_id == run_id
+    assert ws.sent == []
+
+
+@pytest.mark.asyncio
+async def test_input_files_are_forwarded_into_metadata() -> None:
+    handler, ws = make_handler()
+    captured_payload = None
+
+    async def fake_run_chat_turn(*, request_id: str, payload) -> None:
+        nonlocal captured_payload
+        assert request_id == "req-files"
+        captured_payload = payload
+
+    files = [
+        {"filename": "notes.md", "path": "/tmp/notes.md", "size": 10},
+        {"filename": "plan.txt", "path": "/data/plan.txt", "size": 42},
+    ]
+    frame = json.dumps(
+        {
+            "type": "chat.start",
+            "request_id": "req-files",
+            "thread_id": None,
+            "input": {"message": "see attached", "files": files},
+            "extension": None,
+            "metadata": {"foo": "bar"},
+        }
+    )
+
+    with patch.object(handler, "_run_chat_turn", side_effect=fake_run_chat_turn) as mock_run_chat_turn:
+        await handler._handle_frame(frame)
+        entry = handler._tasks["req-files"]
+        await entry.task
+
+    mock_run_chat_turn.assert_awaited_once()
+    assert captured_payload is not None
+    assert captured_payload.metadata["files"] == files
+    assert captured_payload.metadata["foo"] == "bar"
     assert ws.sent == []
 
 

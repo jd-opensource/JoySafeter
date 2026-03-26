@@ -34,11 +34,13 @@ from app.services.run_service import RunService
 from app.utils.file_event_emitter import FileEventEmitter
 from app.utils.stream_event_handler import StreamEventHandler, StreamState
 from app.utils.task_manager import task_manager
-from app.websocket.chat_protocol import (
-    ChatProtocolError,
-    ParsedChatStartFrame,
-    parse_client_frame,
+from app.websocket.chat_commands import (
+    ChatTurnCommand,
+    SkillCreatorTurnCommand,
+    build_command_from_legacy_frame,
+    build_command_from_parsed_frame,
 )
+from app.websocket.chat_protocol import ChatProtocolError, ParsedChatStartFrame, parse_client_frame
 
 
 @dataclass
@@ -79,6 +81,10 @@ class ChatWsHandler:
             await self._send({"type": "ws_error", "message": "invalid json frame"})
             return
 
+        if not isinstance(frame, dict):
+            await self._send({"type": "ws_error", "message": "frame must be a JSON object"})
+            return
+
         try:
             parsed_frame = parse_client_frame(frame)
         except ChatProtocolError as exc:
@@ -112,46 +118,24 @@ class ChatWsHandler:
         await self._send({"type": "ws_error", "message": f"unknown frame type: {frame_type}"})
 
     async def _handle_chat(self, frame: dict[str, Any]) -> None:
-        request_id = str(frame.get("request_id") or "")
-        message = str(frame.get("message") or "")
-        thread_id = frame.get("thread_id")
-        graph_id = frame.get("graph_id")
-        raw_metadata = frame.get("metadata")
-        metadata: dict[str, Any] = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
-
-        await self._start_chat_task(
-            request_id=request_id,
-            message=message,
-            thread_id=thread_id,
-            graph_id=graph_id,
-            metadata=metadata,
-        )
+        command = build_command_from_legacy_frame(frame)
+        await self._start_turn_from_command(command)
 
     async def _handle_chat_start_frame(self, frame: ParsedChatStartFrame) -> None:
-        await self._start_chat_task(
-            request_id=frame.request_id,
-            message=frame.input.message,
-            thread_id=frame.thread_id,
-            graph_id=frame.graph_id,
-            metadata=frame.metadata,
-        )
+        command = build_command_from_parsed_frame(frame)
+        await self._start_turn_from_command(command)
 
-    async def _start_chat_task(
-        self,
-        *,
-        request_id: str,
-        message: str,
-        thread_id: str | None,
-        graph_id: str | None,
-        metadata: dict[str, Any],
-    ) -> None:
+    async def _start_turn_from_command(self, command: ChatTurnCommand) -> None:
+        request_id = str(command.request_id or "")
+        message = str(command.message or "")
+        thread_key = str(command.thread_id) if command.thread_id else None
+
         if not request_id or not message.strip():
             await self._send({"type": "ws_error", "message": "request_id and message are required"})
             return
         if request_id in self._tasks:
             await self._send({"type": "ws_error", "message": "duplicate request_id"})
             return
-        thread_key = str(thread_id) if thread_id else None
         if thread_key and self._is_thread_active(thread_key):
             await self._send(
                 {
@@ -162,13 +146,20 @@ class ChatWsHandler:
             )
             return
 
-        agent_run_id = self._extract_agent_run_id(metadata)
-        request_mode = metadata.get("mode")
-        if request_mode != "skill_creator":
-            request_mode = None
-            edit_skill_id_value = None
-        else:
-            edit_skill_id_value = metadata.get("edit_skill_id")
+        metadata = dict(command.metadata or {})
+        if command.files:
+            metadata["files"] = command.files
+
+        agent_run_id: uuid_lib.UUID | None = None
+        persist = False
+        if isinstance(command, SkillCreatorTurnCommand):
+            agent_run_id = self._parse_uuid(command.run_id)
+            persist = agent_run_id is not None
+            if command.edit_skill_id and "edit_skill_id" not in metadata:
+                metadata["edit_skill_id"] = command.edit_skill_id
+
+        graph_id = command.graph_id
+
         async def runner() -> None:
             await self._run_chat_turn(
                 request_id=request_id,
@@ -176,8 +167,6 @@ class ChatWsHandler:
                     message=message,
                     thread_id=thread_key,
                     graph_id=graph_id,
-                    mode=request_mode,
-                    edit_skill_id=edit_skill_id_value,
                     metadata=metadata,
                 ),
             )
@@ -187,7 +176,7 @@ class ChatWsHandler:
             thread_id=thread_key,
             task=task,
             run_id=agent_run_id,
-            persist_on_disconnect=agent_run_id is not None,
+            persist_on_disconnect=persist,
         )
 
     async def _handle_resume(self, frame: dict[str, Any]) -> None:
@@ -237,18 +226,6 @@ class ChatWsHandler:
         task.cancel()
         if entry.heartbeat_task is not None:
             entry.heartbeat_task.cancel()
-
-    def _extract_agent_run_id(self, metadata: dict[str, Any]) -> uuid_lib.UUID | None:
-        if metadata.get("mode") != "skill_creator":
-            return None
-        run_id_raw = metadata.get("run_id")
-        if not run_id_raw:
-            return None
-        try:
-            return uuid_lib.UUID(str(run_id_raw))
-        except (ValueError, TypeError):
-            logger.warning(f"Invalid skill creator run_id in chat metadata | user_id={self.user_id}")
-            return None
 
     @staticmethod
     def _parse_uuid(value: Any) -> uuid_lib.UUID | None:
