@@ -177,7 +177,9 @@
 如有问题或想与其他用户交流，欢迎扫码加入微信交流群：
 
 <p align="center">
-  <img src="docs/assets/web-chat-group.jpg" alt="JoySafeter 用户交流群" width="300" />
+  <img src="docs/assets/wechat-group-3.png" alt="JoySafeter 用户交流群 1" width="300" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/assets/wechat-group-4.png" alt="JoySafeter 用户交流群 2" width="300" />
 </p>
 
 ## 贡献指南

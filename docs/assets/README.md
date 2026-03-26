@@ -7,7 +7,7 @@ This directory contains images and assets for documentation.
 | File | Description | Used In |
 |------|-------------|---------|
 | `joysafter.png` | Platform architecture diagram | README.md Architecture section |
-| `web-chat-group.jpg` | WeChat user group QR code | README.md Community section |
+| `wechat-group-3.png`, `wechat-group-4.png` | WeChat user group QR codes | README.md Community section |
 
 ## Missing Assets (TODO)
 

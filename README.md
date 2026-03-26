@@ -175,7 +175,9 @@ See [docs/plans/](docs/plans/) and project issues for the latest roadmap and des
 Join the WeChat user group if you have questions or want to connect with other users:
 
 <p align="center">
-  <img src="docs/assets/web-chat-group.jpg" alt="JoySafeter User Group" width="300" />
+  <img src="docs/assets/wechat-group-3.png" alt="JoySafeter User Group 1" width="300" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/assets/wechat-group-4.png" alt="JoySafeter User Group 2" width="300" />
 </p>
 
 ## Contributing
