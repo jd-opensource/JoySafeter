@@ -663,4 +663,3 @@ The first production-meaningful cut should be:
 - modify Chat/Skill execution runtime so WS disconnect detaches subscriber instead of cancelling the task
 
 This is the smallest slice that materially solves the user-facing problem while creating the correct long-term foundation.
-
