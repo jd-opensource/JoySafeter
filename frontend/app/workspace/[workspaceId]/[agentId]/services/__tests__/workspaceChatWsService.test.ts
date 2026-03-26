@@ -95,9 +95,9 @@ describe('workspaceChatWsService', () => {
   }
 
   // -------------------------------------------------------------------------
-  // 1. sendChat resolves with { requestId, threadId } on 'done'
+  // 1. sendChat emits typed chat.start and resolves with { requestId, threadId } on 'done'
   // -------------------------------------------------------------------------
-  it('sendChat resolves with requestId and threadId when done frame is received', async () => {
+  it('sendChat emits chat.start and resolves with requestId and threadId when done frame is received', async () => {
     const svc = await makeConnectedService()
 
     const sendP = svc.sendChat({ message: 'hello' })
@@ -106,6 +106,12 @@ describe('workspaceChatWsService', () => {
     expect(mockWsInstance.sent.length).toBeGreaterThanOrEqual(1)
     const chatFrame = JSON.parse(mockWsInstance.sent[mockWsInstance.sent.length - 1])
     const { request_id } = chatFrame
+    expect(chatFrame).toMatchObject({
+      type: 'chat.start',
+      input: { message: 'hello' },
+      extension: null,
+      metadata: {},
+    })
 
     // Server delivers thread info then signals completion
     mockWsInstance.receive({ type: 'content', request_id, thread_id: 'thread-abc', data: { delta: 'hi' } })
@@ -175,9 +181,9 @@ describe('workspaceChatWsService', () => {
   })
 
   // -------------------------------------------------------------------------
-  // 5. stopByThreadId sends a stop frame with the correct request_id
+  // 5. stopByThreadId bridges to typed chat.stop with the correct request_id
   // -------------------------------------------------------------------------
-  it('stopByThreadId sends a stop frame with the correct request_id', async () => {
+  it('stopByThreadId sends a typed chat.stop frame with the correct request_id', async () => {
     const svc = await makeConnectedService()
 
     const sendP = svc.sendChat({ message: 'hello', threadId: 'thread-stop' })
@@ -193,7 +199,7 @@ describe('workspaceChatWsService', () => {
 
     const stopFrame = JSON.parse(mockWsInstance.sent[mockWsInstance.sent.length - 1])
 
-    expect(stopFrame).toMatchObject({ type: 'stop', request_id })
+    expect(stopFrame).toMatchObject({ type: 'chat.stop', request_id })
 
     // Resolve the dangling promise cleanly
     mockWsInstance.receive({ type: 'done', request_id, thread_id: 'thread-stop' })

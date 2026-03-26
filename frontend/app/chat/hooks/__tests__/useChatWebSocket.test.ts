@@ -105,7 +105,10 @@ describe('useChatWebSocket', () => {
     let sendP!: Promise<{ requestId: string }>
 
     await act(async () => {
-      sendP = utils.result.current.sendMessage({ message: 'hi' })
+      sendP = utils.result.current.sendMessage({
+        input: { message: 'hi' },
+        extension: null,
+      })
       // Let the synchronous ws.send() inside sendMessage run
       await Promise.resolve()
     })
@@ -148,7 +151,10 @@ describe('useChatWebSocket', () => {
     let sendP!: Promise<{ requestId: string }>
 
     await act(async () => {
-      sendP = utils.result.current.sendMessage({ message: 'hi' })
+      sendP = utils.result.current.sendMessage({
+        input: { message: 'hi' },
+        extension: null,
+      })
       await Promise.resolve()
     })
 
@@ -190,7 +196,14 @@ describe('useChatWebSocket', () => {
 
     await act(async () => {
       // Fire-and-forget: we don't await the promise because ws_error rejects it
-      utils.result.current.sendMessage({ message: 'hi' }).catch(() => { /* expected rejection path */ })
+      utils.result.current
+        .sendMessage({
+          input: { message: 'hi' },
+          extension: null,
+        })
+        .catch(() => {
+          /* expected rejection path */
+        })
       await Promise.resolve()
     })
 
@@ -234,7 +247,11 @@ describe('useChatWebSocket', () => {
     let sendP!: Promise<{ requestId: string }>
 
     await act(async () => {
-      sendP = utils.result.current.sendMessage({ message: 'hi', threadId: 'thread-interrupt' })
+      sendP = utils.result.current.sendMessage({
+        input: { message: 'hi' },
+        threadId: 'thread-interrupt',
+        extension: null,
+      })
       await Promise.resolve()
     })
 
@@ -275,18 +292,19 @@ describe('useChatWebSocket', () => {
   })
 
   // -------------------------------------------------------------------------
-  // 5. sendMessage sends a 'chat' WS frame with the correct fields
+  // 5. sendMessage sends a 'chat.start' WS frame with the correct fields
   // -------------------------------------------------------------------------
-  it('sendMessage sends a chat frame with the expected fields', async () => {
+  it('sendMessage sends a typed chat.start frame with the expected fields', async () => {
     const { utils, ws } = await renderConnectedHook()
 
     let sendP!: Promise<{ requestId: string }>
 
     await act(async () => {
       sendP = utils.result.current.sendMessage({
-        message: 'Hello!',
+        input: { message: 'Hello!' },
         threadId: 'thread-42',
         graphId: 'graph-1',
+        extension: null,
         metadata: { key: 'value' },
       })
       await Promise.resolve()
@@ -296,10 +314,11 @@ describe('useChatWebSocket', () => {
     const frame = JSON.parse(ws.sent[ws.sent.length - 1])
 
     expect(frame).toMatchObject({
-      type: 'chat',
-      message: 'Hello!',
+      type: 'chat.start',
       thread_id: 'thread-42',
       graph_id: 'graph-1',
+      input: { message: 'Hello!' },
+      extension: null,
       metadata: { key: 'value' },
     })
     expect(typeof frame.request_id).toBe('string')
@@ -308,6 +327,41 @@ describe('useChatWebSocket', () => {
     // Clean up the dangling promise
     await act(async () => {
       ws.receive({ type: 'done', request_id: frame.request_id })
+    })
+    await sendP
+  })
+
+  // -------------------------------------------------------------------------
+  // 6. stopMessage sends chat.stop by request_id before thread assignment
+  // -------------------------------------------------------------------------
+  it('stopMessage sends chat.stop with request_id before thread_id exists', async () => {
+    const { utils, ws } = await renderConnectedHook()
+    let sendP!: Promise<{ requestId: string }>
+
+    await act(async () => {
+      sendP = utils.result.current.sendMessage({
+        input: { message: 'hello' },
+        extension: null,
+      })
+      await Promise.resolve()
+    })
+
+    const startFrame = JSON.parse(ws.sent[ws.sent.length - 1])
+    expect(startFrame.type).toBe('chat.start')
+
+    act(() => {
+      utils.result.current.stopMessage(startFrame.request_id)
+    })
+
+    const stopFrame = JSON.parse(ws.sent[ws.sent.length - 1])
+    expect(stopFrame).toMatchObject({ type: 'chat.stop', request_id: startFrame.request_id })
+
+    await act(async () => {
+      ws.receive({
+        type: 'error',
+        request_id: startFrame.request_id,
+        data: { message: 'Stream stopped' },
+      })
     })
     await sendP
   })

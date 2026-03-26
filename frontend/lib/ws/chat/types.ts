@@ -27,11 +27,29 @@ export interface ChatResumeCommand {
   goto?: string | null
 }
 
+export interface ChatSendFile {
+  filename: string
+  path: string
+  size: number
+}
+
+export interface ChatSendInput {
+  message: string
+  files?: ChatSendFile[]
+}
+
+export interface SkillCreatorExtension {
+  kind: 'skill_creator'
+  runId?: string | null
+  editSkillId?: string | null
+}
+
 export interface ChatSendParams {
   requestId?: string
-  message: string
   threadId?: string | null
   graphId?: string | null
+  input: ChatSendInput
+  extension?: SkillCreatorExtension | null
   metadata?: Record<string, unknown>
   onEvent?: (evt: ChatStreamEvent) => void
   onAccepted?: (evt: IncomingChatAcceptedEvent) => void
