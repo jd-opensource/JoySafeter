@@ -165,6 +165,7 @@ async def test_handle_stop_cancels_known_task() -> None:
             raise
 
     task = asyncio.create_task(slow())
+    await asyncio.sleep(0)
     handler._tasks["req-stop"] = ChatTaskEntry(thread_id="thread-1", task=task)
 
     with patch("app.websocket.chat_ws_handler.task_manager") as mock_tm:
@@ -200,6 +201,7 @@ async def test_cancel_all_tasks_on_disconnect() -> None:
             raise
 
     task = asyncio.create_task(long_running())
+    await asyncio.sleep(0)
     handler._tasks["req-dc"] = ChatTaskEntry(thread_id=None, task=task)
 
     # Simulate disconnect: receive_text raises WebSocketDisconnect
