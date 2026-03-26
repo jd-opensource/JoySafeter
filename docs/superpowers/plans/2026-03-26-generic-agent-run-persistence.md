@@ -33,4 +33,3 @@
 - `frontend/app/runs/page.tsx` — add agent filter chips, title search input, sync filters to URL params; move filtering server-side
 
 ---
-

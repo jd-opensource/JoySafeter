@@ -1,7 +1,7 @@
-import uuid
 import importlib
 import sys
 import types
+import uuid
 
 from app.models.graph import GraphNode
 

@@ -197,10 +197,7 @@ def test_builder_renders_prompt_using_runtime_prompt_context() -> None:
     node = _make_node(
         graph,
         use_deep_agents=False,
-        system_prompt=(
-            "T={thread_id} U={user_id} G={graph_name} W={workspace_id} "
-            "P={project} M={missing_key}"
-        ),
+        system_prompt=("T={thread_id} U={user_id} G={graph_name} W={workspace_id} P={project} M={missing_key}"),
     )
 
     builder = _TestBaseGraphBuilder(
