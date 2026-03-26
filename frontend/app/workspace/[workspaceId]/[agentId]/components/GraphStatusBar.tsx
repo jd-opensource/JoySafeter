@@ -1,7 +1,8 @@
 'use client'
 
-import { AlertCircle, Wifi, WifiOff, Loader2 } from 'lucide-react'
+import { AlertCircle, Wifi, WifiOff, Loader2, Save } from 'lucide-react'
 
+import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 
 import { useBuilderStore } from '../stores/builderStore'
@@ -16,6 +17,7 @@ export function GraphStatusBar() {
     saveRetryCount,
     isSaving,
     graphId,
+    autoSave,
   } = useBuilderStore()
 
   const formatTime = (timestamp: number | null): string => {
@@ -103,8 +105,17 @@ export function GraphStatusBar() {
     // Has unsaved changes
     if (hasPendingChanges) {
       return (
-        <span className="text-[var(--text-muted)]">
+        <span className="flex items-center gap-1.5 text-[var(--text-muted)]">
           {t('status.unsavedChanges', { defaultValue: '有未保存的更改' })}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => autoSave()}
+            className="h-5 px-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
+          >
+            <Save size={11} className="mr-1" />
+            {t('status.save', { defaultValue: '保存' })}
+          </Button>
         </span>
       )
     }
