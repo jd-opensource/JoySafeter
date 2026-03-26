@@ -233,19 +233,38 @@ const AgentBuilderContent = () => {
       }
     }
 
+    // Parse stateFields and fallbackNodeId from the loaded graph state
+    // so the hash is computed with the correct values for THIS graph,
+    // not stale values from the previous graph still in the store.
+    const loadedVariables = (state.variables || {}) as any
+    const loadedStateFields = (() => {
+      const sf = (loadedVariables.state_fields as any[]) || []
+      if (sf.length > 0) return sf
+      const ctx = (loadedVariables.context || {}) as Record<string, any>
+      if (Object.keys(ctx).length === 0) return []
+      return Object.entries(ctx).map(([key, v]) => ({
+        name: key,
+        type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string'),
+        description: v?.description || '',
+        defaultValue: v?.value,
+      }))
+    })()
+    const loadedFallbackNodeId = loadedVariables?.fallback_node_id ?? null
+
     // Calculate hash of initial state (same 4 params as SaveManager for consistency)
-    const storeState = useBuilderStore.getState()
     const initialHash = computeGraphStateHash(
       state.nodes || [],
       state.edges || [],
-      storeState.graphStateFields,
-      storeState.fallbackNodeId,
+      loadedStateFields,
+      loadedFallbackNodeId,
     )
 
     // Apply multiple state changes in one batch to ensure consistency
     useBuilderStore.setState({
       nodes: state.nodes || [],
       edges: state.edges || [],
+      graphStateFields: loadedStateFields,
+      fallbackNodeId: loadedFallbackNodeId,
       past: [],
       future: [],
       selectedNodeId: null,
@@ -344,17 +363,40 @@ const AgentBuilderContent = () => {
         useBuilderStore.setState({ lastAutoSaveTime: updatedAtTime })
       }
 
-      // Calculate hash of initial state
-      const initialHash = computeGraphStateHash(state.nodes || [], state.edges || [])
+      // Parse stateFields and fallbackNodeId from loaded state for consistent hash computation
+      const applyVariables = (state.variables || {}) as any
+      const applyStateFields = (() => {
+        const sf = (applyVariables.state_fields as any[]) || []
+        if (sf.length > 0) return sf
+        const ctx = (applyVariables.context || {}) as Record<string, any>
+        if (Object.keys(ctx).length === 0) return []
+        return Object.entries(ctx).map(([key, v]) => ({
+          name: key,
+          type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string'),
+          description: v?.description || '',
+          defaultValue: v?.value,
+        }))
+      })()
+      const applyFallbackNodeId = applyVariables?.fallback_node_id ?? null
+
+      // Calculate hash of initial state (all 4 params, consistent with SaveManager)
+      const initialHash = computeGraphStateHash(
+        state.nodes || [],
+        state.edges || [],
+        applyStateFields,
+        applyFallbackNodeId,
+      )
 
       useBuilderStore.setState({
         nodes: state.nodes || [],
         edges: state.edges || [],
+        graphStateFields: applyStateFields,
+        fallbackNodeId: applyFallbackNodeId,
         past: [],
         future: [],
         selectedNodeId: null,
         hasPendingChanges: false,
-        lastSavedStateHash: initialHash, // 设置初始 hash
+        lastSavedStateHash: initialHash,
         saveRetryCount: 0,
         lastSaveError: null,
       })
