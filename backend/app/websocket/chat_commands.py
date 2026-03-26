@@ -65,8 +65,8 @@ def build_command_from_legacy_frame(frame: Mapping[str, Any]) -> ChatTurnCommand
     raw_metadata = frame.get("metadata")
     metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
 
-    mode = metadata.pop("mode", None)
-    run_id = _coerce_str(metadata.pop("run_id", None))
+    mode = _coerce_str(metadata.get("mode"))
+    run_id = _coerce_str(metadata.get("run_id"))
     edit_skill_id = _coerce_str(metadata.get("edit_skill_id"))
 
     files_value = metadata.get("files")
