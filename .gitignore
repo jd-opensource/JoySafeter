@@ -10,6 +10,7 @@ __pycache__/
 
 #Mac
  .DS_Store
+.pnpm-store
 
 # Distribution / packaging
 .Python
