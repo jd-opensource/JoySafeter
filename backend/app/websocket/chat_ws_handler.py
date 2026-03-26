@@ -123,6 +123,8 @@ class ChatWsHandler:
                     message=message,
                     thread_id=str(thread_id) if thread_id else None,
                     graph_id=graph_id,
+                    mode=metadata.get("mode"),
+                    edit_skill_id=metadata.get("edit_skill_id"),
                     metadata=metadata,
                 ),
             )

@@ -792,6 +792,24 @@ class GraphService(BaseService):
         )
         return compiled_graph
 
+    async def create_skill_creator_graph(
+        self,
+        user_id: str,
+        workspace_id: Optional[uuid.UUID] = None,
+    ) -> AgentGraph:
+        """Create the persisted Skill Creator graph container.
+
+        Frontend currently applies the `skill-creator` template from static assets after graph
+        creation. This helper keeps a stable backend entry point for callers and tests that
+        expect the Skill Creator graph to be a first-class graph type.
+        """
+        return await self.create_graph(
+            name="Skill Creator",
+            user_id=user_id,
+            workspace_id=workspace_id,
+            description="A specialized agent for creating and editing Skills",
+        )
+
     async def create_graph_by_graph_id(
         self,
         graph_id: uuid.UUID,

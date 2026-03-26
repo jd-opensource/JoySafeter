@@ -68,7 +68,7 @@ class FileTrackingProxy(SandboxBackendProtocol):
         return self._backend.read(*args, **kwargs)
 
     def raw_read(self, *args: Any, **kwargs: Any) -> str:
-        return getattr(self._backend, "raw_read")(*args, **kwargs)
+        return str(getattr(self._backend, "raw_read")(*args, **kwargs))
 
     def ls_info(self, path: str) -> list[FileInfo]:
         return self._backend.ls_info(path)

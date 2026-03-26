@@ -30,7 +30,7 @@ class TestSkillCreatorIntegration:
     def test_preview_skill_end_to_end(self):
         """Simulate: agent creates skill files in sandbox -> preview_skill reads them."""
         with tempfile.TemporaryDirectory() as sandbox_root:
-            skill_dir = Path(sandbox_root) / "skills" / "test-scan"
+            skill_dir = Path(sandbox_root) / "thread-123" / "skills" / "test-scan"
             skill_dir.mkdir(parents=True)
 
             # Simulate agent writing SKILL.md

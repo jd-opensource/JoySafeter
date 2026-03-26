@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations.
+description: Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends an agent's capabilities with specialized knowledge, workflows, or tool integrations.
 license: Complete terms in LICENSE.txt
 ---
 
@@ -207,8 +207,9 @@ Skill creation involves these steps:
 2. Plan reusable skill contents (scripts, references, assets)
 3. Initialize the skill (run init_skill.py)
 4. Edit the skill (implement resources and write SKILL.md)
-5. Package the skill (run package_skill.py)
-6. Iterate based on real usage
+5. Validate the skill (run quick_validate.py)
+6. Preview the generated files (call preview_skill)
+7. Iterate based on real usage
 
 Follow these steps in order, skipping only if there is a clear reason why they are not applicable.
 
@@ -257,7 +258,7 @@ To establish the skill's contents, analyze each concrete example to create a lis
 
 At this point, it is time to actually create the skill.
 
-Skip this step only if the skill being developed already exists, and iteration or packaging is needed. In this case, continue to the next step.
+Skip this step only if the skill being developed already exists, and iteration is needed. In this case, continue to the next step.
 
 When creating a new skill from scratch, always run the `init_skill.py` script. The script conveniently generates a new template skill directory that automatically includes everything a skill requires, making the skill creation process much more efficient and reliable.
 
@@ -278,7 +279,7 @@ After initialization, customize or remove the generated SKILL.md and example fil
 
 ### Step 4: Edit the Skill
 
-When editing the (newly-generated or existing) skill, remember that the skill is being created for another instance of Claude to use. Include information that would be beneficial and non-obvious to Claude. Consider what procedural knowledge, domain-specific details, or reusable assets would help another Claude instance execute these tasks more effectively.
+When editing the (newly-generated or existing) skill, remember that the skill is being created for another agent to use. Include information that would be beneficial and non-obvious to the next agent. Consider what procedural knowledge, domain-specific details, or reusable assets would help another agent execute these tasks more effectively.
 
 #### Learn Proven Design Patterns
 
@@ -306,10 +307,10 @@ Any example files and directories not needed for the skill should be deleted. Th
 Write the YAML frontmatter with `name` and `description`:
 
 - `name`: The skill name
-- `description`: This is the primary triggering mechanism for your skill, and helps Claude understand when to use the skill.
+- `description`: This is the primary triggering mechanism for your skill, and helps the next agent understand when to use the skill.
   - Include both what the Skill does and specific triggers/contexts for when to use it.
-  - Include all "when to use" information here - Not in the body. The body is only loaded after triggering, so "When to Use This Skill" sections in the body are not helpful to Claude.
-  - Example description for a `docx` skill: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. Use when Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
+  - Include all "when to use" information here - Not in the body. The body is only loaded after triggering, so "When to Use This Skill" sections in the body are not helpful at trigger time.
+  - Example description for a `docx` skill: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. Use when the agent needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
 
 Do not include any other fields in YAML frontmatter.
 
@@ -317,30 +318,33 @@ Do not include any other fields in YAML frontmatter.
 
 Write instructions for using the skill and its bundled resources.
 
-### Step 5: Packaging a Skill
+### Step 5: Validate the Skill
 
-Once development of the skill is complete, it must be packaged into a distributable .skill file that gets shared with the user. The packaging process automatically validates the skill first to ensure it meets all requirements:
-
-```bash
-scripts/package_skill.py <path/to/skill-folder>
-```
-
-Optional output directory specification:
+Run the validator before previewing or saving:
 
 ```bash
-scripts/package_skill.py <path/to/skill-folder> ./dist
+scripts/quick_validate.py <path/to/skill-folder>
 ```
 
-The packaging script will:
+Fix any validation errors before moving on.
 
-1. **Validate** the skill automatically, checking:
+### Step 6: Preview the Skill
 
-   - YAML frontmatter format and required fields
-   - Skill naming conventions and directory structure
-   - Description completeness and quality
-   - File organization and resource references
+For Skill Creator product flows, preview the generated files instead of packaging them. If the skill is being created inside the Skill Creator sandbox, call:
 
-2. **Package** the skill if validation passes, creating a .skill file named after the skill (e.g., `my-skill.skill`) that includes all files and maintains the proper directory structure for distribution. The .skill file is a zip file with a .skill extension.
+```text
+preview_skill(skill_name="<skill-name>", skills_subdir="{thread_id}/skills")
+```
+
+This produces the structured file preview used by the UI and by the save flow.
+
+### Optional: Package a Skill
+
+`scripts/package_skill.py` is an optional archival helper, not part of the main Skill Creator workflow:
+
+```bash
+scripts/package_skill.py <path/to/skill-folder> [output-directory]
+```
 
 If validation fails, the script will report the errors and exit without creating a package. Fix any validation errors and run the packaging command again.
 

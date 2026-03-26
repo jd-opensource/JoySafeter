@@ -23,6 +23,33 @@ interface SkillCreatorChatProps {
   onStop: () => void
 }
 
+function summarizeToolResult(rawName: string, result: unknown): string | null {
+  if (rawName !== 'preview_skill' || result == null) return null
+
+  try {
+    const parsed = typeof result === 'string' ? JSON.parse(result) : result
+    if (!parsed || typeof parsed !== 'object') return 'Preview completed'
+
+    const preview = parsed as {
+      files?: Array<unknown>
+      validation?: { valid?: boolean; errors?: Array<unknown> }
+    }
+    const fileCount = Array.isArray(preview.files) ? preview.files.length : 0
+    const errorCount = Array.isArray(preview.validation?.errors) ? preview.validation.errors.length : 0
+
+    if (preview.validation?.valid === true) {
+      return `Preview ready: ${fileCount} file${fileCount === 1 ? '' : 's'}, validation passed`
+    }
+    if (preview.validation?.valid === false) {
+      return `Preview failed: ${errorCount} validation error${errorCount === 1 ? '' : 's'}`
+    }
+  } catch {
+    return 'Preview completed'
+  }
+
+  return 'Preview completed'
+}
+
 // ---------------------------------------------------------------------------
 // Message bubble
 // ---------------------------------------------------------------------------
@@ -62,14 +89,25 @@ function MessageBubble({ message }: { message: Message }) {
         {/* Tool calls indicator */}
         {message.tool_calls && message.tool_calls.length > 0 && (
           <div className="mt-2 space-y-1">
-            {message.tool_calls.map((tc) => (
-              <ToolCallBadge
-                key={tc.id}
-                name={tc.args?._rawName || tc.name}
-                args={tc.args || {}}
-                status={tc.status}
-              />
-            ))}
+            {message.tool_calls.map((tc) => {
+              const rawName = tc.args?._rawName || tc.name
+              const summary = summarizeToolResult(rawName, tc.result)
+
+              return (
+                <div key={tc.id}>
+                  <ToolCallBadge
+                    name={rawName}
+                    args={tc.args || {}}
+                    status={tc.status}
+                  />
+                  {summary && (
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {summary}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

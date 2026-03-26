@@ -12,6 +12,7 @@ Examples:
 """
 
 import sys
+import re
 from pathlib import Path
 
 
@@ -202,6 +203,15 @@ def init_skill(skill_name, path):
     Returns:
         Path to created skill directory, or None if error
     """
+    if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", skill_name):
+        print(
+            "❌ Error: Invalid skill name. Use lowercase letters, digits, and single hyphens only."
+        )
+        return None
+    if len(skill_name) > 64:
+        print(f"❌ Error: Skill name is too long ({len(skill_name)} characters). Maximum is 64.")
+        return None
+
     # Determine skill directory path
     skill_dir = Path(path).resolve() / skill_name
 
@@ -276,7 +286,7 @@ def main():
         print("\nSkill name requirements:")
         print("  - Hyphen-case identifier (e.g., 'data-analyzer')")
         print("  - Lowercase letters, digits, and hyphens only")
-        print("  - Max 40 characters")
+        print("  - Max 64 characters")
         print("  - Must match directory name exactly")
         print("\nExamples:")
         print("  init_skill.py my-new-skill --path skills/public")

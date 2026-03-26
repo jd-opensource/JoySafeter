@@ -140,6 +140,39 @@ def _collect_files(skill_dir: Path) -> List[Dict[str, Any]]:
     return files
 
 
+def _resolve_skill_dir(skill_name: str, sandbox_root: str, skills_subdir: str) -> tuple[Path | None, str]:
+    """Resolve the skill directory, with a thread-scoped fallback for the default subdir.
+
+    Skill Creator writes to `/workspace/{thread_id}/skills/<skill_name>/`, while callers often
+    invoke `preview_skill(skill_name)` without explicitly passing `skills_subdir`. When the default
+    `skills/` location is absent, fall back to a unique `<thread_id>/skills/` match.
+    """
+    candidate = Path(sandbox_root) / skills_subdir / skill_name
+    if candidate.is_dir():
+        return candidate, skills_subdir
+
+    if skills_subdir != "skills":
+        return None, skills_subdir
+
+    root = Path(sandbox_root)
+    matches: list[tuple[Path, str]] = []
+    try:
+        for child in root.iterdir():
+            if not child.is_dir():
+                continue
+            thread_scoped_subdir = f"{child.name}/skills"
+            thread_candidate = child / "skills" / skill_name
+            if thread_candidate.is_dir():
+                matches.append((thread_candidate, thread_scoped_subdir))
+    except OSError:
+        return None, skills_subdir
+
+    if len(matches) == 1:
+        return matches[0]
+
+    return None, skills_subdir
+
+
 def preview_skill_in_sandbox(
     skill_name: str,
     sandbox_root: str,
@@ -179,17 +212,17 @@ def preview_skill_in_sandbox(
     errors: List[str] = []
     warnings: List[str] = []
 
-    skill_dir = Path(sandbox_root) / skills_subdir / skill_name
+    skill_dir, resolved_subdir = _resolve_skill_dir(skill_name, sandbox_root, skills_subdir)
 
     # --- 1. Check skill directory exists ---
-    if not skill_dir.is_dir():
+    if skill_dir is None or not skill_dir.is_dir():
         return json.dumps(
             {
                 "skill_name": skill_name,
                 "files": [],
                 "validation": {
                     "valid": False,
-                    "errors": [f"Skill directory not found: {skills_subdir}/{skill_name}"],
+                    "errors": [f"Skill directory not found: {resolved_subdir}/{skill_name}"],
                     "warnings": [],
                 },
             }

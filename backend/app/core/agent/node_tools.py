@@ -187,12 +187,30 @@ def _preview_skill_from_backend(backend: Any, skill_name: str, skills_subdir: st
     errors: List[str] = []
     warnings: List[str] = []
 
-    # Check if skill directory exists via ls_info
-    try:
-        dir_listing = backend.ls_info(skill_dir)
-    except Exception as e:
-        logger.warning(f"[preview_skill] Failed to list {skill_dir}: {e}")
-        dir_listing = []
+    def _safe_ls(path: str) -> List[Dict[str, Any]]:
+        try:
+            return list(backend.ls_info(path))
+        except Exception as e:
+            logger.warning(f"[preview_skill] Failed to list {path}: {e}")
+            return []
+
+    dir_listing = _safe_ls(skill_dir)
+    resolved_subdir = skills_subdir
+
+    if not dir_listing and skills_subdir == "skills":
+        for entry in _safe_ls("/workspace"):
+            path = str(entry.get("path", ""))
+            if not path or not entry.get("is_dir"):
+                continue
+            thread_name = Path(path.rstrip("/")).name
+            candidate_subdir = f"{thread_name}/skills"
+            candidate_dir = f"/workspace/{candidate_subdir}/{skill_name}"
+            candidate_listing = _safe_ls(candidate_dir)
+            if candidate_listing:
+                skill_dir = candidate_dir
+                dir_listing = candidate_listing
+                resolved_subdir = candidate_subdir
+                break
 
     if not dir_listing:
         return _json.dumps(
@@ -201,7 +219,7 @@ def _preview_skill_from_backend(backend: Any, skill_name: str, skills_subdir: st
                 "files": [],
                 "validation": {
                     "valid": False,
-                    "errors": [f"Skill directory not found: {skills_subdir}/{skill_name}"],
+                    "errors": [f"Skill directory not found: {resolved_subdir}/{skill_name}"],
                     "warnings": [],
                 },
             }

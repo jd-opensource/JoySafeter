@@ -441,6 +441,37 @@ class StreamEventHandler:
 
     # ==================== Handler Methods ====================
 
+    # Max chars per message content in the model_input SSE frame.
+    # The system prompt + full conversation history in skill-creator turns can
+    # easily exceed 500 KB, causing the WS frame to be dropped by the browser.
+    _MODEL_INPUT_MSG_CONTENT_LIMIT = 2000
+
+    @staticmethod
+    def _truncate_messages_for_sse(messages: list[dict]) -> list[dict]:
+        """Truncate individual message content so the model_input SSE frame stays small.
+
+        Keeps message structure (role, tool_calls, etc.) intact; only shortens
+        the 'content' field of each message to avoid oversized WS frames.
+        """
+        limit = StreamEventHandler._MODEL_INPUT_MSG_CONTENT_LIMIT
+        result = []
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, str) and len(content) > limit:
+                msg = {**msg, "content": content[:limit] + "… [truncated]"}
+            elif isinstance(content, list):
+                # Multimodal content blocks — truncate text parts
+                truncated_parts = []
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        text = part.get("text", "")
+                        if len(text) > limit:
+                            part = {**part, "text": text[:limit] + "… [truncated]"}
+                    truncated_parts.append(part)
+                msg = {**msg, "content": truncated_parts}
+            result.append(msg)
+        return result
+
     async def handle_chat_model_start(
         self, event: dict, state: StreamState, run_id: str, parent_run_id: Optional[str]
     ) -> str:
@@ -478,7 +509,7 @@ class StreamEventHandler:
             return self.format_sse(
                 "model_input",
                 {
-                    "messages": serialized_messages,
+                    "messages": self._truncate_messages_for_sse(serialized_messages),
                     "model_name": model_name,
                     "model_provider": model_provider,
                     "_meta": meta,

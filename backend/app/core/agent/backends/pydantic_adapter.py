@@ -356,7 +356,8 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 logger.warning(f"Failed to restart existing container {self._id}, will create new: {e}")
                 stale_id = self._saved_container_id
                 self._saved_container_id = None
-                self._force_remove_container(stale_id)
+                if stale_id is not None:
+                    self._force_remove_container(stale_id)
 
         try:
             if hasattr(self._sandbox, "start"):

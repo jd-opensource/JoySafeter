@@ -50,7 +50,11 @@ export function formatToolDisplay(toolName: string, toolInput: Record<string, an
 
   if (toolName === 'preview_skill') {
     const skillName = toolInput?.skill_name || ''
-    return { label: `Deploying skill${skillName ? ': ' + skillName : ''}`, detail: '' }
+    const skillsSubdir = toolInput?.skills_subdir || ''
+    return {
+      label: `Previewing skill${skillName ? ': ' + skillName : ''}`,
+      detail: typeof skillsSubdir === 'string' ? skillsSubdir : '',
+    }
   }
 
   if (toolName === 'glob' || toolName === 'find_files') {

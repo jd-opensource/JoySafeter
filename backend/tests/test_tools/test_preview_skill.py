@@ -110,6 +110,17 @@ def test_custom_skills_subdir(sandbox_root: str):
     assert result["skill_name"] == "custom-dir"
 
 
+def test_default_lookup_finds_thread_scoped_skill_dir(sandbox_root: str):
+    """Default lookup should find a skill under <thread_id>/skills when unambiguous."""
+    skill_md = "---\nname: thread-dir\ndescription: test\n---\nBody.\n"
+    _make_skill(sandbox_root, "thread-dir", {"SKILL.md": skill_md}, skills_subdir="thread-123/skills")
+
+    result = json.loads(preview_skill_in_sandbox("thread-dir", sandbox_root))
+
+    assert result["validation"]["valid"] is True
+    assert result["skill_name"] == "thread-dir"
+
+
 # ---------------------------------------------------------------------------
 # File type detection
 # ---------------------------------------------------------------------------
