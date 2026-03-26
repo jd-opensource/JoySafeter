@@ -26,10 +26,7 @@ ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand
 
 
 def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnCommand:
-    metadata = dict(frame.metadata)
-    files = _normalize_files(frame.input.files)
-    if files:
-        metadata["files"] = files
+    metadata, files = _sanitize_metadata_files(frame.metadata, frame.input.files)
 
     extension = frame.extension
     if extension is None:
@@ -69,10 +66,7 @@ def build_command_from_legacy_frame(frame: Mapping[str, Any]) -> ChatTurnCommand
     run_id = _coerce_str(metadata.get("run_id"))
     edit_skill_id = _coerce_str(metadata.get("edit_skill_id"))
 
-    files_value = metadata.get("files")
-    files = _normalize_files(files_value if isinstance(files_value, list) else [])
-    if files:
-        metadata["files"] = files
+    metadata, files = _sanitize_metadata_files(metadata, metadata.get("files"))
 
     if mode == "skill_creator":
         return SkillCreatorTurnCommand(
@@ -98,6 +92,17 @@ def build_command_from_legacy_frame(frame: Mapping[str, Any]) -> ChatTurnCommand
 
 def _normalize_files(files: list[Any]) -> list[dict[str, Any]]:
     return [f for f in files if isinstance(f, dict)]
+
+
+def _sanitize_metadata_files(metadata: Mapping[str, Any], raw_files: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    sanitized = dict(metadata)
+    sanitized.pop("files", None)
+
+    files = _normalize_files(raw_files if isinstance(raw_files, list) else [])
+    if files:
+        sanitized["files"] = files
+
+    return sanitized, files
 
 
 def _coerce_str(value: Any) -> str | None:

@@ -64,6 +64,24 @@ def test_reserved_metadata_control_keys_are_rejected():
         raise AssertionError("expected ChatProtocolError")
 
 
+def test_metadata_files_key_is_rejected_for_typed_chat_start():
+    with pytest.raises(ChatProtocolError) as exc:
+        parse_client_frame(
+            {
+                "type": "chat.start",
+                "request_id": "req-files",
+                "input": {"message": "hello", "files": []},
+                "extension": None,
+                "metadata": {
+                    "files": [{"filename": "notes.md", "path": "/tmp/notes.md"}],
+                },
+            }
+        )
+
+    assert exc.value.message == "reserved metadata keys are not allowed"
+    assert exc.value.request_id == "req-files"
+
+
 def test_parse_ping_frame_passes_through():
     parsed = parse_client_frame({"type": "ping"})
     assert isinstance(parsed, dict)

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 
-RESERVED_METADATA_KEYS = {"mode", "run_id", "edit_skill_id", "extension", "kind"}
+RESERVED_METADATA_KEYS = {"mode", "run_id", "edit_skill_id", "extension", "kind", "files"}
 ALLOWED_CLIENT_FRAME_TYPES = {
     "ping",
     "chat",
