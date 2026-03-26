@@ -102,7 +102,7 @@ async def list_agents(
 async def get_active_run(
     current_user: CurrentUser,
     agent_name: str = Query(..., min_length=1),
-    graph_id: uuid.UUID,
+    graph_id: uuid.UUID = Query(...),
     thread_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[RunSummary | None]:
