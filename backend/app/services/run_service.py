@@ -44,7 +44,10 @@ class RunService:
         return agent_registry.list_definitions()
 
     def get_agent_definition(self, agent_name: str) -> AgentDefinition:
-        return agent_registry.get(agent_name)
+        try:
+            return agent_registry.get(agent_name)
+        except KeyError:
+            raise ValueError(f"Unknown agent: {agent_name}")
 
     def get_agent_display_name(self, agent_name: str | None) -> str | None:
         definition = agent_registry.find(agent_name)
@@ -61,7 +64,7 @@ class RunService:
         input: Optional[dict[str, Any]] = None,
         workspace_id: Optional[uuid.UUID] = None,
         source: str = "run_center",
-        run_type: str = "generic_agent",
+        run_type: Optional[str] = None,
     ) -> AgentRun:
         definition = self.get_agent_definition(agent_name)
         resolved_thread_id = thread_id or str(uuid.uuid4())
@@ -71,7 +74,7 @@ class RunService:
             workspace_id=workspace_id,
             graph_id=graph_id,
             thread_id=resolved_thread_id,
-            run_type=definition.run_type if run_type == "generic_agent" else run_type,
+            run_type=definition.run_type if run_type is None else run_type,
             agent_name=agent_name,
             source=source,
             status=AgentRunStatus.QUEUED,
@@ -82,6 +85,8 @@ class RunService:
                 "graph_id": str(graph_id),
                 "thread_id": resolved_thread_id,
                 "input": run_input,
+                # Legacy: spread run_input at top level so older consumers that
+                # read keys directly (e.g. edit_skill_id) continue to work.
                 **run_input,
             },
             last_heartbeat_at=utc_now(),

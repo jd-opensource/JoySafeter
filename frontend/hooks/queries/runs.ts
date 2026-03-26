@@ -61,9 +61,8 @@ export function useAgents() {
   return useQuery<AgentListResponse>({
     queryKey: runKeys.agents(),
     queryFn: () => runService.listAgents(),
-    staleTime: STALE_TIME.SHORT,
-    refetchInterval: 15000,
-    refetchOnWindowFocus: true,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
   })
 }
 

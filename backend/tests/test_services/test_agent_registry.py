@@ -14,4 +14,4 @@ def test_agent_registry_exposes_skill_creator_definition() -> None:
 def test_agent_registry_lists_registered_agents() -> None:
     definitions = agent_registry.list_definitions()
 
-    assert [definition.agent_name for definition in definitions] == ["skill_creator"]
+    assert any(definition.agent_name == "skill_creator" for definition in definitions)

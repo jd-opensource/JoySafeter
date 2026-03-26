@@ -61,6 +61,7 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         graph_id: uuid.UUID,
         thread_id: Optional[str] = None,
     ) -> Optional[AgentRun]:
+        # Legacy wrapper kept for backward compatibility with external callers.
         return await self.find_latest_active_run(
             user_id=user_id,
             agent_name="skill_creator",

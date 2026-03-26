@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
 from app.core.database import get_db
-from app.models.agent_run import AgentRunStatus
+from app.models.agent_run import AgentRun, AgentRunStatus
 from app.schemas import BaseResponse
 from app.schemas.runs import (
     AgentDefinitionResponse,
@@ -30,7 +30,7 @@ from app.utils.task_manager import task_manager
 router = APIRouter(prefix="/v1/runs", tags=["Runs"])
 
 
-def _to_run_summary(run) -> RunSummary:
+def _to_run_summary(run: AgentRun) -> RunSummary:
     definition = agent_registry.find(run.agent_name)
     return RunSummary(
         run_id=run.id,
@@ -58,7 +58,7 @@ async def list_runs(
     run_type: str | None = Query(None),
     agent_name: str | None = Query(None),
     status: str | None = Query(None),
-    search: str | None = Query(None),
+    search: str | None = Query(None, max_length=200),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[RunListResponse]:
@@ -101,7 +101,7 @@ async def list_agents(
 @router.get("/active", response_model=BaseResponse[RunSummary | None])
 async def get_active_run(
     current_user: CurrentUser,
-    agent_name: str,
+    agent_name: str = Query(..., min_length=1),
     graph_id: uuid.UUID,
     thread_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -144,14 +144,17 @@ async def create_run(
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[CreateRunResponse]:
     service = RunService(db)
-    run = await service.create_run(
-        user_id=str(current_user.id),
-        agent_name=request.agent_name,
-        graph_id=request.graph_id,
-        thread_id=request.thread_id,
-        message=request.message,
-        input=request.input,
-    )
+    try:
+        run = await service.create_run(
+            user_id=str(current_user.id),
+            agent_name=request.agent_name,
+            graph_id=request.graph_id,
+            thread_id=request.thread_id,
+            message=request.message,
+            input=request.input,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return BaseResponse(
         success=True,
         code=200,
