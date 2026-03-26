@@ -1,15 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { runService, type RunListResponse, type RunSummary } from '@/services/runService'
+import { runService, type AgentListResponse, type RunListResponse, type RunSummary } from '@/services/runService'
 
 import { STALE_TIME } from './constants'
 import { useWorkspaces } from './workspaces'
 
 export const runKeys = {
   all: ['runs'] as const,
-  list: (filters?: { runType?: string; status?: string; limit?: number }) =>
-    [...runKeys.all, 'list', filters?.runType || '', filters?.status || '', filters?.limit || 50] as const,
+  list: (filters?: { runType?: string; agentName?: string; status?: string; search?: string; limit?: number }) =>
+    [
+      ...runKeys.all,
+      'list',
+      filters?.runType || '',
+      filters?.agentName || '',
+      filters?.status || '',
+      filters?.search || '',
+      filters?.limit || 50,
+    ] as const,
+  agents: () => [...runKeys.all, 'agents'] as const,
   activeSkillCreator: (workspaceId: string) =>
     [...runKeys.all, 'active-skill-creator', workspaceId] as const,
 }
@@ -35,7 +44,7 @@ export function useActiveSkillCreatorRun() {
       if (!graphId) {
         return null
       }
-      return runService.findActiveSkillCreatorRun({ graphId })
+      return runService.findActiveRun({ agentName: 'skill_creator', graphId })
     },
     staleTime: STALE_TIME.SHORT,
     refetchInterval: 15000,
@@ -48,13 +57,31 @@ export function useActiveSkillCreatorRun() {
   }
 }
 
-export function useRuns(filters?: { runType?: string; status?: string; limit?: number }) {
+export function useAgents() {
+  return useQuery<AgentListResponse>({
+    queryKey: runKeys.agents(),
+    queryFn: () => runService.listAgents(),
+    staleTime: STALE_TIME.SHORT,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  })
+}
+
+export function useRuns(filters?: {
+  runType?: string
+  agentName?: string
+  status?: string
+  search?: string
+  limit?: number
+}) {
   return useQuery<RunListResponse>({
     queryKey: runKeys.list(filters),
     queryFn: () =>
       runService.listRuns({
         runType: filters?.runType,
+        agentName: filters?.agentName,
         status: filters?.status,
+        search: filters?.search,
         limit: filters?.limit,
       }),
     staleTime: STALE_TIME.SHORT,

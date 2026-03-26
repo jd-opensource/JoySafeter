@@ -61,10 +61,25 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         graph_id: uuid.UUID,
         thread_id: Optional[str] = None,
     ) -> Optional[AgentRun]:
+        return await self.find_latest_active_run(
+            user_id=user_id,
+            agent_name="skill_creator",
+            graph_id=graph_id,
+            thread_id=thread_id,
+        )
+
+    async def find_latest_active_run(
+        self,
+        *,
+        user_id: str,
+        agent_name: str,
+        graph_id: uuid.UUID,
+        thread_id: Optional[str] = None,
+    ) -> Optional[AgentRun]:
         active_statuses = (AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.INTERRUPT_WAIT)
         query = select(AgentRun).where(
             AgentRun.user_id == user_id,
-            AgentRun.run_type == "skill_creator",
+            AgentRun.agent_name == agent_name,
             AgentRun.graph_id == graph_id,
             AgentRun.status.in_(active_statuses),
         )
@@ -78,14 +93,20 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         *,
         user_id: str,
         run_type: Optional[str] = None,
+        agent_name: Optional[str] = None,
         status: Optional[str] = None,
+        search: Optional[str] = None,
         limit: int = 50,
     ) -> Sequence[AgentRun]:
         query = select(AgentRun).where(AgentRun.user_id == user_id)
         if run_type:
             query = query.where(AgentRun.run_type == run_type)
+        if agent_name:
+            query = query.where(AgentRun.agent_name == agent_name)
         if status:
             query = query.where(AgentRun.status == status)
+        if search:
+            query = query.where(AgentRun.title.ilike(f"%{search}%"))
         result = await self.db.execute(query.order_by(desc(AgentRun.updated_at)).limit(limit))
         return result.scalars().all()
 

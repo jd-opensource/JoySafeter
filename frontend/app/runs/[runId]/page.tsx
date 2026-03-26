@@ -20,7 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCancelRun } from '@/hooks/queries/runs'
 import { useTranslation } from '@/lib/i18n'
-import { ACTIVE_RUN_STATUSES, formatRunStatus } from '@/lib/utils/runHelpers'
+import { ACTIVE_RUN_STATUSES, buildRunHref, formatRunStatus } from '@/lib/utils/runHelpers'
 import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
 import type { RunEventFrame, RunSnapshotFrame, RunStatusFrame } from '@/lib/ws/runs/types'
 import type { RunEvent, RunSnapshot, RunSummary } from '@/services/runService'
@@ -32,13 +32,11 @@ function formatDateTime(value?: string | null): string {
 }
 
 function buildPrimaryHref(run: RunSummary): string | null {
-  if (run.run_type === 'skill_creator') {
-    return `/skills/creator?run=${encodeURIComponent(run.run_id)}`
-  }
-  return null
+  const href = buildRunHref(run)
+  return href === '#' ? null : href
 }
 
-function renderEventPayload(payload: Record<string, any>): string {
+function renderEventPayload(payload: Record<string, unknown>): string {
   try {
     return JSON.stringify(payload, null, 2)
   } catch {

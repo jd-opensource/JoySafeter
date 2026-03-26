@@ -49,6 +49,7 @@ class AgentRun(BaseModel):
     thread_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     run_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    agent_name: Mapped[str] = mapped_column(String(100), nullable=False)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[AgentRunStatus] = mapped_column(
         Enum(AgentRunStatus, values_callable=lambda e: [m.value for m in e], name="agentrunstatus"),
@@ -74,6 +75,7 @@ class AgentRun(BaseModel):
         Index("agent_runs_thread_created_idx", "thread_id", "created_at"),
         Index("agent_runs_graph_created_idx", "graph_id", "created_at"),
         Index("agent_runs_status_updated_idx", "status", "updated_at"),
+        Index("agent_runs_agent_updated_idx", "agent_name", "updated_at"),
         Index("agent_runs_owner_status_idx", "runtime_owner_id", "status"),
     )
 

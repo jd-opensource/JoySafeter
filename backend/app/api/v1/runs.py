@@ -12,6 +12,9 @@ from app.core.database import get_db
 from app.models.agent_run import AgentRunStatus
 from app.schemas import BaseResponse
 from app.schemas.runs import (
+    AgentDefinitionResponse,
+    AgentListResponse,
+    CreateRunRequest,
     CreateRunResponse,
     CreateSkillCreatorRunRequest,
     RunEventResponse,
@@ -20,6 +23,7 @@ from app.schemas.runs import (
     RunSnapshotResponse,
     RunSummary,
 )
+from app.services.run_reducers import agent_registry
 from app.services.run_service import RunService
 from app.utils.task_manager import task_manager
 
@@ -27,10 +31,13 @@ router = APIRouter(prefix="/v1/runs", tags=["Runs"])
 
 
 def _to_run_summary(run) -> RunSummary:
+    definition = agent_registry.find(run.agent_name)
     return RunSummary(
         run_id=run.id,
         status=run.status.value if hasattr(run.status, "value") else str(run.status),
         run_type=run.run_type,
+        agent_name=run.agent_name,
+        agent_display_name=definition.display_name if definition else run.agent_name,
         source=run.source,
         thread_id=run.thread_id,
         graph_id=run.graph_id,
@@ -49,7 +56,9 @@ def _to_run_summary(run) -> RunSummary:
 async def list_runs(
     current_user: CurrentUser,
     run_type: str | None = Query(None),
+    agent_name: str | None = Query(None),
     status: str | None = Query(None),
+    search: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[RunListResponse]:
@@ -57,7 +66,9 @@ async def list_runs(
     runs = await service.list_recent_runs(
         user_id=str(current_user.id),
         run_type=run_type,
+        agent_name=agent_name,
         status=status,
+        search=search,
         limit=limit,
     )
     return BaseResponse(
@@ -68,16 +79,37 @@ async def list_runs(
     )
 
 
-@router.get("/active/skill-creator", response_model=BaseResponse[RunSummary | None])
-async def get_active_skill_creator_run(
+@router.get("/agents", response_model=BaseResponse[AgentListResponse])
+async def list_agents(
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse[AgentListResponse]:
+    service = RunService(db)
+    return BaseResponse(
+        success=True,
+        code=200,
+        msg="ok",
+        data=AgentListResponse(
+            items=[
+                AgentDefinitionResponse(agent_name=definition.agent_name, display_name=definition.display_name)
+                for definition in await service.list_agents()
+            ]
+        ),
+    )
+
+
+@router.get("/active", response_model=BaseResponse[RunSummary | None])
+async def get_active_run(
+    current_user: CurrentUser,
+    agent_name: str,
     graph_id: uuid.UUID,
     thread_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[RunSummary | None]:
     service = RunService(db)
-    run = await service.find_latest_active_skill_creator_run(
+    run = await service.find_latest_active_run(
         user_id=str(current_user.id),
+        agent_name=agent_name,
         graph_id=graph_id,
         thread_id=thread_id,
     )
@@ -89,19 +121,36 @@ async def get_active_skill_creator_run(
     )
 
 
-@router.post("/skill-creator", response_model=BaseResponse[CreateRunResponse])
-async def create_skill_creator_run(
-    request: CreateSkillCreatorRunRequest,
+@router.get("/active/skill-creator", response_model=BaseResponse[RunSummary | None])
+async def get_active_skill_creator_run(
+    current_user: CurrentUser,
+    graph_id: uuid.UUID,
+    thread_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse[RunSummary | None]:
+    return await get_active_run(
+        current_user=current_user,
+        agent_name="skill_creator",
+        graph_id=graph_id,
+        thread_id=thread_id,
+        db=db,
+    )
+
+
+@router.post("", response_model=BaseResponse[CreateRunResponse])
+async def create_run(
+    request: CreateRunRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[CreateRunResponse]:
     service = RunService(db)
-    run = await service.create_skill_creator_run(
+    run = await service.create_run(
         user_id=str(current_user.id),
+        agent_name=request.agent_name,
         graph_id=request.graph_id,
         thread_id=request.thread_id,
         message=request.message,
-        edit_skill_id=request.edit_skill_id,
+        input=request.input,
     )
     return BaseResponse(
         success=True,
@@ -112,6 +161,25 @@ async def create_skill_creator_run(
             thread_id=run.thread_id or "",
             status=run.status.value if hasattr(run.status, "value") else str(run.status),
         ),
+    )
+
+
+@router.post("/skill-creator", response_model=BaseResponse[CreateRunResponse])
+async def create_skill_creator_run(
+    request: CreateSkillCreatorRunRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BaseResponse[CreateRunResponse]:
+    return await create_run(
+        request=CreateRunRequest(
+            agent_name="skill_creator",
+            graph_id=request.graph_id,
+            message=request.message,
+            thread_id=request.thread_id,
+            input={"edit_skill_id": request.edit_skill_id},
+        ),
+        current_user=current_user,
+        db=db,
     )
 
 

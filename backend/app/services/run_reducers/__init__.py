@@ -1,5 +1,17 @@
 """Run projection reducers."""
 
-from .skill_creator import apply_skill_creator_event
+from app.services.agent_registry import AgentDefinition, agent_registry
 
-__all__ = ["apply_skill_creator_event"]
+from .skill_creator import apply_skill_creator_event, make_initial_projection
+
+agent_registry.register(
+    AgentDefinition(
+        agent_name="skill_creator",
+        display_name="Skill Creator",
+        run_type="skill_creator",
+        reducer=apply_skill_creator_event,
+        make_initial_projection=make_initial_projection,
+    )
+)
+
+__all__ = ["agent_registry", "apply_skill_creator_event", "make_initial_projection"]

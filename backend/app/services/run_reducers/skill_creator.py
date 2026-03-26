@@ -27,6 +27,15 @@ def _deepcopy_projection(projection: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def make_initial_projection(payload: dict[str, Any], status: str) -> dict[str, Any]:
+    projection = _deepcopy_projection(None)
+    projection["status"] = status
+    projection["graph_id"] = payload.get("graph_id")
+    projection["thread_id"] = payload.get("thread_id")
+    projection["edit_skill_id"] = payload.get("edit_skill_id")
+    return projection
+
+
 def apply_skill_creator_event(
     projection: dict[str, Any] | None,
     *,
@@ -38,10 +47,14 @@ def apply_skill_creator_event(
     next_projection["status"] = status
 
     if event_type == "run_initialized":
-        next_projection["graph_id"] = payload.get("graph_id")
-        next_projection["thread_id"] = payload.get("thread_id")
-        next_projection["edit_skill_id"] = payload.get("edit_skill_id")
-        return next_projection
+        return make_initial_projection(
+            {
+                "graph_id": payload.get("graph_id"),
+                "thread_id": payload.get("thread_id"),
+                "edit_skill_id": payload.get("edit_skill_id"),
+            },
+            status,
+        )
 
     if event_type == "user_message_added":
         message = payload.get("message")

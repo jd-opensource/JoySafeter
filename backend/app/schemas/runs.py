@@ -16,10 +16,20 @@ class CreateSkillCreatorRunRequest(BaseModel):
     edit_skill_id: Optional[str] = Field(None, description="Existing skill id when editing")
 
 
+class CreateRunRequest(BaseModel):
+    agent_name: str = Field(..., description="Registered agent name")
+    graph_id: uuid.UUID = Field(..., description="Graph id")
+    message: str = Field(..., description="Initial user prompt")
+    thread_id: Optional[str] = Field(None, description="Existing thread id")
+    input: Optional[dict[str, Any]] = Field(None, description="Agent-specific input payload")
+
+
 class RunSummary(BaseModel):
     run_id: uuid.UUID
     status: str
     run_type: str
+    agent_name: str
+    agent_display_name: Optional[str] = None
     source: str
     thread_id: Optional[str] = None
     graph_id: Optional[uuid.UUID] = None
@@ -64,3 +74,12 @@ class RunEventsPageResponse(BaseModel):
 
 class RunListResponse(BaseModel):
     items: list[RunSummary]
+
+
+class AgentDefinitionResponse(BaseModel):
+    agent_name: str
+    display_name: str
+
+
+class AgentListResponse(BaseModel):
+    items: list[AgentDefinitionResponse]

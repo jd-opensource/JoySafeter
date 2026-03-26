@@ -1,13 +1,15 @@
 'use client'
 
-import { Activity, Bot, Clock3, Loader2, Sparkles, Square } from 'lucide-react'
+import { Activity, Bot, Clock3, Loader2, Search, Sparkles, Square } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { useCancelRun, useRuns } from '@/hooks/queries/runs'
+import { Input } from '@/components/ui/input'
+import { useAgents, useCancelRun, useRuns } from '@/hooks/queries/runs'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -33,8 +35,8 @@ function RunRow({
   isCancelling: boolean
 }) {
   const { t } = useTranslation()
-  const resumable = run.run_type === 'skill_creator'
   const href = buildRunHref(run)
+  const resumable = href !== '#'
   const isActive = ACTIVE_RUN_STATUSES.has(run.status)
 
   return (
@@ -59,8 +61,11 @@ function RunRow({
             >
               {formatRunStatus(run.status, t)}
             </Badge>
-            <Badge variant="outline" className="border-[var(--border)] bg-[var(--surface-2)] text-[10px] text-[var(--text-secondary)]">
-              {run.run_type}
+            <Badge
+              variant="outline"
+              className="border-[var(--border)] bg-[var(--surface-2)] text-[10px] text-[var(--text-secondary)]"
+            >
+              {run.agent_display_name || run.agent_name}
             </Badge>
           </div>
 
@@ -114,11 +119,55 @@ function RunRow({
 
 export default function RunsPage() {
   const { t } = useTranslation()
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'finished'>('all')
-  const { data, isLoading } = useRuns({ limit: 100 })
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const selectedAgent = searchParams.get('agent') || 'all'
+  const statusFilter = searchParams.get('status') || 'all'
+  const querySearch = searchParams.get('q') || ''
+  const [searchInput, setSearchInput] = useState(querySearch)
+  const { data: agentData } = useAgents()
+  const { data, isLoading } = useRuns({
+    agentName: selectedAgent !== 'all' ? selectedAgent : undefined,
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    search: querySearch || undefined,
+    limit: 100,
+  })
   const cancelRunMutation = useCancelRun()
   const runWsClientRef = useRef(getRunWsClient())
   const [liveRuns, setLiveRuns] = useState<RunSummary[]>([])
+  const statusOptions = ['all', 'queued', 'running', 'interrupt_wait', 'completed', 'failed', 'cancelled']
+
+  useEffect(() => {
+    setSearchInput(querySearch)
+  }, [querySearch])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (searchInput === querySearch) {
+        return
+      }
+      const nextParams = new URLSearchParams(searchParams.toString())
+      if (searchInput.trim()) {
+        nextParams.set('q', searchInput.trim())
+      } else {
+        nextParams.delete('q')
+      }
+      const nextQuery = nextParams.toString()
+      router.replace(nextQuery ? `/runs?${nextQuery}` : '/runs')
+    }, 250)
+    return () => window.clearTimeout(handle)
+  }, [querySearch, router, searchInput, searchParams])
+
+  function updateFilter(key: 'agent' | 'status', value: string) {
+    const nextParams = new URLSearchParams(searchParams.toString())
+    if (value === 'all') {
+      nextParams.delete(key)
+    } else {
+      nextParams.set(key, value)
+    }
+    const nextQuery = nextParams.toString()
+    router.replace(nextQuery ? `/runs?${nextQuery}` : '/runs')
+  }
 
   const runIds = useMemo(() => (data?.items || []).map((r) => r.run_id).join(','), [data?.items])
   useEffect(() => {
@@ -179,16 +228,7 @@ export default function RunsPage() {
     }
   }, [runIds])
 
-  const runs = useMemo(() => {
-    const items = liveRuns
-    if (statusFilter === 'active') {
-      return items.filter((run) => ACTIVE_RUN_STATUSES.has(run.status))
-    }
-    if (statusFilter === 'finished') {
-      return items.filter((run) => !ACTIVE_RUN_STATUSES.has(run.status))
-    }
-    return items
-  }, [liveRuns, statusFilter])
+  const runs = useMemo(() => liveRuns, [liveRuns])
 
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
@@ -206,28 +246,49 @@ export default function RunsPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="w-full max-w-xl">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+              <Input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder={t('runs.searchPlaceholder', 'Search run titles')}
+                className="pl-9"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant={statusFilter === 'all' ? 'default' : 'outline'}
+              variant={selectedAgent === 'all' ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setStatusFilter('all')}
+              onClick={() => updateFilter('agent', 'all')}
             >
-              {t('runs.filterAll', 'All')}
+              {t('runs.filterAllAgents', 'All Agents')}
             </Button>
-            <Button
-              variant={statusFilter === 'active' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setStatusFilter('active')}
-            >
-              {t('runs.filterActive', 'Active')}
-            </Button>
-            <Button
-              variant={statusFilter === 'finished' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setStatusFilter('finished')}
-            >
-              {t('runs.filterFinished', 'Finished')}
-            </Button>
+            {(agentData?.items || []).map((agent) => (
+              <Button
+                key={agent.agent_name}
+                variant={selectedAgent === agent.agent_name ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => updateFilter('agent', agent.agent_name)}
+              >
+                {agent.display_name}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {statusOptions.map((status) => (
+              <Button
+                key={status}
+                variant={statusFilter === status ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => updateFilter('status', status)}
+              >
+                {status === 'all' ? t('runs.filterAll', 'All') : formatRunStatus(status, t)}
+              </Button>
+            ))}
           </div>
         </div>
       </div>

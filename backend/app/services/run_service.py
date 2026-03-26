@@ -16,7 +16,8 @@ from app.core.redis import RedisClient
 from app.core.settings import settings
 from app.models.agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
 from app.repositories.agent_run import AgentRunRepository
-from app.services.run_reducers import apply_skill_creator_event
+from app.services.agent_registry import AgentDefinition
+from app.services.run_reducers import agent_registry
 from app.utils.datetime import utc_now
 from app.websocket.run_subscription_manager import run_subscription_manager
 
@@ -39,31 +40,49 @@ class RunService:
         self.db = db
         self.repo = AgentRunRepository(db)
 
-    async def create_skill_creator_run(
+    async def list_agents(self) -> list[AgentDefinition]:
+        return agent_registry.list_definitions()
+
+    def get_agent_definition(self, agent_name: str) -> AgentDefinition:
+        return agent_registry.get(agent_name)
+
+    def get_agent_display_name(self, agent_name: str | None) -> str | None:
+        definition = agent_registry.find(agent_name)
+        return definition.display_name if definition else agent_name
+
+    async def create_run(
         self,
         *,
         user_id: str,
+        agent_name: str,
         graph_id: uuid.UUID,
         thread_id: Optional[str],
         message: str,
-        edit_skill_id: Optional[str],
+        input: Optional[dict[str, Any]] = None,
         workspace_id: Optional[uuid.UUID] = None,
+        source: str = "run_center",
+        run_type: str = "generic_agent",
     ) -> AgentRun:
+        definition = self.get_agent_definition(agent_name)
         resolved_thread_id = thread_id or str(uuid.uuid4())
+        run_input = dict(input or {})
         run = AgentRun(
             user_id=user_id,
             workspace_id=workspace_id,
             graph_id=graph_id,
             thread_id=resolved_thread_id,
-            run_type="skill_creator",
-            source="skills_creator_page",
+            run_type=definition.run_type if run_type == "generic_agent" else run_type,
+            agent_name=agent_name,
+            source=source,
             status=AgentRunStatus.QUEUED,
-            title=message[:100] if message else "Skill Creator",
+            title=message[:100] if message else definition.display_name,
             request_payload={
+                "agent_name": agent_name,
                 "message": message,
                 "graph_id": str(graph_id),
                 "thread_id": resolved_thread_id,
-                "edit_skill_id": edit_skill_id,
+                "input": run_input,
+                **run_input,
             },
             last_heartbeat_at=utc_now(),
         )
@@ -74,15 +93,13 @@ class RunService:
             run_id=run.id,
             last_seq=0,
             status=run.status.value,
-            projection=apply_skill_creator_event(
-                None,
-                event_type="run_initialized",
-                payload={
+            projection=definition.make_initial_projection(
+                {
                     "graph_id": str(graph_id),
                     "thread_id": resolved_thread_id,
-                    "edit_skill_id": edit_skill_id,
+                    **run_input,
                 },
-                status=run.status.value,
+                run.status.value,
             ),
         )
         self.db.add(snapshot)
@@ -109,6 +126,27 @@ class RunService:
         )
         return run
 
+    async def create_skill_creator_run(
+        self,
+        *,
+        user_id: str,
+        graph_id: uuid.UUID,
+        thread_id: Optional[str],
+        message: str,
+        edit_skill_id: Optional[str],
+        workspace_id: Optional[uuid.UUID] = None,
+    ) -> AgentRun:
+        return await self.create_run(
+            user_id=user_id,
+            agent_name="skill_creator",
+            graph_id=graph_id,
+            thread_id=thread_id,
+            message=message,
+            input={"edit_skill_id": edit_skill_id},
+            workspace_id=workspace_id,
+            source="skills_creator_page",
+        )
+
     async def get_run(self, run_id: uuid.UUID, user_id: str) -> Optional[AgentRun]:
         return await self.repo.get_by_id_and_user(run_id, user_id)
 
@@ -129,8 +167,24 @@ class RunService:
     async def find_latest_active_skill_creator_run(
         self, *, user_id: str, graph_id: uuid.UUID, thread_id: Optional[str] = None
     ) -> Optional[AgentRun]:
-        return await self.repo.find_latest_active_skill_creator_run(
+        return await self.find_latest_active_run(
             user_id=user_id,
+            agent_name="skill_creator",
+            graph_id=graph_id,
+            thread_id=thread_id,
+        )
+
+    async def find_latest_active_run(
+        self,
+        *,
+        user_id: str,
+        agent_name: str,
+        graph_id: uuid.UUID,
+        thread_id: Optional[str] = None,
+    ) -> Optional[AgentRun]:
+        return await self.repo.find_latest_active_run(
+            user_id=user_id,
+            agent_name=agent_name,
             graph_id=graph_id,
             thread_id=thread_id,
         )
@@ -140,14 +194,18 @@ class RunService:
         *,
         user_id: str,
         run_type: Optional[str] = None,
+        agent_name: Optional[str] = None,
         status: Optional[str] = None,
+        search: Optional[str] = None,
         limit: int = 50,
     ) -> list[AgentRun]:
         return list(
             await self.repo.list_recent_runs_for_user(
                 user_id=user_id,
                 run_type=run_type,
+                agent_name=agent_name,
                 status=status,
+                search=search,
                 limit=limit,
             )
         )
@@ -318,8 +376,9 @@ class RunService:
             )
             self.db.add(snapshot)
 
-        if run.run_type == "skill_creator":
-            snapshot.projection = apply_skill_creator_event(
+        definition = agent_registry.find(run.agent_name)
+        if definition is not None:
+            snapshot.projection = definition.reducer(
                 snapshot.projection,
                 event_type=event_type,
                 payload=payload,
