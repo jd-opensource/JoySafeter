@@ -2,9 +2,9 @@
 
 import asyncio
 import json
+import sys
 import time
 import uuid as uuid_lib
-from dataclasses import dataclass
 from typing import Any, cast
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -36,19 +36,11 @@ from app.utils.stream_event_handler import StreamEventHandler, StreamState
 from app.utils.task_manager import task_manager
 from app.websocket.chat_commands import (
     ChatTurnCommand,
-    SkillCreatorTurnCommand,
     build_command_from_parsed_frame,
 )
 from app.websocket.chat_protocol import ChatProtocolError, ParsedChatStartFrame, parse_client_frame
-
-
-@dataclass
-class ChatTaskEntry:
-    thread_id: str | None
-    task: asyncio.Task[Any]
-    heartbeat_task: asyncio.Task[Any] | None = None
-    run_id: uuid_lib.UUID | None = None
-    persist_on_disconnect: bool = False
+from app.websocket.chat_task_supervisor import ChatTaskEntry, ChatTaskSupervisor
+from app.websocket.chat_turn_executor import ChatTurnExecutor
 
 
 class ChatWsHandler:
@@ -57,7 +49,11 @@ class ChatWsHandler:
     def __init__(self, user_id: str, websocket: WebSocket):
         self.user_id = user_id
         self.websocket = websocket
-        self._tasks: dict[str, ChatTaskEntry] = {}
+        self._task_supervisor = ChatTaskSupervisor(
+            stop_task=lambda thread_id: task_manager.stop_task(thread_id),
+        )
+        self._tasks = self._task_supervisor.tasks
+        self._turn_executor = ChatTurnExecutor(handler=self, dependencies=cast(Any, sys.modules[__name__]))
         self._send_lock = asyncio.Lock()
         self._socket_connected = True
         self._runtime_owner_id = settings.run_runtime_instance_id
@@ -118,17 +114,18 @@ class ChatWsHandler:
         await self._start_turn_from_command(command)
 
     async def _start_turn_from_command(self, command: ChatTurnCommand) -> None:
-        request_id = str(command.request_id or "")
-        message = str(command.message or "")
-        thread_key = str(command.thread_id) if command.thread_id else None
+        prepared = self._turn_executor.prepare_standard_turn(command)
+        request_id = prepared.request_id
+        message = prepared.payload.message
+        thread_key = prepared.payload.thread_id
 
         if not request_id or not message.strip():
             await self._send({"type": "ws_error", "message": "request_id and message are required"})
             return
-        if request_id in self._tasks:
+        if self._task_supervisor.has_request(request_id):
             await self._send({"type": "ws_error", "message": "duplicate request_id"})
             return
-        if thread_key and self._is_thread_active(thread_key):
+        if thread_key and self._task_supervisor.is_thread_active(thread_key):
             await self._send(
                 {
                     "type": "ws_error",
@@ -138,37 +135,16 @@ class ChatWsHandler:
             )
             return
 
-        metadata = dict(command.metadata or {})
-        if command.files:
-            metadata["files"] = command.files
-
-        agent_run_id: uuid_lib.UUID | None = None
-        persist = False
-        if isinstance(command, SkillCreatorTurnCommand):
-            agent_run_id = self._parse_uuid(command.run_id)
-            persist = agent_run_id is not None
-            if command.edit_skill_id and "edit_skill_id" not in metadata:
-                metadata["edit_skill_id"] = command.edit_skill_id
-
-        graph_id = command.graph_id
-
         async def runner() -> None:
-            await self._run_chat_turn(
-                request_id=request_id,
-                payload=ChatRequest(
-                    message=message,
-                    thread_id=thread_key,
-                    graph_id=graph_id,
-                    metadata=metadata,
-                ),
-            )
+            await self._turn_executor.run_standard_turn(prepared)
 
-        task = asyncio.create_task(runner(), name=f"chat-ws:{request_id}")
-        self._tasks[request_id] = ChatTaskEntry(
+        self._task_supervisor.create_task(
+            request_id,
+            runner(),
+            name=f"chat-ws:{request_id}",
             thread_id=thread_key,
-            task=task,
-            run_id=agent_run_id,
-            persist_on_disconnect=persist,
+            run_id=prepared.run_id,
+            persist_on_disconnect=prepared.persist_on_disconnect,
         )
 
     async def _handle_resume(self, frame: dict[str, Any]) -> None:
@@ -180,10 +156,10 @@ class ChatWsHandler:
         if not request_id or not thread_id:
             await self._send({"type": "ws_error", "message": "request_id and thread_id are required"})
             return
-        if request_id in self._tasks:
+        if self._task_supervisor.has_request(request_id):
             await self._send({"type": "ws_error", "message": "duplicate request_id"})
             return
-        if self._is_thread_active(thread_id):
+        if self._task_supervisor.is_thread_active(thread_id):
             await self._send(
                 {
                     "type": "ws_error",
@@ -194,30 +170,21 @@ class ChatWsHandler:
             return
 
         async def runner() -> None:
-            await self._run_resume_turn(request_id=request_id, thread_id=thread_id, command=command)
+            await self._turn_executor.run_resume_turn(request_id=request_id, thread_id=thread_id, command=command)
 
-        task = asyncio.create_task(runner(), name=f"chat-ws-resume:{request_id}")
-        self._tasks[request_id] = ChatTaskEntry(thread_id=thread_id, task=task)
+        self._task_supervisor.create_task(
+            request_id,
+            runner(),
+            name=f"chat-ws-resume:{request_id}",
+            thread_id=thread_id,
+        )
 
     async def _handle_stop(self, frame: dict[str, Any]) -> None:
         request_id = str(frame.get("request_id") or "")
         if not request_id:
             return
 
-        entry = self._tasks.get(request_id)
-        if entry is None:
-            return
-
-        thread_id = entry.thread_id
-        task = entry.task
-        if thread_id:
-            try:
-                await task_manager.stop_task(thread_id)
-            except Exception:
-                pass
-        task.cancel()
-        if entry.heartbeat_task is not None:
-            entry.heartbeat_task.cancel()
+        await self._task_supervisor.stop_by_request_id(request_id)
 
     @staticmethod
     def _parse_uuid(value: Any) -> uuid_lib.UUID | None:
@@ -381,547 +348,10 @@ class ChatWsHandler:
         await self._send(outbound, tolerate_disconnect=tolerate_disconnect)
 
     async def _run_chat_turn(self, request_id: str, payload: ChatRequest) -> None:
-        state: StreamState | None = None
-        thread_id: str | None = None
-        built_graph = None
-        graph_workspace_id: str | None = None
-        graph_display_name: str | None = None
-        artifact_collector = ArtifactCollector()
-        task_entry = self._tasks.get(request_id)
-        agent_run_id = task_entry.run_id if task_entry else None
-        tolerate_disconnect = bool(task_entry and task_entry.persist_on_disconnect)
-        assistant_message_id = f"msg-assistant-{uuid_lib.uuid4()}"
-
-        try:
-            file_emitter = FileEventEmitter()
-            async with AsyncSessionLocal() as db:
-                thread_id, _ = await get_or_create_conversation(
-                    payload.thread_id,
-                    payload.message,
-                    self.user_id,
-                    payload.metadata,
-                    db,
-                )
-                await save_user_message(thread_id, payload.message, payload.metadata, db)
-                config, base_context, llm_params = await get_user_config(self.user_id, thread_id, db)
-
-                initial_context = base_context.copy()
-                if payload.graph_id:
-                    from app.repositories.graph import GraphRepository
-
-                    graph_repo = GraphRepository(db)
-                    graph_model = await graph_repo.get(payload.graph_id)
-                    if graph_model:
-                        ws_id = getattr(graph_model, "workspace_id", None)
-                        graph_workspace_id = str(ws_id) if ws_id else None
-                        graph_display_name = getattr(graph_model, "name", None) or getattr(graph_model, "title", None)
-                    if graph_model and graph_model.variables:
-                        context_vars = graph_model.variables.get("context", {})
-                        if context_vars:
-                            for key, value in context_vars.items():
-                                if isinstance(value, dict) and "value" in value:
-                                    initial_context[key] = value["value"]
-                                else:
-                                    initial_context[key] = value
-
-                graph_service = GraphService(db)
-                if payload.graph_id is None:
-                    built_graph = await graph_service.create_default_deep_agents_graph(
-                        llm_model=llm_params["llm_model"],
-                        api_key=llm_params["api_key"],
-                        base_url=llm_params["base_url"],
-                        max_tokens=llm_params["max_tokens"],
-                        user_id=self.user_id,
-                        file_emitter=file_emitter,
-                    )
-                else:
-                    from app.repositories.user import UserRepository
-
-                    user_repo = UserRepository(db)
-                    current_user = await user_repo.get_by_id(self.user_id)
-                    built_graph = await graph_service.create_graph_by_graph_id(
-                        graph_id=payload.graph_id,
-                        llm_model=llm_params["llm_model"],
-                        api_key=llm_params["api_key"],
-                        base_url=llm_params["base_url"],
-                        max_tokens=llm_params["max_tokens"],
-                        user_id=self.user_id,
-                        current_user=current_user,
-                        file_emitter=file_emitter,
-                        thread_id=thread_id,
-                    )
-            # Phase 2: streaming — DB session is closed, no connection held
-
-            state = StreamState(thread_id)
-            current_task = asyncio.current_task()
-            if current_task is None:
-                raise RuntimeError("missing current asyncio task")
-            self._tasks[request_id] = ChatTaskEntry(
-                thread_id=thread_id,
-                task=current_task,
-                run_id=agent_run_id,
-                persist_on_disconnect=tolerate_disconnect,
-            )
-            await task_manager.register_task(thread_id, current_task)
-
-            if agent_run_id is not None:
-                await self._mark_run_status(
-                    run_id=agent_run_id,
-                    status=AgentRunStatus.RUNNING,
-                    runtime_owner_id=self._runtime_owner_id,
-                )
-                heartbeat_task = asyncio.create_task(
-                    self._run_persisted_run_heartbeat(agent_run_id),
-                    name=f"run-heartbeat:{agent_run_id}",
-                )
-                current_entry = self._tasks.get(request_id)
-                if current_entry is not None:
-                    current_entry.heartbeat_task = heartbeat_task
-                await self._append_run_event(
-                    run_id=agent_run_id,
-                    event_type="assistant_message_started",
-                    payload={
-                        "message": {
-                            "id": assistant_message_id,
-                            "role": "assistant",
-                            "content": "",
-                            "timestamp": int(time.time() * 1000),
-                            "tool_calls": [],
-                        }
-                    },
-                )
-
-            await self._send(
-                {
-                    "type": "accepted",
-                    "request_id": request_id,
-                    "thread_id": thread_id,
-                    "run_id": str(agent_run_id) if agent_run_id is not None else None,
-                    "timestamp": int(time.time() * 1000),
-                    "data": {"status": "accepted"},
-                },
-                tolerate_disconnect=tolerate_disconnect,
-            )
-
-            handler = StreamEventHandler()
-            artifact_collector.ensure_run_dir(self.user_id, thread_id, state.artifact_run_id)
-
-            await self._send_event_from_sse(
-                handler.format_sse("status", {"status": "connected", "_meta": {"node_name": "system"}}, thread_id),
-                request_id,
-                tolerate_disconnect=tolerate_disconnect,
-                agent_run_id=agent_run_id,
-                assistant_message_id=assistant_message_id,
-            )
-
-            enriched_message = _enrich_message(
-                payload.message,
-                payload.metadata,
-                is_new_thread=(payload.thread_id is None),
-                log=logger.bind(user_id=self.user_id, thread_id=thread_id),
-                endpoint="Chat WS",
-            )
-
-            interrupted = False
-            async for event in built_graph.astream_events(
-                {"messages": [HumanMessage(content=enriched_message)], "context": initial_context},
-                config=config,
-                version="v2",
-            ):
-                if await task_manager.is_stopped(thread_id):
-                    state.stopped = True
-                    break
-
-                async for sse_str in _dispatch_stream_event(event, handler, state, file_emitter):
-                    await self._send_event_from_sse(
-                        sse_str,
-                        request_id,
-                        tolerate_disconnect=tolerate_disconnect,
-                        agent_run_id=agent_run_id,
-                        assistant_message_id=assistant_message_id,
-                    )
-
-            try:
-                snap = await safe_get_state(built_graph, config, max_retries=3, initial_delay=0.1, log=logger)
-                if snap.tasks:
-                    next_node = snap.tasks[0].target if snap.tasks else None
-                    current_state = snap.values or {}
-                    if payload.graph_id is None:
-                        logger.warning(f"Default agent interrupted, resume not supported | thread_id={thread_id}")
-                    else:
-                        await self._emit_event(
-                            {
-                                "type": "interrupt",
-                                "thread_id": thread_id,
-                                "node_name": next_node or "unknown",
-                                "node_label": next_node.replace("_", " ").title() if next_node else "Unknown Node",
-                                "data": {
-                                    "node_name": next_node or "unknown",
-                                    "node_label": next_node.replace("_", " ").title() if next_node else "Unknown Node",
-                                    "state": current_state,
-                                    "thread_id": thread_id,
-                                },
-                            },
-                            request_id=request_id,
-                            tolerate_disconnect=tolerate_disconnect,
-                            agent_run_id=agent_run_id,
-                            assistant_message_id=assistant_message_id,
-                        )
-                        async with AsyncSessionLocal() as session:
-                            result_query = await session.execute(
-                                select(Conversation).where(Conversation.thread_id == thread_id)
-                            )
-                            if conv := result_query.scalar_one_or_none():
-                                if not conv.meta_data:
-                                    conv.meta_data = {}
-                                conv.meta_data["interrupted_graph_id"] = str(payload.graph_id)
-                                await session.commit()
-                        state.interrupted = True
-                        state.interrupt_node = next_node
-                        state.interrupt_state = current_state
-                        interrupted = True
-            except Exception as exc:
-                logger.warning(f"Failed to inspect interrupt state | thread_id={thread_id} | error={exc}")
-
-            if state and not state.all_messages and not state.stopped and not interrupted:
-                try:
-                    snap = await safe_get_state(built_graph, config, max_retries=2, initial_delay=0.05, log=logger)
-                    if snap.values and "messages" in snap.values:
-                        msgs = snap.values["messages"]
-                        from langgraph.types import Overwrite
-
-                        state.all_messages = msgs.value if isinstance(msgs, Overwrite) else msgs
-                except Exception as exc:
-                    logger.warning(f"Failed to fetch final state | thread_id={thread_id} | error={exc}")
-
-            if state.interrupted:
-                return
-
-            if state.stopped:
-                await self._emit_event(
-                    {
-                        "type": "error",
-                        "thread_id": thread_id,
-                        "node_name": "system",
-                        "run_id": "",
-                        "timestamp": int(time.time() * 1000),
-                        "data": {"message": "Stopped by user", "code": "stopped"},
-                    },
-                    request_id=request_id,
-                    tolerate_disconnect=tolerate_disconnect,
-                    agent_run_id=agent_run_id,
-                    assistant_message_id=assistant_message_id,
-                )
-
-            await self._emit_event(
-                {
-                    "type": "done",
-                    "thread_id": thread_id,
-                    "node_name": "system",
-                    "run_id": "",
-                    "timestamp": int(time.time() * 1000),
-                    "data": {},
-                },
-                request_id=request_id,
-                tolerate_disconnect=tolerate_disconnect,
-                agent_run_id=agent_run_id,
-                assistant_message_id=assistant_message_id,
-            )
-
-        except asyncio.CancelledError:
-            if state is not None:
-                state.stopped = True
-            try:
-                await self._emit_event(
-                    {
-                        "type": "done",
-                        "thread_id": thread_id or payload.thread_id or "",
-                        "node_name": "system",
-                        "run_id": "",
-                        "timestamp": int(time.time() * 1000),
-                        "data": {},
-                    },
-                    request_id=request_id,
-                    tolerate_disconnect=tolerate_disconnect,
-                    agent_run_id=agent_run_id,
-                    assistant_message_id=assistant_message_id,
-                )
-            except Exception:
-                pass
-            raise
-        except Exception as exc:
-            if state is not None and not (GraphBubbleUp is not None and type(exc) is GraphBubbleUp):
-                state.has_error = True
-            await self._emit_event(
-                {
-                    "type": "error",
-                    "thread_id": thread_id or payload.thread_id or "",
-                    "node_name": "system",
-                    "run_id": "",
-                    "timestamp": int(time.time() * 1000),
-                    "data": {"message": str(exc)},
-                },
-                request_id=request_id,
-                tolerate_disconnect=tolerate_disconnect,
-                agent_run_id=agent_run_id,
-                assistant_message_id=assistant_message_id,
-            )
-            await self._emit_event(
-                {
-                    "type": "done",
-                    "thread_id": thread_id or payload.thread_id or "",
-                    "node_name": "system",
-                    "run_id": "",
-                    "timestamp": int(time.time() * 1000),
-                    "data": {},
-                },
-                request_id=request_id,
-                tolerate_disconnect=tolerate_disconnect,
-                agent_run_id=agent_run_id,
-                assistant_message_id=assistant_message_id,
-            )
-        finally:
-            await self._finalize_task(
-                request_id=request_id,
-                thread_id=thread_id,
-                state=state,
-                built_graph=built_graph,
-                artifact_collector=artifact_collector,
-                graph_id=str(payload.graph_id) if payload.graph_id else None,
-                workspace_id=graph_workspace_id,
-                graph_name=graph_display_name,
-            )
+        await self._turn_executor.execute_standard_turn(request_id=request_id, payload=payload)
 
     async def _run_resume_turn(self, request_id: str, thread_id: str, command: dict[str, Any]) -> None:
-        state: StreamState | None = None
-        built_graph = None
-        graph_workspace_id: str | None = None
-        graph_display_name: str | None = None
-        graph_id = None
-        config = None
-        handler = None
-        ws_command = None
-
-        try:
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    select(Conversation).where(
-                        Conversation.thread_id == thread_id, Conversation.user_id == self.user_id
-                    )
-                )
-                conversation = result.scalar_one_or_none()
-                if not conversation:
-                    await self._send(
-                        {"type": "ws_error", "request_id": request_id, "message": "conversation not found"}
-                    )
-                    return
-
-                if (
-                    conversation.meta_data
-                    and isinstance(conversation.meta_data, dict)
-                    and "interrupted_graph_id" in conversation.meta_data
-                ):
-                    try:
-                        graph_id = uuid_lib.UUID(str(conversation.meta_data["interrupted_graph_id"]))
-                    except (ValueError, TypeError):
-                        graph_id = None
-
-                if graph_id is None:
-                    await self._send({"type": "ws_error", "request_id": request_id, "message": "graph id not found"})
-                    return
-
-                config, _, llm_params = await get_user_config(self.user_id, thread_id, db)
-
-                from langgraph.types import Command
-
-                from app.repositories.graph import GraphRepository
-                from app.repositories.user import UserRepository
-
-                graph_repo = GraphRepository(db)
-                graph_model = await graph_repo.get(graph_id)
-                if graph_model:
-                    ws_id = getattr(graph_model, "workspace_id", None)
-                    graph_workspace_id = str(ws_id) if ws_id else None
-                    graph_display_name = getattr(graph_model, "name", None) or getattr(graph_model, "title", None)
-
-                user_repo = UserRepository(db)
-                current_user = await user_repo.get_by_id(self.user_id)
-
-                graph_service = GraphService(db)
-                built_graph = await graph_service.create_graph_by_graph_id(
-                    graph_id=graph_id,
-                    llm_model=llm_params["llm_model"],
-                    api_key=llm_params["api_key"],
-                    base_url=llm_params["base_url"],
-                    max_tokens=llm_params["max_tokens"],
-                    user_id=self.user_id,
-                    current_user=current_user,
-                )
-
-                snap = await safe_get_state(built_graph, config, max_retries=3, initial_delay=0.1, log=logger)
-                if not snap.tasks:
-                    await self._send(
-                        {"type": "ws_error", "request_id": request_id, "message": "no interrupt state found"}
-                    )
-                    return
-
-                state = StreamState(thread_id)
-                current_task = asyncio.current_task()
-                if current_task is None:
-                    raise RuntimeError("missing current asyncio task")
-                self._tasks[request_id] = ChatTaskEntry(thread_id=thread_id, task=current_task)
-                await task_manager.register_task(thread_id, current_task)
-            # Phase 2: streaming — DB session is closed, no connection held
-
-            await self._send(
-                {
-                    "type": "accepted",
-                    "request_id": request_id,
-                    "thread_id": thread_id,
-                    "timestamp": int(time.time() * 1000),
-                    "data": {"status": "accepted"},
-                }
-            )
-
-            handler = StreamEventHandler()
-            ws_command = Command(
-                update=command.get("update") or {},
-                goto=command.get("goto") or None,
-            )
-
-            await self._send_event_from_sse(
-                handler.format_sse("status", {"status": "resumed", "_meta": {"node_name": "system"}}, thread_id),
-                request_id,
-            )
-
-            interrupted = False
-            async for event in built_graph.astream_events(ws_command, config=config, version="v2"):
-                if await task_manager.is_stopped(thread_id):
-                    state.stopped = True
-                    break
-                async for sse_str in _dispatch_stream_event(event, handler, state):
-                    await self._send_event_from_sse(sse_str, request_id)
-
-            try:
-                snap = await safe_get_state(built_graph, config, max_retries=3, initial_delay=0.1, log=logger)
-                if snap.tasks:
-                    next_node = snap.tasks[0].target if snap.tasks else None
-                    current_state = snap.values or {}
-                    await self._send(
-                        {
-                            "type": "interrupt",
-                            "request_id": request_id,
-                            "thread_id": thread_id,
-                            "node_name": next_node or "unknown",
-                            "node_label": next_node.replace("_", " ").title() if next_node else "Unknown Node",
-                            "data": {
-                                "node_name": next_node or "unknown",
-                                "node_label": next_node.replace("_", " ").title() if next_node else "Unknown Node",
-                                "state": current_state,
-                                "thread_id": thread_id,
-                            },
-                        }
-                    )
-                    state.interrupted = True
-                    state.interrupt_node = next_node
-                    state.interrupt_state = current_state
-                    interrupted = True
-            except Exception as exc:
-                logger.warning(f"Failed to inspect resume interrupt state | thread_id={thread_id} | error={exc}")
-
-            if not state.all_messages and not state.stopped and not interrupted:
-                try:
-                    snap = await safe_get_state(built_graph, config, max_retries=2, initial_delay=0.05, log=logger)
-                    if snap.values and "messages" in snap.values:
-                        msgs = snap.values["messages"]
-                        from langgraph.types import Overwrite
-
-                        state.all_messages = msgs.value if isinstance(msgs, Overwrite) else msgs
-                except Exception as exc:
-                    logger.warning(f"Failed to fetch final resume state | thread_id={thread_id} | error={exc}")
-
-            if state.interrupted:
-                return
-
-            if state.stopped:
-                await self._send(
-                    {
-                        "type": "error",
-                        "request_id": request_id,
-                        "thread_id": thread_id,
-                        "node_name": "system",
-                        "run_id": "",
-                        "timestamp": int(time.time() * 1000),
-                        "data": {"message": "Stopped by user", "code": "stopped"},
-                    }
-                )
-
-            await self._send(
-                {
-                    "type": "done",
-                    "request_id": request_id,
-                    "thread_id": thread_id,
-                    "node_name": "system",
-                    "run_id": "",
-                    "timestamp": int(time.time() * 1000),
-                    "data": {},
-                }
-            )
-
-        except asyncio.CancelledError:
-            if state is not None:
-                state.stopped = True
-            try:
-                await self._send(
-                    {
-                        "type": "done",
-                        "request_id": request_id,
-                        "thread_id": thread_id,
-                        "node_name": "system",
-                        "run_id": "",
-                        "timestamp": int(time.time() * 1000),
-                        "data": {},
-                    }
-                )
-            except Exception:
-                pass
-            raise
-        except Exception as exc:
-            if state is not None and not (GraphBubbleUp is not None and type(exc) is GraphBubbleUp):
-                state.has_error = True
-            await self._send(
-                {
-                    "type": "error",
-                    "request_id": request_id,
-                    "thread_id": thread_id,
-                    "node_name": "system",
-                    "run_id": "",
-                    "timestamp": int(time.time() * 1000),
-                    "data": {"message": str(exc)},
-                }
-            )
-            await self._send(
-                {
-                    "type": "done",
-                    "request_id": request_id,
-                    "thread_id": thread_id,
-                    "node_name": "system",
-                    "run_id": "",
-                    "timestamp": int(time.time() * 1000),
-                    "data": {},
-                }
-            )
-        finally:
-            await self._finalize_task(
-                request_id=request_id,
-                thread_id=thread_id,
-                state=state,
-                built_graph=built_graph,
-                artifact_collector=None,
-                graph_id=str(graph_id) if graph_id else None,
-                workspace_id=graph_workspace_id,
-                graph_name=graph_display_name,
-            )
+        await self._turn_executor.execute_resume_turn(request_id=request_id, thread_id=thread_id, command=command)
 
     async def _finalize_task(
         self,
@@ -935,16 +365,8 @@ class ChatWsHandler:
         workspace_id: str | None,
         graph_name: str | None,
     ) -> None:
-        task_entry = self._tasks.pop(request_id, None)
+        task_entry = await self._task_supervisor.finalize(request_id)
         agent_run_id = task_entry.run_id if task_entry else None
-        heartbeat_task = task_entry.heartbeat_task if task_entry else None
-
-        if heartbeat_task is not None:
-            heartbeat_task.cancel()
-            try:
-                await heartbeat_task
-            except asyncio.CancelledError:
-                pass
 
         if thread_id:
             try:
@@ -1118,27 +540,7 @@ class ChatWsHandler:
             raise WebSocketDisconnect()
 
     def _is_thread_active(self, thread_id: str) -> bool:
-        return any(entry.thread_id == thread_id for entry in self._tasks.values())
+        return self._task_supervisor.is_thread_active(thread_id)
 
     async def _cancel_all_tasks(self) -> None:
-        tasks = list(self._tasks.items())
-        retained: dict[str, ChatTaskEntry] = {}
-        cancellable: list[tuple[str | None, asyncio.Task[Any]]] = []
-        for request_id, entry in tasks:
-            if entry.persist_on_disconnect:
-                retained[request_id] = entry
-                continue
-            cancellable.append((entry.thread_id, entry.task))
-        self._tasks = retained
-        for thread_id, task in cancellable:
-            if thread_id:
-                try:
-                    await task_manager.stop_task(thread_id)
-                except Exception:
-                    pass
-            task.cancel()
-        for _, task in cancellable:
-            try:
-                await task
-            except BaseException:
-                pass
+        await self._task_supervisor.cancel_all()

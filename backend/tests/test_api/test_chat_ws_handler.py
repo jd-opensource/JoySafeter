@@ -87,6 +87,18 @@ async def test_malformed_chat_start_returns_protocol_error() -> None:
     assert error.get("request_id") == "req-bad"
 
 
+@pytest.mark.asyncio
+async def test_protocol_error_does_not_register_task() -> None:
+    handler, ws = make_handler()
+
+    with patch.object(handler._task_supervisor, "register", wraps=handler._task_supervisor.register) as mock_register:
+        await handler._handle_frame(json.dumps({"type": "chat.start", "request_id": "req-bad"}))
+
+    errors = ws.frames_of_type("ws_error")
+    assert errors, "malformed frame must emit ws_error"
+    mock_register.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Duplicate request guard
 # ---------------------------------------------------------------------------
@@ -112,6 +124,33 @@ async def test_duplicate_request_id_sends_ws_error() -> None:
     errors = ws.frames_of_type("ws_error")
     assert errors, "expected ws_error for duplicate request_id"
     assert "duplicate" in errors[0].get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_direct_task_insertion_keeps_thread_active_guard() -> None:
+    handler, ws = make_handler()
+    fake_task = MagicMock(spec=asyncio.Task)
+    handler._tasks["req-existing"] = ChatTaskEntry(thread_id="thread-1", task=fake_task)
+
+    await handler._handle_frame(
+        json.dumps(
+            {
+                "type": "chat.start",
+                "request_id": "req-next",
+                "thread_id": "thread-1",
+                "input": {"message": "hello"},
+                "metadata": {},
+            }
+        )
+    )
+
+    assert ws.frames_of_type("ws_error") == [
+        {
+            "type": "ws_error",
+            "request_id": "req-next",
+            "message": "turn already in progress for thread_id",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -271,6 +310,39 @@ async def test_handle_stop_noop_for_unknown_request() -> None:
     # Should not raise
     await handler._handle_frame(json.dumps({"type": "stop", "request_id": "unknown-req"}))
     assert ws.sent == [], "stop for unknown request should send nothing"
+
+
+@pytest.mark.asyncio
+async def test_stop_by_request_id_cancels_turn_before_thread_assignment() -> None:
+    handler, _ = make_handler()
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def fake_run_standard_turn(_command) -> None:
+        entered.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    with patch.object(handler._turn_executor, "run_standard_turn", side_effect=fake_run_standard_turn):
+        await handler._handle_frame(
+            json.dumps(
+                {
+                    "type": "chat.start",
+                    "request_id": "req-stop-early",
+                    "input": {"message": "hello"},
+                    "extension": None,
+                    "metadata": {},
+                }
+            )
+        )
+        await entered.wait()
+        await handler._handle_frame(json.dumps({"type": "chat.stop", "request_id": "req-stop-early"}))
+        await asyncio.sleep(0)
+
+    assert cancelled.is_set()
 
 
 @pytest.mark.asyncio
