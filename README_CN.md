@@ -1,12 +1,11 @@
-<!-- Logo 图片占位符 - 当 docs/assets/logo.png 可用时添加 -->
-<!-- <p align="center">
-  <img src="docs/assets/logo.png" alt="JoySafeter" width="120" />
-</p> -->
-
-<h1 align="center">JoySafeter</h1>
+<h1 align="center">
+  <img src="docs/assets/joysafter.png" alt="JoySafeter" width="80" /><br/>
+  JoySafeter
+</h1>
 
 <p align="center">
-  <strong>可视化构建、编排、运行 AI 安全 Agent —— 从想法到生产，只需几分钟。</strong>
+  <strong>AI 原生安全智能体平台 —— 构建、编排、规模化运行安全 Agent。</strong><br/>
+  <sub>从想法到生产级安全自动化，只需几分钟，而非数月。</sub>
 </p>
 
 <p align="center">
@@ -16,48 +15,71 @@
   <a href="https://github.com/langchain-ai/langgraph"><img src="https://img.shields.io/badge/LangGraph-1.0+-FF6F00?logo=chainlink&logoColor=white" alt="LangGraph"></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.122+-009688?logo=fastapi&logoColor=white" alt="FastAPI"></a>
   <a href="#"><img src="https://img.shields.io/badge/MCP-Protocol-purple" alt="MCP Protocol"></a>
+  <a href="#"><img src="https://img.shields.io/badge/DeepAgents-v0.4-red" alt="DeepAgents v0.4"></a>
 </p>
 
 <p align="center">
   <a href="./README.md">English</a> | 简体中文
 </p>
 
-<!-- 截图 / GIF 占位符 — 替换为实际产品截图 -->
-<!-- <p align="center">
-  <img src="docs/assets/screenshot-builder.png" alt="Agent 构建器截图" width="800" />
-</p> -->
+---
+
+## 为什么选择 JoySafeter
+
+传统安全工具有天花板：脚本脆弱易断、单 Agent 缺乏上下文、复杂场景需要 2–3 名工程师并行协作。JoySafeter 打破这个天花板。
+
+| 挑战 | 传统方式 | JoySafeter |
+|------|---------|------------|
+| APK 漏洞分析 | 手动 MobSF + 工程师人工审查 | 自主 Agent：上传 → 分析 → 出报告 |
+| 渗透测试 | 固定脚本、静态 Playbook | DeepAgents 根据发现实时动态决策 |
+| 工具集成 | 每个工具单独写胶水代码 | 200+ 工具通过 MCP 协议零胶水接入 |
+| 规模扩展 | 人力线性增长 | Agent 团队倍增安全产能 |
+
+> JoySafeter 定义了全新范式：**AI 驱动安全运营（AISecOps）** —— 用多智能体协作、认知记忆进化、场景化战力速配，取代人工协调，实现安全能力的规模化运营。
 
 ---
 
-## 快速开始
+## 实战案例
 
-一行命令启动 JoySafeter：
+### 案例一 —— APK 漏洞检测智能体
 
-```bash
-./deploy/quick-start.sh
-```
+> 上传 APK，获得 OWASP Mobile Top 10 检测报告，全程无需人工干预。
 
-| 服务 | 地址 |
-|------|------|
-| 前端 | http://localhost:3000 |
-| 后端 API | http://localhost:8000 |
-| API 文档 | http://localhost:8000/docs |
+<p align="center">
+  <img src="docs/assets/APK-case.gif" alt="APK 漏洞检测演示" width="800" />
+</p>
 
-> **环境要求：** Docker + Docker Compose。手动安装或预构建镜像请参考 [INSTALL_CN.md](INSTALL_CN.md)。
+**运行流程：**
+
+1. 用户上传 APK 文件
+2. Agent 调用 MobSF 进行静态分析
+3. 提取关键风险点 —— 权限滥用、硬编码密钥、不安全的网络配置等
+4. 对高危项通过 Frida 动态插桩进行深度验证
+5. 自动生成符合 OWASP Mobile Top 10 格式的结构化检测报告
+
+整个流程从上传到出报告，零人工干预，覆盖了传统需要 2–3 名安全工程师协作完成的工作量。
 
 ---
 
-## 最新动态
+### 案例二 —— 渗透测试智能体
 
-> 完整更新记录：[CHANGELOG.md](CHANGELOG.md)
+> 给出目标和测试范围，Agent 自主规划、执行、动态调整，最终交付报告。
 
-| 标签 | 功能 | 一句话说明 |
-|------|------|-----------|
-| **NEW** | **技能版本化与协作** | 发布、回滚、管理技能版本；邀请协作者并按角色授权；平台 API Token 支持 CI/CD 集成 |
-| **NEW** | **多租户沙箱引擎** | 用户级代码执行隔离——会话间零状态泄露 |
-| **NEW** | **企业 SSO** | 内置 GitHub / Google / Microsoft 模板，支持 OIDC（Keycloak、Authentik、GitLab）与 JD SSO |
-| **UPGRADE** | **DeepAgents v0.4** | 多智能体内核的最新稳定性与性能优化 |
-| **UPGRADE** | **白盒可观测性** | 基于 Langfuse 实时追踪每一步 Agent 决策与状态流转 |
+<p align="center">
+  <img src="docs/assets/pentest-case.gif" alt="渗透测试智能体演示" width="800" />
+</p>
+
+**操作流程：**
+
+1. 进入工作台，创建新 Agent
+2. 开启 **DeepAgents 模式** → 选择渗透测试相关 Skills
+3. 输入经过授权的目标地址和测试要求
+4. Agent 自主运行 —— 若发现登录页面，自动触发认证绕过测试
+5. 运行结束后下载完整报告
+
+> **备注：** 需在沙箱设置中配置镜像 `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/jd-opensource/joysafeter-sandbox:latest`。
+
+这种根据侦察结果动态决定下一步的能力，是传统固定脚本无法实现的。
 
 ---
 
@@ -67,7 +89,7 @@
 <tr>
 <td width="50%">
 
-### 可视化构建 Agent
+### 可视化 Agent 构建器
 
 - **无代码工作流编辑器** —— 拖拽节点，支持循环、条件、并行执行
 - **快速模式** —— 用自然语言描述需求，分钟级生成可运行的 Agent 团队
@@ -87,38 +109,58 @@
 <tr>
 <td width="50%">
 
-### 企业级就绪
+### DeepAgents 编排引擎
 
-- **多租户** —— 基于角色的工作区隔离
-- **全链路审计** —— 执行追踪与合规治理
-- **SSO 集成** —— GitHub、Google、Microsoft、OIDC、JD SSO
-- **生产部署** —— Docker Compose 一键部署脚本
+- **Manager-Worker 多层级**智能体协作
+- **记忆进化** —— 长短期记忆机制，跨会话持续学习
+- **技能体系** —— 版本化、可复用的能力单元，渐进式披露
+- **LangGraph 引擎** —— 基于图的工作流与完整状态管理
 
 </td>
 <td width="50%">
 
-### AI 原生架构
+### 企业级就绪
 
-- **DeepAgents** —— Manager-Worker 多层级智能体协作
-- **记忆进化** —— 长短期记忆机制，越用越聪明
-- **技能体系** —— 版本化、可复用的能力单元，渐进式披露
-- **LangGraph 引擎** —— 基于图的工作流与完整状态管理
+- **多租户** —— 基于角色的工作区隔离与访问控制
+- **全链路审计** —— 执行追踪与合规治理
+- **SSO 集成** —— GitHub、Google、Microsoft、OIDC（Keycloak、Authentik、GitLab）、JD SSO
+- **多租户沙箱** —— 用户级代码执行隔离，会话间零状态泄露
 
 </td>
 </tr>
 </table>
 
-> **项目背景：** 通用 LLM 在安全领域准确率不足，单 Agent 难以应对复杂安全场景。JoySafeter 通过 Multi-Agent 协作、认知进化引擎、场景化战力速配，实现了安全能力的规模化运营，率先定义了 **AI 驱动安全运营（AISecOps）** 新范式。
+---
+
+## 快速开始
+
+```bash
+./deploy/quick-start.sh
+```
+
+| 服务 | 地址 |
+|------|------|
+| 前端 | http://localhost:3000 |
+| 后端 API | http://localhost:8000 |
+| API 文档 | http://localhost:8000/docs |
+
+> **环境要求：** Docker + Docker Compose。手动安装或预构建镜像请参考 [INSTALL_CN.md](INSTALL_CN.md)。
 
 ---
 
 ## 架构概览
 
-> 详细架构：[docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md)
-
 <p align="center">
   <img src="docs/assets/joysafter.png" alt="JoySafeter 架构图" width="800" />
 </p>
+
+> 详细架构：[docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md)
+
+**核心设计原则：**
+
+- **图式执行** —— 每个 Agent 工作流都是有状态的 LangGraph，支持暂停、恢复与分支
+- **白盒可观测性** —— 基于 Langfuse 实时追踪每一步 Agent 决策与状态流转
+- **分层技能体系** —— 技能是版本化单元，可自由组合成工作流，互不耦合
 
 ---
 
@@ -126,7 +168,7 @@
 
 | 层级 | 技术 | 用途 |
 |------|------|------|
-| **前端** | Next.js 16, React 19, TypeScript | 服务端渲染, App Router |
+| **前端** | Next.js 16, React 19, TypeScript | 服务端渲染，App Router |
 | **UI** | Radix UI, Tailwind CSS, Framer Motion | 无障碍、动画组件 |
 | **状态管理** | Zustand, TanStack Query | 客户端与服务端状态 |
 | **工作流编辑器** | React Flow | 交互式节点编辑器 |
@@ -139,36 +181,40 @@
 
 ---
 
+## 最新动态
+
+> 完整更新记录：[CHANGELOG.md](CHANGELOG.md)
+
+| 标签 | 功能 | 一句话说明 |
+|------|------|-----------|
+| **NEW** | **技能版本化与协作** | 发布、回滚、管理技能版本；邀请协作者并按角色授权；平台 API Token 支持 CI/CD 集成 |
+| **NEW** | **多租户沙箱引擎** | 用户级代码执行隔离——会话间零状态泄露 |
+| **NEW** | **企业 SSO** | 内置 GitHub / Google / Microsoft 模板，支持 OIDC 与 JD SSO |
+| **UPGRADE** | **DeepAgents v0.4** | 多智能体内核的最新稳定性与性能优化 |
+| **UPGRADE** | **白盒可观测性** | 基于 Langfuse 实时追踪每一步 Agent 决策与状态流转 |
+
+---
+
 ## 文档
 
 ### 快速上手
-
 - [INSTALL_CN.md](INSTALL_CN.md) — 安装指南（Docker / 手动 / 预构建镜像）
 - [DEVELOPMENT.md](DEVELOPMENT.md) — 本地开发
 - [deploy/README.md](deploy/README.md) — Docker 部署
 - [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md) — 生产环境部署
 
 ### 深入了解
-
 - [docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md) — 架构总览
 - [backend/README.md](backend/README.md) — 后端指南
 - [frontend/README.md](frontend/README.md) — 前端指南
 
 ### 教程
-
 参见 [docs/tutorials/](docs/tutorials/)，包含模型配置、MCP 集成、技能开发等逐步指南。
 
 ### 项目治理
-
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献指南
 - [SECURITY.md](SECURITY.md) — 安全策略
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — 行为准则
-
----
-
-## 路线图
-
-最新路线图与设计备忘请查看 [docs/plans/](docs/plans/) 与项目 Issues。
 
 ---
 
@@ -177,36 +223,31 @@
 如有问题或想与其他用户交流，欢迎扫码加入微信交流群：
 
 <p align="center">
-  <img src="docs/assets/wechat-group-3.png" alt="JoySafeter 用户交流群 1" width="300" />
+  <img src="docs/assets/wechat-group-3.png" alt="JoySafeter 用户交流群 1" width="280" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/assets/wechat-group-4.png" alt="JoySafeter 用户交流群 2" width="300" />
+  <img src="docs/assets/wechat-group-4.png" alt="JoySafeter 用户交流群 2" width="280" />
 </p>
+
+---
 
 ## 贡献指南
 
-我们欢迎社区贡献！详情请查看 [贡献指南](CONTRIBUTING.md)。
-
 ```bash
-# Fork 并克隆
 git clone https://github.com/jd-opensource/JoySafeter.git
-
-# 创建功能分支
 git checkout -b feature/amazing-feature
-
-# 提交更改
 git commit -m 'feat: add amazing feature'
-
-# 推送并创建 PR
 git push origin feature/amazing-feature
 ```
+
+详情请查看 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
 
 ## 许可证
 
-本项目采用 **Apache License 2.0** 开源协议 — 详见 [LICENSE](LICENSE) 文件。
+Apache License 2.0 —— 详见 [LICENSE](LICENSE) 文件。
 
-> **注意：** 本项目包含不同许可证的第三方组件，详见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
+第三方组件许可证：[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
 
 ---
 
@@ -225,9 +266,6 @@ git push origin feature/amazing-feature
 ---
 
 <p align="center">
-  <sub>由 JoySafeter 团队用 ❤️ 打造</sub>
-</p>
-
-<p align="center">
-  <sub>如需咨询商业方案，请联系京东科技解决方案团队，联系方式：<a href="mailto:org.ospo1@jd.com">org.ospo1@jd.com</a></sub>
+  <sub>由 JoySafeter 团队用 ❤️ 打造</sub><br/>
+  <sub>如需咨询商业方案，请联系京东科技解决方案团队：<a href="mailto:org.ospo1@jd.com">org.ospo1@jd.com</a></sub>
 </p>
