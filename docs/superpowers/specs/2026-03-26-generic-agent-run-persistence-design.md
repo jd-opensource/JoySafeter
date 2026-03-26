@@ -116,10 +116,18 @@ Future agents follow the same pattern — one file, one register call.
 
 ### RunService integration
 
+- `create_run(agent_name, ...)` calls `definition.initial_projection()` to seed the snapshot, then appends a `run_initialized` event through the reducer (same pattern as current `create_skill_creator_run`)
 - `append_event` replaces `if run.run_type == "skill_creator"` with `AgentRegistry.get(run.agent_name).reducer`
-- `create_run(agent_name, ...)` is the new generic method
 - `create_skill_creator_run(...)` stays as a thin wrapper calling `create_run("skill_creator", ...)`
 - `find_latest_active_run(agent_name, user_id, ...)` generalizes the current skill-creator-specific method
+
+### Response schema
+
+`RunSummary` (both Pydantic and frontend type) adds `agent_name: str` and `agent_display_name: str` fields. The API populates `agent_display_name` from the registry.
+
+### Frontend href routing
+
+Per-agent "Open" button routing stays in the frontend (`runHelpers.ts`) as a simple map on `agent_name`. The backend registry does not need to know about frontend routes.
 
 ## API Changes
 
