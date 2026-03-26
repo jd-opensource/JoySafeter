@@ -49,6 +49,43 @@ async def test_ping_returns_pong() -> None:
     assert ws.frames_of_type("pong"), "expected a pong frame"
 
 
+@pytest.mark.asyncio
+async def test_typed_resume_routes_to_resume_handler() -> None:
+    handler, _ = make_handler()
+    with patch.object(handler, "_handle_resume", new_callable=AsyncMock) as mock_resume:
+        await handler._handle_frame(
+            json.dumps(
+                {
+                    "type": "chat.resume",
+                    "request_id": "req-resume",
+                    "thread_id": "thread-typed",
+                    "command": {},
+                }
+            )
+        )
+    mock_resume.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_typed_stop_routes_to_stop_handler() -> None:
+    handler, _ = make_handler()
+    with patch.object(handler, "_handle_stop", new_callable=AsyncMock) as mock_stop:
+        await handler._handle_frame(json.dumps({"type": "chat.stop", "request_id": "req-stop"}))
+    mock_stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_malformed_chat_start_returns_protocol_error() -> None:
+    handler, ws = make_handler()
+    await handler._handle_frame(json.dumps({"type": "chat.start", "request_id": "req-bad"}))
+
+    errors = ws.frames_of_type("ws_error")
+    assert errors, "malformed chat.start should send ws_error"
+    error = errors[0]
+    assert "input" in error.get("message", "").lower()
+    assert error.get("request_id") == "req-bad"
+
+
 # ---------------------------------------------------------------------------
 # Duplicate request guard
 # ---------------------------------------------------------------------------
@@ -67,6 +104,38 @@ async def test_duplicate_request_id_sends_ws_error() -> None:
     errors = ws.frames_of_type("ws_error")
     assert errors, "expected ws_error for duplicate request_id"
     assert "duplicate" in errors[0].get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_chat_frame_with_non_skill_creator_mode_keeps_mode_in_metadata_only() -> None:
+    handler, ws = make_handler()
+
+    captured_payload = None
+
+    async def fake_run_chat_turn(*, request_id: str, payload) -> None:
+        nonlocal captured_payload
+        assert request_id == "req-mode"
+        captured_payload = payload
+
+    frame = json.dumps(
+        {
+            "type": "chat",
+            "request_id": "req-mode",
+            "message": "hello",
+            "metadata": {"mode": "apk-vulnerability"},
+        }
+    )
+
+    with patch.object(handler, "_run_chat_turn", side_effect=fake_run_chat_turn) as mock_run_chat_turn:
+        await handler._handle_frame(frame)
+        task = handler._tasks["req-mode"].task
+        await task
+
+    mock_run_chat_turn.assert_awaited_once()
+    assert captured_payload is not None
+    assert captured_payload.mode is None
+    assert captured_payload.metadata == {"mode": "apk-vulnerability"}
+    assert ws.sent == []
 
 
 # ---------------------------------------------------------------------------

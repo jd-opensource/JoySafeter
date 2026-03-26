@@ -34,6 +34,12 @@ from app.services.run_service import RunService
 from app.utils.file_event_emitter import FileEventEmitter
 from app.utils.stream_event_handler import StreamEventHandler, StreamState
 from app.utils.task_manager import task_manager
+from app.websocket.chat_protocol import (
+    ChatProtocolError,
+    ParsedChatStartFrame,
+    ParsedSkillCreatorExtension,
+    parse_client_frame,
+)
 
 
 @dataclass
@@ -74,15 +80,31 @@ class ChatWsHandler:
             await self._send({"type": "ws_error", "message": "invalid json frame"})
             return
 
-        frame_type = frame.get("type")
+        try:
+            parsed_frame = parse_client_frame(frame)
+        except ChatProtocolError as exc:
+            await self._send(
+                {
+                    "type": "ws_error",
+                    "message": exc.message,
+                    "request_id": exc.request_id,
+                }
+            )
+            return
+
+        if isinstance(parsed_frame, ParsedChatStartFrame):
+            await self._handle_chat_start_frame(parsed_frame)
+            return
+
+        frame_type = str(parsed_frame.get("type") or "")
+        if frame_type in {"chat.resume", "resume"}:
+            await self._handle_resume(parsed_frame)
+            return
+        if frame_type in {"chat.stop", "stop"}:
+            await self._handle_stop(parsed_frame)
+            return
         if frame_type == "chat":
-            await self._handle_chat(frame)
-            return
-        if frame_type == "resume":
-            await self._handle_resume(frame)
-            return
-        if frame_type == "stop":
-            await self._handle_stop(frame)
+            await self._handle_chat(parsed_frame)
             return
         if frame_type == "ping":
             await self._send({"type": "pong"})
@@ -98,13 +120,42 @@ class ChatWsHandler:
         raw_metadata = frame.get("metadata")
         metadata: dict[str, Any] = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
 
+        await self._start_chat_task(
+            request_id=request_id,
+            message=message,
+            thread_id=str(thread_id) if thread_id else None,
+            graph_id=graph_id,
+            metadata=metadata,
+            extension=None,
+        )
+
+    async def _handle_chat_start_frame(self, frame: ParsedChatStartFrame) -> None:
+        await self._start_chat_task(
+            request_id=frame.request_id,
+            message=frame.input.message,
+            thread_id=frame.thread_id,
+            graph_id=frame.graph_id,
+            metadata=frame.metadata,
+            extension=frame.extension,
+        )
+
+    async def _start_chat_task(
+        self,
+        *,
+        request_id: str,
+        message: str,
+        thread_id: str | None,
+        graph_id: str | None,
+        metadata: dict[str, Any],
+        extension: ParsedSkillCreatorExtension | None,
+    ) -> None:
         if not request_id or not message.strip():
             await self._send({"type": "ws_error", "message": "request_id and message are required"})
             return
         if request_id in self._tasks:
             await self._send({"type": "ws_error", "message": "duplicate request_id"})
             return
-        if thread_id and self._is_thread_active(str(thread_id)):
+        if thread_id and self._is_thread_active(thread_id):
             await self._send(
                 {
                     "type": "ws_error",
@@ -114,24 +165,35 @@ class ChatWsHandler:
             )
             return
 
-        agent_run_id = self._extract_agent_run_id(metadata)
+        agent_run_id = self._extract_agent_run_id(metadata, extension)
+        request_mode = None
+        if extension and extension.kind == "skill_creator":
+            request_mode = "skill_creator"
+        elif metadata.get("mode") == "skill_creator":
+            request_mode = "skill_creator"
+        edit_skill_id = None
+        if request_mode == "skill_creator":
+            if extension and extension.kind == "skill_creator":
+                edit_skill_id = extension.edit_skill_id
+            else:
+                edit_skill_id = metadata.get("edit_skill_id")
 
         async def runner() -> None:
             await self._run_chat_turn(
                 request_id=request_id,
                 payload=ChatRequest(
                     message=message,
-                    thread_id=str(thread_id) if thread_id else None,
+                    thread_id=thread_id,
                     graph_id=graph_id,
-                    mode=metadata.get("mode"),
-                    edit_skill_id=metadata.get("edit_skill_id"),
+                    mode=request_mode,
+                    edit_skill_id=edit_skill_id,
                     metadata=metadata,
                 ),
             )
 
         task = asyncio.create_task(runner(), name=f"chat-ws:{request_id}")
         self._tasks[request_id] = ChatTaskEntry(
-            thread_id=str(thread_id) if thread_id else None,
+            thread_id=thread_id,
             task=task,
             run_id=agent_run_id,
             persist_on_disconnect=agent_run_id is not None,
@@ -181,14 +243,21 @@ class ChatWsHandler:
                 await task_manager.stop_task(thread_id)
             except Exception:
                 pass
+        await asyncio.sleep(0)
         task.cancel()
         if entry.heartbeat_task is not None:
             entry.heartbeat_task.cancel()
 
-    def _extract_agent_run_id(self, metadata: dict[str, Any]) -> uuid_lib.UUID | None:
-        if metadata.get("mode") != "skill_creator":
-            return None
-        run_id_raw = metadata.get("run_id")
+    def _extract_agent_run_id(
+        self,
+        metadata: dict[str, Any],
+        extension: ParsedSkillCreatorExtension | None = None,
+    ) -> uuid_lib.UUID | None:
+        run_id_raw = None
+        if extension and extension.kind == "skill_creator":
+            run_id_raw = extension.run_id
+        elif metadata.get("mode") == "skill_creator":
+            run_id_raw = metadata.get("run_id")
         if not run_id_raw:
             return None
         try:
@@ -1114,6 +1183,7 @@ class ChatWsHandler:
                     await task_manager.stop_task(thread_id)
                 except Exception:
                     pass
+            await asyncio.sleep(0)
             task.cancel()
         for _, task in cancellable:
             try:
