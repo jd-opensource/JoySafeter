@@ -1,5 +1,6 @@
 'use client'
 
+import { generateUUID } from '@/lib/utils/uuid'
 import { getWsChatUrl } from '@/lib/utils/wsUrl'
 import type { ChatStreamEvent } from '@/services/chatBackend'
 
@@ -151,7 +152,7 @@ class SharedChatWsClient implements ChatWsClient {
       throw new Error('Message cannot be empty')
     }
     await this.connect()
-    const requestId = params.requestId || crypto.randomUUID()
+    const requestId = params.requestId || generateUUID()
     return new Promise((resolve, reject) => {
       this.pending.set(requestId, {
         requestId,
@@ -183,7 +184,7 @@ class SharedChatWsClient implements ChatWsClient {
 
   async sendResume(params: ChatResumeParams): Promise<ChatTerminalResult> {
     await this.connect()
-    const requestId = params.requestId || crypto.randomUUID()
+    const requestId = params.requestId || generateUUID()
 
     return new Promise((resolve, reject) => {
       this.pending.set(requestId, {

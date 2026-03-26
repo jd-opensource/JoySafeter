@@ -15,6 +15,7 @@ import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
 import type { IncomingChatAcceptedEvent } from '@/lib/ws/chat/types'
 import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
 import type { RunEventFrame, RunSnapshotFrame, RunStatusFrame } from '@/lib/ws/runs/types'
+import { generateUUID } from '@/lib/utils/uuid'
 import { conversationService, type ConversationMessage } from '@/services/conversationService'
 import { runService } from '@/services/runService'
 
@@ -630,7 +631,7 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
 
         const nextRunId = createdRun.run_id
         pendingRunId = nextRunId
-        const requestId = crypto.randomUUID()
+        const requestId = generateUUID()
 
         currentRequestIdRef.current = requestId
         activeRunIdRef.current = nextRunId

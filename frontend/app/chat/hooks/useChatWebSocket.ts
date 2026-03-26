@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { generateUUID } from '@/lib/utils/uuid'
 import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
 import type { IncomingChatWsEvent } from '@/lib/ws/chat/types'
 import { toastError } from '@/lib/utils/toast'
@@ -379,7 +380,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
 
   const sendMessage = useCallback(
     async ({ message, threadId, graphId, metadata }: SendMessageOpts) => {
-      const requestId = crypto.randomUUID()
+      const requestId = generateUUID()
       const aiMsgId = generateId()
       const initialAiMsg: Message = {
         id: aiMsgId,
@@ -434,7 +435,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
 
   const resumeChat = useCallback(
     async ({ threadId, command }: ResumeOpts) => {
-      const requestId = crypto.randomUUID()
+      const requestId = generateUUID()
       const aiMsgId = generateId()
       const initialAiMsg: Message = {
         id: aiMsgId,
