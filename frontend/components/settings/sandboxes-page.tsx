@@ -1,14 +1,12 @@
 'use client'
 
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistance } from 'date-fns'
 import {
   RefreshCw,
   StopCircle,
   Trash2,
   PlayCircle,
   RotateCcw,
-  Cpu,
-  MemoryStick,
   Clock,
   Box,
   Loader2,
@@ -74,6 +72,14 @@ export const SandboxesPage = () => {
   } | null>(null)
   const [inlineSaving, setInlineSaving] = useState(false)
   const [needsRebuild, setNeedsRebuild] = useState<Set<string>>(new Set())
+  const [now, setNow] = useState(() => Date.now())
+
+  const hasRunningSandbox = sandboxes.some((s) => s.status === 'running')
+  useEffect(() => {
+    if (!hasRunningSandbox) return
+    const timer = setInterval(() => setNow(Date.now()), 10000)
+    return () => clearInterval(timer)
+  }, [hasRunningSandbox])
 
   const fetchSandboxes = async () => {
     try {
@@ -284,9 +290,6 @@ export const SandboxesPage = () => {
                     {t('settings.sandboxes.image')}
                   </TableHead>
                   <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-                    {t('settings.sandboxes.resources')}
-                  </TableHead>
-                  <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     {t('settings.sandboxes.runtime')}
                   </TableHead>
                   <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
@@ -297,7 +300,7 @@ export const SandboxesPage = () => {
               <TableBody>
                 {sandboxes.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-16 text-center">
+                    <TableCell colSpan={5} className="py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <div className="rounded-full border border-[var(--border)] bg-[var(--surface-3)] p-4">
                           <Box className="h-8 w-8 text-[var(--text-subtle)]" />
@@ -328,6 +331,11 @@ export const SandboxesPage = () => {
                               <span className="font-mono text-[10px] text-[var(--text-muted)]">
                                 {sandbox.id.substring(0, 8)}...
                               </span>
+                              {sandbox.container_id && (
+                                <span className="font-mono text-[10px] text-[var(--text-muted)]" title={sandbox.container_id}>
+                                  {sandbox.container_id.substring(0, 12)}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </TableCell>
@@ -441,24 +449,11 @@ export const SandboxesPage = () => {
                           )}
                         </TableCell>
                         <TableCell className="py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
-                              <Cpu className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                              <span className="font-medium">{sandbox.cpu_limit}</span>
-                            </div>
-                            <div className="h-3 w-px bg-[var(--border)]" />
-                            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
-                              <MemoryStick className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                              <span className="font-medium">{sandbox.memory_limit}M</span>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-3">
-                          {sandbox.status === 'running' && sandbox.created_at ? (
+                          {sandbox.status === 'running' && sandbox.last_active_at ? (
                             <div className="flex items-center gap-1.5 text-xs text-emerald-600">
                               <Clock className="h-3.5 w-3.5" />
                               <span className="font-medium">
-                                {formatDistanceToNow(new Date(sandbox.created_at))}
+                                {formatDistance(new Date(sandbox.last_active_at), now, { addSuffix: true, includeSeconds: true })}
                               </span>
                             </div>
                           ) : (

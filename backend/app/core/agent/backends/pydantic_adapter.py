@@ -354,7 +354,9 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 return
             except Exception as e:
                 logger.warning(f"Failed to restart existing container {self._id}, will create new: {e}")
+                stale_id = self._saved_container_id
                 self._saved_container_id = None
+                self._force_remove_container(stale_id)
 
         try:
             if hasattr(self._sandbox, "start"):
@@ -853,6 +855,16 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 logger.error(f"Failed to upload file {path}: {e}")
                 responses.append(FileUploadResponse(path=path, error="permission_denied"))
         return responses
+
+    @staticmethod
+    def _force_remove_container(container_id: str) -> None:
+        """Force-remove a Docker container by ID, ignoring all errors."""
+        try:
+            import docker
+            docker.from_env().containers.get(container_id).remove(force=True)
+            logger.info(f"Force-removed stale container {container_id[:12]}")
+        except Exception as e:
+            logger.warning(f"Could not remove stale container {container_id[:12]}: {e}")
 
     def stop(self) -> None:
         """Stop the Docker container without removing it. Idempotent.

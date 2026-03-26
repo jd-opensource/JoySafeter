@@ -227,40 +227,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         logger.warning(f"   ⚠️  Checkpointer initialization failed: {e}")
         logger.warning("   App will continue starting, checkpoint features may be unavailable")
 
-    # Start background sandbox idle cleanup task
-    sandbox_cleanup_task = None
-    try:
-        from app.services.sandbox_manager import SandboxManagerService, _sandbox_pool
-
-        async def _periodic_sandbox_cleanup(interval: int = 300):
-            """Background task: clean idle sandboxes every `interval` seconds."""
-            while True:
-                await asyncio.sleep(interval)
-                try:
-                    async with AsyncSessionLocal() as session:
-                        service = SandboxManagerService(session)
-                        count = await service.cleanup_idle_sandboxes()
-                        if count:
-                            logger.info(f"   Sandbox idle cleanup: evicted {count} sandboxes")
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    logger.warning(f"   Sandbox idle cleanup error: {e}")
-
-        sandbox_cleanup_task = asyncio.create_task(_periodic_sandbox_cleanup())
-        logger.info("   ✓ Sandbox idle cleanup scheduler started (interval=300s)")
-    except Exception as e:
-        logger.warning(f"   ⚠️  Sandbox cleanup scheduler failed to start: {e}")
-
     yield
-
-    # Shutdown: Cancel sandbox cleanup task
-    if sandbox_cleanup_task is not None:
-        sandbox_cleanup_task.cancel()
-        try:
-            await sandbox_cleanup_task
-        except asyncio.CancelledError:
-            pass
 
     # Shutdown: Drain sandbox pool (stop all containers gracefully)
     try:
