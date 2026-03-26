@@ -93,6 +93,21 @@ def test_parse_chat_resume_and_stop_return_dicts():
     assert parse_client_frame({"type": "chat.stop", "request_id": "req-s"}).get("type") == "chat.stop"
 
 
+def test_legacy_chat_frame_is_rejected_after_cutover():
+    with pytest.raises(ChatProtocolError) as exc:
+        parse_client_frame(
+            {
+                "type": "chat",
+                "request_id": "req-old",
+                "message": "hello",
+                "metadata": {"mode": "skill_creator"},
+            }
+        )
+
+    assert exc.value.message == "legacy metadata control fields are no longer supported"
+    assert exc.value.request_id == "req-old"
+
+
 def test_malformed_chat_start_missing_input_raises():
     with pytest.raises(ChatProtocolError) as exc:
         parse_client_frame({"type": "chat.start", "request_id": "req-bad"})

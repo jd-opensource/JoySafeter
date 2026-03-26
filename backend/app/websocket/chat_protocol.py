@@ -49,9 +49,12 @@ def parse_client_frame(frame: dict[str, Any]) -> ParsedChatStartFrame | dict[str
     frame_type = str(frame.get("type") or "")
     if frame_type not in ALLOWED_CLIENT_FRAME_TYPES:
         raise ChatProtocolError(f"unknown frame type: {frame_type or '<missing>'}")
+    if frame_type == "chat":
+        raise ChatProtocolError(
+            "legacy metadata control fields are no longer supported",
+            request_id=_coerce_request_id(frame.get("request_id")),
+        )
     if frame_type == "chat.start":
-        return _parse_chat_start_frame(frame)
-    if frame_type == "chat" and isinstance(frame.get("input"), dict):
         return _parse_chat_start_frame(frame)
     return frame
 

@@ -37,7 +37,6 @@ from app.utils.task_manager import task_manager
 from app.websocket.chat_commands import (
     ChatTurnCommand,
     SkillCreatorTurnCommand,
-    build_command_from_legacy_frame,
     build_command_from_parsed_frame,
 )
 from app.websocket.chat_protocol import ChatProtocolError, ParsedChatStartFrame, parse_client_frame
@@ -108,18 +107,11 @@ class ChatWsHandler:
         if frame_type in {"chat.stop", "stop"}:
             await self._handle_stop(parsed_frame)
             return
-        if frame_type == "chat":
-            await self._handle_chat(parsed_frame)
-            return
         if frame_type == "ping":
             await self._send({"type": "pong"})
             return
 
         await self._send({"type": "ws_error", "message": f"unknown frame type: {frame_type}"})
-
-    async def _handle_chat(self, frame: dict[str, Any]) -> None:
-        command = build_command_from_legacy_frame(frame)
-        await self._start_turn_from_command(command)
 
     async def _handle_chat_start_frame(self, frame: ParsedChatStartFrame) -> None:
         command = build_command_from_parsed_frame(frame)

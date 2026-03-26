@@ -99,7 +99,14 @@ async def test_duplicate_request_id_sends_ws_error() -> None:
     fake_task = MagicMock(spec=asyncio.Task)
     handler._tasks["req-1"] = ChatTaskEntry(thread_id=None, task=fake_task)
 
-    frame = json.dumps({"type": "chat", "request_id": "req-1", "message": "hello"})
+    frame = json.dumps(
+        {
+            "type": "chat.start",
+            "request_id": "req-1",
+            "input": {"message": "hello"},
+            "metadata": {},
+        }
+    )
     await handler._handle_frame(frame)
 
     errors = ws.frames_of_type("ws_error")
@@ -108,15 +115,8 @@ async def test_duplicate_request_id_sends_ws_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_legacy_skill_creator_metadata_maps_to_command() -> None:
+async def test_legacy_chat_frame_is_rejected_before_task_creation() -> None:
     handler, ws = make_handler()
-
-    captured_payload = None
-
-    async def fake_run_chat_turn(*, request_id: str, payload) -> None:
-        nonlocal captured_payload
-        assert request_id == "req-legacy"
-        captured_payload = payload
 
     legacy_frame = json.dumps(
         {
@@ -131,46 +131,16 @@ async def test_legacy_skill_creator_metadata_maps_to_command() -> None:
         }
     )
 
-    with patch.object(handler, "_run_chat_turn", side_effect=fake_run_chat_turn) as mock_run_chat_turn:
-        await handler._handle_frame(legacy_frame)
-        task = handler._tasks["req-legacy"].task
-        await task
+    await handler._handle_frame(legacy_frame)
 
-    mock_run_chat_turn.assert_awaited_once()
-    assert captured_payload is not None
-    assert captured_payload.metadata["edit_skill_id"] == "legacy-skill"
-    assert ws.sent == []
-
-
-@pytest.mark.asyncio
-async def test_legacy_non_skill_creator_mode_is_preserved_in_metadata() -> None:
-    handler, ws = make_handler()
-
-    captured_payload = None
-
-    async def fake_run_chat_turn(*, request_id: str, payload) -> None:
-        nonlocal captured_payload
-        assert request_id == "req-mode"
-        captured_payload = payload
-
-    frame = json.dumps(
+    assert ws.frames_of_type("ws_error") == [
         {
-            "type": "chat",
-            "request_id": "req-mode",
-            "message": "hello",
-            "metadata": {"mode": "apk-vulnerability"},
+            "type": "ws_error",
+            "request_id": "req-legacy",
+            "message": "legacy metadata control fields are no longer supported",
         }
-    )
-
-    with patch.object(handler, "_run_chat_turn", side_effect=fake_run_chat_turn) as mock_run_chat_turn:
-        await handler._handle_frame(frame)
-        task = handler._tasks["req-mode"].task
-        await task
-
-    mock_run_chat_turn.assert_awaited_once()
-    assert captured_payload is not None
-    assert captured_payload.metadata["mode"] == "apk-vulnerability"
-    assert ws.sent == []
+    ]
+    assert "req-legacy" not in handler._tasks
 
 
 # ---------------------------------------------------------------------------

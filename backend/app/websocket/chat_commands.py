@@ -54,42 +54,6 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
     )
 
 
-def build_command_from_legacy_frame(frame: Mapping[str, Any]) -> ChatTurnCommand:
-    request_id = str(frame.get("request_id") or "")
-    message = str(frame.get("message") or "")
-    thread_id = _coerce_str(frame.get("thread_id"))
-    graph_id = _coerce_str(frame.get("graph_id"))
-    raw_metadata = frame.get("metadata")
-    metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
-
-    mode = _coerce_str(metadata.get("mode"))
-    run_id = _coerce_str(metadata.get("run_id"))
-    edit_skill_id = _coerce_str(metadata.get("edit_skill_id"))
-
-    metadata, files = _sanitize_metadata_files(metadata, metadata.get("files"))
-
-    if mode == "skill_creator":
-        return SkillCreatorTurnCommand(
-            request_id=request_id,
-            message=message,
-            thread_id=thread_id,
-            graph_id=graph_id,
-            metadata=metadata,
-            files=files,
-            run_id=run_id,
-            edit_skill_id=edit_skill_id,
-        )
-
-    return StandardChatTurnCommand(
-        request_id=request_id,
-        message=message,
-        thread_id=thread_id,
-        graph_id=graph_id,
-        metadata=metadata,
-        files=files,
-    )
-
-
 def _normalize_files(files: list[Any]) -> list[dict[str, Any]]:
     return [f for f in files if isinstance(f, dict)]
 
@@ -103,10 +67,3 @@ def _sanitize_metadata_files(metadata: Mapping[str, Any], raw_files: Any) -> tup
         sanitized["files"] = files
 
     return sanitized, files
-
-
-def _coerce_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
