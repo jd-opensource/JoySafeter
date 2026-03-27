@@ -16,10 +16,11 @@ ALLOWED_CLIENT_FRAME_TYPES = {
 }
 
 
-@dataclass(frozen=True)
 class ChatProtocolError(Exception):
-    message: str
-    request_id: str | None = None
+    def __init__(self, message: str, request_id: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.request_id = request_id
 
 
 @dataclass(frozen=True)

@@ -41,6 +41,10 @@ class WorkspaceChatWsService {
   stopByThreadId(threadId: string): void {
     this.client.stopByThreadId(threadId)
   }
+
+  stopByRequestId(requestId: string): void {
+    this.client.stopByRequestId(requestId)
+  }
 }
 
 export const workspaceChatWsService = new WorkspaceChatWsService()
