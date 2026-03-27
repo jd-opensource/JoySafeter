@@ -18,7 +18,14 @@ class WorkspaceChatWsService {
     metadata?: Record<string, any>
     onEvent?: (evt: ChatStreamEvent) => void
   }): Promise<{ requestId: string; threadId?: string }> {
-    const result = await this.client.sendChat(params)
+    const result = await this.client.sendChat({
+      threadId: params.threadId,
+      graphId: params.graphId,
+      input: { message: params.message },
+      extension: null,
+      metadata: params.metadata ?? {},
+      onEvent: params.onEvent,
+    })
     return { requestId: result.requestId, threadId: result.threadId }
   }
 

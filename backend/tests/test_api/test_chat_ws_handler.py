@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -49,6 +50,55 @@ async def test_ping_returns_pong() -> None:
     assert ws.frames_of_type("pong"), "expected a pong frame"
 
 
+@pytest.mark.asyncio
+async def test_typed_resume_routes_to_resume_handler() -> None:
+    handler, _ = make_handler()
+    with patch.object(handler, "_handle_resume", new_callable=AsyncMock) as mock_resume:
+        await handler._handle_frame(
+            json.dumps(
+                {
+                    "type": "chat.resume",
+                    "request_id": "req-resume",
+                    "thread_id": "thread-typed",
+                    "command": {},
+                }
+            )
+        )
+    mock_resume.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_typed_stop_routes_to_stop_handler() -> None:
+    handler, _ = make_handler()
+    with patch.object(handler, "_handle_stop", new_callable=AsyncMock) as mock_stop:
+        await handler._handle_frame(json.dumps({"type": "chat.stop", "request_id": "req-stop"}))
+    mock_stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_malformed_chat_start_returns_protocol_error() -> None:
+    handler, ws = make_handler()
+    await handler._handle_frame(json.dumps({"type": "chat.start", "request_id": "req-bad"}))
+
+    errors = ws.frames_of_type("ws_error")
+    assert errors, "malformed chat.start should send ws_error"
+    error = errors[0]
+    assert "input" in error.get("message", "").lower()
+    assert error.get("request_id") == "req-bad"
+
+
+@pytest.mark.asyncio
+async def test_protocol_error_does_not_register_task() -> None:
+    handler, ws = make_handler()
+
+    with patch.object(handler._task_supervisor, "register", wraps=handler._task_supervisor.register) as mock_register:
+        await handler._handle_frame(json.dumps({"type": "chat.start", "request_id": "req-bad"}))
+
+    errors = ws.frames_of_type("ws_error")
+    assert errors, "malformed frame must emit ws_error"
+    mock_register.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Duplicate request guard
 # ---------------------------------------------------------------------------
@@ -61,12 +111,192 @@ async def test_duplicate_request_id_sends_ws_error() -> None:
     fake_task = MagicMock(spec=asyncio.Task)
     handler._tasks["req-1"] = ChatTaskEntry(thread_id=None, task=fake_task)
 
-    frame = json.dumps({"type": "chat", "request_id": "req-1", "message": "hello"})
+    frame = json.dumps(
+        {
+            "type": "chat.start",
+            "request_id": "req-1",
+            "input": {"message": "hello"},
+            "metadata": {},
+        }
+    )
     await handler._handle_frame(frame)
 
     errors = ws.frames_of_type("ws_error")
     assert errors, "expected ws_error for duplicate request_id"
     assert "duplicate" in errors[0].get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_direct_task_insertion_keeps_thread_active_guard() -> None:
+    handler, ws = make_handler()
+    fake_task = MagicMock(spec=asyncio.Task)
+    handler._tasks["req-existing"] = ChatTaskEntry(thread_id="thread-1", task=fake_task)
+
+    await handler._handle_frame(
+        json.dumps(
+            {
+                "type": "chat.start",
+                "request_id": "req-next",
+                "thread_id": "thread-1",
+                "input": {"message": "hello"},
+                "metadata": {},
+            }
+        )
+    )
+
+    assert ws.frames_of_type("ws_error") == [
+        {
+            "type": "ws_error",
+            "request_id": "req-next",
+            "message": "turn already in progress for thread_id",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_legacy_chat_frame_is_rejected_before_task_creation() -> None:
+    handler, ws = make_handler()
+
+    legacy_frame = json.dumps(
+        {
+            "type": "chat",
+            "request_id": "req-legacy",
+            "message": "build me a skill",
+            "metadata": {
+                "mode": "skill_creator",
+                "run_id": str(uuid.uuid4()),
+                "edit_skill_id": "legacy-skill",
+            },
+        }
+    )
+
+    await handler._handle_frame(legacy_frame)
+
+    assert ws.frames_of_type("ws_error") == [
+        {
+            "type": "ws_error",
+            "request_id": "req-legacy",
+            "message": "legacy metadata control fields are no longer supported",
+        }
+    ]
+    assert "req-legacy" not in handler._tasks
+
+
+# ---------------------------------------------------------------------------
+# Command parsing edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_non_object_json_frame_returns_ws_error() -> None:
+    handler, ws = make_handler()
+
+    await handler._handle_frame(json.dumps(["unexpected", "array"]))
+
+    errors = ws.frames_of_type("ws_error")
+    assert errors, "non-object JSON should emit ws_error instead of crashing"
+    assert "object" in errors[0].get("message", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_chat_start_with_invalid_extension_data_is_rejected() -> None:
+    handler, ws = make_handler()
+
+    await handler._handle_frame(
+        json.dumps(
+            {
+                "type": "chat.start",
+                "request_id": "req-invalid",
+                "input": {"message": "hello"},
+                "extension": {"kind": "unknown"},
+                "metadata": {},
+            }
+        )
+    )
+
+    assert ws.frames_of_type("ws_error") == [
+        {
+            "type": "ws_error",
+            "request_id": "req-invalid",
+            "message": "unsupported extension kind: unknown",
+        }
+    ]
+    assert "req-invalid" not in handler._tasks
+
+
+@pytest.mark.asyncio
+async def test_typed_skill_creator_extension_propagates_run_metadata() -> None:
+    handler, ws = make_handler()
+    captured_payload = None
+    run_id = uuid.uuid4()
+
+    async def fake_run_chat_turn(*, request_id: str, payload) -> None:
+        nonlocal captured_payload
+        assert request_id == "req-skill"
+        captured_payload = payload
+
+    frame = json.dumps(
+        {
+            "type": "chat.start",
+            "request_id": "req-skill",
+            "thread_id": None,
+            "input": {"message": "build a skill", "files": []},
+            "extension": {
+                "kind": "skill_creator",
+                "run_id": str(run_id),
+                "edit_skill_id": "skill-42",
+            },
+            "metadata": {},
+        }
+    )
+
+    with patch.object(handler, "_run_chat_turn", side_effect=fake_run_chat_turn) as mock_run_chat_turn:
+        await handler._handle_frame(frame)
+        entry = handler._tasks["req-skill"]
+        await entry.task
+
+    mock_run_chat_turn.assert_awaited_once()
+    assert captured_payload is not None
+    assert captured_payload.metadata["edit_skill_id"] == "skill-42"
+    assert handler._tasks["req-skill"].run_id == run_id
+    assert ws.sent == []
+
+
+@pytest.mark.asyncio
+async def test_input_files_are_forwarded_into_metadata() -> None:
+    handler, ws = make_handler()
+    captured_payload = None
+
+    async def fake_run_chat_turn(*, request_id: str, payload) -> None:
+        nonlocal captured_payload
+        assert request_id == "req-files"
+        captured_payload = payload
+
+    files = [
+        {"filename": "notes.md", "path": "/tmp/notes.md", "size": 10},
+        {"filename": "plan.txt", "path": "/data/plan.txt", "size": 42},
+    ]
+    frame = json.dumps(
+        {
+            "type": "chat.start",
+            "request_id": "req-files",
+            "thread_id": None,
+            "input": {"message": "see attached", "files": files},
+            "extension": None,
+            "metadata": {"foo": "bar"},
+        }
+    )
+
+    with patch.object(handler, "_run_chat_turn", side_effect=fake_run_chat_turn) as mock_run_chat_turn:
+        await handler._handle_frame(frame)
+        entry = handler._tasks["req-files"]
+        await entry.task
+
+    mock_run_chat_turn.assert_awaited_once()
+    assert captured_payload is not None
+    assert captured_payload.metadata["files"] == files
+    assert captured_payload.metadata["foo"] == "bar"
+    assert ws.sent == []
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +313,39 @@ async def test_handle_stop_noop_for_unknown_request() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stop_by_request_id_cancels_turn_before_thread_assignment() -> None:
+    handler, _ = make_handler()
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def fake_run_standard_turn(_command) -> None:
+        entered.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    with patch.object(handler._turn_executor, "run_standard_turn", side_effect=fake_run_standard_turn):
+        await handler._handle_frame(
+            json.dumps(
+                {
+                    "type": "chat.start",
+                    "request_id": "req-stop-early",
+                    "input": {"message": "hello"},
+                    "extension": None,
+                    "metadata": {},
+                }
+            )
+        )
+        await entered.wait()
+        await handler._handle_frame(json.dumps({"type": "chat.stop", "request_id": "req-stop-early"}))
+        await asyncio.sleep(0)
+
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
 async def test_handle_stop_cancels_known_task() -> None:
     handler, ws = make_handler()
     cancelled = False
@@ -96,6 +359,7 @@ async def test_handle_stop_cancels_known_task() -> None:
             raise
 
     task = asyncio.create_task(slow())
+    await asyncio.sleep(0)
     handler._tasks["req-stop"] = ChatTaskEntry(thread_id="thread-1", task=task)
 
     with patch("app.websocket.chat_ws_handler.task_manager") as mock_tm:
@@ -131,6 +395,7 @@ async def test_cancel_all_tasks_on_disconnect() -> None:
             raise
 
     task = asyncio.create_task(long_running())
+    await asyncio.sleep(0)
     handler._tasks["req-dc"] = ChatTaskEntry(thread_id=None, task=task)
 
     # Simulate disconnect: receive_text raises WebSocketDisconnect

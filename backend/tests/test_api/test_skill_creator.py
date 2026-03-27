@@ -13,19 +13,17 @@ from app.schemas.chat import ChatRequest
 class TestSkillCreatorIntegration:
     """Verify key components of the Skill Creator feature work together."""
 
-    def test_chat_request_accepts_skill_creator_mode(self):
-        req = ChatRequest(message="Create a network scan skill", mode="skill_creator")
-        assert req.mode == "skill_creator"
-        assert req.edit_skill_id is None
+    def test_chat_request_accepts_skill_creator_metadata(self):
+        req = ChatRequest(message="Create a network scan skill", metadata={"mode": "skill_creator"})
+        assert req.metadata["mode"] == "skill_creator"
 
-    def test_chat_request_skill_creator_with_edit(self):
+    def test_chat_request_skill_creator_with_edit_metadata(self):
         req = ChatRequest(
             message="Update this skill",
-            mode="skill_creator",
-            edit_skill_id="abc-123",
+            metadata={"mode": "skill_creator", "edit_skill_id": "abc-123"},
         )
-        assert req.mode == "skill_creator"
-        assert req.edit_skill_id == "abc-123"
+        assert req.metadata["mode"] == "skill_creator"
+        assert req.metadata["edit_skill_id"] == "abc-123"
 
     def test_preview_skill_end_to_end(self):
         """Simulate: agent creates skill files in sandbox -> preview_skill reads them."""

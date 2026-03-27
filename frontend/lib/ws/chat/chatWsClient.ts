@@ -14,6 +14,7 @@ import type {
   ConnectionState,
   IncomingChatAcceptedEvent,
   IncomingChatWsEvent,
+  SkillCreatorExtension,
 } from './types'
 
 interface PendingRequest {
@@ -148,7 +149,8 @@ class SharedChatWsClient implements ChatWsClient {
   }
 
   async sendChat(params: ChatSendParams): Promise<ChatTerminalResult> {
-    if (!params.message.trim()) {
+    const message = params.input.message
+    if (!message.trim()) {
       throw new Error('Message cannot be empty')
     }
     await this.connect()
@@ -168,11 +170,12 @@ class SharedChatWsClient implements ChatWsClient {
 
       try {
         this.sendFrame({
-          type: 'chat',
+          type: 'chat.start',
           request_id: requestId,
           thread_id: params.threadId || null,
           graph_id: params.graphId || null,
-          message: params.message,
+          input: serializeInput(params.input),
+          extension: serializeExtension(params.extension),
           metadata: params.metadata || {},
         })
       } catch (error) {
@@ -199,7 +202,7 @@ class SharedChatWsClient implements ChatWsClient {
 
       try {
         this.sendFrame({
-          type: 'resume',
+          type: 'chat.resume',
           request_id: requestId,
           thread_id: params.threadId,
           command: params.command,
@@ -220,7 +223,7 @@ class SharedChatWsClient implements ChatWsClient {
   stopByRequestId(requestId: string): void {
     if (!requestId) return
     try {
-      this.sendFrame({ type: 'stop', request_id: requestId })
+      this.sendFrame({ type: 'chat.stop', request_id: requestId })
     } catch {
       // Ignore stop failures; caller state will be reconciled on disconnect/error.
     }
@@ -388,6 +391,28 @@ class SharedChatWsClient implements ChatWsClient {
   private rejectAllPending(error: Error) {
     const requestIds = Array.from(this.pending.keys())
     requestIds.forEach((requestId) => this.rejectPending(requestId, error))
+  }
+}
+
+function serializeInput(input: ChatSendParams['input']): Record<string, unknown> {
+  if (input.files && input.files.length > 0) {
+    return {
+      message: input.message,
+      files: input.files,
+    }
+  }
+  return { message: input.message }
+}
+
+function serializeExtension(extension?: SkillCreatorExtension | null): Record<string, unknown> | null {
+  if (!extension) {
+    return null
+  }
+
+  return {
+    kind: extension.kind,
+    run_id: extension.runId ?? null,
+    edit_skill_id: extension.editSkillId ?? null,
   }
 }
 

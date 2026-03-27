@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useMemo } from 'react'
 
+import type { ChatSendInput, SkillCreatorExtension } from '@/lib/ws/chat/types'
+
 import type { ChatState, ChatAction } from './hooks/useChatReducer'
 import { useChatReducer } from './hooks/useChatReducer'
 import { useChatWebSocket } from './hooks/useChatWebSocket'
@@ -20,13 +22,15 @@ interface ChatStreamContextValue {
   isProcessing: boolean
   isSubmitting: boolean
   isConnected: boolean
+  activeRequestId: string | null
   sendMessage: (opts: {
-    message: string
+    input: ChatSendInput
     threadId?: string | null
     graphId?: string | null
-    metadata?: Record<string, any>
+    extension?: SkillCreatorExtension | null
+    metadata?: Record<string, unknown>
   }) => Promise<{ requestId: string }>
-  stopMessage: (threadId: string | null) => void
+  stopMessage: (requestId: string | null) => void
   resumeChat: (opts: {
     threadId: string
     command: { update?: Record<string, any>; goto?: string | null }
@@ -53,6 +57,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       isProcessing: state.streaming.isProcessing,
       isSubmitting: state.streaming.isSubmitting,
       isConnected: ws.isConnected,
+      activeRequestId: ws.activeRequestId,
       sendMessage: ws.sendMessage,
       stopMessage: ws.stopMessage,
       resumeChat: ws.resumeChat,
@@ -62,6 +67,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       state.streaming.isProcessing,
       state.streaming.isSubmitting,
       ws.isConnected,
+      ws.activeRequestId,
       ws.sendMessage,
       ws.stopMessage,
       ws.resumeChat,

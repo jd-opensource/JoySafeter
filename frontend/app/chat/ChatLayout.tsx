@@ -217,33 +217,31 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
       dispatch({ type: 'SET_INPUT', value: '' })
       dispatch({ type: 'STREAM_START' })
 
-      // Build opts
+      const inputFiles =
+        files?.map((f) => ({
+          filename: f.filename,
+          path: f.path,
+          size: f.size,
+        })) || []
+
       const messageOpts: {
         threadId?: string | null
         graphId?: string | null
-        metadata?: Record<string, any>
       } = {
         threadId: state.threadId || null,
         graphId: resolvedGraphId || null,
       }
-      if (mode) {
-        messageOpts.metadata = { mode }
-      }
-      if (files && files.length > 0) {
-        if (!messageOpts.metadata) messageOpts.metadata = {}
-        messageOpts.metadata.files = files.map((f) => ({
-          filename: f.filename,
-          path: f.path,
-          size: f.size,
-        }))
-      }
 
       try {
         await stream.sendMessage({
-          message: text,
+          input: {
+            message: text,
+            ...(inputFiles.length > 0 ? { files: inputFiles } : {}),
+          },
           threadId: messageOpts.threadId,
           graphId: messageOpts.graphId,
-          metadata: messageOpts.metadata,
+          extension: null,
+          metadata: {},
         })
       } catch (error) {
         console.error('Failed to send chat message:', error)
@@ -253,8 +251,8 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
   )
 
   const handleStop = useCallback(() => {
-    stream.stopMessage(state.threadId)
-  }, [stream, state.threadId])
+    stream.stopMessage(stream.activeRequestId)
+  }, [stream])
 
   const hasFiles = Object.keys(state.preview.fileTree).length > 0
   const hasMessages = state.messages.length > 0 || !!state.threadId || !!propChatId

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { generateUUID } from '@/lib/utils/uuid'
 import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
-import type { IncomingChatWsEvent } from '@/lib/ws/chat/types'
+import type { ChatSendInput, IncomingChatWsEvent, SkillCreatorExtension } from '@/lib/ws/chat/types'
 import { toastError } from '@/lib/utils/toast'
 import type {
   ChatStreamEvent,
@@ -32,10 +32,11 @@ interface ActiveRequest {
 }
 
 interface SendMessageOpts {
-  message: string
+  input: ChatSendInput
   threadId?: string | null
   graphId?: string | null
-  metadata?: Record<string, any>
+  extension?: SkillCreatorExtension | null
+  metadata?: Record<string, unknown>
 }
 
 interface ResumeOpts {
@@ -45,8 +46,9 @@ interface ResumeOpts {
 
 export interface UseChatWebSocketReturn {
   isConnected: boolean
+  activeRequestId: string | null
   sendMessage: (opts: SendMessageOpts) => Promise<{ requestId: string }>
-  stopMessage: (threadId: string | null) => void
+  stopMessage: (requestId: string | null) => void
   resumeChat: (opts: ResumeOpts) => Promise<{ requestId: string }>
 }
 
@@ -55,7 +57,14 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
   const activeRequestsRef = useRef<Record<string, ActiveRequest>>({})
   const activeByThreadRef = useRef(new Map<string, string>())
   const activeThreadIdRef = useRef<string | null>(null)
+  const currentRequestIdRef = useRef<string | null>(null)
   const [isConnected, setIsConnected] = useState(clientRef.current.getConnectionState().isConnected)
+  const [activeRequestId, setActiveRequestIdState] = useState<string | null>(null)
+
+  const setCurrentRequestId = useCallback((requestId: string | null) => {
+    currentRequestIdRef.current = requestId
+    setActiveRequestIdState(requestId)
+  }, [])
 
   const finalizeActiveRequests = useCallback(
     (errorMessage: string) => {
@@ -67,8 +76,9 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
       activeRequestsRef.current = {}
       activeByThreadRef.current.clear()
       activeThreadIdRef.current = null
+      setCurrentRequestId(null)
     },
-    [dispatch],
+    [dispatch, setCurrentRequestId],
   )
 
   const handleEvent = useCallback(
@@ -86,6 +96,9 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
           if (activeRequest) {
             dispatch({ type: 'STREAM_DONE', messageId: activeRequest.aiMsgId })
             delete activeRequestsRef.current[request_id]
+          }
+          if (currentRequestIdRef.current === request_id) {
+            setCurrentRequestId(null)
           }
           if (thread_id) activeByThreadRef.current.delete(thread_id)
         }
@@ -183,6 +196,9 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
           dispatch({ type: 'STREAM_DONE', messageId: activeRequest.aiMsgId })
           delete activeRequestsRef.current[request_id!]
         }
+        if (request_id && currentRequestIdRef.current === request_id) {
+          setCurrentRequestId(null)
+        }
         if (thread_id) {
           activeByThreadRef.current.delete(thread_id)
         }
@@ -193,6 +209,9 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         if (activeRequest) {
           dispatch({ type: 'STREAM_DONE', messageId: activeRequest.aiMsgId })
           delete activeRequestsRef.current[request_id!]
+        }
+        if (request_id && currentRequestIdRef.current === request_id) {
+          setCurrentRequestId(null)
         }
         if (thread_id) {
           activeByThreadRef.current.delete(thread_id)
@@ -206,6 +225,9 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         if (activeRequest) {
           dispatch({ type: 'STREAM_DONE', messageId: activeRequest.aiMsgId })
           delete activeRequestsRef.current[request_id!]
+        }
+        if (request_id && currentRequestIdRef.current === request_id) {
+          setCurrentRequestId(null)
         }
         if (thread_id) {
           activeByThreadRef.current.delete(thread_id)
@@ -348,7 +370,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         })
       }
     },
-    [dispatch],
+    [dispatch, setCurrentRequestId],
   )
 
   useEffect(() => {
@@ -379,7 +401,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
   }, [finalizeActiveRequests])
 
   const sendMessage = useCallback(
-    async ({ message, threadId, graphId, metadata }: SendMessageOpts) => {
+    async ({ input, threadId, graphId, extension, metadata }: SendMessageOpts) => {
       const requestId = generateUUID()
       const aiMsgId = generateId()
       const initialAiMsg: Message = {
@@ -393,6 +415,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
 
       dispatch({ type: 'APPEND_MESSAGE', message: initialAiMsg })
       dispatch({ type: 'CLEAR_INTERRUPT' })
+      setCurrentRequestId(requestId)
       activeRequestsRef.current[requestId] = {
         aiMsgId,
         lastRunningToolIdByName: {},
@@ -404,7 +427,8 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
       try {
         const result = await clientRef.current.sendChat({
           requestId,
-          message,
+          input,
+          extension,
           threadId,
           graphId,
           metadata,
@@ -414,6 +438,9 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
       } catch (error) {
         const pending = activeRequestsRef.current[requestId]
         delete activeRequestsRef.current[requestId]
+        if (currentRequestIdRef.current === requestId) {
+          setCurrentRequestId(null)
+        }
         if (threadId) {
           activeByThreadRef.current.delete(threadId)
         }
@@ -425,12 +452,12 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         throw error
       }
     },
-    [dispatch, handleEvent],
+    [dispatch, handleEvent, setCurrentRequestId],
   )
 
-  const stopMessage = useCallback((threadId: string | null) => {
-    if (!threadId) return
-    clientRef.current.stopByThreadId(threadId)
+  const stopMessage = useCallback((requestId: string | null) => {
+    if (!requestId) return
+    clientRef.current.stopByRequestId(requestId)
   }, [])
 
   const resumeChat = useCallback(
@@ -448,6 +475,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
 
       dispatch({ type: 'APPEND_MESSAGE', message: initialAiMsg })
       dispatch({ type: 'CLEAR_INTERRUPT' })
+      setCurrentRequestId(requestId)
       activeRequestsRef.current[requestId] = {
         aiMsgId,
         lastRunningToolIdByName: {},
@@ -465,6 +493,9 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
       } catch (error) {
         const pending = activeRequestsRef.current[requestId]
         delete activeRequestsRef.current[requestId]
+        if (currentRequestIdRef.current === requestId) {
+          setCurrentRequestId(null)
+        }
         activeByThreadRef.current.delete(threadId)
         if (pending) {
           const messageText = error instanceof Error ? error.message : 'Connection failed'
@@ -474,11 +505,12 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         throw error
       }
     },
-    [dispatch, handleEvent],
+    [dispatch, handleEvent, setCurrentRequestId],
   )
 
   return {
     isConnected,
+    activeRequestId,
     sendMessage,
     stopMessage,
     resumeChat,

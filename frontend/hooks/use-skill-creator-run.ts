@@ -662,14 +662,15 @@ export function useSkillCreatorRun(): UseSkillCreatorRunReturn {
         void clientRef.current
           .sendChat({
             requestId,
-            message: userPrompt,
             threadId: createdRun.thread_id,
             graphId: graphIdRef.current,
-            metadata: {
-              mode: 'skill_creator',
-              run_id: nextRunId,
-              ...(effectiveEditSkillId ? { edit_skill_id: effectiveEditSkillId } : {}),
+            input: { message: userPrompt },
+            extension: {
+              kind: 'skill_creator',
+              runId: nextRunId,
+              editSkillId: effectiveEditSkillId,
             },
+            metadata: {},
             onAccepted: handleAccepted,
           })
           .catch(async (error) => {
