@@ -5,5 +5,5 @@
  * 保持向后兼容，现有代码无需修改
  */
 
-export { useExecutionStore } from './execution'
-export type { InterruptInfo } from './execution'
+export { useExecutionStore } from './execution/executionStore'
+export type { InterruptInfo } from './execution/types'

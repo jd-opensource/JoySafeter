@@ -73,13 +73,12 @@ check_local_env() {
         log_success "uv 已安装"
     fi
 
-    # 检查 bun/npm/pnpm (Node.js 包管理器)
-    if ! check_command bun && ! check_command npm && ! check_command pnpm; then
-        log_error "Node.js 包管理器未安装（需要 bun、npm 或 pnpm）"
+    # 检查 bun (Node.js 包管理器)
+    if ! check_command bun; then
+        log_error "bun 未安装（请安装: https://bun.sh）"
         missing=$((missing + 1))
     else
-        local pkg_mgr=$(command -v bun || command -v pnpm || command -v npm)
-        log_success "Node.js 包管理器已安装: $(basename $pkg_mgr)"
+        log_success "bun 已安装: $(command -v bun)"
     fi
 
     if [ $missing -gt 0 ]; then
@@ -188,7 +187,7 @@ show_startup_info() {
     echo ""
     echo "或手动启动:"
     echo "  后端: cd $BACKEND_DIR && uv venv && source .venv/bin/activate && uv sync && alembic upgrade head && uv run uvicorn app.main:app --reload --port $backend_port"
-    echo "  前端: cd $FRONTEND_DIR && bun install && bun run dev   # 或 npm/pnpm"
+    echo "  前端: cd $FRONTEND_DIR && bun install && bun run dev"
     echo ""
     echo "访问地址:"
     echo "  前端: http://localhost:$frontend_port"

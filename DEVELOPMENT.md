@@ -5,7 +5,7 @@ This document provides detailed instructions for setting up and running the JoyS
 ## Prerequisites
 
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/) package manager
-- **Node.js 20+** with npm, pnpm, or bun
+- **Node.js 20+** with [bun](https://bun.sh)
 - **PostgreSQL 15+**
 - **Redis** (optional, for caching)
 - **Docker** (optional, for containerized development)
@@ -88,7 +88,7 @@ The project uses Tsinghua mirror by default. You can customize it via:
 cd frontend
 
 # Install dependencies
-bun install  # or: npm install / pnpm install
+bun install
 
 # Configure environment
 cp env.example .env.local
@@ -155,7 +155,7 @@ npm run type-check  # TypeScript
 - **MyPy** - Python 类型检查
 
 **前端检查：**
-- **ESLint** - JavaScript/TypeScript 代码检查 (`pnpm run lint`)
+- **ESLint** - JavaScript/TypeScript 代码检查 (`bun run lint`)
 
 **通用检查：**
 - 行尾空白检查
@@ -214,11 +214,11 @@ git commit --no-verify -m "emergency fix"
 2. 确保 backend 目录下有虚拟环境：`cd backend && uv venv`
 3. 确保已安装依赖：`cd backend && uv sync --dev`
 
-**问题：`pnpm run lint` 找不到命令**
+**问题：`bun run lint` 找不到命令**
 
 解决方案：
-1. 确保已安装 pnpm：`npm install -g pnpm`
-2. 确保 frontend 目录下已安装依赖：`cd frontend && pnpm install`
+1. 确保已安装 bun：`curl -fsSL https://bun.sh/install | bash`
+2. 确保 frontend 目录下已安装依赖：`cd frontend && bun install`
 
 **问题：Hooks 运行太慢**
 

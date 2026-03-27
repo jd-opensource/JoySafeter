@@ -1,16 +1,17 @@
 import { EmailClient, type EmailMessage } from '@azure/communication-email'
 import { Resend } from 'resend'
 
+import { apiGet, apiPost } from '@/lib/api-client'
 import { env } from '@/lib/core/config/env'
-import { getBaseUrl } from '@/lib/core/utils/urls'
+import { getBaseUrl, getEmailDomain } from '@/lib/core/utils/urls'
 import { createLogger } from '@/lib/logs/console/logger'
-
-import { generateUnsubscribeToken, isUnsubscribed } from './unsubscribe'
-import { getFromEmailAddress } from './utils'
 
 const logger = createLogger('Mailer')
 
 export type EmailType = 'transactional' | 'marketing' | 'updates' | 'notifications'
+type UnsubscribeEmailType = Exclude<EmailType, 'transactional'>
+
+const EMAIL_API_BASE = 'email'
 
 export interface EmailAttachment {
   filename: string
@@ -57,6 +58,41 @@ interface ProcessedEmailData {
   headers: Record<string, string>
   attachments?: EmailAttachment[]
   replyTo?: string
+}
+
+function getFromEmailAddress(): string {
+  if (env.FROM_EMAIL_ADDRESS?.trim()) {
+    return env.FROM_EMAIL_ADDRESS
+  }
+
+  return `noreply@${env.EMAIL_DOMAIN || getEmailDomain()}`
+}
+
+async function generateUnsubscribeToken(
+  email: string,
+  emailType: UnsubscribeEmailType,
+): Promise<string> {
+  const result = await apiPost<{ token: string }>(`${EMAIL_API_BASE}/generate-token`, {
+    email,
+    email_type: emailType,
+  })
+
+  return result.token
+}
+
+async function isUnsubscribed(
+  email: string,
+  emailType: 'all' | UnsubscribeEmailType = 'all',
+): Promise<boolean> {
+  try {
+    const result = await apiGet<{ is_unsubscribed: boolean }>(
+      `${EMAIL_API_BASE}/check-unsubscribed?email=${encodeURIComponent(email)}&email_type=${emailType}`,
+    )
+    return result?.is_unsubscribed || false
+  } catch (error) {
+    logger.error('Error checking unsubscribe status:', error)
+    return false
+  }
 }
 
 const resendApiKey = env.RESEND_API_KEY

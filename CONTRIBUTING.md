@@ -133,7 +133,7 @@ Unsure where to begin? Look for issues labeled:
    cd backend && ruff check . && mypy .
 
    # Frontend
-   cd frontend && pnpm run lint
+   cd frontend && bun run lint
    ```
 
 6. **Set up Pre-commit Hooks（必须）**:
@@ -150,7 +150,7 @@ Unsure where to begin? Look for issues labeled:
 
    安装后，每次 `git commit` 时会自动：
    - 运行后端 Ruff 检查（`uv run ruff check .`）
-   - 运行前端 ESLint 检查（`pnpm run lint`）
+   - 运行前端 ESLint 检查（`bun run lint`）
    - 运行其他代码质量检查
 
    如果检查失败，提交会被阻止，需要先修复错误。未安装 hooks 或跳过提交时，CI 也会运行相同校验，不通过则 PR 无法合并。

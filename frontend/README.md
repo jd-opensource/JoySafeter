@@ -10,7 +10,6 @@ JoySafeter 的前端应用（Next.js），提供可视化编排与交互式 Web 
 
 ```bash
 cd frontend
-# 推荐 bun（也可 npm/pnpm）
 bun install
 ```
 
@@ -25,7 +24,6 @@ cp env.example .env.local
 
 ```bash
 bun run dev
-# 或：npm run dev / pnpm dev
 ```
 
 访问：http://localhost:3000

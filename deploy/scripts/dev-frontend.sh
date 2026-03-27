@@ -97,20 +97,13 @@ main() {
     log_step "检测包管理器并安装依赖..."
     cd "$FRONTEND_DIR"
 
-    local pkg_mgr=""
-    if command -v bun >/dev/null 2>&1; then
-        pkg_mgr="bun"
-    elif command -v pnpm >/dev/null 2>&1; then
-        pkg_mgr="pnpm"
-    elif command -v npm >/dev/null 2>&1; then
-        pkg_mgr="npm"
-    else
-        log_error "未找到 bun、pnpm 或 npm，请先安装 Node.js 及任一包管理器"
+    if ! command -v bun >/dev/null 2>&1; then
+        log_error "未找到 bun，请先安装: https://bun.sh"
         exit 1
     fi
 
-    log_info "使用: $pkg_mgr"
-    $pkg_mgr install
+    log_info "使用: bun"
+    bun install
     log_success "依赖已就绪"
     echo ""
 
@@ -118,7 +111,7 @@ main() {
     log_step "启动前端 (port $frontend_port)..."
     log_info "按 Ctrl+C 停止"
     echo ""
-    PORT="$frontend_port" $pkg_mgr run dev
+    PORT="$frontend_port" bun run dev
 }
 
 main "$@"

@@ -59,7 +59,7 @@ repos:
     hooks:
       - id: frontend-lint
         name: Frontend ESLint
-        entry: bash -c 'cd frontend && pnpm run lint || exit 1'
+        entry: bash -c 'cd frontend && bun run lint || exit 1'
         language: system
         files: ^frontend/.*\.(ts|tsx|js|jsx)$
         pass_filenames: false
