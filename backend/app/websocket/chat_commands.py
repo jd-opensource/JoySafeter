@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid as uuid_lib
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -11,7 +12,7 @@ class StandardChatTurnCommand:
     request_id: str
     message: str
     thread_id: str | None
-    graph_id: str | None
+    graph_id: uuid_lib.UUID | None
     metadata: dict[str, Any]
     files: list[dict[str, Any]]
 
@@ -58,7 +59,9 @@ def _normalize_files(files: list[Any]) -> list[dict[str, Any]]:
     return [f for f in files if isinstance(f, dict)]
 
 
-def _sanitize_metadata_files(metadata: Mapping[str, Any], raw_files: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _sanitize_metadata_files(
+    metadata: Mapping[str, Any], raw_files: Any
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     sanitized = dict(metadata)
     sanitized.pop("files", None)
 

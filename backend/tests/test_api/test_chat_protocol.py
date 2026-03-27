@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 from app.websocket.chat_protocol import (
@@ -44,6 +46,25 @@ def test_parse_skill_creator_extension_frame():
     assert parsed.extension is not None
     assert parsed.extension.kind == "skill_creator"
     assert parsed.extension.edit_skill_id == "skill-42"
+
+
+def test_parse_chat_start_frame_coerces_graph_id_to_uuid():
+    graph_id = uuid.uuid4()
+
+    parsed = parse_client_frame(
+        {
+            "type": "chat.start",
+            "request_id": "req-graph",
+            "thread_id": None,
+            "graph_id": str(graph_id),
+            "input": {"message": "hello", "files": []},
+            "extension": None,
+            "metadata": {},
+        }
+    )
+
+    assert isinstance(parsed, ParsedChatStartFrame)
+    assert parsed.graph_id == graph_id
 
 
 def test_reserved_metadata_control_keys_are_rejected():
@@ -114,3 +135,20 @@ def test_malformed_chat_start_missing_input_raises():
 
     assert "input" in exc.value.message.lower()
     assert exc.value.request_id == "req-bad"
+
+
+def test_invalid_graph_id_raises_protocol_error():
+    with pytest.raises(ChatProtocolError) as exc:
+        parse_client_frame(
+            {
+                "type": "chat.start",
+                "request_id": "req-graph-bad",
+                "graph_id": "not-a-uuid",
+                "input": {"message": "hello", "files": []},
+                "extension": None,
+                "metadata": {},
+            }
+        )
+
+    assert exc.value.message == "chat.start frame graph_id must be a valid UUID"
+    assert exc.value.request_id == "req-graph-bad"

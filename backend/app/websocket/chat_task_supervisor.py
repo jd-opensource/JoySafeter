@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid as uuid_lib
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Coroutine
+from typing import Any, Awaitable, Callable, Coroutine, cast
 
 from app.utils.task_manager import task_manager
 
@@ -79,16 +79,17 @@ class ChatTaskSupervisor:
             return None
 
         if thread_id is not _UNSET:
-            entry.thread_id = thread_id
-            self._bind_thread(request_id, thread_id)
+            thread_id_value = cast(str | None, thread_id)
+            entry.thread_id = thread_id_value
+            self._bind_thread(request_id, thread_id_value)
         if task is not _UNSET:
-            entry.task = task
+            entry.task = cast(asyncio.Task[Any], task)
         if heartbeat_task is not _UNSET:
-            entry.heartbeat_task = heartbeat_task
+            entry.heartbeat_task = cast(asyncio.Task[Any] | None, heartbeat_task)
         if run_id is not _UNSET:
-            entry.run_id = run_id
+            entry.run_id = cast(uuid_lib.UUID | None, run_id)
         if persist_on_disconnect is not _UNSET:
-            entry.persist_on_disconnect = persist_on_disconnect
+            entry.persist_on_disconnect = cast(bool, persist_on_disconnect)
 
         return entry
 

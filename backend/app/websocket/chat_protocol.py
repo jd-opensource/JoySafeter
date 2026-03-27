@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import uuid as uuid_lib
 from dataclasses import dataclass
 from typing import Any, Literal
-
 
 RESERVED_METADATA_KEYS = {"mode", "run_id", "edit_skill_id", "extension", "kind", "files"}
 ALLOWED_CLIENT_FRAME_TYPES = {
@@ -39,7 +39,7 @@ class ParsedSkillCreatorExtension:
 class ParsedChatStartFrame:
     request_id: str
     thread_id: str | None
-    graph_id: str | None
+    graph_id: uuid_lib.UUID | None
     input: ParsedChatInput
     extension: ParsedSkillCreatorExtension | None
     metadata: dict[str, Any]
@@ -84,7 +84,7 @@ def _parse_chat_start_frame(frame: dict[str, Any]) -> ParsedChatStartFrame:
     extension = _parse_extension(frame.get("extension"), request_id)
 
     thread_id = _coerce_request_id(frame.get("thread_id"))
-    graph_id = _coerce_request_id(frame.get("graph_id"))
+    graph_id = _coerce_optional_uuid(frame.get("graph_id"), request_id=request_id, field_name="graph_id")
 
     return ParsedChatStartFrame(
         request_id=request_id,
@@ -119,3 +119,17 @@ def _coerce_request_id(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _coerce_optional_uuid(value: Any, *, request_id: str, field_name: str) -> uuid_lib.UUID | None:
+    text = _coerce_request_id(value)
+    if text is None:
+        return None
+
+    try:
+        return uuid_lib.UUID(text)
+    except (ValueError, TypeError) as exc:
+        raise ChatProtocolError(
+            f"chat.start frame {field_name} must be a valid UUID",
+            request_id=request_id,
+        ) from exc

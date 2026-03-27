@@ -8,38 +8,56 @@ import uuid as uuid_lib
 from typing import Any, cast
 
 from fastapi import WebSocket, WebSocketDisconnect
-from langchain.messages import HumanMessage
+from langchain.messages import HumanMessage as HumanMessage
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select as select
 
+# Re-exported names below are part of ChatTurnExecutor's module dependency contract.
 from app.api.v1.chat import (
-    GraphBubbleUp,
+    GraphBubbleUp as GraphBubbleUp,
+)
+from app.api.v1.chat import (
     _clear_interrupt_marker,
-    _dispatch_stream_event,
-    _enrich_message,
-    get_or_create_conversation,
-    get_user_config,
-    safe_get_state,
     save_run_result,
-    save_user_message,
+)
+from app.api.v1.chat import (
+    _dispatch_stream_event as _dispatch_stream_event,
+)
+from app.api.v1.chat import (
+    _enrich_message as _enrich_message,
+)
+from app.api.v1.chat import (
+    get_or_create_conversation as get_or_create_conversation,
+)
+from app.api.v1.chat import (
+    get_user_config as get_user_config,
+)
+from app.api.v1.chat import (
+    safe_get_state as safe_get_state,
+)
+from app.api.v1.chat import (
+    save_user_message as save_user_message,
 )
 from app.core.agent.artifacts import ArtifactCollector
-from app.core.database import AsyncSessionLocal, async_session_factory
+from app.core.database import AsyncSessionLocal as AsyncSessionLocal
+from app.core.database import async_session_factory
 from app.core.settings import settings
-from app.models import Conversation
+from app.models import Conversation as Conversation
 from app.models.agent_run import AgentRunStatus
 from app.schemas.chat import ChatRequest
-from app.services.graph_service import GraphService
+from app.services.graph_service import GraphService as GraphService
 from app.services.run_service import RunService
-from app.utils.file_event_emitter import FileEventEmitter
-from app.utils.stream_event_handler import StreamEventHandler, StreamState
+from app.utils.file_event_emitter import FileEventEmitter as FileEventEmitter
+from app.utils.stream_event_handler import StreamEventHandler as StreamEventHandler
+from app.utils.stream_event_handler import StreamState
 from app.utils.task_manager import task_manager
 from app.websocket.chat_commands import (
     ChatTurnCommand,
     build_command_from_parsed_frame,
 )
 from app.websocket.chat_protocol import ChatProtocolError, ParsedChatStartFrame, parse_client_frame
-from app.websocket.chat_task_supervisor import ChatTaskEntry, ChatTaskSupervisor
+from app.websocket.chat_task_supervisor import ChatTaskEntry as ChatTaskEntry
+from app.websocket.chat_task_supervisor import ChatTaskSupervisor
 from app.websocket.chat_turn_executor import ChatTurnExecutor
 
 
@@ -50,13 +68,16 @@ class ChatWsHandler:
         self.user_id = user_id
         self.websocket = websocket
         self._task_supervisor = ChatTaskSupervisor(
-            stop_task=lambda thread_id: task_manager.stop_task(thread_id),
+            stop_task=self._stop_managed_task,
         )
         self._tasks = self._task_supervisor.tasks
         self._turn_executor = ChatTurnExecutor(handler=self, dependencies=cast(Any, sys.modules[__name__]))
         self._send_lock = asyncio.Lock()
         self._socket_connected = True
         self._runtime_owner_id = settings.run_runtime_instance_id
+
+    async def _stop_managed_task(self, thread_id: str) -> None:
+        await task_manager.stop_task(thread_id)
 
     async def run(self) -> None:
         try:
