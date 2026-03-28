@@ -278,13 +278,6 @@ const AgentBuilderContent = () => {
     // Now we are officially initialized for this agentId
     loadedGraphIdRef.current = agentId
 
-    // Sync SaveManager's hash
-    const syncTimer = setTimeout(() => {
-      const { syncLastSavedHash } = useBuilderStore.getState()
-      syncLastSavedHash()
-    }, 0)
-    viewportTimersRef.current.push(syncTimer)
-
     // Wait for ReactFlow instance to be ready
     let retryCount = 0
     const maxRetries = 40
@@ -400,13 +393,6 @@ const AgentBuilderContent = () => {
         saveRetryCount: 0,
         lastSaveError: null,
       })
-
-      // 同步 SaveManager 的 hash，确保在启动自动保存前 hash 已同步
-      // 使用 setTimeout 确保状态更新已完成
-      setTimeout(() => {
-        const { syncLastSavedHash } = useBuilderStore.getState()
-        syncLastSavedHash()
-      }, 0)
 
       if (state.viewport && rfInstance) {
         rfInstance.setViewport(state.viewport)

@@ -551,22 +551,10 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     setWorkspaceId: (workspaceId) => set({ workspaceId }),
     setGraphId: (graphId) => {
       set({ graphId })
-      // Sync SaveManager hash when graphId changes (e.g., when loading a graph)
-      const state = get()
-      if (state.lastSavedStateHash) {
-        saveManager.setLastSavedHash(state.lastSavedStateHash)
-      }
     },
     setGraphName: (graphName) => set({ graphName }),
 
-    // Sync SaveManager's lastSavedHash from state (without changing graphId)
-    // Used when lastSavedStateHash is updated after graphId is already set
-    syncLastSavedHash: () => {
-      const state = get()
-      if (state.lastSavedStateHash) {
-        saveManager.setLastSavedHash(state.lastSavedStateHash)
-      }
-    },
+    syncLastSavedHash: () => {},
 
     // ========== Node Actions ==========
 
@@ -928,15 +916,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     },
 
     startAutoSave: () => {
-      const { lastSavedStateHash } = get()
-
-      // 同步 lastSavedHash 到 SaveManager（如果还未同步）
-      // 这确保在启动自动保存前，SaveManager 知道当前状态的 hash
-      if (lastSavedStateHash) {
-        saveManager.setLastSavedHash(lastSavedStateHash)
-      }
-
-      // 立即保存当前状态以建立基线（但会检查 hash，如果匹配则跳过）
       saveManager.save('auto')
     },
 
