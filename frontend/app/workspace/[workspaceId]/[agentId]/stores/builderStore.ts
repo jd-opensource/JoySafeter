@@ -479,13 +479,17 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     onNodesChange: (changes: NodeChange[]) => {
       if (changes.some((c) => c.type === 'remove')) get().takeSnapshot()
       set({ nodes: applyNodeChanges(changes, get().nodes) })
-      get().triggerAutoSave()
+      const isContentChange = changes.some(
+        (c) => c.type !== 'select' && c.type !== 'dimensions',
+      )
+      if (isContentChange) get().triggerAutoSave()
     },
 
     onEdgesChange: (changes: EdgeChange[]) => {
       if (changes.some((c) => c.type === 'remove')) get().takeSnapshot()
       set({ edges: applyEdgeChanges(changes, get().edges) })
-      get().triggerAutoSave()
+      const isContentChange = changes.some((c) => c.type !== 'select')
+      if (isContentChange) get().triggerAutoSave()
     },
 
     onConnect: (connection: Connection) => {
