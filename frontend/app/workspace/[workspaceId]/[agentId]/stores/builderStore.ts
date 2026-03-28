@@ -232,7 +232,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         set({
           lastSavedStateHash: hash,
           lastAutoSaveTime: Date.now(),
-          hasPendingChanges: false,
           saveRetryCount: 0,
           lastSaveError: null,
         })
@@ -278,7 +277,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     highlightedStateVariable: null,
     setHighlightedStateVariable: (variableName) => set({ highlightedStateVariable: variableName }),
     setFallbackNodeId: (nodeId) => {
-      set({ fallbackNodeId: nodeId, hasPendingChanges: true })
+      set({ fallbackNodeId: nodeId })
       get().triggerAutoSave()
     },
 
@@ -345,7 +344,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     addStateField: (field) => {
       set((state) => ({
         graphStateFields: [...state.graphStateFields, field],
-        hasPendingChanges: true,
       }))
       get().triggerAutoSave()
     },
@@ -355,7 +353,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         graphStateFields: state.graphStateFields.map((f) =>
           f.name === name ? { ...f, ...updates } : f,
         ),
-        hasPendingChanges: true,
       }))
       get().triggerAutoSave()
     },
@@ -363,7 +360,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     deleteStateField: (name) => {
       set((state) => ({
         graphStateFields: state.graphStateFields.filter((f) => f.name !== name),
-        hasPendingChanges: true,
       }))
       get().triggerAutoSave()
     },
@@ -698,7 +694,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
             style: edgeStyle,
           }
         }),
-        hasPendingChanges: true,
       }))
       get().triggerAutoSave()
     },
@@ -761,7 +756,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         return edge
       })
 
-      set({ edges: updatedEdges, hasPendingChanges: true })
+      set({ edges: updatedEdges })
       get().triggerAutoSave()
     },
 
@@ -912,7 +907,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           graphName: name,
           lastAutoSaveTime: Date.now(),
           lastSavedStateHash: currentStateHash,
-          hasPendingChanges: false,
           saveRetryCount: 0,
           lastSaveError: null,
         })
@@ -930,7 +924,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
       if (!graphId) return
 
-      set({ hasPendingChanges: true })
       saveManager.debouncedSave()
     },
 
@@ -979,7 +972,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           past: [],
           future: [],
           selectedNodeId: null,
-          hasPendingChanges: false,
           lastSavedStateHash: null,
           saveRetryCount: 0,
           lastSaveError: null,
@@ -1070,3 +1062,23 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     },
   }
 })
+
+// Patch getState so hasPendingChanges is always derived from hash comparison.
+// Zustand flattens JS getters via Object.assign, so we override getState instead.
+{
+  const originalGetState = useBuilderStore.getState.bind(useBuilderStore)
+  useBuilderStore.getState = () => {
+    const state = originalGetState()
+    const { graphId, nodes, edges, graphStateFields, fallbackNodeId, lastSavedStateHash } = state
+    let hasPendingChanges: boolean
+    if (!graphId && nodes.length === 0 && edges.length === 0) {
+      hasPendingChanges = false
+    } else if (lastSavedStateHash === null) {
+      hasPendingChanges = graphId !== null
+    } else {
+      const currentHash = computeGraphStateHash(nodes, edges, graphStateFields, fallbackNodeId)
+      hasPendingChanges = currentHash !== lastSavedStateHash
+    }
+    return { ...state, hasPendingChanges }
+  }
+}
