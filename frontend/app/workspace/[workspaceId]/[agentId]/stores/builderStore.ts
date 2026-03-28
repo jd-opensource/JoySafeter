@@ -180,7 +180,6 @@ interface BuilderState {
   setDeployedAt: (deployedAt: string | null) => void
   exportGraph: () => void
   importGraph: (file: File) => Promise<void>
-  syncLastSavedHash: () => void
   validateGraph: () => Promise<boolean>
   setValidationErrors: (errors: ValidationError[]) => void
 
@@ -554,8 +553,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     },
     setGraphName: (graphName) => set({ graphName }),
 
-    syncLastSavedHash: () => {},
-
     // ========== Node Actions ==========
 
     addNode: (type, position, label, configOverride) => {
@@ -888,7 +885,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           variables,
         })
         // Save state using SaveManager
-        await saveManager.save('manual', true)
+        await saveManager.save('manual')
         const currentStateHash = computeGraphStateHash(nodes, edges)
         set({
           graphId,
@@ -1042,22 +1039,29 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
   }
 })
 
-// Patch getState so hasPendingChanges is always derived from hash comparison.
-// Zustand flattens JS getters via Object.assign, so we override getState instead.
-{
-  const originalGetState = useBuilderStore.getState.bind(useBuilderStore)
-  useBuilderStore.getState = () => {
-    const state = originalGetState()
-    const { graphId, nodes, edges, graphStateFields, fallbackNodeId, lastSavedStateHash } = state
-    let hasPendingChanges: boolean
-    if (!graphId && nodes.length === 0 && edges.length === 0) {
-      hasPendingChanges = false
-    } else if (lastSavedStateHash === null) {
-      hasPendingChanges = graphId !== null
-    } else {
-      const currentHash = computeGraphStateHash(nodes, edges, graphStateFields, fallbackNodeId)
-      hasPendingChanges = currentHash !== lastSavedStateHash
-    }
-    return { ...state, hasPendingChanges }
+// Subscribe to relevant fields and recompute hasPendingChanges reactively.
+// This ensures useBuilderStore() hooks in components always see the correct value.
+useBuilderStore.subscribe((state, prevState) => {
+  if (
+    state.nodes === prevState.nodes &&
+    state.edges === prevState.edges &&
+    state.graphStateFields === prevState.graphStateFields &&
+    state.fallbackNodeId === prevState.fallbackNodeId &&
+    state.lastSavedStateHash === prevState.lastSavedStateHash &&
+    state.graphId === prevState.graphId
+  ) return
+
+  const { graphId, nodes, edges, graphStateFields, fallbackNodeId, lastSavedStateHash } = state
+  let hasPendingChanges: boolean
+  if (!graphId && nodes.length === 0 && edges.length === 0) {
+    hasPendingChanges = false
+  } else if (lastSavedStateHash === null) {
+    hasPendingChanges = graphId !== null
+  } else {
+    const currentHash = computeGraphStateHash(nodes, edges, graphStateFields, fallbackNodeId)
+    hasPendingChanges = currentHash !== lastSavedStateHash
   }
-}
+  if (state.hasPendingChanges !== hasPendingChanges) {
+    useBuilderStore.setState({ hasPendingChanges })
+  }
+})
