@@ -341,12 +341,54 @@ class _DSLVisitor(ast.NodeVisitor):
 
 After visiting, `DSLParser._build_schema()` converts `ParseResult` → `GraphSchema`:
 
-- `ParsedStateField` → `StateFieldSchema`
-- `ParsedNode` → `NodeSchema` (kwargs mapped to `config`, `inline_code` → `config.code`)
-- `ParsedEdge` → `EdgeSchema`
-- Entry node (first `add_edge(START, x)`) → `schema.entry_point`
+**Node ID strategy:** `_build_schema()` sets both `NodeSchema.id` and `NodeSchema.label` to the string name from `g.add_node("name", var)`. This ensures `GraphCompiler._precompute_maps()` derives the LangGraph node name from `node.label` (which equals `node.id`), and `validate_edge_references` passes because `EdgeSchema.source`/`target` use the same string names.
 
-This `GraphSchema` is identical to what `LanggraphModelBuilder.build_from_schema()` already consumes — zero changes to the compiler.
+```python
+# _build_schema() node construction
+for name, parsed_node in name_to_node.items():
+    node_schema = NodeSchema(
+        id=name,       # string name, e.g. "classifier"
+        label=name,    # same — ensures compiler derives correct LangGraph name
+        type=parsed_node.node_type,
+        config={**parsed_node.kwargs},
+    )
+    if parsed_node.inline_code:
+        node_schema.config["code"] = parsed_node.inline_code
+```
+
+**START/END edge handling:** `_build_schema()` does NOT emit `EdgeSchema` rows for `add_edge(START, x)` or `add_edge(x, END)` calls. These are dropped. The compiler's `_build_start_end_edges()` derives entry/exit nodes from topology (`get_start_nodes()` = nodes with no incoming edges, `get_end_nodes()` = nodes with no outgoing edges). The node referenced in `add_edge(START, x)` simply has no incoming `EdgeSchema` rows, so it is naturally identified as the start node.
+
+**`ParsedNode.var_name` vs string name:** `visit_Assign` records `var_name → ParsedNode`. `visit_Expr` for `g.add_node("name", var)` resolves `var` back to its `ParsedNode` via `var_name` lookup and registers `"name" → ParsedNode`. Only the string name is used in `NodeSchema.id`; `var_name` is an internal parser detail.
+
+**Remaining conversions:**
+- `ParsedStateField` → `StateFieldSchema`
+- `ParsedEdge` (non-START/END) → `EdgeSchema`
+
+**DSL v1 supported node types** (factory functions with DSL equivalents):
+
+| Factory | NodeSchema.type |
+|---------|----------------|
+| `agent` | `agent` |
+| `condition` | `condition` |
+| `router` | `router_node` |
+| `fn` | `function_node` |
+| `http` | `http_request_node` |
+| `direct_reply` | `direct_reply` |
+| `human_input` | `human_input` |
+| `tool` | `tool_node` |
+
+**Out of scope for DSL v1** (no factory function, migration will skip graphs using these):
+
+| NodeSchema.type | Status |
+|----------------|--------|
+| `loop_condition_node` | Deferred to v2 — complex loop semantics require dedicated DSL syntax |
+| `aggregator_node` | Deferred to v2 |
+| `json_parser_node` | Deferred to v2 |
+| `get_state_node` | Deferred to v2 |
+| `set_state_node` | Deferred to v2 |
+| `code_agent` | Deferred to v2 |
+
+Graphs using out-of-scope node types remain in `graph_mode: "canvas"` after migration and are added to the manual review queue. They continue to work unchanged.
 
 ### 6.5 DSLValidator
 
@@ -390,13 +432,54 @@ POST /v1/graphs/{graph_id}/code/save
    a. loads dsl_code from graph.variables
    b. DSLParser.parse(dsl_code) → GraphSchema
    c. if parse errors → return error to frontend immediately
-   d. GraphCompiler.compile_from_schema(schema, builder=DSLExecutorBuilder)
-      → DSLExecutorBuilder creates executors from NodeSchema.config (no DB rows needed)
-   e. compiled_graph.ainvoke(initial_state, config=config)
-   f. stream results back via existing WebSocket protocol
+   d. DSLExecutorBuilder(schema, model_service, user_id).build_executors()
+      → returns dict[node_name, executor]
+   e. GraphCompiler.compile_from_schema(schema, executor_map=executor_map,
+                                        checkpointer=get_checkpointer())
+   f. compiled_graph.ainvoke(initial_state, config=config)
+   g. stream results back via existing WebSocket protocol
 ```
 
-`DSLExecutorBuilder` is a minimal new class that implements the executor-creation interface expected by `GraphCompiler` but reads from `NodeSchema.config` instead of DB `GraphNode` rows. All executor classes (`AgentNodeExecutor`, `ConditionNodeExecutor`, etc.) are reused unchanged.
+**`DSLExecutorBuilder` interface:**
+
+`GraphCompiler._create_executors_via_builder` iterates `builder.nodes` (DB `GraphNode` objects) and calls `builder._get_or_create_executor(db_node, name)`. DSL graphs have no DB node rows, so `DSLExecutorBuilder` bypasses this path entirely. Instead, `DSLRunService` calls a new `compile_from_schema` overload that accepts a pre-built `executor_map`:
+
+```python
+class DSLExecutorBuilder:
+    """
+    Builds executor instances directly from NodeSchema.config.
+    Does not require DB GraphNode rows.
+    """
+    def __init__(self, schema: GraphSchema, model_service, user_id, llm_model, ...):
+        self._schema = schema
+        self._model_service = model_service
+        self._user_id = user_id
+        self._llm_model = llm_model
+
+    async def build_executors(self) -> dict[str, Any]:
+        """Returns {node_name: executor_instance} for all nodes in schema."""
+        result = {}
+        for node in self._schema.nodes:
+            executor = await self._create_executor(node)
+            result[node.id] = executor  # node.id == node_name for DSL schemas
+        return result
+
+    async def _create_executor(self, node: NodeSchema) -> Any:
+        # Constructs executor from node.type and node.config
+        # Mirrors base_graph_builder._create_node_executor but takes NodeSchema
+        # instead of GraphNode ORM object
+        if node.type == "agent":
+            return AgentNodeExecutor.from_schema(node, self._model_service, ...)
+        elif node.type == "condition":
+            return ConditionNodeExecutor.from_schema(node)
+        # ... etc for all node types
+```
+
+Each executor class gains a `from_schema(node: NodeSchema, ...)` classmethod that reads `node.config` directly. This is the only change to existing executor classes — all execution logic is unchanged.
+
+`GraphCompiler.compile_from_schema` gains an optional `executor_map` parameter. When provided, it skips `_create_executors_via_builder` and uses the pre-built map directly. When absent, existing behavior is unchanged.
+
+**Checkpointer:** `DSLRunService` calls `get_checkpointer()` the same way `LanggraphModelBuilder` does. DSL runs support checkpointing by default (same behavior as canvas runs).
 
 ### 6.7 DB Storage
 
@@ -462,8 +545,33 @@ Migration script:
 
 ```python
 for graph in all_non_deepagents_graphs:
-    schema = GraphSchema.from_db(graph, nodes, edges)
-    code = dsl_generate_code(schema)          # new generator
+    # Step 1: build schema from DB — catch ValidationError for malformed graphs
+    try:
+        schema = GraphSchema.from_db(graph, nodes, edges)
+    except ValidationError as e:
+        log_failure(graph.id, "schema_from_db", str(e))
+        continue  # graph stays in canvas mode
+
+    # Step 2: check for out-of-scope node types
+    unsupported = {n.type for n in schema.nodes} - DSL_V1_SUPPORTED_TYPES
+    if unsupported:
+        log_failure(graph.id, "unsupported_node_types", list(unsupported))
+        continue  # graph stays in canvas mode, added to manual review queue
+
+    # Step 3: generate DSL code
+    try:
+        code = dsl_generate_code(schema)
+    except Exception as e:
+        log_failure(graph.id, "dsl_generate_code", str(e))
+        continue
+
+    # Step 4: verify generated code round-trips through parser
+    parse_result = DSLParser().parse(code)
+    if parse_result.errors:
+        log_failure(graph.id, "parse_roundtrip", parse_result.errors)
+        continue
+
+    # Step 5: persist
     graph.variables["dsl_code"] = code
     graph.variables["graph_mode"] = "dsl"
     db.save(graph)
