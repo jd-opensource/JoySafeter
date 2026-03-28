@@ -222,7 +222,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       viewport: get().rfInstance?.getViewport(),
       graphStateFields: get().graphStateFields,
       fallbackNodeId: get().fallbackNodeId,
-      lastSavedStateHash: get().lastSavedStateHash,
     }),
     {
       onSaveSuccess: (hash, savedGraphId) => {
@@ -886,7 +885,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         })
         // Save state using SaveManager
         await saveManager.save('manual')
-        const currentStateHash = computeGraphStateHash(nodes, edges)
+        const currentStateHash = computeGraphStateHash(nodes, edges, get().graphStateFields, get().fallbackNodeId)
         set({
           graphId,
           graphName: name,
@@ -1062,6 +1061,9 @@ useBuilderStore.subscribe((state, prevState) => {
     hasPendingChanges = currentHash !== lastSavedStateHash
   }
   if (state.hasPendingChanges !== hasPendingChanges) {
+    // Safe: hasPendingChanges is not in the watched fields above, so this
+    // setState call won't re-trigger the early-return check, preventing
+    // infinite recursion.
     useBuilderStore.setState({ hasPendingChanges })
   }
 })
