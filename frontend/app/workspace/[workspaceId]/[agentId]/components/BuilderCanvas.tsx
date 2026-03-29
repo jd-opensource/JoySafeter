@@ -384,16 +384,6 @@ export function BuilderCanvas() {
   // Process edges for React Flow with unique types and styling
   const processedEdges = useMemo(() => {
     return uniqueEdges.map((edge) => {
-      const edgeData = (edge.data || {}) as EdgeData
-      // Set edge type based on edge_type in data
-      // LoopBackEdge component handles custom path calculation with offset
-      if (edgeData.edge_type === 'loop_back') {
-        return {
-          ...edge,
-          type: 'loop_back',
-        }
-      }
-      // Use DefaultEdge for normal and conditional edges (handles label display)
       return {
         ...edge,
         type: 'default',

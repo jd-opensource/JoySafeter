@@ -41,7 +41,7 @@ import { computeGraphStateHash } from '@/utils/graphStateHash'
 import { agentService } from '../services/agentService'
 import { nodeRegistry } from '../services/nodeRegistry'
 import type { StateField } from '../types/graph'
-import { EdgeData, RouteRule, ValidationError } from '../types/graph'
+import { EdgeData, ValidationError } from '../types/graph'
 import { determineEdgeTypeAndRouteKey, autoWireConnection } from '../utils/connectionUtils'
 import { getEdgeStyleByType, processEdgesForReactFlow } from '../utils/edgeStyles'
 import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExport'
@@ -159,7 +159,6 @@ interface BuilderState {
   updateEdge: (id: string, data: Partial<EdgeData>) => void
   selectEdge: (id: string | null) => void
   getOutgoingEdges: (nodeId: string) => Edge[]
-  syncEdgesWithRouteRules: (nodeId: string, routes: RouteRule[]) => void
 
   // Graph Persistence
   loadGraph: (graphId?: string) => Promise<void>
@@ -558,10 +557,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         }),
       })
 
-      // Auto-sync edges when router node routes change
-      if (nodeType === 'router_node' && config.routes) {
-        get().syncEdgesWithRouteRules(id, config.routes as RouteRule[])
-      }
+      // Auto-sync removed (router_node deleted)
 
       get().triggerAutoSave()
     },
@@ -652,62 +648,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       return get().edges.filter((e) => e.source === nodeId)
     },
 
-    syncEdgesWithRouteRules: (nodeId, routes) => {
-      const { edges } = get()
-      const outgoingEdges = edges.filter((e) => e.source === nodeId)
-      const routeKeys = new Set(routes.map((r) => r.targetEdgeKey).filter(Boolean))
-
-      // Update edges with matching route keys
-      const updatedEdges = edges.map((edge) => {
-        if (edge.source !== nodeId) return edge
-
-        const edgeData = (edge.data || {}) as EdgeData
-        const currentRouteKey = edgeData.route_key
-
-        // If edge has a route_key that's in the routes, keep it (already correct)
-        if (currentRouteKey && routeKeys.has(currentRouteKey)) {
-          return edge
-        }
-
-        // If edge doesn't have a route_key but should (conditional edge), try to match
-        if (edgeData.edge_type === 'conditional' && !currentRouteKey) {
-          // Try to find a route that doesn't have an edge yet
-          // Priority: find first route without a matching edge
-          const unmatchedRoute = routes.find((r) => {
-            const hasMatchingEdge = outgoingEdges.some(
-              (e) => ((e.data || {}) as EdgeData).route_key === r.targetEdgeKey,
-            )
-            return !hasMatchingEdge
-          })
-
-          if (unmatchedRoute) {
-            return {
-              ...edge,
-              data: {
-                ...edgeData,
-                route_key: unmatchedRoute.targetEdgeKey,
-              },
-            }
-          }
-        }
-
-        // If route_key is no longer in routes, clear it (but keep the edge)
-        if (currentRouteKey && !routeKeys.has(currentRouteKey)) {
-          return {
-            ...edge,
-            data: {
-              ...edgeData,
-              route_key: undefined,
-            },
-          }
-        }
-
-        return edge
-      })
-
-      set({ edges: updatedEdges })
-      get().triggerAutoSave()
-    },
 
     loadGraph: async (graphId?: string) => {
       set({ isInitializing: true })
