@@ -197,17 +197,6 @@ const SchemaFieldRenderer = ({
         )
       }
       break
-    case 'code':
-      input = (
-        <Textarea
-          value={(value as string) || ''}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={schema.placeholder}
-          spellCheck={false}
-          className="min-h-[120px] resize-y border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 font-mono text-[11px] text-[var(--text-primary)] shadow-inner focus-visible:ring-1 focus-visible:ring-[var(--brand-500)]"
-        />
-      )
-      break
     case 'select':
       input = (
         <Select value={(value as string) || ''} onValueChange={onChange}>
@@ -222,27 +211,6 @@ const SchemaFieldRenderer = ({
                 {opt}
               </SelectItem>
             ))}
-          </SelectContent>
-        </Select>
-      )
-      break
-    case 'stateSelect':
-      input = (
-        <Select value={(value as string) || ''} onValueChange={onChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder={schema.placeholder || 'Select state variable'} />
-          </SelectTrigger>
-          <SelectContent>
-            {graphStateFields?.map((field) => (
-              <SelectItem key={field.name} value={field.name} className="text-xs">
-                {field.name} ({field.type})
-              </SelectItem>
-            ))}
-            {(!graphStateFields || graphStateFields.length === 0) && (
-              <div className="p-2 text-center text-[10px] text-[var(--text-muted)]">
-                No state variables defined
-              </div>
-            )}
           </SelectContent>
         </Select>
       )

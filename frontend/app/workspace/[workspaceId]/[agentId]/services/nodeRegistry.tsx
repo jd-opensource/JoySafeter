@@ -17,34 +17,25 @@ export type FieldType =
   | 'modelSelect'
   | 'toolSelector'
   | 'skillSelector'
-  | 'kvList'
   | 'boolean'
-  | 'routeList' // Route rule list
-  | 'conditionExpr' // Conditional expression editor
-  | 'stringArray' // String array input
-  | 'dockerConfig' // Docker configuration editor
-  | 'stateSelect' // State variable selector
-  | 'stateMapper' // Visual input mapper
-  | 'code' // Code editor
+  | 'stringArray'
+  | 'dockerConfig'
+  | 'kvList'
 
 export interface FieldSchema {
   key: string
   label: string
   type: FieldType
   placeholder?: string
-  options?: string[] // For static select
+  options?: string[]
   required?: boolean
   description?: string
-  // For number type
   min?: number
   max?: number
   step?: number
-  // For conditionExpr type
-  variables?: string[] // Available variable hints
-  // Conditional display: only show when a field equals certain values
   showWhen?: {
-    field: string // Dependent field key
-    values: (string | boolean | number)[] // Show when field value is in this array
+    field: string
+    values: (string | boolean | number)[]
   }
 }
 
