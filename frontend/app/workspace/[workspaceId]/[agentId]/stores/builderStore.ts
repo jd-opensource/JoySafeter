@@ -553,7 +553,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         }),
       })
 
-      // Auto-sync removed (router_node deleted)
 
       get().triggerAutoSave()
     },

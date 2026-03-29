@@ -15,26 +15,6 @@ export interface GraphState {
   context?: Record<string, any>
   messages?: any[]
   current_node?: string
-  route_decision?: string
-  route_reason?: string
-  route_history?: string[]
-  loop_count?: number
-  loop_condition_met?: boolean
-  max_loop_iterations?: number
-  parallel_mode?: boolean
-  task_states?: Record<
-    string,
-    { status: 'pending' | 'running' | 'completed' | 'error'; result?: any; error_msg?: string }
-  >
-  loop_states?: Record<string, any>
-  task_results?: Array<{
-    status: 'success' | 'error'
-    error_msg?: string
-    result?: any
-    task_id: string
-  }>
-  parallel_results?: any[]
-  loop_body_trace?: string[]
 }
 
 /** Trace step recording a node execution snapshot */
@@ -92,7 +72,6 @@ export interface EventProcessorStore {
   addTraceStep: (step: TraceStep) => void
   addRouteDecision: (
     nodeId: string,
-    nodeType: 'condition' | 'router' | 'loop',
     decision: {
       result: boolean | string
       reason: string
@@ -248,41 +227,25 @@ function handleCommandEvent(
 }
 
 /**
- * Handle route_decision event
+ * Handle route_decision event (simplified — route nodes removed)
  */
 function handleRouteDecisionEvent(
   result: AdapterResult & { type: 'route_decision' },
   store: EventProcessorStore,
 ): void {
-  store.addRouteDecision(result.decision.node_id, result.decision.node_type, {
-    result: result.decision.result,
-    reason: result.decision.reason,
-    goto: result.decision.goto,
-  })
   store.updateState({
     current_node: result.decision.node_id,
-    route_decision:
-      typeof result.decision.result === 'boolean'
-        ? result.decision.result
-          ? 'true'
-          : 'false'
-        : String(result.decision.result),
-    route_reason: result.decision.reason,
   })
 }
 
 /**
- * Handle loop_iteration event
+ * Handle loop_iteration event (no-op, loop nodes removed)
  */
 function handleLoopIterationEvent(
-  result: AdapterResult & { type: 'loop_iteration' },
-  store: EventProcessorStore,
+  _result: AdapterResult & { type: 'loop_iteration' },
+  _store: EventProcessorStore,
 ): void {
-  store.updateState({
-    loop_count: result.iteration.iteration,
-    loop_condition_met: result.iteration.condition_met,
-    max_loop_iterations: result.iteration.max_iterations,
-  })
+  // Loop nodes removed — no state to update
 }
 
 /**

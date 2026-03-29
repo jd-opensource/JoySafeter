@@ -13,23 +13,6 @@ import type { GraphState, TraceStep } from '../../services/eventProcessor'
 export interface InterruptState extends Record<string, unknown> {
   /** Current interrupted node ID */
   current_node?: string
-  /** Route decision information */
-  route_decision?: string
-  route_reason?: string
-  /** Loop related state */
-  loop_count?: number
-  loop_condition_met?: boolean
-  max_loop_iterations?: number
-  /** Parallel task state */
-  parallel_mode?: boolean
-  task_states?: Record<
-    string,
-    {
-      status: 'pending' | 'running' | 'completed' | 'error'
-      result?: any
-      error_msg?: string
-    }
-  >
   /** Complete graph state snapshot */
   graph_state?: Partial<GraphState>
 }
@@ -43,7 +26,6 @@ export interface InterruptInfo {
 
 export interface RouteDecision {
   nodeId: string
-  nodeType: 'condition' | 'router' | 'loop'
   decision: {
     result: boolean | string
     reason: string
@@ -138,7 +120,6 @@ export interface ExecutionStoreActions {
   addTraceStep: (step: TraceStep) => void
   addRouteDecision: (
     nodeId: string,
-    nodeType: 'condition' | 'router' | 'loop',
     decision: {
       result: boolean | string
       reason: string
