@@ -175,7 +175,6 @@ const zh = {
       credentialNotConfigured: '未配置',
       credentialConfigured: '已配置',
       valid: '有效',
-      validationFailed: '验证未通过',
       noValidCredential: '暂无有效凭据',
       modelProvider: '模型供应商',
       modelProviderDescription: '管理模型供应商配置和凭据',
@@ -187,7 +186,6 @@ const zh = {
       credentialSaved: '凭据已保存',
       credentialUpdated: '凭据已成功更新',
       credentialSavedValidationFailed: '凭据已保存，但验证未通过',
-      validationFailedHint: '验证未通过，请检查 API 密钥或 base_url',
       credentialValidated: '凭据验证成功',
       failedToDeleteCredential: '删除凭据失败',
       failedToCreateCredential: '创建凭据失败',
@@ -455,9 +453,6 @@ const zh = {
       deployFailedDescription: '部署时出错，请重试',
       noChanges: '无需部署',
       noChangesDescription: '当前版本 v{{version}} 已是最新，无需重新部署',
-      validateGraph: '验证图表',
-      validationSummary: '验证摘要',
-      validationFailed: '验证失败',
       cannotDeployWithErrors: '无法部署：发现 {{count}} 个错误。请先修复这些问题。',
       issues: '问题',
       issue: '问题',
@@ -577,9 +572,6 @@ const zh = {
       // Node Categories
       nodeCategories: {
         agents: '智能体',
-        flowControl: '流程控制',
-        stateManagement: '状态管理',
-        aggregation: '聚合运算',
         actions: '操作',
       },
       // Node Fields

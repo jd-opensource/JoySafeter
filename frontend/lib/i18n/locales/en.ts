@@ -176,7 +176,6 @@ const en = {
       credentialNotConfigured: 'Not Configured',
       credentialConfigured: 'Configured',
       valid: 'Valid',
-      validationFailed: 'Validation Failed',
       noValidCredential: 'No valid credential',
       modelProvider: 'Model Provider',
       modelProviderDescription: 'Manage model provider configurations and credentials',
@@ -188,7 +187,6 @@ const en = {
       credentialSaved: 'Credential saved',
       credentialUpdated: 'Credential updated successfully',
       credentialSavedValidationFailed: 'Credential saved, but validation failed',
-      validationFailedHint: 'Validation failed. Please check API key or base URL',
       credentialValidated: 'Credential validated successfully',
       failedToDeleteCredential: 'Failed to delete credential',
       failedToCreateCredential: 'Failed to create credential',
@@ -465,9 +463,6 @@ const en = {
       deployFailedDescription: 'Failed to deploy, please try again',
       noChanges: 'No Changes',
       noChangesDescription: 'Current version v{{version}} is already up to date',
-      validateGraph: 'Validate Graph',
-      validationSummary: 'Validation Summary',
-      validationFailed: 'Validation Failed',
       cannotDeployWithErrors: 'Cannot deploy: {{count}} error(s) found. Please fix them first.',
       issues: 'Issues',
       issue: 'Issue',
@@ -591,9 +586,6 @@ const en = {
       // Node Categories
       nodeCategories: {
         agents: 'Agents',
-        flowControl: 'Flow Control',
-        stateManagement: 'State Management',
-        aggregation: 'Aggregation',
         actions: 'Actions',
       },
       // Node Fields
