@@ -11,10 +11,7 @@ import {
   Rocket,
   Loader2,
   History,
-  ShieldCheck,
-  Database,
   Terminal,
-  FileJson,
 } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import React, { useRef, useState, useEffect } from 'react'
