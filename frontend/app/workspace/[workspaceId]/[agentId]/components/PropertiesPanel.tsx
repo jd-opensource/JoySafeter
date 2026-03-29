@@ -28,7 +28,6 @@ import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'
 
-import { DockerConfigField } from './fields/DockerConfigField'
 import { ModelSelectField } from './fields/ModelSelectField'
 import { SkillsField } from './fields/SkillsField'
 import { ToolsField } from './fields/ToolsField'
@@ -209,17 +208,6 @@ const SchemaFieldRenderer = ({
             ))}
           </SelectContent>
         </Select>
-      )
-      break
-    case 'dockerConfig':
-      input = (
-        <DockerConfigField
-          label={translatedLabel}
-          value={(value as Record<string, unknown>) || {}}
-          onChange={(val) => onChange(val)}
-          description={schema.description}
-          disabled={disabled}
-        />
       )
       break
     case 'number':

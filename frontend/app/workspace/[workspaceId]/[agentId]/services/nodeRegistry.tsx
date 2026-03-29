@@ -19,7 +19,6 @@ export type FieldType =
   | 'skillSelector'
   | 'boolean'
   | 'stringArray'
-  | 'dockerConfig'
   | 'kvList'
 
 export interface FieldSchema {
@@ -71,15 +70,6 @@ const REGISTRY: NodeDefinition[] = [
       memoryPrompt: 'Summarize the interaction highlights and key facts learned about the user.',
       useDeepAgents: false,
       description: '',
-      backend_type: 'docker',
-      workspace_dir: '', // Custom workspace subdirectory (defaults to graph name)
-      docker_config: {
-        image: 'python:3.12-slim',
-        working_dir: '/workspace',
-        auto_remove: true,
-        max_output_size: 100000,
-        command_timeout: 30,
-      },
     },
     schema: [
       { key: 'model', label: 'Inference Model', type: 'modelSelect', required: true },
@@ -114,41 +104,7 @@ const REGISTRY: NodeDefinition[] = [
         description:
           'Required when DeepAgents mode is enabled. Describes what this subAgent can do.',
       },
-      {
-        key: 'backend_type',
-        label: 'Backend Type',
-        type: 'select',
-        options: ['filesystem', 'docker'],
-        description:
-          'Backend type for agent execution. Docker provides isolated sandbox environment.',
-        showWhen: {
-          field: 'useDeepAgents',
-          values: ['true', 'True', true],
-        },
-      },
-      {
-        key: 'workspace_dir',
-        label: 'Workspace Directory',
-        type: 'text',
-        placeholder: 'Leave empty to use graph name',
-        description:
-          'Custom subdirectory name for filesystem backend workspace. If empty, uses the current graph name. Only used when backend_type is "filesystem".',
-        showWhen: {
-          field: 'backend_type',
-          values: ['filesystem'],
-        },
-      },
-      {
-        key: 'docker_config',
-        label: 'Docker Configuration',
-        type: 'dockerConfig',
-        description: 'Docker sandbox configuration. Only used when backend_type is "docker".',
-        showWhen: {
-          field: 'backend_type',
-          values: ['docker'],
-        },
-      },
-      // Memory Section is separated in UI but defined here
+      // Memory Section
       {
         key: 'enableMemory',
         label: 'Enable Long-term Memory',

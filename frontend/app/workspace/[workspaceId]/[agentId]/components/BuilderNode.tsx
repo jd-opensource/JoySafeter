@@ -230,7 +230,7 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
     const importantFields = def.schema.filter((field) => {
       // Skip fields that shouldn't be displayed
       if (
-        ['systemPrompt', 'template', 'expression', 'memoryPrompt', 'description'].includes(
+        ['systemPrompt', 'memoryPrompt', 'description', 'useDeepAgents', 'enableMemory', 'skills'].includes(
           field.key,
         )
       ) {
