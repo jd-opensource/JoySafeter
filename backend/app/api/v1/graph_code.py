@@ -7,6 +7,8 @@ operations as sub-resources of an existing graph:
 - ``POST /api/v1/graphs/{graph_id}/code/run``   — execute code and return result
 """
 
+import asyncio
+import re
 import uuid
 from typing import Any, Dict, Optional
 
@@ -21,8 +23,13 @@ from app.core.code_executor import execute_code
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.graph import AgentGraph
+from app.models.workspace import WorkspaceMemberRole
+from app.services.graph_service import GraphService
 
 router = APIRouter(prefix="/v1/graphs", tags=["Graph Code"])
+
+# Execution timeout for ainvoke (seconds)
+RUN_TIMEOUT = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -38,8 +45,18 @@ class CodeSaveRequest(BaseModel):
 class CodeRunRequest(BaseModel):
     input: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Initial state input for the graph (e.g. {\"messages\": [...]})",
+        description="Initial state input for the graph",
     )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_error(msg: str) -> str:
+    """Remove server file paths from error messages."""
+    return re.sub(r"/[^\s\"']+/", "<path>/", msg)
 
 
 # ---------------------------------------------------------------------------
@@ -56,11 +73,15 @@ async def save_code(
 ):
     """Persist user code to ``graph.variables``.
 
-    Sets ``graph_mode = "dsl"`` and stores the code string.
+    Requires member (write) permission.
     """
-    graph = await db.get(AgentGraph, graph_id)
+    service = GraphService(db)
+    graph = await service.graph_repo.get(graph_id)
     if not graph:
         raise NotFoundException(f"Graph {graph_id} not found")
+
+    # Permission check: need member role to save
+    await service._ensure_access(graph, current_user, WorkspaceMemberRole.member)
 
     variables = dict(graph.variables or {})
     variables["graph_mode"] = "dsl"
@@ -88,11 +109,15 @@ async def run_code(
 ):
     """Execute user code: exec → StateGraph → compile → invoke.
 
-    Returns the final state after graph execution.
+    Requires viewer permission. Execution has a 30s timeout.
     """
-    graph = await db.get(AgentGraph, graph_id)
+    service = GraphService(db)
+    graph = await service.graph_repo.get(graph_id)
     if not graph:
         raise NotFoundException(f"Graph {graph_id} not found")
+
+    # Permission check: need viewer role to run
+    await service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
 
     code = (graph.variables or {}).get("dsl_code", "")
     if not code.strip():
@@ -102,15 +127,18 @@ async def run_code(
         }
 
     try:
-        # Step 1: exec user code → get StateGraph
+        # Step 1: exec user code → get StateGraph (has its own 10s timeout)
         state_graph = execute_code(code)
 
         # Step 2: compile
         compiled = state_graph.compile()
 
-        # Step 3: invoke with user input
+        # Step 3: invoke with timeout
         initial_state = payload.input or {}
-        result = await compiled.ainvoke(initial_state)
+        result = await asyncio.wait_for(
+            compiled.ainvoke(initial_state),
+            timeout=RUN_TIMEOUT,
+        )
 
         logger.info(f"[GraphCodeAPI] Code run success | graph_id={graph_id}")
         return {
@@ -130,6 +158,11 @@ async def run_code(
             "success": False,
             "message": str(e),
         }
+    except TimeoutError:
+        return {
+            "success": False,
+            "message": "Execution timed out. Check for infinite loops or long-running operations.",
+        }
     except ValueError as e:
         return {
             "success": False,
@@ -139,7 +172,7 @@ async def run_code(
         logger.error(f"[GraphCodeAPI] Code run failed | graph_id={graph_id} | error={e}")
         return {
             "success": False,
-            "message": f"Runtime error: {type(e).__name__}: {e}",
+            "message": _sanitize_error(f"Runtime error: {type(e).__name__}: {e}"),
         }
 
 
@@ -153,7 +186,6 @@ def _serialize_result(result: Any) -> Any:
         return [_serialize_result(item) for item in result]
     if isinstance(result, (str, int, float, bool)):
         return result
-    # Fallback: try str()
     try:
         return str(result)
     except Exception:
