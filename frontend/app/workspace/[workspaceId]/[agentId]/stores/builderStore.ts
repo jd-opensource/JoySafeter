@@ -496,21 +496,13 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
             {
               ...connection,
               data: edgeData,
-              type: edgeType === 'loop_back' ? 'loop_back' : 'default',
+              type: 'default',
               animated: true,
               style: edgeStyle,
             },
             get().edges,
           ),
         })
-
-        // Auto-wire source output to target input mappings
-        autoWireConnection(
-          connection.source,
-          connection.target,
-          get().nodes,
-          get().updateNodeConfig,
-        )
 
         get().triggerAutoSave()
       } catch (error) {
