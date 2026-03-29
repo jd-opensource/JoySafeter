@@ -2,17 +2,7 @@
 
 import {
   Bot,
-  Split,
-  GitBranch,
-  MessageSquare,
-  UserRound,
   LucideIcon,
-  Wrench,
-  Route,
-  Repeat2,
-  Code,
-  Layers,
-  FileJson,
   Globe2,
   BrainCircuit,
 } from 'lucide-react'
