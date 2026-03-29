@@ -105,13 +105,6 @@ class BaseGraphBuilder(ABC):
         node_type = data.get("type") or node.type
         return node_type or "agent"
 
-    def _get_system_prompt_from_node(self, node: GraphNode) -> Optional[str]:
-        """Extract system prompt from node configuration, substituting runtime context vars."""
-        data = node.data or {}
-        config: Dict[str, Any] = data.get("config", {})
-        prompt = get_prompt_text_from_config(config)
-        return self._render_runtime_context_vars(prompt)
-
     def _build_runtime_prompt_context(self) -> Dict[str, Any]:
         """Build runtime prompt context from builder built-ins and graph context overrides."""
         return build_runtime_prompt_context(self.graph, user_id=self.user_id, thread_id=self.thread_id)
