@@ -789,7 +789,7 @@ class GraphService(BaseService):
             f"[GraphService] ===== create_default_deep_agents_graph COMPLETE ===== | "
             f"user_id={user_id} | elapsed={elapsed_ms:.2f}ms"
         )
-        return compiled_graph
+        return compiled_graph  # type: ignore[no-any-return]
 
     async def create_skill_creator_graph(
         self,
@@ -885,7 +885,7 @@ class GraphService(BaseService):
             logger.info(f"[GraphService] DSL mode detected | graph_id={graph_id}")
             compiled_graph = await self._compile_code_graph(graph)
             _compile_cache[cache_key] = (compiled_graph, time.time())
-            return compiled_graph
+            return compiled_graph  # type: ignore[no-any-return]
 
         # Load nodes and edges
         logger.debug(f"[GraphService] Loading nodes and edges for graph_id={graph_id}")
@@ -924,7 +924,7 @@ class GraphService(BaseService):
         )
 
         _compile_cache[cache_key] = (compiled_graph, time.time())
-        return compiled_graph
+        return compiled_graph  # type: ignore[no-any-return]
 
     async def _compile_code_graph(self, graph):
         """Compile a code-mode graph: exec user code → get StateGraph → compile."""

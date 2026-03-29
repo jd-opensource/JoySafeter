@@ -85,8 +85,7 @@ def build_code_agent_worker(
 ) -> CompiledSubAgent:
     """Build a CodeAgent worker as CompiledSubAgent."""
     logger.info(
-        f"{LOG_PREFIX} Building CodeAgent: '{config.name}' | "
-        f"mode={config.agent_mode} | executor={config.executor_type}"
+        f"{LOG_PREFIX} Building CodeAgent: '{config.name}' | mode={config.agent_mode} | executor={config.executor_type}"
     )
 
     from app.core.agent.code_agent import CodeAgent, LoopConfig

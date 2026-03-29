@@ -119,9 +119,7 @@ async def preload_skills(
             if newly_loaded:
                 setattr(backend, "_loaded_skill_ids", loaded_ids | newly_loaded)
 
-            logger.info(
-                f"{LOG_PREFIX} Loaded {successful}/{len(to_load)} skills " f"({len(loaded_ids)} previously loaded)"
-            )
+            logger.info(f"{LOG_PREFIX} Loaded {successful}/{len(to_load)} skills ({len(loaded_ids)} previously loaded)")
             return successful
 
     except Exception as e:
@@ -134,7 +132,7 @@ def get_skills_source_path(backend: Any, skills_path: Optional[str] = None) -> O
     try:
         from app.core.skill.sandbox_loader import SkillSandboxLoader
 
-        loader = SkillSandboxLoader(skill_service=None, user_id=None)
+        loader = SkillSandboxLoader(skill_service=None, user_id=None)  # type: ignore[arg-type]
         path = loader._get_skills_base_dir(backend, override_dir=skills_path)
         return path.rstrip("/") + "/" if path else None
     except Exception:

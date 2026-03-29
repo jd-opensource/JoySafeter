@@ -19,7 +19,6 @@ from app.core.graph.deep_agents.config import NodeConfig, resolve_all_configs
 from app.core.graph.deep_agents.middleware import resolve_memory_middleware
 from app.core.graph.deep_agents.model_resolver import ModelResolver
 from app.core.graph.deep_agents.skills_loader import (
-    get_skills_source_path,
     has_valid_skills,
     preload_skills,
     resolve_skill_ids,
@@ -65,7 +64,7 @@ async def build_deep_agents_graph(
     if not root_config.use_deep_agents:
         raise ValueError("Root node must have DeepAgents enabled")
 
-    logger.info(f"{LOG_PREFIX} Building graph: root='{root_config.name}', " f"children={len(child_configs)}")
+    logger.info(f"{LOG_PREFIX} Building graph: root='{root_config.name}', children={len(child_configs)}")
 
     # --- 2. Setup shared backend ---
     backend = None
@@ -122,13 +121,6 @@ async def build_deep_agents_graph(
         if root_prompt and prompt_context:
             root_prompt = render_runtime_template(root_prompt, prompt_context)
 
-        # Skills paths for root
-        skills_paths = None
-        if has_valid_skills(root_config.skill_ids) and backend:
-            path = get_skills_source_path(backend)
-            if path:
-                skills_paths = [path]
-
         # Create root DeepAgent
         from deepagents import create_deep_agent
 
@@ -140,8 +132,6 @@ async def build_deep_agents_graph(
                 subagents=subagents,
                 middleware=root_middleware,
                 name=root_config.name,
-                is_root=True,
-                skills=skills_paths,
                 backend=backend,
             )
         else:
@@ -152,8 +142,6 @@ async def build_deep_agents_graph(
                 subagents=[],
                 middleware=root_middleware,
                 name=root_config.name,
-                is_root=True,
-                skills=skills_paths,
                 backend=backend,
             )
 

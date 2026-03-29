@@ -92,13 +92,11 @@ class ModelResolver:
                     model_name=model_name,
                     user_id=uid,
                 )
-            logger.info(
-                f"[ModelResolver] Resolved via ModelService | " f"provider={provider_name} | model={model_name}"
-            )
+            logger.info(f"[ModelResolver] Resolved via ModelService | provider={provider_name} | model={model_name}")
             return model
         except Exception as e:
             logger.warning(
-                f"[ModelResolver] ModelService failed | " f"provider={provider_name} | model={model_name} | error={e}"
+                f"[ModelResolver] ModelService failed | provider={provider_name} | model={model_name} | error={e}"
             )
             return None
 

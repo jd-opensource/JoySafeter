@@ -93,7 +93,7 @@ async def save_code(
     await db.commit()
 
     logger.info(
-        f"[GraphCodeAPI] Saved code | graph_id={graph_id} | " f"code_len={len(payload.code)} | user={current_user.id}"
+        f"[GraphCodeAPI] Saved code | graph_id={graph_id} | code_len={len(payload.code)} | user={current_user.id}"
     )
     return {"success": True}
 
@@ -134,7 +134,7 @@ async def run_code(
         # Step 3: invoke with timeout
         initial_state = payload.input or {}
         result = await asyncio.wait_for(
-            compiled.ainvoke(initial_state),
+            compiled.ainvoke(initial_state),  # type: ignore[arg-type]
             timeout=RUN_TIMEOUT,
         )
 

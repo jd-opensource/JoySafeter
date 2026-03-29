@@ -93,7 +93,7 @@ def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
     if top_level in BLOCKED_MODULES:
         raise ImportError(f"Import of '{name}' is blocked for security reasons.")
     if top_level not in ALLOWED_MODULES:
-        raise ImportError(f"Import of '{name}' is not allowed. " f"Allowed: {', '.join(sorted(ALLOWED_MODULES))}")
+        raise ImportError(f"Import of '{name}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_MODULES))}")
     return _real_import(name, *args, **kwargs)
 
 
@@ -148,7 +148,7 @@ def execute_code(code: str) -> StateGraph:
     # Create synthetic module for TypedDict compatibility
     module_name = "__langgraph_user_code__"
     module = types.ModuleType(module_name)
-    module.__builtins__ = _safe_builtins  # restricted builtins
+    module.__dict__["__builtins__"] = _safe_builtins  # restricted builtins
     module.__dict__["__name__"] = module_name
 
     old_module = sys.modules.get(module_name)
@@ -182,7 +182,7 @@ def execute_code(code: str) -> StateGraph:
 
         if len(graphs) > 1:
             raise ValueError(
-                f"Found {len(graphs)} StateGraph instances. " "Only one StateGraph per code file is supported."
+                f"Found {len(graphs)} StateGraph instances. Only one StateGraph per code file is supported."
             )
 
         logger.info("[CodeExecutor] StateGraph extracted successfully")
