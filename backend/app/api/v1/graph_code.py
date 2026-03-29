@@ -98,7 +98,7 @@ async def run_code(
     if not code.strip():
         return {
             "success": False,
-            "error": "No code to execute. Save your code first.",
+            "message": "No code to execute. Save your code first.",
         }
 
     try:
@@ -123,24 +123,23 @@ async def run_code(
     except SyntaxError as e:
         return {
             "success": False,
-            "error": f"Syntax error at line {e.lineno}: {e.msg}",
-            "line": e.lineno,
+            "message": f"Syntax error at line {e.lineno}: {e.msg}",
         }
     except ImportError as e:
         return {
             "success": False,
-            "error": str(e),
+            "message": str(e),
         }
     except ValueError as e:
         return {
             "success": False,
-            "error": str(e),
+            "message": str(e),
         }
     except Exception as e:
         logger.error(f"[GraphCodeAPI] Code run failed | graph_id={graph_id} | error={e}")
         return {
             "success": False,
-            "error": f"Runtime error: {type(e).__name__}: {e}",
+            "message": f"Runtime error: {type(e).__name__}: {e}",
         }
 
 

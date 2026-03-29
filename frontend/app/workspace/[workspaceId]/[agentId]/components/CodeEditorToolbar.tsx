@@ -28,13 +28,12 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
     setRunResult(null)
     setRunError(null)
     try {
-      const res = await apiPost<any>(`graphs/${graphId}/code/run`, { input: {} })
-      if (res?.success) {
-        setRunResult(res.data?.result)
-      } else {
-        setRunError(res?.error || 'Unknown error')
-      }
+      // apiPost auto-unwraps { data } on success, throws ApiError on failure
+      const result = await apiPost<any>(`graphs/${graphId}/code/run`, { input: {} })
+      // result is already the unwrapped data (e.g. { result: {...} })
+      setRunResult(result?.result ?? result)
     } catch (e: any) {
+      // ApiError.message contains the backend error message
       setRunError(e?.message || 'Request failed')
     } finally {
       setIsRunning(false)
