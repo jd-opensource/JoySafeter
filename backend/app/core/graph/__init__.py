@@ -1,13 +1,5 @@
-"""
-Graph Builder Module — builds LangGraph StateGraph from database graph definitions.
+"""Graph module — DeepAgents builder and Code executor."""
 
-Two build paths:
-- Code mode: code_executor.py → exec user code → StateGraph
-- DeepAgents: deep_agents_builder.py → create_deep_agent → compiled graph
-"""
+from app.core.graph.deep_agents.builder import build_deep_agents_graph
 
-from app.core.graph.graph_builder_factory import GraphBuilder
-
-__all__ = [
-    "GraphBuilder",
-]
+__all__ = ["build_deep_agents_graph"]

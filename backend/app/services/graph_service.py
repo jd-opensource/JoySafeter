@@ -13,7 +13,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
-from app.core.graph.graph_builder_factory import GraphBuilder
+from app.core.graph.deep_agents.builder import build_deep_agents_graph
 from app.core.graph.node_secrets import (
     hydrate_nodes_a2a_secrets,
     prepare_node_data_for_save,
@@ -771,7 +771,7 @@ class GraphService(BaseService):
         )
 
         model_service = ModelService(self.db)
-        builder = GraphBuilder(
+        compiled_graph = await build_deep_agents_graph(
             graph=graph,
             nodes=nodes,
             edges=edges,
@@ -783,7 +783,6 @@ class GraphService(BaseService):
             model_service=model_service,
             file_emitter=file_emitter,
         )
-        compiled_graph = await builder.build()
 
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(
@@ -901,10 +900,9 @@ class GraphService(BaseService):
             logger.debug(f"[GraphService] Node [{idx + 1}/{len(nodes)}] | id={node.id} | type={node.type}")
 
         # Build the graph
-        logger.info("[GraphService] Starting GraphBuilder...")
-        # 为当前请求构建一个 ModelService，用于在图执行中按 model_name 解析模型
+        logger.info("[GraphService] Building DeepAgents graph...")
         model_service = ModelService(self.db)
-        builder = GraphBuilder(
+        compiled_graph = await build_deep_agents_graph(
             graph=graph,
             nodes=nodes,
             edges=edges,
@@ -917,9 +915,6 @@ class GraphService(BaseService):
             file_emitter=file_emitter,
             thread_id=thread_id,
         )
-
-        # 异步构建
-        compiled_graph = await builder.build()
 
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(
