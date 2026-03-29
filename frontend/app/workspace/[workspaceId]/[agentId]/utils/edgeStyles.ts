@@ -15,7 +15,6 @@ import type { EdgeData } from '../types/graph'
 export const EDGE_COLORS = {
   normal: '#cbd5e1', // gray-300
   conditional: '#3b82f6', // blue-500
-  loop_back: '#9333ea', // violet-600
 } as const
 
 // ── Core Helper ─────────────────────────────────────────────────────
@@ -30,18 +29,6 @@ export function getEdgeStyleByType(
   baseStyle?: CSSProperties,
 ): { type: string; style: CSSProperties } {
   const base = baseStyle || {}
-
-  if (edgeType === 'loop_back') {
-    return {
-      type: 'loop_back',
-      style: {
-        ...base,
-        stroke: EDGE_COLORS.loop_back,
-        strokeWidth: 2.5,
-        strokeDasharray: '8,4',
-      },
-    }
-  }
 
   if (edgeType === 'conditional') {
     return {
