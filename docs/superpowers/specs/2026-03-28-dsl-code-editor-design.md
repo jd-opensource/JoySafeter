@@ -333,8 +333,14 @@ class _DSLVisitor(ast.NodeVisitor):
         # Detect bare expression statements only:
         # g.add_node("name", var) → register string name → ParsedNode mapping
         # g.add_edge(src, tgt) → ParsedEdge(source, target, route_key=None)
+        #   - src/tgt may be ast.Name(id='START'/'END') or ast.Constant(value='name')
+        #   - START/END edges are recorded as ParsedEdge with source/target="START"/"END"
+        #   - _build_schema() drops these (not emitted as EdgeSchema rows)
         # g.add_conditional_edges(src, fn, {"key": "target", ...})
         #   → one ParsedEdge per mapping entry (route_key = dict key)
+        #   - dict values may be ast.Constant(value='node_name') OR ast.Name(id='END')
+        #   - ast.Name(id='END') is treated as target="END" and dropped by _build_schema()
+        #   - ast.Name(id='START') is treated as target="START" (unusual but handled)
 ```
 
 ### 6.4 Schema Builder
@@ -395,8 +401,9 @@ Graphs using out-of-scope node types remain in `graph_mode: "canvas"` after migr
 Post-parse semantic checks:
 
 - All nodes referenced in edges are defined
-- Entry point exists
-- Conditional edge route keys match node type expectations (condition → "true"/"false", loop → "continue_loop"/"exit_loop")
+- **Duplicate node string names** — error (duplicate names cause silent edge-wiring failures in `_precompute_maps` due to `_unique_name` deduplication suffix)
+- Entry point exists (at least one node has no incoming edges)
+- Conditional edge route keys match node type expectations (condition → "true"/"false")
 - No orphaned nodes (defined but never connected)
 - `@fn` inline code is syntactically valid Python
 
@@ -421,65 +428,154 @@ POST /v1/graphs/{graph_id}/code/save
          sets graph.variables.graph_mode = "dsl"
 ```
 
-**Run flow** (new `DSLRunService`):
-
-```
-1. Frontend: POST /v1/graphs/{id}/code/save  (save code to graph.variables.dsl_code)
-2. Frontend: trigger run via existing WebSocket run channel
-3. Backend RunService: detects graph.variables.graph_mode == "dsl"
-   → dispatches to DSLRunService instead of GraphBuilder path
-4. DSLRunService:
-   a. loads dsl_code from graph.variables
-   b. DSLParser.parse(dsl_code) → GraphSchema
-   c. if parse errors → return error to frontend immediately
-   d. DSLExecutorBuilder(schema, model_service, user_id).build_executors()
-      → returns dict[node_name, executor]
-   e. GraphCompiler.compile_from_schema(schema, executor_map=executor_map,
-                                        checkpointer=get_checkpointer())
-   f. compiled_graph.ainvoke(initial_state, config=config)
-   g. stream results back via existing WebSocket protocol
-```
-
-**`DSLExecutorBuilder` interface:**
-
-`GraphCompiler._create_executors_via_builder` iterates `builder.nodes` (DB `GraphNode` objects) and calls `builder._get_or_create_executor(db_node, name)`. DSL graphs have no DB node rows, so `DSLExecutorBuilder` bypasses this path entirely. Instead, `DSLRunService` calls a new `compile_from_schema` overload that accepts a pre-built `executor_map`:
+**Run flow** — dispatch point is `graph_service.py:create_graph_by_graph_id()`. This is the single function called by all execution paths (`openapi_graph_service.py`, `test_service.py`, `schema_service.py`) to get a compiled graph. The `graph_mode` check is inserted here:
 
 ```python
-class DSLExecutorBuilder:
-    """
-    Builds executor instances directly from NodeSchema.config.
-    Does not require DB GraphNode rows.
-    """
-    def __init__(self, schema: GraphSchema, model_service, user_id, llm_model, ...):
-        self._schema = schema
-        self._model_service = model_service
-        self._user_id = user_id
-        self._llm_model = llm_model
+# graph_service.py — create_graph_by_graph_id()
+async def create_graph_by_graph_id(self, graph_id, ...):
+    graph = await self.graph_repo.get(graph_id)
 
-    async def build_executors(self) -> dict[str, Any]:
-        """Returns {node_name: executor_instance} for all nodes in schema."""
-        result = {}
-        for node in self._schema.nodes:
-            executor = await self._create_executor(node)
-            result[node.id] = executor  # node.id == node_name for DSL schemas
-        return result
+    # DSL mode: bypass GraphBuilder entirely
+    if graph.variables.get("graph_mode") == "dsl":
+        return await self._compile_dsl_graph(graph, ...)
 
-    async def _create_executor(self, node: NodeSchema) -> Any:
-        # Constructs executor from node.type and node.config
-        # Mirrors base_graph_builder._create_node_executor but takes NodeSchema
-        # instead of GraphNode ORM object
-        if node.type == "agent":
-            return AgentNodeExecutor.from_schema(node, self._model_service, ...)
-        elif node.type == "condition":
-            return ConditionNodeExecutor.from_schema(node)
-        # ... etc for all node types
+    # Existing path unchanged
+    nodes = await self.node_repo.list_by_graph(graph_id)
+    edges = await self.edge_repo.list_by_graph(graph_id)
+    builder = GraphBuilder(graph=graph, nodes=nodes, edges=edges, ...)
+    return await builder.build()
+
+async def _compile_dsl_graph(self, graph, llm_model, api_key, base_url,
+                              max_tokens, user_id, model_service, ...):
+    dsl_code = graph.variables.get("dsl_code", "")
+    parse_result = DSLParser().parse(dsl_code)
+    if parse_result.errors:
+        raise DSLParseError(parse_result.errors)
+
+    schema = DSLParser().build_schema(parse_result)
+    executor_map = await DSLExecutorBuilder(
+        schema, model_service, user_id, llm_model, api_key, base_url, max_tokens
+    ).build_executors()
+
+    result = await compile_from_schema(
+        schema,
+        executor_map=executor_map,
+        checkpointer=get_checkpointer(),
+    )
+    return result.compiled_graph
 ```
 
-Each executor class gains a `from_schema(node: NodeSchema, ...)` classmethod that reads `node.config` directly. This is the only change to existing executor classes — all execution logic is unchanged.
+**Required change to `compile_from_schema` / `_CompilerSession`:**
 
-`GraphCompiler.compile_from_schema` gains an optional `executor_map` parameter. When provided, it skips `_create_executors_via_builder` and uses the pre-built map directly. When absent, existing behavior is unchanged.
+`compile_from_schema` gains an optional `executor_map` parameter:
 
-**Checkpointer:** `DSLRunService` calls `get_checkpointer()` the same way `LanggraphModelBuilder` does. DSL runs support checkpointing by default (same behavior as canvas runs).
+```python
+async def compile_from_schema(
+    schema: GraphSchema,
+    *,
+    builder: Any = None,
+    executor_map: dict[str, Any] | None = None,  # NEW
+    checkpointer: Any = None,
+    validate: bool = True,
+) -> CompilationResult:
+    session = _CompilerSession(schema, builder, executor_map, checkpointer, validate)
+    return await session.compile()
+```
+
+`_CompilerSession.__init__` stores `executor_map`. `_create_executors_and_nodes` branches on it:
+
+```python
+async def _create_executors_and_nodes(self):
+    fallback_node_name = self.node_name_map.get(self.schema.fallback_node_id) \
+        if self.schema.fallback_node_id else None
+
+    if self.executor_map is not None:
+        # DSL path: use pre-built executor map
+        self.executors = self.executor_map
+        for node in self.schema.nodes:
+            name = self.node_name_map[node.id]
+            executor = self.executors.get(node.id)
+            if executor:
+                wrapped = NodeExecutionWrapper(
+                    executor, node_id=node.id, node_type=node.type,
+                    metadata=node.metadata, node_config=node.config,
+                    fallback_node_name=fallback_node_name \
+                        if node.id != self.schema.fallback_node_id else None,
+                )
+                self.workflow.add_node(name, wrapped)
+    elif self.builder is not None:
+        # Existing path unchanged
+        self.executors = await _create_executors_via_builder(...)
+        ...
+    else:
+        # Stub path (validation only)
+        ...
+```
+
+`_build_conditional_edges` and `_compile_workflow` already branch on `self.builder is not None`. With `executor_map`, `self.builder` remains `None`, so those branches are skipped. `_build_conditional_edges` must be updated to also fire when `self.executor_map is not None`:
+
+```python
+def _build_conditional_edges(self):
+    if self.builder is None and self.executor_map is None:
+        return
+    # rest of method unchanged
+```
+
+`_compile_workflow` similarly:
+
+```python
+def _compile_workflow(self):
+    if self.checkpointer is None and (self.builder is not None or self.executor_map is not None):
+        self.checkpointer = get_checkpointer()
+    return self.workflow.compile(checkpointer=self.checkpointer)
+```
+
+**`DSLExecutorBuilder` — executor construction approach:**
+
+Each executor constructor takes a `GraphNode` ORM object. Rather than adding `from_schema` classmethods to every executor, `DSLExecutorBuilder._create_executor` constructs a lightweight shim that satisfies the `node.data["config"]` access pattern:
+
+```python
+class _NodeSchemaShim:
+    """Minimal shim satisfying GraphNode.data["config"] access for executor constructors."""
+    def __init__(self, node: NodeSchema):
+        self.id = node.id
+        self.type = node.type
+        self.data = {"config": node.config, "label": node.label}
+        self.config = node.config  # direct access alias
+
+async def _create_executor(self, node: NodeSchema) -> Any:
+    shim = _NodeSchemaShim(node)
+    node_id = node.id
+
+    if node.type == "condition":
+        return ConditionNodeExecutor(shim, node_id)
+    elif node.type == "direct_reply":
+        return DirectReplyNodeExecutor(shim, node_id)
+    elif node.type == "router_node":
+        return RouterNodeExecutor(shim, node_id)
+    elif node.type == "human_input":
+        return HumanInputNodeExecutor(shim, node_id)
+    elif node.type == "tool_node":
+        return ToolNodeExecutor(shim, node_id, ...)
+    elif node.type == "http_request_node":
+        return HttpRequestNodeExecutor(shim, node_id)
+    elif node.type == "function_node":
+        return FunctionNodeExecutor(shim, node_id)
+    elif node.type == "agent":
+        # Agent requires resolved model — same resolution as BaseGraphBuilder
+        resolved_model = await self._model_service.resolve(
+            node.config.get("model", self._llm_model),
+            api_key=self._api_key, base_url=self._base_url,
+            max_tokens=self._max_tokens, user_id=self._user_id,
+        )
+        return AgentNodeExecutor(
+            shim, node_id,
+            model=resolved_model,
+            checkpointer=None,  # per-node checkpointer not needed for DSL
+        )
+```
+
+The shim approach requires zero changes to existing executor classes. If a constructor accesses a `GraphNode` attribute not covered by the shim, a clear `AttributeError` will surface during testing — making gaps easy to find and fix.
 
 ### 6.7 DB Storage
 
