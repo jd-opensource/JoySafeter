@@ -115,12 +115,7 @@ class StateFieldSchema(BaseModel):
 
 
 class NodeSchema(BaseModel):
-    """Describes a single node in the graph.
-
-    ``reads`` and ``writes`` declare which state fields the node accesses.
-    A value of ``["*"]`` means "all fields" (wildcard) — this is the default
-    for backward compatibility with existing nodes.
-    """
+    """Describes a single node in the graph."""
 
     id: str = Field(..., description="Unique node identifier (typically a UUID string)")
     type: str = Field(..., min_length=1, description="Node type key, e.g. 'agent', 'condition'")
@@ -129,14 +124,6 @@ class NodeSchema(BaseModel):
     position: Optional[Dict[str, float]] = Field(
         default=None,
         description="Canvas position {x, y}",
-    )
-    reads: List[str] = Field(
-        default_factory=lambda: ["*"],
-        description="State fields this node reads",
-    )
-    writes: List[str] = Field(
-        default_factory=lambda: ["*"],
-        description="State fields this node writes",
     )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
@@ -286,8 +273,6 @@ class GraphSchema(BaseModel):
                     label=label,
                     config=config,
                     position={"x": float(n.position_x), "y": float(n.position_y)},
-                    reads=config.get("reads", ["*"]),
-                    writes=config.get("writes", ["*"]),
                     metadata={
                         "width": float(n.width) if n.width else None,
                         "height": float(n.height) if n.height else None,
@@ -399,21 +384,5 @@ class GraphSchema(BaseModel):
         return {f.name for f in self.state_fields}
 
     def validate_state_dependencies(self) -> List[str]:
-        """Check that every node's reads/writes reference declared state fields.
-
-        Returns a list of warning messages (empty if everything is fine).
-        Nodes with wildcard ``["*"]`` are always valid.
-        """
-        warnings: List[str] = []
-        if not self.state_fields:
-            return warnings  # No custom fields → nothing to check
-
-        declared = self.get_state_field_names()
-        for node in self.nodes:
-            for direction, fields in [("reads", node.reads), ("writes", node.writes)]:
-                if fields == ["*"]:
-                    continue
-                for f in fields:
-                    if f not in declared:
-                        warnings.append(f"Node '{node.label}' ({node.id}) {direction} undeclared state field '{f}'")
-        return warnings
+        """Deprecated — reads/writes removed. Returns empty list for backward compat."""
+        return []

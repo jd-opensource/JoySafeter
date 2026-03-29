@@ -220,16 +220,8 @@ def _generate_fn_node(node: NodeSchema, var_name: str) -> list[str]:
     """Generate an @fn decorated function node."""
     lines: list[str] = []
 
-    # Build @fn decorator kwargs
-    fn_kwargs: dict[str, Any] = {}
-    if node.writes and node.writes != ["*"]:
-        fn_kwargs["writes"] = node.writes
-
-    if fn_kwargs:
-        args_str = ", ".join(_format_kwarg(k, v) for k, v in fn_kwargs.items())
-        lines.append(f"@fn({args_str})")
-    else:
-        lines.append("@fn()")
+    # @fn decorator — no kwargs needed after reads/writes removal
+    lines.append("@fn()")
 
     # Check for inline code
     inline_code = node.config.get("code") or node.config.get("function_code")

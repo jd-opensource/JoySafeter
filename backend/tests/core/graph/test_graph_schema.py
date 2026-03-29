@@ -70,20 +70,15 @@ class TestNodeSchema:
         node = NodeSchema(id="node-1", type="agent")
         assert node.id == "node-1"
         assert node.type == "agent"
-        assert node.reads == ["*"]
-        assert node.writes == ["*"]
         assert node.interrupt_before is False
 
-    def test_node_with_reads_writes(self):
+    def test_node_with_label(self):
         node = NodeSchema(
             id="node-2",
             type="condition",
             label="Check Intent",
-            reads=["intent", "messages"],
-            writes=["route_decision"],
         )
-        assert node.reads == ["intent", "messages"]
-        assert node.writes == ["route_decision"]
+        assert node.label == "Check Intent"
 
 
 # ---------------------------------------------------------------------------

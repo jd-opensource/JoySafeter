@@ -171,15 +171,11 @@ def generate_code(
 
     for node in schema.nodes:
         func_name = _to_func_name(node.label or node.type)
-        reads_str = ", ".join(f'"{r}"' for r in node.reads)
-        writes_str = ", ".join(f'"{w}"' for w in node.writes)
 
         lines.append(f"async def {func_name}(state: {state_class_name}) -> Dict[str, Any]:")
         if include_comments:
             lines.append('    """')
             lines.append(f"    Node: {node.label} (type: {node.type})")
-            lines.append(f"    Reads: [{reads_str}]")
-            lines.append(f"    Writes: [{writes_str}]")
             lines.append('    """')
 
         # Generate stub implementation based on node type

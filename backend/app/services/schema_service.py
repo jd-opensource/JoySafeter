@@ -378,8 +378,6 @@ class SchemaService(BaseService):
                 "label": node_schema.label,
                 "config": {
                     **node_schema.config,
-                    "reads": node_schema.reads,
-                    "writes": node_schema.writes,
                 },
             }
             if node_schema.metadata:
