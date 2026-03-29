@@ -28,7 +28,7 @@ from app.core.graph.node_executors import (
 
 
 class NodeTypeMetadata:
-    """Node type metadata with state dependency declarations."""
+    """Node type metadata."""
 
     def __init__(
         self,
@@ -38,8 +38,6 @@ class NodeTypeMetadata:
         supports_parallel: bool = True,
         requires_handle_mapping: bool = False,
         description: str = "",
-        default_reads: Optional[List[str]] = None,
-        default_writes: Optional[List[str]] = None,
     ):
         self.executor_class = executor_class
         self.frontend_type = frontend_type
@@ -47,10 +45,6 @@ class NodeTypeMetadata:
         self.supports_parallel = supports_parallel
         self.requires_handle_mapping = requires_handle_mapping
         self.description = description
-        # State-centric: declare which state fields this node type reads/writes
-        # ["*"] means all fields (wildcard) — backward-compatible default
-        self.default_reads: List[str] = default_reads or ["*"]
-        self.default_writes: List[str] = default_writes or ["*"]
 
 
 class NodeTypeRegistry:
@@ -64,8 +58,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="LLM Agent node with tools and middleware support",
-            default_reads=["messages", "context"],
-            default_writes=["messages", "current_node"],
         ),
         "code_agent": NodeTypeMetadata(
             executor_class=CodeAgentNodeExecutor,
@@ -74,8 +66,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="Python code execution agent with Thought-Code-Observation loop",
-            default_reads=["messages", "context"],
-            default_writes=["messages", "current_node", "context"],
         ),
         "condition": NodeTypeMetadata(
             executor_class=ConditionNodeExecutor,
@@ -84,8 +74,6 @@ class NodeTypeRegistry:
             supports_parallel=False,
             requires_handle_mapping=True,
             description="Simple if/else condition node",
-            default_reads=["*"],
-            default_writes=["route_decision", "route_history"],
         ),
         "condition_agent": NodeTypeMetadata(
             executor_class=ConditionAgentNodeExecutor,
@@ -94,8 +82,6 @@ class NodeTypeRegistry:
             supports_parallel=False,
             requires_handle_mapping=True,
             description="AI Decision Split routing node",
-            default_reads=["*"],
-            default_writes=["route_decision", "route_history"],
         ),
         "router_node": NodeTypeMetadata(
             executor_class=RouterNodeExecutor,
@@ -104,8 +90,6 @@ class NodeTypeRegistry:
             supports_parallel=False,
             requires_handle_mapping=True,
             description="Multi-rule router node for complex routing",
-            default_reads=["*"],
-            default_writes=["route_decision", "route_history"],
         ),
         "loop_condition_node": NodeTypeMetadata(
             executor_class=LoopConditionNodeExecutor,
@@ -114,8 +98,6 @@ class NodeTypeRegistry:
             supports_parallel=False,
             requires_handle_mapping=True,
             description="Loop condition evaluation node",
-            default_reads=["loop_count", "loop_condition_met", "context", "loop_states"],
-            default_writes=["loop_count", "loop_condition_met", "loop_states"],
         ),
         "direct_reply": NodeTypeMetadata(
             executor_class=DirectReplyNodeExecutor,
@@ -124,8 +106,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="Direct reply with template substitution",
-            default_reads=["messages", "context"],
-            default_writes=["messages", "current_node"],
         ),
         "human_input": NodeTypeMetadata(
             executor_class=HumanInputNodeExecutor,
@@ -134,8 +114,6 @@ class NodeTypeRegistry:
             supports_parallel=False,
             requires_handle_mapping=False,
             description="Human-in-the-loop interrupt gate",
-            default_reads=["messages"],
-            default_writes=["messages", "current_node"],
         ),
         "tool_node": NodeTypeMetadata(
             executor_class=ToolNodeExecutor,
@@ -144,8 +122,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="Tool execution node",
-            default_reads=["messages", "context"],
-            default_writes=["messages", "context", "current_node"],
         ),
         "function_node": NodeTypeMetadata(
             executor_class=FunctionNodeExecutor,
@@ -154,8 +130,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="Custom function execution node (requires sandboxing)",
-            default_reads=["messages", "context"],
-            default_writes=["messages", "context", "current_node"],
         ),
         "aggregator_node": NodeTypeMetadata(
             executor_class=AggregatorNodeExecutor,
@@ -164,8 +138,6 @@ class NodeTypeRegistry:
             supports_parallel=False,
             requires_handle_mapping=False,
             description="Fan-In aggregator node for parallel results",
-            default_reads=["task_results", "parallel_results", "task_states"],
-            default_writes=["messages", "context", "current_node"],
         ),
         "json_parser_node": NodeTypeMetadata(
             executor_class=JSONParserNodeExecutor,
@@ -174,8 +146,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="JSON parser and transformer node",
-            default_reads=["messages", "context"],
-            default_writes=["messages", "context", "current_node"],
         ),
         "http_request_node": NodeTypeMetadata(
             executor_class=HttpRequestNodeExecutor,
@@ -184,8 +154,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="Enhanced HTTP request node with retry and auth",
-            default_reads=["messages", "context"],
-            default_writes=["messages", "context", "current_node"],
         ),
         "get_state_node": NodeTypeMetadata(
             executor_class=GetStateNodeExecutor,
@@ -194,8 +162,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="Read global configuration or state into local tracking",
-            default_reads=["*"],
-            default_writes=["current_node"],
         ),
         "set_state_node": NodeTypeMetadata(
             executor_class=SetStateNodeExecutor,
@@ -204,8 +170,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="Write local configuration into overarching state",
-            default_reads=["current_node"],
-            default_writes=["*"],
         ),
         "a2a_agent": NodeTypeMetadata(
             executor_class=AgentNodeExecutor,  # Fallback for standard builder; properly handled natively in deep_agents
@@ -214,8 +178,6 @@ class NodeTypeRegistry:
             supports_parallel=True,
             requires_handle_mapping=False,
             description="Remote Agent-to-Agent node",
-            default_reads=["messages", "context"],
-            default_writes=["messages", "current_node"],
         ),
     }
 
@@ -235,18 +197,6 @@ class NodeTypeRegistry:
         """Get the frontend type string for a node type."""
         metadata = cls.get_metadata(node_type)
         return metadata.frontend_type if metadata else None
-
-    @classmethod
-    def get_default_reads(cls, node_type: str) -> List[str]:
-        """Get default state fields read by this node type."""
-        metadata = cls.get_metadata(node_type)
-        return metadata.default_reads if metadata else ["*"]
-
-    @classmethod
-    def get_default_writes(cls, node_type: str) -> List[str]:
-        """Get default state fields written by this node type."""
-        metadata = cls.get_metadata(node_type)
-        return metadata.default_writes if metadata else ["*"]
 
     @classmethod
     def is_loop_body_supported(cls, node_type: str) -> bool:
