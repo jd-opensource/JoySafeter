@@ -300,6 +300,8 @@ _FACTORY_TO_NODE_TYPE = {
 
 class DSLParser:
     def parse(self, code: str) -> ParseResult:
+        """Parse DSL code → ParseResult (with errors and line numbers).
+        Used by the /parse API endpoint which needs per-line error reporting."""
         try:
             tree = ast.parse(code)
         except SyntaxError as e:
@@ -308,6 +310,16 @@ class DSLParser:
         visitor = _DSLVisitor(source=code)  # source passed for ast.get_source_segment
         visitor.visit(tree)
         return visitor.result
+
+    def parse_to_schema(self, code: str) -> tuple[GraphSchema | None, list[ParseError]]:
+        """Parse DSL code → (GraphSchema, errors).
+        Used by _compile_dsl_graph which needs a GraphSchema directly.
+        Returns (None, errors) if parse fails; (schema, []) on success."""
+        result = self.parse(code)
+        if result.errors:
+            return None, result.errors
+        schema = self._build_schema(result)
+        return schema, []
 
 class _DSLVisitor(ast.NodeVisitor):
     def __init__(self, source: str):
