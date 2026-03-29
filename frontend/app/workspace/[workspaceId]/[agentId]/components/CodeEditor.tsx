@@ -5,7 +5,6 @@ import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { python } from '@codemirror/lang-python'
 import { vscodeDark } from '@uiw/codemirror-theme-vscode'
 import { keymap } from '@codemirror/view'
-import { linter, type Diagnostic } from '@codemirror/lint'
 import { useCodeEditorStore } from '../stores/codeEditorStore'
 
 export interface CodeEditorHandle {
@@ -15,7 +14,6 @@ export interface CodeEditorHandle {
 export const CodeEditor = forwardRef<CodeEditorHandle>(function CodeEditor(_, ref) {
   const code = useCodeEditorStore((s) => s.code)
   const setCode = useCodeEditorStore((s) => s.setCode)
-  const parseErrors = useCodeEditorStore((s) => s.parseErrors)
   const cmRef = useRef<ReactCodeMirrorRef>(null)
 
   useImperativeHandle(ref, () => ({
@@ -47,56 +45,24 @@ export const CodeEditor = forwardRef<CodeEditorHandle>(function CodeEditor(_, re
     [],
   )
 
-  // Inline diagnostics from parse errors
-  const errorLinter = useMemo(
-    () =>
-      linter(() => {
-        const errors = useCodeEditorStore.getState().parseErrors
-        const view = cmRef.current?.view
-        if (!view) return []
-
-        const doc = view.state.doc
-        const diagnostics: Diagnostic[] = []
-
-        for (const e of errors) {
-          const lineNum = Math.min(Math.max(e.line ?? 1, 1), doc.lines)
-          const lineInfo = doc.line(lineNum)
-          diagnostics.push({
-            from: lineInfo.from,
-            to: lineInfo.to,
-            severity: e.severity === 'warning' ? 'warning' : 'error',
-            message: e.message,
-          })
-        }
-        return diagnostics
-      }),
-    [],
-  )
-
-  const extensions = useMemo(() => [python(), saveKeymap, errorLinter], [saveKeymap, errorLinter])
-
-  const handleChange = useCallback(
-    (value: string) => {
-      setCode(value)
-    },
-    [setCode],
-  )
+  const handleChange = useCallback((value: string) => setCode(value), [setCode])
 
   return (
     <CodeMirror
       ref={cmRef}
       value={code}
       onChange={handleChange}
-      extensions={extensions}
       theme={vscodeDark}
+      extensions={[python(), saveKeymap]}
+      height="100%"
+      className="h-full overflow-hidden text-sm"
       basicSetup={{
         lineNumbers: true,
         foldGutter: true,
+        bracketMatching: true,
+        autocompletion: true,
         highlightActiveLine: true,
-        autocompletion: false,
-        tabSize: 4,
       }}
-      style={{ height: '100%', overflow: 'auto' }}
     />
   )
 })

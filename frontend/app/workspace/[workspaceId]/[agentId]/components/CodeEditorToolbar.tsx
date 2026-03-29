@@ -12,7 +12,6 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
   const isDirty = useCodeEditorStore((s) => s.isDirty)
   const isSaving = useCodeEditorStore((s) => s.isSaving)
   const save = useCodeEditorStore((s) => s.save)
-  const parseErrors = useCodeEditorStore((s) => s.parseErrors)
   const graphName = useCodeEditorStore((s) => s.graphName)
   const setGraphName = useCodeEditorStore((s) => s.setGraphName)
 
@@ -20,10 +19,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
   const startExecution = useExecutionStore((s) => s.startExecution)
   const stopExecution = useExecutionStore((s) => s.stopExecution)
 
-  const hasErrors = parseErrors.some((e) => e.severity === 'error')
-
   const handleRun = async () => {
-    if (hasErrors) return
     if (isDirty) {
       await save()
     }
@@ -57,7 +53,7 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
               : 'bg-primary hover:bg-primary/90'
           }`}
           onClick={isExecuting ? () => stopExecution() : handleRun}
-          disabled={hasErrors && !isExecuting}
+          disabled={false}
         >
           {isExecuting ? 'Stop' : 'Run'}
         </button>

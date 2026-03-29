@@ -884,14 +884,7 @@ class GraphService(BaseService):
         # DSL mode: bypass GraphBuilder entirely
         if (graph.variables or {}).get("graph_mode") == "dsl":
             logger.info(f"[GraphService] DSL mode detected | graph_id={graph_id}")
-            compiled_graph = await self._compile_dsl_graph(
-                graph,
-                llm_model=llm_model,
-                api_key=api_key,
-                base_url=base_url,
-                max_tokens=max_tokens,
-                user_id=user_id,
-            )
+            compiled_graph = await self._compile_code_graph(graph)
             _compile_cache[cache_key] = (compiled_graph, time.time())
             return compiled_graph
 
@@ -938,40 +931,15 @@ class GraphService(BaseService):
         _compile_cache[cache_key] = (compiled_graph, time.time())
         return compiled_graph
 
-    async def _compile_dsl_graph(
-        self,
-        graph,
-        *,
-        llm_model=None,
-        api_key=None,
-        base_url=None,
-        max_tokens=4096,
-        user_id=None,
-    ):
-        """Compile a DSL-mode graph: parse code → schema → executors → compiled graph."""
-        from app.core.dsl.dsl_parser import DSLParser
-        from app.core.dsl.dsl_executor_builder import DSLExecutorBuilder
-        from app.core.graph.graph_compiler import compile_from_schema
+    async def _compile_code_graph(self, graph):
+        """Compile a code-mode graph: exec user code → get StateGraph → compile."""
+        from app.core.code_executor import execute_code
         from app.core.agent.checkpointer.checkpointer import get_checkpointer
 
         dsl_code = (graph.variables or {}).get("dsl_code", "")
         if not dsl_code.strip():
-            raise ValueError(f"DSL graph {graph.id} has no code")
+            raise ValueError(f"Code graph {graph.id} has no code")
 
-        parser = DSLParser()
-        schema, errors = parser.parse_to_schema(dsl_code)
-        if errors:
-            error_msgs = "; ".join(e.message for e in errors[:5])
-            raise ValueError(f"DSL parse errors for graph {graph.id}: {error_msgs}")
-
-        model_service = ModelService(self.db)
-        executor_map = await DSLExecutorBuilder(
-            schema, model_service, user_id, llm_model, api_key, base_url, max_tokens
-        ).build_executors()
-
-        result = await compile_from_schema(
-            schema,
-            executor_map=executor_map,
-            checkpointer=get_checkpointer(),
-        )
-        return result.compiled_graph
+        state_graph = execute_code(dsl_code)
+        compiled = state_graph.compile(checkpointer=get_checkpointer())
+        return compiled
