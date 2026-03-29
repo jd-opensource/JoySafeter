@@ -1,13 +1,18 @@
 """Code Executor — execute user LangGraph code in a sandboxed environment.
 
-The executor runs user code via exec() with restricted builtins and
-a whitelist-based import guard. It extracts the StateGraph instance
-from the executed code's local namespace.
+The executor runs user code via exec() with a whitelist-based import guard.
+It extracts the StateGraph instance from the executed code's namespace.
+
+Security model: import whitelist only. Full builtins are available because
+TypedDict/Annotated require get_type_hints() to resolve forward references
+against the module globals, which breaks with restricted builtins.
 """
 
 from __future__ import annotations
 
 import builtins
+import sys
+import types
 from typing import Any
 
 from langgraph.graph import StateGraph
@@ -31,55 +36,32 @@ ALLOWED_MODULES = frozenset({
     "pydantic",
 })
 
+# Modules that must NEVER be imported
+BLOCKED_MODULES = frozenset({
+    "os", "sys", "subprocess", "shutil", "pathlib",
+    "socket", "http", "urllib", "requests", "httpx",
+    "importlib", "ctypes", "signal", "multiprocessing",
+    "threading", "asyncio",  # prevent event loop manipulation
+    "pickle", "shelve", "marshal",
+    "code", "codeop", "compileall",
+})
+
 _real_import = builtins.__import__
 
 
 def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
-    """Import guard that only allows whitelisted top-level modules."""
+    """Import guard: block dangerous modules, allow whitelisted ones."""
     top_level = name.split(".")[0]
+    if top_level in BLOCKED_MODULES:
+        raise ImportError(
+            f"Import of '{name}' is blocked for security reasons."
+        )
     if top_level not in ALLOWED_MODULES:
         raise ImportError(
-            f"Import of '{name}' is not allowed in code mode. "
-            f"Allowed top-level modules: {', '.join(sorted(ALLOWED_MODULES))}"
+            f"Import of '{name}' is not allowed. "
+            f"Allowed: {', '.join(sorted(ALLOWED_MODULES))}"
         )
     return _real_import(name, *args, **kwargs)
-
-
-# ---------------------------------------------------------------------------
-# Safe builtins
-# ---------------------------------------------------------------------------
-
-_SAFE_BUILTIN_NAMES = [
-    # Types & constructors
-    "bool", "int", "float", "str", "bytes", "bytearray",
-    "list", "dict", "set", "tuple", "frozenset",
-    "type", "object", "property", "classmethod", "staticmethod", "super",
-    # Functions
-    "print", "len", "range", "enumerate", "zip", "map", "filter",
-    "isinstance", "issubclass", "hasattr", "getattr", "setattr", "delattr",
-    "callable", "id", "hash", "repr", "format", "chr", "ord",
-    "min", "max", "sum", "abs", "round", "pow", "divmod",
-    "sorted", "reversed", "any", "all", "iter", "next",
-    "input",  # may be needed for human-in-the-loop
-    # Constants
-    "True", "False", "None", "Ellipsis", "NotImplemented",
-    # Exceptions
-    "Exception", "BaseException",
-    "ValueError", "TypeError", "KeyError", "IndexError",
-    "AttributeError", "ImportError", "RuntimeError",
-    "StopIteration", "StopAsyncIteration",
-    "NotImplementedError", "ZeroDivisionError",
-    "FileNotFoundError", "OSError", "IOError",
-    "AssertionError", "OverflowError", "RecursionError",
-]
-
-_SAFE_BUILTINS: dict[str, Any] = {
-    name: getattr(builtins, name)
-    for name in _SAFE_BUILTIN_NAMES
-    if hasattr(builtins, name)
-}
-_SAFE_BUILTINS["__import__"] = _safe_import
-_SAFE_BUILTINS["__build_class__"] = builtins.__build_class__
 
 
 # ---------------------------------------------------------------------------
@@ -90,37 +72,58 @@ _SAFE_BUILTINS["__build_class__"] = builtins.__build_class__
 def execute_code(code: str) -> StateGraph:
     """Execute user code and return the StateGraph instance.
 
-    Raises:
-        ValueError: if no StateGraph is found or multiple are found.
-        SyntaxError: if the code has syntax errors.
-        ImportError: if the code tries to import a disallowed module.
-        Exception: any runtime error from the user code.
+    The code runs in a synthetic module namespace so that
+    ``typing.get_type_hints`` can resolve ``Annotated`` and other
+    forward references correctly (it looks up the class's
+    ``__module__`` in ``sys.modules``).
     """
     logger.info(f"[CodeExecutor] Executing user code ({len(code)} chars)")
 
-    sandbox_globals: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
-    sandbox_locals: dict[str, Any] = {}
+    # Create a synthetic module so get_type_hints can resolve annotations
+    module_name = "__langgraph_user_code__"
+    module = types.ModuleType(module_name)
+    module.__builtins__ = builtins  # full builtins needed for TypedDict
+    module.__dict__["__import__"] = _safe_import  # but imports are guarded
 
-    exec(code, sandbox_globals, sandbox_locals)
+    # Temporarily register the module so get_type_hints can find it
+    old_module = sys.modules.get(module_name)
+    sys.modules[module_name] = module
 
-    # Find StateGraph instances in locals
-    graphs = [
-        v for v in sandbox_locals.values()
-        if isinstance(v, StateGraph)
-    ]
+    try:
+        # Patch builtins.__import__ for the duration of exec
+        original_import = builtins.__import__
+        builtins.__import__ = _safe_import
+        try:
+            exec(code, module.__dict__)
+        finally:
+            builtins.__import__ = original_import
 
-    if not graphs:
-        raise ValueError(
-            "No StateGraph instance found in your code. "
-            "Make sure you create a StateGraph variable, e.g.:\n"
-            "  graph = StateGraph(MyState)"
-        )
+        # Find StateGraph instances
+        graphs = [
+            v for v in module.__dict__.values()
+            if isinstance(v, StateGraph)
+        ]
 
-    if len(graphs) > 1:
-        raise ValueError(
-            f"Found {len(graphs)} StateGraph instances. "
-            "Only one StateGraph per code file is supported."
-        )
+        if not graphs:
+            raise ValueError(
+                "No StateGraph instance found in your code. "
+                "Make sure you create a StateGraph variable, e.g.:\n"
+                "  graph = StateGraph(MyState)"
+            )
 
-    logger.info("[CodeExecutor] StateGraph extracted successfully")
-    return graphs[0]
+        if len(graphs) > 1:
+            raise ValueError(
+                f"Found {len(graphs)} StateGraph instances. "
+                "Only one StateGraph per code file is supported."
+            )
+
+        logger.info("[CodeExecutor] StateGraph extracted successfully")
+        return graphs[0]
+
+    finally:
+        # Clean up synthetic module
+        if old_module is not None:
+            sys.modules[module_name] = old_module
+        else:
+            sys.modules.pop(module_name, None)
+

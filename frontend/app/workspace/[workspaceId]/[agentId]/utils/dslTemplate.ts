@@ -3,8 +3,8 @@
  * Standard LangGraph Python — no custom SDK needed.
  */
 export const DSL_STARTER_TEMPLATE = `from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
 from typing import TypedDict, Annotated
-from langchain_core.messages import add_messages
 
 
 class State(TypedDict):
