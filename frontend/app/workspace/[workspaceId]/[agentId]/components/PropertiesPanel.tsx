@@ -959,50 +959,6 @@ export default function PropertiesPanel({
           </div>
         )}
 
-        {/* Section: State Dependencies */}
-        {showAdvancedSettings && (def?.stateReads?.length || def?.stateWrites?.length) && (
-          <div className="space-y-3">
-            <SectionHeader
-              icon={Database}
-              title="State Dependencies"
-              tooltip="Advanced: Shows what global state variables this node reads from or writes to. Usually managed automatically."
-            />
-            {def?.stateReads && def.stateReads.length > 0 && (
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  Reads
-                </Label>
-                <div className="flex flex-wrap gap-1">
-                  {def.stateReads.map((field) => (
-                    <span
-                      key={field}
-                      className="inline-flex items-center rounded-full border border-[var(--skill-brand-200)] bg-[var(--skill-brand-50)] px-2 py-0.5 font-mono text-[9px] font-medium text-[var(--skill-brand-700)]"
-                    >
-                      {field === '*' ? 'all state' : field}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {def?.stateWrites && def.stateWrites.length > 0 && (
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  Writes
-                </Label>
-                <div className="flex flex-wrap gap-1">
-                  {def.stateWrites.map((field) => (
-                    <span
-                      key={field}
-                      className="inline-flex items-center rounded-full border border-[var(--brand-200)] bg-[var(--brand-50)] px-2 py-0.5 font-mono text-[9px] font-medium text-[var(--brand-600)]"
-                    >
-                      {field}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Footer Info */}

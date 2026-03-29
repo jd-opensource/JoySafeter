@@ -140,10 +140,6 @@ interface BuilderState {
   setGraphId: (graphId: string | null) => void
   setGraphName: (graphName: string | null) => void
 
-  // UI Highlight State
-  highlightedStateVariable: string | null
-  setHighlightedStateVariable: (variableName: string | null) => void
-
   // Actions
   initialize: (workspaceId: string, graphId: string, ref: ReactFlowInstance) => Promise<void>
   undo: () => void
@@ -268,8 +264,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     executionLogs: [],
     graphStateFields: [],
     fallbackNodeId: null,
-    highlightedStateVariable: null,
-    setHighlightedStateVariable: (variableName) => set({ highlightedStateVariable: variableName }),
     setFallbackNodeId: (nodeId) => {
       set({ fallbackNodeId: nodeId })
       get().triggerAutoSave()
@@ -285,7 +279,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         nodes: [],
         edges: [],
         graphStateFields: [],
-        highlightedStateVariable: null,
       })
 
       try {

@@ -49,8 +49,6 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
   const activeExecutionNodeId = useBuilderStore((state) => state.activeExecutionNodeId)
   const deleteNode = useBuilderStore((state) => state.deleteNode)
   const duplicateNode = useBuilderStore((state) => state.duplicateNode)
-  const highlightedStateVariable = useBuilderStore((state) => state.highlightedStateVariable)
-  const setHighlightedStateVariable = useBuilderStore((state) => state.setHighlightedStateVariable)
   const isExecuting = activeExecutionNodeId === id
 
   const executionSteps = useExecutionStore((state) => state.steps)
@@ -224,62 +222,6 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
     return field.label
   }
 
-  // Calculate state reads/writes (static + dynamic)
-  const stateUsage = useMemo(() => {
-    // ... (existing code)
-    const reads = new Set(def?.stateReads || [])
-    const writes = new Set(def?.stateWrites || [])
-
-    // Dynamic: Input Mapping (Reads)
-    if (data.config?.input_mapping) {
-      const mapping = data.config.input_mapping as any
-      if (Array.isArray(mapping)) {
-        mapping.forEach((m) => {
-          if (typeof m.value === 'string' && m.value.startsWith('state.get(')) {
-            const match = m.value.match(/state\.get\(['"](.+)['"]\)/)
-            if (match) reads.add(match[1])
-          }
-        })
-      }
-    }
-
-    // Dynamic: Output Mapping (Writes)
-    if (data.config?.output_map) {
-      const mapping = data.config.output_map as Record<string, string>
-      Object.values(mapping).forEach((val) => writes.add(val))
-    }
-
-    // Dynamic: Aggregator Source Variables (Reads)
-    if (data.config?.source_variables) {
-      const sources = data.config.source_variables
-      if (Array.isArray(sources)) {
-        sources.forEach((s: any) => typeof s === 'string' && reads.add(s))
-      } else if (typeof sources === 'string') {
-        // handle comma separated string
-        ;(sources as string)
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .forEach((s) => reads.add(s))
-      }
-    }
-
-    // Dynamic: Aggregator Target Variable (Writes)
-    if (data.config?.target_variable && typeof data.config.target_variable === 'string') {
-      writes.add(data.config.target_variable)
-    }
-
-    return {
-      reads: Array.from(reads),
-      writes: Array.from(writes),
-    }
-  }, [def, data.config])
-
-  const isReadingHighlighted =
-    highlightedStateVariable && stateUsage.reads.includes(highlightedStateVariable)
-  const isWritingHighlighted =
-    highlightedStateVariable && stateUsage.writes.includes(highlightedStateVariable)
-
   // Get important properties to display on node
   const displayProperties = useMemo(() => {
     if (!def?.schema || !data.config) return []
@@ -329,16 +271,6 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
         isExecuting && 'z-50 scale-105 border-transparent shadow-[0_0_25px_rgba(59,130,246,0.4)]',
         isInterrupted &&
           'z-40 border-[var(--status-warning)] shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-2 ring-amber-400/20',
-        // State Highlighting
-        isReadingHighlighted &&
-          !isWritingHighlighted &&
-          'z-30 border-[var(--brand-400)] shadow-[0_0_15px_rgba(96,165,250,0.3)] ring-2 ring-[var(--brand-400)]',
-        isWritingHighlighted &&
-          !isReadingHighlighted &&
-          'z-30 border-[var(--status-warning)] shadow-[0_0_15px_rgba(251,191,36,0.3)] ring-2 ring-amber-400/30',
-        isReadingHighlighted &&
-          isWritingHighlighted &&
-          'z-30 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.3)] ring-2 ring-purple-400/30',
         // Execution Status
         nodeExecutionStatus === 'success' &&
           !isExecuting &&
@@ -389,16 +321,6 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
             <TooltipContent side="top">{t('workspace.duplicate')}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
-
-        {/* Context Badge for '*' reads */}
-        {stateUsage.reads.includes('*') && (
-          <div
-            className="rounded border border-[var(--border-muted)] bg-[var(--surface-1)] px-1 py-0.5 text-[6px] italic text-[var(--text-tertiary)]"
-            title="Reads All State"
-          >
-            reads: *
-          </div>
-        )}
 
         <TooltipProvider delayDuration={200}>
           <Tooltip>
@@ -533,50 +455,6 @@ const BuilderNode = ({ id, data, selected }: BuilderNodeProps) => {
             </div>
           )
         })()}
-
-        {/* State Dependencies (Reads/Writes) */}
-        {(stateUsage.reads.length > 0 || stateUsage.writes.length > 0) && (
-          <div className="mt-2 flex flex-col gap-1.5 border-t border-[var(--divider)] pt-2">
-            {/* Reads */}
-            {stateUsage.reads.length > 0 && stateUsage.reads.some((r) => r !== '*') && (
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="text-[7px] font-medium text-[var(--text-muted)]">Reads:</span>
-                {stateUsage.reads
-                  .filter((r) => r !== '*')
-                  .map((read) => (
-                    <div
-                      key={`read-${read}`}
-                      className="flex cursor-pointer items-center gap-0.5 rounded border border-primary/20 bg-primary/5 px-1 py-0.5 text-[6.5px] text-primary transition-colors hover:bg-primary/10"
-                      title={`Highlight nodes reading or writing '${read}'`}
-                      onMouseEnter={() => setHighlightedStateVariable(read)}
-                      onMouseLeave={() => setHighlightedStateVariable(null)}
-                    >
-                      {read}
-                    </div>
-                  ))}
-              </div>
-            )}
-            {/* Writes */}
-            {stateUsage.writes.length > 0 && stateUsage.writes.some((w) => w !== '*') && (
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="text-[7px] font-medium text-[var(--text-muted)]">Writes:</span>
-                {stateUsage.writes
-                  .filter((w) => w !== '*')
-                  .map((write) => (
-                    <div
-                      key={`write-${write}`}
-                      className="flex cursor-pointer items-center gap-0.5 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-1 py-0.5 text-[6.5px] text-[var(--status-warning)] transition-colors hover:bg-[var(--status-warning-bg)]"
-                      title={`Highlight nodes reading or writing '${write}'`}
-                      onMouseEnter={() => setHighlightedStateVariable(write)}
-                      onMouseLeave={() => setHighlightedStateVariable(null)}
-                    >
-                      {write}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-        )}
 
         {isExecuting && (
           <div className="mt-2 flex items-center gap-1.5 border-t border-[var(--divider)] pt-2">

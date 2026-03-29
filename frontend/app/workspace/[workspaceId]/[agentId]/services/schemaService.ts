@@ -17,8 +17,6 @@ export interface NodeSchema {
   type: string
   label: string
   config: Record<string, unknown>
-  reads: string[]
-  writes: string[]
 }
 
 export interface EdgeSchema {
@@ -112,8 +110,6 @@ export const schemaService = {
         type: n.data?.type || 'unknown',
         label: n.data?.label || n.id,
         config: n.data?.config || {},
-        reads: n.data?.stateReads || [],
-        writes: n.data?.stateWrites || [],
         metadata: {
           position: n.position,
           ...n.data?.metadata,

@@ -70,10 +70,6 @@ export interface NodeDefinition {
   }
   defaultConfig: Record<string, unknown>
   schema: FieldSchema[]
-  /** State fields this node reads from */
-  stateReads?: string[]
-  /** State fields this node writes to */
-  stateWrites?: string[]
 }
 
 // --- Registry Definitions ---
@@ -85,8 +81,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'LLM Process',
     icon: Bot,
     style: { color: 'text-blue-600', bg: 'bg-blue-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'current_node'],
     defaultConfig: {
       model: 'DeepSeek-Chat',
       temp: 0.7,
@@ -200,8 +194,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'If/Else Split',
     icon: Split,
     style: { color: 'text-amber-500', bg: 'bg-amber-50' },
-    stateReads: ['*'],
-    stateWrites: ['route_decision', 'route_history'],
     defaultConfig: {
       expression: '',
       trueLabel: 'Yes',
@@ -225,8 +217,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'AI Decision Split',
     icon: GitBranch,
     style: { color: 'text-pink-500', bg: 'bg-pink-50' },
-    stateReads: ['*'],
-    stateWrites: ['route_decision', 'route_history'],
     defaultConfig: { instruction: 'Analyze and route', options: ['Option A', 'Option B'] },
     schema: [
       {
@@ -256,8 +246,6 @@ const REGISTRY: NodeDefinition[] = [
     icon: Wrench,
     hidden: true,
     style: { color: 'text-purple-600', bg: 'bg-purple-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'context', 'current_node'],
     defaultConfig: { name: 'my_tool', description: '', parameters: [] },
     schema: [
       {
@@ -288,8 +276,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Send Message',
     icon: MessageSquare,
     style: { color: 'text-emerald-500', bg: 'bg-emerald-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'current_node'],
     defaultConfig: { template: 'Hello user' },
     schema: [
       {
@@ -306,8 +292,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Interrupt Gate',
     icon: UserRound,
     style: { color: 'text-indigo-500', bg: 'bg-indigo-50' },
-    stateReads: ['messages'],
-    stateWrites: ['messages', 'current_node'],
     defaultConfig: { interrupt_before: true, interrupt_after: false },
     schema: [
       {
@@ -331,8 +315,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Multi-Rule Routing',
     icon: Route,
     style: { color: 'text-orange-600', bg: 'bg-orange-50' },
-    stateReads: ['*'],
-    stateWrites: ['route_decision', 'route_history'],
     defaultConfig: {
       routes: [
         {
@@ -376,8 +358,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Loop Control',
     icon: Repeat2,
     style: { color: 'text-cyan-600', bg: 'bg-cyan-50' },
-    stateReads: ['loop_count', 'loop_condition_met', 'context', 'loop_states'],
-    stateWrites: ['loop_count', 'loop_condition_met', 'loop_states'],
     defaultConfig: {
       conditionType: 'while',
       listVariable: 'items',
@@ -428,8 +408,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Tool Execution',
     icon: Wrench,
     style: { color: 'text-green-600', bg: 'bg-green-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'context', 'current_node'],
     defaultConfig: {
       tool_name: '',
       input_mapping: {},
@@ -458,8 +436,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Custom Function',
     icon: Code,
     style: { color: 'text-indigo-600', bg: 'bg-indigo-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'context', 'current_node'],
     defaultConfig: {
       execution_mode: 'custom',
       function_name: '',
@@ -516,8 +492,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Fan-In Aggregation',
     icon: Layers,
     style: { color: 'text-teal-600', bg: 'bg-teal-50' },
-    stateReads: ['task_results', 'parallel_results', 'task_states'],
-    stateWrites: ['messages', 'context', 'current_node'],
     defaultConfig: {
       error_strategy: 'best_effort',
       target_variable: 'aggregated_results',
@@ -566,8 +540,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Parse & Transform',
     icon: FileJson,
     style: { color: 'text-yellow-600', bg: 'bg-yellow-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'context', 'current_node'],
     defaultConfig: {
       jsonpath_query: '',
       json_schema: {},
@@ -595,8 +567,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Enhanced API Call',
     icon: Globe2,
     style: { color: 'text-red-600', bg: 'bg-red-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'context', 'current_node'],
     defaultConfig: {
       method: 'GET',
       url: 'https://api.example.com/endpoint',
@@ -650,8 +620,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Read Global State',
     icon: FileJson, // Using FileJson for now
     style: { color: 'text-sky-600', bg: 'bg-sky-50' },
-    stateReads: ['*'], // Reads from global state
-    stateWrites: ['current_node'], // Outputs a local payload, doesn't mutate global state structurally
     defaultConfig: {
       keys_to_fetch: [],
       error_on_missing: false,
@@ -681,8 +649,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Write Global State',
     icon: Layers, // Using Layers for now
     style: { color: 'text-fuchsia-600', bg: 'bg-fuchsia-50' },
-    stateReads: ['current_node'], // Reads from local payload to write to global
-    stateWrites: ['*'], // Mutates global state
     defaultConfig: {
       input_mapping: {},
     },
@@ -704,8 +670,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Python Code Execution',
     icon: BrainCircuit,
     style: { color: 'text-violet-600', bg: 'bg-violet-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'current_node', 'context'],
     defaultConfig: {
       model: 'DeepSeek-Chat',
       executor_type: 'local',
@@ -807,8 +771,6 @@ const REGISTRY: NodeDefinition[] = [
     subLabel: 'Remote A2A Protocol',
     icon: Globe2,
     style: { color: 'text-amber-600', bg: 'bg-amber-50' },
-    stateReads: ['messages', 'context'],
-    stateWrites: ['messages', 'current_node'],
     defaultConfig: {
       a2a_url: '',
       agent_card_url: '',
