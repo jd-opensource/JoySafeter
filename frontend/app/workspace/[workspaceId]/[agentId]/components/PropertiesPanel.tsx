@@ -28,14 +28,9 @@ import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'
 
-import { ConditionExprField } from './fields/ConditionExprField'
 import { DockerConfigField } from './fields/DockerConfigField'
-import { KVListField } from './fields/KVListField'
 import { ModelSelectField } from './fields/ModelSelectField'
-import { RouteListField } from './fields/RouteListField'
 import { SkillsField } from './fields/SkillsField'
-import { StateMapperField } from './fields/StateMapperField'
-import { StringArrayField } from './fields/StringArrayField'
 import { ToolsField } from './fields/ToolsField'
 
 interface PropertiesPanelProps {
@@ -252,16 +247,6 @@ const SchemaFieldRenderer = ({
         </Select>
       )
       break
-    case 'stateMapper':
-      input = (
-        <StateMapperField
-          value={(value as any) || []}
-          onChange={onChange}
-          graphStateFields={graphStateFields}
-          currentNodeId={currentNodeId}
-        />
-      )
-      break
     case 'dockerConfig':
       input = (
         <DockerConfigField
@@ -284,37 +269,6 @@ const SchemaFieldRenderer = ({
           step={schema.step || 1}
           placeholder={schema.placeholder}
           className="h-8 text-xs"
-        />
-      )
-      break
-    case 'conditionExpr':
-      input = (
-        <ConditionExprField
-          value={(value as string) || ''}
-          onChange={onChange}
-          placeholder={schema.placeholder}
-          description={schema.description}
-          variables={schema.variables}
-          nodes={nodes}
-          edges={edges}
-          currentNodeId={currentNodeId}
-          graphStateFields={graphStateFields}
-        />
-      )
-      break
-    case 'routeList':
-      const outgoingEdges = edges?.filter((e) => e.source === currentNodeId) || []
-      const targetNodes = nodes?.filter((n) => outgoingEdges.some((e) => e.target === n.id)) || []
-      input = (
-        <RouteListField
-          value={(value as any) || []}
-          onChange={onChange}
-          availableEdges={outgoingEdges}
-          targetNodes={targetNodes}
-          currentNodeId={currentNodeId || ''}
-          nodes={nodes || []}
-          edges={edges || []}
-          onCreateEdge={onCreateEdge}
         />
       )
       break
@@ -348,19 +302,6 @@ const SchemaFieldRenderer = ({
       break
     case 'skillSelector':
       input = <SkillsField value={value} onChange={onChange} />
-      break
-    case 'kvList':
-      input = <KVListField value={value as { key: string; value: string }[]} onChange={onChange} />
-      break
-    case 'stringArray':
-      input = (
-        <StringArrayField
-          value={(value as string[]) || []}
-          onChange={onChange}
-          placeholder={schema.placeholder}
-          description={schema.description}
-        />
-      )
       break
     default:
       input = (
@@ -499,61 +440,6 @@ export default function PropertiesPanel({
 
   const applyTemplateConfig = (_templateName: string) => {
     // Templates removed — placeholder for future DSL-based templates
-  }
-
-  // Handle edge creation from RouteListField
-  const handleCreateEdge = (targetNodeId: string, routeKey: string) => {
-    if (!userPermissions.canEdit) {
-      toast({
-        title: t('workspace.noPermission'),
-        description: t('workspace.cannotEditNode'),
-        variant: 'destructive',
-      })
-      return
-    }
-
-    // Check if edge already exists
-    const existingEdge = edges.find((e) => e.source === node.id && e.target === targetNodeId)
-    if (existingEdge) {
-      // Update existing edge
-      const edgeData: EdgeData = {
-        edge_type: 'conditional',
-        route_key: routeKey,
-      }
-      updateEdge(existingEdge.id, edgeData)
-      toast({
-        title: 'Edge Updated',
-        description: `Edge updated with route_key: ${routeKey}`,
-      })
-      return
-    }
-
-    // Create connection using onConnect
-    // onConnect is synchronous, so we can find the edge immediately after
-    onConnect({
-      source: node.id,
-      target: targetNodeId,
-      sourceHandle: null,
-      targetHandle: null,
-    })
-
-    // Find the newly created edge and update it with route_key
-    // Use requestAnimationFrame to ensure state has been updated
-    requestAnimationFrame(() => {
-      const { edges: currentEdges } = useBuilderStore.getState()
-      const newEdge = currentEdges.find((e) => e.source === node.id && e.target === targetNodeId)
-      if (newEdge) {
-        const edgeData: EdgeData = {
-          edge_type: 'conditional',
-          route_key: routeKey,
-        }
-        updateEdge(newEdge.id, edgeData)
-        toast({
-          title: 'Edge Created',
-          description: `Edge created with route_key: ${routeKey}`,
-        })
-      }
-    })
   }
 
   // Update both model_name and provider_name simultaneously
@@ -739,7 +625,7 @@ export default function PropertiesPanel({
                   nodes={nodes}
                   edges={edges}
                   currentNodeId={node.id}
-                  onCreateEdge={handleCreateEdge}
+                  onCreateEdge={undefined}
                   graphStateFields={graphStateFields}
                 />
               ))}
@@ -756,7 +642,7 @@ export default function PropertiesPanel({
                   nodes={nodes}
                   edges={edges}
                   currentNodeId={node.id}
-                  onCreateEdge={handleCreateEdge}
+                  onCreateEdge={undefined}
                   graphStateFields={graphStateFields}
                 />
               </div>
@@ -779,7 +665,7 @@ export default function PropertiesPanel({
                 nodes={nodes}
                 edges={edges}
                 currentNodeId={node.id}
-                onCreateEdge={handleCreateEdge}
+                onCreateEdge={undefined}
                 graphStateFields={graphStateFields}
               />
             ))}
@@ -804,7 +690,7 @@ export default function PropertiesPanel({
                 nodes={nodes}
                 edges={edges}
                 currentNodeId={node.id}
-                onCreateEdge={handleCreateEdge}
+                onCreateEdge={undefined}
                 graphStateFields={graphStateFields}
               />
             ))}
@@ -830,7 +716,7 @@ export default function PropertiesPanel({
                   nodes={nodes}
                   edges={edges}
                   currentNodeId={node.id}
-                  onCreateEdge={handleCreateEdge}
+                  onCreateEdge={undefined}
                   graphStateFields={graphStateFields}
                 />
               ))}
@@ -851,7 +737,7 @@ export default function PropertiesPanel({
                       nodes={nodes}
                       edges={edges}
                       currentNodeId={node.id}
-                      onCreateEdge={handleCreateEdge}
+                      onCreateEdge={undefined}
                       graphStateFields={graphStateFields}
                       onModelChange={
                         field.key === 'memoryModel'
@@ -884,80 +770,6 @@ export default function PropertiesPanel({
           </div>
         )}
         {/* Section: Output Mapping fields rendered conditionally as normal fields */}
-
-        {/* Section: Input Mapping (Universal) */}
-        {showAdvancedSettings && (
-          <div className="space-y-4">
-            <SectionHeader
-              icon={Database}
-              title={t('workspace.inputMapping', { defaultValue: 'Input Mapping' })}
-              tooltip="Advanced: Map global state variables into this node's context. These will be available as 'context.mapped_inputs' in expressions."
-            />
-            <StateMapperField
-              value={(config.input_mapping as any) || []}
-              onChange={(val) => updateConfig('input_mapping', val)}
-              graphStateFields={graphStateFields}
-              currentNodeId={node.id}
-            />
-          </div>
-        )}
-
-        {/* Section: State Output Mapping */}
-        {showAdvancedSettings && graphStateFields.length > 0 && (
-          <div className="space-y-4">
-            <SectionHeader
-              icon={Database}
-              title={t('workspace.stateUpdates', { defaultValue: 'State Updates' })}
-              tooltip="Advanced: Map node outputs directly to global state variables. Useful for long-term memory across loops."
-            />
-            <div className="space-y-3">
-              <p className="text-[10px] text-[var(--text-muted)]">
-                Map node outputs to global state variables. Use <code>result</code> to reference the
-                node&apos;s output.
-              </p>
-              {graphStateFields.map((field) => {
-                // Access nested key for generic config update
-                const currentMapping =
-                  (config.output_mapping as Record<string, string>)?.[field.name] || ''
-
-                return (
-                  <div
-                    key={field.name}
-                    className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2.5"
-                  >
-                    <div className="flex items-center justify-between">
-                      <Label className="font-mono text-[11px] font-medium text-[var(--text-secondary)]">
-                        {field.name}
-                      </Label>
-                      <span className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0.5 text-[9px] uppercase text-[var(--text-muted)]">
-                        {field.type}
-                      </span>
-                    </div>
-                    {field.description && (
-                      <p className="truncate text-[9px] text-[var(--text-muted)]">{field.description}</p>
-                    )}
-                    <Input
-                      value={currentMapping}
-                      onChange={(e) => {
-                        const val = e.target.value
-                        const newMapping = {
-                          ...((config.output_mapping as Record<string, string>) || {}),
-                          [field.name]: val,
-                        }
-                        if (!val) {
-                          delete newMapping[field.name]
-                        }
-                        updateConfig('output_mapping', newMapping)
-                      }}
-                      placeholder="e.g. result.answer"
-                      className="h-7 font-mono text-xs"
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
 
       </div>
 

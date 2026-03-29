@@ -40,13 +40,10 @@ import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { Textarea } from '@/components/ui/textarea'
 
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'
-
-// import { validateEdgeData } from '../services/edgeValidator'
-
-import { ConditionExprField } from './fields/ConditionExprField'
 
 interface EdgePropertiesPanelProps {
   edge: Edge
@@ -342,11 +339,10 @@ export function EdgePropertiesPanel({
                   ? 'Edits the splitting condition'
                   : 'Edits the loop continue condition'}
             </p>
-            <ConditionExprField
+            <Textarea
               value={currentCondition}
-              onChange={handleConditionChange}
+              onChange={(e) => handleConditionChange(e.target.value)}
               disabled={!userPermissions.canEdit}
-              graphStateFields={graphStateFields}
               placeholder={
                 isRouterNode
                   ? "state.get('value') > 10"
@@ -354,6 +350,7 @@ export function EdgePropertiesPanel({
                     ? "state.get('is_valid')"
                     : 'loop_count < 5'
               }
+              className="min-h-[60px] font-mono text-xs"
             />
             <div className="mt-1 flex items-center gap-1.5 text-[9px] text-blue-600/70">
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
