@@ -74,7 +74,6 @@ export function BuilderToolbar({
 
   const {
     setDeployedAt,
-    toggleSchemaExport,
     toggleValidationSummary,
     validateGraph,
     showAdvancedSettings,
@@ -221,14 +220,6 @@ export function BuilderToolbar({
                   {showAdvancedSettings ? t('workspace.hideAdvancedMode', { defaultValue: 'Hide Advanced Mode' }) : t('workspace.showAdvancedMode', { defaultValue: 'Show Advanced Mode' })}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                {showAdvancedSettings && (
-                  <>
-                    <DropdownMenuItem onClick={() => toggleSchemaExport(true)}>
-                      <FileJson size={14} className="mr-2" /> Schema
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
                 <DropdownMenuItem onClick={handleImportClick}>
                   <Upload size={14} className="mr-2" /> {t('workspace.importGraph')}
                 </DropdownMenuItem>

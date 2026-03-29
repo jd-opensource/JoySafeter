@@ -40,7 +40,6 @@ import { computeGraphStateHash } from '@/utils/graphStateHash'
 
 import { agentService } from '../services/agentService'
 import { nodeRegistry } from '../services/nodeRegistry'
-import { schemaService } from '../services/schemaService'
 import type { StateField } from '../types/graph'
 import { EdgeData, RouteRule, ValidationError } from '../types/graph'
 import { determineEdgeTypeAndRouteKey, autoWireConnection } from '../utils/connectionUtils'
@@ -107,7 +106,6 @@ interface BuilderState {
   isSaving: boolean
   isInitializing: boolean
 
-  showSchemaExport: boolean
   showValidationSummary: boolean
   validationErrors: ValidationError[]
   isValidating: boolean
@@ -190,7 +188,6 @@ interface BuilderState {
     edges: { source: string; target: string }[]
   }
 
-  toggleSchemaExport: (show?: boolean) => void
   toggleValidationSummary: (show?: boolean) => void
   showAdvancedSettings: boolean
   toggleAdvancedSettings: (show?: boolean) => void
@@ -243,7 +240,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     selectedEdgeId: null,
     isSaving: false,
     isInitializing: true,
-    showSchemaExport: false,
     showValidationSummary: false,
     showAdvancedSettings: false,
     validationErrors: [],
@@ -772,72 +768,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     setValidationErrors: (errors) => set({ validationErrors: errors }),
 
     validateGraph: async () => {
-      const { nodes, edges } = get()
-      set({ isValidating: true })
-      try {
-        // Transform to schema format
-        const schema = schemaService.transformToGraphSchema(nodes, edges)
-        // Call backend validation
-        const result = await schemaService.validateGraphData(
-          schema as unknown as Record<string, unknown>,
-        )
-
-        // Map backend errors/warnings to ValidationError format
-        const errors: ValidationError[] = []
-
-        // Process errors
-        result.errors.forEach((msg) => {
-          // Try to extract node ID: "Message... (node_id)..."
-          const nodeMatch = msg.match(/\((node_[^)]+)\)/)
-          const nodeId = nodeMatch ? nodeMatch[1] : undefined
-
-          let category = 'Graph Structure'
-          if (nodeId) category = 'Node Configuration'
-          if (msg.toLowerCase().includes('deepagents')) category = 'DeepAgents Structure'
-
-          errors.push({
-            field: nodeId ? `node.${nodeId}` : 'global',
-            message: msg,
-            severity: 'error',
-            nodeId,
-            category,
-          })
-        })
-
-        // Process warnings
-        result.warnings.forEach((msg) => {
-          const nodeMatch = msg.match(/\((node_[^)]+)\)/)
-          const nodeId = nodeMatch ? nodeMatch[1] : undefined
-
-          let category = 'Graph Structure'
-          if (nodeId) category = 'Node Configuration'
-          if (msg.toLowerCase().includes('deepagents')) category = 'DeepAgents Structure'
-
-          errors.push({
-            field: nodeId ? `node.${nodeId}` : 'global',
-            message: msg,
-            severity: 'warning',
-            nodeId,
-            category,
-          })
-        })
-
-        set({ validationErrors: errors, isValidating: false })
-        return errors.filter((e) => e.severity === 'error').length === 0
-      } catch (error) {
-        console.error('Validation failed:', error)
-        set({
-          validationErrors: [
-            {
-              field: 'global',
-              message: 'Validation failed: ' + (error as Error).message,
-              severity: 'error',
-            },
-          ],
-          isValidating: false,
-        })
-        return false
-      }
+      // Schema validation removed — DeepAgents validates at build time
+      set({ validationErrors: [], isValidating: false })
+      return true
     },
 
     saveGraph: async (name: string) => {
@@ -988,12 +921,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           target: e.target,
         })),
       }
-    },
-
-    toggleSchemaExport: (show) => {
-      set((state) => ({
-        showSchemaExport: show !== undefined ? show : !state.showSchemaExport,
-      }))
     },
 
     toggleValidationSummary: (show) => {

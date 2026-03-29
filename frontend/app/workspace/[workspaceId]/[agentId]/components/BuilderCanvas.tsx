@@ -21,7 +21,6 @@ import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
 import { EdgePropertiesPanel } from './EdgePropertiesPanel'
 import { GraphStatusBar } from './GraphStatusBar'
 import PropertiesPanel from './PropertiesPanel'
-import { SchemaExportPanel } from './SchemaExportPanel'
 import { ValidationSummaryPanel } from './ValidationSummaryPanel'
 
 import 'reactflow/dist/style.css'
@@ -153,8 +152,6 @@ export function BuilderCanvas() {
     undo,
     redo,
     graphId,
-    showSchemaExport,
-    toggleSchemaExport,
     showValidationSummary,
     toggleValidationSummary,
   } = useBuilderStore()
@@ -535,14 +532,6 @@ export function BuilderCanvas() {
             selectEdge(null)
           }}
           onClose={() => selectEdge(null)}
-        />
-      )}
-
-      {showSchemaExport && graphId && (
-        <SchemaExportPanel
-          graphId={graphId}
-          open={showSchemaExport}
-          onClose={() => toggleSchemaExport(false)}
         />
       )}
 
