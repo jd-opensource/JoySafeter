@@ -115,7 +115,6 @@ class _CompilerSession:
         )
 
         self._generate_state_class()
-        self._validate_state_dependencies()
 
         if not self.schema.nodes:
             return self._handle_empty_graph()
@@ -152,14 +151,6 @@ class _CompilerSession:
                 class_name=f"{self.schema.name.replace(' ', '')}State",
             )
             logger.info(f"[GraphCompiler] Built dynamic state class with {len(self.schema.state_fields)} custom fields")
-
-    def _validate_state_dependencies(self):
-        if self.validate and self.schema.state_fields:
-            dep_warnings = self.schema.validate_state_dependencies()
-            if dep_warnings:
-                self.warnings.extend(dep_warnings)
-                for w in dep_warnings:
-                    logger.warning(f"[GraphCompiler] {w}")
 
     def _handle_empty_graph(self) -> CompilationResult:
         logger.warning("[GraphCompiler] No nodes — creating pass-through graph")

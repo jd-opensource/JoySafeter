@@ -194,12 +194,6 @@ class SchemaService(BaseService):
         errors: List[str] = []
         warnings: List[str] = []
 
-        # Structural validation
-        try:
-            warnings.extend(schema.validate_state_dependencies())
-        except Exception as e:
-            errors.append(f"State dependency validation failed: {e}")
-
         if not schema.nodes:
             warnings.append("Graph has no nodes")
 
@@ -233,13 +227,7 @@ class SchemaService(BaseService):
         errors: List[str] = []
         warnings: List[str] = []
 
-        # 2. State Dependency Validation
-        try:
-            warnings.extend(schema.validate_state_dependencies())
-        except Exception as e:
-            errors.append(f"State dependency validation failed: {e}")
-
-        # 3. Graph Topology Validation
+        # Graph Topology Validation
         if not schema.nodes:
             warnings.append("Graph has no nodes")
 
