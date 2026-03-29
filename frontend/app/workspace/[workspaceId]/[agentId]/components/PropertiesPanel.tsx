@@ -24,10 +24,6 @@ import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-import {
-  getTemplatesForNodeType,
-  applyTemplate,
-} from '../services/nodeConfigTemplates'
 import { nodeRegistry, FieldSchema } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'
@@ -41,7 +37,6 @@ import { SkillsField } from './fields/SkillsField'
 import { StateMapperField } from './fields/StateMapperField'
 import { StringArrayField } from './fields/StringArrayField'
 import { ToolsField } from './fields/ToolsField'
-import { VariableInputField } from './fields/VariableInputField'
 
 interface PropertiesPanelProps {
   node: Node
@@ -189,15 +184,11 @@ const SchemaFieldRenderer = ({
 
       if (needsVariableSupport && nodes && edges && currentNodeId) {
         input = (
-          <VariableInputField
-            label={translatedLabel}
+          <Textarea
             value={(value as string) || ''}
-            onChange={(val) => onChange(val)}
+            onChange={(e) => onChange(e.target.value)}
             placeholder={schema.placeholder}
-            description={schema.description}
-            nodes={nodes}
-            edges={edges}
-            currentNodeId={currentNodeId}
+            className="min-h-[60px] resize-none py-2 font-mono text-xs focus-visible:ring-1"
           />
         )
       } else {
@@ -455,7 +446,7 @@ export default function PropertiesPanel({
   const nodeType = nodeData?.type || ''
 
   // Get available templates for this node type
-  const templates = nodeType ? getTemplatesForNodeType(nodeType) : []
+  const templates: { name: string; description: string }[] = []
 
   // Validate configuration using schema
   const validationErrors = useMemo(() => {
@@ -506,23 +497,8 @@ export default function PropertiesPanel({
     onUpdate(node.id, { label: nodeData.label || '', config: newConfig })
   }
 
-  const applyTemplateConfig = (templateName: string) => {
-    if (!userPermissions.canEdit) {
-      toast({
-        title: t('workspace.noPermission'),
-        description: t('workspace.cannotEditNode'),
-        variant: 'destructive',
-      })
-      return
-    }
-    const templateConfig = applyTemplate(nodeType, templateName)
-    if (templateConfig) {
-      onUpdate(node.id, { label: nodeData.label || '', config: templateConfig })
-      toast({
-        title: 'Template Applied',
-        description: `Applied template: ${templateName}`,
-      })
-    }
+  const applyTemplateConfig = (_templateName: string) => {
+    // Templates removed — placeholder for future DSL-based templates
   }
 
   // Handle edge creation from RouteListField
@@ -960,24 +936,21 @@ export default function PropertiesPanel({
                     {field.description && (
                       <p className="truncate text-[9px] text-[var(--text-muted)]">{field.description}</p>
                     )}
-                    <VariableInputField
-                      label=""
+                    <Input
                       value={currentMapping}
-                      onChange={(val) => {
+                      onChange={(e) => {
+                        const val = e.target.value
                         const newMapping = {
                           ...((config.output_mapping as Record<string, string>) || {}),
                           [field.name]: val,
                         }
-                        // If value is empty, remove the key to keep config clean
                         if (!val) {
                           delete newMapping[field.name]
                         }
                         updateConfig('output_mapping', newMapping)
                       }}
                       placeholder="e.g. result.answer"
-                      nodes={nodes}
-                      edges={edges}
-                      currentNodeId={node.id}
+                      className="h-7 font-mono text-xs"
                     />
                   </div>
                 )

@@ -74,7 +74,6 @@ export function BuilderToolbar({
 
   const {
     setDeployedAt,
-    toggleGraphStatePanel,
     toggleSchemaExport,
     toggleValidationSummary,
     validateGraph,
@@ -224,9 +223,6 @@ export function BuilderToolbar({
                 <DropdownMenuSeparator />
                 {showAdvancedSettings && (
                   <>
-                    <DropdownMenuItem onClick={() => toggleGraphStatePanel(true)}>
-                      <Database size={14} className="mr-2" /> {t('workspace.graphStateSchema', { defaultValue: 'Graph State Schema' })}
-                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => toggleSchemaExport(true)}>
                       <FileJson size={14} className="mr-2" /> Schema
                     </DropdownMenuItem>

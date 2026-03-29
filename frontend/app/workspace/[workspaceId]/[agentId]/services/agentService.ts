@@ -4,7 +4,6 @@ import { Node, Edge } from 'reactflow'
 
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 
-import { migrateGraphData, needsMigration } from './dataMigration'
 import { modelService } from './modelService'
 
 // --- Types ---
@@ -243,16 +242,6 @@ export const agentService = {
         seenEdges.add(key)
         return true
       })
-    }
-
-    // Apply data migration if needed
-    if (data.nodes && data.edges && needsMigration(data.nodes, data.edges)) {
-      const migrated = migrateGraphData(data.nodes, data.edges)
-      data = {
-        ...data,
-        nodes: migrated.nodes,
-        edges: migrated.edges,
-      }
     }
 
     return data

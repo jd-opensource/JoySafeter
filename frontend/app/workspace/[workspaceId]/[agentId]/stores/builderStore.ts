@@ -39,7 +39,6 @@ import { useSidebarStore } from '@/stores/sidebar/store'
 import { computeGraphStateHash } from '@/utils/graphStateHash'
 
 import { agentService } from '../services/agentService'
-import { migrateGraphData, needsMigration } from '../services/dataMigration'
 import { nodeRegistry } from '../services/nodeRegistry'
 import { schemaService } from '../services/schemaService'
 import type { StateField } from '../types/graph'
@@ -202,8 +201,6 @@ interface BuilderState {
 
   // State Schema Actions
   graphStateFields: import('../types/graph').StateField[]
-  showGraphStatePanel: boolean
-  toggleGraphStatePanel: (show?: boolean) => void
   addStateField: (field: import('../types/graph').StateField) => void
   updateStateField: (name: string, field: Partial<import('../types/graph').StateField>) => void
   deleteStateField: (name: string) => void
@@ -271,16 +268,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     executionLogs: [],
     graphStateFields: [],
     fallbackNodeId: null,
-    showGraphStatePanel: false,
     highlightedStateVariable: null,
     setHighlightedStateVariable: (variableName) => set({ highlightedStateVariable: variableName }),
     setFallbackNodeId: (nodeId) => {
       set({ fallbackNodeId: nodeId })
       get().triggerAutoSave()
     },
-
-    toggleGraphStatePanel: (show) =>
-      set((state) => ({ showGraphStatePanel: show ?? !state.showGraphStatePanel })),
 
     // Actions
     initialize: async (workspaceId, graphId, rfInstance) => {
@@ -752,13 +745,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           let { nodes, edges } = state
           const { variables } = state
 
-          // Apply data migration if needed
-          if (needsMigration(nodes, edges)) {
-            const migrated = migrateGraphData(nodes, edges)
-            nodes = migrated.nodes
-            edges = migrated.edges
-          }
-
           // Process edges to ensure correct type and style based on edge_type
           const processedEdges = processEdgesForReactFlow(edges)
 
@@ -779,13 +765,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           })
         } else {
           let { nodes, edges } = await agentService.getInitialGraph()
-
-          // Apply data migration if needed
-          if (needsMigration(nodes, edges)) {
-            const migrated = migrateGraphData(nodes, edges)
-            nodes = migrated.nodes
-            edges = migrated.edges
-          }
 
           // Process edges to ensure correct type and style based on edge_type
           const processedEdges = processEdgesForReactFlow(edges)
