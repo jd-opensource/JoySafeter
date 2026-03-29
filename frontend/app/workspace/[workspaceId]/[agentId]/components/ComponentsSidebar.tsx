@@ -15,7 +15,6 @@ interface ComponentsSidebarProps {
 
 export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps) {
   const { t } = useTranslation()
-  const { showAdvancedSettings } = useBuilderStore()
   const groupedTools = nodeRegistry.getGrouped()
 
   return (
@@ -31,18 +30,7 @@ export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps)
       {/* Component List */}
       <div className="custom-scrollbar flex-1 space-y-4 overflow-y-auto px-2 py-3">
         {Object.entries(groupedTools).map(([category, items]) => {
-          const filteredItems = items.filter((def) => {
-            // Only show advanced Data Flow nodes if Advanced Settings is enabled
-            if (
-              !showAdvancedSettings &&
-              (def.type === 'get_state_node' || def.type === 'set_state_node')
-            ) {
-              return false
-            }
-            return true
-          })
-
-          if (filteredItems.length === 0) return null
+          if (items.length === 0) return null
 
           let categoryKey = 'workspace.nodeCategories.actions'
           if (category === 'Agents') categoryKey = 'workspace.nodeCategories.agents'
@@ -56,7 +44,7 @@ export function ComponentsSidebar({ showHeader = true }: ComponentsSidebarProps)
               <div className="pl-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 {t(categoryKey)}
               </div>
-              {filteredItems.map((def) => (
+              {items.map((def) => (
                 <DraggableItem key={def.type} def={def} />
               ))}
             </div>

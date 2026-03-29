@@ -71,8 +71,6 @@ export function BuilderToolbar({
 
   const {
     setDeployedAt,
-    showAdvancedSettings,
-    toggleAdvancedSettings,
   } = useBuilderStore()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -192,13 +190,6 @@ export function BuilderToolbar({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="bottom" sideOffset={8}>
-                <DropdownMenuItem
-                  onClick={() => toggleAdvancedSettings()}
-                  className="font-medium text-[var(--brand-600)]"
-                >
-                  {showAdvancedSettings ? t('workspace.hideAdvancedMode', { defaultValue: 'Hide Advanced Mode' }) : t('workspace.showAdvancedMode', { defaultValue: 'Show Advanced Mode' })}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleImportClick}>
                   <Upload size={14} className="mr-2" /> {t('workspace.importGraph')}
                 </DropdownMenuItem>

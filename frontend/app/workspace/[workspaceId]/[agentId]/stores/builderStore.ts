@@ -106,8 +106,6 @@ interface BuilderState {
   isSaving: boolean
   isInitializing: boolean
 
-  showAdvancedSettings: boolean
-
   // Execution State
   isExecuting: boolean
   activeExecutionNodeId: string | null
@@ -183,7 +181,6 @@ interface BuilderState {
     edges: { source: string; target: string }[]
   }
 
-  toggleAdvancedSettings: (show?: boolean) => void
 
   // State Schema Actions
   graphStateFields: import('../types/graph').StateField[]
@@ -233,7 +230,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     selectedEdgeId: null,
     isSaving: false,
     isInitializing: true,
-    showAdvancedSettings: false,
     workspaceId: null,
     graphId: null,
     graphName: null,
@@ -836,12 +832,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           target: e.target,
         })),
       }
-    },
-
-    toggleAdvancedSettings: (show) => {
-      set((state) => ({
-        showAdvancedSettings: show !== undefined ? show : !state.showAdvancedSettings,
-      }))
     },
   }
 })

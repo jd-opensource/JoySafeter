@@ -387,8 +387,6 @@ export default function PropertiesPanel({
     return errors
   }, [def, config, t])
 
-  const { showAdvancedSettings } = useBuilderStore()
-
   if (!node || !nodeData) return null
 
   const updateConfig = (key: string, value: unknown) => {
