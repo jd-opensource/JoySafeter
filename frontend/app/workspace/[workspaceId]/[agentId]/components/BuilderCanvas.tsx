@@ -21,7 +21,6 @@ import { nodeTypes, edgeTypes } from '../utils/reactFlowConfig'
 import { EdgePropertiesPanel } from './EdgePropertiesPanel'
 import { GraphStatusBar } from './GraphStatusBar'
 import PropertiesPanel from './PropertiesPanel'
-import { ValidationSummaryPanel } from './ValidationSummaryPanel'
 
 import 'reactflow/dist/style.css'
 
@@ -152,8 +151,6 @@ export function BuilderCanvas() {
     undo,
     redo,
     graphId,
-    showValidationSummary,
-    toggleValidationSummary,
   } = useBuilderStore()
 
   // Get sidebar state to adjust status bar position
@@ -532,16 +529,6 @@ export function BuilderCanvas() {
             selectEdge(null)
           }}
           onClose={() => selectEdge(null)}
-        />
-      )}
-
-      {showValidationSummary && (
-        <ValidationSummaryPanel
-          nodes={nodes}
-          edges={edges}
-          onClose={() => toggleValidationSummary(false)}
-          onSelectNode={selectNode}
-          onSelectEdge={selectEdge}
         />
       )}
     </div>

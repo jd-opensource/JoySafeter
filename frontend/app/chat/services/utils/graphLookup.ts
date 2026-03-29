@@ -5,7 +5,6 @@
  */
 
 import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
-import { graphTemplateService } from '@/app/workspace/[workspaceId]/[agentId]/services/graphTemplateService'
 import { graphKeys } from '@/hooks/queries/graphs'
 import { generateUUID } from '@/lib/utils/uuid'
 
@@ -114,35 +113,15 @@ export async function findOrCreateGraphByTemplate(
           return { id: best.id, name: best.name }
         }
 
-        // Graph exists but has no nodes — re-apply the template state
-        const template = await graphTemplateService.loadTemplate(templateName)
-        const nodeIdMap = new Map<string, string>()
-        const newNodes = template.nodes.map((node) => {
-          const newId = generateUUID()
-          nodeIdMap.set(node.id, newId)
-          return { ...node, id: newId }
-        })
-        const newEdges = template.edges.map((edge) => ({
-          ...edge,
-          id: generateUUID(),
-          source: nodeIdMap.get(edge.source) || edge.source,
-          target: nodeIdMap.get(edge.target) || edge.target,
-        }))
-        await agentService.saveGraphState({
-          graphId: best.id,
-          nodes: newNodes,
-          edges: newEdges,
-          viewport: template.viewport || { x: 0, y: 0, zoom: 1 },
-        })
+        // Graph exists but has no nodes — return as-is (template system removed)
         return { id: best.id, name: best.name }
       }
 
-      // No existing graph — create from template
-      const created = await graphTemplateService.createGraphFromTemplate(
-        templateName,
-        graphName,
+      // No existing graph — create empty graph
+      const created = await agentService.createGraph({
+        name: graphName,
         workspaceId,
-      )
+      })
       return { id: created.id, name: created.name }
     } finally {
       creationLocks.delete(graphName)

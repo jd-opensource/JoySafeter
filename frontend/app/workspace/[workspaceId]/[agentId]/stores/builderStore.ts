@@ -106,9 +106,7 @@ interface BuilderState {
   isSaving: boolean
   isInitializing: boolean
 
-  showValidationSummary: boolean
-  validationErrors: ValidationError[]
-  isValidating: boolean
+  showAdvancedSettings: boolean
 
   // Execution State
   isExecuting: boolean
@@ -173,8 +171,6 @@ interface BuilderState {
   setDeployedAt: (deployedAt: string | null) => void
   exportGraph: () => void
   importGraph: (file: File) => Promise<void>
-  validateGraph: () => Promise<boolean>
-  setValidationErrors: (errors: ValidationError[]) => void
 
   // Execution Actions
   addLog: (nodeId: string, message: string, status?: 'info' | 'success' | 'error') => void
@@ -188,8 +184,6 @@ interface BuilderState {
     edges: { source: string; target: string }[]
   }
 
-  toggleValidationSummary: (show?: boolean) => void
-  showAdvancedSettings: boolean
   toggleAdvancedSettings: (show?: boolean) => void
 
   // State Schema Actions
@@ -240,10 +234,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     selectedEdgeId: null,
     isSaving: false,
     isInitializing: true,
-    showValidationSummary: false,
     showAdvancedSettings: false,
-    validationErrors: [],
-    isValidating: false,
     workspaceId: null,
     graphId: null,
     graphName: null,
@@ -765,14 +756,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       }
     },
 
-    setValidationErrors: (errors) => set({ validationErrors: errors }),
-
-    validateGraph: async () => {
-      // Schema validation removed — DeepAgents validates at build time
-      set({ validationErrors: [], isValidating: false })
-      return true
-    },
-
     saveGraph: async (name: string) => {
       const { nodes, edges, rfInstance, workspaceId } = get()
       if (!name) return
@@ -921,12 +904,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
           target: e.target,
         })),
       }
-    },
-
-    toggleValidationSummary: (show) => {
-      set((state) => ({
-        showValidationSummary: show !== undefined ? show : !state.showValidationSummary,
-      }))
     },
 
     toggleAdvancedSettings: (show) => {

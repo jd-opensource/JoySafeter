@@ -74,8 +74,6 @@ export function BuilderToolbar({
 
   const {
     setDeployedAt,
-    toggleValidationSummary,
-    validateGraph,
     showAdvancedSettings,
     toggleAdvancedSettings,
   } = useBuilderStore()
@@ -109,22 +107,6 @@ export function BuilderToolbar({
 
   const handleDeploy = async () => {
     if (isDeploying || !agentId || nodesCount === 0) return
-
-    // Pre-deployment validation (Async from backend)
-    const isValid = await validateGraph()
-
-    if (!isValid) {
-      toast({
-        title: t('workspace.validationFailed', { defaultValue: 'Validation Failed' }),
-        description: t('workspace.checkValidationPanel', {
-          defaultValue: 'Please check the validation panel for errors.',
-        }),
-        variant: 'destructive',
-      })
-      // Open validation panel to show errors
-      toggleValidationSummary(true)
-      return
-    }
 
     try {
       const result = await deploy(agentId)
@@ -237,21 +219,6 @@ export function BuilderToolbar({
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
-
-            {/* Validation Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => toggleValidationSummary(true)}
-                  className="h-7 w-7 rounded-md hover:bg-[var(--surface-2)]"
-                >
-                  <ShieldCheck size={16} className="text-[var(--text-secondary)]" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t('workspace.validateGraph')}</TooltipContent>
-            </Tooltip>
 
             {/* Toggle Execution Panel */}
             {!showExecutionPanel && (
