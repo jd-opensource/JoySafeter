@@ -169,10 +169,6 @@ const SchemaFieldRenderer = ({
       // Check if variable input support is needed (for expression fields)
       const needsVariableSupport = [
         'expression',
-        'condition_expression',
-        'condition',
-        'function_code',
-        'input_mapping',
         'prompt',
         'template',
       ].includes(schema.key)
