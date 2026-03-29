@@ -209,6 +209,11 @@ function AgentItem({
                 >
                   <Bot className="mr-[6px] h-[14px] w-[14px] flex-shrink-0 text-[var(--brand-500)]" />
                   <span className="truncate text-[12px] font-medium">{agent.name}</span>
+                  {agent.graphMode === 'dsl' && (
+                    <span className="ml-1.5 flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[8px] font-semibold uppercase leading-none text-primary">
+                      DSL
+                    </span>
+                  )}
                 </Link>
               </TooltipTrigger>
               <TooltipContent

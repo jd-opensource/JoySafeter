@@ -72,6 +72,7 @@ export interface AgentMetadata {
   name: string
   color?: string
   folderId?: string | null
+  graphMode?: string | null
 }
 
 /**
@@ -96,6 +97,7 @@ function graphToAgentMetadata(graph: AgentGraph): AgentMetadata {
     name: graph.name,
     color: graph.color || undefined,
     folderId: graph.folderId || null,
+    graphMode: (graph as any).variables?.graph_mode || null,
   }
 }
 
@@ -119,6 +121,9 @@ export function Sidebar() {
   const [deleteAgentConfirmOpen, setDeleteAgentConfirmOpen] = useState(false)
   const [agentToDelete, setAgentToDelete] = useState<{ id: string; name: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [newAgentName, setNewAgentName] = useState('')
+  const [createAgentMode, setCreateAgentMode] = useState<'dsl' | 'canvas'>('dsl')
   const isCollapsed = useSidebarStore((state) => state.isCollapsed)
   const setIsCollapsed = useSidebarStore((state) => state.setIsCollapsed)
   const sidebarWidth = useSidebarStore((state) => state.sidebarWidth)
@@ -365,19 +370,21 @@ export function Sidebar() {
       })
       return
     }
-    const defaultName = t('workspace.defaultAgentName')
+    setNewAgentName(t('workspace.defaultAgentName'))
+    setCreateAgentMode('dsl')
+    setShowCreateDialog(true)
+  }, [userPermissions.canEdit, toast, t])
+
+  const handleConfirmCreateAgent = useCallback(() => {
+    if (!newAgentName.trim()) return
+    setShowCreateDialog(false)
     createAgentMutation.mutate({
-      name: defaultName,
+      name: newAgentName.trim(),
       description: '',
       color: generateRandomColor(),
+      mode: createAgentMode,
     })
-  }, [
-    createAgentMutation,
-    t,
-    generateRandomColor,
-    userPermissions.canEdit,
-    toast,
-  ])
+  }, [newAgentName, createAgentMode, createAgentMutation, generateRandomColor])
 
   /**
    * Handle create folder (root level)
@@ -937,6 +944,78 @@ export function Sidebar() {
               className="bg-[#ef4444] text-white hover:bg-[#dc2626]"
             >
               {t('workspace.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Create Agent Dialog */}
+      <AlertDialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('workspace.createAgent', { defaultValue: 'Create New Agent' })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('workspace.createAgentDescription', { defaultValue: 'Choose a mode and name for your agent.' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Mode Selection */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setCreateAgentMode('dsl')}
+                className={cn(
+                  'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
+                  createAgentMode === 'dsl'
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : 'border-[var(--border)] hover:border-primary/30'
+                )}
+              >
+                <span className="text-sm font-medium">Code (DSL)</span>
+                <span className="text-[11px] leading-tight text-[var(--text-muted)]">
+                  Python code to define graph structure
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateAgentMode('canvas')}
+                className={cn(
+                  'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
+                  createAgentMode === 'canvas'
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : 'border-[var(--border)] hover:border-primary/30'
+                )}
+              >
+                <span className="text-sm font-medium">Canvas</span>
+                <span className="text-[11px] leading-tight text-[var(--text-muted)]">
+                  Drag-and-drop DeepAgents builder
+                </span>
+              </button>
+            </div>
+
+            {/* Name Input */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-[var(--text-secondary)]">
+                {t('workspace.agentName', { defaultValue: 'Agent Name' })}
+              </label>
+              <input
+                value={newAgentName}
+                onChange={(e) => setNewAgentName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleConfirmCreateAgent()}
+                className="h-9 w-full rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('workspace.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmCreateAgent}
+              disabled={!newAgentName.trim()}
+            >
+              {t('workspace.create', { defaultValue: 'Create' })}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
