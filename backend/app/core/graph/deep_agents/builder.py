@@ -6,21 +6,25 @@ No inheritance — uses composition of dedicated resolvers.
 
 from __future__ import annotations
 
-import uuid
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional
 
 from loguru import logger
 
+from app.core.graph.deep_agents.agent_factory import (
+    build_a2a_worker,
+    build_code_agent_worker,
+    build_standard_worker,
+)
 from app.core.graph.deep_agents.config import NodeConfig, resolve_all_configs
+from app.core.graph.deep_agents.middleware import resolve_memory_middleware
 from app.core.graph.deep_agents.model_resolver import ModelResolver
 from app.core.graph.deep_agents.skills_loader import (
+    get_skills_source_path,
     has_valid_skills,
     preload_skills,
     resolve_skill_ids,
-    get_skills_source_path,
 )
 from app.core.graph.deep_agents.tool_resolver import resolve_tools
-from app.core.graph.deep_agents.middleware import resolve_memory_middleware
 from app.core.graph.runtime_prompt_template import build_runtime_prompt_context, render_runtime_template
 from app.models.graph import AgentGraph, GraphEdge, GraphNode
 
@@ -61,10 +65,7 @@ async def build_deep_agents_graph(
     if not root_config.use_deep_agents:
         raise ValueError("Root node must have DeepAgents enabled")
 
-    logger.info(
-        f"{LOG_PREFIX} Building graph: root='{root_config.name}', "
-        f"children={len(child_configs)}"
-    )
+    logger.info(f"{LOG_PREFIX} Building graph: root='{root_config.name}', " f"children={len(child_configs)}")
 
     # --- 2. Setup shared backend ---
     backend = None
@@ -75,6 +76,7 @@ async def build_deep_agents_graph(
         backend = await _get_user_sandbox(user_id)
         if backend and file_emitter:
             from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
+
             backend = FileTrackingProxy(backend, file_emitter)
 
     try:
@@ -170,6 +172,7 @@ async def build_deep_agents_graph(
 # Worker builder
 # ---------------------------------------------------------------------------
 
+
 async def _build_worker(
     cfg: NodeConfig,
     model_resolver: ModelResolver,
@@ -193,8 +196,11 @@ async def _build_worker(
 
     # Standard agent worker
     middleware = await resolve_memory_middleware(
-        cfg.enable_memory, cfg.memory_model_name, cfg.memory_prompt,
-        model_resolver, user_id,
+        cfg.enable_memory,
+        cfg.memory_model_name,
+        cfg.memory_prompt,
+        model_resolver,
+        user_id,
     )
     return build_standard_worker(cfg, model, tools, middleware)
 
@@ -203,11 +209,13 @@ async def _build_worker(
 # Finalization
 # ---------------------------------------------------------------------------
 
+
 def _finalize(agent: Any, backend: Any) -> Any:
     """Compile, configure, and attach cleanup to the agent."""
-    from app.core.agent.checkpointer.checkpointer import get_checkpointer
     from langgraph.graph import StateGraph
     from langgraph.graph.state import CompiledStateGraph
+
+    from app.core.agent.checkpointer.checkpointer import get_checkpointer
 
     # Compile if StateGraph
     if isinstance(agent, StateGraph):
@@ -223,12 +231,15 @@ def _finalize(agent: Any, backend: Any) -> Any:
 
     # Attach cleanup
     if backend:
+
         async def cleanup():
             await _cleanup_backend(backend)
+
         agent._cleanup_backend = cleanup
 
         # Attach artifact export
         from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+
         if isinstance(backend, PydanticSandboxAdapter):
             agent._export_artifacts_to = backend.export_working_dir_to
 
@@ -238,6 +249,7 @@ def _finalize(agent: Any, backend: Any) -> Any:
 # ---------------------------------------------------------------------------
 # Backend management
 # ---------------------------------------------------------------------------
+
 
 def _any_needs_docker(configs: List[NodeConfig]) -> bool:
     """Check if any node needs a Docker backend."""
@@ -267,6 +279,7 @@ async def _cleanup_backend(backend: Any) -> None:
     if sandbox_id:
         try:
             from app.services.sandbox_manager import _sandbox_pool
+
             await _sandbox_pool.release(sandbox_id)
         except Exception as e:
             logger.warning(f"{LOG_PREFIX} Pool release failed: {e}")

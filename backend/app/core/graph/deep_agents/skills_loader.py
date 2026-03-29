@@ -120,8 +120,7 @@ async def preload_skills(
                 setattr(backend, "_loaded_skill_ids", loaded_ids | newly_loaded)
 
             logger.info(
-                f"{LOG_PREFIX} Loaded {successful}/{len(to_load)} skills "
-                f"({len(loaded_ids)} previously loaded)"
+                f"{LOG_PREFIX} Loaded {successful}/{len(to_load)} skills " f"({len(loaded_ids)} previously loaded)"
             )
             return successful
 

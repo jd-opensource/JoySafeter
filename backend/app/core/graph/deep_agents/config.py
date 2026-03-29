@@ -71,29 +71,23 @@ def resolve_node_config(node: GraphNode, node_name: str) -> NodeConfig:
         label=label,
         node_type=node_type,
         description=config.get("description", "") or "",
-
         # LLM
         model_name=config.get("model_name") or config.get("model") or config.get("name"),
         provider_name=config.get("provider_name") or config.get("provider"),
         system_prompt=config.get("systemPrompt") or config.get("system_prompt"),
-
         # Tools & Skills
         tool_names=config.get("tools") or [],
         skill_ids=config.get("skills") or [],
-
         # Memory
         enable_memory=bool(config.get("enableMemory", False)),
         memory_model_name=config.get("memoryModel"),
         memory_prompt=config.get("memoryPrompt"),
-
         # DeepAgents
         use_deep_agents=bool(config.get("useDeepAgents", False)),
-
         # A2A
         a2a_url=config.get("a2a_url"),
         agent_card_url=config.get("agent_card_url"),
         a2a_auth_headers=config.get("a2a_auth_headers"),
-
         # Code Agent
         agent_mode=config.get("agent_mode", "autonomous"),
         executor_type=config.get("executor_type", "local"),
@@ -102,7 +96,6 @@ def resolve_node_config(node: GraphNode, node_name: str) -> NodeConfig:
         docker_image=config.get("docker_image", "python:3.11-slim"),
         max_steps=int(config.get("max_steps", 20)),
         enable_planning=bool(config.get("enable_planning", False)),
-
         raw_config=config,
     )
 
@@ -149,16 +142,9 @@ def resolve_all_configs(
     root_config = resolve_node_config(root_node, node_id_to_name[str(root_node.id)])
 
     # Find children (nodes connected from root via edges)
-    child_ids = {
-        edge.target_node_id
-        for edge in edges
-        if edge.source_node_id == root_node.id
-    }
+    child_ids = {edge.target_node_id for edge in edges if edge.source_node_id == root_node.id}
     child_nodes = [n for n in nodes if n.id in child_ids]
 
-    child_configs = [
-        resolve_node_config(n, node_id_to_name[str(n.id)])
-        for n in child_nodes
-    ]
+    child_configs = [resolve_node_config(n, node_id_to_name[str(n.id)]) for n in child_nodes]
 
     return root_config, child_configs

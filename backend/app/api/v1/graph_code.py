@@ -22,7 +22,6 @@ from app.common.exceptions import NotFoundException
 from app.core.code_executor import execute_code
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
-from app.models.graph import AgentGraph
 from app.models.workspace import WorkspaceMemberRole
 from app.services.graph_service import GraphService
 
@@ -94,8 +93,7 @@ async def save_code(
     await db.commit()
 
     logger.info(
-        f"[GraphCodeAPI] Saved code | graph_id={graph_id} | "
-        f"code_len={len(payload.code)} | user={current_user.id}"
+        f"[GraphCodeAPI] Saved code | graph_id={graph_id} | " f"code_len={len(payload.code)} | user={current_user.id}"
     )
     return {"success": True}
 

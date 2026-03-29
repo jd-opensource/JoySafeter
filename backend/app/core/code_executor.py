@@ -18,30 +18,72 @@ from typing import Any
 from langgraph.graph import StateGraph
 from loguru import logger
 
-
 # ---------------------------------------------------------------------------
 # Import guard
 # ---------------------------------------------------------------------------
 
-ALLOWED_MODULES = frozenset({
-    "langgraph", "langchain", "langchain_core", "langchain_community",
-    "langchain_openai", "langchain_anthropic", "langchain_google_genai",
-    "langchain_deepseek",
-    "typing", "typing_extensions", "operator", "functools", "itertools",
-    "json", "re", "math", "datetime", "collections", "enum", "dataclasses",
-    "abc", "copy", "textwrap", "string", "hashlib", "base64", "uuid",
-    "pydantic",
-})
+ALLOWED_MODULES = frozenset(
+    {
+        "langgraph",
+        "langchain",
+        "langchain_core",
+        "langchain_community",
+        "langchain_openai",
+        "langchain_anthropic",
+        "langchain_google_genai",
+        "langchain_deepseek",
+        "typing",
+        "typing_extensions",
+        "operator",
+        "functools",
+        "itertools",
+        "json",
+        "re",
+        "math",
+        "datetime",
+        "collections",
+        "enum",
+        "dataclasses",
+        "abc",
+        "copy",
+        "textwrap",
+        "string",
+        "hashlib",
+        "base64",
+        "uuid",
+        "pydantic",
+    }
+)
 
-BLOCKED_MODULES = frozenset({
-    "os", "sys", "subprocess", "shutil", "pathlib",
-    "socket", "http", "urllib", "requests", "httpx",
-    "importlib", "ctypes", "signal", "multiprocessing",
-    "threading", "asyncio",
-    "pickle", "shelve", "marshal",
-    "code", "codeop", "compileall",
-    "io", "tempfile", "glob",
-})
+BLOCKED_MODULES = frozenset(
+    {
+        "os",
+        "sys",
+        "subprocess",
+        "shutil",
+        "pathlib",
+        "socket",
+        "http",
+        "urllib",
+        "requests",
+        "httpx",
+        "importlib",
+        "ctypes",
+        "signal",
+        "multiprocessing",
+        "threading",
+        "asyncio",
+        "pickle",
+        "shelve",
+        "marshal",
+        "code",
+        "codeop",
+        "compileall",
+        "io",
+        "tempfile",
+        "glob",
+    }
+)
 
 _real_import = builtins.__import__
 
@@ -51,10 +93,7 @@ def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
     if top_level in BLOCKED_MODULES:
         raise ImportError(f"Import of '{name}' is blocked for security reasons.")
     if top_level not in ALLOWED_MODULES:
-        raise ImportError(
-            f"Import of '{name}' is not allowed. "
-            f"Allowed: {', '.join(sorted(ALLOWED_MODULES))}"
-        )
+        raise ImportError(f"Import of '{name}' is not allowed. " f"Allowed: {', '.join(sorted(ALLOWED_MODULES))}")
     return _real_import(name, *args, **kwargs)
 
 
@@ -62,18 +101,25 @@ def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
 # Safe builtins (full builtins minus dangerous functions)
 # ---------------------------------------------------------------------------
 
-_BLOCKED_BUILTINS = frozenset({
-    "open", "eval", "exec", "compile",
-    "globals", "locals", "vars", "dir",
-    "breakpoint", "exit", "quit",
-    "__import__",
-    "input",  # blocks stdin in server context
-})
+_BLOCKED_BUILTINS = frozenset(
+    {
+        "open",
+        "eval",
+        "exec",
+        "compile",
+        "globals",
+        "locals",
+        "vars",
+        "dir",
+        "breakpoint",
+        "exit",
+        "quit",
+        "__import__",
+        "input",  # blocks stdin in server context
+    }
+)
 
-_safe_builtins = {
-    k: v for k, v in builtins.__dict__.items()
-    if k not in _BLOCKED_BUILTINS
-}
+_safe_builtins = {k: v for k, v in builtins.__dict__.items() if k not in _BLOCKED_BUILTINS}
 _safe_builtins["__import__"] = _safe_import
 
 # Exec timeout (seconds)
@@ -125,10 +171,7 @@ def execute_code(code: str) -> StateGraph:
             builtins.__import__ = original_import
 
         # Find StateGraph instances
-        graphs = [
-            v for v in module.__dict__.values()
-            if isinstance(v, StateGraph)
-        ]
+        graphs = [v for v in module.__dict__.values() if isinstance(v, StateGraph)]
 
         if not graphs:
             raise ValueError(
@@ -139,8 +182,7 @@ def execute_code(code: str) -> StateGraph:
 
         if len(graphs) > 1:
             raise ValueError(
-                f"Found {len(graphs)} StateGraph instances. "
-                "Only one StateGraph per code file is supported."
+                f"Found {len(graphs)} StateGraph instances. " "Only one StateGraph per code file is supported."
             )
 
         logger.info("[CodeExecutor] StateGraph extracted successfully")

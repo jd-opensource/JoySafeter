@@ -928,8 +928,8 @@ class GraphService(BaseService):
 
     async def _compile_code_graph(self, graph):
         """Compile a code-mode graph: exec user code → get StateGraph → compile."""
-        from app.core.code_executor import execute_code
         from app.core.agent.checkpointer.checkpointer import get_checkpointer
+        from app.core.code_executor import execute_code
 
         dsl_code = (graph.variables or {}).get("dsl_code", "")
         if not dsl_code.strip():

@@ -93,14 +93,12 @@ class ModelResolver:
                     user_id=uid,
                 )
             logger.info(
-                f"[ModelResolver] Resolved via ModelService | "
-                f"provider={provider_name} | model={model_name}"
+                f"[ModelResolver] Resolved via ModelService | " f"provider={provider_name} | model={model_name}"
             )
             return model
         except Exception as e:
             logger.warning(
-                f"[ModelResolver] ModelService failed | "
-                f"provider={provider_name} | model={model_name} | error={e}"
+                f"[ModelResolver] ModelService failed | " f"provider={provider_name} | model={model_name} | error={e}"
             )
             return None
 
@@ -112,7 +110,7 @@ class ModelResolver:
                 user_id=uid,
                 use_default=True,
             )
-            logger.info(f"[ModelResolver] Using database default model")
+            logger.info("[ModelResolver] Using database default model")
             return model
         except Exception as e:
             logger.warning(f"[ModelResolver] Default model failed | error={e}")

@@ -6,7 +6,7 @@ Each returns a CompiledSubAgent that DeepAgents can orchestrate.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, List
 
 from deepagents import CompiledSubAgent
 from langchain_core.messages import AIMessage
@@ -22,6 +22,7 @@ LOG_PREFIX = "[AgentFactory]"
 # ---------------------------------------------------------------------------
 # Task extraction helper (shared by code_agent and a2a)
 # ---------------------------------------------------------------------------
+
 
 def _extract_task(inputs: dict) -> str:
     """Extract task text from agent inputs. Supports dict and BaseMessage formats."""
@@ -44,6 +45,7 @@ def _extract_task(inputs: dict) -> str:
 # ---------------------------------------------------------------------------
 # Standard agent worker
 # ---------------------------------------------------------------------------
+
 
 def build_standard_worker(
     config: NodeConfig,
@@ -74,6 +76,7 @@ def build_standard_worker(
 # Code agent worker
 # ---------------------------------------------------------------------------
 
+
 def build_code_agent_worker(
     config: NodeConfig,
     model: Any,
@@ -96,9 +99,7 @@ def build_code_agent_worker(
     )
     llm_call = _create_llm_wrapper(model)
     tools_dict = {
-        t.name if hasattr(t, "name") else t.__name__: t
-        for t in tools
-        if hasattr(t, "name") or hasattr(t, "__name__")
+        t.name if hasattr(t, "name") else t.__name__: t for t in tools if hasattr(t, "name") or hasattr(t, "__name__")
     }
 
     code_agent = CodeAgent(
@@ -115,9 +116,7 @@ def build_code_agent_worker(
     async def invoke(inputs: dict) -> dict:
         task = _extract_task(inputs)
         if config.agent_mode == "tool_executor":
-            result = await code_agent.run(
-                f"Execute the following task and return the result directly:\n\n{task}"
-            )
+            result = await code_agent.run(f"Execute the following task and return the result directly:\n\n{task}")
         else:
             result = await code_agent.run(task)
         return {
@@ -135,6 +134,7 @@ def build_code_agent_worker(
 # ---------------------------------------------------------------------------
 # A2A agent worker
 # ---------------------------------------------------------------------------
+
 
 async def build_a2a_worker(config: NodeConfig) -> CompiledSubAgent:
     """Build an A2A remote agent worker as CompiledSubAgent."""
@@ -180,6 +180,7 @@ async def build_a2a_worker(config: NodeConfig) -> CompiledSubAgent:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _build_code_executor(config: NodeConfig, backend: Any = None) -> Any:
     """Build executor for CodeAgent."""
     from app.core.agent.code_agent import LocalPythonExecutor
@@ -200,6 +201,7 @@ def _build_code_executor(config: NodeConfig, backend: Any = None) -> Any:
                 return docker_executor
             # auto: route between local and docker
             from app.core.agent.code_agent import ExecutorRouter
+
             return ExecutorRouter(local=_local(), docker=docker_executor, allow_dangerous=True)
 
     return _local()

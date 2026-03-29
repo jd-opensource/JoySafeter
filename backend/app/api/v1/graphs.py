@@ -24,7 +24,7 @@ from app.core.database import get_db
 from app.core.redis import RedisClient
 from app.core.settings import settings
 from app.models.auth import AuthUser as User
-from app.models.graph import AgentGraph, GraphEdge, GraphNode
+from app.models.graph import AgentGraph, GraphNode
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceRepository
 from app.services.copilot_service import CopilotService
@@ -563,7 +563,6 @@ async def compile_graph(
         log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
         log.error(f"graph.compile failed: {e}")
         raise
-
 
 
 # ==================== Copilot Endpoints ====================
