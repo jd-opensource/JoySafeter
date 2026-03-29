@@ -105,20 +105,6 @@ class BaseGraphBuilder(ABC):
         node_type = data.get("type") or node.type
         return node_type or "agent"
 
-    def _get_node_name(self, node: GraphNode) -> str:
-        """Generate a unique name for a node."""
-        data = node.data or {}
-        label = data.get("label", "")
-        node_type = self._get_node_type(node)
-
-        if label:
-            name = str(label).lower().replace(" ", "_").replace("-", "_")
-            name = f"{name}_{str(node.id)[:8]}"
-        else:
-            name = f"{node_type}_{str(node.id)[:8]}"
-
-        return name
-
     def _get_system_prompt_from_node(self, node: GraphNode) -> Optional[str]:
         """Extract system prompt from node configuration, substituting runtime context vars."""
         data = node.data or {}
