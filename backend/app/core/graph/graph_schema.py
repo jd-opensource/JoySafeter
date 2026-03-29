@@ -382,7 +382,3 @@ class GraphSchema(BaseModel):
     def get_state_field_names(self) -> Set[str]:
         """Return all custom state field names."""
         return {f.name for f in self.state_fields}
-
-    def validate_state_dependencies(self) -> List[str]:
-        """Deprecated — reads/writes removed. Returns empty list for backward compat."""
-        return []

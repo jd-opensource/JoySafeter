@@ -213,19 +213,6 @@ class TestGraphSchema:
         assert len(schema.get_conditional_node_ids()) == 1
         assert "cond" in schema.get_conditional_node_ids()
 
-    def test_validate_state_dependencies_returns_empty(self):
-        """validate_state_dependencies is now a no-op after reads/writes removal."""
-        schema = GraphSchema(
-            state_fields=[
-                StateFieldSchema(name="intent", field_type=StateFieldType.STRING),
-            ],
-            nodes=[
-                NodeSchema(id="a", type="agent", label="A"),
-            ],
-        )
-        warnings = schema.validate_state_dependencies()
-        assert warnings == []
-
 
 # ---------------------------------------------------------------------------
 # build_state_class tests
