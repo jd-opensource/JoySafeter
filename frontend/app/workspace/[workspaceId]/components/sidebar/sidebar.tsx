@@ -10,6 +10,7 @@ import {
   type AgentGraph,
 } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
+import { DSL_STARTER_TEMPLATE } from '@/app/workspace/[workspaceId]/[agentId]/utils/dslTemplate'
 import {
   AgentList,
   WorkspaceHeader,
@@ -148,7 +149,7 @@ export function Sidebar() {
   const agents: AgentMetadata[] = useMemo(() => graphsData?.map(graphToAgentMetadata) || [], [graphsData])
 
   const createAgentMutation = useMutation({
-    mutationFn: async (data: { name: string; description?: string; color?: string }) => {
+    mutationFn: async (data: { name: string; description?: string; color?: string; mode?: 'canvas' | 'dsl' }) => {
       // Create Graph
       const graph = await agentService.createGraph({
         name: data.name,
@@ -158,12 +159,26 @@ export function Sidebar() {
       })
 
       if (graph?.id) {
-        await agentService.saveGraphState({
-          graphId: graph.id,
-          nodes: [],
-          edges: [],
-          viewport: { x: 0, y: 0, zoom: 1 },
-        })
+        if (data.mode === 'dsl') {
+          // DSL mode: save with starter template and graph_mode flag
+          await agentService.saveGraphState({
+            graphId: graph.id,
+            nodes: [],
+            edges: [],
+            viewport: { x: 0, y: 0, zoom: 1 },
+            variables: {
+              graph_mode: 'dsl',
+              dsl_code: DSL_STARTER_TEMPLATE,
+            },
+          })
+        } else {
+          await agentService.saveGraphState({
+            graphId: graph.id,
+            nodes: [],
+            edges: [],
+            viewport: { x: 0, y: 0, zoom: 1 },
+          })
+        }
       }
       return graph
     },

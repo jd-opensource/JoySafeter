@@ -83,11 +83,13 @@ class _CompilerSession:
         builder: Any,
         checkpointer: Any,
         validate: bool,
+        executor_map: Any = None,
     ):
         self.schema = schema
         self.builder = builder
         self.checkpointer = checkpointer
         self.validate = validate
+        self.executor_map = executor_map
 
         self.start_time = time.time()
         self.warnings: List[str] = []
@@ -223,7 +225,23 @@ class _CompilerSession:
             if fallback_node_name:
                 logger.info(f"[GraphCompiler] Global error fallback enabled -> {fallback_node_name}")
 
-        if self.builder is not None:
+        if self.executor_map is not None:
+            # DSL path: use pre-built executor map (no DB rows needed)
+            self.executors = self.executor_map
+            for node in self.schema.nodes:
+                name = self.node_name_map[node.id]
+                executor = self.executors.get(node.id)
+                if executor:
+                    wrapped = NodeExecutionWrapper(
+                        executor,
+                        node_id=str(node.id),
+                        node_type=node.type,
+                        metadata=node.metadata,
+                        node_config=node.config,
+                        fallback_node_name=fallback_node_name if node.id != self.schema.fallback_node_id else None,
+                    )
+                    self.workflow.add_node(name, wrapped)
+        elif self.builder is not None:
             self.executors = await _create_executors_via_builder(
                 self.schema,
                 self.builder,
@@ -253,7 +271,7 @@ class _CompilerSession:
                 self.workflow.add_node(name, _stub_node)
 
     def _build_conditional_edges(self):
-        if self.builder is None:
+        if self.builder is None and self.executor_map is None:
             return
 
         for node_id in self.router_node_ids:
@@ -372,7 +390,7 @@ class _CompilerSession:
         interrupt_before = [self.node_name_map[n.id] for n in self.schema.nodes if n.interrupt_before]
         interrupt_after = [self.node_name_map[n.id] for n in self.schema.nodes if n.interrupt_after]
 
-        if self.checkpointer is None and self.builder is not None:
+        if self.checkpointer is None and (self.builder is not None or self.executor_map is not None):
             from app.core.agent.checkpointer.checkpointer import get_checkpointer
 
             self.checkpointer = get_checkpointer()
@@ -399,6 +417,7 @@ async def compile_from_schema(
     schema: GraphSchema,
     *,
     builder: Any = None,
+    executor_map: Any = None,
     checkpointer: Any = None,
     validate: bool = True,
 ) -> CompilationResult:
@@ -412,6 +431,10 @@ async def compile_from_schema(
         A builder instance used for executor creation (LLM resolution, etc.).
         If ``None``, a lightweight compilation is performed (useful for
         validation-only or code-generation scenarios).
+    executor_map : dict[str, Any], optional
+        Pre-built ``{node_id: executor}`` map.  When provided, the compiler
+        skips ``_create_executors_via_builder`` and uses these executors
+        directly.  Used by the DSL run path.
     checkpointer : optional
         LangGraph checkpointer instance.  If ``None`` and *builder* is
         provided, the default checkpointer is used.
@@ -423,7 +446,10 @@ async def compile_from_schema(
     CompilationResult
         Contains the compiled graph, schema, state class, and diagnostics.
     """
-    session = _CompilerSession(schema=schema, builder=builder, checkpointer=checkpointer, validate=validate)
+    session = _CompilerSession(
+        schema=schema, builder=builder, checkpointer=checkpointer,
+        validate=validate, executor_map=executor_map,
+    )
     return await session.compile()
 
 

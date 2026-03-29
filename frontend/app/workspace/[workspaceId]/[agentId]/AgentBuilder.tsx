@@ -25,9 +25,10 @@ import { BuilderCanvas } from './components/BuilderCanvas'
 import { BuilderSidebarTabs } from './components/BuilderSidebarTabs'
 import { BuilderToolbar } from './components/BuilderToolbar'
 import { ExecutionPanelNew as ExecutionPanel } from './components/execution/ExecutionPanelNew'
-import { GraphStatePanel } from './components/GraphStatePanel'
 import { LoadModal } from './components/LoadModal'
 import { RunInputModal } from './components/RunInputModal'
+import { CodeEditorPage } from './CodeEditorPage'
+import { useCodeEditorStore } from './stores/codeEditorStore'
 import { ErrorBoundary } from './error-boundary'
 import { agentService, AgentGraph } from './services/agentService'
 import { useBuilderStore } from './stores/builderStore'
@@ -213,6 +214,20 @@ const AgentBuilderContent = () => {
 
     // Use React Query cached state data
     const state = graphStateData
+
+    // DSL mode: hydrate code editor store instead of canvas
+    const graphMode = (state.variables as any)?.graph_mode
+    if (graphMode === 'dsl' && agentId) {
+      const currentGraph = graphsData?.find((g) => g.id === agentId)
+      useCodeEditorStore.getState().hydrate(
+        agentId,
+        (state.variables as any)?.dsl_code ?? '',
+        currentGraph?.name ?? '',
+      )
+      loadedGraphIdRef.current = agentId
+      useBuilderStore.setState({ isInitializing: false })
+      return
+    }
 
     // CRITICAL: Ensure we are applying data for the CORRECT agentId
     if (agentId) {
@@ -563,6 +578,12 @@ const AgentBuilderContent = () => {
     setRunInput('')
   }
 
+  // DSL mode: render CodeEditorPage instead of canvas
+  const graphMode = (graphStateData?.variables as any)?.graph_mode
+  if (graphMode === 'dsl' && agentId && !isInitializing) {
+    return <CodeEditorPage graphId={agentId} workspaceId={workspaceId} />
+  }
+
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg)] text-[var(--text-primary)]">
       {showLoadModal && (
@@ -667,9 +688,6 @@ const AgentBuilderContent = () => {
 
       {/* Execution Panel - Bottom Dock */}
       {showExecutionPanel && <ExecutionPanel />}
-
-      {/* Graph State Panel - Dialog */}
-      <GraphStatePanel />
     </div>
   )
 }

@@ -12,6 +12,7 @@ from .conversations import router as conversations_router
 from .custom_tools import router as custom_tools_router
 from .environment import router as environment_router
 from .files import router as files_router
+from .graph_code import router as graph_code_router
 from .graph_deployments import router as graph_deployments_router
 from .graph_schemas import router as graph_schemas_router
 from .graph_tests import router as graph_tests_router
@@ -60,6 +61,7 @@ ROUTERS = [
     model_providers_router,
     model_credentials_router,
     models_router,
+    graph_code_router,
     graph_deployments_router,
     graph_schemas_router,
     graph_tests_router,

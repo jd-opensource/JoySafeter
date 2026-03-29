@@ -19,6 +19,9 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\""
   },
   "dependencies": {
+    "@codemirror/lang-python": "^6.1.6",
+    "@codemirror/lint": "^6.8.4",
+    "@codemirror/view": "^6.36.5",
     "@azure/communication-email": "^1.1.0",
     "@better-auth/sso": "^1.4.7",
     "@better-auth/stripe": "^1.4.7",
@@ -96,6 +99,8 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.24.2",
+    "@uiw/codemirror-theme-vscode": "^4.23.7",
+    "@uiw/react-codemirror": "^4.23.7",
     "zustand": "^4.5.7"
   },
   "devDependencies": {
