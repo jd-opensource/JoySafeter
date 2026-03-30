@@ -36,6 +36,24 @@ class ModelCredentialService(BaseService):
         instances = await self.instance_repo.list_by_provider(provider_id=provider_id)
         return instances[0].model_name if instances else None
 
+    async def _create_derived_provider(
+        self, template, name: str, display_name: str, template_name: str
+    ):
+        """从模板创建派生 Provider DB 记录。"""
+        return await self.provider_repo.create(
+            {
+                "name": name,
+                "display_name": display_name,
+                "supported_model_types": [mt.value for mt in template.get_supported_model_types()],
+                "credential_schema": template.get_credential_schema(),
+                "config_schema": None,
+                "is_template": False,
+                "provider_type": "custom",
+                "template_name": template_name,
+                "is_enabled": True,
+            }
+        )
+
     async def create_or_update_credential(
         self,
         user_id: str,
@@ -71,18 +89,11 @@ class ModelCredentialService(BaseService):
         if template and provider_display_name:
             # User wants a named derived provider (e.g. "My OpenAI") — create a new DB provider record
             new_provider_name = f"{provider_name}-{int(time.time())}"
-            db_provider = await self.provider_repo.create(
-                {
-                    "name": new_provider_name,
-                    "display_name": provider_display_name,
-                    "supported_model_types": [mt.value for mt in template.get_supported_model_types()],
-                    "credential_schema": template.get_credential_schema(),
-                    "config_schema": None,
-                    "is_template": False,
-                    "provider_type": "custom",
-                    "template_name": provider_name,
-                    "is_enabled": True,
-                }
+            db_provider = await self._create_derived_provider(
+                template=template,
+                name=new_provider_name,
+                display_name=provider_display_name,
+                template_name=provider_name,
             )
             provider_id_to_use = db_provider.id
             final_provider_name = new_provider_name
@@ -172,18 +183,11 @@ class ModelCredentialService(BaseService):
         new_provider_name = f"custom-{int(time.time())}"
         display = (display_name or model_name).strip() or new_provider_name
 
-        db_provider = await self.provider_repo.create(
-            {
-                "name": new_provider_name,
-                "display_name": display,
-                "supported_model_types": [mt.value for mt in template.get_supported_model_types()],
-                "credential_schema": template.get_credential_schema(),
-                "config_schema": None,
-                "is_template": False,
-                "provider_type": "custom",
-                "template_name": "custom",
-                "is_enabled": True,
-            }
+        db_provider = await self._create_derived_provider(
+            template=template,
+            name=new_provider_name,
+            display_name=display,
+            template_name="custom",
         )
 
         credential = await self.repo.create(

@@ -3,7 +3,7 @@ ModelInstance Repository
 """
 
 import uuid
-from typing import Optional
+from typing import Dict, Optional
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,7 +84,6 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     async def count_by_provider(
         self,
         provider_id: uuid.UUID,
-        provider_name: Optional[str] = None,  # kept for call-site compatibility; unused
     ) -> int:
         """按供应商统计模型实例数量。"""
         query = (
@@ -94,3 +93,12 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         )
         result = await self.db.execute(query)
         return result.scalar() or 0
+
+    async def count_grouped_by_provider(self) -> Dict[uuid.UUID, int]:
+        """一次查询返回所有 provider 的模型实例数量。"""
+        query = (
+            select(ModelInstance.provider_id, func.count().label("cnt"))
+            .group_by(ModelInstance.provider_id)
+        )
+        result = await self.db.execute(query)
+        return {row.provider_id: row.cnt for row in result.all() if row.provider_id}

@@ -103,6 +103,7 @@ class ModelProviderService(BaseService):
         then look up factory for runtime info (config_schemas, etc.).
         """
         db_providers = await self.repo.find()
+        model_counts = await self.instance_repo.count_grouped_by_provider()
 
         result = []
         for db_provider in db_providers:
@@ -110,7 +111,7 @@ class ModelProviderService(BaseService):
             factory_name = db_provider.template_name or db_provider.name
             factory_provider = self.factory.get_provider(factory_name)
 
-            model_count = await self.instance_repo.count_by_provider(provider_id=db_provider.id)
+            model_count = model_counts.get(db_provider.id, 0)
 
             if factory_provider:
                 config_schemas: Dict[str, Any] = {}

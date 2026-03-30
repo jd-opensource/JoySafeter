@@ -16,20 +16,32 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Drop index on model_instance.provider_name if it exists
-    op.execute("""
-        DROP INDEX IF EXISTS model_instance_provider_name_idx
-    """)
+    # Drop ALL indexes that reference provider_name before dropping the column
+    # (includes partial unique indexes, named indexes, etc.)
+    for table in ("model_instance", "model_credential"):
+        op.execute(f"""
+            DO $$
+            DECLARE idx RECORD;
+            BEGIN
+                FOR idx IN
+                    SELECT i.relname AS index_name
+                    FROM pg_index ix
+                    JOIN pg_class i ON i.oid = ix.indexrelid
+                    JOIN pg_class t ON t.oid = ix.indrelid
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+                    WHERE t.relname = '{table}' AND a.attname = 'provider_name'
+                LOOP
+                    EXECUTE 'DROP INDEX IF EXISTS ' || idx.index_name;
+                END LOOP;
+            END $$;
+        """)
 
-    # Drop provider_name column from model_instance
+    # Make provider_id NOT NULL (all rows backfilled in previous migration)
+    op.alter_column("model_instance", "provider_id", nullable=False)
+    op.alter_column("model_credential", "provider_id", nullable=False)
+
+    # Drop provider_name columns
     op.drop_column("model_instance", "provider_name")
-
-    # Drop index on model_credential.provider_name if it exists
-    op.execute("""
-        DROP INDEX IF EXISTS model_credential_provider_name_idx
-    """)
-
-    # Drop provider_name column from model_credential
     op.drop_column("model_credential", "provider_name")
 
 
