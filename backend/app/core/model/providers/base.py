@@ -78,15 +78,12 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    async def validate_credentials(
-        self, credentials: Dict[str, Any], model_name: Optional[str] = None
-    ) -> tuple[bool, Optional[str]]:
+    async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """
         验证凭据
 
         Args:
             credentials: 凭据字典
-            model_name: 可选的模型名称，用于验证时指定测试模型（自定义 Provider 场景）
 
         Returns:
             (是否有效, 错误信息)

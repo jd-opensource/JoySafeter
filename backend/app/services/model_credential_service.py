@@ -29,6 +29,15 @@ class ModelCredentialService(BaseService):
         self.instance_repo = ModelInstanceRepository(db)
         self.factory = get_factory()
 
+    async def _get_first_model_name_for_provider(
+        self, provider_id: Optional[uuid.UUID] = None, provider_name: Optional[str] = None
+    ) -> Optional[str]:
+        """获取 Provider 下第一个模型实例的名称，用于自定义 Provider 凭证验证。"""
+        instances = await self.instance_repo.list_by_provider(
+            provider_id=provider_id, provider_name=provider_name
+        )
+        return instances[0].model_name if instances else None
+
     async def create_or_update_credential(
         self,
         user_id: str,
@@ -97,12 +106,9 @@ class ModelCredentialService(BaseService):
         is_valid = False
         validation_error = None
         if validate:
-            # 自定义 Provider 用实际模型名验证，避免 fallback 到硬编码默认模型
             validate_model_name = None
             if provider and provider.provider_type == "custom" and provider_id_to_use:
-                instances = await self.instance_repo.list_by_provider(provider_id=provider_id_to_use)
-                if instances:
-                    validate_model_name = instances[0].model_name
+                validate_model_name = await self._get_first_model_name_for_provider(provider_id=provider_id_to_use)
             is_valid, validation_error = await validate_provider_credentials(
                 implementation_name, credentials, model_name=validate_model_name
             )
@@ -312,12 +318,9 @@ class ModelCredentialService(BaseService):
         if not provider_name_to_validate:
             is_valid, error = False, "无法解析供应商"
         else:
-            # 自定义 Provider 用实际模型名验证
             validate_model_name = None
             if credential.provider and credential.provider.provider_type == "custom":
-                instances = await self.instance_repo.list_by_provider(provider_id=credential.provider.id)
-                if instances:
-                    validate_model_name = instances[0].model_name
+                validate_model_name = await self._get_first_model_name_for_provider(provider_id=credential.provider.id)
             is_valid, error_to_store = await validate_provider_credentials(
                 provider_name_to_validate,
                 decrypted_credentials,

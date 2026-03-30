@@ -122,7 +122,7 @@ class AnthropicProvider(BaseProvider):
             }
         return None
 
-    async def validate_credentials(self, credentials: Dict[str, Any], model_name: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """验证凭据"""
         try:
             api_key = credentials.get("api_key")

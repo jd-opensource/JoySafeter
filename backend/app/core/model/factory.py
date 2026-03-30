@@ -163,7 +163,11 @@ class ModelFactory:
         if not provider:
             return False, f"供应商不存在: {provider_name}"
 
-        return await provider.validate_credentials(credentials, model_name=model_name)
+        # CustomProvider 支持指定验证模型名，其他 Provider 用预定义模型验证
+        from .providers.Custom import CustomProvider
+        if isinstance(provider, CustomProvider) and model_name:
+            return await provider.validate_credentials(credentials, model_name=model_name)
+        return await provider.validate_credentials(credentials)
 
     async def validate_model_credentials(
         self,
@@ -190,7 +194,11 @@ class ModelFactory:
 
         try:
             # 先验证凭据
-            is_valid, error = await provider.validate_credentials(credentials, model_name=model_name)
+            from .providers.Custom import CustomProvider
+            if isinstance(provider, CustomProvider):
+                is_valid, error = await provider.validate_credentials(credentials, model_name=model_name)
+            else:
+                is_valid, error = await provider.validate_credentials(credentials)
             if not is_valid:
                 return False, error
 
