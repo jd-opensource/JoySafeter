@@ -11,42 +11,8 @@ import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/hooks/use-toast'
 import { useUpdateModelInstance } from '@/hooks/queries/models'
 
-interface ParamField {
-  key: string
-  title: string
-  description?: string
-  type: string
-  default?: number | null
-  minimum?: number
-  maximum?: number
-}
-
-function parseConfigSchema(schema: Record<string, any> | null): ParamField[] {
-  if (!schema) return []
-
-  // config_schemas.chat is { type: "object", properties: { ... } }
-  const properties =
-    schema.properties && typeof schema.properties === 'object'
-      ? schema.properties
-      : schema // fallback: treat schema itself as flat key-value if no properties wrapper
-
-  if (!properties || typeof properties !== 'object') return []
-
-  // If we accidentally got the wrapper, skip non-property keys
-  if ('type' in properties && 'properties' in properties) {
-    return parseConfigSchema(properties)
-  }
-
-  return Object.entries(properties).map(([key, prop]: [string, any]) => ({
-    key,
-    title: prop.title || key,
-    description: prop.description,
-    type: prop.type || 'number',
-    default: prop.default,
-    minimum: prop.minimum,
-    maximum: prop.maximum,
-  }))
-}
+import { parseJsonSchema } from '../../schema-utils'
+import type { SchemaField } from '../../schema-utils'
 
 interface ParamDrawerProps {
   open: boolean
@@ -72,9 +38,8 @@ export function ParamDrawer({
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [useDefaults, setUseDefaults] = useState<Record<string, boolean>>({})
 
-  const fields = useMemo(() => parseConfigSchema(configSchema), [configSchema])
+  const fields = useMemo(() => parseJsonSchema(configSchema), [configSchema])
 
-  // Reset state when drawer opens
   useEffect(() => {
     if (open) {
       setParams(modelParameters)
@@ -115,13 +80,21 @@ export function ParamDrawer({
     setParams((prev) => ({ ...prev, [key]: value }))
   }
 
-  const getEffectiveValue = (field: ParamField): number | string => {
+  const isNumericField = (field: SchemaField) =>
+    field.type === 'number' || field.type === 'integer'
+
+  const getEffectiveValue = (field: SchemaField): unknown => {
     if (useDefaults[field.key]) {
       const dv = providerDefaults[field.key]
-      return dv !== undefined ? Number(dv) : (field.default ?? '')
+      return dv !== undefined ? dv : field.default
     }
     const v = params[field.key]
-    return v !== undefined ? Number(v) : (field.default ?? '')
+    return v !== undefined ? v : field.default
+  }
+
+  const getNumericValue = (field: SchemaField): number => {
+    const v = getEffectiveValue(field)
+    return typeof v === 'number' ? v : 0
   }
 
   if (fields.length === 0) {
@@ -154,7 +127,7 @@ export function ParamDrawer({
             const hasProviderDefault = providerDefaults[field.key] !== undefined
             const effectiveValue = getEffectiveValue(field)
             const isSlider =
-              (field.type === 'number' || field.type === 'integer') &&
+              isNumericField(field) &&
               field.minimum !== undefined &&
               field.maximum !== undefined
 
@@ -186,24 +159,28 @@ export function ParamDrawer({
                       min={field.minimum!}
                       max={field.maximum!}
                       step={field.type === 'integer' ? 1 : 0.1}
-                      value={[typeof effectiveValue === 'number' ? effectiveValue : 0]}
+                      value={[getNumericValue(field)]}
                       disabled={isUsingDefault}
                       onValueChange={([v]) => setParam(field.key, v)}
                       className="flex-1"
                     />
                     <span className="text-sm text-[var(--text-secondary)] w-12 text-right tabular-nums">
-                      {typeof effectiveValue === 'number' ? effectiveValue.toFixed(field.type === 'integer' ? 0 : 1) : '—'}
+                      {getNumericValue(field).toFixed(field.type === 'integer' ? 0 : 1)}
                     </span>
                   </div>
                 ) : (
                   <Input
-                    type={field.type === 'integer' ? 'number' : 'text'}
-                    value={effectiveValue !== undefined ? String(effectiveValue) : ''}
+                    type={isNumericField(field) ? 'number' : 'text'}
+                    value={effectiveValue !== undefined && effectiveValue !== null ? String(effectiveValue) : ''}
                     disabled={isUsingDefault}
-                    placeholder={field.default !== undefined && field.default !== null ? `默认: ${field.default}` : '未设置'}
+                    placeholder={
+                      field.default !== undefined && field.default !== null
+                        ? `默认: ${field.default}`
+                        : '未设置'
+                    }
                     onChange={(e) => {
                       const raw = e.target.value
-                      if (field.type === 'number' || field.type === 'integer') {
+                      if (isNumericField(field)) {
                         setParam(field.key, raw === '' ? undefined : Number(raw))
                       } else {
                         setParam(field.key, raw)

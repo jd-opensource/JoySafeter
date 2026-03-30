@@ -24,34 +24,7 @@ import { useCreateCredential } from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
 import type { ModelProvider } from '@/types/models'
 
-interface SchemaField {
-  key: string
-  title: string
-  description?: string
-  type: string
-  required: boolean
-  enum?: string[]
-  enumNames?: string[]
-}
-
-function parseCredentialSchema(schema: Record<string, any> | undefined): SchemaField[] {
-  if (!schema || typeof schema !== 'object' || !('properties' in schema)) return []
-
-  const properties = schema.properties as Record<string, any> | undefined
-  if (!properties) return []
-
-  const requiredFields: string[] = Array.isArray(schema.required) ? schema.required : []
-
-  return Object.entries(properties).map(([key, prop]) => ({
-    key,
-    title: prop.title || key,
-    description: prop.description,
-    type: prop.type || 'string',
-    required: requiredFields.includes(key) || prop.required === true,
-    enum: prop.enum,
-    enumNames: prop.enumNames,
-  }))
-}
+import { parseJsonSchema } from './schema-utils'
 
 interface AddCustomModelDialogProps {
   open: boolean
@@ -66,7 +39,7 @@ export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustom
   const [credFields, setCredFields] = useState<Record<string, string>>({})
 
   const formFields = useMemo(
-    () => parseCredentialSchema(provider.credential_schema),
+    () => parseJsonSchema(provider.credential_schema),
     [provider.credential_schema],
   )
 
