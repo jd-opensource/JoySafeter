@@ -116,7 +116,7 @@ class ModelCredentialService(BaseService):
 
         encrypted_credentials = encrypt_credentials(credentials)
 
-        existing = await self.repo.get_by_user_and_provider(provider_id=provider_id_to_use)
+        existing = await self.repo.get_by_user_and_provider(user_id=user_id, provider_id=provider_id_to_use)
         if existing:
             existing.credentials = encrypted_credentials
             existing.is_valid = is_valid

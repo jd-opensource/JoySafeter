@@ -59,7 +59,18 @@ export function CredentialDialog({
       }
       setFields(initial)
     }
-  }, [open, formFields, existingCredential])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, formFields])
+
+  const isDirty = useMemo(() => {
+    for (const field of formFields) {
+      const initialValue = existingCredential?.credentials?.[field.key] ?? ''
+      if ((fields[field.key] || '') !== initialValue) {
+        return true
+      }
+    }
+    return false
+  }, [fields, formFields, existingCredential])
 
   const canSubmit = formFields
     .filter((f) => f.required)
@@ -176,7 +187,7 @@ export function CredentialDialog({
             <Button
               variant="outline"
               onClick={handleValidate}
-              disabled={validating}
+              disabled={validating || isDirty}
               className="mr-auto"
             >
               {validating ? '验证中...' : '重新验证'}
