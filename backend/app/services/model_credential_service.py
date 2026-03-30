@@ -97,7 +97,13 @@ class ModelCredentialService(BaseService):
         is_valid = False
         validation_error = None
         if validate:
-            is_valid, validation_error = await validate_provider_credentials(implementation_name, credentials)
+            creds_for_validate = dict(credentials)
+            # 自定义 Provider 需要注入实际模型名，避免 fallback 到 gpt-4o-mini
+            if provider and provider.provider_type == "custom" and provider_id_to_use:
+                instances = await self.instance_repo.list_by_provider(provider_id=provider_id_to_use)
+                if instances:
+                    creds_for_validate["_validate_model"] = instances[0].model_name
+            is_valid, validation_error = await validate_provider_credentials(implementation_name, creds_for_validate)
 
         encrypted_credentials = encrypt_credentials(credentials)
 
@@ -304,9 +310,15 @@ class ModelCredentialService(BaseService):
         if not provider_name_to_validate:
             is_valid, error = False, "无法解析供应商"
         else:
+            creds_for_validate = dict(decrypted_credentials)
+            # 自定义 Provider 需要注入实际模型名，避免 fallback 到 gpt-4o-mini
+            if credential.provider and credential.provider.provider_type == "custom":
+                instances = await self.instance_repo.list_by_provider(provider_id=credential.provider.id)
+                if instances:
+                    creds_for_validate["_validate_model"] = instances[0].model_name
             is_valid, error_to_store = await validate_provider_credentials(
                 provider_name_to_validate,
-                decrypted_credentials,
+                creds_for_validate,
             )
             error = error_to_store or ""
 
