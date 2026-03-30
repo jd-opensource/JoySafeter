@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useCreateCredential } from '@/hooks/queries/models'
+import { useToast } from '@/hooks/use-toast'
 import type { ModelProvider } from '@/types/models'
 
 interface AddCustomModelDialogProps {
@@ -23,25 +24,34 @@ interface AddCustomModelDialogProps {
 
 export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustomModelDialogProps) {
   const createCredential = useCreateCredential()
+  const { toast } = useToast()
   const [modelName, setModelName] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
 
   const handleAdd = async () => {
     if (!modelName.trim()) return
-    await createCredential.mutateAsync({
-      provider_name: provider.provider_name,
-      credentials: {
-        ...(apiKey ? { api_key: apiKey } : {}),
-        ...(baseUrl ? { base_url: baseUrl } : {}),
-      },
-      model_name: modelName.trim(),
-      validate: true,
-    })
-    setModelName('')
-    setBaseUrl('')
-    setApiKey('')
-    onOpenChange(false)
+    try {
+      await createCredential.mutateAsync({
+        provider_name: provider.provider_name,
+        credentials: {
+          ...(apiKey ? { api_key: apiKey } : {}),
+          ...(baseUrl ? { base_url: baseUrl } : {}),
+        },
+        model_name: modelName.trim(),
+        validate: true,
+      })
+      setModelName('')
+      setBaseUrl('')
+      setApiKey('')
+      onOpenChange(false)
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: '添加模型失败',
+        description: err instanceof Error ? err.message : '请检查模型信息后重试',
+      })
+    }
   }
 
   return (

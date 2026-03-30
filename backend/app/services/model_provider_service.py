@@ -253,7 +253,7 @@ class ModelProviderService(BaseService):
         if not db_provider:
             raise NotFoundException(f"供应商不存在: {provider_name}")
 
-        await self.repo.update_default_parameters(db_provider.id, default_parameters)
+        await self.repo.update_default_parameters(provider_name, default_parameters)
         await self.commit()
 
         return await self.get_provider(provider_name)

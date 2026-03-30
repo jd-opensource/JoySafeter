@@ -2,6 +2,7 @@
 
 import { AlertTriangle, CheckCircle, HelpCircle, XCircle } from 'lucide-react'
 
+import { Skeleton } from '@/components/ui/skeleton'
 import { useModelsOverview } from '@/hooks/queries/models'
 
 export function OverviewDashboard() {
@@ -9,8 +10,23 @@ export function OverviewDashboard() {
 
   if (isLoading || !overview) {
     return (
-      <div className="flex h-full items-center justify-center text-[var(--text-muted)]">
-        <span className="text-sm">加载中...</span>
+      <div className="p-6 space-y-6">
+        <div className="grid grid-cols-3 gap-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-4">
+              <Skeleton className="mb-2 h-4 w-16" />
+              <Skeleton className="h-8 w-10" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-4">
+              <Skeleton className="mb-2 h-3 w-16" />
+              <Skeleton className="h-8 w-10" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }

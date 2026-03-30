@@ -2,6 +2,8 @@
 模型服务
 """
 
+import json
+import time
 import uuid
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -34,6 +36,13 @@ class ModelService(BaseService):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _clear_existing_default(self, except_id=None):
+        """Unset the current default model instance, optionally skipping one by id."""
+        existing = await self.repo.get_default()
+        if existing and (except_id is None or existing.id != except_id):
+            existing.is_default = False
+            await self.db.flush()
 
     async def _build_credentials_map(self, provider_names: set) -> Dict[str, Any]:
         """Build a map of provider_name -> decrypted credentials for a set of providers."""
@@ -182,14 +191,13 @@ class ModelService(BaseService):
                         "failed_at": cred.last_validated_at,
                     }
 
-        total_models = await self.repo.count_by_provider()
-        available_models = 0
         all_instances = await self.repo.list_all()
-        relevant_providers: set = {i.resolved_provider_name for i in all_instances}
-        credentials_dict = await self._build_credentials_map(relevant_providers)
+        total_models = len(all_instances)
+        available_models = 0
         for instance in all_instances:
             pname = instance.resolved_provider_name
-            if pname in credentials_dict:
+            cred = cred_by_provider.get(pname)
+            if cred and cred.is_valid:
                 available_models += 1
 
         default_instance = await self.repo.get_default()
@@ -238,33 +246,35 @@ class ModelService(BaseService):
             updates["is_default"] = is_default
 
         if is_default:
-            existing_default = await self.repo.get_default()
-            if existing_default and existing_default.id != instance_id:
-                existing_default.is_default = False
-                await self.db.flush()
+            await self._clear_existing_default(except_id=instance_id)
 
         if updates:
             await self.repo.update(instance_id, updates)
 
         await self.commit()
+        await self.db.refresh(instance)
 
-        # Refresh
-        instance = await self.repo.get(instance_id)
         pname = instance.resolved_provider_name
 
         if is_default:
             await self.credential_service._update_default_model_cache(
                 provider_name=pname,
                 model_name=instance.model_name,
-                model_type="chat",
+                model_type=ModelType.CHAT.value,
                 model_parameters=instance.model_parameters,
             )
+        else:
+            try:
+                from app.core.settings import clear_default_model_config
+                clear_default_model_config()
+            except Exception:
+                pass
 
         return {
             "id": str(instance.id),
             "provider_name": pname,
             "model_name": instance.model_name,
-            "model_type": "chat",
+            "model_type": ModelType.CHAT.value,
             "model_parameters": instance.model_parameters or {},
             "is_default": instance.is_default,
         }
@@ -307,7 +317,7 @@ class ModelService(BaseService):
             "id": str(instance.id),
             "provider_name": provider_name,
             "model_name": model_name,
-            "model_type": model_type.value,
+            "model_type": ModelType.CHAT.value,
             "model_parameters": instance.model_parameters,
             "is_default": instance.is_default,
         }
@@ -334,10 +344,7 @@ class ModelService(BaseService):
             raise NotFoundException(f"供应商不存在或模型实例不存在: {provider_name}/{model_name}")
 
         if is_default:
-            existing_default = await self.repo.get_default()
-            if existing_default and existing_default.id != instance.id:
-                existing_default.is_default = False
-                await self.db.flush()
+            await self._clear_existing_default(except_id=instance.id)
 
         instance.is_default = is_default
         await self.commit()
@@ -346,7 +353,7 @@ class ModelService(BaseService):
             await self.credential_service._update_default_model_cache(
                 provider_name=provider_name,
                 model_name=model_name,
-                model_type="chat",
+                model_type=ModelType.CHAT.value,
                 model_parameters=instance.model_parameters,
             )
         else:
@@ -354,14 +361,14 @@ class ModelService(BaseService):
                 from app.core.settings import clear_default_model_config
 
                 clear_default_model_config()
-            except Exception as e:
-                print(f"Warning: Failed to clear model cache: {e}")
+            except Exception:
+                pass
 
         return {
             "id": str(instance.id),
             "provider_name": provider_name,
             "model_name": model_name,
-            "model_type": "chat",
+            "model_type": ModelType.CHAT.value,
             "model_parameters": instance.model_parameters,
             "is_default": instance.is_default,
         }
@@ -532,8 +539,6 @@ class ModelService(BaseService):
             instance.model_parameters or {},
         )
 
-        import time
-
         start_time = time.monotonic()
         try:
             response = await model.ainvoke(input_text)
@@ -580,9 +585,6 @@ class ModelService(BaseService):
         流式测试模型输出，yield SSE 格式事件。
         事件类型：token, metrics, error, done
         """
-        import json
-        import time
-
         instance = await self.repo.get_by_name(model_name)
         if not instance:
             yield f"event: error\ndata: {json.dumps({'error': f'模型实例不存在: {model_name}'})}\n\n"

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useToast } from '@/hooks/use-toast'
 import { useCreateCredential } from '@/hooks/queries/models'
 import type { ModelCredential, ModelProvider } from '@/types/models'
 
@@ -29,6 +30,7 @@ export function CredentialDialog({
   existingCredential,
 }: CredentialDialogProps) {
   const createCredential = useCreateCredential()
+  const { toast } = useToast()
   const [fields, setFields] = useState<Record<string, string>>({})
 
   const schema = provider.credential_schema ?? {}
@@ -49,12 +51,20 @@ export function CredentialDialog({
     for (const key of schemaKeys) {
       if (fields[key]) credentials[key] = fields[key]
     }
-    await createCredential.mutateAsync({
-      provider_name: provider.provider_name,
-      credentials,
-      validate: true,
-    })
-    onOpenChange(false)
+    try {
+      await createCredential.mutateAsync({
+        provider_name: provider.provider_name,
+        credentials,
+        validate: true,
+      })
+      onOpenChange(false)
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: '保存凭证失败',
+        description: err instanceof Error ? err.message : '请检查凭证信息后重试',
+      })
+    }
   }
 
   const isEditing = !!existingCredential

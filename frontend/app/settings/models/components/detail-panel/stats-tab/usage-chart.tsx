@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 
 import type { UsageByModel, UsageTimelinePoint } from '@/types/models'
+import { formatTokenCount } from './summary-cards'
 
 interface UsageChartProps {
   timeline: UsageTimelinePoint[]
@@ -92,7 +93,7 @@ export function UsageChart({ timeline, byModel }: UsageChartProps) {
                   <td className="py-2 text-[var(--text-primary)]">{row.model_name}</td>
                   <td className="py-2 text-right text-[var(--text-secondary)]">{row.calls}</td>
                   <td className="py-2 text-right text-[var(--text-secondary)]">
-                    {row.tokens >= 1000 ? `${(row.tokens / 1000).toFixed(1)}K` : row.tokens}
+                    {formatTokenCount(row.tokens)}
                   </td>
                 </tr>
               ))}

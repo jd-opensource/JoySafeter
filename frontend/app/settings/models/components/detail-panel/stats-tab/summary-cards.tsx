@@ -1,19 +1,11 @@
 'use client'
 
+import { Skeleton } from '@/components/ui/skeleton'
 import type { UsageStatsSummary } from '@/types/models'
 
 interface SummaryCardsProps {
   summary?: UsageStatsSummary
   loading?: boolean
-}
-
-function SkeletonCard() {
-  return (
-    <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)] p-4">
-      <div className="mb-2 h-3 w-20 animate-pulse rounded bg-[var(--surface-hover)]" />
-      <div className="h-6 w-16 animate-pulse rounded bg-[var(--surface-hover)]" />
-    </div>
-  )
 }
 
 interface CardProps {
@@ -30,7 +22,7 @@ function StatCard({ label, value }: CardProps) {
   )
 }
 
-function formatTokens(n: number): string {
+export function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
   return String(n)
@@ -40,10 +32,12 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
   if (loading) {
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SkeletonCard />
-        <SkeletonCard />
-        <SkeletonCard />
-        <SkeletonCard />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)] p-4">
+            <Skeleton className="mb-2 h-3 w-20" />
+            <Skeleton className="h-6 w-16" />
+          </div>
+        ))}
       </div>
     )
   }
@@ -53,7 +47,7 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <StatCard label="总调用次数" value={String(summary?.total_calls ?? 0)} />
-      <StatCard label="总 Token 数" value={formatTokens(totalTokens)} />
+      <StatCard label="总 Token 数" value={formatTokenCount(totalTokens)} />
       <StatCard
         label="平均响应时间"
         value={`${(summary?.avg_response_time_ms ?? 0).toFixed(0)} ms`}
