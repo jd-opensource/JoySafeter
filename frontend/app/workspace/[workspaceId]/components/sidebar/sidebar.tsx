@@ -10,7 +10,7 @@ import {
   type AgentGraph,
 } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { useBuilderStore } from '@/app/workspace/[workspaceId]/[agentId]/stores/builderStore'
-import { DSL_STARTER_TEMPLATE } from '@/app/workspace/[workspaceId]/[agentId]/utils/dslTemplate'
+import { CODE_STARTER_TEMPLATE } from '@/app/workspace/[workspaceId]/[agentId]/utils/codeTemplate'
 import {
   AgentList,
   WorkspaceHeader,
@@ -123,7 +123,7 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newAgentName, setNewAgentName] = useState('')
-  const [createAgentMode, setCreateAgentMode] = useState<'dsl' | 'canvas'>('canvas')
+  const [createAgentMode, setCreateAgentMode] = useState<'code' | 'canvas'>('canvas')
   const isCollapsed = useSidebarStore((state) => state.isCollapsed)
   const setIsCollapsed = useSidebarStore((state) => state.setIsCollapsed)
   const sidebarWidth = useSidebarStore((state) => state.sidebarWidth)
@@ -154,7 +154,7 @@ export function Sidebar() {
   const agents: AgentMetadata[] = useMemo(() => graphsData?.map(graphToAgentMetadata) || [], [graphsData])
 
   const createAgentMutation = useMutation({
-    mutationFn: async (data: { name: string; description?: string; color?: string; mode?: 'canvas' | 'dsl' }) => {
+    mutationFn: async (data: { name: string; description?: string; color?: string; mode?: 'canvas' | 'code' }) => {
       // Create Graph
       const graph = await agentService.createGraph({
         name: data.name,
@@ -164,16 +164,16 @@ export function Sidebar() {
       })
 
       if (graph?.id) {
-        if (data.mode === 'dsl') {
-          // DSL mode: save with starter template and graph_mode flag
+        if (data.mode === 'code') {
+          // Code mode: save with starter template and graph_mode flag
           await agentService.saveGraphState({
             graphId: graph.id,
             nodes: [],
             edges: [],
             viewport: { x: 0, y: 0, zoom: 1 },
             variables: {
-              graph_mode: 'dsl',
-              dsl_code: DSL_STARTER_TEMPLATE,
+              graph_mode: 'code',
+              code_content: CODE_STARTER_TEMPLATE,
             },
           })
         } else {
@@ -371,7 +371,7 @@ export function Sidebar() {
       return
     }
     setNewAgentName(t('workspace.defaultAgentName'))
-    setCreateAgentMode('dsl')
+    setCreateAgentMode('canvas')
     setShowCreateDialog(true)
   }, [userPermissions.canEdit, toast, t])
 
@@ -979,15 +979,15 @@ export function Sidebar() {
               </button>
               <button
                 type="button"
-                onClick={() => setCreateAgentMode('dsl')}
+                onClick={() => setCreateAgentMode('code')}
                 className={cn(
                   'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
-                  createAgentMode === 'dsl'
+                  createAgentMode === 'code'
                     ? 'border-primary bg-primary/5 ring-1 ring-primary'
                     : 'border-[var(--border)] hover:border-primary/30'
                 )}
               >
-                <span className="text-sm font-medium">Code (DSL)</span>
+                <span className="text-sm font-medium">Code</span>
                 <span className="text-[11px] leading-tight text-[var(--text-muted)]">
                   Python code to define graph structure
                 </span>

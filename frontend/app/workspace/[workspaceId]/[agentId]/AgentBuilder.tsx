@@ -215,13 +215,13 @@ const AgentBuilderContent = () => {
     // Use React Query cached state data
     const state = graphStateData
 
-    // DSL mode: hydrate code editor store instead of canvas
+    // Code mode: hydrate code editor store instead of canvas
     const graphMode = (state.variables as any)?.graph_mode
-    if (graphMode === 'dsl' && agentId) {
+    if ((graphMode === 'code' || graphMode === 'dsl') && agentId) {
       const currentGraph = graphsData?.find((g) => g.id === agentId)
       useCodeEditorStore.getState().hydrate(
         agentId,
-        (state.variables as any)?.dsl_code ?? '',
+        (state.variables as any)?.code_content ?? (state.variables as any)?.dsl_code ?? '',
         currentGraph?.name ?? '',
       )
       loadedGraphIdRef.current = agentId
@@ -578,9 +578,9 @@ const AgentBuilderContent = () => {
     setRunInput('')
   }
 
-  // DSL mode: render CodeEditorPage instead of canvas
+  // Code mode: render CodeEditorPage instead of canvas
   const graphMode = (graphStateData?.variables as any)?.graph_mode
-  if (graphMode === 'dsl' && agentId && !isInitializing) {
+  if ((graphMode === 'code' || graphMode === 'dsl') && agentId && !isInitializing) {
     return <CodeEditorPage graphId={agentId} workspaceId={workspaceId} />
   }
 

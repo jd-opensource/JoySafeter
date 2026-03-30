@@ -880,9 +880,9 @@ class GraphService(BaseService):
                 return cached_graph
             _compile_cache.pop(cache_key, None)
 
-        # DSL mode: bypass GraphBuilder entirely
-        if (graph.variables or {}).get("graph_mode") == "dsl":
-            logger.info(f"[GraphService] DSL mode detected | graph_id={graph_id}")
+        # Code mode: bypass GraphBuilder entirely
+        if (graph.variables or {}).get("graph_mode") in ("code", "dsl"):
+            logger.info(f"[GraphService] Code mode detected | graph_id={graph_id}")
             compiled_graph = await self._compile_code_graph(graph)
             _compile_cache[cache_key] = (compiled_graph, time.time())
             return compiled_graph  # type: ignore[no-any-return]
@@ -931,10 +931,10 @@ class GraphService(BaseService):
         from app.core.agent.checkpointer.checkpointer import get_checkpointer
         from app.core.code_executor import execute_code
 
-        dsl_code = (graph.variables or {}).get("dsl_code", "")
-        if not dsl_code.strip():
+        code = (graph.variables or {}).get("code_content", "") or (graph.variables or {}).get("dsl_code", "")
+        if not code.strip():
             raise ValueError(f"Code graph {graph.id} has no code")
 
-        state_graph = execute_code(dsl_code)
+        state_graph = execute_code(code)
         compiled = state_graph.compile(checkpointer=get_checkpointer())
         return compiled

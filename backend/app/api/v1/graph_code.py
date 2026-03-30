@@ -83,8 +83,8 @@ async def save_code(
     await service._ensure_access(graph, current_user, WorkspaceMemberRole.member)
 
     variables = dict(graph.variables or {})
-    variables["graph_mode"] = "dsl"
-    variables["dsl_code"] = payload.code
+    variables["graph_mode"] = "code"
+    variables["code_content"] = payload.code
     graph.variables = variables
 
     if payload.name is not None:
@@ -117,7 +117,7 @@ async def run_code(
     # Permission check: need viewer role to run
     await service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
 
-    code = (graph.variables or {}).get("dsl_code", "")
+    code = (graph.variables or {}).get("code_content", "") or (graph.variables or {}).get("dsl_code", "")
     if not code.strip():
         return {
             "success": False,

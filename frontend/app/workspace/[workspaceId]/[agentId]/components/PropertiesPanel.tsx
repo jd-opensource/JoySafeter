@@ -389,7 +389,7 @@ export default function PropertiesPanel({
   }
 
   const applyTemplateConfig = (_templateName: string) => {
-    // Templates removed — placeholder for future DSL-based templates
+    // Templates removed — placeholder for future templates
   }
 
   // Update both model_name and provider_name simultaneously

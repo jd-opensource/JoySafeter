@@ -2,7 +2,7 @@
  * Starter template for new code-mode graphs.
  * Standard LangGraph Python — no custom SDK needed.
  */
-export const DSL_STARTER_TEMPLATE = `from langgraph.graph import StateGraph, START, END
+export const CODE_STARTER_TEMPLATE = `from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from typing import TypedDict, Annotated
 
