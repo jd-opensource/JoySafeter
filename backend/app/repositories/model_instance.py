@@ -86,19 +86,12 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         provider_id: uuid.UUID,
     ) -> int:
         """按供应商统计模型实例数量。"""
-        query = (
-            select(func.count())
-            .select_from(ModelInstance)
-            .where(ModelInstance.provider_id == provider_id)
-        )
+        query = select(func.count()).select_from(ModelInstance).where(ModelInstance.provider_id == provider_id)
         result = await self.db.execute(query)
         return result.scalar() or 0
 
     async def count_grouped_by_provider(self) -> Dict[uuid.UUID, int]:
         """一次查询返回所有 provider 的模型实例数量。"""
-        query = (
-            select(ModelInstance.provider_id, func.count().label("cnt"))
-            .group_by(ModelInstance.provider_id)
-        )
+        query = select(ModelInstance.provider_id, func.count().label("cnt")).group_by(ModelInstance.provider_id)
         result = await self.db.execute(query)
         return {row.provider_id: row.cnt for row in result.all() if row.provider_id}

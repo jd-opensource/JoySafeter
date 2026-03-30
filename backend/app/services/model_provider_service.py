@@ -66,25 +66,29 @@ class ModelProviderService(BaseService):
                     db_provider = existing
                     logger.debug(f"已更新供应商: {provider_name}")
                 else:
-                    db_provider = await self.repo.create({
-                        "name": provider_name,
-                        "is_enabled": True,
-                        **provider_data,
-                    })
+                    db_provider = await self.repo.create(
+                        {
+                            "name": provider_name,
+                            "is_enabled": True,
+                            **provider_data,
+                        }
+                    )
                     logger.info(f"已创建供应商: {provider_name}")
 
-                synced_providers.append({
-                    "id": str(db_provider.id),
-                    "name": db_provider.name,
-                    "display_name": db_provider.display_name,
-                    "supported_model_types": db_provider.supported_model_types or [],
-                    "credential_schema": db_provider.credential_schema or {},
-                    "config_schema": db_provider.config_schema or {},
-                    "is_enabled": db_provider.is_enabled,
-                    "is_template": db_provider.is_template,
-                    "provider_type": db_provider.provider_type,
-                    "template_name": db_provider.template_name,
-                })
+                synced_providers.append(
+                    {
+                        "id": str(db_provider.id),
+                        "name": db_provider.name,
+                        "display_name": db_provider.display_name,
+                        "supported_model_types": db_provider.supported_model_types or [],
+                        "credential_schema": db_provider.credential_schema or {},
+                        "config_schema": db_provider.config_schema or {},
+                        "is_enabled": db_provider.is_enabled,
+                        "is_template": db_provider.is_template,
+                        "provider_type": db_provider.provider_type,
+                        "template_name": db_provider.template_name,
+                    }
+                )
             except Exception as e:
                 error_msg = f"同步供应商 {provider_name} 失败: {str(e)}"
                 errors.append(error_msg)
@@ -123,9 +127,8 @@ class ModelProviderService(BaseService):
                 provider_data: Dict[str, Any] = {
                     "provider_name": db_provider.name,
                     "display_name": db_provider.display_name or factory_provider.display_name,
-                    "supported_model_types": db_provider.supported_model_types or [
-                        mt.value for mt in factory_provider.get_supported_model_types()
-                    ],
+                    "supported_model_types": db_provider.supported_model_types
+                    or [mt.value for mt in factory_provider.get_supported_model_types()],
                     "credential_schema": db_provider.credential_schema or factory_provider.get_credential_schema(),
                     "config_schemas": config_schemas,
                     "model_count": model_count,
@@ -238,9 +241,7 @@ class ModelProviderService(BaseService):
 
         return provider_info
 
-    async def update_provider_defaults(
-        self, provider_name: str, default_parameters: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def update_provider_defaults(self, provider_name: str, default_parameters: Dict[str, Any]) -> Dict[str, Any]:
         """
         更新供应商的默认参数
 
@@ -261,7 +262,10 @@ class ModelProviderService(BaseService):
         await self.repo.update_default_parameters(provider_name, default_parameters)
         await self.commit()
 
-        return await self.get_provider(provider_name)
+        result = await self.get_provider(provider_name)
+        if not result:
+            raise NotFoundException(f"供应商不存在: {provider_name}")
+        return result
 
     async def delete_provider(self, provider_name: str) -> None:
         """

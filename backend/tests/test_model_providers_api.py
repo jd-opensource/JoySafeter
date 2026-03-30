@@ -13,7 +13,6 @@ from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -122,9 +121,7 @@ def test_patch_defaults_returns_updated_provider(mock_cls, client: TestClient):
     data = resp.json()["data"]
     assert data["default_parameters"]["temperature"] == 0.9
     assert data["default_parameters"]["max_tokens"] == 4096
-    mock_svc.update_provider_defaults.assert_called_once_with(
-        "anthropic", {"temperature": 0.9, "max_tokens": 4096}
-    )
+    mock_svc.update_provider_defaults.assert_called_once_with("anthropic", {"temperature": 0.9, "max_tokens": 4096})
 
 
 @patch("app.api.v1.model_providers.ModelProviderService")
@@ -132,9 +129,7 @@ def test_patch_defaults_provider_not_found_returns_404(mock_cls, client: TestCli
     from app.common.exceptions import NotFoundException
 
     mock_svc = mock_cls.return_value
-    mock_svc.update_provider_defaults = AsyncMock(
-        side_effect=NotFoundException("供应商不存在: nonexistent")
-    )
+    mock_svc.update_provider_defaults = AsyncMock(side_effect=NotFoundException("供应商不存在: nonexistent"))
 
     resp = client.patch(
         "/v1/model-providers/nonexistent/defaults",

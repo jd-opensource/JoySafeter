@@ -128,8 +128,6 @@ class ModelUsageLogRepository(BaseRepository[ModelUsageLog]):
         from datetime import timedelta, timezone
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        result = await self.db.execute(
-            delete(ModelUsageLog).where(ModelUsageLog.created_at < cutoff)
-        )
+        result = await self.db.execute(delete(ModelUsageLog).where(ModelUsageLog.created_at < cutoff))
         await self.db.flush()
-        return result.rowcount
+        return int(getattr(result, "rowcount", 0) or 0)

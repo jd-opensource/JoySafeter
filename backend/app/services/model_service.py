@@ -75,7 +75,11 @@ class ModelService(BaseService):
             if cred is None:
                 result[pid] = {"decrypted": None, "is_valid": False, "error": "no_credentials"}
             elif not cred.is_valid:
-                result[pid] = {"decrypted": None, "is_valid": False, "error": cred.validation_error or "invalid_credentials"}
+                result[pid] = {
+                    "decrypted": None,
+                    "is_valid": False,
+                    "error": cred.validation_error or "invalid_credentials",
+                }
             else:
                 try:
                     decrypted = decrypt_credentials(cred.credentials)
@@ -256,6 +260,7 @@ class ModelService(BaseService):
         else:
             try:
                 from app.core.settings import clear_default_model_config
+
                 clear_default_model_config()
             except Exception:
                 pass

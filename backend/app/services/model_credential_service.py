@@ -29,16 +29,12 @@ class ModelCredentialService(BaseService):
         self.instance_repo = ModelInstanceRepository(db)
         self.factory = get_factory()
 
-    async def _get_first_model_name_for_provider(
-        self, provider_id: uuid.UUID
-    ) -> Optional[str]:
+    async def _get_first_model_name_for_provider(self, provider_id: uuid.UUID) -> Optional[str]:
         """获取 Provider 下第一个模型实例的名称，用于自定义 Provider 凭证验证。"""
         instances = await self.instance_repo.list_by_provider(provider_id=provider_id)
         return instances[0].model_name if instances else None
 
-    async def _create_derived_provider(
-        self, template, name: str, display_name: str, template_name: str
-    ):
+    async def _create_derived_provider(self, template, name: str, display_name: str, template_name: str):
         """从模板创建派生 Provider DB 记录。"""
         return await self.provider_repo.create(
             {
@@ -261,7 +257,7 @@ class ModelCredentialService(BaseService):
         try:
             repo = ModelInstanceRepository(self.db)
             default_instance = await repo.get_default()
-            effective_name = default_instance.provider.name if default_instance else None
+            effective_name = default_instance.provider.name if default_instance and default_instance.provider else None
             if default_instance and effective_name == provider_name:
                 await self._update_default_model_cache(
                     provider_name=provider_name,
@@ -300,9 +296,7 @@ class ModelCredentialService(BaseService):
 
         # 验证凭据
         provider_name_to_validate = (
-            (credential.provider.template_name or credential.provider.name)
-            if credential.provider
-            else ""
+            (credential.provider.template_name or credential.provider.name) if credential.provider else ""
         )
         if not provider_name_to_validate:
             is_valid, error = False, "无法解析供应商"
@@ -445,9 +439,7 @@ class ModelCredentialService(BaseService):
         if not provider:
             return None
 
-        credential = await self.repo.get_best_valid_credential(
-            provider_id=provider.id, user_id=user_id
-        )
+        credential = await self.repo.get_best_valid_credential(provider_id=provider.id, user_id=user_id)
         if credential:
             return decrypt_credentials(credential.credentials)
 

@@ -36,9 +36,7 @@ class ModelProviderRepository(BaseRepository[ModelProvider]):
         result = await self.db.execute(select(func.count()).select_from(ModelProvider))
         return result.scalar() or 0
 
-    async def update_default_parameters(
-        self, name: str, default_parameters: Dict[str, Any]
-    ) -> ModelProvider | None:
+    async def update_default_parameters(self, name: str, default_parameters: Dict[str, Any]) -> ModelProvider | None:
         """更新供应商默认参数"""
         provider = await self.get_by_name(name)
         if not provider:
