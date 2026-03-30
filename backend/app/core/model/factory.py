@@ -146,6 +146,7 @@ class ModelFactory:
         self,
         provider_name: str,
         credentials: Dict[str, Any],
+        model_name: Optional[str] = None,
     ) -> tuple[bool, Optional[str]]:
         """
         验证供应商凭据
@@ -153,6 +154,7 @@ class ModelFactory:
         Args:
             provider_name: 供应商名称
             credentials: 凭据字典
+            model_name: 可选的模型名称，用于自定义 Provider 指定验证模型
 
         Returns:
             (是否有效, 错误信息)
@@ -161,7 +163,7 @@ class ModelFactory:
         if not provider:
             return False, f"供应商不存在: {provider_name}"
 
-        return await provider.validate_credentials(credentials)
+        return await provider.validate_credentials(credentials, model_name=model_name)
 
     async def validate_model_credentials(
         self,
@@ -188,7 +190,7 @@ class ModelFactory:
 
         try:
             # 先验证凭据
-            is_valid, error = await provider.validate_credentials(credentials)
+            is_valid, error = await provider.validate_credentials(credentials, model_name=model_name)
             if not is_valid:
                 return False, error
 
@@ -252,9 +254,10 @@ def get_provider(provider_name: str) -> Optional[BaseProvider]:
 async def validate_provider_credentials(
     provider_name: str,
     credentials: Dict[str, Any],
+    model_name: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
     """验证供应商凭据"""
-    return await _factory.validate_provider_credentials(provider_name, credentials)
+    return await _factory.validate_provider_credentials(provider_name, credentials, model_name=model_name)
 
 
 def create_model_instance(

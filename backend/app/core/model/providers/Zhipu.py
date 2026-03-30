@@ -58,13 +58,13 @@ class ZhipuProvider(OpenAIAPICompatibleProvider):
 
         return schema
 
-    async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+    async def validate_credentials(self, credentials: Dict[str, Any], model_name: Optional[str] = None) -> tuple[bool, Optional[str]]:
         """验证凭据"""
         creds = credentials.copy()
         if not creds.get("base_url"):
             creds["base_url"] = "https://open.bigmodel.cn/api/paas/v4/"
 
-        return await super().validate_credentials(creds)
+        return await super().validate_credentials(creds, model_name=model_name)
 
     def create_model_instance(
         self,

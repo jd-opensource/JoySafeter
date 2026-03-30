@@ -97,13 +97,15 @@ class ModelCredentialService(BaseService):
         is_valid = False
         validation_error = None
         if validate:
-            creds_for_validate = dict(credentials)
-            # 自定义 Provider 需要注入实际模型名，避免 fallback 到 gpt-4o-mini
+            # 自定义 Provider 用实际模型名验证，避免 fallback 到硬编码默认模型
+            validate_model_name = None
             if provider and provider.provider_type == "custom" and provider_id_to_use:
                 instances = await self.instance_repo.list_by_provider(provider_id=provider_id_to_use)
                 if instances:
-                    creds_for_validate["_validate_model"] = instances[0].model_name
-            is_valid, validation_error = await validate_provider_credentials(implementation_name, creds_for_validate)
+                    validate_model_name = instances[0].model_name
+            is_valid, validation_error = await validate_provider_credentials(
+                implementation_name, credentials, model_name=validate_model_name
+            )
 
         encrypted_credentials = encrypt_credentials(credentials)
 
@@ -165,9 +167,9 @@ class ModelCredentialService(BaseService):
         is_valid = False
         validation_error = None
         if validate:
-            # 用用户填写的模型名做验证，避免固定模型（如 gpt-4o-mini）在自定义端点不可用导致误报「验证未通过」
-            creds_for_validate = {**credentials, "_validate_model": model_name}
-            is_valid, validation_error = await validate_provider_credentials("custom", creds_for_validate)
+            is_valid, validation_error = await validate_provider_credentials(
+                "custom", credentials, model_name=model_name
+            )
         encrypted = encrypt_credentials(credentials)
 
         new_provider_name = f"custom-{int(time.time())}"
@@ -310,15 +312,16 @@ class ModelCredentialService(BaseService):
         if not provider_name_to_validate:
             is_valid, error = False, "无法解析供应商"
         else:
-            creds_for_validate = dict(decrypted_credentials)
-            # 自定义 Provider 需要注入实际模型名，避免 fallback 到 gpt-4o-mini
+            # 自定义 Provider 用实际模型名验证
+            validate_model_name = None
             if credential.provider and credential.provider.provider_type == "custom":
                 instances = await self.instance_repo.list_by_provider(provider_id=credential.provider.id)
                 if instances:
-                    creds_for_validate["_validate_model"] = instances[0].model_name
+                    validate_model_name = instances[0].model_name
             is_valid, error_to_store = await validate_provider_credentials(
                 provider_name_to_validate,
-                creds_for_validate,
+                decrypted_credentials,
+                model_name=validate_model_name,
             )
             error = error_to_store or ""
 
