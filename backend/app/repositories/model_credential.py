@@ -22,9 +22,13 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
         self,
         user_id: Optional[str] = None,
         provider_id: Optional[uuid.UUID] = None,
-        provider_name: Optional[str] = None,
+        provider_name: Optional[str] = None,  # DEPRECATED: use provider_id instead
     ) -> ModelCredential | None:
-        """根据供应商获取凭据（支持用户级或全局）。"""
+        """根据供应商获取凭据（支持用户级或全局）。
+
+        Note: provider_name parameter is deprecated. All records now have provider_id set.
+        Pass provider_id for all new callers.
+        """
         if user_id:
             conditions = [ModelCredential.user_id == user_id]
         else:
@@ -41,7 +45,7 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
 
     async def get_best_valid_credential(
         self,
-        provider_name: str,
+        provider_name: str,  # DEPRECATED: prefer provider_id lookup; kept for legacy fallback
         provider_id: Optional[uuid.UUID] = None,
         user_id: Optional[str] = None,
     ) -> ModelCredential | None:
@@ -51,7 +55,9 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
         1. 匹配 user_id 的凭据
         2. 全局凭据 (user_id IS NULL)
         3. 任何人的有效凭据
-        参数说明：如果传入 provider_id，则精确匹配该 ID；否则匹配 provider_id IS NULL 且 provider_name 等于传入值的记录。
+
+        Note: provider_name is deprecated as a lookup key. Prefer passing provider_id directly.
+        The provider_name fallback (provider_id IS NULL path) only matches legacy unbackfilled rows.
         """
         from typing import Any
 

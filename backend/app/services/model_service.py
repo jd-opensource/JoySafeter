@@ -44,43 +44,44 @@ class ModelService(BaseService):
             existing.is_default = False
             await self.db.flush()
 
-    async def _build_provider_credentials_context(self, provider_names: set) -> Dict[str, Dict[str, Any]]:
+    async def _build_provider_credentials_context(self, provider_ids: set) -> Dict[Any, Dict[str, Any]]:
         """
         一次性构建 provider 凭证上下文，包含解密凭证和有效性状态。
+        Keyed by provider_id (UUID) for direct O(1) lookup.
 
         Returns:
-            {provider_name: {"decrypted": {...} | None, "is_valid": bool, "error": str | None}}
+            {provider_id: {"decrypted": {...} | None, "is_valid": bool, "error": str | None}}
         """
         from app.core.model.utils import decrypt_credentials
 
         all_credentials = await self.credential_repo.list_all()
 
-        # 按 provider_name 分组，每个 provider 取最优凭证（优先全局）
-        best_cred_by_provider: Dict[str, Any] = {}
+        # Group by provider_id; prefer global credentials (user_id IS NULL)
+        best_cred_by_id: Dict[Any, Any] = {}
         for c in all_credentials:
-            pname = c.provider.name if c.provider else (c.provider_name or "")
-            if not pname or pname not in provider_names:
+            pid = c.provider_id
+            if pid is None or pid not in provider_ids:
                 continue
-            existing = best_cred_by_provider.get(pname)
+            existing = best_cred_by_id.get(pid)
             if existing is None:
-                best_cred_by_provider[pname] = c
+                best_cred_by_id[pid] = c
             elif c.user_id is None and existing.user_id is not None:
-                # 全局凭证优先
-                best_cred_by_provider[pname] = c
+                # Global credential takes priority over user-scoped
+                best_cred_by_id[pid] = c
 
-        result: Dict[str, Dict[str, Any]] = {}
-        for pname in provider_names:
-            cred = best_cred_by_provider.get(pname)
+        result: Dict[Any, Dict[str, Any]] = {}
+        for pid in provider_ids:
+            cred = best_cred_by_id.get(pid)
             if cred is None:
-                result[pname] = {"decrypted": None, "is_valid": False, "error": "no_credentials"}
+                result[pid] = {"decrypted": None, "is_valid": False, "error": "no_credentials"}
             elif not cred.is_valid:
-                result[pname] = {"decrypted": None, "is_valid": False, "error": cred.validation_error or "invalid_credentials"}
+                result[pid] = {"decrypted": None, "is_valid": False, "error": cred.validation_error or "invalid_credentials"}
             else:
                 try:
                     decrypted = decrypt_credentials(cred.credentials)
-                    result[pname] = {"decrypted": decrypted, "is_valid": True, "error": None}
+                    result[pid] = {"decrypted": decrypted, "is_valid": True, "error": None}
                 except Exception:
-                    result[pname] = {"decrypted": None, "is_valid": False, "error": "decrypt_failed"}
+                    result[pid] = {"decrypted": None, "is_valid": False, "error": "decrypt_failed"}
 
         return result
 
@@ -91,40 +92,26 @@ class ModelService(BaseService):
     async def get_available_models(self, model_type: ModelType, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """获取可用模型列表，含 unavailable_reason。"""
         all_instances = await self.repo.list_all()
-        providers = await self.provider_repo.find()
-        provider_map = {p.id: p for p in providers}
 
-        relevant_providers: set = set()
-        for instance in all_instances:
-            relevant_providers.add(instance.resolved_provider_name)
-
-        cred_ctx = await self._build_provider_credentials_context(relevant_providers)
+        # Collect provider_ids for all instances that have one
+        relevant_provider_ids: set = {i.provider_id for i in all_instances if i.provider_id is not None}
+        cred_ctx = await self._build_provider_credentials_context(relevant_provider_ids)
 
         models = []
         for instance in all_instances:
-            if instance.provider_id is not None:
-                provider = provider_map.get(instance.provider_id)
-                if not provider:
-                    continue
-                pname = instance.resolved_provider_name
-                pdisplay = provider.display_name
-                impl_name = instance.resolved_implementation_name
-                supported_types: List[str] = provider.supported_model_types or []
-            else:
-                if not instance.provider_name:
-                    continue
-                pname = instance.resolved_provider_name
-                impl_name = instance.resolved_implementation_name
-                prov = self.factory.get_provider(instance.provider_name)
-                if not prov:
-                    continue
-                pdisplay = prov.display_name
-                supported_types = [mt.value for mt in prov.get_supported_model_types()]
+            if not instance.provider_id or not instance.provider:
+                continue  # Skip orphaned records without a provider FK
+
+            provider = instance.provider  # Already eager-loaded via selectin
+            pname = provider.name
+            pdisplay = provider.display_name
+            impl_name = provider.template_name or provider.name
+            supported_types: List[str] = provider.supported_model_types or []
 
             if model_type.value not in supported_types:
                 continue
 
-            ctx = cred_ctx.get(pname, {"decrypted": None, "is_valid": False, "error": "no_credentials"})
+            ctx = cred_ctx.get(instance.provider_id, {"decrypted": None, "is_valid": False, "error": "no_credentials"})
 
             display_name = instance.model_name
             description = ""
@@ -172,8 +159,9 @@ class ModelService(BaseService):
         all_providers = await self.provider_repo.find()
         all_instances = await self.repo.list_all()
 
-        provider_names = {p.name for p in all_providers}
-        cred_ctx = await self._build_provider_credentials_context(provider_names)
+        # Build cred_ctx keyed by provider_id
+        provider_ids = {p.id for p in all_providers}
+        cred_ctx = await self._build_provider_credentials_context(provider_ids)
 
         healthy = 0
         unhealthy = 0
@@ -181,7 +169,7 @@ class ModelService(BaseService):
         recent_failure: Optional[Dict[str, Any]] = None
 
         for p in all_providers:
-            ctx = cred_ctx.get(p.name, {"is_valid": False, "error": "no_credentials"})
+            ctx = cred_ctx.get(p.id, {"is_valid": False, "error": "no_credentials"})
             if ctx["error"] == "no_credentials":
                 unconfigured += 1
             elif ctx["is_valid"]:
@@ -199,10 +187,10 @@ class ModelService(BaseService):
         total_models = len(all_instances)
         available_models = 0
         for instance in all_instances:
-            pname = instance.resolved_provider_name
-            ctx = cred_ctx.get(pname, {"is_valid": False})
-            if ctx["is_valid"]:
-                available_models += 1
+            if instance.provider_id is not None:
+                ctx = cred_ctx.get(instance.provider_id, {"is_valid": False})
+                if ctx["is_valid"]:
+                    available_models += 1
 
         default_instance = await self.repo.get_default()
         default_model_info: Optional[Dict[str, Any]] = None
@@ -212,6 +200,7 @@ class ModelService(BaseService):
                 provider = next((p for p in all_providers if p.id == default_instance.provider_id), None)
                 pdisplay = provider.display_name if provider else pname
             else:
+                # Deprecated fallback for orphaned instances
                 prov = self.factory.get_provider(pname)
                 pdisplay = prov.display_name if prov else pname
             default_model_info = {

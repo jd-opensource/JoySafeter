@@ -68,13 +68,11 @@ class ModelCredentialService(BaseService):
         # 以下为原有逻辑：仅创建/更新凭据
         template = self.factory.get_provider(provider_name)
         provider = await self.provider_repo.get_by_name(provider_name)
-        if template and not provider_display_name:
-            implementation_name = provider_name
-            provider_id_to_use = None
-            provider_name_to_store = provider_name
-            final_provider_name = provider_name
-            db_provider_for_ensure = None
-        elif template and provider_display_name:
+
+        # After Phase 1, all factory providers have DB records (sync_providers_from_factory upserts).
+        # We always prefer provider_id over provider_name for storage.
+        if template and provider_display_name:
+            # User wants a named derived provider (e.g. "My OpenAI") — create a new DB provider record
             new_provider_name = f"{provider_name}-{int(time.time())}"
             db_provider = await self.provider_repo.create(
                 {
@@ -95,11 +93,20 @@ class ModelCredentialService(BaseService):
             implementation_name = provider_name
             db_provider_for_ensure = db_provider
         elif provider:
+            # DB record exists (covers all factory providers after Phase 1 sync)
             provider_id_to_use = provider.id
             provider_name_to_store = None
             final_provider_name = provider_name
             implementation_name = provider.template_name or provider.name
             db_provider_for_ensure = provider
+        elif template:
+            # Factory provider exists but DB record missing (should not happen post-Phase 1,
+            # kept as a safety fallback using deprecated provider_name storage)
+            implementation_name = provider_name
+            provider_id_to_use = None
+            provider_name_to_store = provider_name
+            final_provider_name = provider_name
+            db_provider_for_ensure = None
         else:
             raise NotFoundException(f"供应商不存在: {provider_name}")
 
@@ -464,24 +471,25 @@ class ModelCredentialService(BaseService):
         self, provider_name: str, user_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        获取解密后的凭据（全局）。先按模板名查，再按 DB 供应商查。
-        优先匹配当前 user_id，其次匹配全局(user_id IS NULL)，最后匹配任意有效的凭据。
+        获取解密后的凭据（全局）。
+        After Phase 1, all factory providers have DB records, so we look up by provider_id.
+        Falls back to provider_name-only lookup for any legacy unbackfilled rows.
+
+        Queries: get_by_name (1) + get_best_valid_credential by provider_id (1) = 2 total.
         """
-        # 1. 尝试模板凭据 (provider_id IS NULL)
-        credential = await self.repo.get_best_valid_credential(provider_name=provider_name, user_id=user_id)
-
-        if credential:
-            return decrypt_credentials(credential.credentials)
-
-        # 2. 尝试用户派生凭据 (provider_id = DB.provider.id)
+        # Look up the DB provider record once
         provider = await self.provider_repo.get_by_name(provider_name)
-        if not provider:
-            return None
 
-        credential = await self.repo.get_best_valid_credential(
-            provider_name=provider_name, provider_id=provider.id, user_id=user_id
-        )
+        if provider:
+            # Primary path: query by provider_id (all post-Phase-1 records)
+            credential = await self.repo.get_best_valid_credential(
+                provider_name=provider_name, provider_id=provider.id, user_id=user_id
+            )
+            if credential:
+                return decrypt_credentials(credential.credentials)
 
+        # Deprecated fallback: legacy rows where provider_id was not backfilled (provider_id IS NULL)
+        credential = await self.repo.get_best_valid_credential(provider_name=provider_name, user_id=user_id)
         if credential:
             return decrypt_credentials(credential.credentials)
 

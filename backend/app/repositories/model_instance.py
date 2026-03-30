@@ -73,14 +73,19 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     async def list_by_provider(
         self,
         provider_id: Optional[uuid.UUID] = None,
-        provider_name: Optional[str] = None,
+        provider_name: Optional[str] = None,  # DEPRECATED: use provider_id instead
     ) -> list[ModelInstance]:
-        """按供应商筛选模型实例。"""
+        """按供应商筛选模型实例。
+
+        Note: provider_name parameter is deprecated. All records now have provider_id set.
+        Pass provider_id for all new callers.
+        """
         query = select(ModelInstance).options(selectinload(ModelInstance.provider))
 
         if provider_id is not None:
             query = query.where(ModelInstance.provider_id == provider_id)
         elif provider_name is not None:
+            # DEPRECATED fallback: only matches legacy rows where provider_id was not backfilled
             query = query.where(
                 ModelInstance.provider_id.is_(None),
                 ModelInstance.provider_name == provider_name,
@@ -92,14 +97,19 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     async def count_by_provider(
         self,
         provider_id: Optional[uuid.UUID] = None,
-        provider_name: Optional[str] = None,
+        provider_name: Optional[str] = None,  # DEPRECATED: use provider_id instead
     ) -> int:
-        """按供应商筛选并统计模型实例数量。"""
+        """按供应商筛选并统计模型实例数量。
+
+        Note: provider_name parameter is deprecated. All records now have provider_id set.
+        Pass provider_id for all new callers.
+        """
         query = select(func.count()).select_from(ModelInstance)
 
         if provider_id is not None:
             query = query.where(ModelInstance.provider_id == provider_id)
         elif provider_name is not None:
+            # DEPRECATED fallback: only matches legacy rows where provider_id was not backfilled
             query = query.where(
                 ModelInstance.provider_id.is_(None),
                 ModelInstance.provider_name == provider_name,

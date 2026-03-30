@@ -97,69 +97,66 @@ class ModelProviderService(BaseService):
         return synced_providers
 
     async def get_all_providers(self) -> List[Dict[str, Any]]:
-        """获取所有供应商信息（工厂为主，数据库补充用户自定义元数据）"""
-        factory_providers = self.factory.get_all_providers()
+        """获取所有供应商信息（数据库为主，工厂补充运行时信息）
 
+        After Phase 1, all factory providers have DB records. We query DB first,
+        then look up factory for runtime info (config_schemas, etc.).
+        """
         db_providers = await self.repo.find()
-        db_provider_map = {p.name: p for p in db_providers}
 
         result = []
-        for provider_info in factory_providers:
-            provider_name = provider_info["provider_name"]
-            db_provider = db_provider_map.get(provider_name)
-
-            model_count = (
-                await self.instance_repo.count_by_provider(provider_id=db_provider.id)
-                if db_provider
-                else await self.instance_repo.count_by_provider(provider_name=provider_name)
-            )
-
-            provider_data = {
-                "provider_name": provider_name,
-                "display_name": provider_info["display_name"],
-                "supported_model_types": provider_info["supported_model_types"],
-                "credential_schema": provider_info["credential_schema"],
-                "config_schemas": provider_info.get("config_schemas", {}),
-                "model_count": model_count,
-                "default_parameters": db_provider.default_parameters if db_provider else {},
-                "is_template": provider_info.get("is_template", False),
-                "provider_type": provider_info.get("provider_type", "system"),
-                "template_name": provider_info.get("template_name"),
-                "is_enabled": db_provider.is_enabled if db_provider else True,
-            }
-
-            if db_provider:
-                provider_data["id"] = str(db_provider.id)
-                if db_provider.icon:
-                    provider_data["icon"] = db_provider.icon
-                if db_provider.description:
-                    provider_data["description"] = db_provider.description
-
-            result.append(provider_data)
-
-        # 处理仅在数据库中存在的自定义供应商
-        for provider_name, db_provider in db_provider_map.items():
-            if any(p["provider_name"] == provider_name for p in factory_providers):
-                continue
+        for db_provider in db_providers:
+            # Look up factory provider for runtime info (config_schemas, model lists, etc.)
+            factory_name = db_provider.template_name or db_provider.name
+            factory_provider = self.factory.get_provider(factory_name)
 
             model_count = await self.instance_repo.count_by_provider(provider_id=db_provider.id)
 
-            provider_data = {
-                "provider_name": db_provider.name,
-                "display_name": db_provider.display_name or db_provider.name,
-                "supported_model_types": db_provider.supported_model_types or [],
-                "credential_schema": db_provider.credential_schema or {},
-                "config_schemas": db_provider.config_schema or {},
-                "model_count": model_count,
-                "default_parameters": db_provider.default_parameters if db_provider.default_parameters else {},
-                "is_template": db_provider.is_template,
-                "provider_type": db_provider.provider_type,
-                "template_name": db_provider.template_name,
-                "is_enabled": db_provider.is_enabled,
-                "id": str(db_provider.id),
-                "icon": db_provider.icon,
-                "description": db_provider.description,
-            }
+            if factory_provider:
+                config_schemas: Dict[str, Any] = {}
+                for model_type in factory_provider.get_supported_model_types():
+                    schema = factory_provider.get_config_schema(model_type)
+                    if schema:
+                        config_schemas[model_type.value] = schema
+
+                provider_data: Dict[str, Any] = {
+                    "provider_name": db_provider.name,
+                    "display_name": db_provider.display_name or factory_provider.display_name,
+                    "supported_model_types": db_provider.supported_model_types or [
+                        mt.value for mt in factory_provider.get_supported_model_types()
+                    ],
+                    "credential_schema": db_provider.credential_schema or factory_provider.get_credential_schema(),
+                    "config_schemas": config_schemas,
+                    "model_count": model_count,
+                    "default_parameters": db_provider.default_parameters or {},
+                    "is_template": db_provider.is_template,
+                    "provider_type": db_provider.provider_type,
+                    "template_name": db_provider.template_name,
+                    "is_enabled": db_provider.is_enabled,
+                    "id": str(db_provider.id),
+                }
+            else:
+                # DB-only provider (custom, no factory entry)
+                provider_data = {
+                    "provider_name": db_provider.name,
+                    "display_name": db_provider.display_name or db_provider.name,
+                    "supported_model_types": db_provider.supported_model_types or [],
+                    "credential_schema": db_provider.credential_schema or {},
+                    "config_schemas": db_provider.config_schema or {},
+                    "model_count": model_count,
+                    "default_parameters": db_provider.default_parameters or {},
+                    "is_template": db_provider.is_template,
+                    "provider_type": db_provider.provider_type,
+                    "template_name": db_provider.template_name,
+                    "is_enabled": db_provider.is_enabled,
+                    "id": str(db_provider.id),
+                }
+
+            if db_provider.icon:
+                provider_data["icon"] = db_provider.icon
+            if db_provider.description:
+                provider_data["description"] = db_provider.description
+
             result.append(provider_data)
 
         result.sort(key=_provider_sort_key)
@@ -204,10 +201,11 @@ class ModelProviderService(BaseService):
                 "description": db_provider.description,
             }
 
+        # After Phase 1, all factory providers have DB records — always use provider_id
         model_count = (
             await self.instance_repo.count_by_provider(provider_id=db_provider.id)
             if db_provider
-            else await self.instance_repo.count_by_provider(provider_name=provider_name)
+            else 0  # No DB record means no instances; deprecated provider_name fallback removed
         )
 
         config_schemas = {}

@@ -40,8 +40,11 @@ class ModelInstance(BaseModel):
         nullable=True,
         comment="供应商ID（用户派生时使用）",
     )
+    # DEPRECATED: provider_name is kept for backward compatibility only.
+    # All records should now have provider_id set (backfilled in Phase 2 migration).
+    # Do not use provider_name for new logic — use provider_id / provider relationship instead.
     provider_name: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True, comment="模板供应商名称（如 custom），当 provider_id 为空时使用"
+        String(100), nullable=True, comment="[DEPRECATED] 模板供应商名称，已由 provider_id FK 取代"
     )
     model_name: Mapped[str] = mapped_column(
         String(255), nullable=False, comment="模型名称，如 'gpt-4o', 'claude-3-5-sonnet'"
@@ -60,15 +63,17 @@ class ModelInstance(BaseModel):
 
     @property
     def resolved_provider_name(self) -> str:
-        """获取解析后的供应商名称（处理了模板与派生供应商的差异）"""
-        return self.provider.name if self.provider else (self.provider_name or "")
+        """Provider name, resolved through FK relationship."""
+        if self.provider:
+            return self.provider.name
+        return self.provider_name or ""  # Deprecated fallback
 
     @property
     def resolved_implementation_name(self) -> str:
-        """获取解析后的实现名称（处理了模板与派生供应商的差异）"""
+        """Implementation name for factory lookup (template_name or provider name)."""
         if self.provider:
             return self.provider.template_name or self.provider.name
-        return self.provider_name or ""
+        return self.provider_name or ""  # Deprecated fallback
 
     __table_args__ = (
         Index("model_instance_user_id_idx", "user_id"),
