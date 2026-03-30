@@ -54,6 +54,11 @@ class ModelProvider(BaseModel):
     # 是否启用
     is_enabled: Mapped[bool] = mapped_column(default=True, nullable=False, comment="是否启用该供应商")
 
+    # Provider 级默认参数（JSON格式），如 {"temperature": 0.7, "max_tokens": 2000}
+    default_parameters: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict, server_default="{}", comment="Provider 级默认参数"
+    )
+
     # 关系
     credentials: Mapped[list["ModelCredential"]] = relationship(
         "ModelCredential", back_populates="provider", lazy="selectin"
