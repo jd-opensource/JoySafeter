@@ -21,6 +21,7 @@ import type {
   UpdateModelInstanceRequest,
   UpdateProviderDefaultsRequest,
   ModelsOverview,
+  ModelUsageStats,
 } from '@/types/models'
 
 import { STALE_TIME } from './constants'
@@ -37,6 +38,7 @@ export type {
   UpdateModelInstanceRequest,
   UpdateProviderDefaultsRequest,
   ModelsOverview,
+  ModelUsageStats,
 }
 
 const logger = createLogger('ModelQueries')
@@ -438,6 +440,28 @@ export function useUpdateModelInstance() {
       queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
       queryClient.invalidateQueries({ queryKey: modelKeys.overview() })
     },
+  })
+}
+
+export function useModelUsageStats(params: {
+  period?: string
+  granularity?: string
+  providerName?: string
+  modelName?: string
+  enabled?: boolean
+}) {
+  const { period = '24h', granularity = 'hour', providerName, modelName, enabled = true } = params
+  return useQuery({
+    queryKey: [...modelKeys.all, 'usage-stats', period, granularity, providerName, modelName] as const,
+    queryFn: async (): Promise<ModelUsageStats> => {
+      const p = new URLSearchParams({ period, granularity })
+      if (providerName) p.set('provider_name', providerName)
+      if (modelName) p.set('model_name', modelName)
+      return await apiGet<ModelUsageStats>(`${MODELS_PATH}/usage/stats?${p.toString()}`)
+    },
+    enabled,
+    retry: false,
+    staleTime: STALE_TIME.SHORT,
   })
 }
 

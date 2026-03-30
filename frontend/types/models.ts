@@ -161,6 +161,35 @@ export interface TestModelOutputResponse {
   output: string
 }
 
+// ==================== Usage Stats ====================
+
+export interface UsageStatsSummary {
+  total_calls: number
+  total_input_tokens: number
+  total_output_tokens: number
+  avg_response_time_ms: number
+  error_rate: number
+}
+
+export interface UsageTimelinePoint {
+  timestamp: string
+  calls: number
+  tokens: number
+  avg_time_ms: number
+}
+
+export interface UsageByModel {
+  model_name: string
+  calls: number
+  tokens: number
+}
+
+export interface ModelUsageStats {
+  summary: UsageStatsSummary
+  timeline: UsageTimelinePoint[]
+  by_model: UsageByModel[]
+}
+
 // ==================== Test Model Stream ====================
 
 /**
