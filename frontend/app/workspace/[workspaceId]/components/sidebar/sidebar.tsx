@@ -123,7 +123,7 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newAgentName, setNewAgentName] = useState('')
-  const [createAgentMode, setCreateAgentMode] = useState<'dsl' | 'canvas'>('dsl')
+  const [createAgentMode, setCreateAgentMode] = useState<'dsl' | 'canvas'>('canvas')
   const isCollapsed = useSidebarStore((state) => state.isCollapsed)
   const setIsCollapsed = useSidebarStore((state) => state.setIsCollapsed)
   const sidebarWidth = useSidebarStore((state) => state.sidebarWidth)
@@ -964,21 +964,6 @@ export function Sidebar() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setCreateAgentMode('dsl')}
-                className={cn(
-                  'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
-                  createAgentMode === 'dsl'
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                    : 'border-[var(--border)] hover:border-primary/30'
-                )}
-              >
-                <span className="text-sm font-medium">Code (DSL)</span>
-                <span className="text-[11px] leading-tight text-[var(--text-muted)]">
-                  Python code to define graph structure
-                </span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setCreateAgentMode('canvas')}
                 className={cn(
                   'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
@@ -990,6 +975,21 @@ export function Sidebar() {
                 <span className="text-sm font-medium">Canvas</span>
                 <span className="text-[11px] leading-tight text-[var(--text-muted)]">
                   Drag-and-drop DeepAgents builder
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateAgentMode('dsl')}
+                className={cn(
+                  'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all',
+                  createAgentMode === 'dsl'
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : 'border-[var(--border)] hover:border-primary/30'
+                )}
+              >
+                <span className="text-sm font-medium">Code (DSL)</span>
+                <span className="text-[11px] leading-tight text-[var(--text-muted)]">
+                  Python code to define graph structure
                 </span>
               </button>
             </div>
