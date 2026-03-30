@@ -125,7 +125,9 @@ class ModelService(BaseService):
             model_found_in_list = True
 
             prov_impl = self.factory.get_provider(impl_name)
-            if prov_impl:
+            if prov_impl and not prov_impl.is_template:
+                # 只对非模板 Provider 检查模型是否在预定义列表中
+                # 自定义 Provider (is_template=True) 的模型是用户动态添加的，不在预定义列表中
                 provider_credentials = credentials_dict.get(pname)
                 model_list = prov_impl.get_model_list(model_type, provider_credentials)
                 matched = next((m for m in model_list if m.get("name") == instance.model_name), None)
