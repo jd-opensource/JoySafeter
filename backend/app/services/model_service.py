@@ -16,6 +16,7 @@ from app.repositories.model_provider import ModelProviderRepository
 from app.services.model_credential_service import ModelCredentialService
 
 from .base import BaseService
+from .model_usage_service import ModelUsageService
 
 
 class ModelService(BaseService):
@@ -27,6 +28,7 @@ class ModelService(BaseService):
         self.provider_repo = ModelProviderRepository(db)
         self.credential_repo = ModelCredentialRepository(db)
         self.credential_service = ModelCredentialService(db)
+        self.usage_service = ModelUsageService(db)
         self.factory = get_factory()
 
     # ------------------------------------------------------------------
@@ -530,12 +532,42 @@ class ModelService(BaseService):
             instance.model_parameters or {},
         )
 
-        response = await model.ainvoke(input_text)
+        import time
 
-        content = response.content if hasattr(response, "content") else str(response)
-        if isinstance(content, list):
-            return " ".join(str(item) for item in content)
-        return str(content)
+        start_time = time.monotonic()
+        try:
+            response = await model.ainvoke(input_text)
+            total_time_ms = round((time.monotonic() - start_time) * 1000, 1)
+
+            content = response.content if hasattr(response, "content") else str(response)
+            if isinstance(content, list):
+                content = " ".join(str(item) for item in content)
+            else:
+                content = str(content)
+
+            await self.usage_service.log_usage(
+                provider_name=provider_name,
+                model_name=model_name,
+                input_tokens=max(1, len(input_text) // 4),
+                output_tokens=max(1, len(content) // 4),
+                total_time_ms=total_time_ms,
+                status="success",
+                user_id=user_id,
+                source="playground",
+            )
+            return content
+        except Exception as e:
+            total_time_ms = round((time.monotonic() - start_time) * 1000, 1)
+            await self.usage_service.log_usage(
+                provider_name=provider_name,
+                model_name=model_name,
+                total_time_ms=total_time_ms,
+                status="error",
+                error_message=str(e)[:2000],
+                user_id=user_id,
+                source="playground",
+            )
+            raise
 
     async def test_output_stream(
         self,
@@ -616,8 +648,29 @@ class ModelService(BaseService):
                 "output_tokens": output_tokens,
                 "tokens_per_second": round(output_tokens / total_time, 1) if total_time > 0 else 0,
             }
+            await self.usage_service.log_usage(
+                provider_name=provider_name,
+                model_name=model_name,
+                input_tokens=input_tokens_est,
+                output_tokens=output_tokens,
+                total_time_ms=round(total_time * 1000, 1),
+                ttft_ms=round(ttft * 1000, 1),
+                status="success",
+                user_id=user_id,
+                source="playground",
+            )
             yield f"event: metrics\ndata: {json.dumps(metrics)}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
 
         except Exception as e:
+            total_time = time.monotonic() - start_time
+            await self.usage_service.log_usage(
+                provider_name=provider_name,
+                model_name=model_name,
+                total_time_ms=round(total_time * 1000, 1),
+                status="error",
+                error_message=str(e)[:2000],
+                user_id=user_id,
+                source="playground",
+            )
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
