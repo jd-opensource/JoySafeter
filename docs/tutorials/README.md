@@ -11,7 +11,6 @@
 | 01 | [模型配置：内置供应商与自定义供应商](./01-model-provider-setup.md) | OpenAI / OpenAI Compatible / Ollama 接入 | ⭐ 入门 |
 | 02 | [添加 MCP 服务](./02-mcp-service-setup.md) | 内置工具加载 / 自定义 MCP 工具注册 | ⭐⭐ 进阶 |
 | 03 | [导入 Skills](./03-skills-usage.md) | 从“导入成功”到“Agent 可用”的可验证闭环（DB → 同步 → Sandbox/Graph → 消费） | ⭐⭐ 进阶 |
-| 04a | [教程 04a：基于 LangGraph 的确定性工作流](./04a-langgraph-building.md) | 深入解析如何构建线性、条件分支、循环与并行等高度可控的标准工作流（LanggraphModelBuilder）。 | ⭐️⭐️⭐️ |
 | 04b | [教程 04b：DeepAgents 动态多智能体协作](./04b-deepagents-building.md) | 高阶玩法：使用星型拓扑架构，让 Manager 节点动态、自发地调遣专业 SubAgent 处理复杂不可预见的分支任务。 | ⭐️⭐️⭐️⭐️ 高级 |
 | 05 | [Copilot 使用指南](./05-copilot-usage.md) | 实时对话 / 中断介入 / AI 决策辅助 | ⭐ 入门 |
 | 06 | [OpenClaw（沙盒后端）配置与使用](./06-openclaw-usage.md) | 沙盒启动 / Skills 同步 / 预加载 / Copilot 消费闭环 | ⭐⭐ 进阶 |
@@ -26,7 +25,7 @@
 |------|---------|------|
 | 技能版本化与协作者 | [教程 03](./03-skills-usage.md) | 已覆盖 |
 | 多租户沙箱引擎 (OpenClaw) | [教程 06](./06-openclaw-usage.md) | 已覆盖 |
-| Langfuse 可观测性 | [教程 04a](./04a-langgraph-building.md) / [04b](./04b-deepagents-building.md) | 已覆盖 |
+| Langfuse 可观测性 | [04b](./04b-deepagents-building.md) | 已覆盖 |
 | 企业 SSO | [教程 01](./01-model-provider-setup.md) | 已覆盖 |
 | Platform API Tokens | [教程 01](./01-model-provider-setup.md)（全局认证说明） | 已覆盖 |
 | DeepAgents v0.4 | [教程 04b](./04b-deepagents-building.md) | 已覆盖 |
@@ -39,7 +38,7 @@
 
 1. **教程 01**：配置模型（OpenAI 或本地 Ollama）
 2. **教程 05**：用 Copilot 与 Agent 进行第一次对话
-3. **教程 04a**：构建一个简单的线性 3 步工作流
+3. **教程 04b**：构建一个 DeepAgents 多智能体协作图
 
 ### 🔧 完整功能（1 小时）
 
@@ -47,7 +46,7 @@
 2. **教程 06**：启动 OpenClaw，并验证 skills 同步与预加载链路（后续所有“可执行工具/脚本”的前提）
 3. **教程 03**：导入 Skills，并跑通“DB →（可选）OpenClaw → Sandbox/Graph → Agent 消费”的闭环
 4. **教程 02**：添加自定义 MCP 工具（让 Skill 不只是文档，而是可调用的工具能力）
-5. **教程 04a & 04b**：掌握条件分支、循环、并行、DeepAgents 协作模式
+5. **教程 04b**：掌握 DeepAgents 多智能体协作模式
 
 ### 🏆 高级应用
 
