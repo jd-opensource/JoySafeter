@@ -20,6 +20,7 @@ from .mcp import router as mcp_router
 from .memory import router as memory_router
 from .model_credentials import router as model_credentials_router
 from .model_providers import router as model_providers_router
+from .model_usage import router as model_usage_router
 from .models import router as models_router
 from .oauth import router as oauth_router
 from .openapi_graph import router as openapi_graph_router
@@ -60,6 +61,7 @@ ROUTERS = [
     model_providers_router,
     model_credentials_router,
     models_router,
+    model_usage_router,
     graph_code_router,
     graph_deployments_router,
     graph_tests_router,
