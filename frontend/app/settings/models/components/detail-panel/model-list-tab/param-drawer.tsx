@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/hooks/use-toast'
@@ -130,6 +130,7 @@ export function ParamDrawer({
         <SheetContent side="right" className="w-[400px] sm:w-[480px]">
           <SheetHeader>
             <SheetTitle>参数设置 — {modelName}</SheetTitle>
+            <SheetDescription>调整模型运行参数</SheetDescription>
           </SheetHeader>
           <div className="flex h-40 items-center justify-center text-[var(--text-muted)]">
             <p className="text-sm">该模型暂无可配置参数</p>
@@ -144,6 +145,7 @@ export function ParamDrawer({
       <SheetContent side="right" className="w-[400px] sm:w-[480px] flex flex-col">
         <SheetHeader>
           <SheetTitle>参数设置 — {modelName}</SheetTitle>
+          <SheetDescription>调整模型运行参数，如 temperature、max_tokens 等</SheetDescription>
         </SheetHeader>
 
         <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
