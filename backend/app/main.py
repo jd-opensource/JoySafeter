@@ -139,14 +139,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                     logger.info(
                         f"   Provider count mismatch (DB: {provider_count}, Factory: {factory_provider_count}), starting auto-sync..."
                     )
-                    provider_service = ModelProviderService(db)
-                    result = await provider_service.sync_all()
+                provider_service = ModelProviderService(db)
+                result = await provider_service.sync_all()
+                if provider_count != factory_provider_count:
                     logger.info(f"   ✓ Auto-sync completed: {result['providers']} providers, {result['models']} models")
                     if result.get("errors"):
                         for error in result["errors"]:
                             logger.warning(f"   ⚠️  {error}")
                 else:
-                    logger.info(f"   ✓ {provider_count} providers already exist and are up to date, skipping auto-sync")
+                    logger.info(f"   ✓ Provider sync completed ({result['providers']} providers updated)")
     except Exception as e:
         logger.warning(f"   ⚠️  Auto-sync providers failed: {e}")
         logger.warning("   App will continue starting, you can manually call /api/v1/model-providers/sync later")

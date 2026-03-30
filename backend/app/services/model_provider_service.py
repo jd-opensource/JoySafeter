@@ -38,7 +38,7 @@ class ModelProviderService(BaseService):
         self.factory = get_factory()
 
     async def sync_providers_from_factory(self) -> List[Dict[str, Any]]:
-        """从工厂同步供应商到数据库"""
+        """从工厂同步供应商到数据库（upsert：不存在则创建，存在则更新）"""
         from loguru import logger
 
         factory_providers = self.factory.get_all_providers()
@@ -51,34 +51,40 @@ class ModelProviderService(BaseService):
                 existing = await self.repo.get_by_name(provider_name)
                 config_schemas = provider_info.get("config_schemas", {})
 
+                provider_data = {
+                    "display_name": provider_info.get("display_name", provider_name),
+                    "supported_model_types": provider_info.get("supported_model_types", []),
+                    "credential_schema": provider_info.get("credential_schema", {}),
+                    "config_schema": config_schemas,
+                    "is_template": provider_info.get("is_template", False),
+                    "provider_type": provider_info.get("provider_type", "system"),
+                    "template_name": provider_info.get("template_name"),
+                }
+
                 if existing:
-                    await self.repo.update(
-                        existing.id,
-                        {
-                            "display_name": provider_info.get("display_name", existing.display_name),
-                            "supported_model_types": provider_info.get("supported_model_types", []),
-                            "credential_schema": provider_info.get("credential_schema", {}),
-                            "config_schema": config_schemas,
-                            "is_template": provider_info.get("is_template", False),
-                            "provider_type": provider_info.get("provider_type", "system"),
-                            "template_name": provider_info.get("template_name"),
-                        },
-                    )
-                    synced_providers.append(
-                        {
-                            "id": str(existing.id),
-                            "name": existing.name,
-                            "display_name": existing.display_name,
-                            "supported_model_types": existing.supported_model_types or [],
-                            "credential_schema": existing.credential_schema or {},
-                            "config_schema": existing.config_schema or {},
-                            "is_enabled": existing.is_enabled,
-                            "is_template": existing.is_template,
-                            "provider_type": existing.provider_type,
-                            "template_name": existing.template_name,
-                        }
-                    )
+                    await self.repo.update(existing.id, provider_data)
+                    db_provider = existing
                     logger.debug(f"已更新供应商: {provider_name}")
+                else:
+                    db_provider = await self.repo.create({
+                        "name": provider_name,
+                        "is_enabled": True,
+                        **provider_data,
+                    })
+                    logger.info(f"已创建供应商: {provider_name}")
+
+                synced_providers.append({
+                    "id": str(db_provider.id),
+                    "name": db_provider.name,
+                    "display_name": db_provider.display_name,
+                    "supported_model_types": db_provider.supported_model_types or [],
+                    "credential_schema": db_provider.credential_schema or {},
+                    "config_schema": db_provider.config_schema or {},
+                    "is_enabled": db_provider.is_enabled,
+                    "is_template": db_provider.is_template,
+                    "provider_type": db_provider.provider_type,
+                    "template_name": db_provider.template_name,
+                })
             except Exception as e:
                 error_msg = f"同步供应商 {provider_name} 失败: {str(e)}"
                 errors.append(error_msg)
