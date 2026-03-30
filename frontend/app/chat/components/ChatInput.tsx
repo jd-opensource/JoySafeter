@@ -139,7 +139,7 @@ export default function ChatInput({
       {/* Main Input Container */}
       <div
         className={cn(
-          'flex flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] px-4 py-3 transition-all',
+          'flex flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 transition-all',
           isDragOver && 'border-primary/50 bg-primary/5',
         )}
         onDragOver={handleDragOver}
@@ -177,21 +177,21 @@ export default function ChatInput({
               onClick={() => fileInputRef.current?.click()}
               disabled={isProcessing || isUploading}
               className={cn(
-                'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-[var(--text-tertiary)] transition-all duration-200 hover:bg-[var(--surface-5)] hover:text-[var(--text-secondary)]',
+                'flex h-8 w-8 items-center justify-center rounded-full bg-transparent p-0 text-[var(--text-tertiary)] transition-all duration-200 hover:bg-[var(--surface-5)] hover:text-[var(--text-secondary)]',
                 (isUploading || isProcessing) && 'cursor-not-allowed opacity-50',
               )}
               title={t('chat.uploadFile')}
             >
-              {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
+              {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
             </Button>
             {isProcessing && onStop ? (
               <Button
                 onClick={onStop}
                 size="sm"
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
+                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
                 title={t('chat.stop')}
               >
-                <Square size={14} className="fill-white text-white" />
+                <Square size={12} className="fill-white text-white" />
               </Button>
             ) : (
               <Button
@@ -199,14 +199,14 @@ export default function ChatInput({
                 disabled={!canSubmit || isProcessing || isUploading}
                 size="sm"
                 className={cn(
-                  'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
+                  'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                   canSubmit && !isProcessing && !isUploading
                     ? 'bg-primary hover:bg-primary/90'
                     : 'cursor-not-allowed bg-[var(--surface-3)]',
                 )}
               >
                 <ArrowRight
-                  size={18}
+                  size={14}
                   className={
                     canSubmit && !isProcessing && !isUploading ? 'text-white' : 'text-[var(--text-subtle)]'
                   }

@@ -340,14 +340,7 @@ export default function ChatHome({
   return (
     <div className="flex h-full w-full bg-[var(--bg)]">
       <div className="relative flex flex-1 flex-col items-center justify-center p-8">
-        {/* Subtle radial gradient ambient */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-40"
-          style={{
-            background:
-              'radial-gradient(ellipse 60% 40% at 50% 0%, hsl(var(--primary) / 0.08) 0%, transparent 70%)',
-          }}
-        />
+        {/* Background kept clean — no gradient */}
         <div className="relative flex w-full max-w-3xl flex-col gap-8">
           <div className="text-center">
             <h1 className="mb-2 text-[32px] font-semibold tracking-tight text-[var(--text-primary)]">
@@ -495,14 +488,14 @@ export default function ChatHome({
                               onClick={() => fileInputRef.current?.click()}
                               disabled={isProcessing || isUploading}
                               className={cn(
-                                'flex h-9 w-9 items-center justify-center rounded-full bg-transparent p-0 text-[var(--text-tertiary)] transition-all duration-200 hover:bg-[var(--surface-5)] hover:text-[var(--text-secondary)]',
+                                'flex h-8 w-8 items-center justify-center rounded-full bg-transparent p-0 text-[var(--text-tertiary)] transition-all duration-200 hover:bg-[var(--surface-5)] hover:text-[var(--text-secondary)]',
                                 isUploading && 'cursor-not-allowed opacity-50',
                               )}
                             >
                               {isUploading ? (
-                                <Loader2 size={18} className="animate-spin" />
+                                <Loader2 size={14} className="animate-spin" />
                               ) : (
-                                <Paperclip size={18} />
+                                <Paperclip size={14} />
                               )}
                             </Button>
                           </TooltipTrigger>
@@ -515,10 +508,10 @@ export default function ChatHome({
                         <Button
                           onClick={onStop}
                           size="sm"
-                          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
+                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-500 p-0 transition-all hover:bg-red-600"
                           title={t('chat.stop')}
                         >
-                          <Square size={14} className="fill-white text-white" />
+                          <Square size={12} className="fill-white text-white" />
                         </Button>
                       ) : (
                         <Button
@@ -526,17 +519,17 @@ export default function ChatHome({
                           disabled={!state.input.trim() || isProcessing || state.isRedirecting}
                           size="sm"
                           className={cn(
-                            'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
+                            'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-0 transition-all',
                             state.input.trim() && !isProcessing && !state.isRedirecting
                               ? 'bg-primary hover:bg-primary/90'
                               : 'cursor-not-allowed bg-[var(--surface-3)]',
                           )}
                         >
                           {state.isRedirecting ? (
-                            <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" />
+                            <Loader2 size={14} className="animate-spin text-[var(--text-muted)]" />
                           ) : (
                             <ArrowRight
-                              size={18}
+                              size={14}
                               className={
                                 state.input.trim() && !isProcessing && !state.isRedirecting
                                   ? 'text-white'

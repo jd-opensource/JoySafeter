@@ -76,18 +76,18 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
   if (isUser) {
     return (
       <motion.div
-        className="mb-6 flex justify-end"
+        className="flex w-full gap-3 justify-end"
         variants={messageVariants}
         initial="hidden"
         animate="visible"
       >
-        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-[var(--surface-12)] px-5 py-3.5 text-white shadow-sm">
-          <p className="whitespace-pre-wrap text-[15px] font-normal leading-relaxed">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gray-900 px-4 py-2.5 text-sm leading-relaxed text-white">
+          <p className="whitespace-pre-wrap">
             {message.content}
           </p>
         </div>
-        <div className="ml-3 mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--surface-4)]">
-          <User size={14} className="text-[var(--text-muted)]" />
+        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[var(--surface-5)]">
+          <User size={14} className="text-[var(--text-secondary)]" />
         </div>
       </motion.div>
     )
@@ -96,24 +96,18 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
   // Assistant Message
   return (
     <motion.div
-      className="group mb-8 flex justify-start"
+      className="group flex w-full gap-3 justify-start"
       variants={messageVariants}
       initial="hidden"
       animate="visible"
     >
-      <div className="mr-4 mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-700)] shadow-md">
-        <Bot size={16} className="text-white" />
+      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[var(--brand-50)]">
+        <Bot size={14} className="text-[var(--brand-500)]" />
       </div>
-      <div className="min-w-[50%] max-w-[85%] rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] shadow-sm">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="rounded border border-[var(--brand-200)] bg-[var(--brand-50)] px-1.5 py-0.5 text-[10px] text-[var(--brand-500)]">
-            AI
-          </span>
-        </div>
-
+      <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-[var(--border-muted)] bg-[var(--surface-2)] px-4 py-2.5 text-sm leading-relaxed text-[var(--text-primary)]">
         {/* Tool Calls Area */}
         {message.tool_calls && message.tool_calls.length > 0 && (
-          <div className="mb-4">
+          <div className="mb-2 space-y-1">
             {message.tool_calls.map((tool) => (
               <ToolCallBadge
                 key={tool.id}
@@ -127,14 +121,14 @@ export default function MessageItem({ message, onToolClick, onRetry }: MessageIt
         )}
 
         {/* Main Content */}
-        <div className="prose prose-sm max-w-none leading-7 text-[var(--text-primary)]">
+        <div className="prose prose-sm max-w-none prose-headings:my-2 prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
           {sanitizedContent ? (
             <ReactMarkdown components={markdownComponents}>
               {sanitizedContent}
             </ReactMarkdown>
           ) : (
             message.isStreaming && (
-              <span className="inline-block h-4 w-1.5 animate-pulse rounded-full bg-[var(--brand-500)] align-middle" />
+              <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-[var(--brand-500)] align-middle" />
             )
           )}
         </div>
