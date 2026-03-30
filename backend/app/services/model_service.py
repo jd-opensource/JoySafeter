@@ -140,6 +140,7 @@ class ModelService(BaseService):
                 unavailable_reason = "model_not_found"
 
             entry: Dict[str, Any] = {
+                "instance_id": str(instance.id),
                 "provider_name": pname,
                 "provider_display_name": pdisplay,
                 "name": instance.model_name,
@@ -147,6 +148,7 @@ class ModelService(BaseService):
                 "description": description,
                 "is_available": ctx["is_valid"] and unavailable_reason is None,
                 "is_default": instance.is_default,
+                "model_parameters": instance.model_parameters or {},
             }
             if unavailable_reason:
                 entry["unavailable_reason"] = unavailable_reason

@@ -5,7 +5,7 @@ import { Star, Settings } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import type { AvailableModel, ModelInstance } from '@/types/models'
+import type { AvailableModel } from '@/types/models'
 
 const UNAVAILABLE_REASON_LABELS: Record<string, string> = {
   no_credentials: '未配置凭证',
@@ -16,12 +16,11 @@ const UNAVAILABLE_REASON_LABELS: Record<string, string> = {
 
 interface ModelRowProps {
   model: AvailableModel
-  instance?: ModelInstance
   onEditParams: () => void
   onSetDefault: () => void
 }
 
-export function ModelRow({ model, instance, onEditParams, onSetDefault }: ModelRowProps) {
+export function ModelRow({ model, onEditParams, onSetDefault }: ModelRowProps) {
   const unavailableLabel = model.unavailable_reason
     ? UNAVAILABLE_REASON_LABELS[model.unavailable_reason] ?? model.unavailable_reason
     : null
@@ -50,9 +49,9 @@ export function ModelRow({ model, instance, onEditParams, onSetDefault }: ModelR
           {model.description && (
             <p className="text-xs text-[var(--text-tertiary)] truncate">{model.description}</p>
           )}
-          {instance?.model_parameters && Object.keys(instance.model_parameters).length > 0 && (
+          {model.model_parameters && Object.keys(model.model_parameters).length > 0 && (
             <p className="text-xs text-[var(--text-muted)] truncate">
-              {Object.entries(instance.model_parameters)
+              {Object.entries(model.model_parameters)
                 .slice(0, 3)
                 .map(([k, v]) => `${k}: ${v}`)
                 .join(', ')}

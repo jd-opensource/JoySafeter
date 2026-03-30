@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 
-import { useAvailableModels, useModelInstances, useUpdateModelInstanceDefault } from '@/hooks/queries/models'
-import type { ModelInstance, ModelProvider } from '@/types/models'
+import { useAvailableModels, useUpdateModelInstanceDefault } from '@/hooks/queries/models'
+import type { AvailableModel, ModelProvider } from '@/types/models'
 
 import { ModelRow } from './model-row'
 import { ParamDrawer } from './param-drawer'
@@ -15,13 +15,11 @@ interface ModelListTabProps {
 
 export function ModelListTab({ providerName, provider }: ModelListTabProps) {
   const { data: availableModels = [] } = useAvailableModels('chat')
-  const { data: instances = [] } = useModelInstances()
   const updateDefault = useUpdateModelInstanceDefault()
 
-  const [editingInstance, setEditingInstance] = useState<ModelInstance | null>(null)
+  const [editingModel, setEditingModel] = useState<AvailableModel | null>(null)
 
   const providerModels = availableModels.filter((m) => m.provider_name === providerName)
-  const instanceMap = new Map(instances.map((i) => [i.model_name, i]))
 
   const handleSetDefault = (modelName: string) => {
     updateDefault.mutate({ provider_name: providerName, model_name: modelName, is_default: true })
@@ -37,24 +35,22 @@ export function ModelListTab({ providerName, provider }: ModelListTabProps) {
 
   return (
     <div className="p-4 space-y-2">
-      {providerModels.map((model) => {
-        const instance = instanceMap.get(model.name)
-        return (
-          <ModelRow
-            key={model.name}
-            model={model}
-            instance={instance}
-            onEditParams={() => instance && setEditingInstance(instance)}
-            onSetDefault={() => handleSetDefault(model.name)}
-          />
-        )
-      })}
+      {providerModels.map((model) => (
+        <ModelRow
+          key={model.name}
+          model={model}
+          onEditParams={() => setEditingModel(model)}
+          onSetDefault={() => handleSetDefault(model.name)}
+        />
+      ))}
 
-      {editingInstance && (
+      {editingModel && (
         <ParamDrawer
-          open={!!editingInstance}
-          onOpenChange={(open) => !open && setEditingInstance(null)}
-          instance={editingInstance}
+          open={!!editingModel}
+          onOpenChange={(open) => !open && setEditingModel(null)}
+          instanceId={editingModel.instance_id}
+          modelName={editingModel.name}
+          modelParameters={editingModel.model_parameters ?? {}}
           configSchema={provider.config_schemas?.chat ?? null}
           providerDefaults={provider.default_parameters ?? {}}
         />

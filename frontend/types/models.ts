@@ -94,6 +94,7 @@ export interface UpdateModelInstanceDefaultRequest {
  * Available model (for selector)
  */
 export interface AvailableModel {
+  instance_id: string
   provider_name: string
   provider_display_name: string
   name: string
@@ -101,6 +102,7 @@ export interface AvailableModel {
   description: string
   is_available: boolean
   is_default?: boolean
+  model_parameters?: Record<string, unknown>
   unavailable_reason?: 'no_credentials' | 'invalid_credentials' | 'model_not_found' | 'provider_error'
 }
 

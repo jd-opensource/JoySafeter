@@ -10,7 +10,6 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/hooks/use-toast'
 import { useUpdateModelInstance } from '@/hooks/queries/models'
-import type { ModelInstance } from '@/types/models'
 
 interface ParamField {
   key: string
@@ -52,7 +51,9 @@ function parseConfigSchema(schema: Record<string, any> | null): ParamField[] {
 interface ParamDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  instance: ModelInstance
+  instanceId: string
+  modelName: string
+  modelParameters: Record<string, unknown>
   configSchema: Record<string, any> | null
   providerDefaults: Record<string, unknown>
 }
@@ -60,7 +61,9 @@ interface ParamDrawerProps {
 export function ParamDrawer({
   open,
   onOpenChange,
-  instance,
+  instanceId,
+  modelName,
+  modelParameters,
   configSchema,
   providerDefaults,
 }: ParamDrawerProps) {
@@ -71,20 +74,19 @@ export function ParamDrawer({
 
   const fields = useMemo(() => parseConfigSchema(configSchema), [configSchema])
 
-  // Reset state when instance changes or drawer opens
+  // Reset state when drawer opens
   useEffect(() => {
     if (open) {
-      setParams(instance.model_parameters ?? {})
-      // Initialize useDefaults: if param is not set on instance, default to using provider default
+      setParams(modelParameters)
       const defaults: Record<string, boolean> = {}
       for (const field of fields) {
-        const hasInstanceValue = instance.model_parameters?.[field.key] !== undefined
+        const hasInstanceValue = modelParameters[field.key] !== undefined
         const hasProviderDefault = providerDefaults[field.key] !== undefined
         defaults[field.key] = !hasInstanceValue && hasProviderDefault
       }
       setUseDefaults(defaults)
     }
-  }, [open, instance, fields, providerDefaults])
+  }, [open, modelParameters, fields, providerDefaults])
 
   const handleSave = async () => {
     const finalParams: Record<string, unknown> = {}
@@ -95,7 +97,7 @@ export function ParamDrawer({
     }
     try {
       await updateInstance.mutateAsync({
-        instanceId: instance.id,
+        instanceId,
         request: { model_parameters: finalParams },
       })
       toast({ title: '参数已保存' })
@@ -127,7 +129,7 @@ export function ParamDrawer({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="right" className="w-[400px] sm:w-[480px]">
           <SheetHeader>
-            <SheetTitle>参数设置 — {instance.model_name}</SheetTitle>
+            <SheetTitle>参数设置 — {modelName}</SheetTitle>
           </SheetHeader>
           <div className="flex h-40 items-center justify-center text-[var(--text-muted)]">
             <p className="text-sm">该模型暂无可配置参数</p>
@@ -141,7 +143,7 @@ export function ParamDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-[400px] sm:w-[480px] flex flex-col">
         <SheetHeader>
-          <SheetTitle>参数设置 — {instance.model_name}</SheetTitle>
+          <SheetTitle>参数设置 — {modelName}</SheetTitle>
         </SheetHeader>
 
         <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
