@@ -9,9 +9,10 @@ flowchart TB
     subgraph Row1[" "]
         direction LR
 
-        subgraph Frontend["Frontend Layer (Next.js 16 + React 19)"]
+        subgraph Frontend["Frontend Layer (Next.js + React)"]
             direction TB
-            UI["Visual Builder<br/>ReactFlow"]
+            Canvas["DeepAgents Canvas<br/>ReactFlow"]
+            CodeEditor["Code Editor<br/>CodeMirror"]
             Trace["Execution Trace<br/>SSE Stream"]
             Workspace["Workspace Manager<br/>RBAC"]
             Copilot["Copilot AI<br/>Graph Assistant"]
@@ -21,6 +22,7 @@ flowchart TB
             direction TB
             REST["REST APIs<br/>Auth/Graphs/Chat/Skills"]
             SSE["SSE Stream<br/>Real-time Events"]
+            CodeAPI["Code API<br/>Save/Run"]
         end
 
         subgraph Services["Service Layer"]
@@ -34,11 +36,9 @@ flowchart TB
 
         subgraph Engine["Core Engine"]
             direction TB
-            Builder["GraphBuilder<br/>Factory Pattern"]
-            LangBuilder["LanggraphModel<br/>Builder<br/>Standard Workflows"]
-            DeepBuilder["DeepAgents<br/>Builder<br/>Multi-Agent"]
-            Executors["Node Executors<br/>11 Types"]
-            Middleware["Middleware System<br/>Extensible"]
+            DeepBuilder["DeepAgents<br/>Builder"]
+            CodeExec["Code Executor<br/>Sandboxed exec()"]
+            Middleware["Middleware System<br/>Memory"]
             SkillSys["Skill System<br/>Progressive Disclosure"]
             MemorySys["Memory System<br/>Long/Short-term"]
         end
@@ -55,8 +55,8 @@ flowchart TB
 
         subgraph Data["Data Layer"]
             direction TB
-            PG["(PostgreSQL<br/>Graphs/Skills/Memories)"]
-            Redis["(Redis<br/>Cache/Rate Limit)"]
+            PG["PostgreSQL<br/>Graphs/Skills/Memory"]
+            Redis["Redis<br/>Cache/Sessions"]
         end
 
         subgraph MCP["MCP Tool Ecosystem"]
@@ -66,13 +66,15 @@ flowchart TB
         end
     end
 
-    UI --> REST
+    Canvas --> REST
+    CodeEditor --> CodeAPI
     Trace --> SSE
     Workspace --> REST
     Copilot --> REST
 
     REST --> Services
     SSE --> Services
+    CodeAPI --> Services
 
     Services --> Engine
     Engine --> Runtime
@@ -96,36 +98,33 @@ flowchart TB
 
 ### Core Modules
 
-#### 1. Graph Builder System
+#### 1. Graph Build System — Two Paths
 
-The graph builder system uses a factory pattern to automatically select the appropriate builder based on graph configuration:
+The system supports two graph building modes:
 
 ```mermaid
 flowchart LR
-    Config[Graph Config] --> Factory[GraphBuilder Factory]
-    Factory -->|Standard Nodes| LangBuilder[LanggraphModelBuilder]
-    Factory -->|useDeepAgents=True| DeepBuilder[DeepAgentsBuilder]
+    Service[GraphService] -->|graph_mode = code| CodeExec[Code Executor<br/>exec → StateGraph.compile]
+    Service -->|canvas mode| DeepBuilder[DeepAgents Builder<br/>Manager-Worker topology]
 
-    LangBuilder --> BaseBuilder[BaseGraphBuilder]
-    DeepBuilder --> BaseBuilder
+    CodeExec --> LangGraph[LangGraph Runtime]
+    DeepBuilder --> LangGraph
 
-    BaseBuilder --> Executors[Node Executors]
-    BaseBuilder --> State[GraphState]
-
-    Executors --> LangGraph[LangGraph Runtime]
-    State --> LangGraph
-
-    style Factory fill:#e1f5ff
-    style LangBuilder fill:#fff3e0
+    style Service fill:#e1f5ff
+    style CodeExec fill:#fff3e0
     style DeepBuilder fill:#e8f5e8
-    style BaseBuilder fill:#f3e5f5
 ```
 
-**Key Components:**
-- **GraphBuilder**: Factory class that auto-detects configuration and selects builder
-- **LanggraphModelBuilder**: Builds standard LangGraph workflows with 11 node types
-- **DeepAgentsGraphBuilder**: Builds Manager-Worker star topology for multi-agent collaboration
-- **BaseGraphBuilder**: Base class providing common functionality (node/edge management, executor creation)
+**Code Mode:**
+- User writes standard LangGraph Python code in the browser editor
+- Backend executes code in a sandboxed environment (restricted builtins, import whitelist, exec timeout)
+- Extracts `StateGraph` instance from executed code, compiles and runs it
+- Zero learning curve — LangGraph docs are the docs
+
+**DeepAgents Canvas Mode:**
+- Visual drag-and-drop builder for multi-agent orchestration
+- Three node types: Agent, Code Agent, A2A Agent
+- Builds Manager-Worker star topology via `deepagents.create_deep_agent()`
 
 #### 2. DeepAgents Multi-Agent Orchestration
 
@@ -157,46 +156,64 @@ flowchart TB
     style Backend fill:#e8f5e8
 ```
 
-**Features:**
+**DeepAgents Build Pipeline:**
+
+```
+build_deep_agents_graph()
+    ├── 1. resolve_all_configs()     — pure config extraction, no side effects
+    ├── 2. setup shared backend      — Docker sandbox if needed
+    ├── 3. preload_skills()          — batch preload with deduplication
+    ├── 4. ModelResolver.resolve()   — unified LLM resolution with cache
+    ├── 5. build workers             — agent_factory per node type
+    └── 6. create_deep_agent()       — compile and finalize
+```
+
+**Key Design Decisions:**
+- **No inheritance** — composition of dedicated resolvers (ModelResolver, ToolResolver, SkillsLoader)
+- **Config resolution is pure** — no side effects, each node resolved exactly once
+- **Model resolution is unified and cached** — same resolver for node models and memory models
 - **Star Topology**: Manager connects directly to all SubAgents (not chain)
 - **Shared Backend**: Docker backend shared across agents for skills and code execution
-- **Skill Preloading**: Skills loaded to `/workspace/skills/` before execution
-- **Task Delegation**: Manager uses `task()` tool to delegate work to SubAgents
 
-#### 3. Skill System (Progressive Disclosure)
+#### 3. Code Executor Security
+
+The code executor runs user LangGraph code with multiple security layers:
+
+| Layer | Protection |
+|-------|-----------|
+| **Builtins blacklist** | `open`, `eval`, `exec`, `compile`, `globals`, `locals`, `vars`, `dir` removed |
+| **Import blocklist** | `os`, `sys`, `subprocess`, `socket`, `io`, `pathlib`, etc. blocked |
+| **Import allowlist** | Only `langgraph`, `langchain`, `typing`, `json`, `pydantic`, etc. allowed |
+| **Exec timeout** | 10 second limit via `signal.alarm` |
+| **Invoke timeout** | 30 second limit via `asyncio.wait_for` |
+| **Permission checks** | Save requires member role, Run requires viewer role |
+| **Error sanitization** | Server file paths stripped from error messages |
+
+#### 4. Skill System (Progressive Disclosure)
 
 The skill system implements progressive disclosure to reduce token consumption:
 
 ```mermaid
 sequenceDiagram
     participant Node as Agent Node
-    participant Middleware as SkillsMiddleware
     participant Loader as SkillSandboxLoader
     participant Backend as Docker Backend
-    participant Filesystem as FilesystemMiddleware
 
-    Node->>Middleware: Node config with skill UUIDs
-    Middleware->>Loader: Preload skills
+    Node->>Loader: Preload skills (batch, deduplicated)
     Loader->>Backend: Write skill files to /workspace/skills/
     Backend-->>Loader: Skills loaded
-    Loader-->>Middleware: Preload complete
 
-    Middleware->>Node: Inject skill summaries in system prompt
-    Node->>Node: Agent sees skill summaries only
-
-    Node->>Filesystem: Agent reads /workspace/skills/{skill_name}/SKILL.md
-    Filesystem-->>Node: Agent receives skill content
+    Node->>Node: Agent sees skill summaries in system prompt
+    Node->>Backend: Agent reads /workspace/skills/{skill_name}/SKILL.md
+    Backend-->>Node: Agent receives full skill content on demand
 ```
 
 **Components:**
 - **SkillService**: CRUD operations with permission control
-- **SkillsMiddleware**: Automatically injects skill descriptions into system prompts
-- **SkillSandboxLoader**: Preloads skills to Docker backend before execution
-- **FilesystemMiddleware**: Agent directly reads skill files from `/workspace/skills/{skill_name}/` via filesystem access (skills are preloaded by SkillSandboxLoader before execution)
+- **SkillsLoader**: Batch preloads skills to Docker backend with deduplication
+- **FilesystemMiddleware**: Agent reads skill files from `/workspace/skills/` via filesystem access
 
-#### 4. Memory System (Long/Short-term Memory)
-
-The memory system provides persistent memory across sessions:
+#### 5. Memory System (Long/Short-term Memory)
 
 ```mermaid
 sequenceDiagram
@@ -210,13 +227,10 @@ sequenceDiagram
     Middleware->>Manager: Retrieve relevant memories
     Manager->>DB: Query memories by user_id/topics
     DB-->>Manager: Return memories
-    Manager-->>Middleware: Relevant memories
-    Middleware->>Agent: Inject memories in system prompt
-    Agent->>Agent: Process with context
-    Agent-->>User: Response
-
-    User->>Middleware: User input (after_model)
-    Middleware->>Manager: Store/update memory
+    Manager-->>Middleware: Inject memories into context
+    Middleware->>Agent: Enhanced prompt with memories
+    Agent-->>Middleware: Agent response
+    Middleware->>Manager: Extract and persist new memories
     Manager->>DB: Persist memory
 ```
 
@@ -226,47 +240,6 @@ sequenceDiagram
 - **Episodic**: Session-specific experiences
 - **Semantic**: General security knowledge
 
-#### 5. Middleware Architecture
-
-Extensible middleware system using strategy pattern:
-
-```mermaid
-flowchart TB
-    Node[Node Config] --> Resolver[Middleware Resolver<br/>Strategy Pattern]
-
-    Resolver --> SkillMW[SkillMiddleware<br/>Priority: 50]
-    Resolver --> MemoryMW[MemoryMiddleware<br/>Priority: 50]
-    Resolver --> TagMW[TaggingMiddleware<br/>Priority: 100]
-    Resolver --> CustomMW[Custom Middleware<br/>Extensible]
-
-    SkillMW --> Merge[Merge & Sort by Priority]
-    MemoryMW --> Merge
-    TagMW --> Merge
-    CustomMW --> Merge
-
-    Merge --> Agent[Agent with Middleware Chain]
-
-    style Resolver fill:#e1f5ff
-    style Merge fill:#fff3e0
-    style Agent fill:#e8f5e8
-```
-
-**Features:**
-- **Strategy Pattern**: Easy to add new middleware types
-- **Priority System**: Middleware executed in priority order
-- **Error Isolation**: Failed middleware doesn't break others
-- **Backward Compatible**: New features don't affect existing code
-
-#### 6. Node Executors (11 Types)
-
-| Category | Node Types | Description |
-|----------|------------|-------------|
-| **Agent** | `agent`, `llm_node` | LLM-powered reasoning with tool access |
-| **Control Flow** | `condition`, `router_node`, `loop_condition_node` | Conditional branching, multi-path routing, iteration |
-| **Actions** | `tool_node`, `function_node`, `http_request_node` | Tool execution, sandbox code, HTTP calls |
-| **Data** | `json_parser_node`, `direct_reply` | JSON parsing, template responses |
-| **Aggregation** | `aggregator_node` | Parallel result collection |
-
 ### Core Workflows
 
 #### Graph Building Flow
@@ -275,24 +248,25 @@ flowchart TB
 sequenceDiagram
     participant Frontend as Frontend
     participant API as REST API
-    participant Factory as GraphBuilder
-    participant Builder as LanggraphModelBuilder/DeepAgentsBuilder
-    participant Base as BaseGraphBuilder
-    participant Executors as Node Executors
+    participant Service as GraphService
+    participant Builder as DeepAgentsBuilder / CodeExecutor
     participant Runtime as LangGraph Runtime
 
-    Frontend->>API: Save graph (nodes, edges, variables)
-    API->>Factory: build(graph, nodes, edges)
-    Factory->>Factory: Detect useDeepAgents
-    Factory->>Builder: Create appropriate builder
-    Builder->>Base: Initialize base builder
-    Builder->>Executors: Create node executors
-    Builder->>Runtime: Add nodes to StateGraph
-    Builder->>Runtime: Add edges (conditional/normal)
-    Builder->>Runtime: Compile graph
-    Runtime-->>Builder: CompiledStateGraph
-    Builder-->>API: Compiled graph
-    API-->>Frontend: Graph saved
+    Frontend->>API: Save graph (nodes/edges or code)
+    API->>Service: build graph
+    Service->>Service: Detect mode (code vs canvas)
+
+    alt Code Mode
+        Service->>Builder: execute_code(code)
+        Builder->>Runtime: StateGraph.compile()
+    else Canvas Mode (DeepAgents)
+        Service->>Builder: build_deep_agents_graph(nodes, edges)
+        Builder->>Runtime: create_deep_agent() → compile()
+    end
+
+    Runtime-->>Service: CompiledStateGraph
+    Service-->>API: Compiled graph
+    API-->>Frontend: Ready
 ```
 
 #### Graph Execution Flow
@@ -302,20 +276,16 @@ sequenceDiagram
     participant Frontend as Frontend
     participant API as REST API
     participant Service as GraphService
-    participant Builder as GraphBuilder
     participant Runtime as LangGraph Runtime
-    participant Executors as Node Executors
     participant SSE as SSE Stream
 
     Frontend->>API: POST /api/chat (SSE)
-    API->>Service: Load graph config
-    Service->>Builder: Build compiled graph
-    Builder-->>Service: CompiledStateGraph
+    API->>Service: Load and compile graph
+    Service-->>Runtime: CompiledStateGraph
     Service->>Runtime: ainvoke({"messages": [...]})
 
     loop Each Node
-        Runtime->>Executors: Execute node
-        Executors-->>Runtime: Update state
+        Runtime->>Runtime: Execute node
         Runtime->>SSE: Push event (node_start/node_end)
         SSE-->>Frontend: Stream update
     end
@@ -325,44 +295,38 @@ sequenceDiagram
     SSE-->>Frontend: Stream complete
 ```
 
-#### DeepAgents Execution Flow
-
-```mermaid
-sequenceDiagram
-    participant User as User
-    participant Manager as Manager Agent
-    participant Backend as Shared Backend
-    participant Worker1 as Worker 1
-    participant Worker2 as Worker 2
-
-    User->>Manager: Task request
-    Manager->>Manager: Analyze task
-    Manager->>Backend: Check preloaded skills
-    Manager->>Worker1: task("Sub-task 1")
-    Worker1->>Backend: Use skills/code execution
-    Backend-->>Worker1: Results
-    Worker1-->>Manager: Sub-task 1 result
-
-    Manager->>Worker2: task("Sub-task 2")
-    Worker2->>Backend: Use skills/code execution
-    Backend-->>Worker2: Results
-    Worker2-->>Manager: Sub-task 2 result
-
-    Manager->>Manager: Synthesize results
-    Manager-->>User: Final response
-```
-
 ### Data Flow
 
 **Frontend ↔ Backend:**
 - **REST API**: Graph configuration, skill management, tool management, workspace operations
+- **Code API**: Save and run user LangGraph code
 - **SSE Stream**: Real-time execution status, streaming output, node execution events
 
 **Backend Internal:**
-- **GraphBuilder → NodeExecutors → LangGraph Runtime**: Graph construction and execution
+- **Code Mode**: `code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
+- **Canvas Mode**: `build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
 - **LangGraph Runtime → MCP Servers → Tools**: Tool invocation and execution
 - **Middleware → Agent → Model**: Request processing pipeline
 
 **Backend ↔ Data Layer:**
 - **PostgreSQL**: Graph configurations, skills, memories, sessions, workspaces
 - **Redis**: Cache, rate limiting, session state, temporary data
+
+### Backend File Structure (Graph Module)
+
+```
+app/core/graph/
+├── __init__.py                    # Exports build_deep_agents_graph()
+├── deep_agents/
+│   ├── builder.py                 # Build orchestration (no inheritance)
+│   ├── config.py                  # Pure config extraction
+│   ├── model_resolver.py          # Unified LLM resolution with cache
+│   ├── agent_factory.py           # Creates agent/code_agent/a2a workers
+│   ├── skills_loader.py           # Batch skills preload with dedup
+│   ├── tool_resolver.py           # Tool name → instance resolution
+│   └── middleware.py              # Memory middleware
+├── node_secrets.py                # A2A secret hydration
+└── runtime_prompt_template.py     # Runtime prompt variable substitution
+
+app/core/code_executor.py          # Sandboxed exec() for Code mode
+```
