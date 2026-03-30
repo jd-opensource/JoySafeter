@@ -117,7 +117,7 @@ async def run_code(
     # Permission check: need viewer role to run
     await service._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
 
-    code = (graph.variables or {}).get("code_content", "") or (graph.variables or {}).get("dsl_code", "")
+    code = (graph.variables or {}).get("code_content", "")
     if not code.strip():
         return {
             "success": False,
