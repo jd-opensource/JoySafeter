@@ -55,7 +55,7 @@ export function ModelListTab({ providerName, provider }: ModelListTabProps) {
           open={!!editingInstance}
           onOpenChange={(open) => !open && setEditingInstance(null)}
           instance={editingInstance}
-          configSchema={provider.config_schemas ?? null}
+          configSchema={provider.config_schemas?.chat ?? null}
           providerDefaults={provider.default_parameters ?? {}}
         />
       )}

@@ -1,14 +1,53 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import { useToast } from '@/hooks/use-toast'
 import { useUpdateModelInstance } from '@/hooks/queries/models'
 import type { ModelInstance } from '@/types/models'
+
+interface ParamField {
+  key: string
+  title: string
+  description?: string
+  type: string
+  default?: number | null
+  minimum?: number
+  maximum?: number
+}
+
+function parseConfigSchema(schema: Record<string, any> | null): ParamField[] {
+  if (!schema) return []
+
+  // config_schemas.chat is { type: "object", properties: { ... } }
+  const properties =
+    schema.properties && typeof schema.properties === 'object'
+      ? schema.properties
+      : schema // fallback: treat schema itself as flat key-value if no properties wrapper
+
+  if (!properties || typeof properties !== 'object') return []
+
+  // If we accidentally got the wrapper, skip non-property keys
+  if ('type' in properties && 'properties' in properties) {
+    return parseConfigSchema(properties)
+  }
+
+  return Object.entries(properties).map(([key, prop]: [string, any]) => ({
+    key,
+    title: prop.title || key,
+    description: prop.description,
+    type: prop.type || 'number',
+    default: prop.default,
+    minimum: prop.minimum,
+    maximum: prop.maximum,
+  }))
+}
 
 interface ParamDrawerProps {
   open: boolean
@@ -18,66 +57,155 @@ interface ParamDrawerProps {
   providerDefaults: Record<string, unknown>
 }
 
-const COMMON_PARAMS = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty', 'timeout', 'max_retries']
-
-export function ParamDrawer({ open, onOpenChange, instance, configSchema, providerDefaults }: ParamDrawerProps) {
+export function ParamDrawer({
+  open,
+  onOpenChange,
+  instance,
+  configSchema,
+  providerDefaults,
+}: ParamDrawerProps) {
   const updateInstance = useUpdateModelInstance()
-  const [params, setParams] = useState<Record<string, unknown>>(instance.model_parameters ?? {})
+  const { toast } = useToast()
+  const [params, setParams] = useState<Record<string, unknown>>({})
   const [useDefaults, setUseDefaults] = useState<Record<string, boolean>>({})
 
-  const paramKeys = configSchema
-    ? Object.keys(configSchema)
-    : COMMON_PARAMS
+  const fields = useMemo(() => parseConfigSchema(configSchema), [configSchema])
+
+  // Reset state when instance changes or drawer opens
+  useEffect(() => {
+    if (open) {
+      setParams(instance.model_parameters ?? {})
+      // Initialize useDefaults: if param is not set on instance, default to using provider default
+      const defaults: Record<string, boolean> = {}
+      for (const field of fields) {
+        const hasInstanceValue = instance.model_parameters?.[field.key] !== undefined
+        const hasProviderDefault = providerDefaults[field.key] !== undefined
+        defaults[field.key] = !hasInstanceValue && hasProviderDefault
+      }
+      setUseDefaults(defaults)
+    }
+  }, [open, instance, fields, providerDefaults])
 
   const handleSave = async () => {
     const finalParams: Record<string, unknown> = {}
-    for (const key of paramKeys) {
-      if (!useDefaults[key] && params[key] !== undefined && params[key] !== '') {
-        finalParams[key] = params[key]
+    for (const field of fields) {
+      if (!useDefaults[field.key] && params[field.key] !== undefined && params[field.key] !== '') {
+        finalParams[field.key] = params[field.key]
       }
     }
-    await updateInstance.mutateAsync({ instanceId: instance.id, request: { model_parameters: finalParams } })
-    onOpenChange(false)
+    try {
+      await updateInstance.mutateAsync({
+        instanceId: instance.id,
+        request: { model_parameters: finalParams },
+      })
+      toast({ title: '参数已保存' })
+      onOpenChange(false)
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: '保存失败',
+        description: err instanceof Error ? err.message : '请重试',
+      })
+    }
+  }
+
+  const setParam = (key: string, value: unknown) => {
+    setParams((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const getEffectiveValue = (field: ParamField): number | string => {
+    if (useDefaults[field.key]) {
+      const dv = providerDefaults[field.key]
+      return dv !== undefined ? Number(dv) : (field.default ?? '')
+    }
+    const v = params[field.key]
+    return v !== undefined ? Number(v) : (field.default ?? '')
+  }
+
+  if (fields.length === 0) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="right" className="w-[400px] sm:w-[480px]">
+          <SheetHeader>
+            <SheetTitle>参数设置 — {instance.model_name}</SheetTitle>
+          </SheetHeader>
+          <div className="flex h-40 items-center justify-center text-[var(--text-muted)]">
+            <p className="text-sm">该模型暂无可配置参数</p>
+          </div>
+        </SheetContent>
+      </Sheet>
+    )
   }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[400px] sm:w-[480px]">
+      <SheetContent side="right" className="w-[400px] sm:w-[480px] flex flex-col">
         <SheetHeader>
-          <SheetTitle>编辑参数 — {instance.model_name}</SheetTitle>
+          <SheetTitle>参数设置 — {instance.model_name}</SheetTitle>
         </SheetHeader>
 
-        <div className="mt-6 space-y-4 overflow-y-auto">
-          {paramKeys.map((key) => {
-            const isUsingDefault = useDefaults[key] ?? false
-            const defaultVal = providerDefaults[key]
-            const currentVal = params[key]
+        <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
+          {fields.map((field) => {
+            const isUsingDefault = useDefaults[field.key] ?? false
+            const hasProviderDefault = providerDefaults[field.key] !== undefined
+            const effectiveValue = getEffectiveValue(field)
+            const isSlider =
+              (field.type === 'number' || field.type === 'integer') &&
+              field.minimum !== undefined &&
+              field.maximum !== undefined
 
             return (
-              <div key={key} className="space-y-1.5">
+              <div key={field.key} className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">{key}</Label>
-                  {defaultVal !== undefined && (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-[var(--text-muted)]">使用 Provider 默认</span>
+                  <div>
+                    <Label className="text-sm font-medium">{field.title}</Label>
+                    {field.description && (
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{field.description}</p>
+                    )}
+                  </div>
+                  {hasProviderDefault && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-xs text-[var(--text-muted)]">默认</span>
                       <Switch
                         checked={isUsingDefault}
-                        onCheckedChange={(v) => setUseDefaults((prev) => ({ ...prev, [key]: v }))}
+                        onCheckedChange={(v) =>
+                          setUseDefaults((prev) => ({ ...prev, [field.key]: v }))
+                        }
                       />
                     </div>
                   )}
                 </div>
-                {isUsingDefault ? (
-                  <Input
-                    value={String(defaultVal ?? '')}
-                    disabled
-                    className="bg-[var(--surface-3)] text-[var(--text-muted)]"
-                  />
+
+                {isSlider ? (
+                  <div className="flex items-center gap-3">
+                    <Slider
+                      min={field.minimum!}
+                      max={field.maximum!}
+                      step={field.type === 'integer' ? 1 : 0.1}
+                      value={[typeof effectiveValue === 'number' ? effectiveValue : 0]}
+                      disabled={isUsingDefault}
+                      onValueChange={([v]) => setParam(field.key, v)}
+                      className="flex-1"
+                    />
+                    <span className="text-sm text-[var(--text-secondary)] w-12 text-right tabular-nums">
+                      {typeof effectiveValue === 'number' ? effectiveValue.toFixed(field.type === 'integer' ? 0 : 1) : '—'}
+                    </span>
+                  </div>
                 ) : (
                   <Input
-                    value={currentVal !== undefined ? String(currentVal) : ''}
-                    onChange={(e) => setParams((prev) => ({ ...prev, [key]: e.target.value }))}
-                    placeholder={defaultVal !== undefined ? `默认: ${defaultVal}` : ''}
+                    type={field.type === 'integer' ? 'number' : 'text'}
+                    value={effectiveValue !== undefined ? String(effectiveValue) : ''}
+                    disabled={isUsingDefault}
+                    placeholder={field.default !== undefined && field.default !== null ? `默认: ${field.default}` : '未设置'}
+                    onChange={(e) => {
+                      const raw = e.target.value
+                      if (field.type === 'number' || field.type === 'integer') {
+                        setParam(field.key, raw === '' ? undefined : Number(raw))
+                      } else {
+                        setParam(field.key, raw)
+                      }
+                    }}
+                    className={isUsingDefault ? 'bg-[var(--surface-3)] text-[var(--text-muted)]' : ''}
                   />
                 )}
               </div>
@@ -85,12 +213,14 @@ export function ParamDrawer({ open, onOpenChange, instance, configSchema, provid
           })}
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+        <SheetFooter className="mt-4 pt-4 border-t border-[var(--border-muted)]">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
           <Button onClick={handleSave} disabled={updateInstance.isPending}>
             {updateInstance.isPending ? '保存中...' : '保存'}
           </Button>
-        </div>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   )
