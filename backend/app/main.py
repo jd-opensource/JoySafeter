@@ -185,12 +185,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                 provider_repo = ModelProviderRepository(db)
                 credential_service = ModelCredentialService(db)
 
-                # Get default model instance（支持模板实例 provider 为空，用 provider_name）
+                # Get default model instance
                 default_instance = await repo.get_default()
                 if default_instance:
-                    default_provider_name = (
-                        default_instance.provider.name if default_instance.provider else default_instance.provider_name
-                    )
+                    default_provider_name = default_instance.provider.name if default_instance.provider else None
                     if default_provider_name:
                         credentials = await credential_service.get_current_credentials(
                             provider_name=default_provider_name,

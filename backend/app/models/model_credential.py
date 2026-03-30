@@ -35,14 +35,11 @@ class ModelCredential(BaseModel):
         nullable=True,
         comment="工作空间ID，如果为None则为用户级凭据",
     )
-    provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    provider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_provider.id", ondelete="CASCADE"),
-        nullable=True,
-        comment="供应商ID（用户派生时使用）",
-    )
-    provider_name: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True, comment="模板供应商名称（如 custom），当 provider_id 为空时使用"
+        nullable=False,
+        comment="供应商ID",
     )
 
     # 加密存储的凭据（加密字符串）
@@ -59,7 +56,7 @@ class ModelCredential(BaseModel):
     )
     validation_error: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="验证错误信息")
 
-    # 关系（provider_id 为空时 provider 为 None）
+    # 关系
     provider: Mapped[Optional["ModelProvider"]] = relationship(
         "ModelProvider", back_populates="credentials", lazy="selectin"
     )
@@ -71,7 +68,6 @@ class ModelCredential(BaseModel):
         Index("model_credential_workspace_id_idx", "workspace_id"),
         Index("model_credential_provider_id_idx", "provider_id"),
         Index("model_credential_user_provider_idx", "user_id", "provider_id"),
-        Index("model_credential_provider_name_idx", "provider_name"),
         # 确保同一用户/工作空间对同一供应商只有一条凭据
         CheckConstraint("(workspace_id IS NULL) OR (workspace_id IS NOT NULL)", name="model_credential_scope_check"),
     )

@@ -196,13 +196,8 @@ class ModelService(BaseService):
         default_model_info: Optional[Dict[str, Any]] = None
         if default_instance:
             pname = default_instance.resolved_provider_name
-            if default_instance.provider_id is not None:
-                provider = next((p for p in all_providers if p.id == default_instance.provider_id), None)
-                pdisplay = provider.display_name if provider else pname
-            else:
-                # Deprecated fallback for orphaned instances
-                prov = self.factory.get_provider(pname)
-                pdisplay = prov.display_name if prov else pname
+            provider = next((p for p in all_providers if p.id == default_instance.provider_id), None)
+            pdisplay = provider.display_name if provider else pname
             default_model_info = {
                 "provider_name": pname,
                 "provider_display_name": pdisplay,
@@ -289,7 +284,6 @@ class ModelService(BaseService):
                 "user_id": user_id,
                 "workspace_id": None,
                 "provider_id": provider.id if provider else None,
-                "provider_name": provider_name if not provider else None,
                 "model_name": model_name,
                 "model_parameters": model_parameters or {},
                 "is_default": is_default,
@@ -324,12 +318,12 @@ class ModelService(BaseService):
     ) -> Dict[str, Any]:
         """更新模型实例的默认状态。"""
         provider = await self.provider_repo.get_by_name(provider_name)
-        provider_id = provider.id if provider else None
+        if not provider:
+            raise NotFoundException(f"供应商不存在: {provider_name}")
 
         instance = await self.repo.get_best_instance(
             model_name=model_name,
-            provider_name=provider_name,
-            provider_id=provider_id,
+            provider_id=provider.id,
             user_id=user_id,
         )
 
@@ -390,12 +384,12 @@ class ModelService(BaseService):
                 raise BadRequestException("必须指定provider_name和model_name，或设置use_default=True")
         else:
             provider = await self.provider_repo.get_by_name(provider_name)
-            provider_id = provider.id if provider else None
+            if not provider:
+                raise NotFoundException(f"供应商不存在: {provider_name}")
 
             instance = await self.repo.get_best_instance(
                 model_name=model_name,
-                provider_name=provider_name,
-                provider_id=provider_id,
+                provider_id=provider.id,
             )
 
             if not instance:
@@ -435,13 +429,8 @@ class ModelService(BaseService):
         instances = await self.repo.list_all()
         out = []
         for i in instances:
-            if i.provider:
-                pname = i.provider.name
-                pdisplay = i.provider.display_name
-            else:
-                pname = i.provider_name or ""
-                p = self.factory.get_provider(i.provider_name) if i.provider_name else None
-                pdisplay = p.display_name if p else pname
+            pname = i.provider.name if i.provider else ""
+            pdisplay = i.provider.display_name if i.provider else ""
             out.append(
                 {
                     "id": str(i.id),

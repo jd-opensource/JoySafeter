@@ -355,7 +355,7 @@ class ModelProviderService(BaseService):
                 for model_info in models:
                     model_name = model_info["name"]
                     existing = await self.instance_repo.get_best_instance(
-                        model_name=model_name, provider_name=provider.name, provider_id=provider.id
+                        model_name=model_name, provider_id=provider.id
                     )
                     if not existing:
                         await self.instance_repo.create(

@@ -58,12 +58,10 @@ class LLMCredentialResolver:
                 model_service = ModelService(db)
                 credential_service = ModelCredentialService(db)
 
-                # Try to get default model（支持模板实例 provider 为空）
+                # Try to get default model
                 default_instance = await model_service.repo.get_default()
                 if default_instance:
-                    provider_name = (
-                        default_instance.provider.name if default_instance.provider else default_instance.provider_name
-                    )
+                    provider_name = default_instance.provider.name if default_instance.provider else None
                     model_name = default_instance.model_name
                     model_type = ModelType.CHAT  # Simplified: assume Chat model
 
@@ -90,9 +88,7 @@ class LLMCredentialResolver:
                             if provider:
                                 provider_instances = [i for i in instances if i.provider_id == provider.id]
                             else:
-                                provider_instances = [
-                                    i for i in instances if i.provider_name == provider_name_from_cred
-                                ]
+                                provider_instances = []
                             if provider_instances:
                                 model_name = provider_instances[0].model_name
                                 model_type = ModelType.CHAT

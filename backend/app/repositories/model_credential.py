@@ -22,31 +22,25 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
         self,
         user_id: Optional[str] = None,
         provider_id: Optional[uuid.UUID] = None,
-        provider_name: Optional[str] = None,  # DEPRECATED: use provider_id instead
+        provider_name: Optional[str] = None,  # kept for call-site compatibility; unused
     ) -> ModelCredential | None:
-        """根据供应商获取凭据（支持用户级或全局）。
+        """根据供应商获取凭据（支持用户级或全局）。"""
+        if provider_id is None:
+            return None
 
-        Note: provider_name parameter is deprecated. All records now have provider_id set.
-        Pass provider_id for all new callers.
-        """
         if user_id:
             conditions = [ModelCredential.user_id == user_id]
         else:
             conditions = [ModelCredential.user_id.is_(None)]
 
-        if provider_id is not None:
-            conditions.append(ModelCredential.provider_id == provider_id)
-        if provider_name is not None:
-            conditions.append(ModelCredential.provider_name == provider_name)
-        if provider_id is None and provider_name is None:
-            return None
+        conditions.append(ModelCredential.provider_id == provider_id)
         result = await self.db.execute(select(ModelCredential).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def get_best_valid_credential(
         self,
-        provider_name: str,  # DEPRECATED: prefer provider_id lookup; kept for legacy fallback
-        provider_id: Optional[uuid.UUID] = None,
+        provider_id: uuid.UUID,
+        provider_name: str = "",  # kept for call-site compatibility; unused
         user_id: Optional[str] = None,
     ) -> ModelCredential | None:
         """
@@ -55,18 +49,13 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
         1. 匹配 user_id 的凭据
         2. 全局凭据 (user_id IS NULL)
         3. 任何人的有效凭据
-
-        Note: provider_name is deprecated as a lookup key. Prefer passing provider_id directly.
-        The provider_name fallback (provider_id IS NULL path) only matches legacy unbackfilled rows.
         """
         from typing import Any
 
-        conditions: list[Any] = [ModelCredential.is_valid]
-        if provider_id:
-            conditions.append(ModelCredential.provider_id == provider_id)
-        else:
-            conditions.append(ModelCredential.provider_id.is_(None))
-            conditions.append(ModelCredential.provider_name == provider_name)
+        conditions: list[Any] = [
+            ModelCredential.is_valid,
+            ModelCredential.provider_id == provider_id,
+        ]
 
         result = await self.db.execute(select(ModelCredential).where(and_(*conditions)))
         credentials = result.scalars().all()

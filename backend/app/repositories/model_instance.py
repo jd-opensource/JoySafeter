@@ -38,18 +38,15 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     async def get_best_instance(
         self,
         model_name: str,
-        provider_name: str,
-        provider_id: Optional[uuid.UUID] = None,
+        provider_id: uuid.UUID,
+        provider_name: str = "",  # kept for call-site compatibility; unused
         user_id: Optional[str] = None,
     ) -> ModelInstance | None:
         """根据供应商和模型名获取实例。优先返回全局实例，否则返回任意有效实例。"""
-        conditions = [ModelInstance.model_name == model_name]
-
-        if provider_id is not None:
-            conditions.append(ModelInstance.provider_id == provider_id)
-        else:
-            conditions.append(ModelInstance.provider_id.is_(None))
-            conditions.append(ModelInstance.provider_name == provider_name)
+        conditions = [
+            ModelInstance.model_name == model_name,
+            ModelInstance.provider_id == provider_id,
+        ]
 
         result = await self.db.execute(
             select(ModelInstance).where(and_(*conditions)).options(selectinload(ModelInstance.provider))
@@ -72,48 +69,28 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
 
     async def list_by_provider(
         self,
-        provider_id: Optional[uuid.UUID] = None,
-        provider_name: Optional[str] = None,  # DEPRECATED: use provider_id instead
+        provider_id: uuid.UUID,
+        provider_name: Optional[str] = None,  # kept for call-site compatibility; unused
     ) -> list[ModelInstance]:
-        """按供应商筛选模型实例。
-
-        Note: provider_name parameter is deprecated. All records now have provider_id set.
-        Pass provider_id for all new callers.
-        """
-        query = select(ModelInstance).options(selectinload(ModelInstance.provider))
-
-        if provider_id is not None:
-            query = query.where(ModelInstance.provider_id == provider_id)
-        elif provider_name is not None:
-            # DEPRECATED fallback: only matches legacy rows where provider_id was not backfilled
-            query = query.where(
-                ModelInstance.provider_id.is_(None),
-                ModelInstance.provider_name == provider_name,
-            )
-
+        """按供应商筛选模型实例。"""
+        query = (
+            select(ModelInstance)
+            .options(selectinload(ModelInstance.provider))
+            .where(ModelInstance.provider_id == provider_id)
+        )
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def count_by_provider(
         self,
-        provider_id: Optional[uuid.UUID] = None,
-        provider_name: Optional[str] = None,  # DEPRECATED: use provider_id instead
+        provider_id: uuid.UUID,
+        provider_name: Optional[str] = None,  # kept for call-site compatibility; unused
     ) -> int:
-        """按供应商筛选并统计模型实例数量。
-
-        Note: provider_name parameter is deprecated. All records now have provider_id set.
-        Pass provider_id for all new callers.
-        """
-        query = select(func.count()).select_from(ModelInstance)
-
-        if provider_id is not None:
-            query = query.where(ModelInstance.provider_id == provider_id)
-        elif provider_name is not None:
-            # DEPRECATED fallback: only matches legacy rows where provider_id was not backfilled
-            query = query.where(
-                ModelInstance.provider_id.is_(None),
-                ModelInstance.provider_name == provider_name,
-            )
-
+        """按供应商统计模型实例数量。"""
+        query = (
+            select(func.count())
+            .select_from(ModelInstance)
+            .where(ModelInstance.provider_id == provider_id)
+        )
         result = await self.db.execute(query)
         return result.scalar() or 0
