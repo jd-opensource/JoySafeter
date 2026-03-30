@@ -18,6 +18,9 @@ import type {
   CreateCredentialRequest,
   CreateModelInstanceRequest,
   UpdateModelInstanceDefaultRequest,
+  UpdateModelInstanceRequest,
+  UpdateProviderDefaultsRequest,
+  ModelsOverview,
 } from '@/types/models'
 
 import { STALE_TIME } from './constants'
@@ -31,6 +34,9 @@ export type {
   CreateCredentialRequest,
   CreateModelInstanceRequest,
   UpdateModelInstanceDefaultRequest,
+  UpdateModelInstanceRequest,
+  UpdateProviderDefaultsRequest,
+  ModelsOverview,
 }
 
 const logger = createLogger('ModelQueries')
@@ -51,6 +57,7 @@ export const modelKeys = {
   instances: () => [...modelKeys.all, 'instances'] as const,
   available: (type?: string) => [...modelKeys.all, 'available', type] as const,
   chat: () => [...modelKeys.all, 'chat'] as const,
+  overview: () => [...modelKeys.all, 'overview'] as const,
 }
 
 // ==================== Query Hooks ====================
@@ -392,6 +399,69 @@ export function useUpdateModelInstanceDefault() {
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
       // Invalidate all available queries (including queries with different modelType)
       queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
+    },
+  })
+}
+
+export function useModelsOverview() {
+  return useQuery({
+    queryKey: modelKeys.overview(),
+    queryFn: async (): Promise<ModelsOverview> => {
+      return await apiGet<ModelsOverview>(`${MODELS_PATH}/overview`)
+    },
+    enabled: true,
+    retry: false,
+    staleTime: STALE_TIME.SHORT,
+  })
+}
+
+export function useUpdateModelInstance() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      instanceId,
+      request,
+    }: {
+      instanceId: string
+      request: UpdateModelInstanceRequest
+    }) => {
+      const data = await apiPatch<ModelInstance>(
+        `${MODELS_PATH}/instances/${instanceId}`,
+        request,
+      )
+      logger.info(`Updated model instance: ${instanceId}`)
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
+      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
+      queryClient.invalidateQueries({ queryKey: modelKeys.overview() })
+    },
+  })
+}
+
+export function useUpdateProviderDefaults() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      providerName,
+      request,
+    }: {
+      providerName: string
+      request: UpdateProviderDefaultsRequest
+    }) => {
+      const data = await apiPatch<ModelProvider>(
+        `${MODEL_PROVIDERS_PATH}/${providerName}/defaults`,
+        request,
+      )
+      logger.info(`Updated provider defaults: ${providerName}`)
+      return data
+    },
+    onSuccess: (_, { providerName }) => {
+      queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
+      queryClient.invalidateQueries({ queryKey: modelKeys.provider(providerName) })
     },
   })
 }

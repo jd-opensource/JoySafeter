@@ -18,6 +18,7 @@ export interface ModelProvider {
   credential_schema?: Record<string, any>
   config_schemas?: Record<string, any>
   model_count?: number
+  default_parameters?: Record<string, unknown>
   is_enabled: boolean
   is_template?: boolean
   provider_type?: 'system' | 'custom'
@@ -100,6 +101,47 @@ export interface AvailableModel {
   description: string
   is_available: boolean
   is_default?: boolean
+  unavailable_reason?: 'no_credentials' | 'invalid_credentials' | 'model_not_found' | 'provider_error'
+}
+
+// ==================== Provider Defaults ====================
+
+export interface UpdateProviderDefaultsRequest {
+  default_parameters: Record<string, unknown>
+}
+
+// ==================== Update Model Instance ====================
+
+export interface UpdateModelInstanceRequest {
+  model_parameters?: Record<string, unknown>
+  is_default?: boolean
+}
+
+// ==================== Overview ====================
+
+export interface DefaultModelInfo {
+  provider_name: string
+  provider_display_name: string
+  model_name: string
+  model_parameters: Record<string, unknown>
+}
+
+export interface CredentialFailureInfo {
+  provider_name: string
+  provider_display_name: string
+  error: string
+  failed_at?: string
+}
+
+export interface ModelsOverview {
+  total_providers: number
+  healthy_providers: number
+  unhealthy_providers: number
+  unconfigured_providers: number
+  total_models: number
+  available_models: number
+  default_model?: DefaultModelInfo
+  recent_credential_failure?: CredentialFailureInfo
 }
 
 // ==================== Test Model Output ====================
