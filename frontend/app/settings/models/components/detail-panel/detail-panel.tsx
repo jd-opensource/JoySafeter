@@ -8,6 +8,7 @@ import { useDeleteModelProvider, useModelCredentials, useModelProviders } from '
 import { CredentialDialog } from '../credential-dialog'
 import { ModelListTab } from './model-list-tab/model-list-tab'
 import { OverviewDashboard } from './overview-dashboard'
+import { PlaygroundTab } from './playground-tab/playground-tab'
 import { ProviderHeader } from './provider-header'
 
 interface DetailPanelProps {
@@ -66,9 +67,7 @@ export function DetailPanel({ selectedProvider }: DetailPanelProps) {
         </TabsContent>
 
         <TabsContent value="playground" className="flex-1 overflow-y-auto m-0 p-6">
-          <div className="flex h-full items-center justify-center text-[var(--text-muted)]">
-            <p className="text-sm">Playground — Coming Soon</p>
-          </div>
+          <PlaygroundTab providerName={selectedProvider} provider={provider} />
         </TabsContent>
 
         <TabsContent value="stats" className="flex-1 overflow-y-auto m-0 p-6">

@@ -3,7 +3,7 @@
 """
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -536,3 +536,88 @@ class ModelService(BaseService):
         if isinstance(content, list):
             return " ".join(str(item) for item in content)
         return str(content)
+
+    async def test_output_stream(
+        self,
+        user_id: str,
+        model_name: str,
+        input_text: str,
+        model_parameters: Optional[Dict[str, Any]] = None,
+    ) -> AsyncGenerator[str, None]:
+        """
+        流式测试模型输出，yield SSE 格式事件。
+        事件类型：token, metrics, error, done
+        """
+        import json
+        import time
+
+        instance = await self.repo.get_by_name(model_name)
+        if not instance:
+            yield f"event: error\ndata: {json.dumps({'error': f'模型实例不存在: {model_name}'})}\n\n"
+            return
+
+        provider_name = instance.resolved_provider_name
+        implementation_name = instance.resolved_implementation_name
+        model_type = ModelType.CHAT
+
+        credentials = await self.credential_service.get_current_credentials(
+            provider_name=provider_name,
+            model_type=model_type.value,
+            model_name=model_name,
+            user_id=user_id,
+        )
+
+        if not credentials:
+            yield f"event: error\ndata: {json.dumps({'error': f'未找到有效凭据: {provider_name}/{model_name}'})}\n\n"
+            return
+
+        effective_params = {**(instance.model_parameters or {})}
+        if model_parameters:
+            effective_params.update(model_parameters)
+
+        try:
+            model = create_model_instance(
+                implementation_name,
+                model_name,
+                model_type,
+                credentials,
+                effective_params,
+            )
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'error': f'创建模型实例失败: {str(e)}'})}\n\n"
+            return
+
+        start_time = time.monotonic()
+        first_token_time = None
+        output_tokens = 0
+
+        try:
+            async for chunk in model.astream(input_text):
+                token = chunk.content if hasattr(chunk, "content") else str(chunk)
+                if isinstance(token, list):
+                    token = "".join(str(t) for t in token)
+                if not token:
+                    continue
+
+                if first_token_time is None:
+                    first_token_time = time.monotonic()
+
+                output_tokens += 1
+                yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+
+            total_time = time.monotonic() - start_time
+            ttft = (first_token_time - start_time) if first_token_time else total_time
+            input_tokens_est = max(1, len(input_text) // 4)
+
+            metrics = {
+                "ttft_ms": round(ttft * 1000, 1),
+                "total_time_ms": round(total_time * 1000, 1),
+                "input_tokens": input_tokens_est,
+                "output_tokens": output_tokens,
+                "tokens_per_second": round(output_tokens / total_time, 1) if total_time > 0 else 0,
+            }
+            yield f"event: metrics\ndata: {json.dumps(metrics)}\n\n"
+            yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
+
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"

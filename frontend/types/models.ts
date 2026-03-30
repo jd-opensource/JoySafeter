@@ -160,3 +160,35 @@ export interface TestModelOutputRequest {
 export interface TestModelOutputResponse {
   output: string
 }
+
+// ==================== Test Model Stream ====================
+
+/**
+ * Streaming test request
+ */
+export interface TestModelStreamRequest {
+  model_name: string
+  input: string
+  model_parameters?: Record<string, any>
+}
+
+/**
+ * Performance metrics emitted at end of stream
+ */
+export interface TestModelStreamMetrics {
+  ttft_ms: number
+  total_time_ms: number
+  input_tokens: number
+  output_tokens: number
+  tokens_per_second: number
+}
+
+/**
+ * State managed by useTestModelStream
+ */
+export interface TestModelStreamState {
+  output: string
+  metrics: TestModelStreamMetrics | null
+  error: string | null
+  isStreaming: boolean
+}

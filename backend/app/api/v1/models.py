@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -152,6 +153,43 @@ async def update_model_instance(
         is_default=payload.is_default,
     )
     return success_response(data=instance, message="更新模型实例成功")
+
+
+class ModelTestStreamRequest(BaseModel):
+    """流式测试模型输出请求"""
+
+    model_name: str = Field(description="模型名称")
+    input: str = Field(description="输入文本")
+    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="临时参数覆盖")
+
+
+@router.post("/test-output-stream")
+async def test_output_stream(
+    payload: ModelTestStreamRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """流式测试模型输出（SSE）"""
+    service = ModelService(db)
+
+    async def event_generator():
+        async for event in service.test_output_stream(
+            user_id=current_user.id,
+            model_name=payload.model_name,
+            input_text=payload.input,
+            model_parameters=payload.model_parameters,
+        ):
+            yield event
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/test-output")
