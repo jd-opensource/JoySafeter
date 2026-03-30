@@ -13,12 +13,8 @@ export default function ModelsPage() {
   const [showAddCustomModel, setShowAddCustomModel] = useState(false)
   const { data: providers = [] } = useModelProviders()
 
-  const customProvider = providers.find((p) => p.provider_name === 'custom') ?? {
-    provider_name: 'custom',
-    display_name: '自定义',
-    supported_model_types: ['chat'],
-    is_enabled: true,
-  }
+  // custom 模板 provider 包含 credential_schema（协议类型、API Key、Base URL 等字段定义）
+  const customProvider = providers.find((p) => p.provider_name === 'custom')
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -30,11 +26,13 @@ export default function ModelsPage() {
 
       <DetailPanel selectedProvider={selectedProvider} />
 
-      <AddCustomModelDialog
-        open={showAddCustomModel}
-        onOpenChange={setShowAddCustomModel}
-        provider={customProvider}
-      />
+      {customProvider && (
+        <AddCustomModelDialog
+          open={showAddCustomModel}
+          onOpenChange={setShowAddCustomModel}
+          provider={customProvider}
+        />
+      )}
     </div>
   )
 }
