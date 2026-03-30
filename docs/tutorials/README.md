@@ -11,7 +11,8 @@
 | 01 | [模型配置：内置供应商与自定义供应商](./01-model-provider-setup.md) | OpenAI / OpenAI Compatible / Ollama 接入 | ⭐ 入门 |
 | 02 | [添加 MCP 服务](./02-mcp-service-setup.md) | 内置工具加载 / 自定义 MCP 工具注册 | ⭐⭐ 进阶 |
 | 03 | [导入 Skills](./03-skills-usage.md) | 从“导入成功”到“Agent 可用”的可验证闭环（DB → 同步 → Sandbox/Graph → 消费） | ⭐⭐ 进阶 |
-| 04b | [教程 04b：DeepAgents 动态多智能体协作](./04b-deepagents-building.md) | 高阶玩法：使用星型拓扑架构，让 Manager 节点动态、自发地调遣专业 SubAgent 处理复杂不可预见的分支任务。 | ⭐️⭐️⭐️⭐️ 高级 |
+| 04b | [DeepAgents 动态多智能体协作](./04b-deepagents-building.md) | 使用星型拓扑架构，Manager 动态调遣 SubAgent 处理复杂任务 | ⭐️⭐️⭐️⭐️ 高级 |
+| 04c | [Code 模式 — 用 Python 代码构建图](./04c-code-mode.md) | 在浏览器中编写标准 LangGraph Python 代码定义图结构 | ⭐️⭐️⭐️ 进阶 |
 | 05 | [Copilot 使用指南](./05-copilot-usage.md) | 实时对话 / 中断介入 / AI 决策辅助 | ⭐ 入门 |
 | 06 | [OpenClaw（沙盒后端）配置与使用](./06-openclaw-usage.md) | 沙盒启动 / Skills 同步 / 预加载 / Copilot 消费闭环 | ⭐⭐ 进阶 |
 
@@ -28,7 +29,7 @@
 | Langfuse 可观测性 | [04b](./04b-deepagents-building.md) | 已覆盖 |
 | 企业 SSO | [教程 01](./01-model-provider-setup.md) | 已覆盖 |
 | Platform API Tokens | [教程 01](./01-model-provider-setup.md)（全局认证说明） | 已覆盖 |
-| DeepAgents v0.4 | [教程 04b](./04b-deepagents-building.md) | 已覆盖 |
+| Code 模式 | [教程 04c](./04c-code-mode.md) | 新增 |
 
 ---
 
@@ -39,6 +40,7 @@
 1. **教程 01**：配置模型（OpenAI 或本地 Ollama）
 2. **教程 05**：用 Copilot 与 Agent 进行第一次对话
 3. **教程 04b**：构建一个 DeepAgents 多智能体协作图
+4. **教程 04c**：用 Code 模式编写 LangGraph 图
 
 ### 🔧 完整功能（1 小时）
 
