@@ -2,7 +2,9 @@
 ModelProvider Repository
 """
 
-from sqlalchemy import select
+from typing import Any, Dict
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.model_provider import ModelProvider
@@ -23,3 +25,26 @@ class ModelProviderRepository(BaseRepository[ModelProvider]):
         """获取所有启用的供应商"""
         result = await self.db.execute(select(ModelProvider).where(ModelProvider.is_enabled))
         return list(result.scalars().all())
+
+    async def list_by_type(self, provider_type: str) -> list[ModelProvider]:
+        """根据类型获取供应商列表"""
+        result = await self.db.execute(select(ModelProvider).where(ModelProvider.provider_type == provider_type))
+        return list(result.scalars().all())
+
+    async def count_all(self) -> int:
+        """获取供应商总数"""
+        result = await self.db.execute(select(func.count()).select_from(ModelProvider))
+        return result.scalar() or 0
+
+    async def update_default_parameters(
+        self, name: str, default_parameters: Dict[str, Any]
+    ) -> ModelProvider | None:
+        """更新供应商默认参数"""
+        provider = await self.get_by_name(name)
+        if not provider:
+            return None
+
+        provider.default_parameters = default_parameters
+        await self.db.flush()
+        await self.db.refresh(provider)
+        return provider
