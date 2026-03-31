@@ -289,6 +289,8 @@ export function useCreateCredential() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
+      // 认证变化影响模型可用状态
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
     },
   })
 }
@@ -326,6 +328,8 @@ export function useValidateCredential() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
+      // 验证结果影响模型可用状态
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
     },
   })
 }
@@ -341,6 +345,8 @@ export function useDeleteCredential() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
       queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
+      // 清除认证影响模型可用状态
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
     },
   })
 }
