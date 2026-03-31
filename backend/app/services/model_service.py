@@ -162,16 +162,18 @@ class ModelService(BaseService):
         # Cache factory provider and model_list per impl_name to avoid repeated lookups
         _factory_cache: Dict[str, Any] = {}  # impl_name -> factory provider (or None)
         _model_list_cache: Dict[str, List[Dict[str, Any]]] = {}  # impl_name -> model list
+        _model_map_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}  # impl_name -> {name: model_info}
 
         def _get_factory_provider(impl_name: str):
             if impl_name not in _factory_cache:
                 _factory_cache[impl_name] = self.factory.get_provider(impl_name)
             return _factory_cache[impl_name]
 
-        def _get_model_list(impl_name: str, prov_impl: Any, credentials: Any) -> List[Dict[str, Any]]:
-            if impl_name not in _model_list_cache:
-                _model_list_cache[impl_name] = prov_impl.get_model_list(model_type, credentials)
-            return _model_list_cache[impl_name]
+        def _get_model_map(impl_name: str, prov_impl: Any, credentials: Any) -> Dict[str, Dict[str, Any]]:
+            if impl_name not in _model_map_cache:
+                model_list = prov_impl.get_model_list(model_type, credentials)
+                _model_map_cache[impl_name] = {m["name"]: m for m in model_list if "name" in m}
+            return _model_map_cache[impl_name]
 
         models = []
         for instance in all_instances:
@@ -196,8 +198,8 @@ class ModelService(BaseService):
             prov_impl = _get_factory_provider(impl_name)
             if prov_impl and not prov_impl.is_template:
                 provider_credentials = ctx["decrypted"]
-                model_list = _get_model_list(impl_name, prov_impl, provider_credentials)
-                matched = next((m for m in model_list if m.get("name") == instance.model_name), None)
+                model_map = _get_model_map(impl_name, prov_impl, provider_credentials)
+                matched = model_map.get(instance.model_name)
                 if matched:
                     display_name = matched.get("display_name", instance.model_name)
                     description = matched.get("description", "")
