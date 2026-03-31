@@ -10,6 +10,10 @@ export function ModelsPage() {
   const [showAddCustomModel, setShowAddCustomModel] = useState(false)
   const { data: customTemplate } = useModelProvider('custom')
 
+  const handleProviderDeleted = () => {
+    setSelectedProvider(null)
+  }
+
   return (
     <div className="flex h-full overflow-hidden">
       <ProviderSidebar
@@ -18,7 +22,10 @@ export function ModelsPage() {
         onAddCustomModel={() => setShowAddCustomModel(true)}
       />
 
-      <DetailPanel selectedProvider={selectedProvider} />
+      <DetailPanel
+        selectedProvider={selectedProvider}
+        onProviderDeleted={handleProviderDeleted}
+      />
 
       <AddCustomModelDialog
         open={showAddCustomModel}

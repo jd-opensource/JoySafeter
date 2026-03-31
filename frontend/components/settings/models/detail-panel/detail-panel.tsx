@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useDeleteModelProvider, useModelCredentials, useModelProviders } from '@/hooks/queries/models'
+import { useToast } from '@/hooks/use-toast'
 
 import { CredentialDialog } from '../credential-dialog'
 import { ModelListTab } from './model-list-tab/model-list-tab'
@@ -14,13 +15,15 @@ import { StatsTab } from './stats-tab/stats-tab'
 
 interface DetailPanelProps {
   selectedProvider: string | null
+  onProviderDeleted?: () => void
 }
 
-export function DetailPanel({ selectedProvider }: DetailPanelProps) {
+export function DetailPanel({ selectedProvider, onProviderDeleted }: DetailPanelProps) {
   const [showCredentialDialog, setShowCredentialDialog] = useState(false)
   const { data: providers = [] } = useModelProviders()
   const { data: credentials = [] } = useModelCredentials()
   const deleteProvider = useDeleteModelProvider()
+  const { toast } = useToast()
 
   const provider = providers.find((p) => p.provider_name === selectedProvider)
   const credential = credentials.find((c) => c.provider_name === selectedProvider)
@@ -35,7 +38,19 @@ export function DetailPanel({ selectedProvider }: DetailPanelProps) {
 
   const handleDeleteProvider = () => {
     if (confirm(`确定要删除供应商 "${provider.display_name}" 吗？此操作不可撤销。`)) {
-      deleteProvider.mutate(provider.provider_name)
+      deleteProvider.mutate(provider.provider_name, {
+        onSuccess: () => {
+          toast({ title: `已删除供应商 ${provider.display_name}` })
+          onProviderDeleted?.()
+        },
+        onError: (err) => {
+          toast({
+            variant: 'destructive',
+            title: '删除供应商失败',
+            description: err instanceof Error ? err.message : '请稍后重试',
+          })
+        },
+      })
     }
   }
 

@@ -399,6 +399,7 @@ export function useUpdateModelInstanceDefault() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
+      queryClient.invalidateQueries({ queryKey: modelKeys.overview() })
     },
   })
 }
