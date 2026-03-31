@@ -3,9 +3,8 @@ ModelCredential Repository
 """
 
 import uuid
-from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,66 +17,17 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
     def __init__(self, db: AsyncSession):
         super().__init__(ModelCredential, db)
 
-    async def get_by_user_and_provider(
-        self,
-        user_id: Optional[str] = None,
-        provider_id: Optional[uuid.UUID] = None,
-        provider_name: Optional[str] = None,  # kept for call-site compatibility; unused
-    ) -> ModelCredential | None:
-        """根据供应商获取凭据（支持用户级或全局）。"""
-        if provider_id is None:
-            return None
-
-        if user_id:
-            conditions = [ModelCredential.user_id == user_id]
-        else:
-            conditions = [ModelCredential.user_id.is_(None)]
-
-        conditions.append(ModelCredential.provider_id == provider_id)
-        result = await self.db.execute(select(ModelCredential).where(and_(*conditions)))
+    async def get_by_provider(self, provider_id: uuid.UUID) -> ModelCredential | None:
+        """按 provider_id 获取凭据。一个 provider 只有一条凭据。"""
+        result = await self.db.execute(
+            select(ModelCredential)
+            .where(ModelCredential.provider_id == provider_id)
+            .options(selectinload(ModelCredential.provider))
+            .limit(1)
+        )
         return result.scalar_one_or_none()
 
-    async def get_best_valid_credential(
-        self,
-        provider_id: uuid.UUID,
-        provider_name: str = "",  # kept for call-site compatibility; unused
-        user_id: Optional[str] = None,
-    ) -> ModelCredential | None:
-        """
-        获取供应商的最优有效凭据。
-        优先级：
-        1. 匹配 user_id 的凭据
-        2. 全局凭据 (user_id IS NULL)
-        3. 任何人的有效凭据
-        """
-        from typing import Any
-
-        conditions: list[Any] = [
-            ModelCredential.is_valid,
-            ModelCredential.provider_id == provider_id,
-        ]
-
-        result = await self.db.execute(select(ModelCredential).where(and_(*conditions)))
-        credentials = result.scalars().all()
-
-        if not credentials:
-            return None
-
-        # Priority 1: match user_id
-        if user_id:
-            for c in credentials:
-                if c.user_id == user_id:
-                    return c
-
-        # Priority 2: user_id is None (Global)
-        for c in credentials:
-            if c.user_id is None:
-                return c
-
-        # Priority 3: any available
-        return credentials[0]
-
     async def list_all(self) -> list[ModelCredential]:
-        """获取所有凭据（所有用户和工作空间可见）"""
+        """获取所有凭据"""
         result = await self.db.execute(select(ModelCredential).options(selectinload(ModelCredential.provider)))
         return list(result.scalars().all())
