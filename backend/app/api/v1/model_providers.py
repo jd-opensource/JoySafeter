@@ -41,7 +41,7 @@ class CustomProviderCreate(BaseModel):
     credentials: Dict[str, Any] = Field(description="凭据字典（明文）")
     display_name: Optional[str] = Field(default=None, description="自定义显示名称")
     model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数")
-    validate: bool = Field(default=True, description="是否验证凭据")
+    validate_credentials: bool = Field(default=True, description="是否验证凭据")
 
 
 @router.post("/custom")
@@ -58,7 +58,7 @@ async def add_custom_provider(
         model_name=payload.model_name,
         display_name=payload.display_name,
         model_parameters=payload.model_parameters,
-        validate=payload.validate,
+        validate=payload.validate_credentials,
     )
     return success_response(data=result, message="添加自定义供应商成功")
 

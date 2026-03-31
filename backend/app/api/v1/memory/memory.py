@@ -382,6 +382,10 @@ async def optimize_memories(
             raise HTTPException(status_code=400, detail="未找到可用模型配置，请先配置模型")
 
         # Use the model factory to construct the correct model type for the provider
+        from typing import cast
+
+        from langchain_core.language_models.chat_models import BaseChatModel
+
         from app.core.model import ModelType
         from app.core.model import create_model_instance as create_model
 
@@ -396,7 +400,7 @@ async def optimize_memories(
 
         # Create memory manager with MemoryService and explicit model
         db = MemoryService(db_session)
-        memory_manager = MemoryManager(model=memory_model, db=db)
+        memory_manager = MemoryManager(model=cast(BaseChatModel, memory_model), db=db)
 
         # Get current memories to count tokens before optimization
         user_id = request.user_id or str(current_user.id)
