@@ -14,6 +14,10 @@ export function ModelsPage() {
     setSelectedProvider(null)
   }
 
+  const handleCustomProviderCreated = (providerName: string) => {
+    setSelectedProvider(providerName)
+  }
+
   return (
     <div className="flex h-full overflow-hidden">
       <ProviderSidebar
@@ -31,6 +35,7 @@ export function ModelsPage() {
         open={showAddCustomModel}
         onOpenChange={setShowAddCustomModel}
         credentialSchema={customTemplate?.credential_schema}
+        onCreated={handleCustomProviderCreated}
       />
     </div>
   )

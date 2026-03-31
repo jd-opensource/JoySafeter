@@ -29,9 +29,10 @@ interface AddCustomModelDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   credentialSchema?: Record<string, any>
+  onCreated?: (providerName: string) => void
 }
 
-export function AddCustomModelDialog({ open, onOpenChange, credentialSchema }: AddCustomModelDialogProps) {
+export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onCreated }: AddCustomModelDialogProps) {
   const createCustomProvider = useCreateCustomProvider()
   const { toast } = useToast()
   const [modelName, setModelName] = useState('')
@@ -56,7 +57,7 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema }: A
       if (val) credentials[field.key] = val
     }
     try {
-      await createCustomProvider.mutateAsync({
+      const result = await createCustomProvider.mutateAsync({
         model_name: modelName.trim(),
         credentials,
         validate: true,
@@ -65,6 +66,7 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema }: A
       setModelName('')
       setCredFields({})
       onOpenChange(false)
+      onCreated?.(result.provider_name)
     } catch (err) {
       toast({
         variant: 'destructive',
