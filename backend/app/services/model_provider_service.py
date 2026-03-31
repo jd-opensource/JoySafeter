@@ -2,7 +2,8 @@
 模型供应商服务
 """
 
-from typing import Any, Dict, List
+import uuid
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.model import get_factory
 from app.models.model_instance import ModelInstance
+from app.repositories.model_credential import ModelCredentialRepository
 from app.repositories.model_instance import ModelInstanceRepository
 from app.repositories.model_provider import ModelProviderRepository
 
@@ -101,60 +103,46 @@ class ModelProviderService(BaseService):
         return synced_providers
 
     async def get_all_providers(self) -> List[Dict[str, Any]]:
-        """获取所有供应商信息（数据库为主，工厂补充运行时信息）
-
-        After Phase 1, all factory providers have DB records. We query DB first,
-        then look up factory for runtime info (config_schemas, etc.).
-        """
+        """获取所有供应商信息（过滤掉 is_template=True 的模板 provider）"""
         db_providers = await self.repo.find()
         model_counts = await self.instance_repo.count_grouped_by_provider()
 
         result = []
         for db_provider in db_providers:
-            # Look up factory provider for runtime info (config_schemas, model lists, etc.)
+            if db_provider.is_template:
+                continue
+
             factory_name = db_provider.template_name or db_provider.name
             factory_provider = self.factory.get_provider(factory_name)
-
             model_count = model_counts.get(db_provider.id, 0)
 
+            config_schemas: Dict[str, Any] = {}
             if factory_provider:
-                config_schemas: Dict[str, Any] = {}
                 for model_type in factory_provider.get_supported_model_types():
                     schema = factory_provider.get_config_schema(model_type)
                     if schema:
                         config_schemas[model_type.value] = schema
 
-                provider_data: Dict[str, Any] = {
-                    "provider_name": db_provider.name,
-                    "display_name": db_provider.display_name or factory_provider.display_name,
-                    "supported_model_types": db_provider.supported_model_types
-                    or [mt.value for mt in factory_provider.get_supported_model_types()],
-                    "credential_schema": db_provider.credential_schema or factory_provider.get_credential_schema(),
-                    "config_schemas": config_schemas,
-                    "model_count": model_count,
-                    "default_parameters": db_provider.default_parameters or {},
-                    "is_template": db_provider.is_template,
-                    "provider_type": db_provider.provider_type,
-                    "template_name": db_provider.template_name,
-                    "is_enabled": db_provider.is_enabled,
-                    "id": str(db_provider.id),
-                }
-            else:
-                # DB-only provider (custom, no factory entry)
-                provider_data = {
-                    "provider_name": db_provider.name,
-                    "display_name": db_provider.display_name or db_provider.name,
-                    "supported_model_types": db_provider.supported_model_types or [],
-                    "credential_schema": db_provider.credential_schema or {},
-                    "config_schemas": db_provider.config_schema or {},
-                    "model_count": model_count,
-                    "default_parameters": db_provider.default_parameters or {},
-                    "is_template": db_provider.is_template,
-                    "provider_type": db_provider.provider_type,
-                    "template_name": db_provider.template_name,
-                    "is_enabled": db_provider.is_enabled,
-                    "id": str(db_provider.id),
-                }
+            provider_data: Dict[str, Any] = {
+                "provider_name": db_provider.name,
+                "display_name": db_provider.display_name or (
+                    factory_provider.display_name if factory_provider else db_provider.name
+                ),
+                "supported_model_types": db_provider.supported_model_types or (
+                    [mt.value for mt in factory_provider.get_supported_model_types()] if factory_provider else []
+                ),
+                "credential_schema": db_provider.credential_schema or (
+                    factory_provider.get_credential_schema() if factory_provider else {}
+                ),
+                "config_schemas": config_schemas if factory_provider else (db_provider.config_schema or {}),
+                "model_count": model_count,
+                "default_parameters": db_provider.default_parameters or {},
+                "is_template": db_provider.is_template,
+                "provider_type": db_provider.provider_type,
+                "template_name": db_provider.template_name,
+                "is_enabled": db_provider.is_enabled,
+                "id": str(db_provider.id),
+            }
 
             if db_provider.icon:
                 provider_data["icon"] = db_provider.icon
@@ -167,77 +155,47 @@ class ModelProviderService(BaseService):
         return result
 
     async def get_provider(self, provider_name: str) -> Dict[str, Any] | None:
-        """获取单个供应商信息"""
-        provider = self.factory.get_provider(provider_name)
+        """获取单个供应商信息（不过滤模板，允许查询 custom 等模板 provider）"""
         db_provider = await self.repo.get_by_name(provider_name)
+        if not db_provider:
+            return None
 
-        if not provider:
-            if not db_provider:
-                return None
+        factory_name = db_provider.template_name or db_provider.name
+        factory_provider = self.factory.get_provider(factory_name)
+        model_count = await self.instance_repo.count_by_provider(provider_id=db_provider.id)
 
-            implementation_info = {}
-            if db_provider.template_name:
-                template = self.factory.get_provider(db_provider.template_name)
-                if template:
-                    implementation_info = {
-                        "supported_model_types": [mt.value for mt in template.get_supported_model_types()],
-                        "credential_schema": template.get_credential_schema(),
-                    }
+        config_schemas: Dict[str, Any] = {}
+        if factory_provider:
+            for model_type in factory_provider.get_supported_model_types():
+                schema = factory_provider.get_config_schema(model_type)
+                if schema:
+                    config_schemas[model_type.value] = schema
 
-            model_count = await self.instance_repo.count_by_provider(provider_id=db_provider.id)
-
-            return {
-                "provider_name": db_provider.name,
-                "display_name": db_provider.display_name or db_provider.name,
-                "supported_model_types": implementation_info.get(
-                    "supported_model_types", db_provider.supported_model_types or []
-                ),
-                "credential_schema": implementation_info.get("credential_schema", db_provider.credential_schema or {}),
-                "config_schemas": db_provider.config_schema or {},
-                "model_count": model_count,
-                "default_parameters": db_provider.default_parameters if db_provider.default_parameters else {},
-                "is_template": db_provider.is_template,
-                "provider_type": db_provider.provider_type,
-                "template_name": db_provider.template_name,
-                "is_enabled": db_provider.is_enabled,
-                "id": str(db_provider.id),
-                "icon": db_provider.icon,
-                "description": db_provider.description,
-            }
-
-        # After Phase 1, all factory providers have DB records — always use provider_id
-        model_count = (
-            await self.instance_repo.count_by_provider(provider_id=db_provider.id)
-            if db_provider
-            else 0  # No DB record means no instances; deprecated provider_name fallback removed
-        )
-
-        config_schemas = {}
-        for model_type in provider.get_supported_model_types():
-            config_schema = provider.get_config_schema(model_type)
-            if config_schema:
-                config_schemas[model_type.value] = config_schema
-
-        provider_info = {
-            "provider_name": provider_name,
-            "display_name": provider.display_name,
-            "supported_model_types": [mt.value for mt in provider.get_supported_model_types()],
-            "credential_schema": provider.get_credential_schema(),
-            "config_schemas": config_schemas,
+        provider_info: Dict[str, Any] = {
+            "provider_name": db_provider.name,
+            "display_name": db_provider.display_name or (
+                factory_provider.display_name if factory_provider else db_provider.name
+            ),
+            "supported_model_types": db_provider.supported_model_types or (
+                [mt.value for mt in factory_provider.get_supported_model_types()] if factory_provider else []
+            ),
+            "credential_schema": db_provider.credential_schema or (
+                factory_provider.get_credential_schema() if factory_provider else {}
+            ),
+            "config_schemas": config_schemas if factory_provider else (db_provider.config_schema or {}),
             "model_count": model_count,
-            "default_parameters": db_provider.default_parameters if db_provider else {},
-            "is_template": provider.is_template,
-            "provider_type": provider.provider_type,
-            "template_name": getattr(provider, "template_name", None),
-            "is_enabled": db_provider.is_enabled if db_provider else True,
+            "default_parameters": db_provider.default_parameters or {},
+            "is_template": db_provider.is_template,
+            "provider_type": db_provider.provider_type,
+            "template_name": db_provider.template_name,
+            "is_enabled": db_provider.is_enabled,
+            "id": str(db_provider.id),
         }
 
-        if db_provider:
-            provider_info["id"] = str(db_provider.id)
-            if db_provider.icon:
-                provider_info["icon"] = db_provider.icon
-            if db_provider.description:
-                provider_info["description"] = db_provider.description
+        if db_provider.icon:
+            provider_info["icon"] = db_provider.icon
+        if db_provider.description:
+            provider_info["description"] = db_provider.description
 
         return provider_info
 
@@ -266,6 +224,95 @@ class ModelProviderService(BaseService):
         if not result:
             raise NotFoundException(f"供应商不存在: {provider_name}")
         return result
+
+    async def _create_derived_provider(self, template: Any, name: str, display_name: str, template_name: str) -> Any:
+        """从模板创建派生 Provider DB 记录。"""
+        return await self.repo.create(
+            {
+                "name": name,
+                "display_name": display_name,
+                "supported_model_types": [mt.value for mt in template.get_supported_model_types()],
+                "credential_schema": template.get_credential_schema(),
+                "config_schema": None,
+                "is_template": False,
+                "provider_type": "custom",
+                "template_name": template_name,
+                "is_enabled": True,
+            }
+        )
+
+    async def _get_first_model_name_for_provider(self, provider_id: uuid.UUID) -> Optional[str]:
+        """获取 Provider 下第一个模型实例的名称。"""
+        instances = await self.instance_repo.list_by_provider(provider_id=provider_id)
+        return instances[0].model_name if instances else None
+
+    async def add_custom_provider(
+        self,
+        user_id: str,
+        credentials: Dict[str, Any],
+        model_name: str,
+        display_name: Optional[str] = None,
+        model_parameters: Optional[Dict[str, Any]] = None,
+        validate: bool = True,
+    ) -> Dict[str, Any]:
+        """一步添加自定义 provider：创建 provider + credential + model_instance。"""
+        import time
+        from app.core.model import validate_provider_credentials
+        from app.core.model.utils import encrypt_credentials
+
+        template = self.factory.get_provider("custom")
+        if not template:
+            raise NotFoundException("供应商不存在: custom")
+
+        is_valid = False
+        validation_error = None
+        if validate:
+            is_valid, validation_error = await validate_provider_credentials(
+                "custom", credentials, model_name=model_name
+            )
+
+        new_name = f"custom-{int(time.time())}"
+        display = (display_name or model_name).strip() or new_name
+        db_provider = await self._create_derived_provider(
+            template=template, name=new_name, display_name=display, template_name="custom"
+        )
+
+        from datetime import datetime, timezone
+        credential_repo = ModelCredentialRepository(self.db)
+        encrypted = encrypt_credentials(credentials)
+        now = datetime.now(timezone.utc) if is_valid else None
+        credential = await credential_repo.create(
+            {
+                "user_id": user_id,
+                "workspace_id": None,
+                "provider_id": db_provider.id,
+                "credentials": encrypted,
+                "is_valid": is_valid,
+                "last_validated_at": now,
+                "validation_error": validation_error,
+            }
+        )
+
+        await self.instance_repo.create(
+            {
+                "user_id": user_id,
+                "workspace_id": None,
+                "provider_id": db_provider.id,
+                "model_name": model_name,
+                "model_parameters": model_parameters or {},
+                "is_default": False,
+            }
+        )
+
+        await self.commit()
+
+        return {
+            "provider_name": new_name,
+            "display_name": display,
+            "credential_id": str(credential.id),
+            "is_valid": is_valid,
+            "validation_error": validation_error,
+        }
 
     async def delete_provider(self, provider_name: str) -> None:
         """
@@ -305,6 +352,29 @@ class ModelProviderService(BaseService):
                 new_default = remaining_models[0]
                 await self.instance_repo.update(new_default.id, {"is_default": True})
                 logger.info(f"已自动重新分配默认模型: {new_default.model_name}")
+                # 刷新默认模型缓存
+                try:
+                    from app.core.settings import set_default_model_config
+                    from app.core.model.utils import decrypt_credentials
+                    cred_repo = ModelCredentialRepository(self.db)
+                    cred = await cred_repo.get_by_provider(new_default.provider_id)
+                    if cred and cred.is_valid:
+                        decrypted = decrypt_credentials(cred.credentials)
+                        params = new_default.model_parameters or {}
+                        set_default_model_config({
+                            "model": new_default.model_name,
+                            "api_key": decrypted.get("api_key", ""),
+                            "base_url": decrypted.get("base_url"),
+                            "timeout": params.get("timeout", 30),
+                        })
+                except Exception as e:
+                    logger.warning(f"更新默认模型缓存失败: {e}")
+            else:
+                try:
+                    from app.core.settings import clear_default_model_config
+                    clear_default_model_config()
+                except Exception:
+                    pass
 
         await self.commit()
 
