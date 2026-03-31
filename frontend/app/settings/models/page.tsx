@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import { useModelProviders } from '@/hooks/queries/models'
+import { useModelProvider } from '@/hooks/queries/models'
 
 import { AddCustomModelDialog } from '@/components/settings/models/add-custom-model-dialog'
 import { DetailPanel } from '@/components/settings/models/detail-panel/detail-panel'
@@ -11,10 +11,7 @@ import { ProviderSidebar } from '@/components/settings/models/provider-sidebar/p
 export default function ModelsPage() {
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
   const [showAddCustomModel, setShowAddCustomModel] = useState(false)
-  const { data: providers = [] } = useModelProviders()
-
-  // custom 模板 provider 包含 credential_schema（协议类型、API Key、Base URL 等字段定义）
-  const customProvider = providers.find((p) => p.provider_name === 'custom')
+  const { data: customTemplate } = useModelProvider('custom')
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -26,13 +23,11 @@ export default function ModelsPage() {
 
       <DetailPanel selectedProvider={selectedProvider} />
 
-      {customProvider && (
-        <AddCustomModelDialog
-          open={showAddCustomModel}
-          onOpenChange={setShowAddCustomModel}
-          provider={customProvider}
-        />
-      )}
+      <AddCustomModelDialog
+        open={showAddCustomModel}
+        onOpenChange={setShowAddCustomModel}
+        credentialSchema={customTemplate?.credential_schema}
+      />
     </div>
   )
 }
