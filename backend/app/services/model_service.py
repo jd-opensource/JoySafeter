@@ -159,6 +159,20 @@ class ModelService(BaseService):
         relevant_provider_ids: set = {i.provider_id for i in all_instances if i.provider_id is not None}
         cred_ctx = await self._build_provider_credentials_context(relevant_provider_ids)
 
+        # Cache factory provider and model_list per impl_name to avoid repeated lookups
+        _factory_cache: Dict[str, Any] = {}  # impl_name -> factory provider (or None)
+        _model_list_cache: Dict[str, List[Dict[str, Any]]] = {}  # impl_name -> model list
+
+        def _get_factory_provider(impl_name: str):
+            if impl_name not in _factory_cache:
+                _factory_cache[impl_name] = self.factory.get_provider(impl_name)
+            return _factory_cache[impl_name]
+
+        def _get_model_list(impl_name: str, prov_impl: Any, credentials: Any) -> List[Dict[str, Any]]:
+            if impl_name not in _model_list_cache:
+                _model_list_cache[impl_name] = prov_impl.get_model_list(model_type, credentials)
+            return _model_list_cache[impl_name]
+
         models = []
         for instance in all_instances:
             if not instance.provider_id or not instance.provider:
@@ -179,12 +193,10 @@ class ModelService(BaseService):
             description = ""
             model_found_in_list = True
 
-            prov_impl = self.factory.get_provider(impl_name)
+            prov_impl = _get_factory_provider(impl_name)
             if prov_impl and not prov_impl.is_template:
-                # 只对非模板 Provider 检查模型是否在预定义列表中
-                # 自定义 Provider (is_template=True) 的模型是用户动态添加的，不在预定义列表中
                 provider_credentials = ctx["decrypted"]
-                model_list = prov_impl.get_model_list(model_type, provider_credentials)
+                model_list = _get_model_list(impl_name, prov_impl, provider_credentials)
                 matched = next((m for m in model_list if m.get("name") == instance.model_name), None)
                 if matched:
                     display_name = matched.get("display_name", instance.model_name)
