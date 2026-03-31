@@ -20,27 +20,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useCreateCredential } from '@/hooks/queries/models'
+import { useCreateCustomProvider } from '@/hooks/queries/models'
 import { useToast } from '@/hooks/use-toast'
-import type { ModelProvider } from '@/types/models'
 
 import { parseJsonSchema } from './schema-utils'
 
 interface AddCustomModelDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  provider: ModelProvider
+  credentialSchema?: Record<string, any>
 }
 
-export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustomModelDialogProps) {
-  const createCredential = useCreateCredential()
+export function AddCustomModelDialog({ open, onOpenChange, credentialSchema }: AddCustomModelDialogProps) {
+  const createCustomProvider = useCreateCustomProvider()
   const { toast } = useToast()
   const [modelName, setModelName] = useState('')
   const [credFields, setCredFields] = useState<Record<string, string>>({})
 
   const formFields = useMemo(
-    () => parseJsonSchema(provider.credential_schema),
-    [provider.credential_schema],
+    () => parseJsonSchema(credentialSchema),
+    [credentialSchema],
   )
 
   const canSubmit =
@@ -57,10 +56,9 @@ export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustom
       if (val) credentials[field.key] = val
     }
     try {
-      await createCredential.mutateAsync({
-        provider_name: provider.provider_name,
-        credentials,
+      await createCustomProvider.mutateAsync({
         model_name: modelName.trim(),
+        credentials,
         validate: true,
       })
       toast({ title: '模型添加成功' })
@@ -82,7 +80,7 @@ export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustom
         <DialogHeader>
           <DialogTitle>添加自定义模型</DialogTitle>
           <DialogDescription>
-            通过 {provider.display_name} 添加一个新的模型实例
+            添加一个新的自定义模型实例
           </DialogDescription>
         </DialogHeader>
 
@@ -151,8 +149,8 @@ export function AddCustomModelDialog({ open, onOpenChange, provider }: AddCustom
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button onClick={handleAdd} disabled={createCredential.isPending || !canSubmit}>
-            {createCredential.isPending ? '添加中...' : '添加'}
+          <Button onClick={handleAdd} disabled={createCustomProvider.isPending || !canSubmit}>
+            {createCustomProvider.isPending ? '添加中...' : '添加'}
           </Button>
         </DialogFooter>
       </DialogContent>

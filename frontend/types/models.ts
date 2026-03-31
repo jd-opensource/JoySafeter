@@ -40,17 +40,32 @@ export interface ModelCredential {
   credentials?: Record<string, any> // Only returned when getting details
 }
 
-/**
- * Create model credential request.
- * When provider_name is "custom", model_name can be set to add one custom model (credential + instance) in one call.
- */
 export interface CreateCredentialRequest {
   provider_name: string
-  providerDisplayName?: string
   credentials: Record<string, any>
   validate?: boolean
-  model_name?: string
+}
+
+/**
+ * Create custom provider request (one-shot: provider + credential + model instance)
+ */
+export interface CreateCustomProviderRequest {
+  model_name: string
+  credentials: Record<string, any>
+  display_name?: string
   model_parameters?: Record<string, unknown>
+  validate?: boolean
+}
+
+/**
+ * Create custom provider response
+ */
+export interface CreateCustomProviderResponse {
+  provider_name: string
+  display_name: string
+  credential_id: string
+  is_valid: boolean
+  validation_error?: string
 }
 
 // ==================== Model Instance ====================

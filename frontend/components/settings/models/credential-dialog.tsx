@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
-import { useCreateCredential, useValidateCredential } from '@/hooks/queries/models'
+import { useCreateCredential, useValidateCredential, useDeleteCredential } from '@/hooks/queries/models'
 import type { ModelCredential, ModelProvider } from '@/types/models'
 
 import { parseJsonSchema } from './schema-utils'
@@ -45,6 +45,7 @@ export function CredentialDialog({
   const { toast } = useToast()
   const [fields, setFields] = useState<Record<string, string>>({})
   const [validating, setValidating] = useState(false)
+  const deleteCredential = useDeleteCredential()
 
   const formFields = useMemo(
     () => parseJsonSchema(provider.credential_schema),
@@ -124,6 +125,21 @@ export function CredentialDialog({
     }
   }
 
+  const handleClearCredential = async () => {
+    if (!existingCredential) return
+    try {
+      await deleteCredential.mutateAsync(existingCredential.id)
+      toast({ title: '凭证已清除' })
+      onOpenChange(false)
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: '清除凭证失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
@@ -183,16 +199,27 @@ export function CredentialDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          {existingCredential && (
-            <Button
-              variant="outline"
-              onClick={handleValidate}
-              disabled={validating || isDirty}
-              className="mr-auto"
-            >
-              {validating ? '验证中...' : '重新验证'}
-            </Button>
-          )}
+          <div className="mr-auto flex gap-2">
+            {existingCredential && (
+              <Button
+                variant="outline"
+                onClick={handleValidate}
+                disabled={validating || isDirty}
+              >
+                {validating ? '验证中...' : '重新验证'}
+              </Button>
+            )}
+            {existingCredential && provider.provider_type !== 'custom' && (
+              <Button
+                variant="outline"
+                onClick={handleClearCredential}
+                disabled={deleteCredential.isPending}
+                className="text-red-600 hover:text-red-700"
+              >
+                {deleteCredential.isPending ? '清除中...' : '清除认证'}
+              </Button>
+            )}
+          </div>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>

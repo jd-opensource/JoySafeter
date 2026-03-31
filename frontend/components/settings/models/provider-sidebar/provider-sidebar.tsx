@@ -32,7 +32,7 @@ export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCusto
   }, [providers, search])
 
   const systemProviders = filtered.filter((p) => p.provider_type !== 'custom' && !p.is_template)
-  const customProviders = filtered.filter((p) => p.provider_type === 'custom')
+  const customProviders = filtered.filter((p) => p.provider_type === 'custom' && !p.is_template)
 
   return (
     <div className="flex w-[260px] shrink-0 flex-col border-r border-[var(--border-muted)] bg-[var(--surface-elevated)]">
