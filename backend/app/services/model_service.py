@@ -45,33 +45,21 @@ class ModelService(BaseService):
             await self.db.flush()
 
     async def _build_provider_credentials_context(self, provider_ids: set) -> Dict[Any, Dict[str, Any]]:
-        """
-        一次性构建 provider 凭证上下文，包含解密凭证和有效性状态。
-        Keyed by provider_id (UUID) for direct O(1) lookup.
-
-        Returns:
-            {provider_id: {"decrypted": {...} | None, "is_valid": bool, "error": str | None}}
-        """
+        """一次性构建 provider 凭证上下文。Keyed by provider_id。"""
         from app.core.model.utils import decrypt_credentials
 
         all_credentials = await self.credential_repo.list_all()
 
-        # Group by provider_id; prefer global credentials (user_id IS NULL)
-        best_cred_by_id: Dict[Any, Any] = {}
+        # 一个 provider 一条凭证，直接按 provider_id 取
+        cred_by_id: Dict[Any, Any] = {}
         for c in all_credentials:
             pid = c.provider_id
-            if pid is None or pid not in provider_ids:
-                continue
-            existing = best_cred_by_id.get(pid)
-            if existing is None:
-                best_cred_by_id[pid] = c
-            elif c.user_id is None and existing.user_id is not None:
-                # Global credential takes priority over user-scoped
-                best_cred_by_id[pid] = c
+            if pid is not None and pid in provider_ids and pid not in cred_by_id:
+                cred_by_id[pid] = c
 
         result: Dict[Any, Dict[str, Any]] = {}
         for pid in provider_ids:
-            cred = best_cred_by_id.get(pid)
+            cred = cred_by_id.get(pid)
             if cred is None:
                 result[pid] = {"decrypted": None, "is_valid": False, "error": "no_credentials"}
             elif not cred.is_valid:
@@ -88,6 +76,75 @@ class ModelService(BaseService):
                     result[pid] = {"decrypted": None, "is_valid": False, "error": "decrypt_failed"}
 
         return result
+
+    async def _update_default_model_cache(
+        self,
+        provider_name: str,
+        model_name: str,
+        model_type: str = "chat",
+        model_parameters: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """更新默认模型缓存。"""
+        try:
+            from app.core.settings import set_default_model_config
+
+            credentials = await self.credential_service.get_decrypted_credentials(provider_name)
+            if credentials:
+                params = model_parameters or {}
+                set_default_model_config(
+                    {
+                        "model": model_name,
+                        "api_key": credentials.get("api_key", ""),
+                        "base_url": credentials.get("base_url"),
+                        "timeout": params.get("timeout", 30),
+                    }
+                )
+        except Exception as e:
+            print(f"Warning: Failed to update default model cache: {e}")
+
+    async def _update_default_model_cache_if_needed(self, provider_name: str) -> None:
+        """如果当前默认模型属于该 provider，则刷新缓存。"""
+        try:
+            default_instance = await self.repo.get_default()
+            if not default_instance or not default_instance.provider:
+                return
+            if default_instance.provider.name == provider_name:
+                await self._update_default_model_cache(
+                    provider_name=provider_name,
+                    model_name=default_instance.model_name,
+                    model_type="chat",
+                    model_parameters=default_instance.model_parameters,
+                )
+        except Exception as e:
+            print(f"Warning: Failed to check/update default model cache: {e}")
+
+    async def _resolve_and_create_model(
+        self, model_name: str, user_id: Optional[str] = None
+    ) -> tuple:
+        """
+        统一 resolve provider -> get credential -> create model 逻辑。
+        返回 (model, provider_name, implementation_name, instance)。
+        """
+        instance = await self.repo.get_by_name(model_name)
+        if not instance:
+            raise NotFoundException(f"模型实例不存在: {model_name}")
+
+        provider_name = instance.resolved_provider_name
+        implementation_name = instance.resolved_implementation_name
+
+        credentials = await self.credential_service.get_decrypted_credentials(provider_name)
+        if not credentials:
+            raise NotFoundException(f"未找到模型 {provider_name}/{model_name} 的有效凭据")
+
+        model = create_model_instance(
+            implementation_name,
+            model_name,
+            ModelType.CHAT,
+            credentials,
+            instance.model_parameters or {},
+        )
+
+        return model, provider_name, implementation_name, instance
 
     # ------------------------------------------------------------------
     # Public API
@@ -251,7 +308,7 @@ class ModelService(BaseService):
         pname = instance.resolved_provider_name
 
         if is_default:
-            await self.credential_service._update_default_model_cache(
+            await self._update_default_model_cache(
                 provider_name=pname,
                 model_name=instance.model_name,
                 model_type=ModelType.CHAT.value,
@@ -300,7 +357,7 @@ class ModelService(BaseService):
         await self.commit()
 
         if is_default:
-            await self.credential_service._update_default_model_cache(
+            await self._update_default_model_cache(
                 provider_name=provider_name,
                 model_name=model_name,
                 model_type=model_type.value,
@@ -344,7 +401,7 @@ class ModelService(BaseService):
         await self.commit()
 
         if is_default:
-            await self.credential_service._update_default_model_cache(
+            await self._update_default_model_cache(
                 provider_name=provider_name,
                 model_name=model_name,
                 model_type=ModelType.CHAT.value,
@@ -411,12 +468,7 @@ class ModelService(BaseService):
         assert provider_name is not None and model_name is not None
         assert implementation_name is not None
 
-        credentials = await self.credential_service.get_current_credentials(
-            provider_name=provider_name,
-            model_type=model_type,
-            model_name=model_name,
-            user_id=user_id,
-        )
+        credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
             raise NotFoundException(f"未找到模型 {provider_name}/{model_name} 的有效凭据")
@@ -479,12 +531,7 @@ class ModelService(BaseService):
 
         model_type = ModelType.CHAT
 
-        credentials = await self.credential_service.get_current_credentials(
-            provider_name=provider_name,
-            model_type=model_type,
-            model_name=model_name,
-            user_id=user_id,
-        )
+        credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
             raise NotFoundException(f"未找到模型 {provider_name}/{model_name} 的有效凭据")
@@ -510,12 +557,7 @@ class ModelService(BaseService):
         implementation_name = instance.resolved_implementation_name
         model_type = ModelType.CHAT
 
-        credentials = await self.credential_service.get_current_credentials(
-            provider_name=provider_name,
-            model_type=model_type,
-            model_name=model_name,
-            user_id=user_id,
-        )
+        credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
             raise NotFoundException(f"未找到模型 {provider_name}/{model_name} 的有效凭据")
@@ -583,12 +625,7 @@ class ModelService(BaseService):
         implementation_name = instance.resolved_implementation_name
         model_type = ModelType.CHAT
 
-        credentials = await self.credential_service.get_current_credentials(
-            provider_name=provider_name,
-            model_type=model_type.value,
-            model_name=model_name,
-            user_id=user_id,
-        )
+        credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
             yield f"event: error\ndata: {json.dumps({'error': f'未找到有效凭据: {provider_name}/{model_name}'})}\n\n"
