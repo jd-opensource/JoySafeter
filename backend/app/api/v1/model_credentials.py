@@ -3,7 +3,7 @@
 """
 
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -19,26 +19,11 @@ router = APIRouter(prefix="/v1/model-credentials", tags=["ModelCredentials"])
 
 
 class CredentialCreate(BaseModel):
-    """创建凭据请求（全局）。custom 且带 model_name 时表示「添加一个自定义模型」：创建 provider+凭据+实例。"""
+    """创建/更新凭据请求（仅限内置 provider）"""
 
-    provider_name: str = Field(description="供应商名称或模板名称", examples=["openaiapicompatible"])
-    provider_display_name: Optional[str] = Field(
-        default=None, alias="providerDisplayName", description="自定义供应商显示名称（添加自定义模型时可选）"
-    )
+    provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
     credentials: Dict[str, Any] = Field(..., description="凭据字典（明文）")
     should_validate: bool = Field(default=True, alias="validate", description="是否验证凭据")
-    model_name: Optional[str] = Field(
-        default=None, description="模型名称；仅当 provider_name=custom 时有效，表示一步添加凭据+该模型"
-    )
-    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数；与 model_name 配套使用")
-
-
-class CredentialValidateResponse(BaseModel):
-    """凭据验证响应"""
-
-    is_valid: bool
-    error: Optional[str] = None
-    last_validated_at: Optional[str] = None
 
 
 @router.post("")
@@ -47,25 +32,13 @@ async def create_or_update_credential(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    创建或更新模型凭据
-
-    Args:
-        payload: 凭据创建请求
-
-    Returns:
-        创建的凭据信息
-    """
+    """创建或更新内置 provider 的凭据"""
     service = ModelCredentialService(db)
-    user_id = current_user.id
-    credential = await service.create_or_update_credential(
-        user_id=user_id,
+    credential = await service.upsert_credential(
+        user_id=current_user.id,
         provider_name=payload.provider_name,
         credentials=payload.credentials,
         validate=payload.should_validate,
-        provider_display_name=payload.provider_display_name,
-        model_name=payload.model_name,
-        model_parameters=payload.model_parameters,
     )
     return success_response(data=credential, message="创建/更新凭据成功")
 
