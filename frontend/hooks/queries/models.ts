@@ -289,7 +289,6 @@ export function useCreateCredential() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
@@ -310,7 +309,6 @@ export function useCreateCustomProvider() {
       queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
-      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
@@ -326,10 +324,8 @@ export function useValidateCredential() {
       logger.info(`Validated credential: ${credentialId}`)
       return data
     },
-    onSuccess: (_, credentialId) => {
-      queryClient.invalidateQueries({ queryKey: modelKeys.credential(credentialId) })
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
@@ -344,8 +340,6 @@ export function useDeleteCredential() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
-      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
       queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
     },
   })
@@ -361,9 +355,8 @@ export function useDeleteModelProvider() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
-      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
+      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
     },
   })
 }
@@ -385,7 +378,6 @@ export function useCreateModelInstance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
-      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
@@ -407,8 +399,6 @@ export function useUpdateModelInstanceDefault() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
-      // Invalidate all available queries (including queries with different modelType)
-      queryClient.invalidateQueries({ queryKey: [...modelKeys.all, 'available'] })
     },
   })
 }
