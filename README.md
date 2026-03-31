@@ -187,6 +187,9 @@ This dynamic decision-making — where the agent adapts its next step based on w
 
 | Tag | Feature | What it means |
 |-----|---------|---------------|
+| **NEW** | **Model Settings Master-Detail** | Redesigned model management page — provider sidebar + detail panel, schema-driven forms, one-click custom model setup |
+| **NEW** | **Model Usage Stats** | Per-model usage logging with StatsTab visualization and SSE test-stream endpoint |
+| **NEW** | **Custom Provider API** | Single `POST /model-providers/custom` endpoint creates provider + credential + model instance in one call |
 | **NEW** | **Skill Versioning & Collaboration** | Publish, rollback, manage skill versions; invite collaborators with role-based permissions; platform API tokens for CI/CD |
 | **NEW** | **Multi-Tenant Sandbox Engine** | Per-user isolated code execution — zero state leakage between sessions |
 | **NEW** | **Enterprise SSO** | Built-in GitHub / Google / Microsoft templates, plus OIDC and JD SSO |
