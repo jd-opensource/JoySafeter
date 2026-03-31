@@ -69,7 +69,7 @@ export function CredentialDialog({
     return false
   }, [fields, formFields, existingCredential])
 
-  const canSubmit = formFields
+  const canSubmit = isDirty && formFields
     .filter((f) => f.required)
     .every((f) => fields[f.key]?.trim())
 
