@@ -2,7 +2,6 @@
 模型供应商服务
 """
 
-import uuid
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
