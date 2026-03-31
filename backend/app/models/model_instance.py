@@ -51,7 +51,9 @@ class ModelInstance(BaseModel):
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否为默认模型")
 
     # 关系
-    provider: Mapped[Optional["ModelProvider"]] = relationship("ModelProvider", lazy="selectin")
+    provider: Mapped[Optional["ModelProvider"]] = relationship(
+        "ModelProvider", back_populates="model_instances", lazy="selectin"
+    )
     user: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")
     workspace: Mapped[Optional["Workspace"]] = relationship("Workspace", lazy="selectin")
 

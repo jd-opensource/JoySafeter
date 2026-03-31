@@ -25,7 +25,6 @@ import { useCreateCredential } from '@/hooks/queries/models'
 import type { ModelCredential, ModelProvider } from '@/types/models'
 
 import { parseJsonSchema } from './schema-utils'
-import type { SchemaField } from './schema-utils'
 
 interface CredentialDialogProps {
   open: boolean
