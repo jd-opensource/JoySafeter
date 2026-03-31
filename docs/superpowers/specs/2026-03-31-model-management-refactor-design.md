@@ -17,8 +17,8 @@
 
 **保留方法：**
 - `sync_providers_from_factory()` — 同步内置 provider
-- `get_all_providers()` — 查询所有 provider（过滤掉 is_template=True）
-- `get_provider(provider_name)` — 查询单个 provider
+- `get_all_providers()` — 查询所有 provider（**新增**过滤掉 is_template=True，当前代码未过滤）
+- `get_provider(provider_name)` — 查询单个 provider（不过滤模板，允许按名称查询 custom 等模板 provider）
 - `update_provider_defaults(provider_name, default_parameters)` — 更新默认参数
 - `delete_provider(provider_name)` — 删除自定义 provider（级联删除 credential + instance）
 - `sync_all()` — 统一同步接口
@@ -90,7 +90,7 @@
 
 | 方法 | 路径 | 说明 | 变化 |
 |------|------|------|------|
-| GET | `/` | 列表（过滤 is_template=True） | 不变 |
+| GET | `/` | 列表（新增过滤 is_template=True） | 变更 |
 | GET | `/{provider_name}` | 详情 | 不变 |
 | POST | `/custom` | **新增**：添加自定义 provider | 新增 |
 | PATCH | `/{provider_name}/defaults` | 更新默认参数 | 不变 |
@@ -201,7 +201,8 @@ export function useCreateCustomProvider() {
 - props 中的 `provider: ModelProvider` 改为接收 credential_schema（因为 custom 模板不再出现在 providers 列表里）
 
 **credential-dialog.tsx：**
-- 增加"清除认证"按钮，调用 `useDeleteCredential`，只在已有 credential 时显示
+- 增加"清除认证"按钮，调用 `useDeleteCredential`，只在已有 credential 且 provider 为内置 provider（`provider_type !== 'custom'`）时显示
+- 自定义 provider 不显示此按钮（删除统一走 provider 删除入口）
 - 清除后关闭 dialog
 
 **provider-sidebar.tsx：**
@@ -236,28 +237,31 @@ export function useCreateCustomProvider() {
 | 13 | model_credentials.py (API) | CredentialCreate schema | 删除多余字段 |
 | 14 | main.py | lifespan ~L193 | 替换 get_current_credentials 为 get_decrypted_credentials |
 | 15 | credential_resolver.py | get_credentials ~L68,~L95 | 替换 get_current_credentials 为 get_decrypted_credentials |
+| 16 | conversations.py (API) | ~L104,~L128 | 替换 get_current_credentials 为 get_decrypted_credentials |
 
 ### 前端删除项
 
 | # | 文件 | 说明 |
 |---|------|------|
-| 16 | types/models.ts | CreateCredentialRequest 删除 model_name, model_parameters, providerDisplayName |
-| 17 | hooks/queries/models.ts | useCreateCredential 删除 model_name/model_parameters 分支 |
-| 18 | hooks/queries/models.ts | useModelProvidersByConfig 删除 templateProviders |
-| 19 | models-page.tsx | customProvider 查找方式改为单独查询 |
+| 17 | types/models.ts | CreateCredentialRequest 删除 model_name, model_parameters, providerDisplayName |
+| 18 | hooks/queries/models.ts | useCreateCredential 删除 model_name/model_parameters 分支 |
+| 19 | hooks/queries/models.ts | useModelProvidersByConfig 删除 templateProviders |
+| 20 | models-page.tsx | customProvider 查找方式改为单独查询 |
 
 ### 简化项
 
 | # | 文件 | 说明 |
 |---|------|------|
-| 20 | model_service.py | _build_provider_credentials_context 简化 global vs user-scoped 优先级 |
-| 21 | provider_service.py | get_provider 简化为两段式 |
+| 21 | model_service.py | _build_provider_credentials_context 简化 global vs user-scoped 优先级 |
+| 22 | provider_service.py | get_provider 简化为两段式 |
 
 ## 5. 受影响的周边文件
 
 ### 5.1 main.py — 启动默认模型缓存初始化
 
 当前 `main.py` 的 `lifespan` 中（~L172-216）调用 `credential_service.get_current_credentials(...)` 初始化默认模型缓存。由于 `get_current_credentials` 将被删除，需要改为调用 `credential_service.get_decrypted_credentials(provider_name)`。
+
+注意：`get_decrypted_credentials` 只在 credential 有效（`is_valid=True`）时返回解密凭证，否则返回 None。这与 `get_current_credentials` 的行为一致（后者就是透传前者），所以语义不变。
 
 具体变更：
 ```python
@@ -274,9 +278,9 @@ credentials = await credential_service.get_decrypted_credentials(default_provide
 
 ### 5.2 credential_resolver.py — LLM 凭证解析工具
 
-`backend/app/core/model/utils/credential_resolver.py` 的 `LLMCredentialResolver.get_credentials()` 在两处（~L68, ~L95）调用 `credential_service.get_current_credentials(...)`。需要改为调用 `credential_service.get_decrypted_credentials(provider_name)`。
+`backend/app/core/model/utils/credential_resolver.py` 的 `LLMCredentialResolver.get_credentials()` 在两处调用 `credential_service.get_current_credentials(...)`。需要改为调用 `credential_service.get_decrypted_credentials(provider_name)`。
 
-具体变更：
+第一处（~L68，默认模型路径）：
 ```python
 # 之前
 credentials = await credential_service.get_current_credentials(
@@ -290,7 +294,33 @@ credentials = await credential_service.get_current_credentials(
 credentials = await credential_service.get_decrypted_credentials(provider_name or "")
 ```
 
-两处调用都做同样的替换。
+第二处（~L95，回退路径）：注意此处 `provider_name` 可能为 None，实际使用的是 `provider_name_from_cred`：
+```python
+# 之前
+credentials = await credential_service.get_current_credentials(
+    provider_name=provider_name or provider_name_from_cred,
+    model_type=model_type,
+    model_name=model_name or "",
+    user_id=user_id,
+)
+
+# 之后
+credentials = await credential_service.get_decrypted_credentials(provider_name_from_cred)
+```
+
+### 5.3 conversations.py — 对话 API
+
+`backend/app/api/v1/conversations.py` 在两处（~L104, ~L128）调用 `credential_service.get_current_credentials(...)`。与 credential_resolver.py 类似，需要改为调用 `credential_service.get_decrypted_credentials(provider_name)`。
+
+第一处（~L104，默认模型路径）：
+```python
+credentials = await credential_service.get_decrypted_credentials(str(provider_name))
+```
+
+第二处（~L128，回退路径）：
+```python
+credentials = await credential_service.get_decrypted_credentials(provider_name_from_cred)
+```
 
 ## 6. 边界情况处理
 
@@ -342,6 +372,8 @@ credentials = await credential_service.get_decrypted_credentials(provider_name o
 
 `POST /model-credentials` 不再接受 `provider_name=custom` + `model_name` 的组合。这是一个 breaking change。由于当前系统是内部使用，不需要向后兼容过渡期，直接切换到新 API。
 
+**实施顺序要求**：后端新增 `POST /model-providers/custom` 和前端切换到 `useCreateCustomProvider` 必须在同一批次完成，避免前端调用已删除的旧 API 路径导致临时故障。实施顺序（见 Section 9）已考虑此约束。
+
 ## 7. 不变的部分
 
 - 数据库架构（model_provider / model_credential / model_instance 三表关系）
@@ -365,6 +397,7 @@ credentials = await credential_service.get_decrypted_credentials(provider_name o
 | `app/api/v1/model_credentials.py` | 简化 schema，增加 DELETE 校验 |
 | `app/main.py` | 小改：替换 get_current_credentials 调用 |
 | `app/core/model/utils/credential_resolver.py` | 小改：替换 get_current_credentials 调用 |
+| `app/api/v1/conversations.py` | 小改：替换 get_current_credentials 调用 |
 
 ### 前端
 | 文件 | 变更类型 |
