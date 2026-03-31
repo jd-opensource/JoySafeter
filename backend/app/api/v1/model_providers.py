@@ -1,6 +1,6 @@
 """模型供应商管理API"""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -32,6 +32,35 @@ async def list_providers(
     service = ModelProviderService(db)
     providers = await service.get_all_providers()
     return success_response(data=providers, message="获取供应商列表成功")
+
+
+class CustomProviderCreate(BaseModel):
+    """添加自定义 Provider 请求"""
+
+    model_name: str = Field(description="模型名称", examples=["gpt-4o"])
+    credentials: Dict[str, Any] = Field(description="凭据字典（明文）")
+    display_name: Optional[str] = Field(default=None, description="自定义显示名称")
+    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数")
+    validate: bool = Field(default=True, description="是否验证凭据")
+
+
+@router.post("/custom")
+async def add_custom_provider(
+    payload: CustomProviderCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """添加自定义 Provider（一步创建 provider + credential + model_instance）"""
+    service = ModelProviderService(db)
+    result = await service.add_custom_provider(
+        user_id=current_user.id,
+        credentials=payload.credentials,
+        model_name=payload.model_name,
+        display_name=payload.display_name,
+        model_parameters=payload.model_parameters,
+        validate=payload.validate,
+    )
+    return success_response(data=result, message="添加自定义供应商成功")
 
 
 @router.get("/{provider_name}")

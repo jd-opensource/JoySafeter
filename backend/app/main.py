@@ -190,11 +190,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                 if default_instance:
                     default_provider_name = default_instance.provider.name if default_instance.provider else None
                     if default_provider_name:
-                        credentials = await credential_service.get_current_credentials(
-                            provider_name=default_provider_name,
-                            model_type="chat",
-                            model_name=default_instance.model_name,
-                        )
+                        credentials = await credential_service.get_decrypted_credentials(default_provider_name)
                         if credentials:
                             params = default_instance.model_parameters or {}
                             config = {

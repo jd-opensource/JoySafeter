@@ -101,11 +101,7 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
         model_name = default_instance.model_name
         model_type = ModelType.CHAT  # 简化处理，假设是 Chat 模型
 
-        credentials = await credential_service.get_current_credentials(
-            provider_name=str(provider_name),
-            model_type=model_type,
-            model_name=model_name,
-        )
+        credentials = await credential_service.get_decrypted_credentials(str(provider_name))
         api_key = credentials.get("api_key") if credentials else None
         base_url = credentials.get("base_url") if credentials else None
     else:
@@ -125,11 +121,7 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
                 if provider_instances:
                     model_name = provider_instances[0].model_name
                     model_type = ModelType.CHAT
-                    credentials = await credential_service.get_current_credentials(
-                        provider_name=provider_name,
-                        model_type=model_type,
-                        model_name=model_name,
-                    )
+                    credentials = await credential_service.get_decrypted_credentials(provider_name)
                     if credentials:
                         api_key = credentials.get("api_key")
                         base_url = credentials.get("base_url")
