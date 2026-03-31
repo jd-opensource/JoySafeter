@@ -46,7 +46,18 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
 
   const handleRevalidate = () => {
     if (credential?.id) {
-      validateMutation.mutate(credential.id)
+      validateMutation.mutate(credential.id, {
+        onSuccess: (data) => {
+          toast({ title: data.is_valid ? '凭证验证通过' : '凭证验证失败' })
+        },
+        onError: (err) => {
+          toast({
+            variant: 'destructive',
+            title: '验证请求失败',
+            description: err instanceof Error ? err.message : '请稍后重试',
+          })
+        },
+      })
     }
   }
 

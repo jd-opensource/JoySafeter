@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
-import { useCreateCredential, useValidateCredential } from '@/hooks/queries/models'
+import { useCreateCredential } from '@/hooks/queries/models'
 import type { ModelCredential, ModelProvider } from '@/types/models'
 
 import { parseJsonSchema } from './schema-utils'
@@ -41,10 +41,8 @@ export function CredentialDialog({
   existingCredential,
 }: CredentialDialogProps) {
   const createCredential = useCreateCredential()
-  const validateCredential = useValidateCredential()
   const { toast } = useToast()
   const [fields, setFields] = useState<Record<string, string>>({})
-  const [validating, setValidating] = useState(false)
 
   const formFields = useMemo(
     () => parseJsonSchema(provider.credential_schema),
@@ -96,31 +94,6 @@ export function CredentialDialog({
         title: '保存凭证失败',
         description: err instanceof Error ? err.message : '请检查凭证信息后重试',
       })
-    }
-  }
-
-  const handleValidate = async () => {
-    if (!existingCredential) return
-    setValidating(true)
-    try {
-      const result = await validateCredential.mutateAsync(existingCredential.id)
-      if (result.is_valid) {
-        toast({ title: '凭证验证通过' })
-      } else {
-        toast({
-          variant: 'destructive',
-          title: '凭证验证失败',
-          description: result.error || '凭证无效',
-        })
-      }
-    } catch (err) {
-      toast({
-        variant: 'destructive',
-        title: '验证失败',
-        description: err instanceof Error ? err.message : '验证请求失败',
-      })
-    } finally {
-      setValidating(false)
     }
   }
 
@@ -183,16 +156,6 @@ export function CredentialDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          {existingCredential && (
-            <Button
-              variant="outline"
-              className="mr-auto"
-              onClick={handleValidate}
-              disabled={validating || isDirty}
-            >
-              {validating ? '验证中...' : '重新验证'}
-            </Button>
-          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
