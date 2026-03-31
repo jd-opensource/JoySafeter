@@ -4,9 +4,9 @@ import { useState } from 'react'
 
 import { useModelProviders } from '@/hooks/queries/models'
 
-import { AddCustomModelDialog } from './components/add-custom-model-dialog'
-import { DetailPanel } from './components/detail-panel/detail-panel'
-import { ProviderSidebar } from './components/provider-sidebar/provider-sidebar'
+import { AddCustomModelDialog } from '@/components/settings/models/add-custom-model-dialog'
+import { DetailPanel } from '@/components/settings/models/detail-panel/detail-panel'
+import { ProviderSidebar } from '@/components/settings/models/provider-sidebar/provider-sidebar'
 
 export default function ModelsPage() {
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)

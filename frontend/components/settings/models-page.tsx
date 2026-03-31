@@ -1,8 +1,8 @@
 import { useState } from 'react'
 
-import { AddCustomModelDialog } from '@/app/settings/models/components/add-custom-model-dialog'
-import { DetailPanel } from '@/app/settings/models/components/detail-panel/detail-panel'
-import { ProviderSidebar } from '@/app/settings/models/components/provider-sidebar/provider-sidebar'
+import { AddCustomModelDialog } from '@/components/settings/models/add-custom-model-dialog'
+import { DetailPanel } from '@/components/settings/models/detail-panel/detail-panel'
+import { ProviderSidebar } from '@/components/settings/models/provider-sidebar/provider-sidebar'
 import { useModelProviders } from '@/hooks/queries/models'
 
 export function ModelsPage() {
