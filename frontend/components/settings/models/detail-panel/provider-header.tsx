@@ -3,7 +3,8 @@
 import { CheckCircle, Clock, XCircle } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { useValidateCredential } from '@/hooks/queries/models'
+import { useValidateCredential, useDeleteCredential } from '@/hooks/queries/models'
+import { useToast } from '@/hooks/use-toast'
 import type { ModelCredential, ModelProvider } from '@/types/models'
 
 interface ProviderHeaderProps {
@@ -40,12 +41,32 @@ function CredentialStatusBadge({ credential }: { credential?: ModelCredential })
 
 export function ProviderHeader({ provider, credential, onEditCredential, onDeleteProvider }: ProviderHeaderProps) {
   const validateMutation = useValidateCredential()
+  const deleteMutation = useDeleteCredential()
+  const { toast } = useToast()
 
   const handleRevalidate = () => {
     if (credential?.id) {
       validateMutation.mutate(credential.id)
     }
   }
+
+  const handleClearCredential = () => {
+    if (!credential?.id) return
+    deleteMutation.mutate(credential.id, {
+      onSuccess: () => {
+        toast({ title: '凭证已清除' })
+      },
+      onError: (err) => {
+        toast({
+          variant: 'destructive',
+          title: '清除凭证失败',
+          description: err instanceof Error ? err.message : '请稍后重试',
+        })
+      },
+    })
+  }
+
+  const isBuiltinProvider = provider.provider_type !== 'custom'
 
   const initials = provider.display_name.slice(0, 2).toUpperCase()
 
@@ -82,15 +103,28 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
             <CredentialStatusBadge credential={credential} />
           </div>
           {credential && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={handleRevalidate}
-              disabled={validateMutation.isPending}
-            >
-              重新验证
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={handleRevalidate}
+                disabled={validateMutation.isPending}
+              >
+                重新验证
+              </Button>
+              {isBuiltinProvider && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-red-600 hover:text-red-700"
+                  onClick={handleClearCredential}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? '清除中...' : '清除凭证'}
+                </Button>
+              )}
+            </div>
           )}
         </div>
 
