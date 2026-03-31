@@ -10,12 +10,7 @@ export function ModelsPage() {
   const [showAddCustomModel, setShowAddCustomModel] = useState(false)
   const { data: providers = [] } = useModelProviders()
 
-  const customProvider = providers.find((p) => p.provider_name === 'custom') ?? {
-    provider_name: 'custom',
-    display_name: '自定义',
-    supported_model_types: ['chat'],
-    is_enabled: true,
-  }
+  const customProvider = providers.find((p) => p.provider_name === 'custom')
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -27,11 +22,13 @@ export function ModelsPage() {
 
       <DetailPanel selectedProvider={selectedProvider} />
 
-      <AddCustomModelDialog
-        open={showAddCustomModel}
-        onOpenChange={setShowAddCustomModel}
-        provider={customProvider}
-      />
+      {customProvider && (
+        <AddCustomModelDialog
+          open={showAddCustomModel}
+          onOpenChange={setShowAddCustomModel}
+          provider={customProvider}
+        />
+      )}
     </div>
   )
 }
