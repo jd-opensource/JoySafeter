@@ -48,13 +48,12 @@ class ModelService(BaseService):
         """一次性构建 provider 凭证上下文。Keyed by provider_id。"""
         from app.core.model.utils import decrypt_credentials
 
-        all_credentials = await self.credential_repo.list_all()
+        credentials = await self.credential_repo.list_by_provider_ids(provider_ids)
 
-        # 一个 provider 一条凭证，直接按 provider_id 取
         cred_by_id: Dict[Any, Any] = {}
-        for c in all_credentials:
+        for c in credentials:
             pid = c.provider_id
-            if pid is not None and pid in provider_ids and pid not in cred_by_id:
+            if pid not in cred_by_id:
                 cred_by_id[pid] = c
 
         result: Dict[Any, Dict[str, Any]] = {}
@@ -100,7 +99,8 @@ class ModelService(BaseService):
                     }
                 )
         except Exception as e:
-            print(f"Warning: Failed to update default model cache: {e}")
+            from loguru import logger
+            logger.warning(f"Failed to update default model cache: {e}")
 
     async def _update_default_model_cache_if_needed(self, provider_name: str) -> None:
         """如果当前默认模型属于该 provider，则刷新缓存。"""
@@ -116,7 +116,8 @@ class ModelService(BaseService):
                     model_parameters=default_instance.model_parameters,
                 )
         except Exception as e:
-            print(f"Warning: Failed to check/update default model cache: {e}")
+            from loguru import logger
+            logger.warning(f"Failed to check/update default model cache: {e}")
 
     async def _resolve_and_create_model(
         self, model_name: str, user_id: Optional[str] = None
