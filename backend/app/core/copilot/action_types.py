@@ -84,6 +84,7 @@ class CopilotRequest(BaseModel):
         "Format: [{'role': 'user'|'assistant', 'content': '...', 'actions'?: ...}, ...]",
     )
     mode: str = Field(default="deepagents", description="Copilot engine mode: 'standard' or 'deepagents'")
+    model: Optional[str] = Field(default=None, description="Model identifier, format: provider:model_name")
 
 
 class CopilotResponse(BaseModel):

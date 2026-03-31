@@ -395,13 +395,14 @@ class SharedChatWsClient implements ChatWsClient {
 }
 
 function serializeInput(input: ChatSendParams['input']): Record<string, unknown> {
+  const result: Record<string, unknown> = { message: input.message }
   if (input.files && input.files.length > 0) {
-    return {
-      message: input.message,
-      files: input.files,
-    }
+    result.files = input.files
   }
-  return { message: input.message }
+  if (input.model) {
+    result.model = input.model
+  }
+  return result
 }
 
 function serializeExtension(extension?: SkillCreatorExtension | null): Record<string, unknown> | null {

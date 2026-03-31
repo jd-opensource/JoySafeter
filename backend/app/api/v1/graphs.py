@@ -735,7 +735,7 @@ async def generate_graph_actions(
     log.info(f"copilot.actions start nodes={len(nodes)}")
 
     # Use CopilotService for action generation
-    service = CopilotService(user_id=str(current_user.id), db=db)
+    service = CopilotService(user_id=str(current_user.id), llm_model=payload.model, db=db)
     response = await service.generate_actions(
         prompt=payload.prompt,
         graph_context=payload.graph_context,
@@ -792,7 +792,7 @@ async def create_copilot_task(
     await RedisClient.set_copilot_status(session_id, "generating")
 
     # Start background task
-    service = CopilotService(user_id=str(current_user.id), db=db)
+    service = CopilotService(user_id=str(current_user.id), llm_model=payload.model, db=db)
     background_tasks.add_task(
         service.generate_actions_async,
         session_id=session_id,

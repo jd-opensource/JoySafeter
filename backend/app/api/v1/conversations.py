@@ -84,48 +84,11 @@ async def get_compiled_graph(user_id: str, db: AsyncSession) -> Any:
     Notes:
         - Uses a global checkpointer instance managed by app.core.agent.checkpointer.
         - Lazily initializes the checkpointer from settings if not initialized.
-        - Credentials are fetched from database.
+        - Credentials are fetched from database via LLMCredentialResolver.
     """
-    # 从数据库获取凭据
-    from app.core.model import ModelType
-    from app.services.model_credential_service import ModelCredentialService
-    from app.services.model_service import ModelService
+    from app.core.model.utils.credential_resolver import LLMCredentialResolver
 
-    model_service = ModelService(db)
-    credential_service = ModelCredentialService(db)
-
-    # 获取默认模型
-    default_instance = await model_service.repo.get_default()
-    if default_instance:
-        provider_name = default_instance.provider.name if default_instance.provider else None
-        model_name = default_instance.model_name
-        model_type = ModelType.CHAT  # 简化处理，假设是 Chat 模型
-
-        credentials = await credential_service.get_decrypted_credentials(str(provider_name))
-        api_key = credentials.get("api_key") if credentials else None
-        base_url = credentials.get("base_url") if credentials else None
-    else:
-        # 如果没有默认模型，尝试获取第一个可用的有效凭据
-        all_credentials = await credential_service.list_credentials()
-        for cred in all_credentials:
-            if cred.get("is_valid"):
-                provider_name_raw = cred.get("provider_name")
-                provider_name = str(provider_name_raw) if provider_name_raw is not None else ""
-                # 尝试获取该 provider 的第一个模型
-                provider = await model_service.provider_repo.get_by_name(provider_name)
-                instances = await model_service.repo.list_all()
-                if provider:
-                    provider_instances = [i for i in instances if i.provider_id == provider.id]
-                else:
-                    provider_instances = []
-                if provider_instances:
-                    model_name = provider_instances[0].model_name
-                    model_type = ModelType.CHAT
-                    credentials = await credential_service.get_decrypted_credentials(provider_name)
-                    if credentials:
-                        api_key = credentials.get("api_key")
-                        base_url = credentials.get("base_url")
-                        break
+    api_key, base_url, _ = await LLMCredentialResolver.get_credentials(db=db)
 
     return await get_agent(
         checkpointer=get_checkpointer(),

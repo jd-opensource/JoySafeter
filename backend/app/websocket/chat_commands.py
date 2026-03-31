@@ -13,6 +13,7 @@ class StandardChatTurnCommand:
     message: str
     thread_id: str | None
     graph_id: uuid_lib.UUID | None
+    model: str | None
     metadata: dict[str, Any]
     files: list[dict[str, Any]]
 
@@ -28,6 +29,7 @@ ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand
 
 def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnCommand:
     metadata, files = _sanitize_metadata_files(frame.metadata, frame.input.files)
+    model = frame.input.model
 
     extension = frame.extension
     if extension is None:
@@ -36,6 +38,7 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
             message=frame.input.message,
             thread_id=frame.thread_id,
             graph_id=frame.graph_id,
+            model=model,
             metadata=metadata,
             files=files,
         )
@@ -48,6 +51,7 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
         message=frame.input.message,
         thread_id=frame.thread_id,
         graph_id=frame.graph_id,
+        model=model,
         metadata=metadata,
         files=files,
         run_id=extension.run_id,

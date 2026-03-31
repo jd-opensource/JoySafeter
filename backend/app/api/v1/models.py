@@ -27,7 +27,6 @@ class ModelInstanceCreate(BaseModel):
     model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
     model_type: str = Field(default="chat", description="模型类型：chat, llm, embedding等", examples=["chat"])
     model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数配置", examples=[{}])
-    is_default: bool = Field(default=True, description="是否为默认模型")
 
 
 class ModelInstanceUpdate(BaseModel):
@@ -36,15 +35,6 @@ class ModelInstanceUpdate(BaseModel):
     model_parameters: Optional[Dict[str, Any]] = Field(
         default=None, description="模型参数覆盖值（仅包含用户显式设置的字段）"
     )
-    is_default: Optional[bool] = Field(default=None, description="是否为默认模型")
-
-
-class ModelInstanceUpdateDefaultRequest(BaseModel):
-    """更新模型实例默认状态请求"""
-
-    provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
-    model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
-    is_default: bool = Field(..., description="是否为默认模型")
 
 
 class ModelTestRequest(BaseModel):
@@ -59,7 +49,7 @@ async def get_models_overview(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取全局模型概览：Provider 健康摘要、默认模型、最近凭证失败"""
+    """获取全局模型概览：Provider 健康摘要、最近凭证失败"""
     service = ModelService(db)
     overview = await service.get_overview()
     return success_response(data=overview, message="获取模型概览成功")
@@ -105,7 +95,6 @@ async def create_model_instance(
         model_name=payload.model_name,
         model_type=model_type_enum,
         model_parameters=payload.model_parameters,
-        is_default=payload.is_default,
     )
     return success_response(data=instance, message="创建模型实例配置成功")
 
@@ -121,23 +110,6 @@ async def list_model_instances(
     return success_response(data=instances, message="获取模型实例配置列表成功")
 
 
-@router.patch("/instances/default")
-async def update_model_instance_default(
-    payload: ModelInstanceUpdateDefaultRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """更新模型实例的默认状态（按 provider_name + model_name 查找）"""
-    service = ModelService(db)
-    instance = await service.update_model_instance_default(
-        provider_name=payload.provider_name,
-        model_name=payload.model_name,
-        is_default=payload.is_default,
-        user_id=current_user.id,
-    )
-    return success_response(data=instance, message="更新模型默认状态成功")
-
-
 @router.patch("/instances/{instance_id}")
 async def update_model_instance(
     instance_id: uuid.UUID,
@@ -145,12 +117,11 @@ async def update_model_instance(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新模型实例参数和/或默认状态"""
+    """更新模型实例参数"""
     service = ModelService(db)
     instance = await service.update_model_instance(
         instance_id=instance_id,
         model_parameters=payload.model_parameters,
-        is_default=payload.is_default,
     )
     return success_response(data=instance, message="更新模型实例成功")
 

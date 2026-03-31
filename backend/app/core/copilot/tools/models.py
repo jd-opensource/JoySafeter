@@ -32,7 +32,7 @@ def list_models(model_type: str = "chat") -> str:
         model_type: Model type to query (default: 'chat')
 
     Returns:
-        JSON with model list containing name, display_name, provider, is_available, is_default.
+        JSON with model list containing name, display_name, provider, is_available.
 
     Note: Use before creating agent nodes to verify model names. Prefer 'claude'/'gpt-4' for complex tasks, 'mini'/'fast' for simple tasks.
     """
@@ -55,7 +55,6 @@ def list_models(model_type: str = "chat") -> str:
             "provider_name": m.get("provider_name"),
             "description": m.get("description", ""),
             "is_available": m.get("is_available", False),
-            "is_default": m.get("is_default", False),
         }
         for m in preloaded_models
         if m.get("is_available", False)  # Only return available models

@@ -24,6 +24,7 @@ interface UseCopilotActionsOptions {
   refs: CopilotRefs
   graphId?: string
   copilotMode?: CopilotMode
+  selectedModel?: string
 }
 
 export function useCopilotActions({
@@ -32,6 +33,7 @@ export function useCopilotActions({
   refs,
   graphId,
   copilotMode = 'deepagents',
+  selectedModel,
 }: UseCopilotActionsOptions) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -78,6 +80,7 @@ export function useCopilotActions({
           conversationHistory: historyMessages,
           graphId: graphId || null,
           mode: copilotMode,
+          model: selectedModel,
         })
 
         // Check if component is still mounted

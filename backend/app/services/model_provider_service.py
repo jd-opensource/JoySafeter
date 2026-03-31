@@ -4,12 +4,10 @@
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.model import get_factory
-from app.models.model_instance import ModelInstance
 from app.repositories.model_credential import ModelCredentialRepository
 from app.repositories.model_instance import ModelInstanceRepository
 from app.repositories.model_provider import ModelProviderRepository
@@ -112,15 +110,12 @@ class ModelProviderService(BaseService):
 
         data: Dict[str, Any] = {
             "provider_name": db_provider.name,
-            "display_name": db_provider.display_name or (
-                factory_provider.display_name if factory_provider else db_provider.name
-            ),
-            "supported_model_types": db_provider.supported_model_types or (
-                [mt.value for mt in factory_provider.get_supported_model_types()] if factory_provider else []
-            ),
-            "credential_schema": db_provider.credential_schema or (
-                factory_provider.get_credential_schema() if factory_provider else {}
-            ),
+            "display_name": db_provider.display_name
+            or (factory_provider.display_name if factory_provider else db_provider.name),
+            "supported_model_types": db_provider.supported_model_types
+            or ([mt.value for mt in factory_provider.get_supported_model_types()] if factory_provider else []),
+            "credential_schema": db_provider.credential_schema
+            or (factory_provider.get_credential_schema() if factory_provider else {}),
             "config_schemas": config_schemas if factory_provider else (db_provider.config_schema or {}),
             "model_count": model_count,
             "default_parameters": db_provider.default_parameters or {},
@@ -220,6 +215,7 @@ class ModelProviderService(BaseService):
     ) -> Dict[str, Any]:
         """一步添加自定义 provider：创建 provider + credential + model_instance。"""
         import time
+
         from app.core.model import validate_provider_credentials
         from app.core.model.utils import encrypt_credentials
 
@@ -241,6 +237,7 @@ class ModelProviderService(BaseService):
         )
 
         from datetime import datetime, timezone
+
         credential_repo = ModelCredentialRepository(self.db)
         encrypted = encrypt_credentials(credentials)
         now = datetime.now(timezone.utc) if is_valid else None
@@ -263,7 +260,6 @@ class ModelProviderService(BaseService):
                 "provider_id": db_provider.id,
                 "model_name": model_name,
                 "model_parameters": model_parameters or {},
-                "is_default": False,
             }
         )
 
@@ -294,43 +290,8 @@ class ModelProviderService(BaseService):
         if provider.provider_type != "custom":
             raise BadRequestException(f"仅允许删除自定义供应商: {provider_name}")
 
-        default_instance = await self.instance_repo.get_default()
-        needs_new_default = False
-        if default_instance and default_instance.provider_id == provider.id:
-            logger.info(
-                f"正在删除包含默认模型({default_instance.model_name})的供应商({provider_name})，将重新分配默认模型"
-            )
-            needs_new_default = True
-
         await self.repo.delete(provider.id)
         logger.info(f"已删除自定义供应商: {provider_name}")
-
-        if needs_new_default:
-            query = (
-                select(ModelInstance).where(ModelInstance.user_id.is_(None)).order_by(ModelInstance.created_at.asc())
-            )
-            result = await self.db.execute(query)
-            remaining_models = list(result.scalars().all())
-            if remaining_models:
-                new_default = remaining_models[0]
-                await self.instance_repo.update(new_default.id, {"is_default": True})
-                logger.info(f"已自动重新分配默认模型: {new_default.model_name}")
-                try:
-                    from app.services.model_service import ModelService
-                    model_svc = ModelService(self.db)
-                    await model_svc._update_default_model_cache(
-                        provider_name=new_default.provider.name if new_default.provider else "",
-                        model_name=new_default.model_name,
-                        model_parameters=new_default.model_parameters,
-                    )
-                except Exception as e:
-                    logger.warning(f"更新默认模型缓存失败: {e}")
-            else:
-                try:
-                    from app.core.settings import clear_default_model_config
-                    clear_default_model_config()
-                except Exception:
-                    pass
 
         await self.commit()
 
@@ -368,7 +329,7 @@ class ModelProviderService(BaseService):
 
     async def _ensure_model_instances_for_provider(self, provider: Any) -> int:
         """
-        确保该 provider 的所有模型在 model_instance 表中存在全局记录；若无默认模型则设第一个为默认。
+        确保该 provider 的所有模型在 model_instance 表中存在全局记录。
 
         Returns:
             本次新创建的模型实例数量
@@ -396,25 +357,12 @@ class ModelProviderService(BaseService):
                                 "provider_id": provider.id,
                                 "model_name": model_name,
                                 "model_parameters": {},
-                                "is_default": False,
                             }
                         )
                         synced_count += 1
                         logger.debug(f"已自动创建模型实例: {provider.name}/{model_name}")
             except Exception as e:
                 logger.warning(f"自动创建模型实例失败 {provider.name}/{model_type.value}: {str(e)}")
-
-        default_instance = await self.instance_repo.get_default()
-        if not default_instance:
-            query = (
-                select(ModelInstance).where(ModelInstance.user_id.is_(None)).order_by(ModelInstance.created_at.asc())
-            )
-            result = await self.db.execute(query)
-            global_models = list(result.scalars().all())
-            if global_models:
-                first_model = global_models[0]
-                await self.instance_repo.update(first_model.id, {"is_default": True})
-                logger.info(f"已自动设置默认模型: {first_model.model_name} (provider_id: {first_model.provider_id})")
 
         return synced_count
 

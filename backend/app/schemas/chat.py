@@ -13,6 +13,7 @@ class ChatRequest(PydanticBaseModel):
     message: str = Field(..., description="用户消息")
     thread_id: Optional[str] = Field(None, description="会话线程ID，不提供则创建新会话")
     graph_id: Optional[uuid.UUID] = Field(None, description="图ID，使用指定的图进行对话")
+    model: Optional[str] = Field(None, description="模型标识，格式 provider:model_name")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
     # user_id 从认证中获取，不再需要在请求中提供
 

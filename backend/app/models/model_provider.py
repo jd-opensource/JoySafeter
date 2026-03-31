@@ -62,12 +62,18 @@ class ModelProvider(BaseModel):
 
     # 关系
     credentials: Mapped[list["ModelCredential"]] = relationship(
-        "ModelCredential", back_populates="provider", lazy="selectin",
-        cascade="all, delete-orphan", passive_deletes=True,
+        "ModelCredential",
+        back_populates="provider",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     model_instances: Mapped[list["ModelInstance"]] = relationship(
-        "ModelInstance", back_populates="provider", lazy="noload",
-        cascade="all, delete-orphan", passive_deletes=True,
+        "ModelInstance",
+        back_populates="provider",
+        lazy="noload",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     __table_args__ = (

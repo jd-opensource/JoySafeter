@@ -34,31 +34,31 @@ export function ModelNoticeDialog() {
     isError: modelsError,
   } = useAvailableModels('chat', { enabled: true })
 
-  const hasNoDefaultModel =
+  const hasNoAvailableModel =
     modelsLoaded &&
     !modelsError &&
     (availableModels.length === 0 ||
-      !availableModels.some((m) => m.is_default === true && m.is_available === true))
+      !availableModels.some((m) => m.is_available === true))
 
-  // Show notice when no default model
+  // Show notice when no available model
   useEffect(() => {
     if (
       !personalWorkspaceId ||
-      !hasNoDefaultModel ||
+      !hasNoAvailableModel ||
       typeof window === 'undefined' ||
       sessionStorage.getItem(MODEL_SETUP_DISMISSED_KEY) === '1'
     ) {
       return
     }
     dispatch({ type: 'SHOW_MODEL_NOTICE' })
-  }, [personalWorkspaceId, hasNoDefaultModel, dispatch])
+  }, [personalWorkspaceId, hasNoAvailableModel, dispatch])
 
   // Auto-close if model configured elsewhere
   useEffect(() => {
-    if (!hasNoDefaultModel && state.ui.showNoDefaultModelNotice) {
+    if (!hasNoAvailableModel && state.ui.showNoDefaultModelNotice) {
       dispatch({ type: 'DISMISS_MODEL_NOTICE' })
     }
-  }, [hasNoDefaultModel, state.ui.showNoDefaultModelNotice, dispatch])
+  }, [hasNoAvailableModel, state.ui.showNoDefaultModelNotice, dispatch])
 
   return (
     <AlertDialog

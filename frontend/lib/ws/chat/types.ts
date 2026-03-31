@@ -36,6 +36,7 @@ export interface ChatSendFile {
 export interface ChatSendInput {
   message: string
   files?: ChatSendFile[]
+  model?: string
 }
 
 export interface SkillCreatorExtension {

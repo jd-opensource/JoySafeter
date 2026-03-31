@@ -14,11 +14,11 @@
 
 import { Loader2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
-import { useModels } from '@/hooks/queries/models'
 import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
+import { useModelSelector } from '@/hooks/use-model-selector'
 import { useTranslation } from '@/lib/i18n'
 
 import { useCopilotActions } from '../hooks/useCopilotActions'
@@ -42,15 +42,7 @@ export function CopilotPanel() {
   const graphId = params.agentId as string | undefined
 
   const [copilotMode, setCopilotMode] = useState<CopilotMode>('deepagents')
-
-  // Default model label from settings (for status bar)
-  const { data: models = [] } = useModels()
-  const defaultModelLabel = useMemo(() => {
-    const defaultModel = models.find((m) => m.isDefault === true && m.isAvailable !== false)
-    if (defaultModel) return defaultModel.label
-    const first = models.find((m) => m.isAvailable !== false)
-    return first?.label ?? ''
-  }, [models])
+  const { modelOptions, selectedModel, setSelectedModel, modelLabel } = useModelSelector()
 
   // Unified state management
   const { state, actions, refs } = useCopilotState(graphId)
@@ -71,6 +63,7 @@ export function CopilotPanel() {
       refs,
       graphId,
       copilotMode,
+      selectedModel,
     })
 
   // Side effects (session recovery, auto-scroll, URL params, etc.)
@@ -170,7 +163,10 @@ export function CopilotPanel() {
           onSendWithText={handleSendWithInput}
           copilotMode={copilotMode}
           onModeChange={setCopilotMode}
-          modelLabel={defaultModelLabel || undefined}
+          modelLabel={modelLabel || undefined}
+          availableModels={modelOptions}
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
         />
       </div>
     </CopilotErrorBoundary>

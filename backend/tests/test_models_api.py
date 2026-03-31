@@ -46,7 +46,6 @@ def _make_instance(instance_id: str | None = None) -> dict:
         "model_name": "claude-3-5-sonnet",
         "model_type": "chat",
         "model_parameters": {"temperature": 0.7},
-        "is_default": False,
     }
 
 
@@ -58,12 +57,6 @@ def _make_overview() -> dict:
         "unconfigured_providers": 1,
         "total_models": 10,
         "available_models": 8,
-        "default_model": {
-            "provider_name": "anthropic",
-            "provider_display_name": "Anthropic",
-            "model_name": "claude-3-5-sonnet",
-            "model_parameters": {},
-        },
         "recent_credential_failure": None,
     }
 
@@ -84,7 +77,6 @@ def test_get_overview_returns_200(mock_cls, client: TestClient):
     data = resp.json()["data"]
     assert data["total_providers"] == 3
     assert data["healthy_providers"] == 2
-    assert data["default_model"]["model_name"] == "claude-3-5-sonnet"
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +94,6 @@ def test_list_models_includes_unavailable_reason(mock_cls, client: TestClient):
             "display_name": "Claude 3.5 Sonnet",
             "description": "",
             "is_available": False,
-            "is_default": False,
             "unavailable_reason": "no_credentials",
         }
     ]
@@ -155,24 +146,6 @@ def test_patch_instance_not_found_returns_404(mock_cls, client: TestClient):
     )
 
     assert resp.status_code == 404
-
-
-@patch("app.api.v1.models.ModelService")
-def test_patch_instance_set_default(mock_cls, client: TestClient):
-    instance_id = str(uuid.uuid4())
-    updated = _make_instance(instance_id)
-    updated["is_default"] = True
-
-    mock_svc = mock_cls.return_value
-    mock_svc.update_model_instance = AsyncMock(return_value=updated)
-
-    resp = client.patch(
-        f"/v1/models/instances/{instance_id}",
-        json={"is_default": True},
-    )
-
-    assert resp.status_code == 200
-    assert resp.json()["data"]["is_default"] is True
 
 
 # ---------------------------------------------------------------------------

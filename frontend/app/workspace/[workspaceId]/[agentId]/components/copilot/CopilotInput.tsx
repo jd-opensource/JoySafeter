@@ -18,6 +18,11 @@ import { useTranslation } from '@/lib/i18n'
 
 export type CopilotMode = 'standard' | 'deepagents'
 
+export interface ModelOptionForCopilot {
+  id: string
+  label: string
+}
+
 interface CopilotInputProps {
   input: string
   loading: boolean
@@ -33,8 +38,14 @@ interface CopilotInputProps {
   /** Build mode: single agent vs DeepAgents */
   copilotMode: CopilotMode
   onModeChange: (mode: CopilotMode) => void
-  /** Default model label from settings for status bar */
+  /** Model label for status bar */
   modelLabel?: string
+  /** Available models for selection */
+  availableModels?: ModelOptionForCopilot[]
+  /** Currently selected model */
+  selectedModel?: string
+  /** Model selection callback */
+  onModelChange?: (model: string) => void
 }
 
 export function CopilotInput({
@@ -51,6 +62,9 @@ export function CopilotInput({
   copilotMode,
   onModeChange,
   modelLabel,
+  availableModels,
+  selectedModel,
+  onModelChange,
 }: CopilotInputProps) {
   const { t } = useTranslation()
 
@@ -89,6 +103,26 @@ export function CopilotInput({
             </SelectContent>
           </Select>
         </div>
+        {availableModels && availableModels.length > 0 && onModelChange && (
+          <div className="flex-shrink-0">
+            <Select
+              value={selectedModel || ''}
+              onValueChange={(value) => onModelChange(value)}
+              disabled={loading || executingActions}
+            >
+              <SelectTrigger className="h-6 min-w-[6rem] max-w-[8rem] border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
+                <SelectValue placeholder={t('workspace.selectModel', { defaultValue: '选择模型' })} />
+              </SelectTrigger>
+              <SelectContent>
+                {availableModels.map((m) => (
+                  <SelectItem key={m.id} value={m.id} className="text-xs">
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {/* Reset 放置在最右侧 */}
         {messagesCount > 1 && (
           <span className="ml-auto flex-shrink-0">

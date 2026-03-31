@@ -327,7 +327,7 @@ async def get_or_create_conversation(
         return thread_id, conv
 
 
-async def get_user_config(user_id: str, thread_id: str, db: AsyncSession):
+async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_model: str | None = None):
     """获取用户配置和 LLM 参数"""
     from loguru import logger
 
@@ -347,19 +347,19 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession):
             db=db,
             api_key=None,
             base_url=None,
-            llm_model=None,
+            llm_model=llm_model,
             max_tokens=4096,
             user_id=str(user_id),
         )
 
         # 验证是否获取到有效的凭据
         if not llm_params.get("api_key") or not llm_params.get("llm_model"):
-            raise NotFoundException("未找到默认模型配置，请在前端配置模型")
+            raise NotFoundException("未找到可用模型配置，请在前端配置模型")
     except NotFoundException:
         raise
     except Exception as e:
-        logger.error(f"[get_user_config] Failed to get default model from database: {e}")
-        raise NotFoundException(f"获取默认模型配置失败: {str(e)}")
+        logger.error(f"[get_user_config] Failed to get model from database: {e}")
+        raise NotFoundException(f"获取模型配置失败: {str(e)}")
 
     return config, {}, llm_params
 

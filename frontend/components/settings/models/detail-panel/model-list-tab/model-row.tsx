@@ -1,6 +1,6 @@
 'use client'
 
-import { Star, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -17,10 +17,9 @@ const UNAVAILABLE_REASON_LABELS: Record<string, string> = {
 interface ModelRowProps {
   model: AvailableModel
   onEditParams: () => void
-  onSetDefault: () => void
 }
 
-export function ModelRow({ model, onEditParams, onSetDefault }: ModelRowProps) {
+export function ModelRow({ model, onEditParams }: ModelRowProps) {
   const unavailableLabel = model.unavailable_reason
     ? UNAVAILABLE_REASON_LABELS[model.unavailable_reason] ?? model.unavailable_reason
     : null
@@ -28,20 +27,6 @@ export function ModelRow({ model, onEditParams, onSetDefault }: ModelRowProps) {
   return (
     <div className="flex items-center justify-between rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] px-4 py-3 hover:bg-[var(--surface-3)] transition-colors">
       <div className="flex items-center gap-3 min-w-0">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onSetDefault}
-                className={`shrink-0 ${model.is_default ? 'text-amber-400' : 'text-[var(--text-muted)] hover:text-amber-300'}`}
-              >
-                <Star className="h-4 w-4" fill={model.is_default ? 'currentColor' : 'none'} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{model.is_default ? '当前默认模型' : '设为默认模型'}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
         <div className="min-w-0">
           <p className="text-sm font-medium text-[var(--text-primary)] truncate">
             {model.display_name || model.name}

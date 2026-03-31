@@ -37,13 +37,6 @@ class ModelService(BaseService):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _clear_existing_default(self, except_id=None):
-        """Unset the current default model instance, optionally skipping one by id."""
-        existing = await self.repo.get_default()
-        if existing and (except_id is None or existing.id != except_id):
-            existing.is_default = False
-            await self.db.flush()
-
     async def _build_provider_credentials_context(self, provider_ids: set) -> Dict[Any, Dict[str, Any]]:
         """一次性构建 provider 凭证上下文。Keyed by provider_id。"""
         from app.core.model.utils import decrypt_credentials
@@ -76,52 +69,7 @@ class ModelService(BaseService):
 
         return result
 
-    async def _update_default_model_cache(
-        self,
-        provider_name: str,
-        model_name: str,
-        model_type: str = "chat",
-        model_parameters: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """更新默认模型缓存。"""
-        try:
-            from app.core.settings import set_default_model_config
-
-            credentials = await self.credential_service.get_decrypted_credentials(provider_name)
-            if credentials:
-                params = model_parameters or {}
-                set_default_model_config(
-                    {
-                        "model": model_name,
-                        "api_key": credentials.get("api_key", ""),
-                        "base_url": credentials.get("base_url"),
-                        "timeout": params.get("timeout", 30),
-                    }
-                )
-        except Exception as e:
-            from loguru import logger
-            logger.warning(f"Failed to update default model cache: {e}")
-
-    async def _update_default_model_cache_if_needed(self, provider_name: str) -> None:
-        """如果当前默认模型属于该 provider，则刷新缓存。"""
-        try:
-            default_instance = await self.repo.get_default()
-            if not default_instance or not default_instance.provider:
-                return
-            if default_instance.provider.name == provider_name:
-                await self._update_default_model_cache(
-                    provider_name=provider_name,
-                    model_name=default_instance.model_name,
-                    model_type="chat",
-                    model_parameters=default_instance.model_parameters,
-                )
-        except Exception as e:
-            from loguru import logger
-            logger.warning(f"Failed to check/update default model cache: {e}")
-
-    async def _resolve_and_create_model(
-        self, model_name: str, user_id: Optional[str] = None
-    ) -> tuple:
+    async def _resolve_and_create_model(self, model_name: str, user_id: Optional[str] = None) -> tuple:
         """
         统一 resolve provider -> get credential -> create model 逻辑。
         返回 (model, provider_name, implementation_name, instance)。
@@ -223,7 +171,6 @@ class ModelService(BaseService):
                 "display_name": display_name,
                 "description": description,
                 "is_available": ctx["is_valid"] and unavailable_reason is None,
-                "is_default": instance.is_default,
                 "model_parameters": instance.model_parameters or {},
             }
             if unavailable_reason:
@@ -233,7 +180,7 @@ class ModelService(BaseService):
         return models
 
     async def get_overview(self) -> Dict[str, Any]:
-        """返回全局模型概览：Provider 健康摘要、默认模型、最近凭证失败。"""
+        """返回全局模型概览：Provider 健康摘要、最近凭证失败。"""
         all_providers = await self.provider_repo.find()
         all_instances = await self.repo.list_all()
 
@@ -270,19 +217,6 @@ class ModelService(BaseService):
                 if ctx["is_valid"]:
                     available_models += 1
 
-        default_instance = await self.repo.get_default()
-        default_model_info: Optional[Dict[str, Any]] = None
-        if default_instance:
-            pname = default_instance.resolved_provider_name
-            provider = next((p for p in all_providers if p.id == default_instance.provider_id), None)
-            pdisplay = provider.display_name if provider else pname
-            default_model_info = {
-                "provider_name": pname,
-                "provider_display_name": pdisplay,
-                "model_name": default_instance.model_name,
-                "model_parameters": default_instance.model_parameters or {},
-            }
-
         return {
             "total_providers": len(all_providers),
             "healthy_providers": healthy,
@@ -290,7 +224,6 @@ class ModelService(BaseService):
             "unconfigured_providers": unconfigured,
             "total_models": total_models,
             "available_models": available_models,
-            "default_model": default_model_info,
             "recent_credential_failure": recent_failure,
         }
 
@@ -298,9 +231,8 @@ class ModelService(BaseService):
         self,
         instance_id: uuid.UUID,
         model_parameters: Optional[Dict[str, Any]] = None,
-        is_default: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        """更新模型实例参数和/或默认状态。"""
+        """更新模型实例参数。"""
         instance = await self.repo.get(instance_id)
         if not instance:
             raise NotFoundException(f"模型实例不存在: {instance_id}")
@@ -308,11 +240,6 @@ class ModelService(BaseService):
         updates: Dict[str, Any] = {}
         if model_parameters is not None:
             updates["model_parameters"] = model_parameters
-        if is_default is not None:
-            updates["is_default"] = is_default
-
-        if is_default:
-            await self._clear_existing_default(except_id=instance_id)
 
         if updates:
             await self.repo.update(instance_id, updates)
@@ -322,28 +249,12 @@ class ModelService(BaseService):
 
         pname = instance.resolved_provider_name
 
-        if is_default:
-            await self._update_default_model_cache(
-                provider_name=pname,
-                model_name=instance.model_name,
-                model_type=ModelType.CHAT.value,
-                model_parameters=instance.model_parameters,
-            )
-        else:
-            try:
-                from app.core.settings import clear_default_model_config
-
-                clear_default_model_config()
-            except Exception:
-                pass
-
         return {
             "id": str(instance.id),
             "provider_name": pname,
             "model_name": instance.model_name,
             "model_type": ModelType.CHAT.value,
             "model_parameters": instance.model_parameters or {},
-            "is_default": instance.is_default,
         }
 
     async def create_model_instance_config(
@@ -353,7 +264,6 @@ class ModelService(BaseService):
         model_name: str,
         model_type: ModelType,
         model_parameters: Optional[Dict[str, Any]] = None,
-        is_default: bool = False,
     ) -> Dict[str, Any]:
         """创建模型实例配置（全局）。"""
         provider = await self.provider_repo.get_by_name(provider_name)
@@ -365,78 +275,17 @@ class ModelService(BaseService):
                 "provider_id": provider.id if provider else None,
                 "model_name": model_name,
                 "model_parameters": model_parameters or {},
-                "is_default": is_default,
             }
         )
 
         await self.commit()
 
-        if is_default:
-            await self._update_default_model_cache(
-                provider_name=provider_name,
-                model_name=model_name,
-                model_type=model_type.value,
-                model_parameters=instance.model_parameters,
-            )
-
         return {
             "id": str(instance.id),
             "provider_name": provider_name,
             "model_name": model_name,
             "model_type": ModelType.CHAT.value,
             "model_parameters": instance.model_parameters,
-            "is_default": instance.is_default,
-        }
-
-    async def update_model_instance_default(
-        self,
-        provider_name: str,
-        model_name: str,
-        is_default: bool,
-        user_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """更新模型实例的默认状态。"""
-        provider = await self.provider_repo.get_by_name(provider_name)
-        if not provider:
-            raise NotFoundException(f"供应商不存在: {provider_name}")
-
-        instance = await self.repo.get_best_instance(
-            model_name=model_name,
-            provider_id=provider.id,
-            user_id=user_id,
-        )
-
-        if not instance:
-            raise NotFoundException(f"供应商不存在或模型实例不存在: {provider_name}/{model_name}")
-
-        if is_default:
-            await self._clear_existing_default(except_id=instance.id)
-
-        instance.is_default = is_default
-        await self.commit()
-
-        if is_default:
-            await self._update_default_model_cache(
-                provider_name=provider_name,
-                model_name=model_name,
-                model_type=ModelType.CHAT.value,
-                model_parameters=instance.model_parameters,
-            )
-        else:
-            try:
-                from app.core.settings import clear_default_model_config
-
-                clear_default_model_config()
-            except Exception:
-                pass
-
-        return {
-            "id": str(instance.id),
-            "provider_name": provider_name,
-            "model_name": model_name,
-            "model_type": ModelType.CHAT.value,
-            "model_parameters": instance.model_parameters,
-            "is_default": instance.is_default,
         }
 
     async def get_model_instance(
@@ -444,39 +293,28 @@ class ModelService(BaseService):
         user_id: str,
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
-        use_default: bool = True,
     ) -> Any:
-        """获取模型实例（LangChain 模型对象）。"""
+        """获取模型实例（LangChain 模型对象）。需要显式传入 provider_name 和 model_name。"""
         implementation_name: Optional[str] = None
         model_parameters: Dict[str, Any] = {}
         if not provider_name or not model_name:
-            if use_default:
-                default_instance = await self.repo.get_default()
-                if default_instance:
-                    provider_name = default_instance.resolved_provider_name
-                    implementation_name = default_instance.resolved_implementation_name
-                    model_name = default_instance.model_name
-                    model_parameters = default_instance.model_parameters or {}
-                else:
-                    raise NotFoundException("未找到默认模型配置")
-            else:
-                raise BadRequestException("必须指定provider_name和model_name，或设置use_default=True")
-        else:
-            provider = await self.provider_repo.get_by_name(provider_name)
-            if not provider:
-                raise NotFoundException(f"供应商不存在: {provider_name}")
+            raise BadRequestException("必须指定 provider_name 和 model_name")
 
-            instance = await self.repo.get_best_instance(
-                model_name=model_name,
-                provider_id=provider.id,
-            )
+        provider = await self.provider_repo.get_by_name(provider_name)
+        if not provider:
+            raise NotFoundException(f"供应商不存在: {provider_name}")
 
-            if not instance:
-                raise NotFoundException(f"供应商不存在或模型实例不存在: {provider_name}/{model_name}")
+        instance = await self.repo.get_best_instance(
+            model_name=model_name,
+            provider_id=provider.id,
+        )
 
-            implementation_name = instance.resolved_implementation_name
-            provider_name = instance.resolved_provider_name
-            model_parameters = instance.model_parameters or {}
+        if not instance:
+            raise NotFoundException(f"供应商不存在或模型实例不存在: {provider_name}/{model_name}")
+
+        implementation_name = instance.resolved_implementation_name
+        provider_name = instance.resolved_provider_name
+        model_parameters = instance.model_parameters or {}
 
         model_type = ModelType.CHAT
 
@@ -512,7 +350,6 @@ class ModelService(BaseService):
                     "provider_display_name": pdisplay,
                     "model_name": i.model_name,
                     "model_parameters": i.model_parameters or {},
-                    "is_default": i.is_default,
                 }
             )
         return out

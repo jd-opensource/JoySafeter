@@ -18,13 +18,6 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
     def __init__(self, db: AsyncSession):
         super().__init__(ModelInstance, db)
 
-    async def get_default(self) -> ModelInstance | None:
-        """获取默认模型实例（全局）"""
-        result = await self.db.execute(
-            select(ModelInstance).where(ModelInstance.is_default).options(selectinload(ModelInstance.provider))
-        )
-        return result.scalar_one_or_none()
-
     async def get_by_name(self, model_name: str) -> ModelInstance | None:
         """获取指定模型名的实例（全局）；若有多个同名实例，取最新的一个。"""
         result = await self.db.execute(

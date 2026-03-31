@@ -169,48 +169,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         logger.warning(f"   ⚠️  MCP tools initialization failed: {e}")
         logger.warning("   App will continue starting, MCP tools will be loaded on first use")
 
-    # Initialize default model cache
-    try:
-        from app.core.database import get_db
-        from app.core.settings import set_default_model_config
-        from app.repositories.model_instance import ModelInstanceRepository
-        from app.repositories.model_provider import ModelProviderRepository
-        from app.services.model_credential_service import ModelCredentialService
-
-        # Lock here as well. Although it's mostly reading DB and writing config,
-        # serialization ensures orderly logs during multi-instance startup.
-        async with RedisClient.lock("init:default_model_config", timeout=30, blocking_timeout=30):
-            async for db in get_db():
-                repo = ModelInstanceRepository(db)
-                provider_repo = ModelProviderRepository(db)
-                credential_service = ModelCredentialService(db)
-
-                # Get default model instance
-                default_instance = await repo.get_default()
-                if default_instance:
-                    default_provider_name = default_instance.provider.name if default_instance.provider else None
-                    if default_provider_name:
-                        credentials = await credential_service.get_decrypted_credentials(default_provider_name)
-                        if credentials:
-                            params = default_instance.model_parameters or {}
-                            config = {
-                                "model": default_instance.model_name,
-                                "api_key": credentials.get("api_key", ""),
-                                "base_url": credentials.get("base_url"),
-                                "timeout": params.get("timeout", 30),
-                            }
-                            set_default_model_config(config)
-                            logger.info("   ✓ Default model cache initialized")
-                        else:
-                            logger.warning("   ⚠️  Default model credentials not found")
-                    else:
-                        logger.info("   ✓ No default model configuration")
-                else:
-                    logger.info("   ✓ No default model configuration")
-    except Exception as e:
-        logger.warning(f"   ⚠️  Default model cache initialization failed: {e}")
-        logger.warning("   App will continue starting, LLM features available after configuring default model")
-
     # Initialize Checkpointer connection pool
     try:
         from app.core.agent.checkpointer.checkpointer import CheckpointerManager

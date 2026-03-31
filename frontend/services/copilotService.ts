@@ -88,8 +88,9 @@ export const copilotService = {
     conversationHistory: Array<ConversationMessage>
     graphId: string | null
     mode?: 'standard' | 'deepagents'
+    model?: string
   }): Promise<{ session_id: string; status: string; created_at: string }> {
-    const { userPrompt, graphContext, conversationHistory, graphId, mode } = params
+    const { userPrompt, graphContext, conversationHistory, graphId, mode, model } = params
 
     const response = await apiPost<{ session_id: string; status: string; created_at: string }>(
       'graphs/copilot/actions/create',
@@ -99,6 +100,7 @@ export const copilotService = {
         graph_id: graphId || undefined,
         conversation_history: conversationHistory.length > 0 ? conversationHistory : undefined,
         ...(mode !== undefined && { mode }),
+        ...(model !== undefined && { model }),
       },
     )
 

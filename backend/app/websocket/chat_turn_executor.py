@@ -51,6 +51,7 @@ class ChatTurnExecutor:
                 message=str(command.message or ""),
                 thread_id=str(command.thread_id) if command.thread_id else None,
                 graph_id=command.graph_id,
+                model=command.model,
                 metadata=metadata,
             ),
             run_id=run_id,
@@ -94,7 +95,9 @@ class ChatTurnExecutor:
                     db,
                 )
                 await module.save_user_message(thread_id, payload.message, payload.metadata, db)
-                config, base_context, llm_params = await module.get_user_config(handler.user_id, thread_id, db)
+                config, base_context, llm_params = await module.get_user_config(
+                    handler.user_id, thread_id, db, llm_model=payload.model
+                )
 
                 initial_context = base_context.copy()
                 if payload.graph_id:

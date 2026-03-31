@@ -36,8 +36,5 @@ class ModelCredentialRepository(BaseRepository[ModelCredential]):
         """按 provider_id 集合批量获取凭据"""
         if not provider_ids:
             return []
-        result = await self.db.execute(
-            select(ModelCredential)
-            .where(ModelCredential.provider_id.in_(provider_ids))
-        )
+        result = await self.db.execute(select(ModelCredential).where(ModelCredential.provider_id.in_(provider_ids)))
         return list(result.scalars().all())

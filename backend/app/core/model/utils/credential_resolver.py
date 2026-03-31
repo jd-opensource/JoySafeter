@@ -26,22 +26,19 @@ class LLMCredentialResolver:
 
         Logic:
         1. If api_key is already provided, return it (with base_url and llm_model if provided)
-        2. If db is available, fetch credentials from database:
-           - Try to get default model instance
-           - If default model exists, get its provider credentials
-           - If no default model, try to get first available valid credential
-        3. Return (api_key, base_url, model_name) tuple
+        2. If llm_model contains provider info (format: provider:model), resolve from that provider
+        3. Otherwise, try to get first available valid credential from database
 
         Args:
             db: Database session
             api_key: Optional pre-provided API key
             base_url: Optional pre-provided base URL
-            llm_model: Optional pre-provided model name
+            llm_model: Optional pre-provided model name (can be "provider:model" format)
+            user_id: Optional user ID
 
         Returns:
             Tuple of (api_key, base_url, model_name)
         """
-        default_instance = None
         model_name: Optional[str] = None
 
         # If api_key is already provided, return early with provided values (no DB query needed)
@@ -51,56 +48,46 @@ class LLMCredentialResolver:
         # Try to get credentials from database if db is available and api_key is not provided
         if db:
             try:
-                from app.core.model import ModelType
                 from app.services.model_credential_service import ModelCredentialService
                 from app.services.model_service import ModelService
 
                 model_service = ModelService(db)
                 credential_service = ModelCredentialService(db)
 
-                # Try to get default model
-                default_instance = await model_service.repo.get_default()
-                if default_instance:
-                    provider_name = default_instance.provider.name if default_instance.provider else None
-                    model_name = default_instance.model_name
-                    model_type = ModelType.CHAT  # Simplified: assume Chat model
-
-                    credentials = await credential_service.get_decrypted_credentials(provider_name or "")
+                # If llm_model is in "provider:model" format, resolve from that provider
+                if llm_model and ":" in llm_model:
+                    provider_name, model_name = llm_model.split(":", 1)
+                    credentials = await credential_service.get_decrypted_credentials(provider_name)
                     if credentials:
                         api_key = credentials.get("api_key")
                         base_url = base_url or credentials.get("base_url")
-                else:
-                    # If no default model, try to get first available valid credential
-                    all_credentials = await credential_service.list_credentials()
-                    for cred in all_credentials:
-                        if cred.get("is_valid"):
-                            provider_name_from_cred = cred.get("provider_name")
-                            if not provider_name_from_cred or not isinstance(provider_name_from_cred, str):
-                                continue
-                            # Try to get first model for this provider（模板无 DB 行，按 provider_name 匹配实例）
-                            provider = await model_service.provider_repo.get_by_name(provider_name_from_cred)
-                            instances = await model_service.repo.list_all()
-                            if provider:
-                                provider_instances = [i for i in instances if i.provider_id == provider.id]
-                            else:
-                                provider_instances = []
-                            if provider_instances:
-                                model_name = provider_instances[0].model_name
-                                model_type = ModelType.CHAT
-                                credentials = await credential_service.get_decrypted_credentials(provider_name or provider_name_from_cred)
-                                if credentials:
-                                    api_key = credentials.get("api_key")
-                                    base_url = base_url or credentials.get("base_url")
-                                    break
+                        return api_key, base_url, model_name
+
+                # Fallback: try to get first available valid credential
+                all_credentials = await credential_service.list_credentials()
+                all_instances = await model_service.repo.list_all()
+                for cred in all_credentials:
+                    if cred.get("is_valid"):
+                        provider_name_from_cred = cred.get("provider_name")
+                        if not provider_name_from_cred or not isinstance(provider_name_from_cred, str):
+                            continue
+                        provider = await model_service.provider_repo.get_by_name(provider_name_from_cred)
+                        if provider:
+                            provider_instances = [i for i in all_instances if i.provider_id == provider.id]
+                        else:
+                            provider_instances = []
+                        if provider_instances:
+                            model_name = provider_instances[0].model_name
+                            credentials = await credential_service.get_decrypted_credentials(provider_name_from_cred)
+                            if credentials:
+                                api_key = credentials.get("api_key")
+                                base_url = base_url or credentials.get("base_url")
+                                break
             except Exception as e:
                 logger.warning(f"[LLMCredentialResolver] Failed to get credentials from DB: {e}")
 
-        # Determine final model name (prioritize DB-fetched model)
+        # Determine final model name
         final_model_name = model_name if model_name else llm_model
-        if not final_model_name:
-            # If still no model name, get from default instance
-            if default_instance:
-                final_model_name = default_instance.model_name
 
         return api_key, base_url, final_model_name
 
@@ -123,16 +110,6 @@ class LLMCredentialResolver:
             "base_url": Optional[str],
             "max_tokens": int
         }
-
-        Args:
-            db: Database session
-            api_key: Optional pre-provided API key
-            base_url: Optional pre-provided base URL
-            llm_model: Optional pre-provided model name
-            max_tokens: Maximum tokens for completion
-
-        Returns:
-            Dict with llm_model, api_key, base_url, max_tokens
         """
         api_key, base_url, model_name = await LLMCredentialResolver.get_credentials(
             db=db,

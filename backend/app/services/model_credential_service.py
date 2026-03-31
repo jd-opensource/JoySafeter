@@ -72,6 +72,7 @@ class ModelCredentialService(BaseService):
         model_name = None
         if provider.provider_type == "custom":
             from app.repositories.model_instance import ModelInstanceRepository
+
             instance_repo = ModelInstanceRepository(self.db)
             instances = await instance_repo.list_by_provider(provider_id=provider_id)
             model_name = instances[0].model_name if instances else None
@@ -112,6 +113,7 @@ class ModelCredentialService(BaseService):
 
         # 确保模型实例存在
         from app.services.model_provider_service import ModelProviderService
+
         provider_service = ModelProviderService(self.db)
         await provider_service._ensure_model_instances_for_provider(provider)
 
@@ -199,21 +201,8 @@ class ModelCredentialService(BaseService):
                 f"自定义供应商的凭据不能单独删除，请通过 DELETE /model-providers/{credential.provider.name} 删除整个供应商"
             )
 
-        provider_id = credential.provider_id
         await self.repo.delete(credential_id)
         await self.commit()
-
-        # spec 6.2: 如果默认模型属于该 provider，清除缓存
-        if provider_id:
-            try:
-                from app.core.settings import clear_default_model_config
-                from app.repositories.model_instance import ModelInstanceRepository
-                repo = ModelInstanceRepository(self.db)
-                default_instance = await repo.get_default()
-                if default_instance and default_instance.provider_id == provider_id:
-                    clear_default_model_config()
-            except Exception:
-                pass
 
     async def get_decrypted_credentials(
         self, provider_name: str, user_id: Optional[str] = None

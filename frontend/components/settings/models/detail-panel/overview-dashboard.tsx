@@ -71,14 +71,6 @@ export function OverviewDashboard() {
         </div>
       </div>
 
-      {overview.default_model && (
-        <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-elevated)] p-4">
-          <p className="text-xs font-semibold text-[var(--text-tertiary)] mb-2">默认模型</p>
-          <p className="text-sm font-medium text-[var(--text-primary)]">{overview.default_model.model_name}</p>
-          <p className="text-xs text-[var(--text-tertiary)]">{overview.default_model.provider_display_name}</p>
-        </div>
-      )}
-
       {overview.recent_credential_failure && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
           <div className="flex items-start gap-2">

@@ -80,7 +80,6 @@ export interface ModelInstance {
   model_name: string
   model_type?: string
   model_parameters?: Record<string, unknown>
-  is_default: boolean
 }
 
 /**
@@ -91,16 +90,6 @@ export interface CreateModelInstanceRequest {
   model_name: string
   model_type?: string
   model_parameters?: Record<string, unknown>
-  is_default?: boolean
-}
-
-/**
- * Update model instance default status request
- */
-export interface UpdateModelInstanceDefaultRequest {
-  provider_name: string
-  model_name: string
-  is_default: boolean
 }
 
 // ==================== Available Model ====================
@@ -116,7 +105,6 @@ export interface AvailableModel {
   display_name: string
   description: string
   is_available: boolean
-  is_default?: boolean
   model_parameters?: Record<string, unknown>
   unavailable_reason?: 'no_credentials' | 'invalid_credentials' | 'model_not_found' | 'provider_error'
 }
@@ -131,17 +119,9 @@ export interface UpdateProviderDefaultsRequest {
 
 export interface UpdateModelInstanceRequest {
   model_parameters?: Record<string, unknown>
-  is_default?: boolean
 }
 
 // ==================== Overview ====================
-
-export interface DefaultModelInfo {
-  provider_name: string
-  provider_display_name: string
-  model_name: string
-  model_parameters: Record<string, unknown>
-}
 
 export interface CredentialFailureInfo {
   provider_name: string
@@ -157,7 +137,6 @@ export interface ModelsOverview {
   unconfigured_providers: number
   total_models: number
   available_models: number
-  default_model?: DefaultModelInfo
   recent_credential_failure?: CredentialFailureInfo
 }
 

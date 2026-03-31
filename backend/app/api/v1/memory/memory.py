@@ -374,9 +374,29 @@ async def optimize_memories(
     from app.core.agent.memory.strategies.types import MemoryOptimizationStrategyType
 
     try:
-        # Create memory manager with MemoryService
+        # Resolve model for memory optimization via LLMCredentialResolver
+        from app.core.model.utils.credential_resolver import LLMCredentialResolver
+
+        api_key, base_url, model_name = await LLMCredentialResolver.get_credentials(db=db_session)
+        if not api_key or not model_name:
+            raise HTTPException(status_code=400, detail="未找到可用模型配置，请先配置模型")
+
+        # Use the model factory to construct the correct model type for the provider
+        from app.core.model import ModelType
+        from app.core.model import create_model_instance as create_model
+
+        credentials = {"api_key": api_key, "base_url": base_url} if base_url else {"api_key": api_key}
+        memory_model = create_model(
+            "openaiapicompatible",
+            model_name,
+            ModelType.CHAT,
+            credentials,
+            {"streaming": False},
+        )
+
+        # Create memory manager with MemoryService and explicit model
         db = MemoryService(db_session)
-        memory_manager = MemoryManager(db=db)
+        memory_manager = MemoryManager(model=memory_model, db=db)
 
         # Get current memories to count tokens before optimization
         user_id = request.user_id or str(current_user.id)

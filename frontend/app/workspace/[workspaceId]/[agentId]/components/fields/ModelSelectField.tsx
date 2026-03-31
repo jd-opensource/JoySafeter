@@ -40,25 +40,18 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
     for (const model of availableModelsData || []) {
       const id = `${model.provider_name}:${model.name}`
       if (!modelMap[id]) {
-        // 首次遇到，直接添加
         modelMap[id] = {
           id,
           label: model.display_name || model.name,
           provider: model.provider_display_name || model.provider_name,
           provider_name: model.provider_name,
           isAvailable: model.is_available,
-          isDefault: model.is_default || false,
         }
       } else {
-        // 遇到重复，合并属性
         const existing = modelMap[id]
         modelMap[id] = {
           ...existing,
-          // 合并 is_available：任何一个为 true 就是 true
           isAvailable: existing.isAvailable || model.is_available,
-          // 合并 is_default：任何一个为 true 就是 true
-          isDefault: existing.isDefault || model.is_default || false,
-          // 优先使用非空的 display_name
           label: model.display_name || existing.label,
         }
       }

@@ -1,7 +1,7 @@
 """Unified model resolver — resolves LLM model instances from config.
 
 Single entry point for both node models and memory models.
-Resolution strategy: ModelService exact match → ModelService default → fallback.
+Resolution strategy: ModelService exact match → hardcoded fallback.
 """
 
 from __future__ import annotations
@@ -63,13 +63,7 @@ class ModelResolver:
             if model:
                 return model
 
-        # Strategy 2: ModelService default
-        if self._model_service:
-            model = await self._try_default_model()
-            if model:
-                return model
-
-        # Strategy 3: Hardcoded fallback
+        # Strategy 2: Hardcoded fallback
         return self._fallback(model_name)
 
     async def _try_model_service(
@@ -85,7 +79,6 @@ class ModelResolver:
                     user_id=uid,
                     provider_name=provider_name,
                     model_name=model_name,
-                    use_default=False,
                 )
             else:
                 model = await self._model_service.get_runtime_model_by_name(
@@ -98,20 +91,6 @@ class ModelResolver:
             logger.warning(
                 f"[ModelResolver] ModelService failed | provider={provider_name} | model={model_name} | error={e}"
             )
-            return None
-
-    async def _try_default_model(self) -> Any:
-        """Try to get the default model from ModelService."""
-        try:
-            uid = str(self._user_id) if self._user_id else "system"
-            model = await self._model_service.get_model_instance(
-                user_id=uid,
-                use_default=True,
-            )
-            logger.info("[ModelResolver] Using database default model")
-            return model
-        except Exception as e:
-            logger.warning(f"[ModelResolver] Default model failed | error={e}")
             return None
 
     @staticmethod

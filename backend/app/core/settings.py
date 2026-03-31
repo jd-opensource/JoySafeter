@@ -5,7 +5,7 @@
 import os
 import socket
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import List, Optional, Union
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -371,23 +371,5 @@ class Settings(BaseSettings):
         description="OAuth providers configuration file path (default: config/oauth_providers.yaml)",
     )
 
-    # Default Model Cache (runtime cache, not from env)
-    _default_model_config: Optional[Dict[str, Any]] = None
-
 
 settings = Settings()  # type: ignore[call-arg]
-
-
-def get_default_model_config() -> Optional[Dict[str, Any]]:
-    """获取缓存的默认模型配置"""
-    return settings._default_model_config
-
-
-def set_default_model_config(config: Dict[str, Any]) -> None:
-    """设置默认模型配置缓存"""
-    settings._default_model_config = config
-
-
-def clear_default_model_config() -> None:
-    """清除默认模型配置缓存"""
-    settings._default_model_config = None

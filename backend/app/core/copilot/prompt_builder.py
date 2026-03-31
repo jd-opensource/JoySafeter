@@ -134,13 +134,10 @@ def _build_models_summary(models: List[Dict[str, Any]]) -> Dict[str, Any]:
         Summarized model info for prompt context
     """
     if not models:
-        return {"count": 0, "models": [], "defaultModel": None}
+        return {"count": 0, "models": []}
 
     # Filter to only available models
     available = [m for m in models if m.get("is_available", False)]
-
-    # Find default model
-    default_model = next((m.get("name") for m in available if m.get("is_default")), None)
 
     # Build simplified model list
     model_list = [
@@ -148,7 +145,6 @@ def _build_models_summary(models: List[Dict[str, Any]]) -> Dict[str, Any]:
             "name": m.get("name"),
             "displayName": m.get("display_name"),
             "provider": m.get("provider_name"),
-            "isDefault": m.get("is_default", False),
         }
         for m in available
     ]
@@ -156,7 +152,6 @@ def _build_models_summary(models: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "count": len(model_list),
         "models": model_list,
-        "defaultModel": default_model,
     }
 
 
@@ -188,7 +183,6 @@ def _get_optimized_system_prompt(
 
     # Build model list (simplified)
     model_names = [m["name"] for m in models_summary.get("models", [])][:5]
-    default_model = models_summary.get("defaultModel", "system default")
 
     # Base prompt (always included) - Senior AI Solutions Architect persona
     prompt = f"""You are a Senior AI Solutions Architect using a visual builder tool.
@@ -223,8 +217,7 @@ Decision Rule:
 
 <context>
 Next Position: x={next_position_x}, y={next_position_y}
-Default Model: {default_model}
-Available Models: {", ".join(model_names[:3]) if model_names else "system default"}
+Available Models: {", ".join(model_names[:3]) if model_names else "none configured"}
 Note: For DeepAgents workflows, use pre-calculated positions from <position-calculation> section below.
 </context>
 

@@ -19,7 +19,6 @@ import type {
   CreateCustomProviderRequest,
   CreateCustomProviderResponse,
   CreateModelInstanceRequest,
-  UpdateModelInstanceDefaultRequest,
   UpdateModelInstanceRequest,
   UpdateProviderDefaultsRequest,
   ModelsOverview,
@@ -38,7 +37,6 @@ export type {
   CreateCustomProviderRequest,
   CreateCustomProviderResponse,
   CreateModelInstanceRequest,
-  UpdateModelInstanceDefaultRequest,
   UpdateModelInstanceRequest,
   UpdateProviderDefaultsRequest,
   ModelsOverview,
@@ -237,7 +235,6 @@ export interface ModelOption {
   provider: string
   provider_name: string
   isAvailable?: boolean
-  isDefault?: boolean
 }
 
 export function useModels(options?: { enabled?: boolean }) {
@@ -253,7 +250,6 @@ export function useModels(options?: { enabled?: boolean }) {
           provider_display_name: string
           provider_name: string
           is_available: boolean
-          is_default: boolean
         }>
       >('models?model_type=chat')
       return (models || []).map((model) => ({
@@ -262,7 +258,6 @@ export function useModels(options?: { enabled?: boolean }) {
         provider: model.provider_display_name,
         provider_name: model.provider_name,
         isAvailable: model.is_available,
-        isDefault: model.is_default,
       }))
     },
     enabled: options?.enabled !== false, // 默认 true，但可以设置为 false
@@ -377,35 +372,12 @@ export function useCreateModelInstance() {
         model_name: request.model_name,
         model_type: request.model_type || 'chat',
         model_parameters: request.model_parameters,
-        is_default: request.is_default,
       })
       logger.info(`Created model instance: ${request.model_name}`)
       return data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
-    },
-  })
-}
-
-export function useUpdateModelInstanceDefault() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async (request: UpdateModelInstanceDefaultRequest) => {
-      const data = await apiPatch<ModelInstance>(`${MODELS_PATH}/instances/default`, {
-        provider_name: request.provider_name,
-        model_name: request.model_name,
-        is_default: request.is_default,
-      })
-      logger.info(
-        `Updated model instance default status: ${request.model_name} -> ${request.is_default}`,
-      )
-      return data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
-      queryClient.invalidateQueries({ queryKey: modelKeys.overview() })
     },
   })
 }

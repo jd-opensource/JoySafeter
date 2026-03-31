@@ -31,7 +31,6 @@ export interface ModelOption {
   provider: string // provider_display_name (for display)
   provider_name: string
   isAvailable?: boolean
-  isDefault?: boolean
 }
 
 export interface ToolOption {
@@ -357,38 +356,9 @@ export const agentService = {
         provider: model.provider_display_name || model.provider_name, // for display
         provider_name: model.provider_name,
         isAvailable: model.is_available,
-        isDefault: model.is_default,
       }))
     } catch {
       return []
-    }
-  },
-
-  /**
-   * Get default model ID（全局，与 workspace 无关）
-   */
-  async getDefaultModelId(): Promise<string> {
-    try {
-      const models = await this.getModels()
-
-      // Find model marked as default
-      const defaultModel = models.find((m) => m.isDefault === true && m.isAvailable !== false)
-      if (defaultModel) {
-        return defaultModel.id
-      }
-
-      // If no default model, return first available model
-      const firstAvailable = models.find((m) => m.isAvailable !== false)
-      if (firstAvailable) {
-        return firstAvailable.id
-      }
-
-      // If no available models, return empty string
-      return ''
-    } catch (error) {
-      console.error('Failed to get default model:', error)
-      // If fetch fails, return empty string to let caller use hardcoded fallback
-      return ''
     }
   },
 

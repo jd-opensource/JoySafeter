@@ -11,8 +11,6 @@ import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
-import { agentService } from '../services/agentService'
-import { nodeRegistry } from '../services/nodeRegistry'
 import { useBuilderStore } from '../stores/builderStore'
 import { EdgeData } from '../types/graph'
 import { EDGE_COLORS } from '../utils/edgeStyles'
@@ -350,31 +348,8 @@ export function BuilderCanvas() {
         y: event.clientY - bounds.top,
       }) || { x: 0, y: 0 }
 
-      // If it's an agent node, get the default model
-      let configOverride: Record<string, unknown> | undefined
-      if (type === 'agent') {
-        try {
-          const defaultModelId = await agentService.getDefaultModelId()
-          if (defaultModelId) {
-            const agentDef = nodeRegistry.get('agent')
-            configOverride = { ...agentDef?.defaultConfig }
-            configOverride.model = defaultModelId
-            configOverride.memoryModel = defaultModelId
-
-            // Also populate split fields for backend resolution consistency
-            if (typeof defaultModelId === 'string' && defaultModelId.includes(':')) {
-              const [providerName, modelName] = defaultModelId.split(':', 2)
-              configOverride.provider_name = providerName
-              configOverride.model_name = modelName
-              configOverride.provider = providerName
-              configOverride.memoryProvider = providerName
-            }
-          }
-        } catch (error) {
-          console.error('Failed to get default model:', error)
-          // If fetching fails, continue with hardcoded default values
-        }
-      }
+      // Agent nodes: model field left empty, user must select in node config
+      const configOverride: Record<string, unknown> | undefined = undefined
 
       addNode(type, position, label, configOverride)
     },

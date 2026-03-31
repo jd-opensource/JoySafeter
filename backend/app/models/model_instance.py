@@ -5,7 +5,7 @@
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, String  # String kept for user_id/model_name columns
+from sqlalchemy import JSON, ForeignKey, Index, String  # String kept for user_id/model_name columns
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -46,9 +46,6 @@ class ModelInstance(BaseModel):
 
     # 模型参数配置（JSON格式），如 {"temperature": 0.7, "max_tokens": 2000}
     model_parameters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, comment="模型参数配置")
-
-    # 是否为默认模型
-    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否为默认模型")
 
     # 关系
     provider: Mapped[Optional["ModelProvider"]] = relationship(

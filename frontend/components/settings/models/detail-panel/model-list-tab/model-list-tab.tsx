@@ -2,8 +2,7 @@
 
 import { useState } from 'react'
 
-import { useAvailableModels, useUpdateModelInstanceDefault } from '@/hooks/queries/models'
-import { useToast } from '@/hooks/use-toast'
+import { useAvailableModels } from '@/hooks/queries/models'
 import type { AvailableModel, ModelProvider } from '@/types/models'
 
 import { ModelRow } from './model-row'
@@ -16,30 +15,10 @@ interface ModelListTabProps {
 
 export function ModelListTab({ providerName, provider }: ModelListTabProps) {
   const { data: availableModels = [] } = useAvailableModels('chat')
-  const updateDefault = useUpdateModelInstanceDefault()
-  const { toast } = useToast()
 
   const [editingModel, setEditingModel] = useState<AvailableModel | null>(null)
 
   const providerModels = availableModels.filter((m) => m.provider_name === providerName)
-
-  const handleSetDefault = (modelName: string) => {
-    updateDefault.mutate(
-      { provider_name: providerName, model_name: modelName, is_default: true },
-      {
-        onSuccess: () => {
-          toast({ title: `已设为默认模型: ${modelName}` })
-        },
-        onError: (err) => {
-          toast({
-            variant: 'destructive',
-            title: '设置默认模型失败',
-            description: err instanceof Error ? err.message : '请稍后重试',
-          })
-        },
-      },
-    )
-  }
 
   if (providerModels.length === 0) {
     return (
@@ -56,7 +35,6 @@ export function ModelListTab({ providerName, provider }: ModelListTabProps) {
           key={model.name}
           model={model}
           onEditParams={() => setEditingModel(model)}
-          onSetDefault={() => handleSetDefault(model.name)}
         />
       ))}
 
