@@ -146,6 +146,14 @@ export interface CreateCustomProviderRequest {
   model_parameters?: Record<string, unknown>
   validate?: boolean
 }
+
+export interface CreateCustomProviderResponse {
+  provider_name: string
+  display_name: string
+  credential_id: string
+  is_valid: boolean
+  validation_error?: string
+}
 ```
 
 **简化 CreateCredentialRequest：**
@@ -171,7 +179,7 @@ export function useCreateCustomProvider() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (request: CreateCustomProviderRequest) => {
-      return await apiPost<ModelCredential>(`${MODEL_PROVIDERS_PATH}/custom`, request)
+      return await apiPost<CreateCustomProviderResponse>(`${MODEL_PROVIDERS_PATH}/custom`, request)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
@@ -226,24 +234,115 @@ export function useCreateCustomProvider() {
 | 11 | provider_service.py | get_all_providers 两个分支 ~L120-157 | 合并 |
 | 12 | provider_service.py | get_provider 三段式逻辑 ~L169-242 | 简化为两段 |
 | 13 | model_credentials.py (API) | CredentialCreate schema | 删除多余字段 |
+| 14 | main.py | lifespan ~L193 | 替换 get_current_credentials 为 get_decrypted_credentials |
+| 15 | credential_resolver.py | get_credentials ~L68,~L95 | 替换 get_current_credentials 为 get_decrypted_credentials |
 
 ### 前端删除项
 
 | # | 文件 | 说明 |
 |---|------|------|
-| 14 | types/models.ts | CreateCredentialRequest 删除 model_name, model_parameters, providerDisplayName |
-| 15 | hooks/queries/models.ts | useCreateCredential 删除 model_name/model_parameters 分支 |
-| 16 | hooks/queries/models.ts | useModelProvidersByConfig 删除 templateProviders |
-| 17 | models-page.tsx | customProvider 查找方式改为单独查询 |
+| 16 | types/models.ts | CreateCredentialRequest 删除 model_name, model_parameters, providerDisplayName |
+| 17 | hooks/queries/models.ts | useCreateCredential 删除 model_name/model_parameters 分支 |
+| 18 | hooks/queries/models.ts | useModelProvidersByConfig 删除 templateProviders |
+| 19 | models-page.tsx | customProvider 查找方式改为单独查询 |
 
 ### 简化项
 
 | # | 文件 | 说明 |
 |---|------|------|
-| 18 | model_service.py | _build_provider_credentials_context 简化 global vs user-scoped 优先级 |
-| 19 | provider_service.py | get_provider 简化为两段式 |
+| 20 | model_service.py | _build_provider_credentials_context 简化 global vs user-scoped 优先级 |
+| 21 | provider_service.py | get_provider 简化为两段式 |
 
-## 5. 不变的部分
+## 5. 受影响的周边文件
+
+### 5.1 main.py — 启动默认模型缓存初始化
+
+当前 `main.py` 的 `lifespan` 中（~L172-216）调用 `credential_service.get_current_credentials(...)` 初始化默认模型缓存。由于 `get_current_credentials` 将被删除，需要改为调用 `credential_service.get_decrypted_credentials(provider_name)`。
+
+具体变更：
+```python
+# 之前
+credentials = await credential_service.get_current_credentials(
+    provider_name=default_provider_name,
+    model_type="chat",
+    model_name=default_instance.model_name,
+)
+
+# 之后
+credentials = await credential_service.get_decrypted_credentials(default_provider_name)
+```
+
+### 5.2 credential_resolver.py — LLM 凭证解析工具
+
+`backend/app/core/model/utils/credential_resolver.py` 的 `LLMCredentialResolver.get_credentials()` 在两处（~L68, ~L95）调用 `credential_service.get_current_credentials(...)`。需要改为调用 `credential_service.get_decrypted_credentials(provider_name)`。
+
+具体变更：
+```python
+# 之前
+credentials = await credential_service.get_current_credentials(
+    provider_name=provider_name or "",
+    model_type=model_type,
+    model_name=model_name or "",
+    user_id=user_id,
+)
+
+# 之后
+credentials = await credential_service.get_decrypted_credentials(provider_name or "")
+```
+
+两处调用都做同样的替换。
+
+## 6. 边界情况处理
+
+### 6.1 删除自定义 provider 时包含默认模型
+
+当前 `provider_service.delete_provider()` 已处理此情况（~L287-307）：检测默认模型是否属于被删除的 provider，如果是则自动重新分配默认模型到第一个可用的全局模型实例。**此行为必须保留。**
+
+此外，删除后需要更新默认模型缓存：
+- 如果重新分配了新默认模型 → 调用 `model_service._update_default_model_cache(...)` 刷新缓存
+- 如果没有剩余模型可分配 → 调用 `clear_default_model_config()` 清除缓存
+
+### 6.2 清除内置 provider 认证时该 provider 包含默认模型
+
+当前 `credential_service.delete_credential()` 没有处理此情况。重构后需要在 `delete_credential` 中增加逻辑：
+
+1. 删除 credential 记录
+2. 检查当前默认模型是否属于该 provider
+3. 如果是 → 调用 `clear_default_model_config()` 清除缓存（因为该 provider 已无有效凭证，默认模型不可用）
+
+注意：不自动重新分配默认模型。用户清除认证是主动行为，应该让用户自己选择新的默认模型。
+
+### 6.3 GET /model-providers/{provider_name} 对模板 provider 的行为
+
+列表接口 `GET /model-providers` 过滤掉 `is_template=True` 的 provider，但详情接口 `GET /model-providers/{provider_name}` **不过滤**，仍然允许按名称查询模板 provider（如 `custom`）。
+
+这是前端 `models-page.tsx` 通过 `useModelProvider('custom')` 获取 custom 模板 credential_schema 的必要条件。
+
+### 6.4 POST /model-providers/custom 的返回值
+
+`POST /model-providers/custom` 创建自定义 provider 后，返回一个复合对象：
+
+```python
+{
+    "provider_name": str,       # 新创建的派生 provider 名称
+    "display_name": str,        # 显示名称
+    "credential_id": str,       # 关联的 credential ID
+    "is_valid": bool,           # 凭证验证结果
+    "validation_error": str?,   # 验证错误信息
+}
+```
+
+前端 `useCreateCustomProvider` 的返回类型相应调整为 `CreateCustomProviderResponse`（而非 `ModelCredential`）。
+
+### 6.5 credential-dialog 对自定义 provider 的处理
+
+`credential-dialog.tsx` 的"清除认证"按钮只在内置 provider（`provider_type !== 'custom'`）时显示。自定义 provider 不显示此按钮，因为自定义 provider 的删除统一走 provider 删除入口。
+
+### 6.6 API 兼容性
+
+`POST /model-credentials` 不再接受 `provider_name=custom` + `model_name` 的组合。这是一个 breaking change。由于当前系统是内部使用，不需要向后兼容过渡期，直接切换到新 API。
+
+## 7. 不变的部分
 
 - 数据库架构（model_provider / model_credential / model_instance 三表关系）
 - 加密/解密逻辑（encryption.py）
@@ -252,12 +351,36 @@ export function useCreateCustomProvider() {
 - Model usage 相关（model_usage_service / model_usage API）
 - Playground 和 stats 前端组件
 - Schema-driven 表单机制（schema-utils.ts）
-- 启动同步流程（main.py）
+- Model 端点（`/v1/models`）— API 不变，但内部实现中 `ModelService` 调用 credential_service 的方法需要替换（见 Section 1.3）
 
-## 6. 实施顺序
+## 8. 完整受影响文件清单
+
+### 后端
+| 文件 | 变更类型 |
+|------|----------|
+| `app/services/model_provider_service.py` | 重构：新增 add_custom_provider，简化 get_all_providers / get_provider |
+| `app/services/model_credential_service.py` | 重构：大幅简化，删除越界方法 |
+| `app/services/model_service.py` | 重构：提取 _resolve_and_create_model，移入缓存方法 |
+| `app/api/v1/model_providers.py` | 新增 POST /custom 端点 |
+| `app/api/v1/model_credentials.py` | 简化 schema，增加 DELETE 校验 |
+| `app/main.py` | 小改：替换 get_current_credentials 调用 |
+| `app/core/model/utils/credential_resolver.py` | 小改：替换 get_current_credentials 调用 |
+
+### 前端
+| 文件 | 变更类型 |
+|------|----------|
+| `types/models.ts` | 新增 CreateCustomProviderRequest，简化 CreateCredentialRequest |
+| `hooks/queries/models.ts` | 新增 useCreateCustomProvider，简化 useCreateCredential，删除 templateProviders |
+| `components/settings/models/add-custom-model-dialog.tsx` | 改用 useCreateCustomProvider |
+| `components/settings/models/credential-dialog.tsx` | 增加清除认证按钮 |
+| `components/settings/models/provider-sidebar/provider-sidebar.tsx` | 防御性过滤 is_template |
+| `components/settings/models-page.tsx` | 改用 useModelProvider('custom') |
+
+## 9. 实施顺序
 
 1. 后端 service 层重构（provider_service → credential_service → model_service）
-2. 后端 API 层重构（model_providers.py → model_credentials.py）
-3. 前端 types + hooks 重构
-4. 前端组件重构
-5. 端到端验证
+2. 后端周边文件更新（main.py, credential_resolver.py）
+3. 后端 API 层重构（model_providers.py → model_credentials.py）
+4. 前端 types + hooks 重构
+5. 前端组件重构
+6. 端到端验证
