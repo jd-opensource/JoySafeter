@@ -134,17 +134,79 @@ This dynamic decision-making — where the agent adapts its next step based on w
 
 ## Quick Start
 
+### One-Click Launch (Recommended)
+
 ```bash
 ./deploy/quick-start.sh
 ```
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
-| API Docs | http://localhost:8000/docs |
+The script provides an interactive menu to choose your startup mode and customize ports (with conflict detection):
 
-> **Prerequisites:** Docker + Docker Compose. See [INSTALL.md](INSTALL.md) for manual setup or pre-built images.
+| Mode | Description | Ports Configured |
+|------|-------------|-----------------|
+| **(1) Docker Compose Full Stack** | All services in containers, supports localhost or remote server IP/domain | Frontend, Backend, PostgreSQL, Redis |
+| **(2) Local Frontend Only** | `bun run dev`, supports connecting to remote backend | Frontend (can specify remote backend address) |
+| **(3) Local Backend Only** | `uvicorn --reload`, supports remote DB/Redis | Backend (can specify remote DB/Redis/frontend address) |
+| **(4) Local Frontend + Backend** | Auto-starts middleware, supports exposing via non-localhost address | Frontend, Backend |
+
+All modes support remote deployment scenarios:
+- **Docker Compose Full Stack** — choose deployment address (localhost or IP/domain) + http/https
+- **Local Frontend Only** — optionally connect to a remote backend API (enter backend IP + port + protocol)
+- **Local Backend Only** — optionally connect to remote PostgreSQL, Redis, and frontend (enter each address and port)
+- **Local Frontend + Backend** — optionally expose services via a non-localhost address
+- Non-localhost deployments automatically update `frontend/.env` CSP whitelist (`NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA`)
+
+```bash
+./deploy/quick-start.sh --skip-env       # Skip .env file initialization
+./deploy/quick-start.sh --skip-db-init   # Skip database initialization
+```
+
+### Launch by Scenario
+
+```bash
+# ─── Development ────────────────────────────────────────
+./deploy/scripts/dev.sh                  # Docker full-stack dev (containerized frontend + backend)
+./deploy/scripts/dev-local.sh            # Local dev prep (start middleware, run backend/frontend on host)
+./deploy/scripts/dev-backend.sh          # Local backend only (requires middleware running)
+./deploy/scripts/dev-frontend.sh         # Local frontend only (requires backend running)
+
+# ─── Production ─────────────────────────────────────────
+./deploy/scripts/prod.sh                 # Production deploy (pre-built images + docker-compose.prod.yml)
+./deploy/scripts/prod.sh --skip-mcp      # Production without MCP service
+./deploy/scripts/prod.sh --skip-pull     # Skip image pull, use local images
+
+# ─── Middleware / Infrastructure ────────────────────────
+./deploy/scripts/start-middleware.sh     # Start middleware (PostgreSQL + Redis + MCP)
+./deploy/scripts/minimal.sh             # Minimal startup (PostgreSQL + Redis only)
+./deploy/scripts/minimal.sh --with-mcp  # Minimal + MCP service
+./deploy/scripts/stop-middleware.sh      # Stop middleware
+
+# ─── Test / CI ──────────────────────────────────────────
+./deploy/scripts/test.sh                 # Test environment (minimal deps, automation-friendly)
+
+# ─── Install / Check ───────────────────────────────────
+./deploy/install.sh                      # Interactive installation wizard (generates config files)
+./deploy/install.sh --mode dev --non-interactive  # Non-interactive install
+./deploy/scripts/check-env.sh           # Environment preflight (Docker, ports, config files)
+
+# ─── Image Management ──────────────────────────────────
+./deploy/deploy.sh build                 # Build frontend + backend images
+./deploy/deploy.sh build --all           # Build all images (including OpenClaw)
+./deploy/deploy.sh push                  # Build and push to registry
+./deploy/deploy.sh pull                  # Pull latest pre-built images
+```
+
+### Default Ports
+
+| Service | Port | URL |
+|---------|------|-----|
+| Frontend | `3000` | http://localhost:3000 |
+| Backend API | `8000` | http://localhost:8000 |
+| API Docs | `8000/docs` | Swagger UI |
+| PostgreSQL | `5432` | Database |
+| Redis | `6379` | Cache |
+
+> **Prerequisites:** Docker + Docker Compose. See [INSTALL.md](INSTALL.md) for detailed installation guide, [deploy/PRODUCTION_IP_GUIDE.md](deploy/PRODUCTION_IP_GUIDE.md) for production deployment.
 
 ---
 
