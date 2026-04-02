@@ -197,7 +197,7 @@ init_buildx() {
 
         if ! docker buildx ls | grep -q "multiarch"; then
             log_info "创建 multiarch builder..."
-            docker buildx create --name multiarch --driver docker-container --use 2>/dev/null || \
+            docker buildx create --name multiarch --driver docker-container --driver-opt network=host --use 2>/dev/null || \
             docker buildx use multiarch 2>/dev/null || true
         else
             log_info "使用现有的 multiarch builder"
@@ -205,6 +205,43 @@ init_buildx() {
         fi
 
         docker buildx inspect --bootstrap &> /dev/null || true
+
+        # 修复 BuildKit 容器的 DNS 解析问题
+        # Colima VM 的 systemd-resolved stub (127.0.0.53) 会导致 BuildKit daemon
+        # fallback 到公共 DNS (8.8.8.8)，在公司网络下可能被屏蔽，造成 auth.docker.io 超时
+        # 解决方案：将 Docker Hub 相关域名的 IP 直接写入 BuildKit 容器的 /etc/hosts
+        if docker ps --format '{{.Names}}' | grep -q "buildx_buildkit_multiarch0"; then
+            log_info "注入 Docker Hub hosts 解析到 BuildKit 容器..."
+
+            # 用宿主机 DNS 解析 Docker Hub 相关域名
+            local dns_server=""
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                dns_server=$(scutil --dns | grep 'nameserver\[0\]' | head -1 | awk '{print $3}')
+            else
+                dns_server=$(grep '^nameserver' /etc/resolv.conf | grep -v '127.0.0' | head -1 | awk '{print $2}')
+            fi
+            dns_server="${dns_server:-8.8.8.8}"
+
+            local domains="auth.docker.io registry-1.docker.io production.cloudflare.docker.com"
+            for domain in $domains; do
+                # 检查是否已存在该域名的 hosts 条目
+                if docker exec buildx_buildkit_multiarch0 grep -q "$domain" /etc/hosts 2>/dev/null; then
+                    continue
+                fi
+
+                local ip
+                ip=$(dig +short "$domain" @"$dns_server" A 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
+                if [ -z "$ip" ]; then
+                    ip=$(nslookup "$domain" "$dns_server" 2>/dev/null | awk '/^Address: / && !/127\.0\.0/ && !/'"$dns_server"'/ {print $2}' | head -1)
+                fi
+                if [ -n "$ip" ]; then
+                    docker exec buildx_buildkit_multiarch0 sh -c "echo '$ip $domain' >> /etc/hosts" 2>/dev/null || true
+                    log_info "已添加 hosts: $ip $domain"
+                fi
+            done
+
+            log_success "Docker Hub hosts 解析已注入"
+        fi
     fi
 }
 
@@ -261,34 +298,68 @@ build_image() {
             log_info "前端API地址: $FRONTEND_API_URL"
         fi
 
-        # 动态选择 Node 版本 (处理 ARM64 平台兼容性)
+        # 使用标准多架构 Node 镜像
         local node_version="20-alpine"
-        if [[ "$PLATFORMS" == *"arm64"* ]]; then
-            node_version="${node_version}-linuxarm64"
-        fi
         build_args+=("--build-arg" "NODE_VERSION=${node_version}")
         log_info "前端使用 Node 版本: ${node_version}"
     fi
 
-    # OpenClaw 镜像动态选择 Base 镜像 (处理 ARM64 平台兼容性)
+    # OpenClaw 镜像使用标准多架构基础镜像
     if [ "$service" = "OpenClaw" ]; then
         local base_image="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:22-slim"
-        if [[ "$PLATFORMS" == *"arm64"* ]]; then
-            base_image="${base_image}-linuxarm64"
-        fi
         build_args+=("--build-arg" "BASE_IMAGE=${base_image}")
         log_info "OpenClaw 使用 Base 镜像: ${base_image}"
     fi
 
-    # 后端镜像动态选择 Python 版本 (处理 ARM64 平台兼容性)
+    # 后端镜像使用标准多架构基础镜像
     if [ "$service" = "后端" ]; then
-        local python_version="3.12-slim"
-        if [[ "$PLATFORMS" == *"arm64"* ]]; then
-            # 使用用户提供的 ARM64 专用标签
-            python_version="3.12-slim-bookworm-linuxarm64"
-        fi
+        local python_version="3.12-slim-bookworm"
         build_args+=("--build-arg" "PYTHON_VERSION=${python_version}")
         log_info "后端使用 Python 版本: ${python_version}"
+    fi
+
+    # 推送前再次检查 BuildKit 容器 DNS 连通性
+    if [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ]; then
+        if docker ps --format '{{.Names}}' | grep -q "buildx_buildkit_multiarch0"; then
+            log_info "推送前检查 BuildKit 容器 DNS 连通性..."
+            if ! docker exec buildx_buildkit_multiarch0 sh -c \
+                "wget --timeout=5 -q -O /dev/null 'https://auth.docker.io/token?service=registry.docker.io'" 2>/dev/null; then
+                log_warning "BuildKit 容器无法访问 auth.docker.io，注入 hosts 解析..."
+
+                # 用宿主机 DNS 解析 Docker Hub 相关域名
+                local dns_server=""
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                    dns_server=$(scutil --dns | grep 'nameserver\[0\]' | head -1 | awk '{print $3}')
+                else
+                    dns_server=$(grep '^nameserver' /etc/resolv.conf | grep -v '127.0.0' | head -1 | awk '{print $2}')
+                fi
+                dns_server="${dns_server:-8.8.8.8}"
+
+                local domains="auth.docker.io registry-1.docker.io production.cloudflare.docker.com"
+                local hosts_entries=""
+                for domain in $domains; do
+                    local ip
+                    ip=$(dig +short "$domain" @"$dns_server" A 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
+                    if [ -z "$ip" ]; then
+                        ip=$(nslookup "$domain" "$dns_server" 2>/dev/null | awk '/^Address: / && !/127\.0\.0/ && !/'"$dns_server"'/ {print $2}' | head -1)
+                    fi
+                    if [ -n "$ip" ]; then
+                        # 检查是否已存在该域名的 hosts 条目
+                        if ! docker exec buildx_buildkit_multiarch0 grep -q "$domain" /etc/hosts 2>/dev/null; then
+                            hosts_entries="${hosts_entries}${ip} ${domain}\n"
+                        fi
+                    fi
+                done
+
+                if [ -n "$hosts_entries" ]; then
+                    docker exec buildx_buildkit_multiarch0 sh -c "printf '${hosts_entries}' >> /etc/hosts"
+                    log_success "已注入 Docker Hub hosts 解析"
+                    docker exec buildx_buildkit_multiarch0 sh -c "cat /etc/hosts" 2>/dev/null | grep -E "docker" || true
+                fi
+            else
+                log_success "BuildKit 容器 DNS 连通性正常"
+            fi
+        fi
     fi
 
     if [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ]; then
