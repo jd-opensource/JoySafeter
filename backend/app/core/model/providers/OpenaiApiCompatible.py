@@ -45,27 +45,65 @@ def _format_validation_error(exc: Exception) -> str:
 class OpenAIAPICompatibleProvider(BaseProvider):
     """OpenAI供应商"""
 
-    # 预定义的Chat模型列表
+    # 凭据验证使用的低成本模型
+    VALIDATION_MODEL = "gpt-4o-mini"
+
+    # 预定义的Chat模型列表（OpenAI 官方标准模型）
     PREDEFINED_CHAT_MODELS = [
         {
-            "name": "DeepSeek-V3.2",
-            "display_name": "DeepSeek-Chat",
-            "description": "DeepSeek - 最新的对话模型",
+            "name": "o3",
+            "display_name": "o3",
+            "description": "OpenAI 最强推理模型，适合复杂多步骤任务",
         },
         {
-            "name": "DeepSeek-R1-0528",
-            "display_name": "DeepSeek-R1",
-            "description": "DeepSeek - 最新的推理模型",
+            "name": "o4-mini",
+            "display_name": "o4-mini",
+            "description": "OpenAI 高性价比推理模型，速度快且成本低",
         },
         {
-            "name": "gpt-5",
-            "display_name": "GPT-5",
-            "description": "OpenAi - 最新的模型",
+            "name": "gpt-4.1",
+            "display_name": "GPT-4.1",
+            "description": "OpenAI 旗舰模型，编码与指令遵循能力强",
         },
         {
-            "name": "Qwen3-Coder",
-            "display_name": "Qwen3-Coder",
-            "description": "Qwen 最新的代码模型",
+            "name": "gpt-4.1-mini",
+            "display_name": "GPT-4.1 Mini",
+            "description": "GPT-4.1 的轻量版本，兼顾性能与成本",
+        },
+        {
+            "name": "gpt-4.1-nano",
+            "display_name": "GPT-4.1 Nano",
+            "description": "GPT-4.1 最快最经济的版本，适合简单任务",
+        },
+        {
+            "name": "gpt-4o",
+            "display_name": "GPT-4o",
+            "description": "OpenAI 多模态模型，支持文本、图像和音频",
+        },
+        {
+            "name": "gpt-4o-mini",
+            "display_name": "GPT-4o Mini",
+            "description": "GPT-4o 的轻量版本，快速且经济",
+        },
+        {
+            "name": "gpt-4.5-preview",
+            "display_name": "GPT-4.5 Preview",
+            "description": "OpenAI 最大模型预览版，创意写作与对话能力突出",
+        },
+        {
+            "name": "o3-mini",
+            "display_name": "o3-mini",
+            "description": "OpenAI 小型推理模型，STEM 领域表现优秀",
+        },
+        {
+            "name": "o1",
+            "display_name": "o1",
+            "description": "OpenAI 推理模型，擅长科学、数学和编程",
+        },
+        {
+            "name": "o1-mini",
+            "display_name": "o1-mini",
+            "description": "o1 的轻量版本，推理速度更快",
         },
     ]
 
@@ -176,7 +214,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
 
             # 创建一个临时模型实例进行测试
             model = ChatOpenAI(
-                model=self.PREDEFINED_CHAT_MODELS[0]["name"],
+                model=self.VALIDATION_MODEL,
                 api_key=api_key,
                 base_url=base_url,
                 max_retries=3,

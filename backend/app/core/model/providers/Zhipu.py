@@ -13,6 +13,8 @@ from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
 class ZhipuProvider(OpenAIAPICompatibleProvider):
     """Zhipu 智谱大模型供应商"""
 
+    VALIDATION_MODEL = "glm-4-flash"
+
     PREDEFINED_CHAT_MODELS = [
         {
             "name": "glm-4.7",

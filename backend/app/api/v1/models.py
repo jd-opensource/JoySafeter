@@ -24,7 +24,7 @@ class ModelInstanceCreate(BaseModel):
     """创建模型实例配置请求"""
 
     provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
-    model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
+    model_name: str = Field(description="模型名称", examples=["gpt-4o"])
     model_type: str = Field(default="chat", description="模型类型：chat, llm, embedding等", examples=["chat"])
     model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数配置", examples=[{}])
 
@@ -40,7 +40,7 @@ class ModelInstanceUpdate(BaseModel):
 class ModelTestRequest(BaseModel):
     """测试模型输出请求"""
 
-    model_name: str = Field(description="模型名称", examples=["DeepSeek-V3.2"])
+    model_name: str = Field(description="模型名称", examples=["gpt-4o"])
     input: str = Field(description="输入文本", examples=["你好，请介绍一下你自己"])
 
 

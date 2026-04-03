@@ -53,6 +53,12 @@ def get_default_model(
     # 注意：调用者应该从数据库获取默认模型并传递 llm_model 参数
     model_name = llm_model or "gpt-4o-mini"  # 最后的硬编码后备（应该尽量避免）
 
+    if not api_key_value:
+        raise ValueError(
+            f"模型 \"{model_name}\" 无法使用：未提供 API Key。"
+            "请前往「设置 → 模型供应商」添加至少一个模型的 API Key 后再试。"
+        )
+
     # Convert API key to SecretStr if provided
     secret_api_key: SecretStr | None = SecretStr(api_key_value) if api_key_value else None
 

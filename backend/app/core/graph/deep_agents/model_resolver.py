@@ -1,16 +1,18 @@
 """Unified model resolver — resolves LLM model instances from config.
 
 Single entry point for both node models and memory models.
-Resolution strategy: ModelService exact match → hardcoded fallback.
+Resolution strategy: ModelService exact match → fallback with credentials → precise error.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from loguru import logger
 
 from app.core.model.utils.model_ref import parse_model_ref
+
+_SETTINGS_GUIDE = "请前往「设置 → 模型供应商」检查配置"
 
 
 class ModelResolver:
@@ -57,21 +59,45 @@ class ModelResolver:
         model_name: Optional[str],
     ) -> Any:
         """Try each resolution strategy in order."""
+        service_error: Optional[str] = None
+
         # Strategy 1: ModelService exact match
         if self._model_service and model_name:
-            model = await self._try_model_service(provider_name, model_name)
+            model, err = await self._try_model_service(provider_name, model_name)
             if model:
                 return model
+            service_error = err
 
-        # Strategy 2: Hardcoded fallback
-        return self._fallback(model_name)
+        # Strategy 2: Fallback with default credentials (only if credentials exist)
+        if self._default_api_key:
+            logger.info(
+                f"[ModelResolver] Using fallback with default credentials | model={model_name}"
+            )
+            from app.core.agent.sample_agent import get_default_model
+
+            return get_default_model(
+                model_name,
+                api_key=self._default_api_key,
+                base_url=self._default_base_url,
+            )
+
+        # No fallback possible — raise a precise, actionable error
+        available = await self._list_available_model_names()
+        raise ValueError(
+            self._build_error_message(
+                provider_name=provider_name,
+                model_name=model_name,
+                reason=service_error,
+                available=available,
+            )
+        )
 
     async def _try_model_service(
         self,
         provider_name: Optional[str],
         model_name: str,
-    ) -> Any:
-        """Try to resolve via ModelService."""
+    ) -> tuple[Any, Optional[str]]:
+        """Try to resolve via ModelService. Returns (model, error_reason)."""
         try:
             uid = str(self._user_id) if self._user_id else "system"
             if provider_name and model_name:
@@ -86,20 +112,43 @@ class ModelResolver:
                     user_id=uid,
                 )
             logger.info(f"[ModelResolver] Resolved via ModelService | provider={provider_name} | model={model_name}")
-            return model
+            return model, None
         except Exception as e:
             logger.warning(
                 f"[ModelResolver] ModelService failed | provider={provider_name} | model={model_name} | error={e}"
             )
-            return None
+            return None, str(e)
+
+    async def _list_available_model_names(self) -> List[str]:
+        """Query available model names from ModelService for error diagnostics."""
+        try:
+            if self._model_service and hasattr(self._model_service, "repo"):
+                all_instances = await self._model_service.repo.list_all()
+                return [inst.model_name for inst in all_instances]
+        except Exception:
+            pass
+        return []
 
     @staticmethod
-    def _fallback(model_name: Optional[str]) -> Any:
-        """Last resort: use get_default_model."""
-        from app.core.agent.sample_agent import get_default_model
-
-        logger.info(f"[ModelResolver] Using hardcoded fallback | model={model_name}")
-        return get_default_model(model_name)
+    def _build_error_message(
+        *,
+        provider_name: Optional[str],
+        model_name: Optional[str],
+        reason: Optional[str] = None,
+        available: Optional[List[str]] = None,
+    ) -> str:
+        """Build a user-facing error message with diagnostics and guidance."""
+        ref = f"{provider_name}/{model_name}" if provider_name else (model_name or "unknown")
+        parts: list[str] = [f"模型 \"{ref}\" 不可用"]
+        if reason:
+            parts.append(f"：{reason}")
+        else:
+            parts.append("：该模型未配置或凭据缺失")
+        parts.append("。")
+        if available:
+            parts.append(f"当前可用的模型: {', '.join(available[:5])}。")
+        parts.append(_SETTINGS_GUIDE)
+        return "".join(parts)
 
     def extract_credentials(self, resolved_model: Any) -> dict[str, Any]:
         """Extract API credentials from a resolved model instance."""

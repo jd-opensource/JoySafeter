@@ -62,11 +62,11 @@ const REGISTRY: NodeDefinition[] = [
     icon: Bot,
     style: { color: 'text-blue-600', bg: 'bg-blue-50' },
     defaultConfig: {
-      model: 'DeepSeek-Chat',
+      model: 'gpt-4o-mini',
       temp: 0.7,
       systemPrompt: '',
       enableMemory: false,
-      memoryModel: 'DeepSeek-Chat',
+      memoryModel: 'gpt-4o-mini',
       memoryPrompt: 'Summarize the interaction highlights and key facts learned about the user.',
       useDeepAgents: false,
       description: '',
@@ -133,7 +133,7 @@ const REGISTRY: NodeDefinition[] = [
     icon: BrainCircuit,
     style: { color: 'text-violet-600', bg: 'bg-violet-50' },
     defaultConfig: {
-      model: 'DeepSeek-Chat',
+      model: 'gpt-4o-mini',
       executor_type: 'local',
       agent_mode: 'autonomous',
       max_steps: 20,
