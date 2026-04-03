@@ -379,7 +379,7 @@ async def optimize_memories(
 
         api_key, base_url, model_name = await LLMCredentialResolver.get_credentials(db=db_session)
         if not api_key or not model_name:
-            raise HTTPException(status_code=400, detail="未找到可用模型配置，请先配置模型")
+            raise HTTPException(status_code=400, detail="当前没有可用的模型配置，请前往「设置 → 模型供应商」添加至少一个模型的 API Key 后再试")
 
         # Use the model factory to construct the correct model type for the provider
         from typing import cast
