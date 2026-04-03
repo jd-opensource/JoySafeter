@@ -45,7 +45,7 @@ export function useCopilotWebSocketHandler({
         if (!refs.isMountedRef.current) return
         const s = stateRef.current
         if (s.loading && !s.currentStage && !s.streamingContent) {
-          actions.setCurrentStage({ stage: 'thinking', message: '已连接，正在处理...' })
+          actions.setCurrentStage({ stage: 'thinking', message: 'Connected, processing...' })
         }
       },
 

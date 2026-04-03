@@ -82,7 +82,7 @@ export function CopilotStreaming({
               <span
                 className={`text-xs font-medium ${currentStage ? stageConfig[currentStage.stage]?.color || 'text-[var(--text-tertiary)]' : 'text-[var(--text-tertiary)]'}`}
               >
-                {currentStage?.message || t('workspace.processing', { defaultValue: 'Processing...' })}
+                {(currentStage && stageConfig[currentStage.stage]?.label) || t('workspace.processing', { defaultValue: 'Processing...' })}
               </span>
               <Loader2 size={12} className="animate-spin text-purple-500" />
             </div>

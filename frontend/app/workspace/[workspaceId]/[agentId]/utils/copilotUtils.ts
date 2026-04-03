@@ -72,32 +72,32 @@ export function getStageConfig(
     thinking: {
       icon: '💭',
       color: 'text-purple-600',
-      label: t('copilot.stage.thinking', { defaultValue: '思考中' }),
+      label: t('copilot.stage.thinking', { defaultValue: 'Thinking' }),
     },
     processing: {
       icon: '✨',
       color: 'text-green-600',
-      label: t('copilot.stage.processing', { defaultValue: '处理中' }),
+      label: t('copilot.stage.processing', { defaultValue: 'Processing' }),
     },
     generating: {
       icon: '🔧',
       color: 'text-amber-600',
-      label: t('copilot.stage.generating', { defaultValue: '生成节点' }),
+      label: t('copilot.stage.generating', { defaultValue: 'Generating nodes' }),
     },
     analyzing: {
       icon: '🔍',
       color: 'text-blue-600',
-      label: t('copilot.stage.analyzing', { defaultValue: '需求分析' }),
+      label: t('copilot.stage.analyzing', { defaultValue: 'Analyzing requirements' }),
     },
     planning: {
       icon: '📋',
       color: 'text-indigo-600',
-      label: t('copilot.stage.planning', { defaultValue: '架构计划' }),
+      label: t('copilot.stage.planning', { defaultValue: 'Planning architecture' }),
     },
     validating: {
       icon: '🛡️',
       color: 'text-teal-600',
-      label: t('copilot.stage.validating', { defaultValue: '方案验证' }),
+      label: t('copilot.stage.validating', { defaultValue: 'Validating design' }),
     },
   }
 }

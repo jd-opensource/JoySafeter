@@ -61,7 +61,7 @@ def get_default_model(
     if not api_key_value:
         raise ModelConfigError(
             MODEL_NO_CREDENTIALS,
-            f"No valid API key provided for model \"{model_name}\".",
+            f'No valid API key provided for model "{model_name}".',
             params={"model": model_name},
         )
 

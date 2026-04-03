@@ -67,7 +67,7 @@ export function useCopilotEffects({
             )
           } else if (sessionData.content) {
             actions.setStreamingContent(sessionData.content)
-            actions.setCurrentStage({ stage: 'processing', message: '继续处理中...' })
+            actions.setCurrentStage({ stage: 'processing', message: 'Processing...' })
             if (!hasCurrentMessage(state.messages, false)) actions.setThinkingMessage()
           }
         } else if (sessionData.status === 'completed') {

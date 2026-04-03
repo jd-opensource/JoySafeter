@@ -331,7 +331,7 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_mo
     """获取用户配置和 LLM 参数"""
     from loguru import logger
 
-    from app.common.exceptions import BadRequestException, NotFoundException
+    from app.common.exceptions import ModelConfigError, NotFoundException
     from app.core.agent.langfuse_callback import get_langfuse_callbacks
     from app.core.model.utils.credential_resolver import LLMCredentialResolver
 
@@ -354,14 +354,15 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_mo
 
         # 验证是否获取到有效的凭据
         if not llm_params.get("api_key") or not llm_params.get("llm_model"):
-            raise BadRequestException(
-                "当前没有可用的模型配置，请前往「设置 → 模型供应商」添加至少一个模型的 API Key 后再试"
+            raise ModelConfigError(
+                ModelConfigError.MODEL_NO_CREDENTIALS,
+                "No model configured. Please add an API key in Settings → Model Providers.",
             )
-    except NotFoundException:
+    except (NotFoundException, ModelConfigError):
         raise
     except Exception as e:
         logger.error(f"[get_user_config] Failed to get model from database: {e}")
-        raise NotFoundException(f"获取模型配置失败: {str(e)}")
+        raise NotFoundException(f"Failed to load model configuration: {str(e)}")
 
     return config, {}, llm_params
 

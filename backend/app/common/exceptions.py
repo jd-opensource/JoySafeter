@@ -50,12 +50,18 @@ class NotFoundException(AppException):
 
 
 class ModelConfigError(AppException):
-    """模型配置错误 — 携带结构化 error_code + params 供前端 i18n 翻译。
+    """Model configuration error with structured error_code + params for frontend i18n.
 
-    error_code: 前端 i18n key（如 MODEL_NOT_FOUND, MODEL_NO_CREDENTIALS）
-    params:     插值参数（如 {model: "gpt-4o", provider: "openai", available: ["qwen-72b"]}）
-    message:    英文 fallback（前端找不到 i18n key 时显示）
+    error_code: Frontend i18n key (e.g. MODEL_NOT_FOUND, MODEL_NO_CREDENTIALS)
+    params:     Interpolation params (e.g. {model: "gpt-4o", provider: "openai"})
+    message:    English fallback (shown when frontend has no i18n key)
     """
+
+    # Error code constants — shared with frontend i18n keys
+    MODEL_NOT_FOUND = "MODEL_NOT_FOUND"
+    MODEL_NO_CREDENTIALS = "MODEL_NO_CREDENTIALS"
+    PROVIDER_NOT_FOUND = "PROVIDER_NOT_FOUND"
+    MODEL_NAME_REQUIRED = "MODEL_NAME_REQUIRED"
 
     error_code: str
     params: Dict[str, Any]

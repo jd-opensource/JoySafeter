@@ -135,7 +135,7 @@ async def stream_copilot_manager(
             base_url=base_url,
         )
 
-        yield {"type": "status", "stage": "thinking", "message": "正在分析请求..."}
+        yield {"type": "status", "stage": "thinking", "message": "Analyzing request..."}
 
         context_summary = {
             "nodes": len(graph_context.get("nodes", [])),
@@ -189,11 +189,11 @@ async def stream_copilot_manager(
                 if tool_name == "task":
                     subagent = tool_input.get("subagent_type", "") or tool_input.get("name", "")
                     if "analyst" in subagent:
-                        yield {"type": "status", "stage": "analyzing", "message": "正在分析需求..."}
+                        yield {"type": "status", "stage": "analyzing", "message": "Analyzing requirements..."}
                     elif "architect" in subagent:
-                        yield {"type": "status", "stage": "planning", "message": "正在设计架构..."}
+                        yield {"type": "status", "stage": "planning", "message": "Designing architecture..."}
                     elif "validator" in subagent:
-                        yield {"type": "status", "stage": "validating", "message": "正在验证设计..."}
+                        yield {"type": "status", "stage": "validating", "message": "Validating design..."}
 
             elif event_kind == "on_tool_end":
                 tool_name = event_dict.get("name", "")
@@ -212,8 +212,8 @@ async def stream_copilot_manager(
                 if output and hasattr(output, "content"):
                     final_message = output.content
 
-        yield {"type": "status", "stage": "processing", "message": "处理结果..."}
-        yield {"type": "status", "stage": "layout", "message": "优化布局..."}
+        yield {"type": "status", "stage": "processing", "message": "Processing results..."}
+        yield {"type": "status", "stage": "layout", "message": "Optimizing layout..."}
         collected_actions = _apply_layout_to_actions(collected_actions, store)
         collected_actions = _fix_edge_node_ids(collected_actions, store)
 

@@ -67,7 +67,7 @@ class ModelResolver:
         available = await self._list_available_model_names()
         raise ModelConfigError(
             MODEL_NOT_FOUND,
-            f"Model \"{model_name}\" is not available.",
+            f'Model "{model_name}" is not available.',
             params={
                 "model": model_name or "",
                 "provider": provider_name or "",

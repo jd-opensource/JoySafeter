@@ -629,6 +629,13 @@ const zh = {
       copilotModeDeepAgents: 'DeepAgents 模式',
       copilotStatusMode: '模式：生产级图构建',
       copilotStatusModelPlaceholder: '—',
+      // Copilot stage labels
+      'copilot.stage.thinking': '思考中',
+      'copilot.stage.processing': '处理中',
+      'copilot.stage.generating': '生成节点',
+      'copilot.stage.analyzing': '需求分析',
+      'copilot.stage.planning': '架构设计',
+      'copilot.stage.validating': '方案验证',
       loadingHistory: '加载对话历史...',
       describeFlowChanges: '输入系统需求或反馈...',
       actionsExecuted: '已执行的操作',

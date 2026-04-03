@@ -643,6 +643,13 @@ const en = {
       copilotModeDeepAgents: 'DeepAgents',
       copilotStatusMode: 'Mode: Production Graph Builder',
       copilotStatusModelPlaceholder: '—',
+      // Copilot stage labels
+      'copilot.stage.thinking': 'Thinking',
+      'copilot.stage.processing': 'Processing',
+      'copilot.stage.generating': 'Generating nodes',
+      'copilot.stage.analyzing': 'Analyzing requirements',
+      'copilot.stage.planning': 'Planning architecture',
+      'copilot.stage.validating': 'Validating design',
       loadingHistory: 'Loading conversation history...',
       describeFlowChanges: 'Enter system requirements or feedback...',
       actionsExecuted: 'Actions Executed',

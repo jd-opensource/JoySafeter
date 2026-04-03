@@ -90,7 +90,7 @@ export function useCopilotActions({
         actions.setSession(sessionId)
 
         // Show initial loading state
-        actions.setCurrentStage({ stage: 'thinking', message: '正在连接并准备处理...' })
+        actions.setCurrentStage({ stage: 'thinking', message: 'Connecting...' })
         actions.setThinkingMessage()
       } catch (e: unknown) {
         console.error('[CopilotPanel] Failed to create Copilot session:', e)

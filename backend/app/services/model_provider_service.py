@@ -178,14 +178,14 @@ class ModelProviderService(BaseService):
         """
         db_provider = await self.repo.get_by_name(provider_name)
         if not db_provider:
-            raise NotFoundException(f"供应商不存在: {provider_name}")
+            raise NotFoundException(f"Provider not found: {provider_name}")
 
         await self.repo.update_default_parameters(provider_name, default_parameters)
         await self.commit()
 
         result = await self.get_provider(provider_name)
         if not result:
-            raise NotFoundException(f"供应商不存在: {provider_name}")
+            raise NotFoundException(f"Provider not found: {provider_name}")
         return result
 
     async def _create_derived_provider(self, template: Any, name: str, display_name: str, template_name: str) -> Any:
@@ -221,7 +221,7 @@ class ModelProviderService(BaseService):
 
         template = self.factory.get_provider("custom")
         if not template:
-            raise NotFoundException("供应商不存在: custom")
+            raise NotFoundException("Provider not found: custom")
 
         is_valid = False
         validation_error = None
@@ -284,11 +284,11 @@ class ModelProviderService(BaseService):
         if not provider:
             factory_provider = self.factory.get_provider(provider_name)
             if factory_provider:
-                raise BadRequestException(f"内置供应商不允许删除: {provider_name}")
-            raise NotFoundException(f"供应商不存在: {provider_name}")
+                raise BadRequestException(f"Built-in provider cannot be deleted: {provider_name}")
+            raise NotFoundException(f"Provider not found: {provider_name}")
 
         if provider.provider_type != "custom":
-            raise BadRequestException(f"仅允许删除自定义供应商: {provider_name}")
+            raise BadRequestException(f"Only custom providers can be deleted: {provider_name}")
 
         await self.repo.delete(provider.id)
         logger.info(f"已删除自定义供应商: {provider_name}")

@@ -375,7 +375,6 @@ class ChatTurnExecutor:
             if state is not None and not (module.GraphBubbleUp is not None and type(exc) is module.GraphBubbleUp):
                 state.has_error = True
             error_data: dict[str, object] = {"message": str(exc)}
-            from app.common.exceptions import ModelConfigError
             if isinstance(exc, ModelConfigError):
                 error_data["error_code"] = exc.error_code
                 error_data["params"] = exc.params

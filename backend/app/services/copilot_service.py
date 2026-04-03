@@ -129,7 +129,7 @@ class CopilotService:
             return
 
         # Standard engine
-        yield {"type": "status", "stage": "thinking", "message": "正在思考..."}
+        yield {"type": "status", "stage": "thinking", "message": "Thinking..."}
         try:
             agent = await get_copilot_agent(
                 graph_context=graph_context,
@@ -243,7 +243,7 @@ class CopilotService:
                 if output and hasattr(output, "content"):
                     final_message = output.content
 
-        yield {"type": "status", "stage": "processing", "message": "处理结果..."}
+        yield {"type": "status", "stage": "processing", "message": "Processing..."}
         actions = self._convert_and_validate_actions(collected_actions, graph_context)
         yield {
             "type": "result",
@@ -1045,7 +1045,7 @@ class CopilotService:
             # Set initial status
             await RedisClient.set_copilot_status(session_id, "generating")
             await RedisClient.publish_copilot_event(
-                session_id, {"type": "status", "stage": "thinking", "message": "正在思考..."}
+                session_id, {"type": "status", "stage": "thinking", "message": "Thinking..."}
             )
 
             # Single stream source: _get_copilot_stream resolves credentials and chooses engine

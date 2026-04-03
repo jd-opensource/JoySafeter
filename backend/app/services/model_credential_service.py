@@ -95,7 +95,7 @@ class ModelCredentialService(BaseService):
         """
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
-            raise NotFoundException(f"供应商不存在: {provider_name}")
+            raise NotFoundException(f"Provider not found: {provider_name}")
 
         is_valid = False
         validation_error = None
@@ -131,9 +131,9 @@ class ModelCredentialService(BaseService):
         """重新验证已有凭证。按 ID 查找，解密，调 API 验证。"""
         credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
-            raise NotFoundException("凭据不存在")
+            raise NotFoundException("Credential not found")
         if not credential.provider:
-            raise NotFoundException("凭据关联的供应商不存在")
+            raise NotFoundException("Credential's associated provider not found")
 
         decrypted = decrypt_credentials(credential.credentials)
         is_valid, error = await self._validate_for_provider(credential.provider, decrypted, credential.provider_id)
@@ -153,7 +153,7 @@ class ModelCredentialService(BaseService):
         """获取凭据详情。"""
         credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
-            raise NotFoundException("凭据不存在")
+            raise NotFoundException("Credential not found")
 
         pname = credential.provider.name if credential.provider else ""
         pdisplay = credential.provider.display_name if credential.provider else ""
@@ -190,7 +190,7 @@ class ModelCredentialService(BaseService):
 
         credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
-            raise NotFoundException("凭据不存在")
+            raise NotFoundException("Credential not found")
 
         if (
             credential.provider
@@ -198,7 +198,7 @@ class ModelCredentialService(BaseService):
             and not credential.provider.is_template
         ):
             raise BadRequestException(
-                f"自定义供应商的凭据不能单独删除，请通过 DELETE /model-providers/{credential.provider.name} 删除整个供应商"
+                f"Cannot delete credentials for custom provider separately. Use DELETE /model-providers/{credential.provider.name} to remove the entire provider."
             )
 
         await self.repo.delete(credential_id)
