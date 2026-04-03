@@ -5,7 +5,7 @@
 import json
 import time
 import uuid
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, NoReturn, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,7 @@ def _raise_model_error(
     model_name: str | None = None,
     provider_name: str | None = None,
     available: list[str] | None = None,
-) -> None:
+) -> NoReturn:
     params: dict[str, str] = {"model": model_name or "", "provider": provider_name or ""}
     if available is not None:
         params["available"] = ", ".join(available[:10])

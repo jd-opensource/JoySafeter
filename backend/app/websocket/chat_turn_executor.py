@@ -7,6 +7,7 @@ import uuid as uuid_lib
 from dataclasses import dataclass
 from typing import Any
 
+from app.common.exceptions import ModelConfigError
 from app.models.agent_run import AgentRunStatus
 from app.schemas.chat import ChatRequest
 from app.utils.stream_event_handler import StreamState
