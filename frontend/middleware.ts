@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
 import { createLogger } from '@/lib/logs/console/logger'
+import { generateNonce } from '@/lib/utils/uuid'
 
 const logger = createLogger('Middleware')
 
@@ -249,8 +250,7 @@ export function middleware(request: NextRequest) {
   const isWhiteListEnabled = !!process.env.NEXT_PUBLIC_CSP_WHITELIST
 
   if (enableCSP) {
-    // Generate nonce (for CSP)
-    const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
+    const nonce = generateNonce()
 
     // Build CSP whitelist (use configured whitelist in production, lenient config in development)
     let whiteList = ''

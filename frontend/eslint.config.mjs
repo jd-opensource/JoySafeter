@@ -28,11 +28,16 @@ const eslintConfig = [
       'prefer-const': 'warn',
 
       // Enforce function declarations for components (no React.FC)
+      // Forbid direct crypto.randomUUID() — use generateUUID() from @/lib/utils/uuid
       'no-restricted-syntax': [
         'error',
         {
           selector: 'TSTypeReference[typeName.right.name="FC"]',
           message: 'Use function declarations instead of React.FC.',
+        },
+        {
+          selector: 'CallExpression[callee.object.name="crypto"][callee.property.name="randomUUID"]',
+          message: 'Use generateUUID() from @/lib/utils/uuid instead of crypto.randomUUID() — it includes a fallback for Edge Runtime.',
         },
       ],
 
