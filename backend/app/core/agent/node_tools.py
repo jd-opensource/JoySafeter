@@ -24,6 +24,7 @@ from loguru import logger
 from app.core.constants import DEFAULT_USER_ID
 from app.core.tools.tool import EnhancedTool, ToolMetadata, ToolSourceType
 from app.models.graph import GraphNode
+from app.utils.sandbox_paths import get_user_sandbox_host_dir
 
 
 def _first_dict(*candidates: Any) -> Optional[dict]:
@@ -116,7 +117,7 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
     # Bind preview_skill with the user's sandbox root path
     # NOTE: We use a real wrapper function instead of functools.partial because
     # langchain's create_schema_from_function cannot introspect partial objects.
-    _sandbox_root = str(Path(f"/tmp/sandboxes/{user_id}"))
+    _sandbox_root = str(get_user_sandbox_host_dir(str(user_id)))
 
     def bound_preview_skill(skill_name: str, skills_subdir: str = "skills") -> str:
         """Preview a skill's files and validate its metadata."""

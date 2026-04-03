@@ -449,8 +449,11 @@ def _enrich_message(message: str, metadata: dict, *, is_new_thread: bool, log, e
     files = metadata.get("files", [])
     if files:
         log.info(f"[{endpoint}] 📎 发现 {len(files)} 个文件: {files}")
-        file_info = "\n\nAttached files:\n" + "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
-        enriched += file_info
+        file_lines = "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
+        enriched += (
+            f"\n\nAttached files:\n{file_lines}\n"
+            f"Use the read_file tool to read the content of these files."
+        )
         log.info(f"[{endpoint}] ✅ 消息已包含文件路径，长度: {len(enriched)}")
 
     return enriched

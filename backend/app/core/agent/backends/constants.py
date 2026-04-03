@@ -14,6 +14,10 @@ DEFAULT_WORKING_DIR = "/workspace"
 DEFAULT_AUTO_REMOVE = True
 DEFAULT_IDLE_TIMEOUT = 3600  # 1 hour in seconds
 
+# Sandbox host directory
+DEFAULT_SANDBOX_HOST_ROOT = "/tmp/sandboxes"
+SANDBOX_UPLOADS_SUBDIR = "uploads"
+
 # User sandbox defaults
 DEFAULT_USER_SANDBOX_IMAGE = "python:3.12-slim"
 DEFAULT_USER_SANDBOX_IDLE_TIMEOUT = 3600  # 1 hour in seconds
@@ -45,4 +49,7 @@ __all__ = [
     "DEFAULT_USER_SANDBOX_MEMORY_LIMIT",
     "DEFAULT_USER_SANDBOX_AUTO_REMOVE",
     "MAX_SANDBOX_POOL_SIZE",
+    # Sandbox host directory
+    "DEFAULT_SANDBOX_HOST_ROOT",
+    "SANDBOX_UPLOADS_SUBDIR",
 ]

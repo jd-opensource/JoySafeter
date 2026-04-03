@@ -166,10 +166,9 @@ class SandboxManagerService:
 
             import os
 
-            from app.utils.path_utils import sanitize_path_component
+            from app.utils.sandbox_paths import get_user_sandbox_host_dir
 
-            safe_uid = sanitize_path_component(user_id, default="default")
-            host_sandbox_dir = f"/tmp/sandboxes/{safe_uid}"
+            host_sandbox_dir = str(get_user_sandbox_host_dir(user_id))
             os.makedirs(host_sandbox_dir, exist_ok=True)
             volumes = {host_sandbox_dir: "/workspace"}
 
