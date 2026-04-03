@@ -21,6 +21,7 @@ class PoolEntry:
     def __init__(self, adapter: PydanticSandboxAdapter):
         self.adapter = adapter
         self.last_used = time.time()
+        self.created_at = time.time()
         self.active_count = 0  # 当前有多少个请求正在使用此沙箱
 
 
@@ -131,15 +132,25 @@ class SandboxPool:
             logger.debug(f"Removed sandbox {sandbox_id} from pool")
 
     async def cleanup_idle(self) -> list[str]:
-        """清理空闲超时的沙箱，返回被清理的沙箱ID列表"""
+        """清理空闲超时的沙箱，返回被清理的沙箱ID列表。
+
+        Also audits entries with active_count > 0 for longer than 30 minutes
+        (potential leak detection).
+        """
         now = time.time()
         to_close: list[tuple[str, PydanticSandboxAdapter]] = []
+        LEAK_AUDIT_THRESHOLD = 1800  # 30 minutes
 
         async with self._lock:
             to_remove_ids = []
             for sid, entry in self._pool.items():
                 if entry.active_count == 0 and (now - entry.last_used) > self._idle_timeout:
                     to_remove_ids.append(sid)
+                elif entry.active_count > 0 and (now - entry.last_used) > LEAK_AUDIT_THRESHOLD:
+                    logger.warning(
+                        f"Potential sandbox handle leak: {sid} has active_count={entry.active_count} "
+                        f"for {int(now - entry.last_used)}s"
+                    )
 
             for sid in to_remove_ids:
                 entry = self._pool.pop(sid)

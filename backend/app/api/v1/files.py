@@ -3,9 +3,9 @@ Module: Files API
 
 Overview:
 - Provides file upload, read, delete, clear, and list operations within a user's sandbox
-- Supports text and binary uploads via direct filesystem write to sandbox host mount
-- Files are stored in the Docker sandbox host directory and accessible to the Agent
-  via FilesystemMiddleware at /workspace/uploads/
+- All operations go through PydanticSandboxAdapter (Docker sandbox API)
+- Files are stored at /workspace/uploads/ inside the container and accessible to the Agent
+  via FilesystemMiddleware
 
 Routes:
 - POST /files/upload: Upload a file
@@ -16,23 +16,21 @@ Routes:
 
 Dependencies:
 - Auth: CurrentUser
-- Storage: Docker sandbox host mount directory
+- Storage: PydanticSandboxAdapter (Docker sandbox)
 - Unified response: BaseResponse[T]
 
 Security notes:
 - Always use sanitize_filename() to avoid path traversal
-- Upload directory is scoped to /tmp/sandboxes/{user_id}/uploads/
+- Upload directory is scoped to /workspace/uploads/ inside the container
 
 Error codes:
 - 404: File not found
 - 500: File upload/read/delete failed
 """
 
+import asyncio
 import base64
 import mimetypes
-import os
-import shutil
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -47,7 +45,6 @@ from app.core.agent.backends.constants import (
 from app.core.rate_limit import get_client_ip, rate_limit
 from app.schemas import BaseResponse
 from app.utils.path_utils import sanitize_filename
-from app.utils.sandbox_paths import get_user_sandbox_host_dir
 
 # Container-side path for uploaded files (what the Agent sees)
 CONTAINER_UPLOADS_PATH = f"{DEFAULT_WORKING_DIR}/{SANDBOX_UPLOADS_SUBDIR}"
@@ -58,82 +55,30 @@ router = APIRouter(prefix="/v1/files", tags=["Files"])
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50MB
 MAX_STORAGE_PER_USER = 5 * 1024 * 1024 * 1024  # 5GB per user
 ALLOWED_EXTENSIONS = {
-    ".pdf",
-    ".doc",
-    ".docx",
-    ".xls",
-    ".xlsx",
-    ".ppt",
-    ".pptx",
-    ".odt",
-    ".ods",
-    ".odp",
-    ".rtf",
-    ".epub",
-    ".txt",
-    ".csv",
-    ".md",
-    ".html",
-    ".css",
-    ".js",
-    ".ts",
-    ".py",
-    ".java",
-    ".c",
-    ".cpp",
-    ".h",
-    ".hpp",
-    ".cs",
-    ".go",
-    ".rs",
-    ".rb",
-    ".php",
-    ".swift",
-    ".kt",
-    ".scala",
-    ".sh",
-    ".sql",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".xml",
-    ".json",
-    ".jsx",
-    ".tsx",
-    ".vue",
-    ".svelte",
-    ".jpeg",
-    ".jpg",
-    ".png",
-    ".gif",
-    ".webp",
-    ".zip",
-    ".tar",
-    ".gz",
-    ".7z",
-    ".rar",
-    ".apk",
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".odt", ".ods", ".odp", ".rtf", ".epub",
+    ".txt", ".csv", ".md", ".html", ".css",
+    ".js", ".ts", ".py", ".java", ".c", ".cpp", ".h", ".hpp",
+    ".cs", ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala",
+    ".sh", ".sql", ".yaml", ".yml", ".toml", ".xml", ".json",
+    ".jsx", ".tsx", ".vue", ".svelte",
+    ".jpeg", ".jpg", ".png", ".gif", ".webp",
+    ".zip", ".tar", ".gz", ".7z", ".rar", ".apk",
 }
 
 
 class FileInfo(BaseModel):
-    """File information"""
-
     filename: str
     size: int
     path: str
 
 
 class FileListResponse(BaseModel):
-    """File list response"""
-
     files: list[FileInfo]
     total: int
 
 
 class UploadResponse(BaseModel):
-    """Upload response"""
-
     filename: str
     path: str
     size: int
@@ -153,63 +98,42 @@ MAGIC_NUMBERS: dict[str, list[bytes]] = {
     ".gz": [b"\x1f\x8b"],
     ".7z": [b"7z\xbc\xaf\x27\x1c"],
     ".rar": [b"Rar!\x1a\x07", b"Rar!\x1a\x07\x00"],
-    ".doc": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],  # OLE2 (MS Office)
-    ".docx": [b"PK\x03\x04"],  # DOCX is a ZIP file
-    ".xls": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],  # OLE2
-    ".xlsx": [b"PK\x03\x04"],  # XLSX is a ZIP file
-    ".ppt": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],  # OLE2
-    ".pptx": [b"PK\x03\x04"],  # PPTX is a ZIP file
-    ".apk": [b"PK\x03\x04"],  # APK is a ZIP file
+    ".doc": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],
+    ".docx": [b"PK\x03\x04"],
+    ".xls": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],
+    ".xlsx": [b"PK\x03\x04"],
+    ".ppt": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"],
+    ".pptx": [b"PK\x03\x04"],
+    ".apk": [b"PK\x03\x04"],
 }
 
 
-def validate_file_content(filename: str, content: bytes) -> None:
-    """Validate file content using magic number (file signature) check."""
+def _validate_file_content(filename: str, content: bytes) -> None:
+    """Validate file content using magic number check."""
     if len(content) == 0:
         return
-
     file_ext = Path(filename).suffix.lower()
     if file_ext not in MAGIC_NUMBERS:
         return
-
     expected_signatures = MAGIC_NUMBERS[file_ext]
     content_start = content[: max(len(sig) for sig in expected_signatures)]
-    matches = any(content_start.startswith(sig) for sig in expected_signatures)
-
-    if not matches:
-        logger.warning(
-            f"File content validation failed for {filename}: "
-            f"expected signature for {file_ext}, got {content_start[:16].hex()}"
-        )
+    if not any(content_start.startswith(sig) for sig in expected_signatures):
+        logger.warning(f"File content validation failed for {filename}: got {content_start[:16].hex()}")
         raise HTTPException(
             status_code=400,
-            detail=f"File content does not match declared type: {file_ext} files should contain correct file signature",
+            detail=f"File content does not match declared type: {file_ext}",
         )
 
 
-def validate_file_type(filename: str, content_type: str | None) -> None:
+def _validate_file_type(filename: str, content_type: str | None) -> None:
     """Validate file type (extension and MIME type)."""
     file_ext = Path(filename).suffix.lower()
-
     if file_ext and file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"File type {file_ext} is not supported")
-
     if content_type:
         inferred_type, _ = mimetypes.guess_type(filename)
         if inferred_type and content_type != inferred_type:
             logger.warning(f"MIME type mismatch for {filename}: expected {inferred_type}, got {content_type}")
-
-
-def _get_upload_dir(user_id: uuid.UUID | str) -> Path:
-    """Get the user's sandbox upload directory (host-side path). Does not create it."""
-    return get_user_sandbox_host_dir(str(user_id)) / SANDBOX_UPLOADS_SUBDIR
-
-
-def _ensure_upload_dir(user_id: uuid.UUID | str) -> Path:
-    """Get the user's sandbox upload directory, creating it if needed."""
-    upload_dir = _get_upload_dir(user_id)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    return upload_dir
 
 
 def get_container_path(filename: str) -> str:
@@ -217,28 +141,22 @@ def get_container_path(filename: str) -> str:
     return f"{CONTAINER_UPLOADS_PATH}/{filename}"
 
 
-def _get_upload_dir_size(upload_dir: Path) -> int:
-    """Calculate total size of files in the upload directory using scandir for efficiency."""
-    total = 0
-    try:
-        for entry in os.scandir(upload_dir):
-            if entry.is_file(follow_symlinks=False):
-                total += entry.stat(follow_symlinks=False).st_size
-    except FileNotFoundError:
-        return 0
-    except Exception as e:
-        logger.warning(f"Failed to calculate storage usage: {e}")
-        return 0
-    return total
+async def _get_sandbox_handle(user_id: str):
+    """Acquire a SandboxHandle for the user. Caller MUST release it."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.sandbox_manager import SandboxManagerService
+
+    async with AsyncSessionLocal() as db:
+        service = SandboxManagerService(db)
+        return await service.ensure_sandbox_running(user_id)
 
 
-def validate_file_upload(
+def _validate_file_upload(
     filename: str,
     content: bytes,
     content_type: str | None,
-    upload_dir: Path,
 ) -> tuple[str, None] | tuple[None, HTTPException]:
-    """Validate file upload (size, type, content, storage quota)."""
+    """Validate file upload (size, type, content). Returns (safe_filename, None) or (None, error)."""
     if len(content) == 0:
         return None, HTTPException(status_code=400, detail="File cannot be empty")
 
@@ -250,22 +168,14 @@ def validate_file_upload(
     safe_filename = sanitize_filename(filename)
 
     try:
-        validate_file_type(safe_filename, content_type)
+        _validate_file_type(safe_filename, content_type)
     except HTTPException as e:
         return None, e
 
     try:
-        validate_file_content(safe_filename, content)
+        _validate_file_content(safe_filename, content)
     except HTTPException as e:
         return None, e
-
-    current_usage = _get_upload_dir_size(upload_dir)
-    if current_usage + len(content) > MAX_STORAGE_PER_USER:
-        return None, HTTPException(
-            status_code=413,
-            detail=f"Storage quota exceeded. Current usage: {current_usage / 1024 / 1024 / 1024:.2f}GB, "
-            f"maximum allowed: {MAX_STORAGE_PER_USER / 1024 / 1024 / 1024}GB. Please delete some files first.",
-        )
 
     return safe_filename, None
 
@@ -274,13 +184,13 @@ def validate_file_upload(
     "/upload",
     response_model=BaseResponse[UploadResponse],
     summary="Upload file",
-    description="Upload a file to the user's sandbox. The file will be accessible to the Agent at /workspace/uploads/.",
+    description="Upload a file to the user's sandbox at /workspace/uploads/.",
     responses={
         400: {"description": "Invalid file type"},
         413: {"description": "File size exceeds limit"},
         401: {"description": "Unauthorized"},
         429: {"description": "Rate limit exceeded"},
-        500: {"description": "Failed to upload file / Internal server error"},
+        500: {"description": "Failed to upload file"},
     },
 )
 @rate_limit(max_requests=10, window_seconds=60)
@@ -289,34 +199,31 @@ async def upload_file(
     current_user: CurrentUser,
     file: UploadFile = File(..., description="File to upload"),
 ) -> BaseResponse[UploadResponse]:
-    """Upload a file to the user's sandbox upload directory."""
+    """Upload a file to the user's sandbox via adapter API."""
     client_ip = get_client_ip(request)
     original_filename = file.filename or "unnamed"
 
     try:
         content = await file.read()
-        upload_dir = _ensure_upload_dir(current_user.id)
 
-        safe_filename, validation_error = validate_file_upload(
-            original_filename, content, file.content_type, upload_dir,
-        )
-        if validation_error:
-            logger.warning(
-                f"File upload rejected: user={current_user.id}, filename={original_filename}, ip={client_ip}"
-            )
-            raise validation_error
+        safe_filename, err = _validate_file_upload(original_filename, content, file.content_type)
+        if err:
+            logger.warning(f"File upload rejected: user={current_user.id}, filename={original_filename}, ip={client_ip}")
+            raise err
 
         assert safe_filename is not None
 
-        file_path = upload_dir / safe_filename
-        with open(file_path, "wb") as f:
-            f.write(content)
-
         container_path = get_container_path(safe_filename)
+
+        async with await _get_sandbox_handle(str(current_user.id)) as handle:
+            await asyncio.to_thread(handle.adapter.mkdir, CONTAINER_UPLOADS_PATH)
+            result = await asyncio.to_thread(handle.adapter.write_overwrite, container_path, content)
+            if getattr(result, "error", None):
+                raise HTTPException(status_code=500, detail=f"Failed to write file: {result.error}")
 
         logger.info(
             f"File uploaded to sandbox: user={current_user.id}, "
-            f"filename={safe_filename}, size={len(content)}, container_path={container_path}, ip={client_ip}"
+            f"filename={safe_filename}, size={len(content)}, path={container_path}, ip={client_ip}"
         )
 
         return BaseResponse(
@@ -347,31 +254,24 @@ async def upload_file(
     description="List all files in the user's sandbox upload directory.",
     responses={
         401: {"description": "Unauthorized"},
-        500: {"description": "Failed to list files / Internal server error"},
+        500: {"description": "Failed to list files"},
     },
 )
 async def list_files(current_user: CurrentUser) -> BaseResponse[FileListResponse]:
-    """List all files in the user's sandbox upload directory."""
+    """List all files in the user's sandbox upload directory via adapter API."""
     try:
-        upload_dir = _get_upload_dir(current_user.id)
+        async with await _get_sandbox_handle(str(current_user.id)) as handle:
+            infos = await asyncio.to_thread(handle.adapter.ls_info, CONTAINER_UPLOADS_PATH)
 
-        files = []
-        try:
-            for entry in os.scandir(upload_dir):
-                if entry.is_file(follow_symlinks=False):
-                    try:
-                        size = entry.stat(follow_symlinks=False).st_size
-                    except OSError:
-                        size = 0
-                    files.append(
-                        FileInfo(
-                            filename=entry.name,
-                            size=size,
-                            path=get_container_path(entry.name),
-                        )
-                    )
-        except FileNotFoundError:
-            pass  # Directory doesn't exist yet — return empty list
+        files = [
+            FileInfo(
+                filename=Path(info["path"]).name,
+                size=info.get("size", 0),
+                path=info["path"],
+            )
+            for info in infos
+            if not info.get("is_dir", False)
+        ]
 
         return BaseResponse(
             success=True,
@@ -391,36 +291,32 @@ async def list_files(current_user: CurrentUser) -> BaseResponse[FileListResponse
     description="Read the content of a file in the user's sandbox upload directory.",
     responses={
         404: {"description": "File not found"},
-        500: {"description": "Failed to read file / Internal server error"},
+        500: {"description": "Failed to read file"},
     },
 )
 async def read_file(request: Request, filename: str, current_user: CurrentUser) -> BaseResponse[dict]:
-    """Read file content from the user's sandbox upload directory."""
+    """Read file content from the user's sandbox via adapter API."""
     client_ip = get_client_ip(request)
 
     try:
-        upload_dir = _get_upload_dir(current_user.id)
         safe_filename = sanitize_filename(filename)
-        file_path = upload_dir / safe_filename
+        container_path = get_container_path(safe_filename)
 
-        # Open directly, catch FileNotFoundError (avoids TOCTOU race)
-        try:
-            with open(file_path, "rb") as f:
-                content_bytes = f.read()
-        except FileNotFoundError:
+        async with await _get_sandbox_handle(str(current_user.id)) as handle:
+            content = await asyncio.to_thread(handle.adapter.raw_read, container_path)
+
+        if content.startswith("[Error:") or content.startswith("Error:"):
             raise HTTPException(status_code=404, detail="File not found")
 
+        # raw_read returns text; for binary files it may be garbled
+        is_binary = False
         try:
-            content = content_bytes.decode("utf-8")
-            is_binary = False
-        except UnicodeDecodeError:
-            content = base64.b64encode(content_bytes).decode("ascii")
+            content.encode("utf-8")
+        except UnicodeEncodeError:
+            content = base64.b64encode(content.encode("latin-1")).decode("ascii")
             is_binary = True
 
-        logger.info(
-            f"File read: user={current_user.id}, filename={safe_filename}, "
-            f"size={len(content_bytes)}, ip={client_ip}"
-        )
+        logger.info(f"File read: user={current_user.id}, filename={safe_filename}, ip={client_ip}")
 
         return BaseResponse(
             success=True,
@@ -445,22 +341,21 @@ async def read_file(request: Request, filename: str, current_user: CurrentUser) 
     description="Delete a file from the user's sandbox upload directory.",
     responses={
         404: {"description": "File not found"},
-        500: {"description": "Failed to delete file / Internal server error"},
+        500: {"description": "Failed to delete file"},
     },
 )
 async def delete_file(request: Request, filename: str, current_user: CurrentUser) -> BaseResponse[dict]:
-    """Delete a file from the user's sandbox upload directory."""
+    """Delete a file from the user's sandbox via adapter API."""
     client_ip = get_client_ip(request)
 
     try:
-        upload_dir = _get_upload_dir(current_user.id)
         safe_filename = sanitize_filename(filename)
-        file_path = upload_dir / safe_filename
+        container_path = get_container_path(safe_filename)
 
-        # Unlink directly, catch FileNotFoundError (avoids TOCTOU race)
-        try:
-            file_path.unlink()
-        except FileNotFoundError:
+        async with await _get_sandbox_handle(str(current_user.id)) as handle:
+            ok = await asyncio.to_thread(handle.adapter.delete, container_path)
+
+        if not ok:
             raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
         logger.info(f"File deleted: user={current_user.id}, filename={safe_filename}, ip={client_ip}")
@@ -488,21 +383,19 @@ async def delete_file(request: Request, filename: str, current_user: CurrentUser
     description="Clear all files in the user's sandbox upload directory.",
     responses={
         401: {"description": "Unauthorized"},
-        500: {"description": "Failed to clear files / Internal server error"},
+        500: {"description": "Failed to clear files"},
     },
 )
 async def clear_all_files(request: Request, current_user: CurrentUser) -> BaseResponse[dict]:
-    """Clear all files in the user's sandbox upload directory."""
+    """Clear all files in the user's sandbox upload directory via adapter API."""
     client_ip = get_client_ip(request)
 
     try:
-        upload_dir = _get_upload_dir(current_user.id)
-
-        if upload_dir.exists():
-            shutil.rmtree(upload_dir)
-
-        # Recreate empty directory for future uploads
-        upload_dir.mkdir(parents=True, exist_ok=True)
+        async with await _get_sandbox_handle(str(current_user.id)) as handle:
+            await asyncio.to_thread(
+                handle.adapter.execute, f"rm -rf {CONTAINER_UPLOADS_PATH}/*"
+            )
+            await asyncio.to_thread(handle.adapter.mkdir, CONTAINER_UPLOADS_PATH)
 
         logger.info(f"All files cleared: user={current_user.id}, ip={client_ip}")
 

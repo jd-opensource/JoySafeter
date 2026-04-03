@@ -368,8 +368,16 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
             logger.error(f"Failed to start sandbox {self._id}: {e}")
             raise RuntimeError(f"Failed to start sandbox {self._id}: {e}") from e
 
+    # Dangerous command patterns (defense-in-depth, not sole security boundary)
+    _DANGEROUS_PATTERNS = [
+        r"rm\s+-rf\s+/\s*$",       # rm -rf /
+        r"mkfs\.",                   # format disk
+        r"dd\s+.*of=/dev/",         # write to device
+        r":\(\)\s*\{",              # fork bomb :(){ :|:& };:
+    ]
+
     def _exec_command(self, command: str) -> tuple[str, int]:
-        """Execute command in sandbox.
+        """Execute command in sandbox with safety checks.
 
         Args:
             command: Shell command to execute
@@ -377,6 +385,14 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         Returns:
             Tuple of (output, exit_code)
         """
+        import re
+
+        # Defense-in-depth: block obviously dangerous commands
+        for pattern in self._DANGEROUS_PATTERNS:
+            if re.search(pattern, command):
+                logger.warning(f"[{self._id}] Blocked dangerous command: {command[:100]}")
+                return "Error: command blocked by security policy", 1
+
         logger.debug(f"[{self._id}] _exec_command START: {command[:100]}")
         try:
             result = self._sandbox.execute(command)
@@ -540,16 +556,17 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
     def write(
         self,
         file_path: str,
-        content: str,
+        content: str | bytes,
     ) -> WriteResult:
         """Create a new file with content.
 
         Uses DockerSandbox.write() which leverages Docker's put_archive API
         for reliable file writing without shell command length limits.
+        Accepts both str and bytes (upstream DockerSandbox supports both).
 
         Args:
             file_path: Absolute file path
-            content: File content
+            content: File content (text or binary)
 
         Returns:
             WriteResult with success or error.
@@ -564,11 +581,8 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                     "Read and then make an edit, or write to a new path."
                 )
 
-            # Use upstream DockerSandbox.write() which uses Docker put_archive API
-            # This handles large files and special characters reliably
             result = self._sandbox.write(file_path, content)
 
-            # Convert upstream WriteResult to deepagents WriteResult
             if hasattr(result, "error") and result.error:
                 return WriteResult(error=result.error)
             return WriteResult(path=file_path, files_update=None)
@@ -579,19 +593,17 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
     def write_overwrite(
         self,
         file_path: str,
-        content: str,
+        content: str | bytes,
     ) -> WriteResult:
         """Write a file, overwriting if it already exists.
 
         Uses DockerSandbox.write() which leverages Docker's put_archive API
         for reliable file writing without shell command length limits.
-
-        Unlike write(), this method does not check if the file exists first.
-        Use this for cases where you need to update existing files.
+        Accepts both str and bytes (upstream DockerSandbox supports both).
 
         Args:
             file_path: Absolute file path
-            content: File content
+            content: File content (text or binary)
 
         Returns:
             WriteResult with success or error.
@@ -609,6 +621,44 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         except Exception as e:
             logger.error(f"[{self._id}] Failed to write file {file_path}: {e}")
             return WriteResult(error=f"Failed to write file: {str(e)}")
+
+    def delete(self, file_path: str) -> bool:
+        """Delete a file inside the container.
+
+        Args:
+            file_path: Absolute file path inside the container.
+
+        Returns:
+            True if deleted successfully, False otherwise.
+        """
+        import shlex
+
+        logger.debug(f"[{self._id}] Deleting file: {file_path}")
+        try:
+            _, exit_code = self._exec_command(f"rm -f {shlex.quote(file_path)}")
+            return exit_code == 0
+        except Exception as e:
+            logger.error(f"[{self._id}] Failed to delete file {file_path}: {e}")
+            return False
+
+    def mkdir(self, dir_path: str) -> bool:
+        """Create a directory (and parents) inside the container.
+
+        Args:
+            dir_path: Absolute directory path inside the container.
+
+        Returns:
+            True if created successfully, False otherwise.
+        """
+        import shlex
+
+        logger.debug(f"[{self._id}] Creating directory: {dir_path}")
+        try:
+            _, exit_code = self._exec_command(f"mkdir -p {shlex.quote(dir_path)}")
+            return exit_code == 0
+        except Exception as e:
+            logger.error(f"[{self._id}] Failed to create directory {dir_path}: {e}")
+            return False
 
     def edit(
         self,

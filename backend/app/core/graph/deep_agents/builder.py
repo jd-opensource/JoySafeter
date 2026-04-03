@@ -68,11 +68,13 @@ async def build_deep_agents_graph(
 
     # --- 2. Setup shared backend ---
     backend = None
+    sandbox_handle = None
     all_configs = [root_config] + child_configs
     needs_docker = _any_needs_docker(all_configs)
 
     if needs_docker and user_id:
-        backend = await _get_user_sandbox(user_id)
+        sandbox_handle = await _get_user_sandbox(user_id)
+        backend = sandbox_handle.adapter
         if backend and file_emitter:
             from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
 
@@ -147,12 +149,15 @@ async def build_deep_agents_graph(
 
         # --- 7. Finalize ---
         compiled = _finalize(root_agent, backend)
+        # Attach sandbox handle to compiled graph so the caller can release it
+        if sandbox_handle:
+            compiled._sandbox_handle = sandbox_handle  # type: ignore[attr-defined]
         logger.info(f"{LOG_PREFIX} Build complete")
         return compiled
 
     except Exception:
-        if backend:
-            await _cleanup_backend(backend)
+        if sandbox_handle:
+            await _cleanup_backend(sandbox_handle)
         raise
 
 
@@ -250,19 +255,30 @@ def _any_needs_docker(configs: List[NodeConfig]) -> bool:
 
 
 async def _get_user_sandbox(user_id: Any) -> Any:
-    """Get user's shared sandbox from pool."""
+    """Get user's shared sandbox handle from pool.
+
+    Returns a SandboxHandle. The caller MUST call handle.release() when done,
+    or use it as an async context manager.
+    """
     from app.core.database import async_session_factory
     from app.services.sandbox_manager import SandboxManagerService
 
     async with async_session_factory() as session:
         service = SandboxManagerService(session)
-        adapter = await service.ensure_sandbox_running(str(user_id))
-        logger.info(f"{LOG_PREFIX} Got sandbox: id={adapter.id}, user={user_id}")
-        return adapter
+        handle = await service.ensure_sandbox_running(str(user_id))
+        logger.info(f"{LOG_PREFIX} Got sandbox handle: sandbox_id={handle.sandbox_id}, user={user_id}")
+        return handle
 
 
 async def _cleanup_backend(backend: Any) -> None:
-    """Release backend reference and pool count."""
+    """Release sandbox handle reference."""
+    from app.services.sandbox_handle import SandboxHandle
+
+    if isinstance(backend, SandboxHandle):
+        await backend.release()
+        return
+
+    # Fallback for bare adapters (legacy path)
     sandbox_id = getattr(backend, "id", None)
     if sandbox_id:
         try:

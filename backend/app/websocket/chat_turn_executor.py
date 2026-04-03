@@ -408,6 +408,15 @@ class ChatTurnExecutor:
                 assistant_message_id=assistant_message_id,
             )
         finally:
+            # Release sandbox handle to decrement active_count
+            if built_graph is not None:
+                sandbox_handle = getattr(built_graph, "_sandbox_handle", None)
+                if sandbox_handle is not None:
+                    try:
+                        await sandbox_handle.release()
+                    except Exception as exc:
+                        module.logger.warning(f"Failed to release sandbox handle: {exc}")
+
             await handler._finalize_task(
                 request_id=request_id,
                 thread_id=thread_id,
@@ -662,6 +671,15 @@ class ChatTurnExecutor:
                 }
             )
         finally:
+            # Release sandbox handle to decrement active_count
+            if built_graph is not None:
+                sandbox_handle = getattr(built_graph, "_sandbox_handle", None)
+                if sandbox_handle is not None:
+                    try:
+                        await sandbox_handle.release()
+                    except Exception as exc:
+                        module.logger.warning(f"Failed to release sandbox handle: {exc}")
+
             await handler._finalize_task(
                 request_id=request_id,
                 thread_id=thread_id,

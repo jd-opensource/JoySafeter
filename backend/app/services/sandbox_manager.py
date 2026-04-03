@@ -87,19 +87,36 @@ class SandboxManagerService:
             memory_limit=DEFAULT_USER_SANDBOX_MEMORY_LIMIT,
         )
 
-    async def ensure_sandbox_running(self, user_id: str) -> PydanticSandboxAdapter:
+    async def ensure_sandbox_running(self, user_id: str) -> Any:
         """
-        确保用户的沙箱正在运行，并返回可用的适配器。
+        确保用户的沙箱正在运行，并返回 SandboxHandle。
         如果沙箱不存在则创建，如果已停止则启动。
 
         使用 per-user lock 防止并发创建多个容器。
-        返回的 adapter 已在 pool 中 active_count += 1, 调用方结束后
-        必须通过 _sandbox_pool.release(sandbox_id) 释放引用。
+        返回的 SandboxHandle 已在 pool 中 active_count += 1，
+        调用方必须通过 handle.release() 或 async with handle 释放引用。
         """
-        # Per-user lock: 同一用户的并发请求串行化，避免创建多个容器
+        from app.services import sandbox_handle
+
         user_lock = await _get_user_lock(user_id)
         async with user_lock:
-            return await self._ensure_sandbox_running_locked(user_id)
+            adapter = await self._ensure_sandbox_running_locked(user_id)
+            record = await self.get_user_sandbox_record(user_id)
+            sandbox_id = str(record.id) if record else user_id
+            return sandbox_handle.SandboxHandle(adapter, sandbox_id, _sandbox_pool)
+
+    async def warm_up_sandbox(self, user_id: str) -> None:
+        """
+        确保用户的沙箱正在运行，但不增加 active_count。
+        用于登录后的后台预热，不需要操作沙箱内容。
+        """
+        user_lock = await _get_user_lock(user_id)
+        async with user_lock:
+            await self._ensure_sandbox_running_locked(user_id)
+            # 立即释放 pool 引用（_ensure_sandbox_running_locked 内部 pool.get/put 已 +1）
+            record = await self.get_user_sandbox_record(user_id)
+            if record:
+                await _sandbox_pool.release(str(record.id))
 
     async def _get_or_create_sandbox_record_for_update(self, user_id: str) -> UserSandbox:
         """获取或创建沙箱记录，使用 SELECT FOR UPDATE 防止跨进程竞争。

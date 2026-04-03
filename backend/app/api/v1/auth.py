@@ -81,11 +81,11 @@ class UserResponse(BaseModel):
 
 
 async def _warm_up_sandbox(user_id: str):
-    """Background task to warm up user sandbox."""
+    """Background task to warm up user sandbox. Does not increment active_count."""
     try:
         async with AsyncSessionLocal() as session:
             sandbox_service = SandboxManagerService(session)
-            await sandbox_service.ensure_sandbox_running(user_id)
+            await sandbox_service.warm_up_sandbox(user_id)
             logger.info(f"Sandbox pre-warming triggered for user {user_id}")
     except Exception as e:
         logger.error(f"Failed to pre-warm sandbox for user {user_id}: {e}")
