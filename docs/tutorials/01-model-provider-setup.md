@@ -11,7 +11,8 @@
 | 案例 | 目标 |
 |------|------|
 | **案例 A** | 使用内置 OpenAI 供应商，配置 GPT-4o 作为默认模型 |
-| **案例 B** | 添加自定义 OpenAI 兼容供应商，接入本地部署的 Ollama / DeepSeek 等服务 |
+| **案例 B** | 添加自定义 OpenAI 兼容供应商，接入本地部署的 DeepSeek 等服务 |
+| **案例 C** | 使用内置 Ollama 供应商，一键接入本地 Ollama 模型 |
 
 ---
 
@@ -276,6 +277,79 @@ curl -X POST http://localhost:8000/api/v1/models/test-output \
     "message": "你好，请介绍一下你自己"
   }'
 ```
+
+---
+
+## 案例 C：使用内置 Ollama 供应商（推荐）
+
+JoySafeter 内置了 Ollama 供应商，支持自动发现本地已安装的模型，无需手动填写模型名称或伪造 API Key。
+
+### 前提条件
+
+确保本地已安装并启动 Ollama：
+
+```bash
+# 安装 Ollama（macOS）
+brew install ollama
+
+# 拉取模型
+ollama pull llama3
+ollama pull qwen2
+
+# 启动服务（默认监听 11434 端口）
+ollama serve
+```
+
+### 步骤 1：进入模型设置页面
+
+1. 点击顶部导航 **Settings（设置）**
+2. 选择左侧 **Models（模型）**
+3. 在供应商列表中找到 **Ollama (本地部署)**
+
+### 步骤 2：配置 Ollama 服务地址
+
+点击 **配置凭证** 按钮，你会看到一个预填的地址：
+
+```
+Ollama Server URL：http://localhost:11434
+```
+
+如果 Ollama 运行在默认端口，直接点击 **验证并保存** 即可。
+
+如果 Ollama 运行在其他地址（如远程服务器），修改为对应地址后保存。
+
+### 步骤 3：查看自动发现的模型
+
+验证通过后，系统会自动从 Ollama 拉取本地已安装的所有模型。切换到 **模型列表** 标签页，即可看到所有可用模型。
+
+### 步骤 4：在 Agent 中使用
+
+进入任意 Agent 的 **Builder（构建器）**，在模型下拉列表中选择 Ollama 模型即可。
+
+### 通过 API 配置（高级）
+
+```bash
+# 配置 Ollama 凭据（仅需服务地址）
+curl -X POST http://localhost:8000/api/v1/model-credentials \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider_name": "ollama",
+    "credentials": {
+      "base_url": "http://localhost:11434"
+    },
+    "validate": true
+  }'
+
+# 查看自动发现的模型
+curl http://localhost:8000/api/v1/models?model_type=chat
+```
+
+### 刷新模型列表
+
+当你通过 `ollama pull` 安装了新模型后，可以通过以下方式刷新：
+
+- **UI**：重新保存凭据，或调用同步接口
+- **API**：`POST /api/v1/model-providers/sync`
 
 ---
 

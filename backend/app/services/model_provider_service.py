@@ -15,7 +15,7 @@ from app.repositories.model_provider import ModelProviderRepository
 from .base import BaseService
 
 # 内置供应商固定展示顺序
-BUILTIN_PROVIDER_ORDER = ("openaiapicompatible", "anthropic", "gemini", "zhipu", "custom")
+BUILTIN_PROVIDER_ORDER = ("openaiapicompatible", "anthropic", "gemini", "zhipu", "ollama", "custom")
 
 
 def _provider_sort_key(provider_data: Dict[str, Any]) -> int:
@@ -330,20 +330,35 @@ class ModelProviderService(BaseService):
     async def _ensure_model_instances_for_provider(self, provider: Any) -> int:
         """
         确保该 provider 的所有模型在 model_instance 表中存在全局记录。
+        对于动态发现型 provider（如 Ollama），还会清理已不存在的过期模型实例。
 
         Returns:
             本次新创建的模型实例数量
         """
         from loguru import logger
 
+        from app.core.model.utils import decrypt_credentials
+
         provider_instance = self.factory.get_provider(provider.template_name or provider.name)
         if not provider_instance:
             return 0
 
+        # 获取该 provider 的解密凭据（动态发现型 provider 需要凭据来获取模型列表）
+        credential_repo = ModelCredentialRepository(self.db)
+        credential = await credential_repo.get_by_provider(provider.id)
+        decrypted_creds = None
+        if credential and credential.is_valid:
+            try:
+                decrypted_creds = decrypt_credentials(credential.credentials)
+            except Exception:
+                pass
+
         synced_count = 0
         for model_type in provider_instance.get_supported_model_types():
             try:
-                models = provider_instance.get_model_list(model_type)
+                models = provider_instance.get_model_list(model_type, decrypted_creds)
+                current_model_names = {m["name"] for m in models}
+
                 for model_info in models:
                     model_name = model_info["name"]
                     existing = await self.instance_repo.get_best_instance(
@@ -361,6 +376,15 @@ class ModelProviderService(BaseService):
                         )
                         synced_count += 1
                         logger.debug(f"已自动创建模型实例: {provider.name}/{model_name}")
+
+                # 清理过期模型实例（仅当有凭据且获取到模型列表时执行）
+                if decrypted_creds and current_model_names:
+                    existing_instances = await self.instance_repo.list_by_provider(provider_id=provider.id)
+                    for inst in existing_instances:
+                        if inst.user_id is None and inst.model_name not in current_model_names:
+                            await self.instance_repo.delete(inst.id)
+                            logger.debug(f"已删除过期模型实例: {provider.name}/{inst.model_name}")
+
             except Exception as e:
                 logger.warning(f"自动创建模型实例失败 {provider.name}/{model_type.value}: {str(e)}")
 
