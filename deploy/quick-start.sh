@@ -392,6 +392,12 @@ prompt_both_remote() {
         HOST_ADDR=$(prompt_remote_service "对外 IP 或域名" "$HOST_ADDR")
         FRONTEND_ADDR="$HOST_ADDR"
         BACKEND_ADDR="$HOST_ADDR"
+        echo ""
+        echo "  协议："
+        echo "  (1) http   (2) https"
+        printf "请选择 [1-2] (默认 1): "
+        read -r sc
+        [ "$sc" = "2" ] && URL_SCHEME="https"
     fi
 }
 
@@ -424,16 +430,14 @@ update_deploy_env() {
             sed_inplace "s|^FRONTEND_URL=.*|FRONTEND_URL=$frontend_url|" "$env_file"
             ;;
         frontend)
-            local fe_url_env
-            fe_url_env=$(build_url "$URL_SCHEME" "localhost" "$PORT_FRONTEND")
+            # 前端本地跑，始终 http://localhost
             sed_inplace "s|^FRONTEND_PORT_HOST=.*|FRONTEND_PORT_HOST=$PORT_FRONTEND|" "$env_file"
-            sed_inplace "s|^FRONTEND_URL=.*|FRONTEND_URL=$fe_url_env|" "$env_file"
+            sed_inplace "s|^FRONTEND_URL=.*|FRONTEND_URL=http://localhost:$PORT_FRONTEND|" "$env_file"
             ;;
         backend)
-            local be_url_env
-            be_url_env=$(build_url "$URL_SCHEME" "localhost" "$PORT_BACKEND")
+            # 后端本地跑，始终 http://localhost
             sed_inplace "s|^BACKEND_PORT_HOST=.*|BACKEND_PORT_HOST=$PORT_BACKEND|" "$env_file"
-            sed_inplace "s|^BACKEND_URL=.*|BACKEND_URL=$be_url_env|" "$env_file"
+            sed_inplace "s|^BACKEND_URL=.*|BACKEND_URL=http://localhost:$PORT_BACKEND|" "$env_file"
             ;;
         both)
             local be_url_both_env fe_url_both_env
@@ -960,6 +964,7 @@ start_mode_backend() {
 
     export POSTGRES_HOST="$DB_ADDR"
     export POSTGRES_PORT="$PORT_POSTGRES"
+    export POSTGRES_PORT_HOST="$PORT_POSTGRES"
     export REDIS_URL="redis://$REDIS_ADDR:$PORT_REDIS/0"
     export FRONTEND_URL="$frontend_url"
     export CORS_ORIGINS="[\"$frontend_url\"]"
@@ -1031,6 +1036,7 @@ start_mode_both() {
 
     export POSTGRES_HOST="$DB_ADDR"
     export POSTGRES_PORT="$PORT_POSTGRES"
+    export POSTGRES_PORT_HOST="$PORT_POSTGRES"
     export REDIS_URL="redis://$REDIS_ADDR:$PORT_REDIS/0"
     export FRONTEND_URL="$frontend_url"
     export CORS_ORIGINS="[\"$frontend_url\"]"

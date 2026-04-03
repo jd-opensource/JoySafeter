@@ -117,8 +117,8 @@ class Settings(BaseSettings):
             postgres_port_host = os.getenv("POSTGRES_PORT_HOST")
             postgres_port = postgres_port_host if postgres_port_host else os.getenv("POSTGRES_PORT", "5432")
         else:
-            # docker-compose 场景：使用容器内部端口 5432（忽略 POSTGRES_PORT）
-            postgres_port = "5432"
+            # 远程或 docker-compose 场景：优先读 POSTGRES_PORT，默认 5432（容器内部端口）
+            postgres_port = os.getenv("POSTGRES_PORT", "5432")
 
         database_url = (
             f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
