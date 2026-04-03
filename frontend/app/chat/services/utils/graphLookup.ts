@@ -6,9 +6,30 @@
 
 import { agentService } from '@/app/workspace/[workspaceId]/[agentId]/services/agentService'
 import { graphKeys } from '@/hooks/queries/graphs'
-import { generateUUID } from '@/lib/utils/uuid'
 
 import type { ModeContext } from '../modeHandlers/types'
+
+/**
+ * Fetch a graph template JSON from /data/graph-templates/{templateName}.json
+ * and apply its nodes/edges/viewport to the given graph via saveGraphState.
+ */
+async function applyTemplate(graphId: string, templateName: string): Promise<void> {
+  const res = await fetch(`/data/graph-templates/${templateName}.json`)
+  if (!res.ok) {
+    console.warn(`[graphLookup] Template "${templateName}" not found (${res.status}), skipping`)
+    return
+  }
+  const template = await res.json()
+  const nodes = template.nodes ?? []
+  if (nodes.length === 0) return
+
+  await agentService.saveGraphState({
+    graphId,
+    nodes,
+    edges: template.edges ?? [],
+    viewport: template.viewport,
+  })
+}
 
 // Module-level promise locks keyed by graph name — prevents concurrent creation across all callers
 const creationLocks = new Map<string, Promise<{ id: string; name: string }>>()
@@ -113,15 +134,17 @@ export async function findOrCreateGraphByTemplate(
           return { id: best.id, name: best.name }
         }
 
-        // Graph exists but has no nodes — return as-is (template system removed)
+        // Graph exists but has no nodes — apply template to populate it
+        await applyTemplate(best.id, templateName)
         return { id: best.id, name: best.name }
       }
 
-      // No existing graph — create empty graph
+      // No existing graph — create and populate from template
       const created = await agentService.createGraph({
         name: graphName,
         workspaceId,
       })
+      await applyTemplate(created.id, templateName)
       return { id: created.id, name: created.name }
     } finally {
       creationLocks.delete(graphName)

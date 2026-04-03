@@ -12,6 +12,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # 加载公共函数库
 source "$SCRIPT_DIR/scripts/_common.sh"
 
+# 全局错误捕获：set -e 触发退出时打印行号，便于定位问题
+trap 'log_error "脚本在第 $LINENO 行异常退出 (退出码 $?)"' ERR
+
 # --- 全局状态 ---
 SKIP_ENV=false
 SKIP_DB_INIT=false
@@ -350,8 +353,7 @@ collect_ports() {
 prompt_frontend_remote() {
     echo ""
     printf "后端 API 是否在远程服务器上？(y/N): "
-    read -n 1 -r remote_choice
-    echo
+    read -r remote_choice
     if [[ $remote_choice =~ ^[Yy]$ ]]; then
         BACKEND_ADDR=$(prompt_remote_service "后端 IP 或域名" "$BACKEND_ADDR")
         PORT_BACKEND=$(prompt_port "后端端口" "$PORT_BACKEND")
@@ -368,8 +370,7 @@ prompt_frontend_remote() {
 prompt_backend_remote() {
     echo ""
     printf "是否连接远程数据库/Redis/前端？(y/N): "
-    read -n 1 -r remote_choice
-    echo
+    read -r remote_choice
     if [[ $remote_choice =~ ^[Yy]$ ]]; then
         echo ""
         log_step "配置远程服务地址..."
@@ -386,8 +387,7 @@ prompt_backend_remote() {
 prompt_both_remote() {
     echo ""
     printf "是否通过非 localhost 地址对外提供服务？(y/N): "
-    read -n 1 -r remote_choice
-    echo
+    read -r remote_choice
     if [[ $remote_choice =~ ^[Yy]$ ]]; then
         HOST_ADDR=$(prompt_remote_service "对外 IP 或域名" "$HOST_ADDR")
         FRONTEND_ADDR="$HOST_ADDR"
@@ -616,8 +616,7 @@ check_openclaw_config() {
     else
         log_info "OpenClaw 平台需要一个 AI Gateway 作为底座。"
         printf "${YELLOW}是否配置 OpenClaw 平台网关 (AI_GATEWAY_*)? (y/N): ${NC}"
-        read -n 1 -r config_platform
-        echo
+        read -r config_platform
         if [[ $config_platform =~ ^[Yy]$ ]]; then
             printf "请输入 AI_GATEWAY_BASE_URL: "
             read -r gw_url
@@ -647,14 +646,12 @@ check_openclaw_config() {
     else
         log_info "OpenClaw 内部集成了 Claude Code，它通常需要独立的 Anthropic 变量。"
         printf "${YELLOW}是否配置内部工具 (ANTHROPIC_*)? (y/N): ${NC}"
-        read -n 1 -r config_tools
-        echo
+        read -r config_tools
         if [[ $config_tools =~ ^[Yy]$ ]]; then
             local sync_done=false
             if grep -q "^AI_GATEWAY_BASE_URL=" "$backend_env"; then
                 printf "${CYAN}是否直接使用刚才配置的平台网关作为工具配置? (y/N): ${NC}"
-                read -n 1 -r use_platform
-                echo
+                read -r use_platform
                 if [[ $use_platform =~ ^[Yy]$ ]]; then
                     local p_url p_key p_model
                     p_url=$(grep "^AI_GATEWAY_BASE_URL=" "$backend_env" | cut -d'=' -f2)
@@ -699,7 +696,7 @@ check_openclaw_config() {
 init_database() {
     log_step "初始化数据库..."
 
-    cd "$DEPLOY_DIR"
+    cd "$DEPLOY_DIR" || { log_error "无法进入 deploy 目录: $DEPLOY_DIR"; return 1; }
 
     log_info "启动数据库服务..."
     if ! $DOCKER_COMPOSE_CMD up -d db; then
@@ -820,8 +817,8 @@ start_mode_docker() {
     log_step "Docker Compose 全栈启动..."
     echo ""
 
-    check_docker_running
-    detect_docker_compose
+    check_docker_running || exit 1
+    detect_docker_compose || exit 1
 
     setup_env
     echo ""
@@ -845,14 +842,13 @@ start_mode_docker() {
     fi
 
     log_step "启动 Docker Compose 服务..."
-    cd "$DEPLOY_DIR"
+    cd "$DEPLOY_DIR" || { log_error "无法进入 deploy 目录"; exit 1; }
 
     # 检查是否已有服务在运行
     if $DOCKER_COMPOSE_CMD ps 2>/dev/null | grep -q "Up"; then
         log_warning "检测到已有服务在运行"
         printf "是否重启服务？(y/N): "
-        read -n 1 -r
-        echo
+        read -r
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             log_info "停止现有服务..."
             $DOCKER_COMPOSE_CMD down
@@ -915,7 +911,7 @@ start_mode_frontend() {
     export NEXT_PUBLIC_API_URL="$backend_url"
 
     log_step "安装前端依赖..."
-    cd "$PROJECT_ROOT/frontend"
+    cd "$PROJECT_ROOT/frontend" || { log_error "前端目录不存在: $PROJECT_ROOT/frontend"; exit 1; }
     bun install
     log_success "依赖已就绪"
     echo ""
@@ -935,8 +931,8 @@ start_mode_backend() {
 
     # 远程 DB/Redis 时不需要本地 Docker
     if [ "$DB_ADDR" = "localhost" ]; then
-        check_docker_running
-        detect_docker_compose
+        check_docker_running || exit 1
+        detect_docker_compose || exit 1
     fi
 
     setup_env
@@ -944,7 +940,7 @@ start_mode_backend() {
     if [ "$DB_ADDR" = "localhost" ]; then
         # 本地中间件：检查 Docker 中的数据库
         log_step "检查中间件（数据库）是否就绪..."
-        cd "$DEPLOY_DIR"
+        cd "$DEPLOY_DIR" || { log_error "无法进入 deploy 目录"; exit 1; }
         if ! wait_for_db_service "docker-compose-middleware.yml" "db" 10; then
             log_error "数据库未就绪，请先启动中间件："
             echo "  ./deploy/scripts/start-middleware.sh  或  ./deploy/scripts/dev-local.sh"
@@ -970,7 +966,7 @@ start_mode_backend() {
     export CORS_ORIGINS="[\"$frontend_url\"]"
 
     log_step "安装后端依赖..."
-    cd "$PROJECT_ROOT/backend"
+    cd "$PROJECT_ROOT/backend" || { log_error "后端目录不存在: $PROJECT_ROOT/backend"; exit 1; }
     if [ ! -d ".venv" ]; then
         log_info "创建虚拟环境..."
         uv venv
@@ -994,8 +990,8 @@ start_mode_both() {
     log_step "本地前端 + 后端启动..."
     echo ""
 
-    check_docker_running
-    detect_docker_compose
+    check_docker_running || exit 1
+    detect_docker_compose || exit 1
     check_local_deps true true
     echo ""
 
@@ -1003,7 +999,7 @@ start_mode_both() {
 
     # 启动中间件
     log_step "启动中间件 (PostgreSQL + Redis)..."
-    cd "$DEPLOY_DIR"
+    cd "$DEPLOY_DIR" || { log_error "无法进入 deploy 目录"; exit 1; }
     $DOCKER_COMPOSE_CMD -f docker-compose-middleware.yml up -d db redis
     echo ""
 
@@ -1044,7 +1040,7 @@ start_mode_both() {
 
     # 安装后端依赖 + 迁移
     log_step "安装后端依赖..."
-    cd "$PROJECT_ROOT/backend"
+    cd "$PROJECT_ROOT/backend" || { log_error "后端目录不存在: $PROJECT_ROOT/backend"; exit 1; }
     if [ ! -d ".venv" ]; then
         uv venv
     fi
@@ -1056,7 +1052,8 @@ start_mode_both() {
     log_success "迁移完成"
     echo ""
 
-    # 注册清理 trap
+    # 注册清理 trap（覆盖全局 ERR trap，确保清理后端进程）
+    trap 'cleanup_background; log_error "脚本在第 $LINENO 行异常退出 (退出码 $?)"' ERR
     trap cleanup_background EXIT INT TERM
 
     # 后端后台启动
@@ -1075,7 +1072,7 @@ start_mode_both() {
 
     # 安装前端依赖
     log_step "安装前端依赖..."
-    cd "$PROJECT_ROOT/frontend"
+    cd "$PROJECT_ROOT/frontend" || { log_error "前端目录不存在: $PROJECT_ROOT/frontend"; exit 1; }
     bun install
     log_success "前端依赖已就绪"
     echo ""

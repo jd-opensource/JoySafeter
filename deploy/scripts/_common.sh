@@ -3,7 +3,8 @@
 # 脚本公共函数库（供 deploy/scripts 下的脚本 source）
 #
 
-set -e
+# 注意：此文件不设置 set -e，由调用方决定是否启用
+# 所有 source 此文件的脚本都已自行声明 set -e
 
 # 颜色定义
 RED='\033[0;31m'
