@@ -110,7 +110,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
     def __init__(self):
         super().__init__(
             provider_name="openaiapicompatible",
-            display_name="OpenAI's API Compatible",
+            display_name="OpenAI",
             is_template=False,
             provider_type="system",
         )
