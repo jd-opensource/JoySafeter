@@ -20,7 +20,6 @@ from app.services.model_credential_service import ModelCredentialService
 from .base import BaseService
 from .model_usage_service import ModelUsageService
 
-
 _SETTINGS_GUIDE = "请前往「设置 → 模型供应商」检查配置"
 
 
@@ -33,7 +32,7 @@ def _model_error_msg(
 ) -> str:
     """构建统一的模型错误消息，附带操作指引。"""
     ref = f"{provider_name}/{model_name}" if provider_name else (model_name or "unknown")
-    parts = [f"模型 \"{ref}\" 不可用：{reason}。"]
+    parts = [f'模型 "{ref}" 不可用：{reason}。']
     if available:
         parts.append(f"当前可用的模型: {', '.join(available[:10])}。")
     parts.append(_SETTINGS_GUIDE)
@@ -95,9 +94,7 @@ class ModelService(BaseService):
         """
         instance = await self.repo.get_by_name(model_name)
         if not instance:
-            raise NotFoundException(
-                _model_error_msg("该模型未在系统中注册，可能已被删除", model_name=model_name)
-            )
+            raise NotFoundException(_model_error_msg("该模型未在系统中注册，可能已被删除", model_name=model_name))
 
         provider_name = instance.resolved_provider_name
         implementation_name = instance.resolved_implementation_name
@@ -331,7 +328,7 @@ class ModelService(BaseService):
         if not provider:
             raise NotFoundException(
                 _model_error_msg(
-                    f"供应商 \"{provider_name}\" 未注册或已被移除",
+                    f'供应商 "{provider_name}" 未注册或已被移除',
                     provider_name=provider_name,
                     model_name=model_name,
                 )
@@ -458,9 +455,7 @@ class ModelService(BaseService):
         instance = await self.repo.get_by_name(model_name)
 
         if not instance:
-            raise NotFoundException(
-                _model_error_msg("该模型未在系统中注册，可能已被删除", model_name=model_name)
-            )
+            raise NotFoundException(_model_error_msg("该模型未在系统中注册，可能已被删除", model_name=model_name))
 
         provider_name = instance.resolved_provider_name
         implementation_name = instance.resolved_implementation_name

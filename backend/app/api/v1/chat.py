@@ -354,7 +354,9 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_mo
 
         # 验证是否获取到有效的凭据
         if not llm_params.get("api_key") or not llm_params.get("llm_model"):
-            raise BadRequestException("当前没有可用的模型配置，请前往「设置 → 模型供应商」添加至少一个模型的 API Key 后再试")
+            raise BadRequestException(
+                "当前没有可用的模型配置，请前往「设置 → 模型供应商」添加至少一个模型的 API Key 后再试"
+            )
     except NotFoundException:
         raise
     except Exception as e:

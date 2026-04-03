@@ -30,37 +30,38 @@ def get_default_model(
     timeout: int | None = None,
 ) -> ChatOpenAI:
     """
-    Create and return a default ChatOpenAI model instance.
-
-    This function resolves configuration from function parameters.
-    Note: Credentials should be provided via parameters or fetched from database.
+    Create and return a ChatOpenAI model instance.
 
     Args:
-        llm_model: Optional LLM model name. Defaults to "gpt-4o-mini".
-        api_key: Optional API key for authentication (required if not provided via database).
+        llm_model: LLM model name (required).
+        api_key: API key for authentication (required).
         base_url: Optional base URL for the API endpoint.
         max_tokens: Maximum completion tokens. Defaults to 4096.
         timeout: Optional timeout in seconds. Defaults to 120 seconds.
 
     Returns:
         ChatOpenAI: Configured ChatOpenAI model instance with streaming enabled.
+
+    Raises:
+        ValueError: If llm_model or api_key is not provided.
     """
-    # Use provided parameters (credentials should be fetched from database by caller)
     api_key_value = api_key
     base_url_value = base_url
 
-    # Resolve model name from parameter (不再使用 settings.openai_model)
-    # 注意：调用者应该从数据库获取默认模型并传递 llm_model 参数
-    model_name = llm_model or "gpt-4o-mini"  # 最后的硬编码后备（应该尽量避免）
+    if not llm_model:
+        raise ValueError(
+            "未指定模型名称。请前往「设置 → 模型供应商」配置模型后再试。"
+        )
+
+    model_name = llm_model
 
     if not api_key_value:
         raise ValueError(
-            f"模型 \"{model_name}\" 无法使用：未提供 API Key。"
+            f'模型 "{model_name}" 无法使用：未提供 API Key。'
             "请前往「设置 → 模型供应商」添加至少一个模型的 API Key 后再试。"
         )
 
-    # Convert API key to SecretStr if provided
-    secret_api_key: SecretStr | None = SecretStr(api_key_value) if api_key_value else None
+    secret_api_key = SecretStr(api_key_value)
 
     # Set default timeout to 120 seconds if not provided
     # This helps prevent "No generations found in stream" errors

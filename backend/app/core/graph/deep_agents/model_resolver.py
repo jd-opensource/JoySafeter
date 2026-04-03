@@ -1,7 +1,7 @@
 """Unified model resolver — resolves LLM model instances from config.
 
 Single entry point for both node models and memory models.
-Resolution strategy: ModelService exact match → fallback with credentials → precise error.
+Resolution strategy: ModelService exact match → precise error.
 """
 
 from __future__ import annotations
@@ -58,30 +58,17 @@ class ModelResolver:
         provider_name: Optional[str],
         model_name: Optional[str],
     ) -> Any:
-        """Try each resolution strategy in order."""
+        """Try ModelService resolution, raise precise error on failure."""
         service_error: Optional[str] = None
 
-        # Strategy 1: ModelService exact match
+        # Try ModelService exact match
         if self._model_service and model_name:
             model, err = await self._try_model_service(provider_name, model_name)
             if model:
                 return model
             service_error = err
 
-        # Strategy 2: Fallback with default credentials (only if credentials exist)
-        if self._default_api_key:
-            logger.info(
-                f"[ModelResolver] Using fallback with default credentials | model={model_name}"
-            )
-            from app.core.agent.sample_agent import get_default_model
-
-            return get_default_model(
-                model_name,
-                api_key=self._default_api_key,
-                base_url=self._default_base_url,
-            )
-
-        # No fallback possible — raise a precise, actionable error
+        # No model found — raise a precise, actionable error
         available = await self._list_available_model_names()
         raise ValueError(
             self._build_error_message(
@@ -139,7 +126,7 @@ class ModelResolver:
     ) -> str:
         """Build a user-facing error message with diagnostics and guidance."""
         ref = f"{provider_name}/{model_name}" if provider_name else (model_name or "unknown")
-        parts: list[str] = [f"模型 \"{ref}\" 不可用"]
+        parts: list[str] = [f'模型 "{ref}" 不可用']
         if reason:
             parts.append(f"：{reason}")
         else:

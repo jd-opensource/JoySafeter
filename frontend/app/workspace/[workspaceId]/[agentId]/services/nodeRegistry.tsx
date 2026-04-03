@@ -62,11 +62,11 @@ const REGISTRY: NodeDefinition[] = [
     icon: Bot,
     style: { color: 'text-blue-600', bg: 'bg-blue-50' },
     defaultConfig: {
-      model: 'gpt-4o-mini',
+      model: '',
       temp: 0.7,
       systemPrompt: '',
       enableMemory: false,
-      memoryModel: 'gpt-4o-mini',
+      memoryModel: '',
       memoryPrompt: 'Summarize the interaction highlights and key facts learned about the user.',
       useDeepAgents: false,
       description: '',
@@ -133,7 +133,7 @@ const REGISTRY: NodeDefinition[] = [
     icon: BrainCircuit,
     style: { color: 'text-violet-600', bg: 'bg-violet-50' },
     defaultConfig: {
-      model: 'gpt-4o-mini',
+      model: '',
       executor_type: 'local',
       agent_mode: 'autonomous',
       max_steps: 20,
