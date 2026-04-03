@@ -126,26 +126,15 @@ async def build_deep_agents_graph(
         # Create root DeepAgent
         from deepagents import create_deep_agent
 
-        if subagents:
-            root_agent = create_deep_agent(
-                model=root_model,
-                system_prompt=root_prompt,
-                tools=root_tools,
-                subagents=subagents,
-                middleware=root_middleware,
-                name=root_config.name,
-                backend=backend,
-            )
-        else:
-            root_agent = create_deep_agent(
-                model=root_model,
-                system_prompt=root_prompt,
-                tools=root_tools,
-                subagents=[],
-                middleware=root_middleware,
-                name=root_config.name,
-                backend=backend,
-            )
+        root_agent = create_deep_agent(
+            model=root_model,
+            system_prompt=root_prompt,
+            tools=root_tools,
+            subagents=subagents,
+            middleware=root_middleware,
+            name=root_config.name,
+            backend=backend,
+        )
 
         # --- 7. Finalize ---
         compiled = _finalize(root_agent, backend)
@@ -260,14 +249,11 @@ async def _get_user_sandbox(user_id: Any) -> Any:
     Returns a SandboxHandle. The caller MUST call handle.release() when done,
     or use it as an async context manager.
     """
-    from app.core.database import async_session_factory
-    from app.services.sandbox_manager import SandboxManagerService
+    from app.services.sandbox_manager import get_sandbox_handle
 
-    async with async_session_factory() as session:
-        service = SandboxManagerService(session)
-        handle = await service.ensure_sandbox_running(str(user_id))
-        logger.info(f"{LOG_PREFIX} Got sandbox handle: sandbox_id={handle.sandbox_id}, user={user_id}")
-        return handle
+    handle = await get_sandbox_handle(str(user_id))
+    logger.info(f"{LOG_PREFIX} Got sandbox handle: sandbox_id={handle.sandbox_id}, user={user_id}")
+    return handle
 
 
 async def _cleanup_backend(backend: Any) -> None:

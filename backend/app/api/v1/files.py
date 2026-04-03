@@ -143,12 +143,9 @@ def get_container_path(filename: str) -> str:
 
 async def _get_sandbox_handle(user_id: str):
     """Acquire a SandboxHandle for the user. Caller MUST release it."""
-    from app.core.database import AsyncSessionLocal
-    from app.services.sandbox_manager import SandboxManagerService
+    from app.services.sandbox_manager import get_sandbox_handle
 
-    async with AsyncSessionLocal() as db:
-        service = SandboxManagerService(db)
-        return await service.ensure_sandbox_running(user_id)
+    return await get_sandbox_handle(user_id)
 
 
 def _validate_file_upload(

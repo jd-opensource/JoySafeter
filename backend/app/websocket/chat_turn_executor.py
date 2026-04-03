@@ -7,12 +7,26 @@ import uuid as uuid_lib
 from dataclasses import dataclass
 from typing import Any
 
+from loguru import logger as _logger
+
 from app.common.exceptions import ModelConfigError
 from app.models.agent_run import AgentRunStatus
 from app.schemas.chat import ChatRequest
 from app.utils.stream_event_handler import StreamState
 from app.websocket.chat_commands import ChatTurnCommand, SkillCreatorTurnCommand
 from app.websocket.chat_task_supervisor import ChatTaskEntry
+
+
+async def _release_graph_sandbox(built_graph: Any) -> None:
+    """Release sandbox handle attached to a compiled graph, if any."""
+    if built_graph is None:
+        return
+    handle = getattr(built_graph, "_sandbox_handle", None)
+    if handle is not None:
+        try:
+            await handle.release()
+        except Exception as exc:
+            _logger.warning(f"Failed to release sandbox handle: {exc}")
 
 
 @dataclass(frozen=True)
@@ -408,14 +422,7 @@ class ChatTurnExecutor:
                 assistant_message_id=assistant_message_id,
             )
         finally:
-            # Release sandbox handle to decrement active_count
-            if built_graph is not None:
-                sandbox_handle = getattr(built_graph, "_sandbox_handle", None)
-                if sandbox_handle is not None:
-                    try:
-                        await sandbox_handle.release()
-                    except Exception as exc:
-                        module.logger.warning(f"Failed to release sandbox handle: {exc}")
+            await _release_graph_sandbox(built_graph)
 
             await handler._finalize_task(
                 request_id=request_id,
@@ -671,14 +678,7 @@ class ChatTurnExecutor:
                 }
             )
         finally:
-            # Release sandbox handle to decrement active_count
-            if built_graph is not None:
-                sandbox_handle = getattr(built_graph, "_sandbox_handle", None)
-                if sandbox_handle is not None:
-                    try:
-                        await sandbox_handle.release()
-                    except Exception as exc:
-                        module.logger.warning(f"Failed to release sandbox handle: {exc}")
+            await _release_graph_sandbox(built_graph)
 
             await handler._finalize_task(
                 request_id=request_id,

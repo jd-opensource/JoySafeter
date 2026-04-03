@@ -375,6 +375,14 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         r"dd\s+.*of=/dev/",         # write to device
         r":\(\)\s*\{",              # fork bomb :(){ :|:& };:
     ]
+    _DANGEROUS_RE = None  # Lazy-compiled combined regex
+
+    @classmethod
+    def _get_dangerous_re(cls):
+        if cls._DANGEROUS_RE is None:
+            import re
+            cls._DANGEROUS_RE = re.compile("|".join(f"(?:{p})" for p in cls._DANGEROUS_PATTERNS))
+        return cls._DANGEROUS_RE
 
     def _exec_command(self, command: str) -> tuple[str, int]:
         """Execute command in sandbox with safety checks.
@@ -385,13 +393,9 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         Returns:
             Tuple of (output, exit_code)
         """
-        import re
-
-        # Defense-in-depth: block obviously dangerous commands
-        for pattern in self._DANGEROUS_PATTERNS:
-            if re.search(pattern, command):
-                logger.warning(f"[{self._id}] Blocked dangerous command: {command[:100]}")
-                return "Error: command blocked by security policy", 1
+        if self._get_dangerous_re().search(command):
+            logger.warning(f"[{self._id}] Blocked dangerous command: {command[:100]}")
+            return "Error: command blocked by security policy", 1
 
         logger.debug(f"[{self._id}] _exec_command START: {command[:100]}")
         try:

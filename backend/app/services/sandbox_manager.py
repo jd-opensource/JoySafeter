@@ -388,3 +388,16 @@ class SandboxManagerService:
             await self.db.commit()
 
         return len(evicted_ids)
+
+
+async def get_sandbox_handle(user_id: str) -> Any:
+    """Standalone helper to acquire a SandboxHandle for a user.
+
+    Opens a DB session, creates SandboxManagerService, and calls ensure_sandbox_running.
+    Caller MUST release the handle via handle.release() or async with handle.
+    """
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        service = SandboxManagerService(db)
+        return await service.ensure_sandbox_running(user_id)
