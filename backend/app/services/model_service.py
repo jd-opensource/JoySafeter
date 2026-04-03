@@ -9,7 +9,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.exceptions import BadRequestException, ModelConfigError, NotFoundException
 from app.core.model import ModelType, create_model_instance
 from app.core.model.factory import get_factory
 from app.repositories.model_credential import ModelCredentialRepository
@@ -20,23 +20,26 @@ from app.services.model_credential_service import ModelCredentialService
 from .base import BaseService
 from .model_usage_service import ModelUsageService
 
-_SETTINGS_GUIDE = "请前往「设置 → 模型供应商」检查配置"
+
+# Error code constants — shared with frontend i18n keys
+MODEL_NOT_FOUND = "MODEL_NOT_FOUND"
+MODEL_NO_CREDENTIALS = "MODEL_NO_CREDENTIALS"
+PROVIDER_NOT_FOUND = "PROVIDER_NOT_FOUND"
+MODEL_NAME_REQUIRED = "MODEL_NAME_REQUIRED"
 
 
-def _model_error_msg(
-    reason: str,
+def _raise_model_error(
+    code: str,
+    message: str,
     *,
-    provider_name: str | None = None,
     model_name: str | None = None,
+    provider_name: str | None = None,
     available: list[str] | None = None,
-) -> str:
-    """构建统一的模型错误消息，附带操作指引。"""
-    ref = f"{provider_name}/{model_name}" if provider_name else (model_name or "unknown")
-    parts = [f'模型 "{ref}" 不可用：{reason}。']
-    if available:
-        parts.append(f"当前可用的模型: {', '.join(available[:10])}。")
-    parts.append(_SETTINGS_GUIDE)
-    return "".join(parts)
+) -> None:
+    params: dict[str, str] = {"model": model_name or "", "provider": provider_name or ""}
+    if available is not None:
+        params["available"] = ", ".join(available[:10])
+    raise ModelConfigError(code, message, params=params)
 
 
 class ModelService(BaseService):
@@ -94,20 +97,14 @@ class ModelService(BaseService):
         """
         instance = await self.repo.get_by_name(model_name)
         if not instance:
-            raise NotFoundException(_model_error_msg("该模型未在系统中注册，可能已被删除", model_name=model_name))
+            _raise_model_error(MODEL_NOT_FOUND, f'Model "{model_name}" is not registered.', model_name=model_name)
 
         provider_name = instance.resolved_provider_name
         implementation_name = instance.resolved_implementation_name
 
         credentials = await self.credential_service.get_decrypted_credentials(provider_name)
         if not credentials:
-            raise NotFoundException(
-                _model_error_msg(
-                    "该供应商未配置有效的 API Key",
-                    provider_name=provider_name,
-                    model_name=model_name,
-                )
-            )
+            _raise_model_error(MODEL_NO_CREDENTIALS, f'No valid API key for provider "{provider_name}".', model_name=model_name, provider_name=provider_name)
 
         model = create_model_instance(
             implementation_name,
@@ -326,13 +323,7 @@ class ModelService(BaseService):
 
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
-            raise NotFoundException(
-                _model_error_msg(
-                    f'供应商 "{provider_name}" 未注册或已被移除',
-                    provider_name=provider_name,
-                    model_name=model_name,
-                )
-            )
+            _raise_model_error(PROVIDER_NOT_FOUND, f'Provider "{provider_name}" is not registered.', model_name=model_name, provider_name=provider_name)
 
         instance = await self.repo.get_best_instance(
             model_name=model_name,
@@ -340,13 +331,7 @@ class ModelService(BaseService):
         )
 
         if not instance:
-            raise NotFoundException(
-                _model_error_msg(
-                    "该模型未在系统中注册，可能已被删除",
-                    provider_name=provider_name,
-                    model_name=model_name,
-                )
-            )
+            _raise_model_error(MODEL_NOT_FOUND, f'Model "{model_name}" is not registered.', model_name=model_name, provider_name=provider_name)
 
         implementation_name = instance.resolved_implementation_name
         provider_name = instance.resolved_provider_name
@@ -360,13 +345,7 @@ class ModelService(BaseService):
         credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
-            raise NotFoundException(
-                _model_error_msg(
-                    "该供应商未配置有效的 API Key",
-                    provider_name=provider_name,
-                    model_name=model_name,
-                )
-            )
+            _raise_model_error(MODEL_NO_CREDENTIALS, f'No valid API key for provider "{provider_name}".', model_name=model_name, provider_name=provider_name)
 
         model = create_model_instance(
             implementation_name,
@@ -412,13 +391,7 @@ class ModelService(BaseService):
                 f"requested_model_name={model_name} | "
                 f"available_model_names={available_model_names}"
             )
-            raise NotFoundException(
-                _model_error_msg(
-                    "该模型未在系统中注册，可能已被删除",
-                    model_name=model_name,
-                    available=available_model_names,
-                )
-            )
+            _raise_model_error(MODEL_NOT_FOUND, f'Model "{model_name}" is not registered.', model_name=model_name, available=available_model_names)
 
         provider_name = instance.resolved_provider_name
         implementation_name = instance.resolved_implementation_name
@@ -432,13 +405,7 @@ class ModelService(BaseService):
         credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
-            raise NotFoundException(
-                _model_error_msg(
-                    "该供应商未配置有效的 API Key",
-                    provider_name=provider_name,
-                    model_name=model_name,
-                )
-            )
+            _raise_model_error(MODEL_NO_CREDENTIALS, f'No valid API key for provider "{provider_name}".', model_name=model_name, provider_name=provider_name)
 
         model = create_model_instance(
             implementation_name,
@@ -455,7 +422,7 @@ class ModelService(BaseService):
         instance = await self.repo.get_by_name(model_name)
 
         if not instance:
-            raise NotFoundException(_model_error_msg("该模型未在系统中注册，可能已被删除", model_name=model_name))
+            _raise_model_error(MODEL_NOT_FOUND, f'Model "{model_name}" is not registered.', model_name=model_name)
 
         provider_name = instance.resolved_provider_name
         implementation_name = instance.resolved_implementation_name
@@ -464,13 +431,7 @@ class ModelService(BaseService):
         credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
-            raise NotFoundException(
-                _model_error_msg(
-                    "该供应商未配置有效的 API Key",
-                    provider_name=provider_name,
-                    model_name=model_name,
-                )
-            )
+            _raise_model_error(MODEL_NO_CREDENTIALS, f'No valid API key for provider "{provider_name}".', model_name=model_name, provider_name=provider_name)
 
         model = create_model_instance(
             implementation_name,
@@ -528,8 +489,8 @@ class ModelService(BaseService):
         """
         instance = await self.repo.get_by_name(model_name)
         if not instance:
-            err = _model_error_msg("该模型未在系统中注册，可能已被删除", model_name=model_name)
-            yield f"event: error\ndata: {json.dumps({'error': err})}\n\n"
+            err_data = {"error_code": MODEL_NOT_FOUND, "message": f"Model \"{model_name}\" is not registered.", "params": {"model": model_name or ""}}
+            yield f"event: error\ndata: {json.dumps(err_data)}\n\n"
             return
 
         provider_name = instance.resolved_provider_name
@@ -539,12 +500,8 @@ class ModelService(BaseService):
         credentials = await self.credential_service.get_decrypted_credentials(provider_name)
 
         if not credentials:
-            err = _model_error_msg(
-                "该供应商未配置有效的 API Key",
-                provider_name=provider_name,
-                model_name=model_name,
-            )
-            yield f"event: error\ndata: {json.dumps({'error': err})}\n\n"
+            err_data = {"error_code": MODEL_NO_CREDENTIALS, "message": f"No valid API key for provider \"{provider_name}\".", "params": {"model": model_name or "", "provider": provider_name or ""}}
+            yield f"event: error\ndata: {json.dumps(err_data)}\n\n"
             return
 
         effective_params = {**(instance.model_parameters or {})}

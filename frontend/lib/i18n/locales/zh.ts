@@ -1008,6 +1008,15 @@ const zh = {
       emptyState: '暂无协作者',
     },
     chat: {
+      // Structured model error codes (from backend error_code)
+      'error.MODEL_NOT_FOUND':
+        '模型 "{{model}}" 未注册或已被删除，请前往「设置 → 模型供应商」检查配置。',
+      'error.MODEL_NO_CREDENTIALS':
+        '供应商 "{{provider}}" 未配置有效的 API Key，请前往「设置 → 模型供应商」添加凭据。',
+      'error.PROVIDER_NOT_FOUND':
+        '供应商 "{{provider}}" 未注册或已被移除，请前往「设置 → 模型供应商」检查配置。',
+      'error.MODEL_NAME_REQUIRED':
+        '未指定模型名称，请前往「设置 → 模型供应商」配置模型后再试。',
       // Important notice (no default model)
       importantNotice: '重要提示',
       noDefaultModelNotice:

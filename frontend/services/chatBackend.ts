@@ -147,7 +147,9 @@ export interface NodeEndEventData {
  */
 export interface ErrorEventData {
   message: string
-  code?: string // Error code, e.g., "stopped" indicates user stopped
+  error_code?: string // Structured error code for i18n (e.g., MODEL_NOT_FOUND, MODEL_NO_CREDENTIALS)
+  code?: string // Legacy: e.g., "stopped" indicates user stopped
+  params?: Record<string, string> // Parameters for i18n interpolation (e.g., {model: "gpt-4o", provider: "openai"})
 }
 
 /**

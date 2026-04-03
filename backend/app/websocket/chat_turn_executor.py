@@ -374,6 +374,11 @@ class ChatTurnExecutor:
         except Exception as exc:
             if state is not None and not (module.GraphBubbleUp is not None and type(exc) is module.GraphBubbleUp):
                 state.has_error = True
+            error_data: dict[str, object] = {"message": str(exc)}
+            from app.common.exceptions import ModelConfigError
+            if isinstance(exc, ModelConfigError):
+                error_data["error_code"] = exc.error_code
+                error_data["params"] = exc.params
             await handler._emit_event(
                 {
                     "type": "error",
@@ -381,7 +386,7 @@ class ChatTurnExecutor:
                     "node_name": "system",
                     "run_id": "",
                     "timestamp": int(time.time() * 1000),
-                    "data": {"message": str(exc)},
+                    "data": error_data,
                 },
                 request_id=request_id,
                 tolerate_disconnect=tolerate_disconnect,

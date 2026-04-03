@@ -1033,6 +1033,15 @@ const en = {
       emptyState: 'No collaborators yet',
     },
     chat: {
+      // Structured model error codes (from backend error_code)
+      'error.MODEL_NOT_FOUND':
+        'Model "{{model}}" is not registered or has been removed. Please check Settings → Model Providers.',
+      'error.MODEL_NO_CREDENTIALS':
+        'No valid API key configured for provider "{{provider}}". Please check Settings → Model Providers.',
+      'error.PROVIDER_NOT_FOUND':
+        'Provider "{{provider}}" is not registered or has been removed. Please check Settings → Model Providers.',
+      'error.MODEL_NAME_REQUIRED':
+        'No model specified. Please configure a model in Settings → Model Providers.',
       // Important notice (no default model)
       importantNotice: 'Important Notice',
       noDefaultModelNotice:

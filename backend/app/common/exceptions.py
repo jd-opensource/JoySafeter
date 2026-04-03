@@ -49,6 +49,33 @@ class NotFoundException(AppException):
         super().__init__(status_code=status.HTTP_404_NOT_FOUND, message=message, code=code, data=data)
 
 
+class ModelConfigError(AppException):
+    """模型配置错误 — 携带结构化 error_code + params 供前端 i18n 翻译。
+
+    error_code: 前端 i18n key（如 MODEL_NOT_FOUND, MODEL_NO_CREDENTIALS）
+    params:     插值参数（如 {model: "gpt-4o", provider: "openai", available: ["qwen-72b"]}）
+    message:    英文 fallback（前端找不到 i18n key 时显示）
+    """
+
+    error_code: str
+    params: Dict[str, Any]
+
+    def __init__(
+        self,
+        error_code: str,
+        message: str = "Model configuration error",
+        *,
+        params: Dict[str, Any] | None = None,
+    ):
+        self.error_code = error_code
+        self.params = params or {}
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message=message,
+            data={"error_code": error_code, "params": self.params},
+        )
+
+
 class BadRequestException(AppException):
     """请求错误（400）"""
 

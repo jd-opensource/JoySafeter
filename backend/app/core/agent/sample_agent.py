@@ -16,8 +16,10 @@ from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
+from app.common.exceptions import ModelConfigError
 from app.core.agent.backends.filesystem_sandbox import FilesystemSandboxBackend
 from app.core.agent.midware import LoggingMiddleware
+from app.services.model_service import MODEL_NAME_REQUIRED, MODEL_NO_CREDENTIALS
 
 load_dotenv()
 
@@ -43,22 +45,24 @@ def get_default_model(
         ChatOpenAI: Configured ChatOpenAI model instance with streaming enabled.
 
     Raises:
-        ValueError: If llm_model or api_key is not provided.
+        ModelConfigError: If llm_model or api_key is not provided.
     """
     api_key_value = api_key
     base_url_value = base_url
 
     if not llm_model:
-        raise ValueError(
-            "未指定模型名称。请前往「设置 → 模型供应商」配置模型后再试。"
+        raise ModelConfigError(
+            MODEL_NAME_REQUIRED,
+            "Model name is required but was not specified.",
         )
 
     model_name = llm_model
 
     if not api_key_value:
-        raise ValueError(
-            f'模型 "{model_name}" 无法使用：未提供 API Key。'
-            "请前往「设置 → 模型供应商」添加至少一个模型的 API Key 后再试。"
+        raise ModelConfigError(
+            MODEL_NO_CREDENTIALS,
+            f"No valid API key provided for model \"{model_name}\".",
+            params={"model": model_name},
         )
 
     secret_api_key = SecretStr(api_key_value)

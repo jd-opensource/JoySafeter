@@ -6,6 +6,7 @@ import { generateUUID } from '@/lib/utils/uuid'
 import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
 import type { ChatSendInput, IncomingChatWsEvent, SkillCreatorExtension } from '@/lib/ws/chat/types'
 import { toastError } from '@/lib/utils/toast'
+import { useTranslation } from '@/lib/i18n'
 import type {
   ChatStreamEvent,
   CommandEventData,
@@ -53,6 +54,7 @@ export interface UseChatWebSocketReturn {
 }
 
 export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatWebSocketReturn {
+  const { t } = useTranslation()
   const clientRef = useRef(getChatWsClient())
   const activeRequestsRef = useRef<Record<string, ActiveRequest>>({})
   const activeByThreadRef = useRef(new Map<string, string>())
@@ -179,8 +181,12 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
 
       if (type === 'error') {
         const errorData = data as ErrorEventData
-        const errorMsg = errorData?.message || 'Unknown error'
-        if (errorMsg === 'Stream stopped' || errorMsg.includes('stopped')) {
+        const errorCode = errorData?.error_code
+        const rawMsg = errorData?.message || 'Unknown error'
+        const errorMsg = errorCode
+          ? t(`chat.error.${errorCode}`, { defaultValue: rawMsg, ...errorData?.params })
+          : rawMsg
+        if (rawMsg === 'Stream stopped' || rawMsg.includes('stopped')) {
           if (activeRequest) {
             dispatch({ type: 'STREAM_DONE', messageId: activeRequest.aiMsgId })
             delete activeRequestsRef.current[request_id!]

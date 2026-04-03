@@ -10,9 +10,9 @@ from typing import Any, List, Optional
 
 from loguru import logger
 
+from app.common.exceptions import ModelConfigError
 from app.core.model.utils.model_ref import parse_model_ref
-
-_SETTINGS_GUIDE = "请前往「设置 → 模型供应商」检查配置"
+from app.services.model_service import MODEL_NOT_FOUND
 
 
 class ModelResolver:
@@ -59,32 +59,31 @@ class ModelResolver:
         model_name: Optional[str],
     ) -> Any:
         """Try ModelService resolution, raise precise error on failure."""
-        service_error: Optional[str] = None
-
-        # Try ModelService exact match
         if self._model_service and model_name:
-            model, err = await self._try_model_service(provider_name, model_name)
+            model = await self._try_model_service(provider_name, model_name)
             if model:
                 return model
-            service_error = err
 
-        # No model found — raise a precise, actionable error
         available = await self._list_available_model_names()
-        raise ValueError(
-            self._build_error_message(
-                provider_name=provider_name,
-                model_name=model_name,
-                reason=service_error,
-                available=available,
-            )
+        raise ModelConfigError(
+            MODEL_NOT_FOUND,
+            f"Model \"{model_name}\" is not available.",
+            params={
+                "model": model_name or "",
+                "provider": provider_name or "",
+                "available": ", ".join(available[:5]),
+            },
         )
 
     async def _try_model_service(
         self,
         provider_name: Optional[str],
         model_name: str,
-    ) -> tuple[Any, Optional[str]]:
-        """Try to resolve via ModelService. Returns (model, error_reason)."""
+    ) -> Any:
+        """Try to resolve via ModelService. Returns model or None.
+
+        ModelConfigError is re-raised so the frontend gets structured error info.
+        """
         try:
             uid = str(self._user_id) if self._user_id else "system"
             if provider_name and model_name:
@@ -99,12 +98,14 @@ class ModelResolver:
                     user_id=uid,
                 )
             logger.info(f"[ModelResolver] Resolved via ModelService | provider={provider_name} | model={model_name}")
-            return model, None
+            return model
+        except ModelConfigError:
+            raise
         except Exception as e:
             logger.warning(
                 f"[ModelResolver] ModelService failed | provider={provider_name} | model={model_name} | error={e}"
             )
-            return None, str(e)
+            return None
 
     async def _list_available_model_names(self) -> List[str]:
         """Query available model names from ModelService for error diagnostics."""
@@ -115,27 +116,6 @@ class ModelResolver:
         except Exception:
             pass
         return []
-
-    @staticmethod
-    def _build_error_message(
-        *,
-        provider_name: Optional[str],
-        model_name: Optional[str],
-        reason: Optional[str] = None,
-        available: Optional[List[str]] = None,
-    ) -> str:
-        """Build a user-facing error message with diagnostics and guidance."""
-        ref = f"{provider_name}/{model_name}" if provider_name else (model_name or "unknown")
-        parts: list[str] = [f'模型 "{ref}" 不可用']
-        if reason:
-            parts.append(f"：{reason}")
-        else:
-            parts.append("：该模型未配置或凭据缺失")
-        parts.append("。")
-        if available:
-            parts.append(f"当前可用的模型: {', '.join(available[:5])}。")
-        parts.append(_SETTINGS_GUIDE)
-        return "".join(parts)
 
     def extract_credentials(self, resolved_model: Any) -> dict[str, Any]:
         """Extract API credentials from a resolved model instance."""
