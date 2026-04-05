@@ -2,6 +2,22 @@ import { apiGet, apiPost, apiDelete } from '@/lib/api-client'
 
 // ---------- Types ----------
 
+/** Raw token shape from the API before normalization */
+interface BackendToken {
+  id: string
+  name: string
+  token?: string
+  token_prefix: string
+  scopes: string[]
+  resource_type: 'skill' | 'graph' | 'tool' | null
+  resource_id?: string | null
+  expires_at: string | null
+  last_used_at?: string | null
+  is_active?: boolean
+  created_at: string | null
+  [key: string]: unknown
+}
+
 export interface PlatformToken {
   id: string
   name: string
@@ -36,7 +52,7 @@ export interface TokenCreateRequest {
 
 // ---------- Normalizers ----------
 
-function normalizeToken(raw: any): PlatformToken {
+function normalizeToken(raw: BackendToken): PlatformToken {
   return {
     id: raw.id,
     name: raw.name,
@@ -51,11 +67,11 @@ function normalizeToken(raw: any): PlatformToken {
   }
 }
 
-function normalizeTokenCreateResponse(raw: any): PlatformTokenCreateResponse {
+function normalizeTokenCreateResponse(raw: BackendToken): PlatformTokenCreateResponse {
   return {
     id: raw.id,
     name: raw.name,
-    token: raw.token,
+    token: raw.token || '',
     tokenPrefix: raw.token_prefix,
     scopes: raw.scopes ?? [],
     resourceType: raw.resource_type ?? null,
@@ -76,16 +92,16 @@ export const platformTokenService = {
     if (params?.resourceId) queryParams.set('resource_id', params.resourceId)
 
     const url = `tokens${queryParams.toString() ? `?${queryParams}` : ''}`
-    const data = await apiGet<any[]>(url)
+    const data = await apiGet<BackendToken[]>(url)
     return (Array.isArray(data) ? data : []).map(normalizeToken)
   },
 
   async createToken(payload: TokenCreateRequest): Promise<PlatformTokenCreateResponse> {
-    const data = await apiPost<any>('tokens', payload)
+    const data = await apiPost<BackendToken>('tokens', payload)
     return normalizeTokenCreateResponse(data)
   },
 
   async revokeToken(tokenId: string): Promise<void> {
-    await apiDelete<any>(`tokens/${tokenId}`)
+    await apiDelete<void>(`tokens/${tokenId}`)
   },
 }

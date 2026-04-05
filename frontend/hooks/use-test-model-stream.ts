@@ -69,9 +69,9 @@ export function useTestModelStream() {
           }
         }
       }
-    } catch (err: any) {
-      if (err?.name === 'AbortError') return
-      setState((prev) => ({ ...prev, error: err?.message ?? 'Request failed', isStreaming: false }))
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      setState((prev) => ({ ...prev, error: err instanceof Error ? err.message : 'Request failed', isStreaming: false }))
       return
     }
 

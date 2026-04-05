@@ -12,6 +12,48 @@ import {
 
 const SKILLS_ENDPOINT = `${API_BASE}/skills`
 
+/** Raw skill file shape from the API before normalization */
+interface BackendSkillFile {
+  id: string
+  skill_id: string
+  path: string
+  file_name: string
+  file_type: string
+  content: string | null
+  storage_type: string
+  storage_key: string | null
+  size: number
+  created_at: string
+  updated_at: string
+  name?: string
+  language?: string
+  [key: string]: unknown
+}
+
+/** Raw skill shape from the API before normalization */
+interface BackendSkill {
+  id: string
+  name: string
+  description: string
+  content: string
+  tags: string[]
+  source_type: string
+  source_url: string | null
+  root_path: string | null
+  owner_id: string | null
+  created_by_id: string | null
+  is_public: boolean
+  license: string | null
+  created_at: string
+  updated_at: string
+  files?: BackendSkillFile[]
+  // Legacy fields
+  source?: string
+  sourceUrl?: string
+  updatedAt?: number
+  [key: string]: unknown
+}
+
 // ============================================================================
 // YAML Frontmatter Utilities
 // ============================================================================
@@ -63,7 +105,7 @@ export function parseSkillMd(content: string): ParsedSkillMd {
         continue
       } else {
         // End of multiline
-        ;(frontmatter as any)[currentKey] = multilineValue
+        ;(frontmatter as Record<string, unknown>)[currentKey] = multilineValue
         isMultiline = false
         multilineValue = ''
       }
@@ -95,18 +137,18 @@ export function parseSkillMd(content: string): ParsedSkillMd {
     // Handle arrays (simple format: [item1, item2])
     if (value.startsWith('[') && value.endsWith(']')) {
       const arrayContent = value.slice(1, -1)
-      ;(frontmatter as any)[key] = arrayContent
+      ;(frontmatter as Record<string, unknown>)[key] = arrayContent
         .split(',')
         .map((item) => item.trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean)
     } else {
-      ;(frontmatter as any)[key] = value
+      ;(frontmatter as Record<string, unknown>)[key] = value
     }
   }
 
   // Handle any remaining multiline content
   if (isMultiline && currentKey) {
-    ;(frontmatter as any)[currentKey] = multilineValue
+    ;(frontmatter as Record<string, unknown>)[currentKey] = multilineValue
   }
 
   // Post-process frontmatter: handle allowed-tools (space-delimited string per spec)
@@ -142,7 +184,7 @@ export function generateSkillMd(
   name: string,
   description: string,
   body: string = '',
-  additionalFields?: Record<string, any>,
+  additionalFields?: Record<string, unknown>,
 ): string {
   let frontmatter = `---\nname: ${name}\n`
 
@@ -163,7 +205,7 @@ export function generateSkillMd(
 
       // Handle metadata (object -> YAML object)
       if (key === 'metadata' && typeof value === 'object' && !Array.isArray(value)) {
-        const metadataObj = value as Record<string, any>
+        const metadataObj = value as Record<string, unknown>
         if (Object.keys(metadataObj).length > 0) {
           frontmatter += `metadata:\n`
           for (const [k, v] of Object.entries(metadataObj)) {
@@ -419,23 +461,23 @@ export function createFilePath(directory: string | null, filename: string): stri
 }
 
 // Helper function to convert backend Skill to frontend Skill format
-function normalizeSkill(backendSkill: any): Skill {
+function normalizeSkill(backendSkill: BackendSkill): Skill {
   return {
     id: backendSkill.id,
     name: backendSkill.name,
     description: backendSkill.description,
     content: backendSkill.content,
     tags: backendSkill.tags || [],
-    source_type: backendSkill.source_type || 'local',
+    source_type: (backendSkill.source_type || 'local') as 'local' | 'git' | 's3',
     source_url: backendSkill.source_url,
     root_path: backendSkill.root_path,
     owner_id: backendSkill.owner_id,
-    created_by_id: backendSkill.created_by_id,
+    created_by_id: backendSkill.created_by_id || '',
     is_public: backendSkill.is_public || false,
     license: backendSkill.license,
     created_at: backendSkill.created_at,
     updated_at: backendSkill.updated_at,
-    files: backendSkill.files?.map((f: any) => normalizeSkillFile(f)) || [],
+    files: backendSkill.files?.map((f) => normalizeSkillFile(f)) || [],
     // Legacy fields for backward compatibility (deprecated, use source_type instead)
     // Map source_type directly to source without 'aws' conversion
     source:
@@ -444,13 +486,13 @@ function normalizeSkill(backendSkill: any): Skill {
         : backendSkill.source_type === 's3'
           ? 's3'
           : 'local',
-    sourceUrl: backendSkill.source_url,
+    sourceUrl: backendSkill.source_url || undefined,
     updatedAt: new Date(backendSkill.updated_at).getTime(),
   }
 }
 
 // Helper function to convert backend SkillFile to frontend SkillFile format
-function normalizeSkillFile(backendFile: any): SkillFile {
+function normalizeSkillFile(backendFile: BackendSkillFile): SkillFile {
   const path = backendFile.path || ''
   return {
     id: backendFile.id,
@@ -459,7 +501,7 @@ function normalizeSkillFile(backendFile: any): SkillFile {
     file_name: backendFile.file_name,
     file_type: backendFile.file_type,
     content: backendFile.content,
-    storage_type: backendFile.storage_type,
+    storage_type: (backendFile.storage_type || 'database') as 'database' | 's3',
     storage_key: backendFile.storage_key,
     size: backendFile.size,
     created_at: backendFile.created_at,
@@ -471,7 +513,7 @@ function normalizeSkillFile(backendFile: any): SkillFile {
 }
 
 // Helper function to convert frontend Skill to backend format
-function toBackendSkill(skill: Partial<Skill>): any {
+function toBackendSkill(skill: Partial<Skill>): Record<string, unknown> {
   const files =
     skill.files?.map((f) => ({
       path: f.path || f.name || '',
@@ -935,7 +977,7 @@ export const skillService = {
       const url = params.toString() ? `${SKILLS_ENDPOINT}?${params.toString()}` : SKILLS_ENDPOINT
 
       // apiGet extracts data from ApiResponse automatically, so response is Skill[]
-      const response = await apiGet<Skill[]>(url)
+      const response = await apiGet<BackendSkill[]>(url)
       const skills = Array.isArray(response) ? response : []
       return skills.map(normalizeSkill)
     } catch (error) {
@@ -946,8 +988,7 @@ export const skillService = {
 
   async getSkill(id: string): Promise<Skill | null> {
     try {
-      // apiGet extracts data from ApiResponse automatically, so response is Skill
-      const response = await apiGet<Skill>(`${SKILLS_ENDPOINT}/${id}`)
+      const response = await apiGet<BackendSkill>(`${SKILLS_ENDPOINT}/${id}`)
       if (response) {
         return normalizeSkill(response)
       }
@@ -964,13 +1005,13 @@ export const skillService = {
     try {
       const backendSkill = toBackendSkill(skill)
 
-      let skillData: Skill
+      let skillData: BackendSkill
       if (skill.id) {
         // Update existing skill
-        skillData = await apiPut<Skill>(`${SKILLS_ENDPOINT}/${skill.id}`, backendSkill)
+        skillData = await apiPut<BackendSkill>(`${SKILLS_ENDPOINT}/${skill.id}`, backendSkill)
       } else {
         // Create new skill
-        skillData = await apiPost<Skill>(SKILLS_ENDPOINT, backendSkill)
+        skillData = await apiPost<BackendSkill>(SKILLS_ENDPOINT, backendSkill)
       }
 
       if (skillData) {
@@ -1010,7 +1051,7 @@ export const skillService = {
     },
   ): Promise<SkillFile> {
     try {
-      const response = await apiPut<SkillFile>(`${SKILLS_ENDPOINT}/files/${fileId}`, updates)
+      const response = await apiPut<BackendSkillFile>(`${SKILLS_ENDPOINT}/files/${fileId}`, updates)
       return normalizeSkillFile(response)
     } catch (error) {
       console.error('Failed to update file:', error)
@@ -1030,7 +1071,7 @@ export const skillService = {
       }
 
       const url = `${SKILLS_ENDPOINT}?${params.toString()}`
-      const response = await apiGet<Skill[]>(url)
+      const response = await apiGet<BackendSkill[]>(url)
       const skills = Array.isArray(response) ? response : []
       // Filter to only include public skills (not owned by current user)
       return skills.filter((s) => s.is_public).map(normalizeSkill)
@@ -1045,7 +1086,7 @@ export const skillService = {
    */
   async togglePublic(skillId: string, isPublic: boolean): Promise<Skill> {
     try {
-      const response = await apiPut<Skill>(`${SKILLS_ENDPOINT}/${skillId}`, { is_public: isPublic })
+      const response = await apiPut<BackendSkill>(`${SKILLS_ENDPOINT}/${skillId}`, { is_public: isPublic })
       return normalizeSkill(response)
     } catch (error) {
       console.error('Failed to toggle skill public status:', error)
@@ -1119,7 +1160,7 @@ export const skillService = {
       params.append('include_public', 'false')
 
       const url = `${SKILLS_ENDPOINT}?${params.toString()}`
-      const response = await apiGet<Skill[]>(url)
+      const response = await apiGet<BackendSkill[]>(url)
       const skills = Array.isArray(response) ? response : []
       return skills.map(normalizeSkill)
     } catch (error) {

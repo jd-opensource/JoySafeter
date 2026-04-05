@@ -323,6 +323,7 @@ def _collect_files_from_backend(backend: Any, dir_path: str, base_dir: str, file
                         stripped_lines.append(line)
                 content = "\n".join(stripped_lines)
             except Exception:
+                logger.debug("Skipping unreadable skill file: %s", rel_path, exc_info=True)
                 continue
 
             # Detect file type

@@ -1,8 +1,11 @@
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class Image(BaseModel):
@@ -440,7 +443,7 @@ class File(BaseModel):
                     if isinstance(self.content, bytes):
                         content_normalised = b64encode(self.content).decode("utf-8")
                 except Exception:
-                    pass
+                    logger.debug("Content encoding fallback failed", exc_info=True)
         return content_normalised
 
     def to_dict(self) -> Dict[str, Any]:

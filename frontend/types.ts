@@ -25,16 +25,16 @@ export interface Message {
     lastNode?: string
     lastRunId?: string
     lastUpdate?: number
-    [key: string]: any
+    [key: string]: unknown
   }
 }
 
 export interface ToolCall {
   id: string
   name: string
-  args: Record<string, any>
+  args: Record<string, unknown>
   status: 'running' | 'completed' | 'failed'
-  result?: any
+  result?: unknown
   startTime: number
   endTime?: number
 }
@@ -125,7 +125,7 @@ export interface SkillFrontmatter {
   // Legacy fields (for backward compatibility)
   version?: string
   author?: string
-  [key: string]: any // Allow additional custom fields
+  [key: string]: unknown // Allow additional custom fields
 }
 
 // Parsed SKILL.md content
@@ -169,7 +169,7 @@ export interface CanvasNode {
   isStreaming?: boolean
   createdAt: number
   toolCalls?: ToolCall[]
-  data?: any
+  data?: Record<string, unknown>
 }
 
 export interface Edge {
@@ -202,8 +202,8 @@ export type ExecutionStepStatus = 'pending' | 'running' | 'waiting' | 'success' 
 
 // Tool execution data structure
 export interface ToolExecutionData {
-  request?: any // Tool input/arguments
-  response?: any // Tool output/result
+  request?: unknown // Tool input/arguments
+  response?: unknown // Tool output/result
 }
 
 export interface ExecutionStep {
@@ -217,7 +217,7 @@ export interface ExecutionStep {
   endTime?: number
   duration?: number
   content?: string // For streaming text content (agent_thought)
-  data?: ToolExecutionData | any // For structured data (tool arguments/results)
+  data?: ToolExecutionData | Record<string, unknown> // For structured data (tool arguments/results)
   // Trace / Observation hierarchy (Phase D)
   traceId?: string
   observationId?: string

@@ -1,6 +1,6 @@
 'use client'
 
-import { User, Brain, Box, Key } from 'lucide-react'
+import { LucideIcon, User, Brain, Box, Key } from 'lucide-react'
 import { useState } from 'react'
 
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -24,7 +24,7 @@ const MenuItem = ({
   isActive,
   onClick,
 }: {
-  icon: any
+  icon: LucideIcon
   label: string
   isActive: boolean
   onClick: () => void

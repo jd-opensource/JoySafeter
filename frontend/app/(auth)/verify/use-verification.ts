@@ -177,15 +177,16 @@ export function useVerification({
         })
         setOtp('')
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       let message = 'Verification failed. Please check your code and try again.'
 
-      if (error.message?.includes('expired')) {
+      const errorMessage = error instanceof Error ? error.message : ''
+      if (errorMessage.includes('expired')) {
         message = 'The verification code has expired. Please request a new one.'
-      } else if (error.message?.includes('invalid')) {
+      } else if (errorMessage.includes('invalid')) {
         logger.info('Setting invalid OTP state - caught error')
         message = 'Invalid verification code. Please check and try again.'
-      } else if (error.message?.includes('attempts')) {
+      } else if (errorMessage.includes('attempts')) {
         message = 'Too many failed attempts. Please request a new code.'
       }
 

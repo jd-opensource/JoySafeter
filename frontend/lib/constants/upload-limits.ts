@@ -109,7 +109,7 @@ export function formatFileSize(bytes: number): string {
 export function isAllowedFile(file: File): { allowed: boolean; reason?: string } {
   const ext = '.' + file.name.split('.').pop()?.toLowerCase()
 
-  if (!ALLOWED_EXTENSIONS.includes(ext as any)) {
+  if (!ALLOWED_EXTENSIONS.includes(ext as (typeof ALLOWED_EXTENSIONS)[number])) {
     return { allowed: false, reason: `File type ${ext} is not supported` }
   }
 

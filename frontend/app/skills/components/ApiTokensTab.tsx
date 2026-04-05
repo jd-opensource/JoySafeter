@@ -52,8 +52,8 @@ export function ApiTokensTab({ skillId }: ApiTokensTabProps) {
       toast({ title: t('settings.tokens.createdSuccess') })
       setTokenName('')
       setShowCreateForm(false)
-    } catch (error: any) {
-      toast({ title: error?.message || t('common.error'), variant: 'destructive' })
+    } catch (error: unknown) {
+      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
     }
   }
 

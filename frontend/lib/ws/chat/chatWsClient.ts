@@ -124,7 +124,7 @@ class SharedChatWsClient implements ChatWsClient {
               new ChatWsError('WS_CONNECTION_LOST', 'WebSocket disconnected'),
             )
 
-            if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as any)) {
+            if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as (typeof UNRECOVERABLE_CLOSE_CODES)[number])) {
               return
             }
 

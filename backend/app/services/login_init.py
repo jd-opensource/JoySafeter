@@ -9,6 +9,7 @@ to keep the logic centralized.
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
@@ -37,7 +38,7 @@ async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: st
             user_email=user.email,
         )
     except Exception:
-        pass
+        logger.warning("Failed to create security audit entry", exc_info=True)
 
     try:
         from app.services.workspace_service import WorkspaceService
@@ -45,4 +46,4 @@ async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: st
         workspace_service = WorkspaceService(db)
         await workspace_service.ensure_personal_workspace(user)
     except Exception:
-        pass
+        logger.warning("Failed to ensure personal workspace during login", exc_info=True)

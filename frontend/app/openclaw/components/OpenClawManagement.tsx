@@ -106,10 +106,10 @@ export function OpenClawManagement() {
   const startMutation = useMutation({
     mutationFn: () => apiPost('openclaw/instances'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-instance'] }),
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err.message || t('common.operationFailed'),
+        description: err instanceof Error ? err.message : t('common.operationFailed'),
         variant: 'destructive',
       })
     },
@@ -117,10 +117,10 @@ export function OpenClawManagement() {
   const stopMutation = useMutation({
     mutationFn: () => apiPost('openclaw/instances/stop'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-instance'] }),
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err.message || t('common.operationFailed'),
+        description: err instanceof Error ? err.message : t('common.operationFailed'),
         variant: 'destructive',
       })
     },
@@ -131,10 +131,10 @@ export function OpenClawManagement() {
       queryClient.invalidateQueries({ queryKey: ['openclaw-instance'] })
       queryClient.invalidateQueries({ queryKey: ['openclaw-devices'] })
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err.message || t('common.operationFailed'),
+        description: err instanceof Error ? err.message : t('common.operationFailed'),
         variant: 'destructive',
       })
     },
@@ -142,10 +142,10 @@ export function OpenClawManagement() {
   const deleteMutation = useMutation({
     mutationFn: () => apiDelete('openclaw/instances'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-instance'] }),
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err.message || t('common.operationFailed'),
+        description: err instanceof Error ? err.message : t('common.operationFailed'),
         variant: 'destructive',
       })
     },
@@ -153,10 +153,10 @@ export function OpenClawManagement() {
   const approveMutation = useMutation({
     mutationFn: (id: string) => apiPost(`openclaw/devices/${id}/approve`),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-devices'] }),
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err.message || t('common.operationFailed'),
+        description: err instanceof Error ? err.message : t('common.operationFailed'),
         variant: 'destructive',
       })
     },
@@ -164,10 +164,10 @@ export function OpenClawManagement() {
   const approveAllMutation = useMutation({
     mutationFn: () => apiPost('openclaw/devices/approve-all'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['openclaw-devices'] }),
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err.message || t('common.operationFailed'),
+        description: err instanceof Error ? err.message : t('common.operationFailed'),
         variant: 'destructive',
       })
     },
@@ -181,10 +181,10 @@ export function OpenClawManagement() {
         description: t('openclaw.syncSkillsSuccess', { count: data.syncedCount }),
       })
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: t('common.error'),
-        description: err.message || t('openclaw.syncSkillsFailed'),
+        description: err instanceof Error ? err.message : t('openclaw.syncSkillsFailed'),
         variant: 'destructive',
       })
     },

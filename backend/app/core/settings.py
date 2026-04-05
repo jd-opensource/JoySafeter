@@ -139,7 +139,7 @@ class Settings(BaseSettings):
                         database_url = url.render_as_string(hide_password=False)
                         print(f"   ⚠️  Database connection to {host}:{port} failed, auto-switched to 5432")
         except Exception:
-            pass
+            pass  # Fall through to use original database_url; port auto-detect is best-effort
 
         return database_url
 
@@ -268,7 +268,7 @@ class Settings(BaseSettings):
                     if isinstance(parsed, list):
                         return [str(origin).strip() for origin in parsed if origin]
                 except Exception:
-                    pass
+                    pass  # JSON parse failed; fall through to comma-split
             # plain comma-separated string
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         elif isinstance(v, list):

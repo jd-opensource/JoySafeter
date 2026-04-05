@@ -17,6 +17,35 @@ import { STALE_TIME } from './constants'
 
 const logger = createLogger('WorkspaceDetailQueries')
 
+/** Raw workspace shape from the API before normalization */
+interface BackendWorkspace {
+  id: string
+  name: string
+  type?: string
+  description?: string
+  owner_id?: string
+  ownerId?: string
+  isOwner?: boolean
+  is_personal?: boolean
+  created_at?: string
+  updated_at?: string
+  [key: string]: unknown
+}
+
+/** Permission user entry from the API */
+interface BackendPermissionUser {
+  id: string
+  userId?: string
+  permissionType: string
+  [key: string]: unknown
+}
+
+/** Permissions response from the API */
+interface BackendPermissions {
+  users?: BackendPermissionUser[]
+  [key: string]: unknown
+}
+
 /**
  * Query key factories for workspace detail-related queries
  * Note: This is for workspace detail/settings, not the workspace list.
@@ -43,13 +72,13 @@ async function fetchWorkspaceSettings(workspaceId: string) {
   logger.info('Fetching workspace settings', { workspaceId })
 
   const [settingsResult, permissionsResult] = await Promise.allSettled([
-    apiGet<{ workspace: any }>(`${API_ENDPOINTS.workspaces}/${workspaceId}`),
-    apiGet<any>(`${API_ENDPOINTS.workspaces}/${workspaceId}/permissions`),
+    apiGet<{ workspace: BackendWorkspace }>(`${API_ENDPOINTS.workspaces}/${workspaceId}`),
+    apiGet<BackendPermissions>(`${API_ENDPOINTS.workspaces}/${workspaceId}/permissions`),
   ])
 
   const settings = settingsResult.status === 'fulfilled' ? settingsResult.value : null
   const permissions =
-    permissionsResult.status === 'fulfilled' ? permissionsResult.value : { users: [] }
+    permissionsResult.status === 'fulfilled' ? permissionsResult.value : { users: [] as BackendPermissionUser[] }
 
   if (!settings) {
     throw new Error('Failed to fetch workspace settings')
@@ -80,7 +109,7 @@ export function useWorkspaceSettings(workspaceId: string) {
 interface UpdateWorkspaceSettingsParams {
   workspaceId: string
   name?: string
-  settings?: Record<string, any>
+  settings?: Record<string, unknown>
 }
 
 export function useUpdateWorkspaceSettings() {
@@ -89,7 +118,7 @@ export function useUpdateWorkspaceSettings() {
   return useMutation({
     mutationFn: async ({ workspaceId, ...updates }: UpdateWorkspaceSettingsParams) => {
       logger.info('Updating workspace settings', { workspaceId, updates })
-      const result = await apiPatch<{ workspace: any }>(
+      const result = await apiPatch<{ workspace: BackendWorkspace }>(
         `${API_ENDPOINTS.workspaces}/${workspaceId}`,
         updates,
       )
@@ -128,13 +157,13 @@ async function fetchAdminWorkspaces(userId: string | undefined): Promise<AdminWo
 
   logger.info('Fetching admin workspaces', { userId })
 
-  const workspacesData = await apiGet<{ workspaces: any[] }>(API_ENDPOINTS.workspaces)
+  const workspacesData = await apiGet<{ workspaces: BackendWorkspace[] }>(API_ENDPOINTS.workspaces)
   const allUserWorkspaces = workspacesData.workspaces || []
 
   const permissionPromises = allUserWorkspaces.map(
-    async (workspace: { id: string; name: string; isOwner?: boolean; ownerId?: string }) => {
+    async (workspace) => {
       try {
-        const permissionData = await apiGet<any>(
+        const permissionData = await apiGet<BackendPermissions>(
           `${API_ENDPOINTS.workspaces}/${workspace.id}/permissions`,
         )
         return { workspace, permissionData }
@@ -155,13 +184,12 @@ async function fetchAdminWorkspaces(userId: string | undefined): Promise<AdminWo
 
     if (permissionData.users) {
       const currentUserPermission = permissionData.users.find(
-        (user: { id: string; userId?: string; permissionType: string }) =>
-          user.id === userId || user.userId === userId,
+        (user) => user.id === userId || user.userId === userId,
       )
       hasAdminAccess = currentUserPermission?.permissionType === 'admin'
     }
 
-    const isOwner = workspace.isOwner || workspace.ownerId === userId
+    const isOwner = workspace.isOwner || workspace.ownerId === userId || workspace.owner_id === userId
 
     if (hasAdminAccess || isOwner) {
       adminWorkspaces.push({

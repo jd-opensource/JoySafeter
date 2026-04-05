@@ -92,12 +92,13 @@ function toFolder(wf: WorkflowFolder, expandedFolders: Set<string>): Folder {
  * Convert AgentGraph to AgentMetadata
  */
 function graphToAgentMetadata(graph: AgentGraph): AgentMetadata {
+  const variables = graph.variables as { graph_mode?: string } | undefined
   return {
     id: graph.id,
     name: graph.name,
     color: graph.color || undefined,
     folderId: graph.folderId || null,
-    graphMode: (graph as any).variables?.graph_mode || null,
+    graphMode: variables?.graph_mode || null,
   }
 }
 

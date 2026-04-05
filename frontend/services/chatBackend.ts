@@ -2,7 +2,7 @@
  * Command event data structure
  */
 export interface CommandEventData {
-  update?: Record<string, any>
+  update?: Record<string, unknown>
   goto?: string
   reason?: string
 }
@@ -43,7 +43,7 @@ export interface LoopIterationEventData {
 export interface ParallelTaskEventData {
   task_id: string
   status: 'started' | 'completed' | 'error'
-  result?: any
+  result?: unknown
   error_msg?: string
 }
 
@@ -52,7 +52,7 @@ export interface ParallelTaskEventData {
  */
 export interface StateUpdateEventData {
   updated_fields: string[]
-  state_snapshot: Partial<any> // GraphState
+  state_snapshot: Record<string, unknown>
 }
 
 /**
@@ -89,7 +89,7 @@ export interface StreamEventEnvelope {
   run_id: string
   timestamp: number
   thread_id: string
-  data: any
+  data: unknown
   // trace / observation hierarchy info (Phase D)
   trace_id?: string
   observation_id?: string
@@ -108,7 +108,7 @@ export interface ContentEventData {
  */
 export interface ToolStartEventData {
   tool_name: string
-  tool_input: any
+  tool_input: Record<string, unknown>
 }
 
 /**
@@ -116,7 +116,7 @@ export interface ToolStartEventData {
  */
 export interface ToolEndEventData {
   tool_name: string
-  tool_output: any
+  tool_output: unknown
   duration?: number
   status?: 'success' | 'error'
   files_changed?: Array<{ path: string; action: string }> | null
@@ -156,7 +156,7 @@ export interface ErrorEventData {
  * Model Input event data structure
  */
 export interface ModelInputEventData {
-  messages: any[] // Input message list
+  messages: unknown[] // Input message list
   model_name: string
   model_provider: string
 }
@@ -165,10 +165,10 @@ export interface ModelInputEventData {
  * Model Output event data structure
  */
 export interface ModelOutputEventData {
-  output: any // AIMessage object
+  output: unknown // AIMessage object
   model_name: string
   model_provider: string
-  usage_metadata?: any // Usage metadata (token usage, etc.)
+  usage_metadata?: { input_tokens?: number; output_tokens?: number; total_tokens?: number }
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number
@@ -180,7 +180,7 @@ export interface ModelOutputEventData {
 export interface InterruptEventData {
   node_name: string
   node_label?: string
-  state: any // Current state snapshot
+  state: Record<string, unknown> // Current state snapshot
   thread_id: string
 }
 
@@ -218,7 +218,7 @@ export interface CodeAgentObservationEventData {
 export interface CodeAgentFinalAnswerEventData {
   node_name: string
   step: number
-  answer: any
+  answer: unknown
 }
 
 /**

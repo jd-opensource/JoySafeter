@@ -4,7 +4,9 @@
  * Mode configuration, defines all available chat modes and their metadata
  */
 
-import { Server, MessageSquare, Wand2 } from 'lucide-react'
+import React from 'react'
+
+import { LucideIcon, Server, MessageSquare, Wand2 } from 'lucide-react'
 
 import { AndroidIcon } from '../components/icons/AndroidIcon'
 
@@ -15,7 +17,7 @@ export interface ModeConfig {
   id: string
   labelKey: string
   descriptionKey: string
-  icon: any
+  icon: LucideIcon | React.ComponentType<{ className?: string }>
   type?: 'template' | 'simple' | 'agent'
   templateName?: string
   templateGraphName?: string

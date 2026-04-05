@@ -94,7 +94,7 @@ class SharedRunWsClient implements RunWsClient {
 
               this.setConnectionState(false)
               if (event.code === WS_CLOSE_CODE.NORMAL || this.isDisposed) return
-              if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as any)) return
+              if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as (typeof UNRECOVERABLE_CLOSE_CODES)[number])) return
               this.scheduleReconnect()
             }
           }),
@@ -169,7 +169,7 @@ class SharedRunWsClient implements RunWsClient {
     }
 
     if (frame.type === 'ws_error') {
-      const targetRunId = 'run_id' in frame ? (frame as any).run_id : undefined
+      const targetRunId = 'run_id' in frame ? (frame as { run_id?: string }).run_id : undefined
       if (targetRunId) {
         const sub = this.subscriptions.get(targetRunId)
         sub?.callbacks.onError?.(frame.message)

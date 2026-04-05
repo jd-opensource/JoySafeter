@@ -4,6 +4,7 @@ Model provider module.
 
 import importlib
 import inspect
+import logging
 import pkgutil
 from pathlib import Path
 from typing import List, Optional, Type
@@ -13,6 +14,8 @@ from .Custom import CustomProvider
 
 # backward compatibility: explicit import of existing provider
 from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
+
+logger = logging.getLogger(__name__)
 
 # provider class cache
 _provider_classes_cache: Optional[List[Type[BaseProvider]]] = None
@@ -86,7 +89,7 @@ def get_all_provider_instances() -> List[BaseProvider]:
             instance = cls()  # type: ignore[call-arg]
             instances.append(instance)
         except TypeError:
-            # If __init__ requires arguments, skip this provider
+            logger.warning("Failed to instantiate provider %s, skipping", cls.__name__, exc_info=True)
             continue
     return instances
 

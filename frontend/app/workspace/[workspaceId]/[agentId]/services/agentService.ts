@@ -4,6 +4,7 @@ import { Node, Edge } from 'reactflow'
 
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client'
 
+import type { StateField } from '../types/graph'
 import { modelService } from './modelService'
 
 // --- Types ---
@@ -177,7 +178,7 @@ export const agentService = {
     viewport?: { x: number; y: number; zoom: number }
     variables?: {
       context?: Record<string, unknown>
-      state_fields?: any[]
+      state_fields?: StateField[]
       [key: string]: unknown
     }
   }): Promise<void> {

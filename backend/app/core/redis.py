@@ -3,6 +3,7 @@ Redis Configuration - Cache and Distributed Lock
 """
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Dict, Optional, cast
 
@@ -11,6 +12,8 @@ from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import LockError
 
 from .settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class RedisClient:
@@ -168,7 +171,7 @@ class RedisClient:
                     await lock.release()
                 except LockError:
                     # Lock might have expired (execution time > timeout) or ownership lost
-                    pass
+                    logger.debug("Redis lock '%s' release failed (likely expired)", name, exc_info=True)
                 except Exception as e:
                     print(f"   ⚠️  Error releasing lock {name}: {e}")
 

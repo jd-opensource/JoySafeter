@@ -175,7 +175,7 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
         const toolName = toolData?.tool_name || 'tool'
         const toolId = activeRequest.lastRunningToolIdByName[toolName]
         if (!toolId) return
-        dispatch({ type: 'TOOL_END', id: toolId, result: toolData?.tool_output })
+        dispatch({ type: 'TOOL_END', id: toolId, result: (toolData?.tool_output ?? '') as string })
         return
       }
 

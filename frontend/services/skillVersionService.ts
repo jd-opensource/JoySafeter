@@ -42,7 +42,51 @@ export interface SkillVersion {
 
 // ---------- Normalizers ----------
 
-function normalizeVersionSummary(raw: any): SkillVersionSummary {
+/** Raw version summary from the API */
+interface BackendVersionSummary {
+  version: string
+  release_notes: string | null
+  published_by_id: string
+  published_at: string | null
+  [key: string]: unknown
+}
+
+/** Raw version file from the API */
+interface BackendVersionFile {
+  id: string
+  version_id: string
+  path: string
+  file_name: string
+  file_type: string
+  content: string | null
+  storage_type: string
+  storage_key: string | null
+  size: number
+  [key: string]: unknown
+}
+
+/** Raw version from the API */
+interface BackendVersion {
+  id: string
+  skill_id: string
+  version: string
+  release_notes: string | null
+  skill_name: string
+  skill_description: string
+  content: string
+  tags: string[]
+  metadata: Record<string, unknown>
+  allowed_tools: string[]
+  compatibility: string | null
+  license: string | null
+  published_by_id: string
+  published_at: string | null
+  created_at: string | null
+  files?: BackendVersionFile[]
+  [key: string]: unknown
+}
+
+function normalizeVersionSummary(raw: BackendVersionSummary): SkillVersionSummary {
   return {
     version: raw.version,
     releaseNotes: raw.release_notes ?? null,
@@ -51,7 +95,7 @@ function normalizeVersionSummary(raw: any): SkillVersionSummary {
   }
 }
 
-function normalizeVersion(raw: any): SkillVersion {
+function normalizeVersion(raw: BackendVersion): SkillVersion {
   return {
     id: raw.id,
     skillId: raw.skill_id,
@@ -68,7 +112,7 @@ function normalizeVersion(raw: any): SkillVersion {
     publishedById: raw.published_by_id,
     publishedAt: raw.published_at ?? null,
     createdAt: raw.created_at ?? null,
-    files: raw.files?.map((f: any) => ({
+    files: raw.files?.map((f) => ({
       id: f.id,
       versionId: f.version_id,
       path: f.path,
@@ -86,30 +130,30 @@ function normalizeVersion(raw: any): SkillVersion {
 
 export const skillVersionService = {
   async listVersions(skillId: string): Promise<SkillVersionSummary[]> {
-    const data = await apiGet<any[]>(`skills/${skillId}/versions`)
+    const data = await apiGet<BackendVersionSummary[]>(`skills/${skillId}/versions`)
     return (Array.isArray(data) ? data : []).map(normalizeVersionSummary)
   },
 
   async getVersion(skillId: string, version: string): Promise<SkillVersion> {
-    const data = await apiGet<any>(`skills/${skillId}/versions/${version}`)
+    const data = await apiGet<BackendVersion>(`skills/${skillId}/versions/${version}`)
     return normalizeVersion(data)
   },
 
   async getLatestVersion(skillId: string): Promise<SkillVersion> {
-    const data = await apiGet<any>(`skills/${skillId}/versions/latest`)
+    const data = await apiGet<BackendVersion>(`skills/${skillId}/versions/latest`)
     return normalizeVersion(data)
   },
 
   async publishVersion(skillId: string, payload: { version: string; release_notes?: string }): Promise<SkillVersion> {
-    const data = await apiPost<any>(`skills/${skillId}/versions`, payload)
+    const data = await apiPost<BackendVersion>(`skills/${skillId}/versions`, payload)
     return normalizeVersion(data)
   },
 
   async deleteVersion(skillId: string, version: string): Promise<void> {
-    await apiDelete<any>(`skills/${skillId}/versions/${version}`)
+    await apiDelete<void>(`skills/${skillId}/versions/${version}`)
   },
 
-  async restoreDraft(skillId: string, payload: { version: string }): Promise<any> {
-    return await apiPost<any>(`skills/${skillId}/restore`, payload)
+  async restoreDraft(skillId: string, payload: { version: string }): Promise<Record<string, unknown>> {
+    return await apiPost<Record<string, unknown>>(`skills/${skillId}/restore`, payload)
   },
 }

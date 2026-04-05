@@ -19,6 +19,12 @@ class TestService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def get_test_case(self, test_case_id: UUID) -> Optional[GraphTestCase]:
+        """Get a single test case by ID."""
+        stmt = select(GraphTestCase).where(GraphTestCase.id == test_case_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create_test_case(self, graph_id: UUID, data: Dict[str, Any]) -> GraphTestCase:
         """Create a new test case for a graph."""
         test_case = GraphTestCase(

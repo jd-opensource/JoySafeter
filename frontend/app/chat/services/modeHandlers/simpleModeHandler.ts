@@ -11,6 +11,7 @@ import type {
   SubmitResult,
   ValidationResult,
   ModeMetadata,
+  UploadedFile,
 } from './types'
 
 /**
@@ -32,7 +33,7 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
       }
     },
 
-    async onSubmit(input: string, _files: any[], _context: ModeContext): Promise<SubmitResult> {
+    async onSubmit(input: string, _files: UploadedFile[], _context: ModeContext): Promise<SubmitResult> {
       return {
         success: true,
         processedInput: input,
@@ -40,7 +41,7 @@ export function createSimpleModeHandler(metadata: ModeMetadata): ModeHandler {
       }
     },
 
-    validate(_input: string, _files: any[]): ValidationResult {
+    validate(_input: string, _files: UploadedFile[]): ValidationResult {
       return { valid: true }
     },
   }

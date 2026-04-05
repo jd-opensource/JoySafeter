@@ -1,5 +1,6 @@
 """Session management service."""
 
+import logging
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -12,6 +13,8 @@ from app.core.settings import settings
 from app.models import Conversation, Message
 from app.schemas.common import SessionCreate, SessionResponse
 from app.utils.datetime import utc_now
+
+logger = logging.getLogger(__name__)
 
 
 class SessionService:
@@ -122,7 +125,7 @@ class SessionService:
 
                 shutil.rmtree(workspace)
         except Exception:
-            pass  # Ignore cleanup errors
+            logger.debug("Workspace directory cleanup failed for session %s", session_id, exc_info=True)
 
         return True
 

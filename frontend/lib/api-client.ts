@@ -86,7 +86,7 @@ export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   /** Whether to include authentication (default true) */
   withAuth?: boolean
   /** Request body */
-  body?: any
+  body?: unknown
   /** Whether it's a JSON request (default true) */
   json?: boolean
   /** Timeout in milliseconds (default 30000) */
@@ -221,7 +221,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
         ...restOptions,
         method,
         headers,
-        body: body ? (json ? JSON.stringify(body) : body) : undefined,
+        body: body ? (json ? JSON.stringify(body) : (body as BodyInit)) : undefined,
         signal: controller.signal,
         credentials: 'include',
       })
@@ -280,7 +280,7 @@ export function apiGet<T>(
 
 export function apiPost<T>(
   url: string,
-  body?: any,
+  body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
   return apiFetch<T>(url, { ...options, method: 'POST', body })
@@ -288,7 +288,7 @@ export function apiPost<T>(
 
 export function apiPut<T>(
   url: string,
-  body?: any,
+  body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
   return apiFetch<T>(url, { ...options, method: 'PUT', body })
@@ -303,7 +303,7 @@ export function apiDelete<T>(
 
 export function apiPatch<T>(
   url: string,
-  body?: any,
+  body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
   return apiFetch<T>(url, { ...options, method: 'PATCH', body })
@@ -331,7 +331,7 @@ export async function apiUpload<T>(
  */
 export async function apiStream(
   url: string,
-  body: any,
+  body: unknown,
   options?: { signal?: AbortSignal; withAuth?: boolean },
 ): Promise<Response> {
   const { withAuth = true, signal } = options || {}

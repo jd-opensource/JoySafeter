@@ -90,14 +90,14 @@ function MessageBubble({ message }: { message: Message }) {
         {message.tool_calls && message.tool_calls.length > 0 && (
           <div className="mt-2 space-y-1">
             {message.tool_calls.map((tc) => {
-              const rawName = tc.args?._rawName || tc.name
+              const rawName = (tc.args?._rawName as string) || tc.name
               const summary = summarizeToolResult(rawName, tc.result)
 
               return (
                 <div key={tc.id}>
                   <ToolCallBadge
                     name={rawName}
-                    args={tc.args || {}}
+                    args={tc.args as Record<string, any> || {}}
                     status={tc.status}
                   />
                   {summary && (

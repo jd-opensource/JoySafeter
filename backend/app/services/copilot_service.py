@@ -479,7 +479,7 @@ class CopilotService:
                     )
                 )
             except (ValueError, KeyError):
-                pass
+                logger.warning("Failed to parse copilot action: %s", action_data, exc_info=True)
 
         # Validate actions before returning
         if actions:
@@ -510,7 +510,7 @@ class CopilotService:
                             )
                         )
                     except (ValueError, KeyError):
-                        pass
+                        logger.warning("Failed to rebuild copilot action: %s", action_data, exc_info=True)
 
         return actions
 

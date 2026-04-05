@@ -16,6 +16,23 @@ import { STALE_TIME } from './constants'
 
 const logger = createLogger('WorkspaceQueries')
 
+/** Raw workspace shape from the API before normalization */
+interface BackendWorkspace {
+  id: string
+  name: string
+  type?: string
+  description?: string
+  owner_id?: string
+  ownerId?: string
+  is_personal?: boolean
+  members?: Array<{ user_id: string }>
+  created_at?: string
+  updated_at?: string
+  createdAt?: string
+  updatedAt?: string
+  [key: string]: unknown
+}
+
 /**
  * Workspace interface
  */
@@ -42,15 +59,15 @@ export const workspaceKeys = {
 /**
  * Map API workspace response to Workspace
  */
-function mapWorkspace(workspace: any): Workspace {
+function mapWorkspace(workspace: BackendWorkspace): Workspace {
   return {
     id: workspace.id,
     name: workspace.name,
-    ownerId: workspace.ownerId || workspace.owner_id,
+    ownerId: workspace.ownerId || workspace.owner_id || '',
     description: workspace.description,
     type: workspace.type, // 'personal' | 'team'
-    createdAt: new Date(workspace.createdAt || workspace.created_at),
-    updatedAt: new Date(workspace.updatedAt || workspace.updated_at),
+    createdAt: new Date(workspace.createdAt || workspace.created_at || Date.now()),
+    updatedAt: new Date(workspace.updatedAt || workspace.updated_at || Date.now()),
   }
 }
 
@@ -58,7 +75,7 @@ function mapWorkspace(workspace: any): Workspace {
  * Fetch workspaces from API
  */
 async function fetchWorkspaces(): Promise<Workspace[]> {
-  const response = await apiGet<{ workspaces: any[] }>(API_ENDPOINTS.workspaces)
+  const response = await apiGet<{ workspaces: BackendWorkspace[] }>(API_ENDPOINTS.workspaces)
   const workspaces = (response.workspaces || []).map(mapWorkspace)
   return workspaces
 }
@@ -80,7 +97,7 @@ export function useWorkspaces() {
  * Fetch single workspace
  */
 async function fetchWorkspace(id: string): Promise<Workspace> {
-  const response = await apiGet<{ workspace: any }>(`${API_ENDPOINTS.workspaces}/${id}`)
+  const response = await apiGet<{ workspace: BackendWorkspace }>(`${API_ENDPOINTS.workspaces}/${id}`)
   return mapWorkspace(response.workspace)
 }
 
@@ -113,7 +130,7 @@ export function useCreateWorkspace() {
 
   return useMutation({
     mutationFn: async (variables: CreateWorkspaceVariables): Promise<Workspace> => {
-      const response = await apiPost<{ workspace: any }>(API_ENDPOINTS.workspaces, variables)
+      const response = await apiPost<{ workspace: BackendWorkspace }>(API_ENDPOINTS.workspaces, variables)
       return mapWorkspace(response.workspace)
     },
     onSuccess: (newWorkspace) => {
@@ -153,7 +170,7 @@ export function useUpdateWorkspace() {
   return useMutation({
     mutationFn: async (variables: UpdateWorkspaceVariables): Promise<Workspace> => {
       try {
-        const response = await apiPut<{ workspace: any }>(
+        const response = await apiPut<{ workspace: BackendWorkspace }>(
           `${API_ENDPOINTS.workspaces}/${variables.id}`,
           variables.updates,
         )
@@ -261,7 +278,7 @@ export function useDuplicateWorkspace() {
 
   return useMutation({
     mutationFn: async (variables: { id: string; name?: string }): Promise<Workspace> => {
-      const response = await apiPost<{ workspace: any }>(
+      const response = await apiPost<{ workspace: BackendWorkspace }>(
         `${API_ENDPOINTS.workspaces}/${variables.id}/duplicate`,
         { name: variables.name },
       )

@@ -143,12 +143,13 @@ function PreviewTab() {
         </div>
       )
 
-    case 'node_lifecycle':
+    case 'node_lifecycle': {
+      const nodeData = step.data as Record<string, unknown> | undefined
       return (
         <div className="space-y-3 p-4">
-          {step.data?.input && <ViewComponent data={step.data.input} label="Input" />}
+          {nodeData?.input ? <ViewComponent data={nodeData.input} label="Input" /> : null}
           {step.content && <ViewComponent data={step.content} label="Content" />}
-          {!step.data?.input && !step.content && (
+          {!nodeData?.input && !step.content && (
             <ViewComponent
               data={step.data || { nodeId: step.nodeId, nodeLabel: step.nodeLabel }}
               label="Node Info"
@@ -156,6 +157,7 @@ function PreviewTab() {
           )}
         </div>
       )
+    }
 
     case 'code_agent_code':
       return (
@@ -184,7 +186,7 @@ function PreviewTab() {
           <div
             className={cn(
               'whitespace-pre-wrap rounded-md border p-3 font-mono text-xs leading-relaxed',
-              step.data?.has_error
+              (step.data as Record<string, unknown>)?.has_error
                 ? 'border-red-200 bg-red-50 text-red-700'
                 : 'border-teal-200 bg-teal-50 text-teal-700',
             )}
@@ -262,8 +264,8 @@ function OutputTab() {
     case 'model_io':
       return (
         <div className="space-y-3 p-4">
-          {step.data?.output ? (
-            <ViewComponent data={step.data.output} label="Model Output" />
+          {(step.data as Record<string, unknown>)?.output ? (
+            <ViewComponent data={(step.data as Record<string, unknown>).output} label="Model Output" />
           ) : step.data?.response ? (
             <ViewComponent data={step.data.response} label="Model Output" />
           ) : (
@@ -283,8 +285,8 @@ function OutputTab() {
     case 'node_lifecycle':
       return (
         <div className="space-y-3 p-4">
-          {step.data?.output ? (
-            <ViewComponent data={step.data.output} label="Node Output" />
+          {(step.data as Record<string, unknown>)?.output ? (
+            <ViewComponent data={(step.data as Record<string, unknown>).output} label="Node Output" />
           ) : step.endTime ? (
             <div className="space-y-2">
               <FormattedView

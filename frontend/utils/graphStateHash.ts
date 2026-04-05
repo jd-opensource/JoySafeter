@@ -7,6 +7,8 @@
 
 import type { Node, Edge } from 'reactflow'
 
+import type { StateField } from '@/app/workspace/[workspaceId]/[agentId]/types/graph'
+
 /**
  * Compute a hash of the graph state for comparison
  *
@@ -22,7 +24,7 @@ import type { Node, Edge } from 'reactflow'
 export function computeGraphStateHash(
   nodes: Node[],
   edges: Edge[],
-  stateFields?: any[],
+  stateFields?: StateField[],
   fallbackNodeId?: string | null,
 ): string {
   const stateForHash = {

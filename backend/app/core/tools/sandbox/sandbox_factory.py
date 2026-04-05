@@ -97,7 +97,7 @@ def create_modal_sandbox(
                     if process.returncode == 0:
                         break
                 except Exception:
-                    pass
+                    logger.debug("Sandbox readiness probe failed, retrying", exc_info=True)
                 time.sleep(2)
             else:
                 # Timeout - cleanup and fail

@@ -15,7 +15,18 @@ export interface SkillCollaborator {
 
 // ---------- Normalizer ----------
 
-function normalizeCollaborator(raw: any): SkillCollaborator {
+/** Raw collaborator shape from the API before normalization */
+interface BackendCollaborator {
+  id: string
+  skill_id: string
+  user_id: string
+  role: CollaboratorRole
+  invited_by: string
+  created_at: string | null
+  [key: string]: unknown
+}
+
+function normalizeCollaborator(raw: BackendCollaborator): SkillCollaborator {
   return {
     id: raw.id,
     skillId: raw.skill_id,
@@ -30,25 +41,25 @@ function normalizeCollaborator(raw: any): SkillCollaborator {
 
 export const skillCollaboratorService = {
   async listCollaborators(skillId: string): Promise<SkillCollaborator[]> {
-    const data = await apiGet<any[]>(`skills/${skillId}/collaborators`)
+    const data = await apiGet<BackendCollaborator[]>(`skills/${skillId}/collaborators`)
     return (Array.isArray(data) ? data : []).map(normalizeCollaborator)
   },
 
   async addCollaborator(skillId: string, payload: { user_id: string; role: CollaboratorRole }): Promise<SkillCollaborator> {
-    const data = await apiPost<any>(`skills/${skillId}/collaborators`, payload)
+    const data = await apiPost<BackendCollaborator>(`skills/${skillId}/collaborators`, payload)
     return normalizeCollaborator(data)
   },
 
   async updateRole(skillId: string, userId: string, payload: { role: CollaboratorRole }): Promise<SkillCollaborator> {
-    const data = await apiPut<any>(`skills/${skillId}/collaborators/${userId}`, payload)
+    const data = await apiPut<BackendCollaborator>(`skills/${skillId}/collaborators/${userId}`, payload)
     return normalizeCollaborator(data)
   },
 
   async removeCollaborator(skillId: string, userId: string): Promise<void> {
-    await apiDelete<any>(`skills/${skillId}/collaborators/${userId}`)
+    await apiDelete<void>(`skills/${skillId}/collaborators/${userId}`)
   },
 
   async transferOwnership(skillId: string, payload: { new_owner_id: string }): Promise<void> {
-    await apiPost<any>(`skills/${skillId}/transfer`, payload)
+    await apiPost<void>(`skills/${skillId}/transfer`, payload)
   },
 }

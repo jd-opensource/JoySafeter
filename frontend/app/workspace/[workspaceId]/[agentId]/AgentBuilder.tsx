@@ -33,6 +33,16 @@ import { ErrorBoundary } from './error-boundary'
 import { agentService, AgentGraph } from './services/agentService'
 import { useBuilderStore } from './stores/builderStore'
 import { useExecutionStore } from './stores/executionStore'
+import type { StateField } from './types/graph'
+
+/** Typed shape of graph variables stored alongside canvas state. */
+interface BuilderVariables {
+  graph_mode?: string
+  state_fields?: StateField[]
+  code_content?: string
+  fallback_node_id?: string
+  context?: Record<string, { type?: string; description?: string; value?: unknown }>
+}
 
 const isValidUUID = (str: string): boolean => {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -216,12 +226,13 @@ const AgentBuilderContent = () => {
     const state = graphStateData
 
     // Code mode: hydrate code editor store instead of canvas
-    const graphMode = (state.variables as any)?.graph_mode
+    const loadedVars = (state.variables ?? {}) as BuilderVariables
+    const graphMode = loadedVars.graph_mode
     if (graphMode === 'code' && agentId) {
       const currentGraph = graphsData?.find((g) => g.id === agentId)
       useCodeEditorStore.getState().hydrate(
         agentId,
-        (state.variables as any)?.code_content ?? '',
+        loadedVars.code_content ?? '',
         currentGraph?.name ?? '',
       )
       loadedGraphIdRef.current = agentId
@@ -251,20 +262,20 @@ const AgentBuilderContent = () => {
     // Parse stateFields and fallbackNodeId from the loaded graph state
     // so the hash is computed with the correct values for THIS graph,
     // not stale values from the previous graph still in the store.
-    const loadedVariables = (state.variables || {}) as any
+    const loadedVariables = (state.variables || {}) as BuilderVariables
     const loadedStateFields = (() => {
-      const sf = (loadedVariables.state_fields as any[]) || []
+      const sf = loadedVariables.state_fields || []
       if (sf.length > 0) return sf
-      const ctx = (loadedVariables.context || {}) as Record<string, any>
+      const ctx = loadedVariables.context || {}
       if (Object.keys(ctx).length === 0) return []
       return Object.entries(ctx).map(([key, v]) => ({
         name: key,
-        type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string'),
+        type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string') as StateField['type'],
         description: v?.description || '',
         defaultValue: v?.value,
       }))
     })()
-    const loadedFallbackNodeId = loadedVariables?.fallback_node_id ?? null
+    const loadedFallbackNodeId = loadedVariables.fallback_node_id ?? null
 
     // Calculate hash of initial state (same 4 params as SaveManager for consistency)
     const initialHash = computeGraphStateHash(
@@ -371,20 +382,20 @@ const AgentBuilderContent = () => {
       }
 
       // Parse stateFields and fallbackNodeId from loaded state for consistent hash computation
-      const applyVariables = (state.variables || {}) as any
+      const applyVariables = (state.variables || {}) as BuilderVariables
       const applyStateFields = (() => {
-        const sf = (applyVariables.state_fields as any[]) || []
+        const sf = applyVariables.state_fields || []
         if (sf.length > 0) return sf
-        const ctx = (applyVariables.context || {}) as Record<string, any>
+        const ctx = applyVariables.context || {}
         if (Object.keys(ctx).length === 0) return []
         return Object.entries(ctx).map(([key, v]) => ({
           name: key,
-          type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string'),
+          type: (v?.type === 'number' ? 'int' : v?.type === 'boolean' ? 'bool' : v?.type || 'string') as StateField['type'],
           description: v?.description || '',
           defaultValue: v?.value,
         }))
       })()
-      const applyFallbackNodeId = applyVariables?.fallback_node_id ?? null
+      const applyFallbackNodeId = applyVariables.fallback_node_id ?? null
 
       // Calculate hash of initial state (all 4 params, consistent with SaveManager)
       const initialHash = computeGraphStateHash(
@@ -472,12 +483,12 @@ const AgentBuilderContent = () => {
       setTimeout(() => {
         rfInstance?.fitView({ padding: 0.2 })
       }, 100)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to import graph:', error)
       toast({
         variant: 'destructive',
         title: t('workspace.importFailed'),
-        description: error?.message || t('workspace.importFailedMessage'),
+        description: error instanceof Error ? error.message : t('workspace.importFailedMessage'),
       })
     }
 
@@ -504,12 +515,12 @@ const AgentBuilderContent = () => {
         setTimeout(() => {
           rfInstance?.fitView({ padding: 0.2 })
         }, 100)
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Failed to import graph:', error)
         toast({
           variant: 'destructive',
           title: t('workspace.importFailed'),
-          description: error?.message || t('workspace.importFailedMessage'),
+          description: error instanceof Error ? error.message : t('workspace.importFailedMessage'),
         })
       }
     } else {
@@ -579,7 +590,7 @@ const AgentBuilderContent = () => {
   }
 
   // Code mode: render CodeEditorPage instead of canvas
-  const graphMode = (graphStateData?.variables as any)?.graph_mode
+  const graphMode = (graphStateData?.variables as BuilderVariables | undefined)?.graph_mode
   if (graphMode === 'code' && agentId && !isInitializing) {
     return <CodeEditorPage graphId={agentId} workspaceId={workspaceId} />
   }

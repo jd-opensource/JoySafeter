@@ -81,8 +81,8 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       setNewUserId('')
       setNewRole('viewer')
       setShowAddForm(false)
-    } catch (error: any) {
-      toast({ title: error?.message || t('common.error'), variant: 'destructive' })
+    } catch (error: unknown) {
+      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
     }
   }
 
@@ -90,8 +90,8 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
     try {
       await updateRoleMutation.mutateAsync({ userId, role })
       toast({ title: t('skillCollaborators.updatedSuccess') })
-    } catch (error: any) {
-      toast({ title: error?.message || t('common.error'), variant: 'destructive' })
+    } catch (error: unknown) {
+      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
     }
   }
 
@@ -99,8 +99,8 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
     try {
       await removeMutation.mutateAsync(removeTarget.userId)
       toast({ title: t('skillCollaborators.removedSuccess') })
-    } catch (error: any) {
-      toast({ title: error?.message || t('common.error'), variant: 'destructive' })
+    } catch (error: unknown) {
+      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
     }
     setRemoveTarget({ userId: '', open: false })
   }
@@ -112,8 +112,8 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       toast({ title: t('skillCollaborators.transferredSuccess') })
       setTransferDialog(false)
       setTransferTargetId('')
-    } catch (error: any) {
-      toast({ title: error?.message || t('common.error'), variant: 'destructive' })
+    } catch (error: unknown) {
+      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
     }
   }
 

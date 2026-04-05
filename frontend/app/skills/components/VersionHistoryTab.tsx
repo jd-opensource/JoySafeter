@@ -69,9 +69,9 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
       toast({ title: t('skillVersions.publishedSuccess', { version: data.version }) })
       form.reset()
       setShowPublishForm(false)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
-        title: error?.message || t('common.error'),
+        title: error instanceof Error ? error.message : String(error),
         variant: 'destructive',
       })
     }
@@ -87,8 +87,8 @@ export function VersionHistoryTab({ skillId, userRole }: VersionHistoryTabProps)
         await deleteMutation.mutateAsync(version)
         toast({ title: t('skillVersions.deletedSuccess', { version }) })
       }
-    } catch (error: any) {
-      toast({ title: error?.message || t('common.error'), variant: 'destructive' })
+    } catch (error: unknown) {
+      toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' })
     }
     setConfirmDialog((prev) => ({ ...prev, open: false }))
   }

@@ -47,16 +47,26 @@ import { getEdgeStyleByType, processEdgesForReactFlow } from '../utils/edgeStyle
 import { exportGraphToJson, parseImportedGraph } from '../utils/graphImportExport'
 import { SaveManager, type GraphState as SaveManagerGraphState } from '../utils/saveManager'
 
+/** Typed shape of graph variables stored alongside canvas state. */
+interface BuilderVariables {
+  graph_mode?: string
+  state_fields?: StateField[]
+  code_content?: string
+  fallback_node_id?: string
+  context?: Record<string, { type?: string; description?: string; value?: unknown }>
+  [key: string]: unknown
+}
+
 /**
  * Migrate legacy context variables to state fields.
  * Converts variables.context entries to StateField[] format.
  * Only applies when state_fields is empty but context has entries.
  */
-function migrateLegacyContextToStateFields(variables: Record<string, any>): StateField[] {
-  const stateFields = (variables.state_fields as StateField[]) || []
+function migrateLegacyContextToStateFields(variables: BuilderVariables): StateField[] {
+  const stateFields = variables.state_fields || []
   if (stateFields.length > 0) return stateFields
 
-  const legacyContext = (variables.context || {}) as Record<string, any>
+  const legacyContext = variables.context || {}
   if (Object.keys(legacyContext).length === 0) return []
 
   const migrated = Object.entries(legacyContext).map(([key, v]) => ({
@@ -272,9 +282,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         const graphMeta = graphs.find((g) => g.id === graphId)
 
         // Parse state fields and fallback_node_id from variables
-        const variables = (graphState.variables || {}) as any
+        const variables = (graphState.variables || {}) as BuilderVariables
         const stateFields = migrateLegacyContextToStateFields(variables)
-        const fallbackNodeId = variables?.fallback_node_id ?? null
+        const fallbackNodeId = variables.fallback_node_id ?? null
 
         set({
           nodes: graphState.nodes || [],
@@ -657,9 +667,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
 
           // Load state fields and fallback_node_id from variables
           const loadedStateFields = migrateLegacyContextToStateFields(
-            (variables as Record<string, any>) || {},
+            (variables as BuilderVariables) || {},
           )
-          const fallbackNodeId = (variables as any)?.fallback_node_id ?? null
+          const fallbackNodeId = (variables as BuilderVariables)?.fallback_node_id ?? null
 
           set({
             nodes,

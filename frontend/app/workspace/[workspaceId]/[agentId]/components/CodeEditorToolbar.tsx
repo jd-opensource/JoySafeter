@@ -35,8 +35,8 @@ export function CodeEditorToolbar({ graphId, workspaceId }: Props) {
     try {
       const result = await apiPost<any>(`graphs/${graphId}/code/run`, { input: {} })
       setRunResult(result?.result ?? result)
-    } catch (e: any) {
-      setRunError(e?.message || 'Request failed')
+    } catch (e: unknown) {
+      setRunError(e instanceof Error ? e.message : 'Request failed')
     } finally {
       setRunDuration(Date.now() - startTimeRef.current)
       setIsRunning(false)

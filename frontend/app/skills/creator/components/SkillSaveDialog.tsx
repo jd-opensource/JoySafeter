@@ -143,9 +143,9 @@ export default function SkillSaveDialog({
       toastSuccess(editSkillId ? 'Skill updated successfully' : 'Skill saved to library')
       onOpenChange(false)
       onSaved?.(skillId)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to save skill:', err)
-      toastError(err?.message || 'Failed to save skill')
+      toastError(err instanceof Error ? err.message : 'Failed to save skill')
     } finally {
       setIsSaving(false)
     }

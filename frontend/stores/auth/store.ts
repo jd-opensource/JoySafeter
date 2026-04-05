@@ -104,11 +104,11 @@ export const useAuthStore = create<AuthState>()(
       }),
       // Version control for migrating old data
       version: 2,
-      migrate: (persistedState: any, version: number) => {
+      migrate: (persistedState: unknown, version: number) => {
         if (version < 2) {
           // Migrate from old version: clear possibly stored token
           return {
-            ...persistedState,
+            ...(persistedState as Record<string, unknown>),
             token: null, // Clear old token
           }
         }

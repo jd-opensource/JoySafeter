@@ -13,6 +13,7 @@ import type {
   ModeSelectionResult,
   SubmitResult,
   ValidationResult,
+  UploadedFile,
 } from './types'
 
 /**
@@ -57,7 +58,7 @@ export const agentModeHandler: ModeHandler = {
     }
   },
 
-  async onSubmit(input: string, files: any[], context: ModeContext): Promise<SubmitResult> {
+  async onSubmit(input: string, files: UploadedFile[], context: ModeContext): Promise<SubmitResult> {
     const { selectedAgentId } = context
 
     if (!selectedAgentId) {
@@ -74,7 +75,7 @@ export const agentModeHandler: ModeHandler = {
     }
   },
 
-  validate(_input: string, _files: any[]): ValidationResult {
+  validate(_input: string, _files: UploadedFile[]): ValidationResult {
     return { valid: true }
   },
 

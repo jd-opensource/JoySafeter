@@ -405,12 +405,12 @@ class StreamEventHandler:
                 try:
                     return obj.model_dump()
                 except Exception:
-                    pass
+                    logger.debug("model_dump() failed in SSE serializer", exc_info=True)
             if hasattr(obj, "dict"):
                 try:
                     return obj.dict()
                 except Exception:
-                    pass
+                    logger.debug("dict() failed in SSE serializer", exc_info=True)
             return str(obj)
 
         envelope = {

@@ -1,3 +1,5 @@
+import type { RouteDecisionEventData, LoopIterationEventData } from '@/services/chatBackend'
+
 /** Generate a short random ID for messages and temporary entities */
 export const generateId = () => Math.random().toString(36).substring(2, 11)
 
@@ -39,9 +41,9 @@ export interface MessageMetadata {
   lastNode?: string
   lastRunId?: string
   lastUpdate?: number
-  lastRouteDecision?: any
-  lastLoopIteration?: any
-  [key: string]: any // keep backwards compat
+  lastRouteDecision?: RouteDecisionEventData
+  lastLoopIteration?: LoopIterationEventData
+  [key: string]: unknown // keep backwards compat
 }
 
 export interface InterruptState {
@@ -65,9 +67,9 @@ export interface Message {
 export interface ToolCall {
   id: string
   name: string
-  args: Record<string, any>
+  args: Record<string, unknown>
   status: 'running' | 'completed' | 'failed'
-  result?: any
+  result?: unknown
   startTime: number
   endTime?: number
 }
@@ -83,7 +85,7 @@ export interface CanvasNode {
   isStreaming?: boolean
   createdAt: number
   toolCalls?: ToolCall[]
-  data?: any
+  data?: Record<string, unknown>
 }
 
 export interface Edge {

@@ -21,24 +21,24 @@ export interface UploadedFile {
  */
 export interface ModeContext {
   /** Workspace data */
-  workspaces: Array<{ id: string; type?: string; [key: string]: any }>
+  workspaces: Array<{ id: string; type?: string }>
   /** List of deployed agents */
-  deployedAgents: Array<{ id: string; name: string; [key: string]: any }>
+  deployedAgents: Array<{ id: string; name: string }>
   /** Currently selected agent ID */
   selectedAgentId?: string | null
   /** Personal workspace ID */
   personalWorkspaceId?: string | null
   /** Internationalization translation function */
-  t: (key: string, options?: any) => string
+  t: (key: string, options?: Record<string, unknown>) => string
   /** Router navigation function */
   router: {
     push: (path: string) => void
   }
   /** Query Client for cache management */
   queryClient: {
-    invalidateQueries: (options: { queryKey: any[] }) => void
-    refetchQueries?: (options: { queryKey: any[] }) => Promise<any>
-    getQueryData?: <T = unknown>(queryKey: any[]) => T | undefined
+    invalidateQueries: (options: { queryKey: unknown[] }) => void
+    refetchQueries?: (options: { queryKey: unknown[] }) => Promise<unknown>
+    getQueryData?: <T = unknown>(queryKey: unknown[]) => T | undefined
   }
 }
 
@@ -97,7 +97,7 @@ export interface ModeMetadata {
   /** Mode description */
   description: string
   /** Icon component */
-  icon: LucideIcon | React.ComponentType<any>
+  icon: LucideIcon | React.ComponentType<{ className?: string }>
   /** Mode type */
   type?: 'template' | 'simple' | 'agent'
   /** Template name (for template type) */
