@@ -5,13 +5,13 @@ Admin Sandbox Management API
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import ForbiddenException
+from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.common.response import success_response
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -31,7 +31,7 @@ async def _verify_sandbox_ownership(sandbox_id: str, current_user: User, db: Asy
     result = await db.execute(select(UserSandbox).where(UserSandbox.id == sandbox_id))
     sb = result.scalar_one_or_none()
     if not sb:
-        raise HTTPException(status_code=404, detail="Sandbox not found")
+        raise NotFoundException("Sandbox not found")
     if sb.user_id != str(current_user.id):
         raise ForbiddenException("Access denied")
 
@@ -156,7 +156,7 @@ async def get_sandbox(
     sb = result.scalar_one_or_none()
 
     if not sb:
-        raise HTTPException(status_code=404, detail="Sandbox not found")
+        raise NotFoundException("Sandbox not found")
 
     return SandboxResponse(
         id=sb.id,
@@ -190,14 +190,14 @@ async def update_sandbox(
     if body.image is not None:
         s = body.image.strip()
         if not s:
-            raise HTTPException(status_code=400, detail="image cannot be empty")
+            raise BadRequestException("image cannot be empty")
         if len(s) > 255:
-            raise HTTPException(status_code=400, detail="image must be at most 255 characters")
+            raise BadRequestException("image must be at most 255 characters")
         image_value = s
     service = SandboxManagerService(db)
     success = await service.update_sandbox_config(sandbox_id, image=image_value)
     if not success:
-        raise HTTPException(status_code=404, detail="Sandbox not found")
+        raise NotFoundException("Sandbox not found")
     return success_response(message="Sandbox config updated")
 
 
@@ -212,7 +212,7 @@ async def stop_sandbox(
     service = SandboxManagerService(db)
     success = await service.stop_sandbox(sandbox_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Sandbox not found or already stopped")
+        raise NotFoundException("Sandbox not found or already stopped")
 
     return success_response(message="Sandbox stopped successfully")
 
@@ -228,7 +228,7 @@ async def restart_sandbox(
     service = SandboxManagerService(db)
     success = await service.restart_sandbox(sandbox_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Sandbox not found")
+        raise NotFoundException("Sandbox not found")
 
     return success_response(message="Sandbox scheduled for restart")
 
@@ -244,7 +244,7 @@ async def rebuild_sandbox(
     service = SandboxManagerService(db)
     success = await service.rebuild_sandbox(sandbox_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Sandbox not found")
+        raise NotFoundException("Sandbox not found")
     return success_response(message="Sandbox rebuilt successfully")
 
 
@@ -259,6 +259,6 @@ async def delete_sandbox(
     service = SandboxManagerService(db)
     success = await service.delete_sandbox(sandbox_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Sandbox not found")
+        raise NotFoundException("Sandbox not found")
 
     return success_response(message="Sandbox deleted successfully")

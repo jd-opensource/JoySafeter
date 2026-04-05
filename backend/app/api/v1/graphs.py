@@ -6,14 +6,14 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import ForbiddenException, NotFoundException
+from app.common.exceptions import ForbiddenException, InternalServerException, NotFoundException
 
 # Import Copilot types from the new module
 from app.core.copilot import (
@@ -706,7 +706,7 @@ async def save_copilot_messages(
 
     except Exception as e:
         log.error(f"copilot.messages.save failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save messages: {str(e)}")
+        raise InternalServerException(f"Failed to save messages: {str(e)}")
 
 
 @router.post("/copilot/actions", response_model=CopilotResponse)

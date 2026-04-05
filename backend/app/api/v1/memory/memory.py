@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import Depends, HTTPException, Path, Query, Request
+from fastapi import Depends, Path, Query, Request
 from fastapi.routing import APIRouter
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,13 @@ from app.api.v1.memory.schemas import (
     UserMemorySchema,
 )
 from app.common.dependencies import get_current_user
+from app.common.exceptions import (
+    AppException,
+    BadRequestException,
+    InternalServerException,
+    NotFoundException,
+    ValidationException,
+)
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.schemas.memory import UserMemory
@@ -80,7 +87,7 @@ def parse_topics(
         return [topic.strip() for topic in topics.split(",") if topic.strip()]
 
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Invalid topics format: {e}")
+        raise ValidationException(f"Invalid topics format: {e}")
 
 
 @router.post(
@@ -135,7 +142,7 @@ async def create_memory(
     )
 
     if not user_memory:
-        raise HTTPException(status_code=500, detail="Failed to create memory")
+        raise InternalServerException("Failed to create memory")
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -161,7 +168,7 @@ async def delete_memory(
     db = MemoryService(db_session)
     success = await db.delete_user_memory(memory_id=memory_id, user_id=str(current_user.id))
     if not success:
-        raise HTTPException(status_code=404, detail=f"Memory with ID {memory_id} not found")
+        raise NotFoundException(f"Memory with ID {memory_id} not found")
     return None
 
 
@@ -186,7 +193,7 @@ async def delete_memories(
     current_user: User = Depends(get_current_user),
 ) -> None:
     if not request.memory_ids:
-        raise HTTPException(status_code=400, detail="memory_ids must not be empty")
+        raise BadRequestException("memory_ids must not be empty")
     db = MemoryService(db_session)
     await db.delete_user_memories(memory_ids=request.memory_ids, user_id=str(current_user.id))
     return None
@@ -278,7 +285,7 @@ async def get_memory(
 
     user_memory = await db.get_user_memory(memory_id=memory_id, user_id=str(current_user.id), deserialize=False)
     if not user_memory:
-        raise HTTPException(status_code=404, detail=f"Memory with ID {memory_id} not found")
+        raise NotFoundException(f"Memory with ID {memory_id} not found")
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -344,7 +351,7 @@ async def update_memory(
         deserialize=False,
     )
     if not user_memory:
-        raise HTTPException(status_code=500, detail="Failed to update memory")
+        raise InternalServerException("Failed to update memory")
 
     return UserMemorySchema.from_dict(_normalize_memory_dict(user_memory))  # type: ignore
 
@@ -376,9 +383,8 @@ async def optimize_memories(
 
         api_key, base_url, model_name = await LLMCredentialResolver.get_credentials(db=db_session)
         if not api_key or not model_name:
-            raise HTTPException(
-                status_code=400,
-                detail="No model configuration available. Go to Settings → Model Providers and add at least one API key.",
+            raise BadRequestException(
+                "No model configuration available. Go to Settings → Model Providers and add at least one API key.",
             )
 
         # Use the model factory to construct the correct model type for the provider
@@ -406,7 +412,7 @@ async def optimize_memories(
         user_id = request.user_id or str(current_user.id)
         memories_before = await memory_manager.aget_user_memories(user_id=user_id)
         if not memories_before:
-            raise HTTPException(status_code=404, detail=f"No memories found for user {user_id}")
+            raise NotFoundException(f"No memories found for user {user_id}")
 
         # Count tokens before optimization
         strategy = SummarizeStrategy()
@@ -456,8 +462,8 @@ async def optimize_memories(
             reduction_percentage=reduction_percentage,
         )
 
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"Failed to optimize memories for user {request.user_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to optimize memories: {str(e)}")
+        raise InternalServerException(f"Failed to optimize memories: {str(e)}")

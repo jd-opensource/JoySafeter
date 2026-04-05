@@ -7,11 +7,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, cast
 
-from fastapi import HTTPException, status
+from fastapi import status
 from loguru import logger
 from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.exceptions import AppException
 from app.core.agent.backends.constants import (
     DEFAULT_USER_SANDBOX_AUTO_REMOVE,
     DEFAULT_USER_SANDBOX_CPU_LIMIT,
@@ -20,6 +21,7 @@ from app.core.agent.backends.constants import (
     DEFAULT_USER_SANDBOX_MEMORY_LIMIT,
 )
 from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
+from app.models.enums import InstanceStatus
 from app.models.user_sandbox import UserSandbox
 from app.services.sandbox_pool import SandboxPool
 
@@ -80,7 +82,7 @@ class SandboxManagerService:
         return UserSandbox(
             id=str(uuid.uuid4()),
             user_id=user_id,
-            status="pending",
+            status=InstanceStatus.PENDING,
             image=DEFAULT_USER_SANDBOX_IMAGE,
             idle_timeout=DEFAULT_USER_SANDBOX_IDLE_TIMEOUT,
             cpu_limit=DEFAULT_USER_SANDBOX_CPU_LIMIT,
@@ -149,7 +151,7 @@ class SandboxManagerService:
                 container_id = adapter.get_container_id()
                 await self._update_status(
                     sandbox_record.id,
-                    "running",
+                    InstanceStatus.RUNNING,
                     container_id=container_id,
                     error_message=None,
                 )
@@ -167,7 +169,7 @@ class SandboxManagerService:
                     container_id = adapter.get_container_id()
                     await self._update_status(
                         sandbox_record.id,
-                        "running",
+                        InstanceStatus.RUNNING,
                         container_id=container_id,
                         error_message=None,
                     )
@@ -180,7 +182,7 @@ class SandboxManagerService:
 
         # flush_only=True keeps the row lock until container_id is written, preventing a second worker from reading container_id=None and creating a duplicate container
         try:
-            await self._update_status(sandbox_record.id, "creating", flush_only=True)
+            await self._update_status(sandbox_record.id, InstanceStatus.CREATING, flush_only=True)
 
             import os
 
@@ -204,7 +206,7 @@ class SandboxManagerService:
             container_id = adapter.get_container_id()
             await self._update_status(
                 sandbox_record.id,
-                "running",
+                InstanceStatus.RUNNING,
                 container_id=container_id,
                 error_message=None,
             )
@@ -213,9 +215,9 @@ class SandboxManagerService:
 
         except Exception as e:
             logger.error(f"Failed to start sandbox for user {user_id}: {e}")
-            await self._update_status(sandbox_record.id, "failed", error_message=str(e))
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Failed to start sandbox: {str(e)}"
+            await self._update_status(sandbox_record.id, InstanceStatus.FAILED, error_message=str(e))
+            raise AppException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, message=f"Failed to start sandbox: {str(e)}"
             )
 
     @staticmethod
@@ -279,7 +281,7 @@ class SandboxManagerService:
             values["container_id"] = container_id
         if error_message is not None:
             values["error_message"] = error_message
-        elif status == "running":
+        elif status == InstanceStatus.RUNNING:
             values["error_message"] = None
 
         await self.db.execute(update(UserSandbox).where(UserSandbox.id == sandbox_id).values(**values))
@@ -301,7 +303,7 @@ class SandboxManagerService:
         result = await self.db.execute(
             update(UserSandbox)
             .where(UserSandbox.id == sandbox_id)
-            .values(status="stopped", last_active_at=datetime.now(timezone.utc))
+            .values(status=InstanceStatus.STOPPED, last_active_at=datetime.now(timezone.utc))
         )
         await self.db.commit()
         return bool(cast(CursorResult, result).rowcount > 0)
@@ -319,7 +321,7 @@ class SandboxManagerService:
                 if not adapter.is_started():
                     adapter.start()
                     container_id = adapter.get_container_id()
-                    await self._update_status(sandbox_id, "running", container_id=container_id, error_message=None)
+                    await self._update_status(sandbox_id, InstanceStatus.RUNNING, container_id=container_id, error_message=None)
                 # Always release the active_count from pool.get()
                 await _sandbox_pool.release(sandbox_id)
                 return True
@@ -385,7 +387,7 @@ class SandboxManagerService:
 
         if evicted_ids:
             logger.info(f"Syncing status for evicted sandboxes: {evicted_ids}")
-            await self.db.execute(update(UserSandbox).where(UserSandbox.id.in_(evicted_ids)).values(status="stopped"))
+            await self.db.execute(update(UserSandbox).where(UserSandbox.id.in_(evicted_ids)).values(status=InstanceStatus.STOPPED))
             await self.db.commit()
 
         return len(evicted_ids)

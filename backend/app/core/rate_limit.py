@@ -7,7 +7,9 @@ import time
 from functools import wraps
 from typing import Callable, Optional
 
-from fastapi import HTTPException, Request
+from fastapi import Request
+
+from app.common.exceptions import AppException
 
 
 class RateLimiter:
@@ -133,9 +135,9 @@ def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Option
             # check rate limit
             if not _rate_limiter.is_allowed(rate_limit_key, max_requests, window_seconds):
                 remaining = _rate_limiter.get_remaining(rate_limit_key, max_requests, window_seconds)
-                raise HTTPException(
+                raise AppException(
                     status_code=429,
-                    detail=f"Rate limit exceeded. Try again in {window_seconds} seconds.",
+                    message=f"Rate limit exceeded. Try again in {window_seconds} seconds.",
                     headers={
                         "X-RateLimit-Limit": str(max_requests),
                         "X-RateLimit-Remaining": str(remaining),

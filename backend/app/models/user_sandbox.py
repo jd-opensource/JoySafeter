@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.models.enums import InstanceStatus
 
 if TYPE_CHECKING:
     from app.models.auth import AuthUser  # pragma: no cover
@@ -36,8 +37,7 @@ class UserSandbox(Base, TimestampMixin):
     # Docker container info
     container_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # status: pending, creating, running, stopped, failed, terminating
-    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default=InstanceStatus.PENDING, nullable=False)
 
     # image and runtime configuration
     image: Mapped[str] = mapped_column(String(255), default="python:3.12-slim", nullable=False)

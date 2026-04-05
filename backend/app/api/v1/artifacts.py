@@ -8,12 +8,13 @@ import mimetypes
 from functools import lru_cache
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse, PlainTextResponse
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
+from app.common.exceptions import AppException, BadRequestException, InternalServerException, NotFoundException
 from app.common.response import success_response
 from app.core.agent.artifacts import ArtifactResolver, FileInfo, RunInfo
 from app.core.database import get_db
@@ -90,7 +91,7 @@ async def download_artifact_file(
     """Download or preview a file from the run. Returns file with appropriate Content-Type."""
     path = resolver.get_file_path(str(current_user.id), thread_id, run_id, file_path)
     if path is None:
-        raise HTTPException(status_code=404, detail="File not found or path invalid")
+        raise NotFoundException("File not found or path invalid")
     filename = path.name
     media_type, _ = mimetypes.guess_type(str(path))
     return FileResponse(
@@ -113,13 +114,13 @@ async def live_read_file(
     service = SandboxManagerService(db)
     record = await service.get_user_sandbox_record(str(current_user.id))
     if not record:
-        raise HTTPException(status_code=404, detail="No sandbox found")
+        raise NotFoundException("No sandbox found")
 
     adapter = await _sandbox_pool.get(record.id)
     if not adapter or not adapter.is_started():
         if adapter:
             await _sandbox_pool.release(record.id)
-        raise HTTPException(status_code=404, detail="Sandbox not running")
+        raise NotFoundException("Sandbox not running")
 
     try:
         raw_read = getattr(adapter, "raw_read", None)
@@ -128,13 +129,13 @@ async def live_read_file(
         else:
             content = adapter.read(file_path)
         if content.startswith("[Error:") or content.startswith("Error:"):
-            raise HTTPException(status_code=404, detail=content)
+            raise NotFoundException(content)
         return PlainTextResponse(content)
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.warning(f"Live read failed for {file_path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to read file: {e}")
+        raise InternalServerException(f"Failed to read file: {e}")
     finally:
         await _sandbox_pool.release(record.id)
 
@@ -149,5 +150,5 @@ async def delete_artifact_run(
     """Delete all artifacts for the given run."""
     ok = resolver.delete_run(str(current_user.id), thread_id, run_id)
     if not ok:
-        raise HTTPException(status_code=400, detail="Delete failed or path invalid")
+        raise BadRequestException("Delete failed or path invalid")
     return success_response(message="Run artifacts deleted", data={"run_id": run_id})

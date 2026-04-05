@@ -23,6 +23,7 @@ from loguru import logger
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.enums import InstanceStatus
 from app.models.openclaw_instance import OpenClawInstance
 from app.services.base import BaseService
 
@@ -99,13 +100,13 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         """Get or create + start the user's OpenClaw container."""
         instance = await self.get_instance_by_user(user_id)
 
-        if instance and instance.status == "running":
+        if instance and instance.status == InstanceStatus.RUNNING:
             ok = await self._health_check(instance)
             if ok:
                 instance.last_active_at = datetime.now(timezone.utc)
                 await self.db.commit()
                 return instance
-            instance.status = "failed"
+            instance.status = InstanceStatus.FAILED
             instance.error_message = "Health check failed, restarting"
             await self.db.commit()
 
@@ -116,7 +117,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 name=f"openclaw-{user_id[:8]}",
-                status="pending",
+                status=InstanceStatus.PENDING,
                 gateway_port=port,
                 gateway_token=token,
             )
@@ -125,20 +126,20 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             await self.db.refresh(instance)
 
         try:
-            await self._update_status(instance.id, "starting")
+            await self._update_status(instance.id, InstanceStatus.STARTING)
             container_id = await self._create_container(instance, recreate=False)
-            await self._update_status(instance.id, "starting", container_id=container_id)
+            await self._update_status(instance.id, InstanceStatus.STARTING, container_id=container_id)
 
             # Sync skills into the OpenClaw container
             await self.sync_skills_to_container(user_id, container_id)
 
             await self._wait_for_gateway(instance)
-            await self._update_status(instance.id, "running", container_id=container_id)
+            await self._update_status(instance.id, InstanceStatus.RUNNING, container_id=container_id)
             await self.db.refresh(instance)
             return instance
         except Exception as e:
             logger.error(f"Failed to start OpenClaw instance for user {user_id}: {e}")
-            await self._update_status(instance.id, "failed", error_message=str(e))
+            await self._update_status(instance.id, InstanceStatus.FAILED, error_message=str(e))
             await self.db.refresh(instance)
             raise RuntimeError(f"Failed to start OpenClaw instance: {e}")
 
@@ -338,7 +339,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             except Exception as e:
                 logger.warning(f"Failed to stop container {instance.container_id}: {e}")
 
-        await self._update_status(instance.id, "stopped")
+        await self._update_status(instance.id, InstanceStatus.STOPPED)
         await self.db.refresh(instance)
         return instance
 
@@ -372,10 +373,10 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             return {"exists": False, "status": None}
 
         alive = False
-        if instance.status == "running":
+        if instance.status == InstanceStatus.RUNNING:
             alive = await self._health_check(instance)
             if not alive:
-                instance.status = "failed"
+                instance.status = InstanceStatus.FAILED
                 instance.error_message = "Health check failed"
                 await self.db.commit()
 
@@ -407,7 +408,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             values["container_id"] = container_id
         if error_message is not None:
             values["error_message"] = error_message
-        elif status in ("running", "starting"):
+        elif status in (InstanceStatus.RUNNING, InstanceStatus.STARTING):
             values["error_message"] = None
 
         await self.db.execute(update(OpenClawInstance).where(OpenClawInstance.id == instance_id).values(**values))
@@ -418,7 +419,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         import json
 
         instance = await self.get_instance_by_user(user_id)
-        if not instance or instance.status != "running" or not instance.container_id:
+        if not instance or instance.status != InstanceStatus.RUNNING or not instance.container_id:
             return False
 
         try:

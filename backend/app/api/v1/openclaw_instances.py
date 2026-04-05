@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
+from app.models.enums import InstanceStatus
 from app.services.openclaw_instance_service import OpenClawInstanceService
 
 router = APIRouter(prefix="/v1/openclaw/instances", tags=["OpenClaw Instances"])
@@ -122,7 +123,7 @@ async def sync_skills(
     service = OpenClawInstanceService(db)
     instance = await service.get_instance_by_user(str(current_user.id))
 
-    if not instance or not instance.container_id or instance.status != "running":
+    if not instance or not instance.container_id or instance.status != InstanceStatus.RUNNING:
         return {"success": False, "error": "Instance is not running"}
 
     synced_count = await service.sync_skills_to_container(str(current_user.id), instance.container_id)

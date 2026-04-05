@@ -23,6 +23,7 @@ from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.core.settings import settings
 from app.models.auth import AuthUser as User
+from app.models.enums import InstanceStatus
 from app.services.openclaw_instance_service import OpenClawInstanceService
 
 router = APIRouter(prefix="/v1/openclaw/proxy", tags=["OpenClaw Proxy"])
@@ -119,7 +120,7 @@ async def proxy_to_openclaw(
     service = OpenClawInstanceService(db)
     instance = await service.get_instance_by_user(str(current_user.id))
 
-    if not instance or instance.status != "running":
+    if not instance or instance.status != InstanceStatus.RUNNING:
         return Response(content="OpenClaw instance not running", status_code=503)
 
     base_url = service.get_gateway_url(instance)

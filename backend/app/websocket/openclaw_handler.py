@@ -15,6 +15,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
 
 from app.core.database import AsyncSessionLocal
+from app.models.enums import InstanceStatus
 from app.services.openclaw_instance_service import OpenClawInstanceService
 
 
@@ -34,7 +35,7 @@ class OpenClawBridgeHandler:
             service = OpenClawInstanceService(db)
             instance = await service.get_instance_by_user(user_id)
 
-        if not instance or instance.status != "running":
+        if not instance or instance.status != InstanceStatus.RUNNING:
             await ws.close(code=1008, reason="No running OpenClaw instance")
             return
 

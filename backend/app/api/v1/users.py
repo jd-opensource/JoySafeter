@@ -4,13 +4,13 @@ User API (path: /api/v1/users)
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import NotFoundException
+from app.common.exceptions import ForbiddenException, NotFoundException
 from app.common.response import success_response
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -216,7 +216,7 @@ async def get_user(
 ):
     """Get user by ID (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise ForbiddenException("Forbidden")
 
     service = UserService(db)
     user = await service.get_user_by_id(user_id)
@@ -238,7 +238,7 @@ async def list_users(
 ):
     """Search/list users (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise ForbiddenException("Forbidden")
 
     service = UserService(db)
     if keyword:
@@ -260,7 +260,7 @@ async def create_user(
 ):
     """Create a new user (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise ForbiddenException("Forbidden")
 
     service = UserService(db)
     user = await service.create_user(
@@ -286,7 +286,7 @@ async def update_user(
 ):
     """Update user info (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise ForbiddenException("Forbidden")
 
     service = UserService(db)
     user = await service.get_user_by_id(user_id)
@@ -317,7 +317,7 @@ async def delete_user(
 ):
     """Delete a user (requires superuser permission)."""
     if not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise ForbiddenException("Forbidden")
 
     service = UserService(db)
     await service.delete_user(user_id)

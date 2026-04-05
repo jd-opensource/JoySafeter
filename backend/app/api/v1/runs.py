@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
+from app.common.exceptions import BadRequestException
 from app.core.database import get_db
 from app.models.agent_run import AgentRun, AgentRunStatus
 from app.schemas import BaseResponse
@@ -155,7 +156,7 @@ async def create_run(
             input=request.input,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise BadRequestException(str(exc))
     return BaseResponse(
         success=True,
         code=200,

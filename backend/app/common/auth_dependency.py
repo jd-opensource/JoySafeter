@@ -67,9 +67,9 @@ async def get_current_user_or_token(
 
     # Fall through to existing session/JWT auth
     if request is None:
-        from fastapi import HTTPException
+        from app.common.exceptions import UnauthorizedException
 
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise UnauthorizedException("Authentication required")
     user = await get_current_user(token=token, request=request, db=db)
     return AuthContext(user=user, token_scopes=None)
 

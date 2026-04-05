@@ -237,6 +237,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("COOKIE_SAMESITE", "AUTH_COOKIE_SAMESITE"),
         description="Cookie SameSite attribute (lax, strict, none)",
     )
+    cookie_max_age: int = Field(
+        default=259200,  # 3 days in seconds
+        validation_alias=AliasChoices("COOKIE_MAX_AGE", "AUTH_COOKIE_MAX_AGE"),
+        description="Cookie max-age in seconds (default: 3 days)",
+    )
 
     @property
     def cookie_secure_effective(self) -> bool:
@@ -335,7 +340,7 @@ class Settings(BaseSettings):
 
     # UV Package Manager Configuration
     uv_index_url: str = Field(
-        default="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple",
+        default="https://pypi.org/simple",
         validation_alias=AliasChoices("UV_INDEX_URL", "PIP_INDEX_URL"),
         description="PyPI index URL for UV and pip",
     )

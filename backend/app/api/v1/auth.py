@@ -4,13 +4,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional, cast
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import UnauthorizedException
+from app.common.exceptions import AppException, UnauthorizedException
 from app.common.response import success_response
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import auth_rate_limit, strict_rate_limit
@@ -136,7 +136,7 @@ async def sign_in_with_email(
     access_token = result.get("access_token")
     refresh_token = result.get("refresh_token")
     csrf_token = result.get("csrf_token")
-    expires_in = result.get("expires_in", 259200)
+    expires_in = result.get("expires_in", settings.cookie_max_age)
 
     if access_token:
         response.set_cookie(
@@ -217,7 +217,7 @@ async def logout(
         try:
             current_user = await _get_current_auth_user(token, db, request)
             user_id = current_user.id
-        except (UnauthorizedException, HTTPException):
+        except AppException:
             logger.debug("Failed to resolve current user during logout", exc_info=True)
 
         if refresh_token and user_id:
@@ -357,7 +357,7 @@ async def get_session(
         # Pass request to read token from Cookie
         current_user = await _get_current_auth_user(token, db, request)
         return success_response(data={"user": _user_to_response(current_user)})
-    except (UnauthorizedException, HTTPException):
+    except AppException:
         # Return null user when unauthenticated
         return success_response(data={"user": None})
 
@@ -437,7 +437,7 @@ async def refresh_token(
 
 def _extract_bearer(auth_header: Optional[str]) -> str:
     if not auth_header or not auth_header.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing bearer token")
+        raise UnauthorizedException("Missing bearer token")
     return auth_header.split(" ", 1)[1]
 
 
@@ -450,7 +450,7 @@ async def _get_current_auth_user(
     if auth_header:
         try:
             token = _extract_bearer(auth_header)
-        except HTTPException:
+        except UnauthorizedException:
             logger.debug("Failed to extract bearer token from Authorization header", exc_info=True)
 
     if not token and request:

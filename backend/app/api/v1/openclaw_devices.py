@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
+from app.models.enums import InstanceStatus
 from app.services.openclaw_instance_service import OpenClawInstanceService
 
 router = APIRouter(prefix="/v1/openclaw/devices", tags=["OpenClaw Devices"])
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/v1/openclaw/devices", tags=["OpenClaw Devices"])
 async def _get_running_instance(db: AsyncSession, user_id: str):
     service = OpenClawInstanceService(db)
     instance = await service.get_instance_by_user(user_id)
-    if not instance or instance.status != "running" or not instance.container_id:
+    if not instance or instance.status != InstanceStatus.RUNNING or not instance.container_id:
         return None
     return instance
 

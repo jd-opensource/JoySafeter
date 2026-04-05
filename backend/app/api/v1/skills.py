@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.dependencies import get_current_user, get_current_user_optional
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
+from app.models.enums import InstanceStatus
 from app.schemas.skill import (
     SkillCreate,
     SkillFileCreate,
@@ -31,7 +32,7 @@ async def _trigger_openclaw_skill_sync(user_id: str, db: AsyncSession):
     try:
         instance_service = OpenClawInstanceService(db)
         instance = await instance_service.get_instance_by_user(user_id)
-        if instance and instance.container_id and instance.status == "running":
+        if instance and instance.container_id and instance.status == InstanceStatus.RUNNING:
             await instance_service.sync_skills_to_container(user_id, instance.container_id)
     except Exception as e:
         logger.error(f"Failed to trigger openclaw skill sync for user {user_id}: {e}", exc_info=True)
@@ -191,7 +192,7 @@ async def delete_skill(
 
                 instance_service = OpenClawInstanceService(db)
                 instance = await instance_service.get_instance_by_user(current_user.id)
-                if instance and instance.container_id and instance.status == "running":
+                if instance and instance.container_id and instance.status == InstanceStatus.RUNNING:
                     await instance_service.delete_skill_from_container(
                         current_user.id, instance.container_id, skill_name
                     )

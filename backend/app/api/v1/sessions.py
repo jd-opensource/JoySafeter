@@ -30,10 +30,11 @@ Error codes:
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
+from app.common.exceptions import BadRequestException, NotFoundException
 from app.core.database import get_db
 from app.schemas.common import SessionCreate, SessionMessageResponse, SessionResponse
 from app.services.session_service import SessionService
@@ -62,7 +63,7 @@ async def create_session(
     try:
         return await session_service.create_session(session_data, user_id=current_user.id)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise BadRequestException(str(e))
 
 
 @router.get("/", response_model=List[SessionResponse])
@@ -74,7 +75,7 @@ async def get_sessions(
     try:
         return await session_service.get_user_sessions(user_id=current_user.id)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise BadRequestException(str(e))
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
@@ -86,7 +87,7 @@ async def get_session(
     """Get a specific session."""
     session = await session_service.get_session_for_user(session_id, user_id=current_user.id)
     if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise NotFoundException("Session not found")
     return session
 
 
@@ -101,10 +102,10 @@ async def update_session_title(
     try:
         updated_session = await session_service.update_session_title(session_id, title, user_id=current_user.id)
         if not updated_session:
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise NotFoundException("Session not found")
         return updated_session
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise BadRequestException(str(e))
 
 
 @router.delete("/{session_id}")
@@ -117,10 +118,10 @@ async def delete_session(
     try:
         success = await session_service.delete_session(session_id, user_id=current_user.id)
         if not success:
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise NotFoundException("Session not found")
         return {"success": True, "message": "Session deleted successfully"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise BadRequestException(str(e))
 
 
 @router.get("/{session_id}/messages", response_model=List[SessionMessageResponse])
@@ -145,4 +146,4 @@ async def get_session_messages(
             for msg in messages
         ]
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise BadRequestException(str(e))

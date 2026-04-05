@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.models.enums import InstanceStatus
 
 if TYPE_CHECKING:
     from app.models.auth import AuthUser
@@ -29,7 +30,7 @@ class OpenClawInstance(Base, TimestampMixin):
         String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default=InstanceStatus.PENDING, nullable=False)
     container_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     gateway_port: Mapped[int] = mapped_column(Integer, nullable=False)
     gateway_token: Mapped[str] = mapped_column(String(512), nullable=False)
