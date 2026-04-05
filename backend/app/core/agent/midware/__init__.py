@@ -1,5 +1,5 @@
 """
-Middleware包初始化文件
+Middleware package initialization.
 """
 
 from .logging import LoggingMiddleware

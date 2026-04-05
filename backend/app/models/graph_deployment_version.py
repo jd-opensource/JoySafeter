@@ -1,5 +1,5 @@
 """
-Graph 部署版本模型
+Graph deployment version model
 """
 
 import uuid
@@ -21,11 +21,11 @@ def utc_now():
 
 
 class GraphDeploymentVersion(BaseModel):
-    """Agent Graph 部署版本
+    """Agent Graph deployment version.
 
-    - 每次部署创建新版本，版本号自动递增
-    - 同时只有一个活跃版本 (is_active=True)
-    - 存储完整的图状态快照 (nodes + edges + variables)
+    - Each deployment creates a new version with an auto-incrementing version number
+    - Only one version is active at a time (is_active=True)
+    - Store a full graph state snapshot (nodes + edges + variables)
     """
 
     __tablename__ = "graph_deployment_version"

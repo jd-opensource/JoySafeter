@@ -14,7 +14,7 @@ from .base import BaseRepository
 
 
 class CopilotChatRepository(BaseRepository[CopilotChat]):
-    """CopilotChat 数据访问：按 graph_id + user_id 查询、追加消息、删除。"""
+    """CopilotChat data access: query by graph_id + user_id, append messages, delete."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(CopilotChat, db)

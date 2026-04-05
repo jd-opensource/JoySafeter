@@ -1,5 +1,5 @@
 """
-文件存储相关模型
+File storage models
 """
 
 import uuid
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class WorkspaceFile(BaseModel):
-    """工作空间文件（旧/简化表）"""
+    """Workspace file (legacy/simplified table)."""
 
     __tablename__ = "workspace_file"
 
@@ -52,7 +52,7 @@ class WorkspaceFile(BaseModel):
 
 
 class WorkspaceStoredFile(BaseModel):
-    """统一文件存储表（多上下文）"""
+    """Unified file storage table (multi-context)."""
 
     __tablename__ = "workspace_files"
 

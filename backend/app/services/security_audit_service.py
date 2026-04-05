@@ -1,5 +1,5 @@
 """
-安全审计服务
+Security audit service.
 """
 
 from datetime import datetime, timezone
@@ -13,7 +13,7 @@ from app.services.base import BaseService
 
 
 class SecurityAuditService(BaseService):
-    """安全审计日志服务"""
+    """Security audit log service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -33,9 +33,9 @@ class SecurityAuditService(BaseService):
         details: Optional[Dict[str, Any]] = None,
     ) -> SecurityAuditLog:
         """
-        记录安全事件
+        Record a security event.
 
-        事件类型示例：
+        Event type examples:
         - login_success, login_failure, login_blocked
         - logout
         - password_change, password_reset_request, password_reset_success
@@ -70,7 +70,7 @@ class SecurityAuditService(BaseService):
         limit: int = 100,
         event_type: Optional[str] = None,
     ) -> list[SecurityAuditLog]:
-        """获取用户的安全审计日志"""
+        """Get security audit logs for a user."""
         query = select(SecurityAuditLog).where(SecurityAuditLog.user_id == user_id)
 
         if event_type:
@@ -87,19 +87,19 @@ class SecurityAuditService(BaseService):
         hours: int = 24,
     ) -> list[Dict[str, Any]]:
         """
-        检测用户异常行为
+        Detect anomalous user behavior.
 
-        异常检测规则：
-        - 短时间内多次登录失败
-        - 新设备登录
-        - 新地理位置登录
-        - 异常时间登录（如凌晨3点）
+        Anomaly detection rules:
+        - Multiple failed logins in a short period
+        - Login from a new device
+        - Login from a new geographic location
+        - Login at unusual hours (e.g. 3 AM)
         """
         from datetime import timedelta
 
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-        # 获取最近的安全事件
+        # fetch recent security events
         query = (
             select(SecurityAuditLog)
             .where(
@@ -114,7 +114,7 @@ class SecurityAuditService(BaseService):
 
         anomalies = []
 
-        # 检测：多次登录失败
+        # detect: multiple failed logins
         failed_logins = [log for log in logs if log.event_type == "login_failure"]
         if len(failed_logins) >= 3:
             anomalies.append(
@@ -126,13 +126,13 @@ class SecurityAuditService(BaseService):
                 }
             )
 
-        # 检测：新设备登录
-        # 这里需要与用户历史设备对比，简化实现
+        # detect: new device login
+        # simplified — requires comparison with user's device history
         successful_logins = [log for log in logs if log.event_type == "login_success"]
         if successful_logins:
             latest_login = successful_logins[0]
             if latest_login.device_fingerprint:
-                # 检查是否是已知设备（简化：需要设备历史表）
+                # check if this is a known device (simplified: needs a device history table)
                 anomalies.append(
                     {
                         "type": "new_device_login",

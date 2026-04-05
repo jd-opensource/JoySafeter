@@ -6,9 +6,9 @@ import { useEffect } from 'react'
 import { useSession } from '@/lib/auth/auth-client'
 
 /**
- * 根页面 - 根据登录状态跳转
- * 已登录 → /chat
- * 未登录 → /signin
+ * Root page - redirects based on auth status
+ * Logged in -> /chat
+ * Not logged in -> /signin
  */
 export default function Page() {
   const router = useRouter()

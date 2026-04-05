@@ -238,7 +238,7 @@ export function useDeleteWorkspace() {
       if (error instanceof Error) {
         errorMessage = error.message
         // Check if it's a personal space deletion error (backend returns Chinese message)
-        if (errorMessage.includes('个人空间不允许删除')) {
+        if (errorMessage.includes('Personal workspace cannot be deleted')) {
           // Use i18n to get translated message
           errorMessage = i18n.t('workspace.personalSpaceCannotBeDeleted')
         }
@@ -282,7 +282,7 @@ export function useDuplicateWorkspace() {
       if (error instanceof Error) {
         errorMessage = error.message
         // Check if it's a personal space duplication error
-        if (errorMessage.includes('个人空间不允许复制')) {
+        if (errorMessage.includes('Personal workspace cannot be duplicated')) {
           errorMessage =
             i18n.t('workspace.personalSpaceCannotBeDuplicated') ||
             'Personal space cannot be duplicated'

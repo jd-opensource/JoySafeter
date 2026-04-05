@@ -1,5 +1,5 @@
 """
-模型凭据模型
+Model credential model
 """
 
 import uuid
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 class ModelCredential(BaseModel):
-    """模型凭据表"""
+    """Model credential table."""
 
     __tablename__ = "model_credential"
 
@@ -27,36 +27,36 @@ class ModelCredential(BaseModel):
         String(255),
         ForeignKey("user.id", ondelete="CASCADE"),
         nullable=True,
-        comment="用户ID，如果为None则为全局认证信息",
+        comment="user ID; NULL means global credential",
     )
     workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=True,
-        comment="工作空间ID，如果为None则为用户级凭据",
+        comment="workspace ID; NULL means user-level credential",
     )
     provider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_provider.id", ondelete="CASCADE"),
         nullable=False,
-        comment="供应商ID",
+        comment="provider ID",
     )
 
-    # 加密存储的凭据（加密字符串）
+    # encrypted credential (encrypted string)
     credentials: Mapped[str] = mapped_column(
         String(4096),
         nullable=False,
-        comment="加密存储的凭据（base64编码）",
+        comment="encrypted credential (base64-encoded)",
     )
 
-    # 凭据验证状态
-    is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="凭据是否有效")
+    # credential validation state
+    is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="whether credential is valid")
     last_validated_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, comment="最后验证时间"
+        DateTime(timezone=True), nullable=True, comment="last validation time"
     )
-    validation_error: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="验证错误信息")
+    validation_error: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="validation error message")
 
-    # 关系
+    # relationships
     provider: Mapped[Optional["ModelProvider"]] = relationship(
         "ModelProvider", back_populates="credentials", lazy="selectin"
     )
@@ -68,6 +68,6 @@ class ModelCredential(BaseModel):
         Index("model_credential_workspace_id_idx", "workspace_id"),
         Index("model_credential_provider_id_idx", "provider_id"),
         Index("model_credential_user_provider_idx", "user_id", "provider_id"),
-        # 确保同一用户/工作空间对同一供应商只有一条凭据
+        # ensure one credential per user/workspace per provider
         CheckConstraint("(workspace_id IS NULL) OR (workspace_id IS NOT NULL)", name="model_credential_scope_check"),
     )

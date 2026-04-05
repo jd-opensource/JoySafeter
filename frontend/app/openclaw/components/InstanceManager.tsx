@@ -69,7 +69,7 @@ export function InstanceManager() {
       <Card>
         <CardContent className="flex items-center justify-center py-12">
           <Loader2 className="mr-2 h-5 w-5 animate-spin text-[var(--text-secondary)]" />
-          <span className="text-sm text-[var(--text-secondary)]">加载实例状态...</span>
+          <span className="text-sm text-[var(--text-secondary)]">Loading instance status...</span>
         </CardContent>
       </Card>
     )
@@ -79,12 +79,12 @@ export function InstanceManager() {
     return (
       <Card>
         <CardHeader className="p-4 pb-2">
-          <CardTitle className="text-sm font-medium">我的 OpenClaw 实例</CardTitle>
+          <CardTitle className="text-sm font-medium">My OpenClaw Instance</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <Server className="mb-3 h-8 w-8 text-[var(--text-tertiary)]" />
           <p className="mb-4 text-sm text-[var(--text-secondary)]">
-            你还没有 OpenClaw 实例，点击下方按钮启动。
+            You don&apos;t have an OpenClaw instance yet. Click the button below to start one.
           </p>
           <Button onClick={() => startMutation.mutate()} disabled={isAnyLoading}>
             {startMutation.isPending ? (
@@ -92,7 +92,7 @@ export function InstanceManager() {
             ) : (
               <Play className="mr-1.5 h-4 w-4" />
             )}
-            启动实例
+            Start Instance
           </Button>
         </CardContent>
       </Card>
@@ -104,7 +104,7 @@ export function InstanceManager() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-        <CardTitle className="text-sm font-medium">我的 OpenClaw 实例</CardTitle>
+        <CardTitle className="text-sm font-medium">My OpenClaw Instance</CardTitle>
         <Badge className={cn('text-[10px]', statusStyles[status] ?? statusStyles.failed)}>
           {status}
         </Badge>
@@ -114,7 +114,7 @@ export function InstanceManager() {
           <div className="flex items-center gap-2">
             <Activity className="h-3.5 w-3.5" />
             <span>
-              端口: {instance.gatewayPort} &nbsp;|&nbsp; 容器: {instance.containerId ?? '-'}
+              Port: {instance.gatewayPort} &nbsp;|&nbsp; Container: {instance.containerId ?? '-'}
             </span>
           </div>
           {instance.alive !== undefined && (
@@ -125,12 +125,12 @@ export function InstanceManager() {
                   instance.alive ? 'bg-green-500' : 'bg-red-500',
                 )}
               />
-              <span>Gateway {instance.alive ? '在线' : '离线'}</span>
+              <span>Gateway {instance.alive ? 'Online' : 'Offline'}</span>
             </div>
           )}
           {instance.lastActiveAt && (
             <div className="text-[10px] opacity-60">
-              最后活跃: {new Date(instance.lastActiveAt).toLocaleString()}
+              Last active: {new Date(instance.lastActiveAt).toLocaleString()}
             </div>
           )}
           {instance.errorMessage && (
@@ -146,7 +146,7 @@ export function InstanceManager() {
               ) : (
                 <Play className="mr-1 h-3.5 w-3.5" />
               )}
-              启动
+              Start
             </Button>
           )}
           {status === 'running' && (
@@ -161,7 +161,7 @@ export function InstanceManager() {
               ) : (
                 <Power className="mr-1 h-3.5 w-3.5" />
               )}
-              停止
+              Stop
             </Button>
           )}
           <Button
@@ -175,7 +175,7 @@ export function InstanceManager() {
             ) : (
               <RefreshCw className="mr-1 h-3.5 w-3.5" />
             )}
-            重启
+            Restart
           </Button>
           <Button
             size="sm"
@@ -189,7 +189,7 @@ export function InstanceManager() {
             ) : (
               <Trash2 className="mr-1 h-3.5 w-3.5" />
             )}
-            删除
+            Delete
           </Button>
         </div>
       </CardContent>

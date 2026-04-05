@@ -76,9 +76,9 @@ class CopilotService:
         """
         self.user_id = user_id
         self.db = db
-        # llm_model 将在实际使用时从数据库获取（如果有节点配置则使用节点配置，否则使用默认模型）
-        # 这里只保存传入的值，如果为 None，将在 generate_actions 中从数据库获取默认模型
-        self.llm_model = llm_model  # 不再使用 settings.openai_model
+        # llm_model is resolved at runtime from the DB (node config takes precedence, then default model)
+        # only store the passed-in value here; if None, generate_actions will fetch the default model
+        self.llm_model = llm_model  # no longer uses settings.openai_model
         self.api_key = api_key
         self.base_url = base_url
 
@@ -1091,7 +1091,6 @@ class CopilotService:
                 )
                 if final_actions:
                     await self._persist_graph_from_actions(graph_id=graph_id, final_actions=final_actions)
-            # logger.info(f"[CopilotService] Async task completed successfully for session_id={session_id}, graph_id={graph_id}， actions={json.dumps(final_actions) if final_actions else 0}")
 
             # Calculate execution time
             execution_time = time.time() - start_time

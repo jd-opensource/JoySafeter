@@ -1,4 +1,4 @@
-"""Auth Session 服务 - 管理用户会话生命周期"""
+"""Auth session service — manage user session lifecycle."""
 
 import uuid
 from datetime import datetime, timedelta
@@ -16,7 +16,7 @@ from app.utils.datetime import utc_now
 
 
 class AuthSessionService(BaseService):
-    """Session 管理服务"""
+    """Session management service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -34,7 +34,7 @@ class AuthSessionService(BaseService):
         stripe_customer_id: Optional[str] = None,
         is_super_user: bool = False,
     ) -> AuthUser:
-        """确保用户存在，不存在则创建；存在则同步关键字段"""
+        """Ensure the user exists; create if missing, otherwise sync key fields."""
         user = await self.user_repo.get_by_email(email)
         if user:
             updated = False
@@ -81,7 +81,7 @@ class AuthSessionService(BaseService):
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
     ) -> AuthSession:
-        """创建会话并自动绑定活跃组织"""
+        """Create a session and automatically bind the active organization."""
         MAX_SESSIONS = 10
         existing_sessions = await self.list_user_sessions(user.id)
 
@@ -105,7 +105,7 @@ class AuthSessionService(BaseService):
         return session
 
     async def get_session_by_token(self, token: str) -> Optional[AuthSession]:
-        """获取有效会话，实现滑动过期机制"""
+        """Get a valid session, implementing sliding expiration."""
         session = await self.session_repo.get_by_token(token)
         if not session:
             return None
@@ -140,13 +140,13 @@ class AuthSessionService(BaseService):
         return session
 
     async def invalidate_session(self, token: str) -> bool:
-        """失效会话"""
+        """Invalidate a session."""
         deleted = await self.session_repo.delete_by_token(token)
         await self.commit()
         return deleted > 0
 
     async def touch_session(self, token: str) -> Optional[AuthSession]:
-        """刷新会话更新时间"""
+        """Refresh the session updated_at timestamp."""
         session = await self.session_repo.get_by_token(token)
         if not session:
             return None
@@ -156,20 +156,20 @@ class AuthSessionService(BaseService):
         return session
 
     async def purge_expired(self) -> int:
-        """批量清理过期会话"""
+        """Purge expired sessions in bulk."""
         deleted = await self.session_repo.purge_expired(utc_now())
         await self.commit()
         return deleted
 
     async def list_user_sessions(self, user_id: str) -> list[AuthSession]:
-        """列出用户所有会话"""
+        """List all sessions for a user."""
         result = await self.db.execute(
             select(AuthSession).where(AuthSession.user_id == user_id).order_by(AuthSession.updated_at.desc())
         )
         return list(result.scalars().all())
 
     async def extend_session(self, token: str, new_expires_at: datetime) -> Optional[AuthSession]:
-        """手动延长会话过期时间"""
+        """Manually extend the session expiration time."""
         session = await self.session_repo.get_by_token(token)
         if not session:
             return None
@@ -179,6 +179,6 @@ class AuthSessionService(BaseService):
         return session
 
     async def _resolve_active_org(self, user_id: str) -> Optional[str]:
-        """获取用户所属的首个组织"""
+        """Get the first organization the user belongs to."""
         result = await self.db.execute(select(Member.organization_id).where(Member.user_id == user_id).limit(1))
         return result.scalar_one_or_none()

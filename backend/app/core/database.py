@@ -1,6 +1,4 @@
-"""
-数据库配置
-"""
+"""Database configuration."""
 
 from typing import AsyncGenerator
 
@@ -10,7 +8,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from .settings import settings
 
-# 命名约定
+# naming convention
 convention = {
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
@@ -28,25 +26,25 @@ class Base(DeclarativeBase):
     metadata = metadata
 
 
-# 创建异步引擎
+# async engine
 engine = create_async_engine(
     settings.database_url,
     echo=settings.database_echo,
     pool_size=settings.database_pool_size,
     max_overflow=settings.database_max_overflow,
     pool_pre_ping=True,
-    pool_recycle=3600,  # 1小时后回收连接
-    pool_timeout=30,  # 获取连接超时时间（秒）
+    pool_recycle=3600,  # recycle connections after 1 hour
+    pool_timeout=30,  # connection acquisition timeout (seconds)
     connect_args={
         "server_settings": {
             "application_name": "agent-platform",
         },
-        "command_timeout": 60,  # 命令超时时间（秒）
-        "timeout": 10,  # 连接超时时间（秒）
+        "command_timeout": 60,  # query timeout (seconds)
+        "timeout": 10,  # connection timeout (seconds)
     },
 )
 
-# 创建异步会话工厂
+# async session factory
 async_session_factory = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -54,25 +52,23 @@ async_session_factory = async_sessionmaker(
     autoflush=False,
 )
 
-# 向后兼容别名：旧代码使用 AsyncSessionLocal()
-# async_sessionmaker 本身是可调用的，调用后返回 AsyncSession
+# backward-compatible alias: legacy code uses AsyncSessionLocal()
+# async_sessionmaker is callable — calling it returns an AsyncSession
 AsyncSessionLocal = async_session_factory
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """获取数据库会话
+    “””Get a database session.
 
-    统一规范（推荐）：
-    - 依赖只负责创建/关闭会话，以及在异常时回滚；
-    - 业务代码对“写操作”显式调用 commit()/rollback()（或使用 `async with session.begin():`）。
-
-    说明：此前这里会在请求结束时自动 commit，容易造成事务边界不清晰、读请求也产生无意义的 commit。
-    """
+    Convention:
+    - This dependency only creates/closes the session and rolls back on exception.
+    - Business code must explicitly call commit()/rollback() (or use `async with session.begin():`).
+    “””
     async with async_session_factory() as session:
         try:
             yield session
         except Exception:
-            # 若业务层已显式 commit，则可能不在事务中；此处仅在有事务时回滚
+            # only rollback if still inside a transaction
             if session.in_transaction():
                 await session.rollback()
             raise
@@ -81,11 +77,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db():
-    """初始化数据库表"""
+    """Initialize database tables."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db():
-    """关闭数据库连接"""
+    """Close database connections."""
     await engine.dispose()

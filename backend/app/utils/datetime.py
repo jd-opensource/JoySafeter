@@ -1,7 +1,7 @@
 """
-日期时间工具函数
+Date/time utility functions.
 
-提供时区感知的日期时间辅助函数
+Provide timezone-aware datetime helpers.
 """
 
 from datetime import UTC, datetime
@@ -9,12 +9,12 @@ from datetime import UTC, datetime
 
 def utc_now() -> datetime:
     """
-    获取当前 UTC 时间（时区感知）
+    Return the current UTC time (timezone-aware).
 
-    替代已弃用的 datetime.utcnow()，使用 datetime.now(UTC) 实现。
+    Replace the deprecated datetime.utcnow() with datetime.now(UTC).
 
     Returns:
-        datetime: 当前 UTC 时间，带时区信息
+        datetime: current UTC time with timezone info
 
     Example:
         >>> from app.utils.datetime import utc_now

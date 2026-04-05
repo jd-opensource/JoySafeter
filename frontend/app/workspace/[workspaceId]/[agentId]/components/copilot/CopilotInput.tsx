@@ -73,7 +73,7 @@ export function CopilotInput({
 
   return (
     <div className="flex-shrink-0 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] px-1 py-0 backdrop-blur">
-      {/* AI 自动完善 + Mode selection in one row */}
+      {/* AI auto-refine + Mode selection in one row */}
       <div className="mb-0.25 no-scrollbar flex min-h-0 items-center gap-1 overflow-x-auto pb-0.5">
         <button
           type="button"
@@ -111,7 +111,7 @@ export function CopilotInput({
               disabled={loading || executingActions}
             >
               <SelectTrigger className="h-6 min-w-[6rem] max-w-[8rem] border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
-                <SelectValue placeholder={t('workspace.selectModel', { defaultValue: '选择模型' })} />
+                <SelectValue placeholder={t('workspace.selectModel', { defaultValue: 'Select model' })} />
               </SelectTrigger>
               <SelectContent>
                 {availableModels.map((m) => (
@@ -123,7 +123,7 @@ export function CopilotInput({
             </Select>
           </div>
         )}
-        {/* Reset 放置在最右侧 */}
+        {/* Reset placed at the far right */}
         {messagesCount > 1 && (
           <span className="ml-auto flex-shrink-0">
             <TooltipProvider>

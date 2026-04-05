@@ -1,5 +1,5 @@
 """
-应用配置
+Application configuration.
 """
 
 import os
@@ -11,14 +11,14 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine.url import make_url
 
-# 获取项目根目录（backend 目录）
-# 从 app/core/settings.py 向上两级到 backend/
+# get project root directory (backend directory)
+# from app/core/settings.py go up two levels to backend/
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_FILE = BASE_DIR / ".env"
 
 
 def _is_tcp_port_open(host: str, port: int, timeout_seconds: float = 0.5) -> bool:
-    """检查 TCP 端口是否开放"""
+    """Check whether a TCP port is open."""
     try:
         with socket.create_connection((host, port), timeout=timeout_seconds):
             return True
@@ -27,7 +27,7 @@ def _is_tcp_port_open(host: str, port: int, timeout_seconds: float = 0.5) -> boo
 
 
 class Settings(BaseSettings):
-    """应用配置"""
+    """Application configuration."""
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
@@ -100,32 +100,32 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """
-        从 POSTGRES_* 环境变量构建数据库连接 URL
+        Build database connection URL from POSTGRES_* environment variables.
 
-        自动处理两种场景：
-        1. Backend 在本机启动：使用 localhost + POSTGRES_PORT_HOST（如果设置）或 5432
-        2. 在同一个 docker-compose：使用服务名（如 "db"）+ 容器内部端口 5432
+        Automatically handle two scenarios:
+        1. Backend running locally: use localhost + POSTGRES_PORT_HOST (if set) or 5432
+        2. Inside the same docker-compose: use service name (e.g. "db") + container-internal port 5432
         """
         postgres_host = os.getenv("POSTGRES_HOST", "localhost")
         postgres_user = os.getenv("POSTGRES_USER", "postgres")
         postgres_password = os.getenv("POSTGRES_PASSWORD", "postgres")
         postgres_db = os.getenv("POSTGRES_DB", "joysafeter")
 
-        # 确定端口：
+        # determine port:
         if postgres_host in ("localhost", "127.0.0.1", "::1"):
-            # 本地启动：检查是否有 Docker 映射端口配置
+            # local startup: check for Docker mapped port config
             postgres_port_host = os.getenv("POSTGRES_PORT_HOST")
             postgres_port = postgres_port_host if postgres_port_host else os.getenv("POSTGRES_PORT", "5432")
         else:
-            # 远程或 docker-compose 场景：优先读 POSTGRES_PORT，默认 5432（容器内部端口）
+            # remote or docker-compose: prefer POSTGRES_PORT, default 5432 (container-internal port)
             postgres_port = os.getenv("POSTGRES_PORT", "5432")
 
         database_url = (
             f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
         )
 
-        # 针对 localhost 的端口自动修复逻辑 (参考 scripts/view_db.py)
-        # 解决常见问题：.env 配置了 5433 (docker) 但本地直接启动需要 5432，或者反之
+        # auto-fix port for localhost (see scripts/view_db.py)
+        # resolve common issue: .env has 5433 (docker) but local startup needs 5432, or vice versa
         try:
             url = make_url(database_url)
             host = url.host
@@ -133,7 +133,7 @@ class Settings(BaseSettings):
 
             if host in ("localhost", "127.0.0.1", "::1") and port:
                 if not _is_tcp_port_open(host, port):
-                    # 如果当前配置的端口不通，但 5432 通，则自动切换
+                    # if the configured port is unreachable but 5432 is, auto-switch
                     if port != 5432 and _is_tcp_port_open(host, 5432):
                         url = url.set(port=5432)
                         database_url = url.render_as_string(hide_password=False)
@@ -146,10 +146,10 @@ class Settings(BaseSettings):
     # Sync database URL for Alembic
     @property
     def database_url_sync(self) -> str:
-        """同步数据库 URL (用于 Alembic)"""
+        """Synchronous database URL (for Alembic)."""
         return self.database_url.replace("+asyncpg", "")
 
-    # Redis (缓存 & 限流)
+    # Redis (cache & rate limiting)
     redis_url: Optional[str] = Field(default=None, validation_alias="REDIS_URL", description="Redis connection URL")
     redis_pool_size: int = Field(
         default=10,
@@ -157,7 +157,7 @@ class Settings(BaseSettings):
         description="Redis connection pool size",
     )
 
-    # 限流配置
+    # rate limiting
     rate_limit_rpm: int = Field(
         default=60,
         validation_alias=AliasChoices("RATE_LIMIT_RPM", "RATE_LIMIT_PER_MINUTE"),
@@ -169,7 +169,7 @@ class Settings(BaseSettings):
         description="Rate limit: requests per hour",
     )
 
-    # 并发控制
+    # concurrency control
     max_concurrent_llm_calls: int = Field(
         default=50,
         validation_alias=AliasChoices("MAX_CONCURRENT_LLM_CALLS", "MAX_LLM_CONCURRENCY"),
@@ -183,7 +183,7 @@ class Settings(BaseSettings):
 
     # Auth
     secret_key: str = Field(
-        ...,  # 强制要求配置，不提供默认值
+        ...,  # required — no default value provided
         validation_alias=AliasChoices("SECRET_KEY", "JWT_SECRET_KEY", "AUTH_SECRET_KEY"),
         description="JWT secret key (REQUIRED - must be set in environment)",
     )
@@ -193,7 +193,7 @@ class Settings(BaseSettings):
         description="JWT signing algorithm",
     )
     access_token_expire_minutes: int = Field(
-        default=60 * 24 * 3,  # 3 days (安全优化：从 7 天缩短到 3 天)
+        default=60 * 24 * 3,  # 3 days (security: shortened from 7 days)
         validation_alias=AliasChoices(
             "ACCESS_TOKEN_EXPIRE_MINUTES", "JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "AUTH_ACCESS_TOKEN_EXPIRE_MINUTES"
         ),
@@ -207,22 +207,22 @@ class Settings(BaseSettings):
         description="Refresh token expiration time in days",
     )
     disable_auth: bool = Field(
-        default=False,  # 默认启用认证（安全第一）
+        default=False,  # auth enabled by default (security first)
         description="Disable API authentication (ONLY for development - NOT recommended)",
     )
     require_email_verification: bool = Field(
-        default=False,  # 默认不强制（兼容性考虑）
+        default=False,  # not enforced by default (for backward compatibility)
         description="Require email verification before login (recommended for production)",
     )
 
-    # Cookie 配置
+    # Cookie configuration
     cookie_name: str = Field(
         default="auth_token",
         validation_alias=AliasChoices("COOKIE_NAME", "AUTH_COOKIE_NAME"),
         description="Authentication cookie name",
     )
     cookie_domain: Optional[str] = Field(
-        default=None,  # 生产环境设置为 ".example.com"
+        default=None,  # set to ".example.com" in production
         validation_alias=AliasChoices("COOKIE_DOMAIN", "AUTH_COOKIE_DOMAIN"),
         description="Cookie domain (e.g., '.example.com' for production)",
     )
@@ -239,11 +239,11 @@ class Settings(BaseSettings):
 
     @property
     def cookie_secure_effective(self) -> bool:
-        """根据环境自动设置 Cookie Secure 标志"""
-        # 生产环境自动启用 Secure
+        """Auto-set Cookie Secure flag based on environment."""
+        # auto-enable Secure in production
         if self.environment == "production":
             return True
-        # 开发环境根据配置决定
+        # in development, follow explicit config
         return self.cookie_secure
 
     # CORS
@@ -256,10 +256,10 @@ class Settings(BaseSettings):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
-        """解析 CORS origins，支持字符串（逗号分隔或单个值）和列表格式"""
+        """Parse CORS origins; accept a string (comma-separated or single value) or list."""
         if isinstance(v, str):
             v = v.strip()
-            # 支持 JSON 数组格式，例如 ["http://localhost:3000"]
+            # support JSON array format, e.g. ["http://localhost:3000"]
             if v.startswith("[") and v.endswith("]"):
                 try:
                     import json
@@ -269,7 +269,7 @@ class Settings(BaseSettings):
                         return [str(origin).strip() for origin in parsed if origin]
                 except Exception:
                     pass
-            # 如果是普通的逗号分隔字符串
+            # plain comma-separated string
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         elif isinstance(v, list):
             return [str(origin).strip() for origin in v if origin]
@@ -317,10 +317,10 @@ class Settings(BaseSettings):
         description="Default sender name",
     )
 
-    # 注意：所有模型配置和凭据应通过前端页面配置，存储在数据库中
-    # 不再支持通过环境变量配置模型和凭据
-    # - 模型配置：存储在 ModelInstance 表中（包括默认模型标记）
-    # - 凭据配置：存储在 ModelCredential 表中（加密存储）
+    # Note: all model configuration and credentials should be managed via the frontend UI
+    # and stored in the database. Environment-variable-based model/credential config is no longer supported.
+    # - Model config: stored in the ModelInstance table (including default model flag)
+    # - Credentials: stored in the ModelCredential table (encrypted)
 
     # Langfuse (Observability)
     langfuse_public_key: Optional[str] = Field(default=None, description="Langfuse public key for observability")
@@ -342,14 +342,14 @@ class Settings(BaseSettings):
     # Model Provider Sync
     auto_sync_providers_on_startup: bool = Field(
         default=False,
-        description="[已废弃] 供应商信息现在直接从代码加载，此配置已不再使用。如需同步模型列表和全局凭据，请手动调用 /api/v1/model-providers/sync 接口",
+        description="[Deprecated] Provider info is now loaded directly from code; this setting is no longer used. To sync model lists and global credentials, manually call /api/v1/model-providers/sync",
     )
 
     # Credential Encryption
     credential_encryption_key: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("ENCRYPTION_KEY", "CREDENTIAL_ENCRYPTION_KEY"),
-        description="凭据加密密钥（生产环境必须配置，否则每次重启会生成随机密钥导致无法解密）",
+        description="Credential encryption key (must be set in production; otherwise a random key is generated on each restart, making decryption impossible)",
     )
 
     # Workspace

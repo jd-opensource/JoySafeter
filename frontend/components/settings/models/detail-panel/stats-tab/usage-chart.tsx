@@ -32,7 +32,7 @@ export function UsageChart({ timeline, byModel }: UsageChartProps) {
   if (!hasData) {
     return (
       <div className="flex h-48 items-center justify-center rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)]">
-        <p className="text-sm text-[var(--text-muted)]">暂无使用数据</p>
+        <p className="text-sm text-[var(--text-muted)]">No usage data yet</p>
       </div>
     )
   }
@@ -41,7 +41,7 @@ export function UsageChart({ timeline, byModel }: UsageChartProps) {
     <div className="space-y-4">
       {timeline.length > 0 && (
         <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)] p-4">
-          <p className="mb-3 text-xs font-medium text-[var(--text-secondary)]">调用趋势</p>
+          <p className="mb-3 text-xs font-medium text-[var(--text-secondary)]">Call Trend</p>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={timeline} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-muted)" />
@@ -63,7 +63,7 @@ export function UsageChart({ timeline, byModel }: UsageChartProps) {
               <Line
                 type="monotone"
                 dataKey="calls"
-                name="调用次数"
+                name="Calls"
                 stroke="var(--color-primary, #6366f1)"
                 strokeWidth={2}
                 dot={false}
@@ -75,13 +75,13 @@ export function UsageChart({ timeline, byModel }: UsageChartProps) {
 
       {byModel.length > 0 && (
         <div className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface-base)] p-4">
-          <p className="mb-3 text-xs font-medium text-[var(--text-secondary)]">模型排行</p>
+          <p className="mb-3 text-xs font-medium text-[var(--text-secondary)]">Model Ranking</p>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border-muted)] text-left text-xs text-[var(--text-muted)]">
-                <th className="pb-2 font-medium">模型</th>
-                <th className="pb-2 text-right font-medium">调用次数</th>
-                <th className="pb-2 text-right font-medium">Token 数</th>
+                <th className="pb-2 font-medium">Model</th>
+                <th className="pb-2 text-right font-medium">Calls</th>
+                <th className="pb-2 text-right font-medium">Tokens</th>
               </tr>
             </thead>
             <tbody>

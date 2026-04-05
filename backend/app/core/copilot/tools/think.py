@@ -2,7 +2,7 @@
 Think Tool - Self-reflection and validation for DeepAgents workflows.
 
 Provides think tool for validating DeepAgents workflow structure at different stages.
-精简版：专注于两步验证法 - Planning（蓝图阶段）和 Validation（验收阶段）
+Simplified: focus on two-step validation - Planning (blueprint stage) and Validation (acceptance stage).
 
 Enhanced: Validation stage now automatically reads actual nodes and edges from graph_context
 to ensure comprehensive detection of all created nodes and connections.
@@ -44,16 +44,16 @@ def think(
     connections: Optional[List[str]] = None,
 ) -> str:
     """
-    精简版 Think Tool：专注于 DeepAgents 核心架构验证
+    Simplified Think Tool: focus on DeepAgents core architecture validation.
 
     Enhanced: In validation stage, automatically reads actual nodes and edges from graph_context
     if not provided, ensuring comprehensive detection of all created nodes and connections.
 
     Args:
-        stage: 'planning' (创建前) 或 'validation' (完成后)
-        reflection: 当前思路或对任务的理解
-        nodes: 角色列表或已创建的节点名（validation 阶段可选，会自动从 graph_context 读取）
-        connections: 连接关系，如 ['Manager -> Analyst']（validation 阶段可选，会自动从 graph_context 读取）
+        stage: 'planning' (before creation) or 'validation' (after completion)
+        reflection: current reasoning or understanding of the task
+        nodes: role list or created node names (optional in validation stage; auto-read from graph_context)
+        connections: connection relationships, e.g. ['Manager -> Analyst'] (optional in validation stage; auto-read from graph_context)
 
     Returns:
         JSON with validation feedback and recommendations.
@@ -70,9 +70,9 @@ def think(
     issues = []
     recommendations = []
     consistency_issues = []
-    auto_read_used = False  # 标记是否使用了自动读取
+    auto_read_used = False  # track whether auto-read was used
 
-    # ---------- 0. VALIDATION 阶段：自动从 graph_context 读取实际节点和连线 ----------
+    # ---------- 0. VALIDATION stage: auto-read actual nodes and edges from graph_context ----------
     if stage == "validation":
         logger.debug("[think] validation 阶段：开始从 graph_context 读取实际节点和连线")
         graph_context = get_current_graph_context()
@@ -86,7 +86,7 @@ def think(
         actual_nodes_data = graph_context.get("nodes", [])
         actual_edges_data = graph_context.get("edges", [])
 
-        # 从实际 graph_context 提取节点名称
+        # extract node names from actual graph_context
         actual_node_names = []
         actual_node_id_to_label = {}
         for node in actual_nodes_data:
@@ -96,7 +96,7 @@ def think(
             actual_node_names.append(label)
             actual_node_id_to_label[node_id] = label
 
-        # 从实际 graph_context 提取连线关系
+        # extract edge relationships from actual graph_context
         actual_connections = []
         for edge in actual_edges_data:
             source_id = edge.get("source", "")
@@ -105,10 +105,10 @@ def think(
             target_label = actual_node_id_to_label.get(target_id, target_id)
             actual_connections.append(f"{source_label} -> {target_label}")
 
-        # 如果传入了 nodes/connections，进行一致性检查
+        # if nodes/connections were provided, perform consistency check
         if nodes is not None:
-            logger.debug(f"[think] 进行节点一致性检查：传入 {len(nodes)} 个节点，实际 {len(actual_node_names)} 个节点")
-            # 检查传入的节点是否都在实际创建的节点中
+            logger.debug(f"[think] node consistency check: provided {len(nodes)} nodes, actual {len(actual_node_names)} nodes")
+            # check whether provided nodes exist in actually created nodes
             provided_nodes_lower = {n.lower() for n in nodes}
             actual_nodes_lower = {n.lower() for n in actual_node_names}
 
@@ -128,17 +128,17 @@ def think(
             if not missing_in_actual and not missing_in_provided:
                 logger.debug("[think] 节点一致性检查通过：传入节点与实际节点完全匹配")
         else:
-            # 如果没有传入，使用实际的节点
+            # if not provided, use actual nodes
             logger.info(f"[think] 未传入 nodes 参数，自动使用 graph_context 中的 {len(actual_node_names)} 个节点")
             nodes = actual_node_names
             auto_read_used = True
 
-        # 如果传入了 connections，进行一致性检查
+        # if connections were provided, perform consistency check
         if connections is not None:
             logger.debug(
-                f"[think] 进行连线一致性检查：传入 {len(connections)} 条连线，实际 {len(actual_connections)} 条连线"
+                f"[think] edge consistency check: provided {len(connections)} edges, actual {len(actual_connections)} edges"
             )
-            # 检查传入的连线是否都在实际创建的连线中
+            # check whether provided edges exist in actually created edges
             provided_conns_lower = {c.lower().strip() for c in connections}
             actual_conns_lower = {c.lower().strip() for c in actual_connections}
 
@@ -158,62 +158,62 @@ def think(
             if not missing_in_actual and not missing_in_provided:
                 logger.debug("[think] 连线一致性检查通过：传入连线与实际连线完全匹配")
         else:
-            # 如果没有传入，使用实际的连线
+            # if not provided, use actual edges
             logger.info(
                 f"[think] 未传入 connections 参数，自动使用 graph_context 中的 {len(actual_connections)} 条连线"
             )
             connections = actual_connections
             auto_read_used = True
 
-    # 如果 nodes 仍然为 None（planning 阶段且未传入），使用空列表
+    # if nodes is still None (planning stage with no input), use empty list
     if nodes is None:
         nodes = []
 
-    # 基础数据准备
+    # prepare base data
     [n.lower() for n in nodes]
     manager_nodes = [n for n in nodes if "manager" in n.lower() or "coordinator" in n.lower()]
     subagents = [n for n in nodes if n not in manager_nodes]
 
     logger.debug(f"[think] 节点分析：Manager={len(manager_nodes)} 个，SubAgent={len(subagents)} 个")
 
-    # ---------- 1. PLANNING 阶段：逻辑验证 ----------
+    # ---------- 1. PLANNING stage: logic validation ----------
     if stage == "planning":
-        logger.debug("[think] 执行 planning 阶段验证")
+        logger.debug("[think] running planning stage validation")
 
-        # Planning 阶段：如果 nodes 为空，说明还没有传入计划，跳过验证
+        # planning stage: if nodes is empty, plan has not been provided yet; skip validation
         if not nodes:
-            logger.info("[think] planning 阶段：nodes 为空，跳过验证（计划尚未提供）")
-            # 不添加任何 issues，直接返回通过
+            logger.info("[think] planning stage: nodes is empty, skipping validation (plan not yet provided)")
+            # add no issues; return pass
         else:
-            # 只有当 nodes 不为空时，才进行验证
-            logger.debug(f"[think] planning 阶段：验证 {len(nodes)} 个计划节点")
+            # only validate when nodes is non-empty
+            logger.debug(f"[think] planning stage: validating {len(nodes)} planned nodes")
 
-            # 1.1 Manager 检查
+            # 1.1 manager check
             if not manager_nodes:
                 issues.append("DeepAgents 架构必须包含一个 Manager 节点")
 
-            # 1.2 数量检查 (3-8 规范)
+            # 1.2 count check (3-8 guideline)
             if len(subagents) < 3:
                 issues.append(f"SubAgent 数量过少 ({len(subagents)})，建议 3-8 个以保证协作深度")
             elif len(subagents) > 8:
                 issues.append(f"SubAgent 数量过多 ({len(subagents)})，建议拆分或合并至 8 个以内")
 
-            # 1.3 职责单一性
+            # 1.3 single responsibility check
             for node in nodes:
                 if " and " in node.lower() or "&" in node:
                     issues.append(f"角色 '{node}' 职责模糊，建议拆分为两个独立 Agent")
 
-    # ---------- 2. VALIDATION 阶段：拓扑验证 ----------
+    # ---------- 2. VALIDATION stage: topology validation ----------
     elif stage == "validation":
-        logger.debug("[think] 执行 validation 阶段验证")
-        # 2.1 基础完整性
+        logger.debug("[think] running validation stage checks")
+        # 2.1 basic completeness
         if len(manager_nodes) != 1:
             logger.warning(f"[think] Manager 数量检查失败：期望 1 个，实际 {len(manager_nodes)} 个")
             issues.append(f"必须有且仅有一个 Manager，当前发现 {len(manager_nodes)} 个")
         else:
             logger.debug("[think] Manager 数量检查通过：1 个")
 
-        # 2.2 星型拓扑检查 (核心)
+        # 2.2 star topology check (core)
         if connections:
             logger.debug(f"[think] 开始星型拓扑检查，连接数={len(connections)}")
             conn_map: Dict[str, List[str]] = {n.lower(): [] for n in nodes}
@@ -223,7 +223,7 @@ def think(
                     if src in conn_map:
                         conn_map[src].append(tgt)
 
-            # 检查 Manager 是否连接了所有 SubAgent
+            # check whether Manager is connected to all SubAgents
             if manager_nodes:
                 mgr_lower = manager_nodes[0].lower()
                 disconnected_subagents = []
@@ -239,7 +239,7 @@ def think(
                 else:
                     logger.debug(f"[think] 星型拓扑检查：Manager 已连接到所有 {len(subagents)} 个 SubAgent")
 
-            # 检查是否有 SubAgent 之间的链式连接 (Anti-pattern)
+            # check for chain connections between SubAgents (anti-pattern)
             subagent_with_children = []
             for sa in subagents:
                 if conn_map.get(sa.lower()):
@@ -259,12 +259,12 @@ def think(
     else:
         issues.append(f"未知的验证阶段: {stage}。有效阶段为 'planning' 或 'validation'")
 
-    # ---------- 3. 合并一致性检查问题 ----------
+    # ---------- 3. merge consistency check issues ----------
     if consistency_issues:
         logger.info(f"[think] 发现 {len(consistency_issues)} 个一致性问题")
         issues.extend([f"一致性检查: {issue}" for issue in consistency_issues])
 
-    # ---------- 4. 生成反馈 ----------
+    # ---------- 4. generate feedback ----------
     passed = len(issues) == 0
     if passed:
         logger.info(f"[think] 验证通过：stage={stage}, nodes={len(nodes)}, connections={len(connections or [])}")
@@ -278,7 +278,7 @@ def think(
         )
         recommendations = [f"⚠️ 待优化: {i}" for i in issues]
 
-    # 构建反馈摘要
+    # build feedback summary
     summary_parts = [f"已完成对 {len(nodes)} 个节点和 {len(connections or [])} 条连接的扫描"]
     if auto_read_used:
         summary_parts.append("（已自动从 graph_context 读取实际数据）")

@@ -1,5 +1,5 @@
 """
-权限/邀请模型
+Permission and invitation models
 """
 
 import uuid
@@ -32,7 +32,7 @@ class WorkspaceInvitationStatus(str, PyEnum):
 
 
 class WorkspaceInvitation(BaseModel):
-    """工作空间邀请"""
+    """Workspace invitation."""
 
     __tablename__ = "workspace_invitation"
 
@@ -65,19 +65,19 @@ class WorkspaceInvitation(BaseModel):
     workspace: Mapped["Workspace"] = relationship("Workspace", lazy="selectin")
     inviter: Mapped["AuthUser"] = relationship("AuthUser", lazy="selectin")
 
-    # 索引优化：加速邀请查询
+    # index optimization: speed up invitation queries
     __table_args__: Tuple = (
-        # 用于查询用户待处理邀请（按 email + status 查询）
+        # look up pending invitations by email + status
         Index("workspace_invitation_email_status_idx", "email", "status"),
-        # 用于查询过期邀请
+        # look up expired invitations
         Index("workspace_invitation_expires_at_idx", "expires_at"),
-        # 用于查询工作空间的所有邀请
+        # look up all invitations for a workspace
         Index("workspace_invitation_workspace_id_idx", "workspace_id"),
     )
 
 
 class Permission(BaseModel):
-    """权限表（用户对实体的权限）"""
+    """Permission table (user permissions on entities)."""
 
     __tablename__ = "permissions"
 

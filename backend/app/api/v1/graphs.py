@@ -1,5 +1,5 @@
 """
-Graph API（路径 /api/v1/graphs）
+Graph API (path: /api/v1/graphs)
 """
 
 import time
@@ -39,38 +39,38 @@ def _bind_log(request: Request, **kwargs):
 
 
 class GraphStatePayload(BaseModel):
-    """图状态负载"""
+    """Graph state payload."""
 
-    nodes: List[Dict[str, Any]] = Field(default_factory=list, description="节点列表")
-    edges: List[Dict[str, Any]] = Field(default_factory=list, description="边列表")
-    viewport: Optional[Dict[str, Any]] = Field(default=None, description="视口信息")
-    variables: Optional[Dict[str, Any]] = Field(default=None, description="图变量（如 context 变量）")
-    # 可选的图创建参数（用于 upsert 模式）
-    name: Optional[str] = Field(default=None, max_length=200, description="图名称（用于创建新图）")
-    workspaceId: Optional[uuid.UUID] = Field(default=None, description="工作空间ID（用于创建新图）")
+    nodes: List[Dict[str, Any]] = Field(default_factory=list, description="Node list")
+    edges: List[Dict[str, Any]] = Field(default_factory=list, description="Edge list")
+    viewport: Optional[Dict[str, Any]] = Field(default=None, description="Viewport info")
+    variables: Optional[Dict[str, Any]] = Field(default=None, description="Graph variables (e.g. context variables)")
+    # optional graph creation params (for upsert mode)
+    name: Optional[str] = Field(default=None, max_length=200, description="Graph name (for creating a new graph)")
+    workspaceId: Optional[uuid.UUID] = Field(default=None, description="Workspace ID (for creating a new graph)")
 
 
 class CreateGraphRequest(BaseModel):
-    """创建图请求"""
+    """Create graph request."""
 
-    name: str = Field(..., min_length=1, max_length=200, description="图名称")
-    description: Optional[str] = Field(default=None, max_length=2000, description="图描述")
-    color: Optional[str] = Field(default=None, max_length=2000, description="颜色")
-    workspaceId: Optional[uuid.UUID] = Field(default=None, description="工作空间ID")
-    folderId: Optional[uuid.UUID] = Field(default=None, description="文件夹ID")
-    parentId: Optional[uuid.UUID] = Field(default=None, description="父图ID")
-    variables: Optional[Dict[str, Any]] = Field(default_factory=dict, description="变量")
+    name: str = Field(..., min_length=1, max_length=200, description="Graph name")
+    description: Optional[str] = Field(default=None, max_length=2000, description="Graph description")
+    color: Optional[str] = Field(default=None, max_length=2000, description="Color")
+    workspaceId: Optional[uuid.UUID] = Field(default=None, description="Workspace ID")
+    folderId: Optional[uuid.UUID] = Field(default=None, description="Folder ID")
+    parentId: Optional[uuid.UUID] = Field(default=None, description="Parent graph ID")
+    variables: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Variables")
 
 
 class UpdateGraphRequest(BaseModel):
-    """更新图请求"""
+    """Update graph request."""
 
-    name: Optional[str] = Field(default=None, min_length=1, max_length=200, description="图名称")
-    description: Optional[str] = Field(default=None, max_length=2000, description="图描述")
-    color: Optional[str] = Field(default=None, max_length=2000, description="颜色")
-    folderId: Optional[uuid.UUID] = Field(default=None, description="文件夹ID")
-    parentId: Optional[uuid.UUID] = Field(default=None, description="父图ID")
-    isDeployed: Optional[bool] = Field(default=None, description="是否已部署")
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200, description="Graph name")
+    description: Optional[str] = Field(default=None, max_length=2000, description="Graph description")
+    color: Optional[str] = Field(default=None, max_length=2000, description="Color")
+    folderId: Optional[uuid.UUID] = Field(default=None, description="Folder ID")
+    parentId: Optional[uuid.UUID] = Field(default=None, description="Parent graph ID")
+    isDeployed: Optional[bool] = Field(default=None, description="Whether deployed")
 
 
 async def _ensure_workspace_member(
@@ -81,27 +81,27 @@ async def _ensure_workspace_member(
     min_role: WorkspaceMemberRole,
 ) -> None:
     """
-    确保用户是工作空间成员且有足够权限
+    Ensure the user is a workspace member with sufficient permissions.
 
     Args:
-        db: 数据库会话
-        workspace_id: 工作空间ID
-        current_user: 当前用户
-        min_role: 所需的最低角色
+        db: database session
+        workspace_id: workspace ID
+        current_user: current user
+        min_role: minimum required role
 
     Raises:
-        NotFoundException: 如果工作空间不存在
-        ForbiddenException: 如果用户不是成员或权限不足
+        NotFoundException: if the workspace does not exist
+        ForbiddenException: if the user is not a member or lacks permission
     """
     from app.services.workspace_permission import check_workspace_access
 
-    # 检查工作空间是否存在
+    # check workspace existence
     workspace_repo = WorkspaceRepository(db)
     workspace = await workspace_repo.get(workspace_id)
     if not workspace:
         raise NotFoundException("Workspace not found")
 
-    # 检查访问权限
+    # check access permission
     has_access = await check_workspace_access(db, workspace_id, current_user, min_role)
     if not has_access:
         raise ForbiddenException("No access to workspace or insufficient permission")
@@ -109,14 +109,14 @@ async def _ensure_workspace_member(
 
 def _serialize_graph_row(graph: AgentGraph, node_count: int = 0) -> Dict[str, Any]:
     """
-    序列化图对象为字典格式
+    Serialize a graph object to a dict.
 
     Args:
-        graph: 图对象
-        node_count: 节点数量（可选）
+        graph: graph object
+        node_count: node count (optional)
 
     Returns:
-        序列化后的字典
+        Serialized dict
     """
     return {
         "id": str(graph.id),
@@ -144,15 +144,15 @@ async def list_graphs(
     current_user: User = Depends(get_current_user),
 ):
     """
-    列出图列表
+    List graphs.
 
-    过滤逻辑：
-    - 默认（无 workspace_id）：列出当前用户拥有的所有 graphs（personal graphs）
-    - 若传 workspace_id：
-      - 检查用户是否有访问该工作空间的权限（至少 viewer）
-      - 如果有权限，返回工作空间中的所有 graphs（不仅限于用户创建的）
-      - 如果没有权限，返回空列表
-    - 若传 parentId：列出指定父图下的子图
+    Filtering logic:
+    - Default (no workspace_id): list all graphs owned by the current user (personal graphs)
+    - If workspace_id is provided:
+      - Check that the user has access to the workspace (at least viewer)
+      - If authorized, return all graphs in the workspace (not limited to user-created ones)
+      - If unauthorized, return an empty list
+    - If parentId is provided: list sub-graphs under the specified parent graph
     """
     service = GraphService(db)
 
@@ -160,16 +160,16 @@ async def list_graphs(
 
     log.info(f"graph.list start workspace_id={workspace_id} parent_id={parent_id}")
 
-    # 如果有 workspace_id，需要检查权限并返回工作空间的所有 graphs
+    # if workspace_id is provided, check permission and return all workspace graphs
     if workspace_id:
-        # 检查用户是否有访问该工作空间的权限（至少 viewer 权限）
+        # check that the user has access (at least viewer)
         await _ensure_workspace_member(
             db=db,
             workspace_id=workspace_id,
             current_user=current_user,
             min_role=WorkspaceMemberRole.viewer,
         )
-        # 返回工作空间中的所有 graphs（不限制用户）
+        # return all graphs in the workspace (not limited to user)
         query = select(AgentGraph).where(
             AgentGraph.workspace_id == workspace_id,
             AgentGraph.deleted_at.is_(None),
@@ -180,18 +180,18 @@ async def list_graphs(
         result = await db.execute(query)
         graphs = list(result.scalars().all())
     else:
-        # 没有 workspace_id，返回用户拥有的所有 graphs（personal graphs）
+        # no workspace_id — return user-owned graphs (personal graphs)
         graphs = await service.graph_repo.list_by_user_with_filters(
             user_id=current_user.id,
             parent_id=parent_id,
             workspace_id=None,
         )
 
-    # 批量查询每个图的节点数量
+    # batch-query node counts for each graph
     graph_ids = [graph.id for graph in graphs]
     node_counts: Dict[Any, int] = {}
     if graph_ids:
-        # 使用 GROUP BY 一次性查询所有图的节点数量
+        # use GROUP BY to query all node counts in one shot
         count_query = (
             select(GraphNode.graph_id, func.count(GraphNode.id).label("count"))
             .where(GraphNode.graph_id.in_(graph_ids))
@@ -213,15 +213,15 @@ async def list_deployed_graphs(
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取当前用户可访问的已发布的图列表
+    List deployed graphs accessible to the current user.
 
-    包括：
-    1. 用户自己创建的已发布图
-    2. 用户有权限访问的工作空间中已发布的图（至少 viewer 权限）
+    Includes:
+    1. Deployed graphs created by the user
+    2. Deployed graphs in workspaces the user has access to (at least viewer)
 
-    过滤条件：
+    Filters:
     - is_deployed = True
-    - 用户是图的所有者，或者用户有工作空间的访问权限
+    - User is the graph owner, or user has workspace access
     """
     from sqlalchemy import or_
 
@@ -293,16 +293,16 @@ async def create_graph(
     current_user: User = Depends(get_current_user),
 ):
     """
-    创建新图
+    Create a new graph.
 
-    - personal graph：当前用户创建
-    - workspace graph：要求 workspace write（member+）
+    - personal graph: created by the current user
+    - workspace graph: requires workspace write permission (member+)
     """
     log = _bind_log(request, user_id=str(current_user.id))
     parent_id = payload.parentId
     workspace_id = payload.workspaceId
 
-    # 注意：workspace_id 可能为 None（personal graph）
+    # workspace_id may be None (personal graph)
 
     if workspace_id:
         await _ensure_workspace_member(
@@ -335,19 +335,19 @@ async def get_graph(
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取图的详细信息（包括节点和边）
+    Get graph details including nodes and edges.
 
-    返回格式：
-    {
-        "data": {
-            "id": "...",
-            "name": "...",
-            "nodes": [...],
-            "edges": [...],
-            "viewport": {...},
-            ...
+    Returns:
+        {
+            "data": {
+                "id": "...",
+                "name": "...",
+                "nodes": [...],
+                "edges": [...],
+                "viewport": {...},
+                ...
+            }
         }
-    }
     """
     service = GraphService(db)
     data = await service.get_graph_detail(graph_id, current_user)
@@ -361,13 +361,13 @@ async def update_graph(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新图元数据（name/description/color/folderId/parentId/isDeployed）"""
+    """Update graph metadata (name/description/color/folderId/parentId/isDeployed)."""
     service = GraphService(db)
     graph = await service.graph_repo.get(graph_id)
     if not graph:
         raise NotFoundException("Graph not found")
 
-    # 权限检查
+    # permission check
     await service._ensure_access(graph, current_user, WorkspaceMemberRole.member)
 
     update_data: Dict[str, Any] = {}
@@ -380,7 +380,7 @@ async def update_graph(
     if payload.color is not None:
         update_data["color"] = payload.color
     if "folderId" in fields_set:
-        # 如果提供了 folderId，验证它是否存在且属于当前 workspace
+        # if folderId is provided, verify it exists and belongs to the current workspace
         if payload.folderId is not None:
             from app.repositories.workspace_folder import WorkflowFolderRepository
 
@@ -388,22 +388,22 @@ async def update_graph(
             folder = await folder_repo.get(payload.folderId)
             if not folder:
                 raise NotFoundException(f"Folder with id {payload.folderId} not found")
-            # 确保 folder 属于 graph 的 workspace
+            # ensure folder belongs to the graph's workspace
             if graph.workspace_id and folder.workspace_id != graph.workspace_id:
                 from app.common.exceptions import BadRequestException
 
                 raise BadRequestException(
                     f"Folder {payload.folderId} does not belong to workspace {graph.workspace_id}"
                 )
-        # 允许设置为 None 来清除文件夹关系
+        # allow setting to None to clear the folder association
         update_data["folder_id"] = payload.folderId
     if "parentId" in fields_set:
-        # 如果提供了 parentId，验证它是否存在（允许设置为 None 来清除父图关系）
+        # if parentId is provided, verify it exists (allow None to clear the parent relationship)
         if payload.parentId is not None:
             parent_graph = await service.graph_repo.get(payload.parentId)
             if not parent_graph:
                 raise NotFoundException(f"Parent graph with id {payload.parentId} not found")
-        # 允许设置为 None 来清除父图关系
+        # allow setting to None to clear the parent graph relationship
         update_data["parent_id"] = payload.parentId
     if payload.isDeployed is not None:
         update_data["is_deployed"] = payload.isDeployed
@@ -424,24 +424,24 @@ async def delete_graph(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除图（需要 member 权限，即 write 权限）"""
+    """Delete a graph (requires member permission, i.e. write access)."""
     service = GraphService(db)
     graph = await service.graph_repo.get(graph_id)
     if not graph:
         raise NotFoundException("Graph not found")
 
-    # 检查权限：
-    # - personal graph：只有 owner 可以删除
-    # - workspace graph：需要至少 member 权限（write 权限）
+    # permission check:
+    # - personal graph: only the owner can delete
+    # - workspace graph: requires at least member permission (write access)
     if graph.workspace_id:
-        # 工作空间图：需要 member 权限才能删除
+        # workspace graph: requires member permission to delete
         await service._ensure_access(
             graph,
             current_user,
             required_role=WorkspaceMemberRole.member,
         )
     else:
-        # 个人图：只有 owner 可以删除
+        # personal graph: only the owner can delete
         if graph.user_id != current_user.id:
             raise ForbiddenException("Only graph owner can delete personal graph")
 
@@ -457,17 +457,17 @@ async def load_graph_state(
     current_user: User = Depends(get_current_user),
 ):
     """
-    加载图的状态（节点和边）
+    Load graph state (nodes and edges).
 
-    返回格式：
-    {
-        "success": true,
-        "data": {
-            "nodes": [...],
-            "edges": [...],
-            "viewport": {...}
+    Returns:
+        {
+            "success": true,
+            "data": {
+                "nodes": [...],
+                "edges": [...],
+                "viewport": {...}
+            }
         }
-    }
     """
     service = GraphService(db)
     state = await service.load_graph_state(graph_id, current_user)
@@ -483,23 +483,23 @@ async def save_graph_state(
     current_user: User = Depends(get_current_user),
 ):
     """
-    保存图的状态（节点和边）- 支持 upsert 模式
+    Save graph state (nodes and edges) — supports upsert mode.
 
-    如果图不存在，会自动创建新图（需要提供 name 参数）。
+    If the graph does not exist, automatically create a new one (requires name parameter).
 
-    接收前端格式：
+    Accepts frontend format:
     {
         "nodes": [...],
         "edges": [...],
         "viewport": {...},
-        "name": "可选，用于创建新图",
-        "workspaceId": "可选，用于创建新图"
+        "name": "optional, for creating a new graph",
+        "workspaceId": "optional, for creating a new graph"
     }
     """
     log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
     service = GraphService(db)
 
-    # workspace_id 可能为 None（personal graph）
+    # workspace_id may be None (personal graph)
     workspace_id = payload.workspaceId
 
     result = await service.save_graph_state(
@@ -509,13 +509,13 @@ async def save_graph_state(
         viewport=payload.viewport,
         variables=payload.variables,
         current_user=current_user,
-        # upsert 参数
+        # upsert parameters
         name=payload.name,
         workspace_id=workspace_id,
     )
 
-    # 显式提交事务，确保数据保存到数据库
-    # 注意：get_db() 不会自动提交，需要显式调用 commit()
+    # explicitly commit the transaction to persist data
+    # note: get_db() does not auto-commit; an explicit commit() is required
     await db.commit()
 
     log.info(f"graph.state.save success nodes={len(payload.nodes)} edges={len(payload.edges)}")
@@ -530,7 +530,7 @@ async def save_graph_state_put(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """PUT 方式保存图状态（别名）"""
+    """PUT alias for saving graph state."""
     return await save_graph_state(request, graph_id, payload, db, current_user)
 
 
@@ -544,7 +544,7 @@ async def compile_graph(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """编译图并预热缓存；返回编译耗时。执行时若缓存未过期将直接使用。"""
+    """Compile a graph and warm the cache; return build time. Execution uses the cache if not expired."""
     service = GraphService(db)
     graph = await service.graph_repo.get(graph_id)
     if not graph:

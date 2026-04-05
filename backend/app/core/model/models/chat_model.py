@@ -1,4 +1,4 @@
-"""Chat模型包装器"""
+"""Chat model wrapper."""
 
 from langchain_core.language_models import BaseChatModel
 
@@ -6,34 +6,35 @@ from .base import BaseModelWrapper
 
 
 class ChatModelWrapper(BaseModelWrapper[BaseChatModel]):
-    """Chat模型包装器
+    """Chat model wrapper.
 
-    完全兼容LangChain的BaseChatModel接口，提供统一的模型管理功能。
+    Fully compatible with the LangChain BaseChatModel interface,
+    providing unified model management.
 
     Attributes:
-        provider_name: 供应商名称
-        model_name: 模型名称
+        provider_name: provider identifier
+        model_name: model identifier
     """
 
     def __init__(self, model: BaseChatModel, provider_name: str, model_name: str):
-        """初始化Chat模型包装器
+        """Initialize the chat model wrapper.
 
         Args:
-            model: LangChain Chat模型实例
-            provider_name: 供应商名称
-            model_name: 模型名称
+            model: LangChain BaseChatModel instance
+            provider_name: provider identifier
+            model_name: model identifier
 
         Raises:
-            TypeError: 如果model不是BaseChatModel的实例
+            TypeError: if model is not a BaseChatModel instance
         """
         self._validate_model_type(model, BaseChatModel, "BaseChatModel")
         super().__init__(model, provider_name, model_name)
 
     @property
     def chat_model(self) -> BaseChatModel:
-        """获取Chat模型实例
+        """Return the chat model instance.
 
         Returns:
-            LangChain Chat模型实例
+            LangChain BaseChatModel instance.
         """
         return self.model

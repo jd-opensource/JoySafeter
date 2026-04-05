@@ -1,8 +1,8 @@
 """
 LangChain Message Serializer
 
-参考 Langfuse _convert_message_to_dict() 实现。
-将 LangChain BaseMessage 对象序列化为可存储的 dict 格式。
+Modeled after Langfuse _convert_message_to_dict().
+Serialize LangChain BaseMessage objects into storable dict format.
 """
 
 from typing import Any
@@ -12,35 +12,35 @@ from loguru import logger
 
 def serialize_message(msg: Any) -> dict:
     """
-    将 LangChain BaseMessage 转换为可 JSON 序列化的 dict。
+    Convert a LangChain BaseMessage to a JSON-serializable dict.
 
-    参考 Langfuse CallbackHandler._convert_message_to_dict()
+    Modeled after Langfuse CallbackHandler._convert_message_to_dict()
 
     Args:
-        msg: LangChain BaseMessage 实例或类似对象
+        msg: LangChain BaseMessage instance or similar object
 
     Returns:
-        {"role": str, "content": str, ...} 格式的 dict
+        Dict in {"role": str, "content": str, ...} format
     """
-    # 已经是 dict，直接返回
+    # already a dict, return directly
     if isinstance(msg, dict):
         return msg
 
-    # 获取 content
+    # extract content
     content = _extract_content(msg)
 
-    # 按类型判断 role
+    # determine role by type
     class_name = type(msg).__name__
 
     if class_name == "HumanMessage" or class_name == "HumanMessageChunk":
         result: dict[str, Any] = {"role": "user", "content": content}
     elif class_name == "AIMessage" or class_name == "AIMessageChunk":
         result = {"role": "assistant", "content": content}
-        # 保留 tool_calls
+        # preserve tool_calls
         tool_calls = getattr(msg, "tool_calls", None)
         if tool_calls:
             result["tool_calls"] = _serialize_tool_calls(tool_calls)
-        # 保留 additional_kwargs 中的重要信息
+        # preserve important info from additional_kwargs
         additional = getattr(msg, "additional_kwargs", None)
         if additional and isinstance(additional, dict):
             if "function_call" in additional:
@@ -63,11 +63,11 @@ def serialize_message(msg: Any) -> dict:
         role = getattr(msg, "role", "unknown")
         result = {"role": role, "content": content}
     else:
-        # 兜底：尝试通用提取
+        # fallback: try generic extraction
         role = getattr(msg, "type", "unknown")
         result = {"role": role, "content": content}
 
-    # 保留 name（如果有）
+    # preserve name (if present)
     name = getattr(msg, "name", None)
     if name and "name" not in result:
         result["name"] = name
@@ -77,13 +77,13 @@ def serialize_message(msg: Any) -> dict:
 
 def serialize_messages(messages: Any) -> list[dict]:
     """
-    序列化消息列表。支持嵌套列表（LangChain 有时会传递 list[list[BaseMessage]]）。
+    Serialize a message list. Support nested lists (LangChain sometimes passes list[list[BaseMessage]]).
 
     Args:
-        messages: BaseMessage 列表或嵌套列表
+        messages: BaseMessage list or nested list
 
     Returns:
-        扁平化的 dict 列表
+        Flattened list of dicts
     """
     if not messages:
         return []
@@ -91,7 +91,7 @@ def serialize_messages(messages: Any) -> list[dict]:
     result = []
     for msg in messages:
         if isinstance(msg, list):
-            # 处理嵌套列表
+            # handle nested lists
             for sub_msg in msg:
                 result.append(serialize_message(sub_msg))
         else:
@@ -100,14 +100,14 @@ def serialize_messages(messages: Any) -> list[dict]:
 
 
 def _extract_content(msg: Any) -> Any:
-    """提取消息内容，处理多模态内容"""
+    """Extract message content, handling multimodal content."""
     content = getattr(msg, "content", None)
     if content is None:
         return str(msg)
 
-    # 多模态内容可能是 list（如包含图片的消息）
+    # multimodal content may be a list (e.g. messages containing images)
     if isinstance(content, list):
-        # 保持原始结构，但确保可序列化
+        # preserve original structure but ensure serializability
         serialized: list[dict[str, Any]] = []
         for part in content:
             if isinstance(part, dict):
@@ -115,7 +115,7 @@ def _extract_content(msg: Any) -> Any:
             elif isinstance(part, str):
                 serialized.append({"type": "text", "text": part})
             else:
-                # 兜底：保持元素类型一致（dict），避免 mypy 类型不匹配
+                # fallback: keep element type consistent (dict) to avoid mypy mismatch
                 serialized.append({"type": "unknown", "raw": str(part)})
         return serialized
 
@@ -123,7 +123,7 @@ def _extract_content(msg: Any) -> Any:
 
 
 def _serialize_tool_calls(tool_calls: list) -> list[dict]:
-    """序列化 tool_calls 列表"""
+    """Serialize a tool_calls list."""
     result = []
     for tc in tool_calls:
         if isinstance(tc, dict):
@@ -136,21 +136,21 @@ def _serialize_tool_calls(tool_calls: list) -> list[dict]:
         elif hasattr(tc, "__dict__"):
             result.append({k: v for k, v in tc.__dict__.items() if not k.startswith("_")})
         else:
-            # 兜底：返回 dict，保持元素类型一致
+            # fallback: return dict to keep element type consistent
             result.append({"type": "raw", "raw": str(tc)})
     return result
 
 
 def truncate_data(data: Any, max_length: int = 10000) -> Any:
     """
-    截断数据到指定长度，记录 warning。
+    Truncate data to a specified length, logging a warning.
 
     Args:
-        data: 要截断的数据
-        max_length: 最大字符数
+        data: the data to truncate
+        max_length: maximum character count
 
     Returns:
-        截断后的数据
+        Truncated data
     """
     if data is None:
         return None
@@ -164,7 +164,7 @@ def truncate_data(data: Any, max_length: int = 10000) -> Any:
     if isinstance(data, str):
         return data[:max_length] + "... [truncated]"
     elif isinstance(data, dict):
-        # 逐个截断 value
+        # truncate values one by one
         result = {}
         current_len = 0
         for k, v in data.items():

@@ -2,13 +2,13 @@
 Module: Chat API (Production Ready)
 
 Overview:
-- Chat WebSocket handler 复用的流式辅助模块
-- 提供 LangGraph 事件分发、状态查询、消息持久化与结果归档能力
-- 不再对外暴露 `/v1/chat` HTTP 接口
+- Streaming helper module reused by the chat WebSocket handler
+- Provide LangGraph event dispatch, state queries, message persistence, and result archival
+- No longer exposes a `/v1/chat` HTTP endpoint
 
 Dependencies:
-- Database: 异步 SQLAlchemy 会话
-- LangGraph: v2 事件流处理
+- Database: async SQLAlchemy session
+- LangGraph: v2 event stream processing
 - WebSocket chat handler: `app.websocket.chat_ws_handler`
 """
 
@@ -30,7 +30,7 @@ from app.utils.datetime import utc_now
 from app.utils.file_event_emitter import FileEventEmitter
 from app.utils.stream_event_handler import StreamEventHandler, StreamState
 
-# LangGraph 控制流异常：不将 trace 标为 FAILED
+# LangGraph control-flow exception: do not mark trace as FAILED
 try:
     from langgraph.errors import GraphBubbleUp
 except ImportError:
@@ -41,20 +41,20 @@ async def safe_get_state(
     graph: Any, config: RunnableConfig, max_retries: int = 3, initial_delay: float = 0.1, log: Any = None
 ) -> Any:
     """
-    安全地获取图状态，带重试机制以避免连接冲突。
+    Safely retrieve graph state with retry logic to avoid connection conflicts.
 
     Args:
-        graph: LangGraph 图实例
-        config: RunnableConfig 配置
-        max_retries: 最大重试次数
-        initial_delay: 初始延迟（秒），每次重试会翻倍
-        log: 日志记录器（可选）
+        graph: LangGraph graph instance
+        config: RunnableConfig configuration
+        max_retries: maximum number of retries
+        initial_delay: initial delay in seconds, doubled on each retry
+        log: optional logger
 
     Returns:
-        图状态快照
+        Graph state snapshot
 
     Raises:
-        Exception: 如果所有重试都失败
+        Exception: if all retries are exhausted
     """
     if log is None:
         log = logger
@@ -70,30 +70,30 @@ async def safe_get_state(
             last_error = e
             error_msg = str(e)
 
-            # 检查是否是连接冲突错误
+            # check for connection conflict error
             is_connection_error = (
                 "another command is already in progress" in error_msg.lower() or "connection" in error_msg.lower()
             )
 
-            # 如果是最后一次尝试，不再重试
+            # last attempt — stop retrying
             if attempt >= max_retries - 1:
                 break
 
-            # 如果是连接错误，等待后重试
+            # connection error — wait and retry
             if is_connection_error:
                 log.debug(
                     f"Connection conflict detected (attempt {attempt + 1}/{max_retries}), "
                     f"retrying after {delay:.2f}s delay"
                 )
                 await asyncio.sleep(delay)
-                delay *= 2  # 指数退避
+                delay *= 2  # exponential backoff
             else:
-                # 如果不是连接错误，记录警告但继续重试（可能只是临时问题）
+                # non-connection error — log warning but still retry (may be transient)
                 log.warning(f"Failed to get state (attempt {attempt + 1}/{max_retries}): {e}")
                 await asyncio.sleep(delay)
                 delay *= 2
 
-    # 所有重试都失败
+    # all retries exhausted
     log.error(f"Failed to get state after {max_retries} attempts: {last_error}")
     if last_error is not None:
         raise last_error
@@ -114,11 +114,12 @@ async def save_run_result(
     graph_name: str | None = None,
 ) -> None:
     """
-    保存运行结果的通用逻辑。
-    即使是在 finally 块中调用，也使用新的 DB Session 确保连接可用。
-    同时将 Trace + Observations 批量持久化到数据库。
+    Persist run results.
+
+    Use a fresh DB session to ensure the connection is available even when
+    called from a finally block. Also batch-persist Trace + Observations.
     """
-    # --- 1. 保存消息 ---
+    # --- 1. persist messages ---
     if state.assistant_content or state.all_messages:
         if not state.all_messages and state.assistant_content:
             log.warning(f"Using fallback content accumulation for thread {thread_id}")
@@ -134,7 +135,7 @@ async def save_run_result(
             except Exception as e:
                 log.error(f"Failed to persist messages for thread {thread_id}: {e}")
 
-    # --- 2. 持久化 Trace + Observations (事务安全) ---
+    # --- 2. persist Trace + Observations (transaction-safe) ---
     all_observations = state.get_all_observations()
     if all_observations:
         try:
@@ -164,10 +165,10 @@ async def _persist_trace_data(
     graph_name: str | None = None,
 ) -> None:
     """
-    将 StreamState 中积累的 Observation 数据批量写入数据库。
+    Batch-write accumulated Observation data from StreamState to the database.
 
-    事务安全：使用 session.begin() 确保原子性。
-    未完成的 observations 由 state.get_all_observations() 标记为 INTERRUPTED。
+    Transaction-safe: uses session.begin() for atomicity.
+    Incomplete observations are marked INTERRUPTED by state.get_all_observations().
     """
     from datetime import datetime, timezone
 
@@ -185,7 +186,7 @@ async def _persist_trace_data(
     if not all_obs:
         return
 
-    # 确定 trace 状态
+    # determine trace status
     if state.has_error:
         trace_status = TraceStatus.FAILED
     elif state.interrupted:
@@ -199,13 +200,13 @@ async def _persist_trace_data(
     trace_start = datetime.fromtimestamp(state.trace_start_time / 1000, tz=timezone.utc)
     duration_ms = int(now.timestamp() * 1000 - state.trace_start_time)
 
-    # 聚合 token 统计
+    # aggregate token statistics
     total_tokens = 0
     for obs_rec in all_obs:
         if obs_rec.type == ObsType.GENERATION and obs_rec.total_tokens:
             total_tokens += obs_rec.total_tokens
 
-    # 构造 ExecutionTrace ORM 对象
+    # build ExecutionTrace ORM object
     trace_uuid = uuid.UUID(state.trace_id)
     trace = ExecutionTrace(
         id=trace_uuid,
@@ -221,7 +222,7 @@ async def _persist_trace_data(
         total_tokens=total_tokens or None,
     )
 
-    # Enum 映射
+    # enum mapping
     type_map = {
         ObsType.SPAN: ObservationType.SPAN,
         ObsType.GENERATION: ObservationType.GENERATION,
@@ -241,7 +242,7 @@ async def _persist_trace_data(
         ObsStatus.INTERRUPTED: ObservationStatus.INTERRUPTED,
     }
 
-    # 构造 ExecutionObservation ORM 对象
+    # build ExecutionObservation ORM objects
     db_observations = []
     for rec in all_obs:
         obs = ExecutionObservation(
@@ -274,12 +275,12 @@ async def _persist_trace_data(
         )
         db_observations.append(obs)
 
-    # 事务安全批量写入
+    # transaction-safe batch insert
     async with AsyncSessionLocal() as session:
         async with session.begin():
             session.add(trace)
             session.add_all(db_observations)
-        # commit 在 begin() 退出时自动执行
+        # commit is automatic when begin() context exits
     log.info(f"Persisted trace {state.trace_id} with {len(db_observations)} observations | thread={state.thread_id}")
 
 
@@ -328,7 +329,7 @@ async def get_or_create_conversation(
 
 
 async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_model: str | None = None):
-    """获取用户配置和 LLM 参数"""
+    """Retrieve user configuration and LLM parameters."""
     from loguru import logger
 
     from app.common.exceptions import ModelConfigError, NotFoundException
@@ -341,7 +342,7 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_mo
         "callbacks": get_langfuse_callbacks(enabled=settings.langfuse_enabled),
     }
 
-    # 使用统一的 LLMCredentialResolver 获取凭据
+    # resolve credentials via the unified LLMCredentialResolver
     try:
         llm_params = await LLMCredentialResolver.get_llm_params(
             db=db,
@@ -352,7 +353,7 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_mo
             user_id=str(user_id),
         )
 
-        # 验证是否获取到有效的凭据
+        # verify that valid credentials were obtained
         if not llm_params.get("api_key") or not llm_params.get("llm_model"):
             raise ModelConfigError(
                 ModelConfigError.MODEL_NO_CREDENTIALS,
@@ -381,20 +382,18 @@ async def save_user_message(thread_id: str, message: str, metadata: dict | None,
 async def save_assistant_message(
     thread_id: str, messages: list[BaseMessage], db: AsyncSession, update_conversation: bool = True
 ):
-    """保存助手消息，支持提取 Tool Calls"""
-    # 找到最后一条 AI 消息
+    """Save assistant message, extracting tool calls if present."""
+    # find the last AI message
     ai_msg = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
     if not ai_msg:
         return
 
     meta_data = dict(ai_msg.additional_kwargs) if ai_msg.additional_kwargs else {}
 
-    # 提取 Tool Calls (简化逻辑)
+    # extract tool calls (simplified — a strict implementation would match subsequent ToolMessages by ID)
     if hasattr(ai_msg, "tool_calls") and ai_msg.tool_calls:
         tool_calls_data = []
         for tc in ai_msg.tool_calls:
-            # 尝试找到对应的 ToolOutput
-            # 注意：这里简化处理，严谨实现应遍历后续的 ToolMessage 匹配 ID
             tool_calls_data.append({"name": tc.get("name"), "arguments": tc.get("args"), "id": tc.get("id")})
         meta_data["tool_calls"] = tool_calls_data
 
@@ -439,7 +438,7 @@ def _enrich_message(message: str, metadata: dict, *, is_new_thread: bool, log, e
     # Only inject editing context on the first message of a new thread
     edit_skill_id = metadata.get("edit_skill_id")
     if edit_skill_id and is_new_thread:
-        log.info(f"[{endpoint}] 🔧 编辑技能模式: edit_skill_id={edit_skill_id}")
+        log.info(f"[{endpoint}] edit-skill mode: edit_skill_id={edit_skill_id}")
         enriched += (
             f"\n\n[Editing Mode] The user wants to modify an existing skill (ID: {edit_skill_id}). "
             f"The skill files have been pre-loaded into the sandbox. "
@@ -448,13 +447,13 @@ def _enrich_message(message: str, metadata: dict, *, is_new_thread: bool, log, e
 
     files = metadata.get("files", [])
     if files:
-        log.info(f"[{endpoint}] 📎 发现 {len(files)} 个文件: {files}")
+        log.info(f"[{endpoint}] found {len(files)} attached file(s): {files}")
         file_lines = "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
         enriched += (
             f"\n\nAttached files:\n{file_lines}\n"
             f"Use the read_file tool to read the content of these files."
         )
-        log.info(f"[{endpoint}] ✅ 消息已包含文件路径，长度: {len(enriched)}")
+        log.info(f"[{endpoint}] message enriched with file paths, length={len(enriched)}")
 
     return enriched
 
@@ -464,13 +463,13 @@ def _enrich_message(message: str, metadata: dict, *, is_new_thread: bool, log, e
 
 def _extract_run_ids(event_dict: dict) -> tuple[str, str | None]:
     """
-    从 LangGraph v2 事件中提取 run_id 和 parent_run_id。
+    Extract run_id and parent_run_id from a LangGraph v2 event.
 
-    LangGraph v2 astream_events 的每个事件包含:
-    - run_id: 当前事件的唯一标识（可能为 UUID 或 str）
-    - parent_ids: list, 从 root 到 immediate parent 排列
+    Each LangGraph v2 astream_events event contains:
+    - run_id: unique identifier for the event (UUID or str)
+    - parent_ids: list ordered from root to immediate parent
 
-    统一转为 str，避免 UUID 作为 dict key 的兼容性问题。
+    All values are normalised to str to avoid UUID-as-dict-key issues.
     """
     raw_run_id = event_dict.get("run_id")
     run_id = str(raw_run_id) if raw_run_id else ""

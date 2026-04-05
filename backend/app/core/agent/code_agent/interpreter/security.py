@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding=utf-8
 """
 Security module for CodeAgent Python interpreter.
 

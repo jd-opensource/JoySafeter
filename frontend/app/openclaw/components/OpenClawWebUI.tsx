@@ -42,7 +42,7 @@ export function OpenClawWebUI() {
     return (
       <div className="flex h-full flex-col items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg)]">
         <Loader2 className="mb-4 h-8 w-8 animate-spin text-[var(--text-secondary)]" />
-        <span className="text-sm text-[var(--text-secondary)]">检查实例状态...</span>
+        <span className="text-sm text-[var(--text-secondary)]">Checking instance status...</span>
       </div>
     )
   }
@@ -54,13 +54,13 @@ export function OpenClawWebUI() {
           <Server className="h-8 w-8 text-[var(--text-tertiary)]" />
         </div>
         <h3 className="mb-2 text-xl font-semibold tracking-tight text-[var(--text-primary)]">
-          {instance?.exists ? 'OpenClaw 实例未运行' : '未创建 OpenClaw 实例'}
+          {instance?.exists ? 'OpenClaw instance not running' : 'No OpenClaw instance created'}
         </h3>
         <p className="mb-8 max-w-md text-center leading-relaxed text-[var(--text-secondary)]">
-          你需要先启动 OpenClaw 实例，才能使用原生 Web 界面与 Agent 进行交互以及管理设备。
+          You need to start an OpenClaw instance first to use the native Web UI for interacting with the Agent and managing devices.
           <br />
           <span className="mt-2 block text-sm text-amber-500/90">
-            提示：实例启动环境准备过程较长，大约需要 4 分钟，请耐心等待。
+            Note: Instance startup takes about 4 minutes. Please be patient.
           </span>
         </p>
         <Button
@@ -74,7 +74,7 @@ export function OpenClawWebUI() {
           ) : (
             <Play className="mr-2 h-5 w-5" />
           )}
-          {instance?.status === 'starting' ? '正在启动...' : '启动实例'}
+          {instance?.status === 'starting' ? 'Starting...' : 'Start Instance'}
         </Button>
       </div>
     )
@@ -87,7 +87,7 @@ export function OpenClawWebUI() {
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--bg)]">
             <div className="flex flex-col items-center gap-2">
               <Loader2 className="h-6 w-6 animate-spin text-[var(--text-secondary)]" />
-              <span className="text-sm text-[var(--text-secondary)]">加载 OpenClaw 界面...</span>
+              <span className="text-sm text-[var(--text-secondary)]">Loading OpenClaw UI...</span>
             </div>
           </div>
         )}

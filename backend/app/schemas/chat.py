@@ -6,21 +6,21 @@ from pydantic import ConfigDict, Field
 
 
 class ChatRequest(PydanticBaseModel):
-    """对话请求"""
+    """Chat request."""
 
     model_config = ConfigDict(extra="forbid")
 
-    message: str = Field(..., description="用户消息")
-    thread_id: Optional[str] = Field(None, description="会话线程ID，不提供则创建新会话")
-    graph_id: Optional[uuid.UUID] = Field(None, description="图ID，使用指定的图进行对话")
-    model: Optional[str] = Field(None, description="模型标识，格式 provider:model_name")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
-    # user_id 从认证中获取，不再需要在请求中提供
+    message: str = Field(..., description="user message")
+    thread_id: Optional[str] = Field(None, description="conversation thread ID; omit to create a new session")
+    graph_id: Optional[uuid.UUID] = Field(None, description="graph ID; use the specified graph for the conversation")
+    model: Optional[str] = Field(None, description="model identifier, format provider:model_name")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="metadata")
+    # user_id is obtained from authentication; no longer needed in the request
 
 
 class ChatResponse(PydanticBaseModel):
-    """对话响应"""
+    """Chat response."""
 
-    thread_id: str = Field(..., description="会话线程ID")
-    response: str = Field(..., description="助手回复")
-    duration_ms: int = Field(..., description="执行时长(毫秒)")
+    thread_id: str = Field(..., description="conversation thread ID")
+    response: str = Field(..., description="assistant reply")
+    duration_ms: int = Field(..., description="execution duration (ms)")

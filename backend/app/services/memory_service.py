@@ -67,8 +67,8 @@ class MemoryService:
     """Async service for interacting with memories table."""
 
     def __init__(self, db: Optional[AsyncSession] = None):
-        # 当在 FastAPI 路由里使用时，推荐注入 `AsyncSession`（Depends(get_db)），以统一会话规范；
-        # 当在后台任务/脚本中使用时，可不传 db，由服务自行创建短生命周期会话。
+        # when used inside FastAPI routes, inject an AsyncSession (Depends(get_db)) for unified session management;
+        # when used in background tasks/scripts, omit db and let the service create a short-lived session.
         self._db = db
 
     async def _get_table(self, table_type: str = "memories") -> sa.Table:
@@ -84,7 +84,7 @@ class MemoryService:
 
     @asynccontextmanager
     async def _session(self):
-        """获取 AsyncSession，外部注入则复用，否则创建新会话。"""
+        """Get an AsyncSession; reuse the injected one if available, otherwise create a new session."""
         if self._db is not None:
             yield self._db
         else:

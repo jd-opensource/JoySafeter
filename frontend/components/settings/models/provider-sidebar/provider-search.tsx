@@ -16,7 +16,7 @@ export function ProviderSearch({ value, onChange }: ProviderSearchProps) {
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="搜索供应商..."
+        placeholder="Search providers..."
         className="h-8 pl-8 text-sm"
       />
     </div>

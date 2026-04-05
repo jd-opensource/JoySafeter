@@ -1,5 +1,5 @@
 """
-公共依赖项
+Common dependencies.
 """
 
 import uuid
@@ -29,18 +29,17 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """
-    获取当前用户（必须登录）
-    支持两种认证方式：
-    1. JWT token（优先）：解码 JWT token 获取用户 ID
-    2. Session token（兼容）：从 auth.session 表验证
-    同时支持通过 Cookie 传递 token（优先使用配置的 cookie_name）
+    Get the current user (login required).
+    Support two authentication methods:
+    1. JWT token (preferred): decode JWT token to obtain user ID
+    2. Session token (backward-compatible): verify via auth.session table
+    Also support token delivery via Cookie (prefer the configured cookie_name)
     """
     cookie_token = None
     try:
         if request:
-            # 优先从配置的 cookie_name 读取，然后尝试其他可能的名称
-            cookie_token = (
-                request.cookies.get(settings.cookie_name)  # 优先使用配置的 cookie 名称
+            # prefer configured cookie_name, then try other possible names            cookie_token = (
+                request.cookies.get(settings.cookie_name)  # prefer configured cookie name
                 or request.cookies.get("session-token")
                 or request.cookies.get("session_token")
                 or request.cookies.get("access_token")
@@ -53,7 +52,7 @@ async def get_current_user(
     if not token:
         raise UnauthorizedException("Missing credentials")
 
-    # 首先尝试作为 JWT token 验证（JWT 模式）
+    # try JWT token first (JWT mode)
     payload = decode_token(token)
     if payload:
         user_id = payload.sub
@@ -65,7 +64,7 @@ async def get_current_user(
             raise UnauthorizedException("User is inactive")
         return user
 
-    # 如果 JWT token 验证失败，尝试作为 session token 验证（向后兼容）
+    # if JWT validation fails, try as session token (backward-compatible)
     session_service = AuthSessionService(db)
     session = await session_service.get_session_by_token(token)
     if session:
@@ -85,13 +84,12 @@ async def get_current_user_optional(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Optional[User]:
-    """获取当前用户（可选，未登录返回 None），同时支持 Cookie 里的 token。"""
+    """Get the current user (optional; return None if not logged in). Also support token in Cookie."""
     cookie_token = None
     try:
         if request:
-            # 优先从配置的 cookie_name 读取，然后尝试其他可能的名称
-            cookie_token = (
-                request.cookies.get(settings.cookie_name)  # 优先使用配置的 cookie 名称
+            # prefer configured cookie_name, then try other possible names            cookie_token = (
+                request.cookies.get(settings.cookie_name)  # prefer configured cookie name
                 or request.cookies.get("session-token")
                 or request.cookies.get("session_token")
                 or request.cookies.get("access_token")
@@ -104,7 +102,7 @@ async def get_current_user_optional(
     if not token:
         return None
 
-    # 优先 JWT token
+    # prefer JWT token
     payload = decode_token(token)
     if payload:
         user_id = payload.sub
@@ -114,7 +112,7 @@ async def get_current_user_optional(
             return user
         return None
 
-    # 回退 session token
+    # fall back to session token
     session_service = AuthSessionService(db)
     session = await session_service.get_session_by_token(token)
     if session:
@@ -128,7 +126,7 @@ async def get_current_user_optional(
 
 
 # --------------------------------------------------------------------------- #
-# Workspace / Organization 角色装饰器
+# Workspace / Organization role dependency helpers
 # --------------------------------------------------------------------------- #
 def _role_rank(role: WorkspaceMemberRole) -> int:
     order = [
@@ -145,8 +143,8 @@ def _role_rank(role: WorkspaceMemberRole) -> int:
 
 def require_workspace_role(min_role: WorkspaceMemberRole):
     """
-    用于路由层的依赖，校验当前用户在指定 workspace_id 上的角色 >= min_role。
-    需确保路径参数/查询参数中有 workspace_id。
+    Route-level dependency that verifies the current user's role on the given
+    workspace_id is >= min_role. Requires workspace_id in path/query params.
     """
 
     async def checker(
@@ -181,8 +179,9 @@ def require_workspace_role(min_role: WorkspaceMemberRole):
 
 def require_org_role(min_role: str):
     """
-    校验当前用户在指定 organization_id 上的角色（简单字符串比较，owner > admin > member）。
-    需确保路径/查询中有 organization_id。
+    Verify the current user's role on the given organization_id
+    (simple string comparison: owner > admin > member).
+    Requires organization_id in path/query params.
     """
     role_order = ["member", "admin", "owner"]
 

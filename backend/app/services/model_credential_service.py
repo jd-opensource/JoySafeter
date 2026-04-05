@@ -1,7 +1,7 @@
 """
-模型凭据服务
+Model credential service.
 
-简化原则：一个 provider 一条凭证，按 provider_id 查找。
+Simplified principle: one credential per provider, looked up by provider_id.
 """
 
 import uuid
@@ -20,7 +20,7 @@ from .base import BaseService
 
 
 class ModelCredentialService(BaseService):
-    """模型凭据服务"""
+    """Model credential service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -39,7 +39,7 @@ class ModelCredentialService(BaseService):
         validation_error: Optional[str],
         user_id: Optional[str] = None,
     ) -> Any:
-        """一个 provider 一条凭证。存在则更新，不存在则创建。"""
+        """Upsert one credential per provider. Update if exists, create otherwise."""
         existing = await self.repo.get_by_provider(provider_id)
         now = datetime.now(timezone.utc) if is_valid else None
 
@@ -67,7 +67,7 @@ class ModelCredentialService(BaseService):
     async def _validate_for_provider(
         self, provider: Any, credentials: Dict[str, Any], provider_id: uuid.UUID
     ) -> tuple[bool, Optional[str]]:
-        """验证凭证。自定义 Provider 用实际模型名验证。"""
+        """Validate credentials. For custom providers, validate with the actual model name."""
         implementation_name = provider.template_name or provider.name
         model_name = None
         if provider.provider_type == "custom":
@@ -90,8 +90,8 @@ class ModelCredentialService(BaseService):
         validate: bool = True,
     ) -> Dict[str, Any]:
         """
-        创建或更新内置 provider 的凭据。
-        一个 provider 一条凭证，按 provider_id upsert。
+        Create or update credentials for a built-in provider.
+        One credential per provider, upsert by provider_id.
         """
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
@@ -111,7 +111,7 @@ class ModelCredentialService(BaseService):
             user_id=user_id,
         )
 
-        # 确保模型实例存在
+        # ensure model instances exist
         from app.services.model_provider_service import ModelProviderService
 
         provider_service = ModelProviderService(self.db)
@@ -128,7 +128,7 @@ class ModelCredentialService(BaseService):
         }
 
     async def validate_credential(self, credential_id: uuid.UUID) -> Dict[str, Any]:
-        """重新验证已有凭证。按 ID 查找，解密，调 API 验证。"""
+        """Re-validate an existing credential. Look up by ID, decrypt, call API to validate."""
         credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
             raise NotFoundException("Credential not found")
@@ -150,7 +150,7 @@ class ModelCredentialService(BaseService):
         }
 
     async def get_credential(self, credential_id: uuid.UUID, include_credentials: bool = False) -> Dict[str, Any]:
-        """获取凭据详情。"""
+        """Get credential details."""
         credential = await self.repo.get(credential_id, relations=["provider"])
         if not credential:
             raise NotFoundException("Credential not found")
@@ -170,7 +170,7 @@ class ModelCredentialService(BaseService):
         return result
 
     async def list_credentials(self) -> List[Dict[str, Any]]:
-        """获取凭据列表。"""
+        """Get credential list."""
         credentials = await self.repo.list_all()
         return [
             {
@@ -185,7 +185,7 @@ class ModelCredentialService(BaseService):
         ]
 
     async def delete_credential(self, credential_id: uuid.UUID) -> None:
-        """删除内置 provider 的凭据记录。自定义 provider 的凭据不允许单独删除。"""
+        """Delete a built-in provider's credential. Custom provider credentials cannot be deleted separately."""
         from app.common.exceptions import BadRequestException
 
         credential = await self.repo.get(credential_id, relations=["provider"])
@@ -207,7 +207,7 @@ class ModelCredentialService(BaseService):
     async def get_decrypted_credentials(
         self, provider_name: str, user_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """按 provider_name 获取解密凭证。"""
+        """Get decrypted credentials by provider_name."""
         provider = await self.provider_repo.get_by_name(provider_name)
         if not provider:
             return None

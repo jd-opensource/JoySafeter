@@ -1,5 +1,5 @@
 """
-GraphExecution 模型 — 追踪通过 OpenAPI 触发的 Graph 执行。
+GraphExecution model -- track Graph executions triggered via OpenAPI.
 """
 
 import enum
@@ -26,7 +26,7 @@ class ExecutionStatus(str, enum.Enum):
 
 
 class GraphExecution(BaseModel):
-    """OpenAPI Graph 执行记录"""
+    """OpenAPI Graph execution record."""
 
     __tablename__ = "graph_executions"
 

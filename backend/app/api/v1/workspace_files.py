@@ -1,5 +1,5 @@
 """
-工作空间文件管理 API（版本化路径 /api/v1/workspaces）
+Workspace file management API (versioned path: /api/v1/workspaces)
 """
 
 import uuid
@@ -29,7 +29,7 @@ async def list_workspace_files(
 ):
     service = WorkspaceFileService(db)
     files = await service.list_files(workspace_id, current_user)
-    # 兼容前端直接读取 files，同时保留统一响应格式
+    # compatible with frontend reading files directly, while preserving unified response format
     base = success_response(data={"files": files}, message="Fetched workspace files")
     return {**base, "files": files}
 
@@ -37,11 +37,11 @@ async def list_workspace_files(
 @router.post("/{workspace_id}/files")
 async def upload_workspace_file(
     workspace_id: uuid.UUID,
-    file: UploadFile = File(..., description="待上传文件"),
+    file: UploadFile = File(..., description="File to upload"),
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.member),
 ):
-    # 兼容旧前端：重复文件返回 409 + isDuplicate，并使用 error 字段
+    # legacy frontend compatibility: duplicate file returns 409 + isDuplicate with error field
     try:
         service = WorkspaceFileService(db)
         record = await service.upload_file(workspace_id, file, current_user)
@@ -57,7 +57,7 @@ async def upload_workspace_file(
             },
         )
     except AppException as exc:
-        # 保持与旧前端一致的 error 字段，同时不破坏现有统一响应（仍返回 success=false）
+        # keep error field consistent with legacy frontend while preserving unified response (success=false)
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -76,7 +76,7 @@ async def delete_workspace_file(
 ):
     service = WorkspaceFileService(db)
     await service.delete_file(workspace_id, file_id, current_user)
-    # 兼容旧前端：允许只判断 success
+    # legacy frontend compatibility: allow checking success only
     base = success_response(message="File deleted", data={"fileId": str(file_id)})
     return {**base, "success": True}
 
@@ -93,7 +93,7 @@ async def generate_workspace_file_download_url(
     url = await service.generate_download_url(workspace_id, file_id, current_user)
     record = await service.get_file_record(workspace_id, file_id)
 
-    # 生成绝对 downloadUrl（对齐旧项目 getBaseUrl() 的效果）
+    # generate absolute downloadUrl (matching the legacy getBaseUrl() behavior)
     base_url = str(request.base_url).rstrip("/")
     download_url = f"{base_url}{url}"
     viewer_url = f"{settings.frontend_url.rstrip('/')}/workspace/{workspace_id}/files/{file_id}/view"
@@ -113,7 +113,7 @@ async def generate_workspace_file_download_url(
 async def serve_workspace_file(
     workspace_id: uuid.UUID,
     file_id: uuid.UUID,
-    token: Optional[str] = Query(default=None, description="下载签名 token"),
+    token: Optional[str] = Query(default=None, description="Download signature token"),
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
@@ -123,10 +123,10 @@ async def serve_workspace_file(
     file_path = service.get_file_path(record)
 
     if not file_path.exists():
-        # 延迟校验，若文件缺失抛出一致错误
+        # deferred validation: raise a consistent error if the file is missing
         await service.read_file_bytes(record)
 
-    # 直接使用 FileResponse 减少内存占用
+    # use FileResponse directly to reduce memory usage
     return FileResponse(
         path=file_path,
         media_type=record.content_type or "application/octet-stream",

@@ -1,5 +1,5 @@
 """
-Chat / Copilot Chat / Workflow Checkpoints 模型
+Chat / Copilot Chat / Workflow Checkpoints models
 """
 
 import uuid

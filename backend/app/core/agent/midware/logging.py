@@ -1,4 +1,4 @@
-"""日志记录中间件 - 提供全面的操作日志和审计跟踪"""
+"""Logging middleware - Provide comprehensive operation logs and audit trails."""
 
 import json
 import logging
@@ -17,34 +17,34 @@ from typing_extensions import NotRequired
 
 
 class LoggingState(AgentState):
-    """日志记录中间件的状态"""
+    """State for the logging middleware."""
 
     session_id: NotRequired[str]  # type: ignore[valid-type]
-    """会话ID"""
+    """Session ID."""
 
     log_config: NotRequired[Dict[str, Any]]  # type: ignore[valid-type]
-    """日志配置"""
+    """Log configuration."""
 
     interaction_count: NotRequired[int]  # type: ignore[valid-type]
-    """交互计数"""
+    """Interaction count."""
 
     session_start_time: NotRequired[float]  # type: ignore[valid-type]
-    """会话开始时间"""
+    """Session start time."""
 
     last_activity: NotRequired[float]  # type: ignore[valid-type]
-    """最后活动时间"""
+    """Last activity time."""
 
 
 class LoggingMiddleware(AgentMiddleware):
-    """日志记录中间件
+    """Logging middleware.
 
-    提供全面的操作日志记录：
-    - 对话历史记录
-    - 工具调用日志
-    - 性能指标记录
-    - 错误追踪
-    - 用户行为分析
-    - 会话统计
+    Provide comprehensive operation logging:
+    - Conversation history
+    - Tool call logs
+    - Performance metrics
+    - Error tracking
+    - User behavior analysis
+    - Session statistics
     """
 
     state_schema = LoggingState
@@ -64,7 +64,7 @@ class LoggingMiddleware(AgentMiddleware):
         max_file_size: int = 10 * 1024 * 1024,  # 10MB
         rotate_interval: int = 24,  # hours
     ) -> None:
-        """初始化日志记录中间件"""
+        """Initialize the logging middleware."""
         self.backend = backend
         self.log_path = log_path.rstrip("/") + "/"
         self.session_id = session_id or self._generate_session_id()
@@ -77,23 +77,23 @@ class LoggingMiddleware(AgentMiddleware):
         self.max_file_size = max_file_size
         self.rotate_interval = rotate_interval
 
-        # 日志文件路径
+        # log file paths
         self.conversation_log_path = f"{self.log_path}conversations/{self.session_id}.jsonl"
         self.tool_log_path = f"{self.log_path}tools/{self.session_id}.jsonl"
         self.performance_log_path = f"{self.log_path}performance/{self.session_id}.jsonl"
         self.error_log_path = f"{self.log_path}errors/{self.session_id}.jsonl"
 
-        # 初始化日志目录
+        # initialize log directories
         self._init_log_directories()
 
     def _generate_session_id(self) -> str:
-        """生成会话ID"""
+        """Generate a session ID."""
         import uuid
 
         return str(uuid.uuid4())[:12]
 
     def _init_log_directories(self) -> None:
-        """初始化日志目录"""
+        """Initialize log directories."""
         directories = [
             f"{self.log_path}conversations",
             f"{self.log_path}tools",
@@ -109,32 +109,32 @@ class LoggingMiddleware(AgentMiddleware):
                 print(f"Warning: Failed to initialize log directory {directory}: {e}")
 
     def _write_log_entry(self, log_path: str, entry: Dict[str, Any]) -> None:
-        """写入日志条目"""
+        """Write a log entry."""
         try:
-            # 添加时间戳
+            # add timestamp
             entry["timestamp"] = datetime.now().isoformat()
             entry["session_id"] = self.session_id
 
-            # 写入日志
+            # write log
             log_line = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
             try:
-                # 先检查文件是否存在并读取现有内容（BackendProtocol 扩展实现可能有 exists）
+                # check if file exists and read existing content (BackendProtocol extension may have exists)
                 existing_content = ""
                 exists_fn = getattr(self.backend, "exists", None)
                 if exists_fn is not None and callable(exists_fn) and exists_fn(log_path):
                     existing_content = self.backend.read(log_path) or ""
 
-                # 添加新行
+                # add new line
                 new_content = existing_content + log_line + "\n"
                 self.backend.write(log_path, new_content)
             except Exception:
-                # 如果追加失败，尝试直接写入
+                # if append fails, try writing directly
                 self.backend.write(log_path, log_line + "\n")
         except Exception as e:
             print(f"Warning: Failed to write log entry to {log_path}: {e}")
 
     def _log_conversation_entry(self, entry_type: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
-        """记录对话条目"""
+        """Log a conversation entry."""
         if not self.enable_conversation_logging:
             return
 
@@ -155,7 +155,7 @@ class LoggingMiddleware(AgentMiddleware):
         execution_time: Optional[float] = None,
         error: Optional[str] = None,
     ) -> None:
-        """记录工具调用"""
+        """Log a tool call."""
         if not self.enable_tool_logging:
             return
 
@@ -168,7 +168,7 @@ class LoggingMiddleware(AgentMiddleware):
             "success": error is None,
         }
 
-        # 如果结果很大，只记录摘要
+        # if result is large, log only a summary
         if result and len(str(result)) > 1000:
             entry["result_summary"] = f"{type(result).__name__} object, size: {len(str(result))} chars"
         else:
@@ -177,7 +177,7 @@ class LoggingMiddleware(AgentMiddleware):
         self._write_log_entry(self.tool_log_path, entry)
 
     def _log_performance_metrics(self, operation: str, metrics: Dict[str, Any]) -> None:
-        """记录性能指标"""
+        """Log performance metrics."""
         if not self.enable_performance_logging:
             return
 
@@ -186,7 +186,7 @@ class LoggingMiddleware(AgentMiddleware):
         self._write_log_entry(self.performance_log_path, entry)
 
     def _log_error(self, error_type: str, error_message: str, context: Optional[Dict[str, Any]] = None) -> None:
-        """记录错误"""
+        """Log an error."""
         if not self.enable_error_logging:
             return
 
@@ -200,7 +200,7 @@ class LoggingMiddleware(AgentMiddleware):
         self._write_log_entry(self.error_log_path, entry)
 
     def _update_session_stats(self, state: Dict[str, Any]) -> None:  # type: ignore[assignment]
-        """更新会话统计"""
+        """Update session statistics."""
         try:
             session_stats = {
                 "session_id": self.session_id,
@@ -216,20 +216,20 @@ class LoggingMiddleware(AgentMiddleware):
                 },
             }
 
-            # 保存会话统计
+            # save session statistics
             session_path = f"{self.log_path}sessions/{self.session_id}.json"
             self.backend.write(session_path, json.dumps(session_stats, indent=2))
         except Exception as e:
             print(f"Warning: Failed to update session stats: {e}")
 
     def _extract_conversation_content(self, request: ModelRequest) -> str:
-        """提取对话内容"""
+        """Extract conversation content from a request."""
         if hasattr(request, "content") and request.content:
             return str(request.content)
         elif hasattr(request, "messages") and request.messages:
-            # 获取最后一条用户消息
+            # get the last user message
             for msg in reversed(request.messages):
-                # 兼容LangChain Message对象和字典格式
+                # compatible with LangChain Message objects and dict format
                 role = None
                 if hasattr(msg, "type"):
                     role = "user" if msg.type == "human" else "assistant" if msg.type == "ai" else None
@@ -247,13 +247,13 @@ class LoggingMiddleware(AgentMiddleware):
         return ""
 
     def _extract_response_content(self, response: ModelResponse) -> str:
-        """提取响应内容"""
+        """Extract response content."""
         if hasattr(response, "content") and response.content:
             return str(response.content)
         elif hasattr(response, "messages") and response.messages:
-            # 获取最后一条助手消息
+            # get the last assistant message
             for msg in reversed(response.messages):
-                # 兼容LangChain Message对象和字典格式
+                # compatible with LangChain Message objects and dict format
                 role = None
                 if hasattr(msg, "type"):
                     role = "user" if msg.type == "human" else "assistant" if msg.type == "ai" else None
@@ -271,7 +271,7 @@ class LoggingMiddleware(AgentMiddleware):
         return ""
 
     def _extract_tool_calls(self, response: ModelResponse) -> List[Dict[str, Any]]:
-        """提取工具调用"""
+        """Extract tool calls from a response."""
         tool_calls = []
 
         if hasattr(response, "tool_calls") and response.tool_calls:
@@ -288,7 +288,7 @@ class LoggingMiddleware(AgentMiddleware):
         state: AgentState[Any],  # type: ignore[assignment]
         runtime,
     ) -> dict[str, Any]:  # type: ignore[override]
-        """在代理执行前初始化日志记录"""
+        """Initialize logging before agent execution."""
         session_id = self.session_id
 
         log_config = {
@@ -315,7 +315,7 @@ class LoggingMiddleware(AgentMiddleware):
         state: AgentState[Any],  # type: ignore[assignment]
         runtime,
     ) -> dict[str, Any]:  # type: ignore[override]
-        """异步：在代理执行前初始化日志记录"""
+        """Async: initialize logging before agent execution."""
         return self.before_agent(state, runtime)
 
     def wrap_model_call(
@@ -323,13 +323,13 @@ class LoggingMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
-        """包装模型调用，记录详细日志"""
+        """Wrap model call and log details."""
         start_time = time.time()
 
-        # 提取请求内容
+        # extract request content
         request_content = self._extract_conversation_content(request)
 
-        # 记录用户输入
+        # log user input
         if request_content:
             self._log_conversation_entry(
                 "user_input",
@@ -338,16 +338,16 @@ class LoggingMiddleware(AgentMiddleware):
             )
 
         try:
-            # 执行模型调用
+            # execute model call
             response = handler(request)
 
-            # 计算执行时间
+            # compute execution time
             execution_time = time.time() - start_time
 
-            # 提取响应内容
+            # extract response content
             response_content = self._extract_response_content(response)
 
-            # 记录AI响应
+            # log AI response
             if response_content:
                 self._log_conversation_entry(
                     "assistant_response",
@@ -359,7 +359,7 @@ class LoggingMiddleware(AgentMiddleware):
                     },
                 )
 
-            # 记录工具调用
+            # log tool calls
             tool_calls = self._extract_tool_calls(response)
             if tool_calls:
                 for tool_call in tool_calls:
@@ -368,11 +368,11 @@ class LoggingMiddleware(AgentMiddleware):
                     tool_args = tool_call.get("args", {})
 
                     try:
-                        # 这里只是记录调用，实际执行由其他中间件处理
+                        # only log the call here; actual execution is handled by other middleware
                         self._log_tool_call(
                             tool_name,
                             tool_args,
-                            execution_time=0.0,  # 实际执行时间将在其他地方记录
+                            execution_time=0.0,  # actual execution time is recorded elsewhere
                             result=None,
                         )
                     except Exception as e:
@@ -382,7 +382,7 @@ class LoggingMiddleware(AgentMiddleware):
                             {"tool_name": tool_name, "tool_args": tool_args},
                         )
 
-            # 记录性能指标
+            # log performance metrics
             self._log_performance_metrics(
                 "model_call",
                 {
@@ -393,7 +393,7 @@ class LoggingMiddleware(AgentMiddleware):
                 },
             )
 
-            # 更新交互计数
+            # update interaction count
             state_dict = dict(request.state)  # type: ignore[arg-type]
             current_count = state_dict.get("interaction_count", 0)
             if not isinstance(current_count, int):
@@ -401,17 +401,17 @@ class LoggingMiddleware(AgentMiddleware):
             state_dict["interaction_count"] = current_count + 1  # type: ignore[assignment]
             state_dict["last_activity"] = time.time()  # type: ignore[assignment]
 
-            # 更新会话统计
+            # update session statistics
             self._update_session_stats(state_dict)  # type: ignore[arg-type]
 
             return response
 
         except Exception as e:
-            # 记录错误
+            # log error
             error_msg = str(e)
             execution_time = time.time() - start_time
 
-            # 为 "No generations found in stream" 错误提供更详细的上下文
+            # provide more detailed context for "No generations found in stream" errors
             context = {
                 "request_content_preview": (
                     request_content[:100] + "..." if len(request_content) > 100 else request_content
@@ -419,7 +419,7 @@ class LoggingMiddleware(AgentMiddleware):
                 "execution_time": execution_time,
             }
 
-            # 如果错误是 "No generations found in stream"，添加额外的诊断信息
+            # if the error is "No generations found in stream", add extra diagnostics
             if "No generations found in stream" in error_msg:
                 context.update(
                     {
@@ -447,13 +447,13 @@ class LoggingMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
-        """异步：包装模型调用，记录详细日志"""
+        """Async: wrap model call and log details."""
         start_time = time.time()
 
-        # 提取请求内容
+        # extract request content
         request_content = self._extract_conversation_content(request)
 
-        # 记录用户输入
+        # log user input
         if request_content:
             self._log_conversation_entry(
                 "user_input",
@@ -465,16 +465,16 @@ class LoggingMiddleware(AgentMiddleware):
             )
 
         try:
-            # 执行模型调用
+            # execute model call
             response = await handler(request)
 
-            # 计算执行时间
+            # compute execution time
             execution_time = time.time() - start_time
 
-            # 提取响应内容
+            # extract response content
             response_content = self._extract_response_content(response)
 
-            # 记录AI响应
+            # log AI response
             if response_content:
                 self._log_conversation_entry(
                     "assistant_response",
@@ -486,7 +486,7 @@ class LoggingMiddleware(AgentMiddleware):
                     },
                 )
 
-            # 记录工具调用
+            # log tool calls
             tool_calls = self._extract_tool_calls(response)
             if tool_calls:
                 for tool_call in tool_calls:
@@ -502,7 +502,7 @@ class LoggingMiddleware(AgentMiddleware):
                             {"tool_name": tool_name, "tool_args": tool_args},
                         )
 
-            # 记录性能指标
+            # log performance metrics
             self._log_performance_metrics(
                 "model_call_async",
                 {
@@ -513,7 +513,7 @@ class LoggingMiddleware(AgentMiddleware):
                 },
             )
 
-            # 更新交互计数
+            # update interaction count
             state_dict = dict(request.state)  # type: ignore[arg-type]
             current_count = state_dict.get("interaction_count", 0)
             if not isinstance(current_count, int):
@@ -521,17 +521,17 @@ class LoggingMiddleware(AgentMiddleware):
             state_dict["interaction_count"] = current_count + 1  # type: ignore[assignment]
             state_dict["last_activity"] = time.time()  # type: ignore[assignment]
 
-            # 更新会话统计
+            # update session statistics
             self._update_session_stats(state_dict)  # type: ignore[arg-type]
 
             return response
 
         except Exception as e:
-            # 记录错误
+            # log error
             error_msg = str(e)
             execution_time = time.time() - start_time
 
-            # 为 "No generations found in stream" 错误提供更详细的上下文
+            # provide more detailed context for "No generations found in stream" errors
             context = {
                 "request_content_preview": (
                     request_content[:100] + "..." if len(request_content) > 100 else request_content
@@ -539,7 +539,7 @@ class LoggingMiddleware(AgentMiddleware):
                 "execution_time": execution_time,
             }
 
-            # 如果错误是 "No generations found in stream"，添加额外的诊断信息
+            # if the error is "No generations found in stream", add extra diagnostics
             if "No generations found in stream" in error_msg:
                 context.update(
                     {
@@ -563,7 +563,7 @@ class LoggingMiddleware(AgentMiddleware):
             raise
 
     def get_session_statistics(self) -> Dict[str, Any]:
-        """获取会话统计信息"""
+        """Get session statistics."""
         try:
             session_path = f"{self.log_path}sessions/{self.session_id}.json"
             session_data = self.backend.read(session_path)
@@ -576,7 +576,7 @@ class LoggingMiddleware(AgentMiddleware):
         return {"error": "Session statistics not available"}
 
     def get_recent_conversations(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """获取最近的对话记录"""
+        """Get recent conversation records."""
         try:
             conversation_data = self.backend.read(self.conversation_log_path)
             if conversation_data:
@@ -590,7 +590,7 @@ class LoggingMiddleware(AgentMiddleware):
         return []
 
     def get_error_summary(self) -> Dict[str, Any]:
-        """获取错误摘要"""
+        """Get error summary."""
         try:
             error_data = self.backend.read(self.error_log_path)
             if not error_data:
@@ -610,7 +610,7 @@ class LoggingMiddleware(AgentMiddleware):
             error_types: Dict[str, int] = {}
             recent_errors: List[Dict[str, Any]] = []
 
-            for entry in error_entries[-20:]:  # 最近20个错误
+            for entry in error_entries[-20:]:  # last 20 errors
                 error_type = entry.get("error_type", "unknown")
                 error_types[error_type] = error_types.get(error_type, 0) + 1
 
@@ -632,15 +632,15 @@ class LoggingMiddleware(AgentMiddleware):
             return {"error": "Failed to generate error summary"}
 
     def cleanup_old_logs(self, days_to_keep: int = 30) -> None:
-        """清理旧日志文件"""
+        """Clean up old log files."""
         time.time() - (days_to_keep * 24 * 60 * 60)
 
         try:
-            # 这里需要实现具体的清理逻辑
-            # 由于BackendProtocol的限制，这里只是示例
+            # concrete cleanup logic needs to be implemented here;
+            # limited by BackendProtocol, this is a placeholder
             pass
         except Exception as e:
             print(f"Warning: Failed to cleanup old logs: {e}")
 
 
-# 添加缺少的import
+# (no additional imports needed)

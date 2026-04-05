@@ -1,7 +1,7 @@
 """
-MCP Server Repository - MCP 服务器数据访问层
+MCP Server Repository
 
-支持用户级别和工作区级别的 MCP 服务器管理
+Manage user-level and workspace-level MCP servers.
 """
 
 import uuid
@@ -18,7 +18,7 @@ class McpServerRepository(BaseRepository[McpServer]):
     """
     MCP Server Repository
 
-    提供用户/工作区级别的 MCP 服务器 CRUD 操作
+    Provide user/workspace-level CRUD operations for MCP servers.
     """
 
     def __init__(self, db: AsyncSession):
@@ -31,15 +31,15 @@ class McpServerRepository(BaseRepository[McpServer]):
         include_deleted: bool = False,
     ) -> List[McpServer]:
         """
-        获取用户拥有的所有 MCP 服务器
+        Return all MCP servers owned by the user.
 
         Args:
-            user_id: 用户 ID
-            enabled_only: 是否只返回启用的服务器
-            include_deleted: 是否包含已删除的记录
+            user_id: user ID
+            enabled_only: only return enabled servers
+            include_deleted: include soft-deleted records
 
         Returns:
-            MCP 服务器列表
+            list of MCP servers
         """
         conditions = [
             McpServer.user_id == user_id,
@@ -62,15 +62,15 @@ class McpServerRepository(BaseRepository[McpServer]):
         include_deleted: bool = False,
     ) -> List[McpServer]:
         """
-        获取用户可访问的所有 MCP 服务器（用户级别）
+        Return all MCP servers accessible to the user (user scope).
 
         Args:
-            user_id: 用户 ID
-            enabled_only: 是否只返回启用的服务器
-            include_deleted: 是否包含已删除的记录
+            user_id: user ID
+            enabled_only: only return enabled servers
+            include_deleted: include soft-deleted records
 
         Returns:
-            MCP 服务器列表
+            list of MCP servers
         """
         return await self.find_by_user(user_id, enabled_only, include_deleted)
 
@@ -79,13 +79,13 @@ class McpServerRepository(BaseRepository[McpServer]):
         user_id: Optional[str] = None,
     ) -> List[McpServer]:
         """
-        获取启用的 MCP 服务器
+        Return enabled MCP servers.
 
         Args:
-            user_id: 用户 ID (可选)
+            user_id: user ID (optional)
 
         Returns:
-            启用的 MCP 服务器列表
+            list of enabled MCP servers
         """
         conditions = [
             McpServer.enabled,
@@ -101,10 +101,10 @@ class McpServerRepository(BaseRepository[McpServer]):
 
     async def find_all_enabled(self) -> List[McpServer]:
         """
-        获取所有启用的 MCP 服务器（用于应用启动时加载）
+        Return all enabled MCP servers (used at application startup).
 
         Returns:
-            所有启用的 MCP 服务器列表
+            list of all enabled MCP servers
         """
         query = (
             select(McpServer)
@@ -125,14 +125,14 @@ class McpServerRepository(BaseRepository[McpServer]):
         name: str,
     ) -> Optional[McpServer]:
         """
-        根据用户 ID 和服务器名称获取服务器
+        Get a server by user ID and server name.
 
         Args:
-            user_id: 用户 ID
-            name: 服务器名称
+            user_id: user ID
+            name: server name
 
         Returns:
-            MCP 服务器或 None
+            MCP server or None
         """
         query = select(McpServer).where(
             and_(
@@ -151,15 +151,15 @@ class McpServerRepository(BaseRepository[McpServer]):
         error: Optional[str] = None,
     ) -> Optional[McpServer]:
         """
-        更新连接状态
+        Update connection status.
 
         Args:
-            server_id: 服务器 ID
-            status: 连接状态 (connected, disconnected, error)
-            error: 错误信息 (可选)
+            server_id: server ID
+            status: connection status (connected, disconnected, error)
+            error: error message (optional)
 
         Returns:
-            更新后的 MCP 服务器
+            updated MCP server
         """
         from datetime import datetime
 
@@ -180,14 +180,14 @@ class McpServerRepository(BaseRepository[McpServer]):
         tool_count: int,
     ) -> Optional[McpServer]:
         """
-        更新工具数量
+        Update tool count.
 
         Args:
-            server_id: 服务器 ID
-            tool_count: 工具数量
+            server_id: server ID
+            tool_count: number of tools
 
         Returns:
-            更新后的 MCP 服务器
+            updated MCP server
         """
         from datetime import datetime
 
@@ -204,14 +204,14 @@ class McpServerRepository(BaseRepository[McpServer]):
         enabled: bool,
     ) -> Optional[McpServer]:
         """
-        切换启用状态
+        Toggle enabled state.
 
         Args:
-            server_id: 服务器 ID
-            enabled: 是否启用
+            server_id: server ID
+            enabled: whether to enable
 
         Returns:
-            更新后的 MCP 服务器
+            updated MCP server
         """
         return await self.update(server_id, {"enabled": enabled})
 
@@ -221,14 +221,14 @@ class McpServerRepository(BaseRepository[McpServer]):
         user_id: Optional[str] = None,
     ) -> Dict[uuid.UUID, McpServer]:
         """
-        批量获取 MCP 服务器（用于 UUID 解析）
+        Batch-fetch MCP servers (for UUID resolution).
 
         Args:
-            server_ids: 服务器 ID 列表
-            user_id: 可选的用户 ID 过滤（权限检查）
+            server_ids: list of server IDs
+            user_id: optional user ID filter (permission check)
 
         Returns:
-            UUID -> McpServer 的映射字典
+            mapping of UUID to McpServer
         """
         if not server_ids:
             return {}

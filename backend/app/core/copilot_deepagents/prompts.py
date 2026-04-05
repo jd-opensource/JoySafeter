@@ -1,5 +1,5 @@
 """
-DeepAgents Copilot - Manager 与子代理的 prompt 常量。
+DeepAgents Copilot - Prompt constants for Manager and sub-agents.
 """
 
 MANAGER_SYSTEM_PROMPT = """你是一个 Agent 工作流生成专家（DeepAgents Copilot Manager）。

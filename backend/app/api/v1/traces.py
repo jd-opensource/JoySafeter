@@ -1,7 +1,7 @@
 """
-Traces API（路径 /api/v1/traces）
+Traces API (path: /api/v1/traces)
 
-查询历史执行追踪数据，支持 Trace 列表、单个 Trace 详情、Observation 列表。
+Query historical execution trace data. Supports trace listing, single trace detail, and observation listing.
 """
 
 import uuid
@@ -31,7 +31,7 @@ def _bind_log(request: Request, **kwargs):
 
 
 class ObservationSchema(BaseModel):
-    """Observation 返回结构"""
+    """Observation response schema."""
 
     id: str
     trace_id: str
@@ -63,7 +63,7 @@ class ObservationSchema(BaseModel):
 
 
 class TraceSchema(BaseModel):
-    """Trace 返回结构"""
+    """Trace response schema."""
 
     id: str
     workspace_id: Optional[str] = None
@@ -88,14 +88,14 @@ class TraceSchema(BaseModel):
 
 
 class TraceDetailSchema(BaseModel):
-    """Trace 详情（含 observations）"""
+    """Trace detail (with observations)."""
 
     trace: TraceSchema
     observations: list[ObservationSchema]
 
 
 class TraceListSchema(BaseModel):
-    """Trace 列表"""
+    """Trace list."""
 
     traces: list[TraceSchema]
     total: int
@@ -105,7 +105,7 @@ class TraceListSchema(BaseModel):
 
 
 def _trace_to_schema(trace) -> TraceSchema:
-    """将 ORM 对象转换为 schema"""
+    """Convert a Trace ORM object to a schema."""
     return TraceSchema(
         id=str(trace.id),
         workspace_id=str(trace.workspace_id) if trace.workspace_id else None,
@@ -128,7 +128,7 @@ def _trace_to_schema(trace) -> TraceSchema:
 
 
 def _obs_to_schema(obs) -> ObservationSchema:
-    """将 Observation ORM 对象转换为 schema"""
+    """Convert an Observation ORM object to a schema."""
     return ObservationSchema(
         id=str(obs.id),
         trace_id=str(obs.trace_id),
@@ -165,13 +165,13 @@ async def list_traces(
     request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    graph_id: Optional[uuid.UUID] = Query(None, description="按 Graph ID 过滤"),
-    workspace_id: Optional[uuid.UUID] = Query(None, description="按 Workspace ID 过滤"),
-    thread_id: Optional[str] = Query(None, description="按 Thread ID 过滤"),
-    limit: int = Query(20, ge=1, le=100, description="分页大小"),
-    offset: int = Query(0, ge=0, description="偏移量"),
+    graph_id: Optional[uuid.UUID] = Query(None, description="Filter by Graph ID"),
+    workspace_id: Optional[uuid.UUID] = Query(None, description="Filter by Workspace ID"),
+    thread_id: Optional[str] = Query(None, description="Filter by Thread ID"),
+    limit: int = Query(20, ge=1, le=100, description="Page size"),
+    offset: int = Query(0, ge=0, description="Offset"),
 ):
-    """列表查询 Traces（分页）"""
+    """List traces (paginated)."""
     log = _bind_log(request, user_id=str(current_user.id))
     service = TraceService(db)
 
@@ -214,7 +214,7 @@ async def get_trace_detail(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """获取单个 Trace 详情 + 所有 Observations"""
+    """Get a single trace's detail with all observations."""
     log = _bind_log(request, user_id=str(current_user.id))
     service = TraceService(db)
 
@@ -252,7 +252,7 @@ async def get_trace_observations(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """获取 Trace 的扁平 Observation 列表（按时间排序）"""
+    """Get a flat list of observations for a trace (sorted by time)."""
     log = _bind_log(request, user_id=str(current_user.id))
     service = TraceService(db)
 

@@ -1,5 +1,5 @@
 """
-用户 Schema
+User schemas
 """
 
 from typing import Optional
@@ -10,7 +10,7 @@ from .common import IDSchema
 
 
 class UserBase(BaseModel):
-    """用户基础"""
+    """User base schema."""
 
     email: EmailStr
     username: str
@@ -20,7 +20,7 @@ class UserBase(BaseModel):
 
 
 class UserResponse(IDSchema, UserBase):
-    """用户响应"""
+    """User response schema."""
 
     is_active: bool
     is_superuser: bool

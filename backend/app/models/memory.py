@@ -1,7 +1,7 @@
 """
-Memory 模型
+Memory model
 
-根据需求新增表:
+Schema for the memories table:
 MEMORY_TABLE_SCHEMA = {
     "memory_id": {"type": String, "primary_key": True, "nullable": False},
     "memory": {"type": JSON, "nullable": False},
@@ -25,32 +25,32 @@ from app.models.base import Base
 
 
 class Memory(Base):
-    """记忆表模型"""
+    """Memory table model."""
 
     __tablename__ = "memories"
 
-    # 主键为字符串类型的 memory_id
-    memory_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False, comment="记忆ID")
+    # primary key is a string memory_id
+    memory_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False, comment="memory ID")
 
-    # 核心内容字段
-    memory: Mapped[dict] = mapped_column(JSON, nullable=False, comment="记忆内容(JSON)")
+    # core content column
+    memory: Mapped[dict] = mapped_column(JSON, nullable=False, comment="memory content (JSON)")
 
-    # 可选的文本类字段
-    feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="反馈")
-    input: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="输入")
+    # optional text columns
+    feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="feedback")
+    input: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="input")
 
-    # 关联信息(不强制外键约束，按需求仅索引/存储)
+    # associations (no foreign key constraint; indexed/stored as needed)
     agent_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, comment="Agent ID")
-    team_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, comment="团队ID")
-    user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True, comment="用户ID(String)")
+    team_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, comment="team ID")
+    user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True, comment="user ID (string)")
 
-    # 主题列表(JSON数组)
-    topics: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True, comment="主题列表(JSON 数组)")
+    # topic list (JSON array)
+    topics: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True, comment="topic list (JSON array)")
 
-    # 时间戳(Unix 时间，BigInteger)
-    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True, comment="创建时间(Unix 时间戳)")
+    # timestamps (Unix epoch, BigInteger)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True, comment="created at (Unix timestamp)")
     updated_at: Mapped[Optional[int]] = mapped_column(
-        BigInteger, nullable=True, index=True, comment="更新时间(Unix 时间戳)"
+        BigInteger, nullable=True, index=True, comment="updated at (Unix timestamp)"
     )
 
     def __repr__(self) -> str:

@@ -1,5 +1,5 @@
 """
-模型供应商模型
+Model provider model
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -15,52 +15,52 @@ if TYPE_CHECKING:
 
 
 class ModelProvider(BaseModel):
-    """模型供应商表"""
+    """Model provider table."""
 
     __tablename__ = "model_provider"
 
     name: Mapped[str] = mapped_column(
-        String(100), nullable=False, unique=True, comment="供应商唯一标识，如 'openai', 'anthropic'"
+        String(100), nullable=False, unique=True, comment="unique provider identifier, e.g. 'openai', 'anthropic'"
     )
-    display_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="显示名称，如 'OpenAI', 'Anthropic'")
-    icon: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="图标URL")
-    description: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="供应商描述")
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="display name, e.g. 'OpenAI', 'Anthropic'")
+    icon: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="icon URL")
+    description: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="provider description")
 
-    # 支持的模型类型列表，如 ["llm", "chat", "embedding", "rerank", "speech_to_text", "text_to_speech", "moderation"]
+    # supported model type list, e.g. ["llm", "chat", "embedding", "rerank", "speech_to_text", "text_to_speech", "moderation"]
     supported_model_types: Mapped[list] = mapped_column(
-        JSON, nullable=False, default=list, comment="支持的模型类型列表"
+        JSON, nullable=False, default=list, comment="supported model type list"
     )
 
-    # 凭据表单规则（JSON Schema格式）
+    # credential form rules (JSON Schema format)
     credential_schema: Mapped[dict] = mapped_column(
-        JSON, nullable=False, default=dict, comment="凭据表单规则，定义需要哪些字段"
+        JSON, nullable=False, default=dict, comment="credential form rules defining required fields"
     )
 
-    # 配置规则（参数规则）
-    config_schema: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="模型参数配置规则")
+    # configuration rules (parameter rules)
+    config_schema: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="model parameter config rules")
 
-    # 是否为模板（用于创建自定义供应商）
+    # whether this is a template (used to create custom providers)
     is_template: Mapped[bool] = mapped_column(
-        default=False, nullable=False, comment="是否为模板（用于创建自定义供应商）"
+        default=False, nullable=False, comment="whether this is a template (for creating custom providers)"
     )
 
-    # 模板名称（如果provider_type是custom，则引用其模板的名称）
-    template_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="引用模板的名称")
+    # template name (if provider_type is custom, references the template name)
+    template_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="referenced template name")
 
-    # 供应商类型：system, custom
+    # provider type: system, custom
     provider_type: Mapped[str] = mapped_column(
-        String(50), default="system", nullable=False, comment="供应商类型：system, custom"
+        String(50), default="system", nullable=False, comment="provider type: system, custom"
     )
 
-    # 是否启用
-    is_enabled: Mapped[bool] = mapped_column(default=True, nullable=False, comment="是否启用该供应商")
+    # whether enabled
+    is_enabled: Mapped[bool] = mapped_column(default=True, nullable=False, comment="whether this provider is enabled")
 
-    # Provider 级默认参数（JSON格式），如 {"temperature": 0.7, "max_tokens": 2000}
+    # provider-level default parameters (JSON), e.g. {"temperature": 0.7, "max_tokens": 2000}
     default_parameters: Mapped[dict] = mapped_column(
-        JSON, nullable=False, default=dict, server_default="{}", comment="Provider 级默认参数"
+        JSON, nullable=False, default=dict, server_default="{}", comment="provider-level default parameters"
     )
 
-    # 关系
+    # relationships
     credentials: Mapped[list["ModelCredential"]] = relationship(
         "ModelCredential",
         back_populates="provider",

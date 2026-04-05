@@ -1,9 +1,10 @@
 """
 Schemas for DeepAgents Copilot artifacts.
 
-Blueprint 结构对齐 ReactFlow 节点/边格式，确保与前端 executeGraphActions 兼容。
+Blueprint structure aligns with ReactFlow node/edge format to ensure
+compatibility with the frontend executeGraphActions.
 
-所有产物落盘路径：
+All artifact paths:
   $DEEPAGENTS_ARTIFACTS_DIR/{graph_id}/{run_id}/
 """
 
@@ -21,99 +22,99 @@ OperationMode = Literal["create", "update"]
 
 
 class RequirementSpec(BaseModel):
-    """需求分析产物 - /analysis.json"""
+    """Requirement analysis artifact - /analysis.json"""
 
-    goal: str = Field(..., description="用户的核心目标")
-    complexity: ComplexityLevel = Field(default="moderate", description="复杂度级别")
-    mode: OperationMode = Field(default="create", description="操作模式: create=创建新图, update=更新现有图")
-    target_nodes: Optional[List[str]] = Field(default=None, description="更新模式下需要修改的目标节点 ID 列表")
-    use_deep_agents: bool = Field(default=False, description="是否需要 DeepAgents 模式")
-    patterns: List[str] = Field(default_factory=list, description="识别到的流程模式")
-    clarifications: List[str] = Field(default_factory=list, description="需要澄清的问题")
-    node_count_estimate: int = Field(default=3, description="预估节点数量")
-    confidence: float = Field(default=0.7, ge=0, le=1, description="分析置信度")
+    goal: str = Field(..., description="core user goal")
+    complexity: ComplexityLevel = Field(default="moderate", description="complexity level")
+    mode: OperationMode = Field(default="create", description="operation mode: create=new graph, update=modify existing graph")
+    target_nodes: Optional[List[str]] = Field(default=None, description="node IDs to modify in update mode")
+    use_deep_agents: bool = Field(default=False, description="whether DeepAgents mode is needed")
+    patterns: List[str] = Field(default_factory=list, description="identified workflow patterns")
+    clarifications: List[str] = Field(default_factory=list, description="questions needing clarification")
+    node_count_estimate: int = Field(default=3, description="estimated node count")
+    confidence: float = Field(default=0.7, ge=0, le=1, description="analysis confidence")
 
 
 # ==================== Blueprint (Stage 2) ====================
-# 结构对齐 ReactFlow 节点/边格式
+# structure aligned with ReactFlow node/edge format
 
 
 class NodePosition(BaseModel):
-    """节点位置 - 对应 ReactFlow node.position"""
+    """Node position - corresponds to ReactFlow node.position"""
 
     x: float
     y: float
 
 
 class NodeConfig(BaseModel):
-    """节点配置 - 对应 ReactFlow node.data.config"""
+    """Node configuration - corresponds to ReactFlow node.data.config"""
 
-    systemPrompt: Optional[str] = Field(default=None, description="系统提示词（agent 必填）")
-    description: Optional[str] = Field(default=None, description="节点描述（DeepAgents 子代理必填）")
-    useDeepAgents: Optional[bool] = Field(default=None, description="启用 DeepAgents 模式")
-    model: Optional[str] = Field(default=None, description="模型名称")
-    tools: Optional[Dict[str, List[str]]] = Field(default=None, description="工具配置 {builtin:[], mcp:[]}")
-    expression: Optional[str] = Field(default=None, description="条件表达式（condition 节点）")
-    instruction: Optional[str] = Field(default=None, description="路由指令（condition_agent 节点）")
-    options: Optional[List[str]] = Field(default=None, description="路由选项（condition_agent 节点）")
-    template: Optional[str] = Field(default=None, description="回复模板（direct_reply 节点）")
-    prompt: Optional[str] = Field(default=None, description="人工输入提示（human_input 节点）")
+    systemPrompt: Optional[str] = Field(default=None, description="system prompt (required for agent nodes)")
+    description: Optional[str] = Field(default=None, description="node description (required for DeepAgents sub-agents)")
+    useDeepAgents: Optional[bool] = Field(default=None, description="enable DeepAgents mode")
+    model: Optional[str] = Field(default=None, description="model name")
+    tools: Optional[Dict[str, List[str]]] = Field(default=None, description="tool config {builtin:[], mcp:[]}")
+    expression: Optional[str] = Field(default=None, description="condition expression (condition node)")
+    instruction: Optional[str] = Field(default=None, description="routing instruction (condition_agent node)")
+    options: Optional[List[str]] = Field(default=None, description="routing options (condition_agent node)")
+    template: Optional[str] = Field(default=None, description="reply template (direct_reply node)")
+    prompt: Optional[str] = Field(default=None, description="human input prompt (human_input node)")
 
 
 class BlueprintNode(BaseModel):
-    """Blueprint 节点 - 对齐 ReactFlow 节点结构"""
+    """Blueprint node - aligned with ReactFlow node structure."""
 
-    id: str = Field(..., description="唯一节点 ID")
-    type: str = Field(..., description="节点类型: agent, condition, condition_agent, direct_reply, human_input")
-    label: str = Field(..., description="节点显示名称")
-    position: NodePosition = Field(..., description="节点位置")
-    config: NodeConfig = Field(default_factory=NodeConfig, description="节点配置")
+    id: str = Field(..., description="unique node ID")
+    type: str = Field(..., description="node type: agent, condition, condition_agent, direct_reply, human_input")
+    label: str = Field(..., description="node display name")
+    position: NodePosition = Field(..., description="node position")
+    config: NodeConfig = Field(default_factory=NodeConfig, description="node configuration")
 
 
 class BlueprintEdge(BaseModel):
-    """Blueprint 边 - 对齐 ReactFlow 边结构"""
+    """Blueprint edge - aligned with ReactFlow edge structure."""
 
-    source: str = Field(..., description="源节点 ID")
-    target: str = Field(..., description="目标节点 ID")
-    label: Optional[str] = Field(default=None, description="边标签（可选）")
-    condition: Optional[str] = Field(default=None, description="条件表达式（条件边）")
+    source: str = Field(..., description="source node ID")
+    target: str = Field(..., description="target node ID")
+    label: Optional[str] = Field(default=None, description="edge label (optional)")
+    condition: Optional[str] = Field(default=None, description="condition expression (conditional edge)")
 
 
 class WorkflowBlueprint(BaseModel):
-    """工作流蓝图 - /blueprint.json"""
+    """Workflow blueprint - /blueprint.json"""
 
-    name: str = Field(..., description="工作流名称")
-    description: str = Field(..., description="工作流描述")
-    nodes: List[BlueprintNode] = Field(default_factory=list, description="节点列表")
-    edges: List[BlueprintEdge] = Field(default_factory=list, description="边列表")
+    name: str = Field(..., description="workflow name")
+    description: str = Field(..., description="workflow description")
+    nodes: List[BlueprintNode] = Field(default_factory=list, description="node list")
+    edges: List[BlueprintEdge] = Field(default_factory=list, description="edge list")
 
 
 # ==================== Validation (Stage 3) ====================
 
 
 class ValidationIssue(BaseModel):
-    """验证问题"""
+    """Validation issue."""
 
-    type: str = Field(..., description="问题类型: missing_field, orphan_node, dead_end, weak_prompt")
-    severity: Literal["error", "warning", "info"] = Field(default="warning", description="严重程度")
-    message: str = Field(..., description="问题描述")
-    node_id: Optional[str] = Field(default=None, description="相关节点 ID")
+    type: str = Field(..., description="issue type: missing_field, orphan_node, dead_end, weak_prompt")
+    severity: Literal["error", "warning", "info"] = Field(default="warning", description="severity level")
+    message: str = Field(..., description="issue description")
+    node_id: Optional[str] = Field(default=None, description="related node ID")
 
 
 class ValidationReport(BaseModel):
-    """验证报告 - /validation.json"""
+    """Validation report - /validation.json"""
 
-    is_valid: bool = Field(..., description="是否通过验证")
-    health_score: int = Field(default=80, ge=0, le=100, description="健康分数")
-    issues: List[ValidationIssue] = Field(default_factory=list, description="问题列表")
-    recommendations: List[str] = Field(default_factory=list, description="改进建议")
+    is_valid: bool = Field(..., description="whether validation passed")
+    health_score: int = Field(default=80, ge=0, le=100, description="health score")
+    issues: List[ValidationIssue] = Field(default_factory=list, description="issue list")
+    recommendations: List[str] = Field(default_factory=list, description="improvement recommendations")
 
 
 # ==================== Run Index ====================
 
 
 class CopilotDeepagentsIndex(BaseModel):
-    """运行索引 - /index.json"""
+    """Run index - /index.json"""
 
     graph_id: Optional[str] = None
     run_id: str

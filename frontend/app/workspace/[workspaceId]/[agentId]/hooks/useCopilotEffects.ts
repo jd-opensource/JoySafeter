@@ -75,8 +75,8 @@ export function useCopilotEffects({
           actions.clearStreaming()
         } else if (sessionData.status === 'failed') {
           toast({
-            title: 'Copilot 任务失败',
-            description: sessionData.error || '执行过程中出现错误，请重试',
+            title: 'Copilot task failed',
+            description: sessionData.error || 'An error occurred during execution. Please retry.',
             variant: 'destructive',
           })
           actions.clearSession()

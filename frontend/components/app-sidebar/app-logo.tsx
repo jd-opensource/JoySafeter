@@ -7,7 +7,7 @@ interface AppLogoProps {
 }
 
 /**
- * Logo 组件
+ * Logo component
  */
 export function AppLogo({ isCollapsed = false }: AppLogoProps) {
   return (

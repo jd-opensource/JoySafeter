@@ -1,15 +1,15 @@
 """
 Stream Event Handler (Production)
 
-处理 LangGraph 事件流，转换为标准化的 SSE 格式。
-使用 Map-based 层级追踪（参考 Langfuse CallbackHandler 架构），
-通过 run_id + parent_run_id 建立 N 层 Observation 层级。
+Process LangGraph event streams and convert them to standardized SSE format.
+Use map-based hierarchy tracking (modeled after Langfuse CallbackHandler architecture),
+establishing N-level observation hierarchy via run_id + parent_run_id.
 
-核心设计：
-- StreamState: Map-based observation 管理（替代 stack）
-- ObservationRecord: 增强的内存 observation 记录
-- StreamEventHandler: 事件 -> SSE 转换，所有 handler 接收 run_id/parent_run_id
-- format_sse: 安全序列化，降级处理
+Core design:
+- StreamState: map-based observation management (replaces stack)
+- ObservationRecord: enhanced in-memory observation record
+- StreamEventHandler: event -> SSE conversion; all handlers receive run_id/parent_run_id
+- format_sse: safe serialization with graceful degradation
 """
 
 import json
@@ -25,7 +25,7 @@ from loguru import logger
 from app.utils.message_serializer import serialize_messages, truncate_data
 from app.utils.token_usage import extract_usage_from_output
 
-# ============ LangGraph 控制流异常（不标记为 ERROR） ============
+# ============ LangGraph control-flow exceptions (not marked as ERROR) ============
 
 CONTROL_FLOW_EXCEPTIONS: set[type] = set()
 try:
@@ -66,8 +66,8 @@ class ObsStatus(str, Enum):
 @dataclass
 class ObservationRecord:
     """
-    内存中的 Observation 记录。
-    SSE 流结束后批量写入数据库。
+    In-memory observation record.
+    Batch-written to the database after the SSE stream ends.
     """
 
     id: str
@@ -95,10 +95,10 @@ class ObservationRecord:
     level: ObsLevel = ObsLevel.DEFAULT
     status_message: Optional[str] = None
     # Timestamps
-    completion_start_time: Optional[float] = None  # 首 token 时间 (GENERATION)
+    completion_start_time: Optional[float] = None  # time-to-first-token (GENERATION)
     # Meta
     metadata: Optional[dict] = None
-    version: Optional[str] = None  # 代码/模型版本
+    version: Optional[str] = None  # code/model version
 
 
 # ============ StreamState ============
@@ -106,10 +106,10 @@ class ObservationRecord:
 
 class StreamState:
     """
-    流式状态追踪器。
+    Streaming state tracker.
 
-    使用 Map-based 层级追踪（参考 Langfuse 的 runs + _child_to_parent_run_id_map），
-    而非 stack-based 方式，正确支持并发事件和乱序到达。
+    Use map-based hierarchy tracking (modeled after Langfuse runs + _child_to_parent_run_id_map)
+    instead of stack-based approach, correctly supporting concurrent and out-of-order events.
     """
 
     def __init__(self, thread_id: str):
@@ -119,37 +119,37 @@ class StreamState:
         self.stopped = False
         self.has_error = False
 
-        # 用于 Agent 运行产物目录（artifacts API）
+        # agent run artifacts directory (artifacts API)
         self.artifact_run_id: str = str(uuid.uuid4())
 
-        # 中断状态
+        # interrupt state
         self.interrupted = False
         self.interrupt_node: str | None = None
         self.interrupt_state: dict | None = None
 
-        # ============ Trace / Observation 追踪 ============
+        # ============ Trace / Observation tracking ============
         self.trace_id: str = str(uuid.uuid4())
         self.trace_start_time: float = time.time() * 1000  # epoch ms
 
-        # 核心映射（参考 Langfuse CallbackHandler）
-        # run_id -> ObservationRecord (活跃的 observation)
+        # core mappings (modeled after Langfuse CallbackHandler)
+        # run_id -> ObservationRecord (active observations)
         self._active: dict[str, ObservationRecord] = {}
-        # run_id -> parent_run_id (层级关系)
+        # run_id -> parent_run_id (hierarchy)
         self._parent_map: dict[str, Optional[str]] = {}
-        # 所有已完成的 observation (用于持久化)
+        # all completed observations (for persistence)
         self._completed: list[ObservationRecord] = []
-        # run_id -> observation_id (映射)
+        # run_id -> observation_id mapping
         self._run_to_obs: dict[str, str] = {}
-        # observation_id -> run_id (反向映射)
+        # observation_id -> run_id (reverse mapping)
         self._obs_to_run: dict[str, str] = {}
-        # 首 token 标记追踪
+        # first-token tracking
         self._completion_start_tracked: set[str] = set()
 
     def append_content(self, chunk: str):
-        """追加内容块"""
+        """Append a content chunk."""
         self.assistant_content += chunk
 
-    # ============ Observation 生命周期 ============
+    # ============ Observation lifecycle ============
 
     def create_observation(
         self,
@@ -165,19 +165,19 @@ class StreamState:
         metadata: Optional[dict] = None,
     ) -> str:
         """
-        创建 observation，用 parent_run_id 建立层级（而非 stack push）。
+        Create an observation, establishing hierarchy via parent_run_id (not stack push).
 
-        参考 Langfuse _attach_observation() + _child_to_parent_run_id_map。
+        Modeled after Langfuse _attach_observation() + _child_to_parent_run_id_map.
 
         Returns:
             observation_id
         """
         obs_id = str(uuid.uuid4())
 
-        # 建立层级关系
+        # establish hierarchy
         self._parent_map[run_id] = parent_run_id
 
-        # 解析 parent_observation_id（类似 Langfuse 的 _get_parent_observation）
+        # resolve parent_observation_id (similar to Langfuse _get_parent_observation)
         parent_obs_id: Optional[str] = None
         if parent_run_id and parent_run_id in self._run_to_obs:
             parent_obs_id = self._run_to_obs[parent_run_id]
@@ -215,12 +215,12 @@ class StreamState:
         status: ObsStatus = ObsStatus.COMPLETED,
     ) -> Optional[str]:
         """
-        完成 observation 并移入已完成列表。
+        Complete an observation and move it to the completed list.
 
-        参考 Langfuse _detach_observation()。
+        Modeled after Langfuse _detach_observation().
 
         Returns:
-            observation_id，或 None（如果 run_id 未找到）
+            observation_id, or None if run_id was not found
         """
         obs_id = self._run_to_obs.get(run_id)
         if not obs_id:
@@ -230,7 +230,7 @@ class StreamState:
         record = self._active.pop(obs_id, None)
         if not record:
             logger.debug(f"end_observation: observation {obs_id[:8]} not active")
-            return obs_id  # 可能已经被 end 过
+            return obs_id  # may have already been ended
 
         now = time.time() * 1000
         record.end_time = now
@@ -242,7 +242,7 @@ class StreamState:
         if level is not None:
             record.level = level
         if status_message is not None:
-            record.status_message = status_message[:2000]  # 限制长度
+            record.status_message = status_message[:2000]  # cap length
         if prompt_tokens is not None:
             record.prompt_tokens = prompt_tokens
         if completion_tokens is not None:
@@ -252,25 +252,25 @@ class StreamState:
 
         self._completed.append(record)
 
-        # 清理映射
+        # clean up mappings
         del self._run_to_obs[run_id]
         self._obs_to_run.pop(obs_id, None)
 
         return obs_id
 
     def get_observation_id(self, run_id: str) -> Optional[str]:
-        """获取 run_id 对应的 observation_id"""
+        """Return the observation_id for a given run_id."""
         return self._run_to_obs.get(run_id)
 
     def get_parent_observation_id(self, run_id: str) -> Optional[str]:
-        """获取 run_id 的父 observation_id（用于 SSE envelope）"""
+        """Return the parent observation_id for a run_id (used in SSE envelope)."""
         parent_run = self._parent_map.get(run_id)
         if parent_run and parent_run in self._run_to_obs:
             return self._run_to_obs[parent_run]
         return None
 
     def track_completion_start(self, run_id: str) -> None:
-        """记录 GENERATION 的首 token 时间"""
+        """Record time-to-first-token for a GENERATION observation."""
         obs_id = self._run_to_obs.get(run_id)
         if obs_id and obs_id not in self._completion_start_tracked:
             record = self._active.get(obs_id)
@@ -280,8 +280,8 @@ class StreamState:
 
     def get_all_observations(self) -> list[ObservationRecord]:
         """
-        获取所有 observations（已完成 + 未完成）。
-        未完成的标记为 INTERRUPTED。
+        Return all observations (completed + incomplete).
+        Mark incomplete ones as INTERRUPTED.
         """
         all_obs = list(self._completed)
         for obs in self._active.values():
@@ -297,15 +297,15 @@ class StreamState:
 
 class StreamEventHandler:
     """
-    流式事件处理器（生产级）。
+    Production-grade streaming event handler.
 
-    所有 handle_* 方法签名统一接收 run_id 和 parent_run_id，
-    使用 StreamState 的 map-based observation 管理。
+    All handle_* methods uniformly accept run_id and parent_run_id,
+    using StreamState's map-based observation management.
     """
 
     @staticmethod
     def _extract_metadata(event: dict) -> dict:
-        """提取标准化元数据"""
+        """Extract standardized metadata."""
         metadata = event.get("metadata", {})
         if not isinstance(metadata, dict):
             metadata = {}
@@ -321,7 +321,7 @@ class StreamEventHandler:
 
     @staticmethod
     def _extract_node_info(event: dict) -> dict:
-        """提取节点信息（名称、标签、ID等）"""
+        """Extract node info (name, label, ID, etc.)."""
         metadata = event.get("metadata", {})
         if not isinstance(metadata, dict):
             metadata = {}
@@ -354,7 +354,7 @@ class StreamEventHandler:
 
     @staticmethod
     def _extract_model_parameters(event: dict) -> Optional[dict]:
-        """从 LangGraph 事件中提取模型参数（temperature, max_tokens 等）"""
+        """Extract model parameters (temperature, max_tokens, etc.) from a LangGraph event."""
         metadata = event.get("metadata", {})
         if not isinstance(metadata, dict):
             return None
@@ -386,10 +386,10 @@ class StreamEventHandler:
         state: Optional["StreamState"] = None,
     ) -> str:
         """
-        构造标准 SSE Envelope。
+        Build a standard SSE envelope.
 
-        包含 trace / observation 层级信息。
-        序列化失败时降级为简化事件。
+        Include trace / observation hierarchy info.
+        Degrade to a simplified event on serialization failure.
         """
         meta = payload.pop("_meta", {})
 
@@ -475,7 +475,7 @@ class StreamEventHandler:
     async def handle_chat_model_start(
         self, event: dict, state: StreamState, run_id: str, parent_run_id: Optional[str]
     ) -> str:
-        """处理模型开始事件。创建 GENERATION observation。"""
+        """Handle model start event. Create a GENERATION observation."""
         try:
             event_data = event.get("data", {})
             input_data = event_data.get("input", {})
@@ -534,7 +534,7 @@ class StreamEventHandler:
     async def handle_chat_model_stream(
         self, event: dict, state: StreamState, run_id: str, parent_run_id: Optional[str]
     ) -> Optional[str]:
-        """处理文本流事件。记录首 token 时间。"""
+        """Handle text stream event. Record time-to-first-token."""
         try:
             chunk = event.get("data", {}).get("chunk")
             if not chunk or not hasattr(chunk, "content") or not chunk.content:
@@ -543,7 +543,7 @@ class StreamEventHandler:
             content = chunk.content
             state.append_content(content)
 
-            # 记录首 token 时间
+            # record time-to-first-token
             state.track_completion_start(run_id)
 
             obs_id = state.get_observation_id(run_id) or ""
@@ -561,7 +561,7 @@ class StreamEventHandler:
     async def handle_chat_model_end(
         self, event: dict, state: StreamState, run_id: str, parent_run_id: Optional[str]
     ) -> str:
-        """处理模型结束事件。精确解析 token usage（多厂商兼容）。"""
+        """Handle model end event. Parse token usage precisely (multi-vendor compatible)."""
         try:
             event_data = event.get("data", {})
             output = event_data.get("output")
@@ -572,13 +572,13 @@ class StreamEventHandler:
             model_name = metadata.get("ls_model_name") or event.get("name", "unknown")
             model_provider = metadata.get("ls_provider") or "unknown"
 
-            # 多源 token usage 提取
+            # multi-source token usage extraction
             usage = extract_usage_from_output(output)
             prompt_tokens = usage.get("input", 0) if usage else 0
             completion_tokens = usage.get("output", 0) if usage else 0
             total_tokens = usage.get("total", 0) if usage else 0
 
-            # 原始 usage_metadata 供前端展示
+            # raw usage_metadata for frontend display
             usage_metadata = None
             if output and hasattr(output, "usage_metadata") and output.usage_metadata:
                 um = output.usage_metadata
@@ -587,7 +587,7 @@ class StreamEventHandler:
                 elif isinstance(um, dict):
                     usage_metadata = um
 
-            # 完成 GENERATION observation
+            # complete GENERATION observation
             output_summary = truncate_data(str(output), max_length=2000) if output else None
             obs_id = state.end_observation(
                 run_id,
@@ -634,7 +634,7 @@ class StreamEventHandler:
     async def handle_tool_start(
         self, event: dict, state: StreamState, run_id: str, parent_run_id: Optional[str]
     ) -> str:
-        """处理工具开始事件。创建 TOOL observation。"""
+        """Handle tool start event. Create a TOOL observation."""
         try:
             tool_input = event.get("data", {}).get("input", {})
             if isinstance(tool_input, dict):
@@ -671,13 +671,13 @@ class StreamEventHandler:
             )
 
     async def handle_tool_end(self, event: dict, state: StreamState, run_id: str, parent_run_id: Optional[str]) -> str:
-        """处理工具结束事件。完成 TOOL observation。"""
+        """Handle tool end event. Complete the TOOL observation."""
         try:
             raw_output = event.get("data", {}).get("output")
             output = raw_output.content if hasattr(raw_output, "content") else raw_output
             tool_name = event.get("name")
 
-            # 检测错误
+            # detect errors
             has_error = _detect_error(output)
 
             output_summary = truncate_data(str(output), max_length=2000) if output else None
@@ -689,7 +689,7 @@ class StreamEventHandler:
                 status=ObsStatus.FAILED if has_error else ObsStatus.COMPLETED,
             )
 
-            # 计算时长
+            # compute duration
             record = None
             for rec in state._completed:
                 if rec.id == obs_id:
@@ -731,7 +731,7 @@ class StreamEventHandler:
     async def handle_node_start(
         self, event: dict, state: StreamState, run_id: str, parent_run_id: Optional[str]
     ) -> str:
-        """处理节点开始事件。创建 SPAN observation。"""
+        """Handle node start event. Create a SPAN observation."""
         try:
             node_info = self._extract_node_info(event)
             node_name = node_info["node_name"]
@@ -773,7 +773,7 @@ class StreamEventHandler:
     async def handle_node_end(
         self, event: dict, state: StreamState, run_id: str, parent_run_id: Optional[str]
     ) -> list[str]:
-        """处理节点结束事件。返回多个 SSE 事件。"""
+        """Handle node end event. Return multiple SSE events."""
         try:
             node_info = self._extract_node_info(event)
             node_name = node_info["node_name"]
@@ -782,7 +782,7 @@ class StreamEventHandler:
             output = event.get("data", {}).get("output")
             has_error = _detect_error(output)
 
-            # 完成 SPAN observation
+            # complete SPAN observation
             output_summary = None
             if output and isinstance(output, dict):
                 output_summary = truncate_data(
@@ -798,7 +798,7 @@ class StreamEventHandler:
                 status=ObsStatus.FAILED if has_error else ObsStatus.COMPLETED,
             )
 
-            # 计算时长
+            # compute duration
             record = None
             for rec in state._completed:
                 if rec.id == obs_id:
@@ -814,13 +814,13 @@ class StreamEventHandler:
 
             events: list[str] = []
 
-            # 0. CodeAgent 事件
+            # 0. CodeAgent events
             if output and isinstance(output, dict):
                 code_agent_events = output.get("code_agent_events", [])
                 if code_agent_events:
                     events.extend(self._process_code_agent_events(code_agent_events, node_name, meta, state))
 
-            # 获取当前节点的局部输出 (如果是 Option B 数据流)
+            # get the current node's local output (if using Option B data flow)
             local_payload = None
             if output and isinstance(output, dict):
                 node_outputs = output.get("node_outputs", {})
@@ -829,7 +829,7 @@ class StreamEventHandler:
                 elif node_name in node_outputs:  # Fallback backwards compat
                     local_payload = node_outputs.get(node_name)
 
-            # 1. node_end 事件
+            # 1. node_end event
             events.append(
                 self.format_sse(
                     "node_end",
@@ -847,7 +847,7 @@ class StreamEventHandler:
                 )
             )
 
-            # 2. Command / state 相关事件
+            # 2. Command / state related events
             if output and isinstance(output, dict):
                 events.extend(self._process_output_events(output, node_info, node_type, meta, state))
 
@@ -869,7 +869,7 @@ class StreamEventHandler:
     def _process_code_agent_events(
         self, code_agent_events: list, node_name: str, meta: dict, state: StreamState
     ) -> list[str]:
-        """处理 CodeAgent 事件列表"""
+        """Process a list of CodeAgent events."""
         events = []
         type_map = {
             "thought": "code_agent_thought",
@@ -914,13 +914,13 @@ class StreamEventHandler:
     def _process_output_events(
         self, output: dict, node_info: dict, node_type: str, meta: dict, state: StreamState
     ) -> list[str]:
-        """处理节点 output 中的 Command / route / loop / parallel 事件"""
+        """Process Command / route / loop / parallel events from node output."""
         events = []
         node_name = node_info["node_name"]
         route_decision = output.get("route_decision")
         route_reason = output.get("route_reason")
 
-        # 路由决策
+        # routing decision
         if node_type in ["condition", "router", "loop"] and route_decision:
             events.append(
                 self.format_sse(
@@ -929,7 +929,7 @@ class StreamEventHandler:
                         "node_id": node_info.get("node_id") or node_name,
                         "node_type": node_type,
                         "result": route_decision,
-                        "reason": route_reason or f"路由决策: {route_decision}",
+                        "reason": route_reason or f"routing decision: {route_decision}",
                         "goto": "unknown",
                     },
                     state.thread_id,
@@ -937,7 +937,7 @@ class StreamEventHandler:
                 )
             )
 
-        # Command 事件
+        # Command events
         cleaned_update = {}
         for k, v in output.items():
             if k in ["route_decision", "route_reason"]:
@@ -956,7 +956,7 @@ class StreamEventHandler:
             )
         )
 
-        # 循环迭代
+        # loop iteration
         loop_count = output.get("loop_count")
         if loop_count is not None:
             events.append(
@@ -967,14 +967,14 @@ class StreamEventHandler:
                         "iteration": loop_count,
                         "max_iterations": output.get("max_loop_iterations", 0),
                         "condition_met": output.get("loop_condition_met", False),
-                        "reason": output.get("route_reason") or f"第 {loop_count} 次迭代",
+                        "reason": output.get("route_reason") or f"iteration {loop_count}",
                     },
                     state.thread_id,
                     state,
                 )
             )
 
-        # 并行任务
+        # parallel tasks
         task_states = output.get("task_states")
         if task_states and isinstance(task_states, dict):
             for task_id, task_state in task_states.items():
@@ -994,7 +994,7 @@ class StreamEventHandler:
                         )
                     )
 
-        # 状态更新
+        # state update
         updated_fields = [k for k in output.keys() if k not in ["route_decision", "route_reason"]]
         if updated_fields:
             events.append(
@@ -1013,7 +1013,7 @@ class StreamEventHandler:
 
 
 def _detect_error(output: Any) -> bool:
-    """检测 output 中是否包含错误信息"""
+    """Detect whether the output contains error information."""
     if isinstance(output, dict):
         return any(output.get(k) is not None for k in ("error", "exception", "Error"))
     if isinstance(output, str):
@@ -1023,7 +1023,7 @@ def _detect_error(output: Any) -> bool:
 
 
 def _clean_task_results(task_results: list) -> list:
-    """清理 task_results 中的循环引用"""
+    """Remove circular references from task_results."""
     cleaned = []
     for tr in task_results:
         if isinstance(tr, dict):

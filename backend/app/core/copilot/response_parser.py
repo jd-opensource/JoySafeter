@@ -73,7 +73,7 @@ def parse_thought_to_steps(thought: str) -> List[Dict[str, Any]]:
     if not thought or not thought.strip():
         return []
 
-    NUMBERED_PATTERNS = [r"^\d+\.", r"^\d+\)", r"^Step \d+:", r"^步骤\d+："]
+    NUMBERED_PATTERNS = [r"^\d+\.", r"^\d+\)", r"^Step \d+:", r"^Step\d+:"]
     BULLET_PATTERN = r"^[-*•]\s+"
 
     steps: List[Dict[str, Any]] = []

@@ -1,6 +1,6 @@
 /**
  * MCP Server Card Component
- * 可复用的 MCP 服务器卡片组件
+ * Reusable card for displaying an MCP server
  */
 'use client'
 

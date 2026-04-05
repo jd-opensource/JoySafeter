@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 
 class OpenClawInstance(Base, TimestampMixin):
     """
-    每用户独占一个 OpenClaw 容器实例。
-    user_id 设置为 UNIQUE，保证一人一实例。
+    Per-user dedicated OpenClaw container instance.
+    user_id is UNIQUE to guarantee one instance per user.
     """
 
     __tablename__ = "openclaw_instance"

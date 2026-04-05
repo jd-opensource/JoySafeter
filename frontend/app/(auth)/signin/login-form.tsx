@@ -109,7 +109,7 @@ export default function LoginPage() {
       const inviteFlow = searchParams.get('invite_flow') === 'true'
       setIsInviteFlow(inviteFlow)
 
-      // 处理 OAuth 错误
+      // handle OAuth errors
       const error = searchParams.get('error')
       const errorDescription = searchParams.get('error_description')
       if (error) {
@@ -124,7 +124,7 @@ export default function LoginPage() {
           errorMessage = errorDescription
         }
         setOauthError(errorMessage)
-        // 清除 URL 中的错误参数
+        // clear error params from URL
         const url = new URL(window.location.href)
         url.searchParams.delete('error')
         url.searchParams.delete('error_description')
@@ -388,7 +388,7 @@ export default function LoginPage() {
         </p>
       </div>
 
-      {/* OAuth 错误提示 */}
+      {/* OAuth error message */}
       {oauthError && (
         <div className="mt-4 rounded-md bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error)]">{oauthError}</div>
       )}
@@ -487,7 +487,7 @@ export default function LoginPage() {
         </form>
       )}
 
-      {/* OAuth/SSO 登录按钮 */}
+      {/* OAuth/SSO login buttons */}
       <OAuthButtons
         callbackUrl={callbackUrl}
         showDivider={!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED'))}

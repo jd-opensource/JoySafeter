@@ -920,7 +920,7 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
             )}
             {rejectedFiles.length > 0 && (
               <div className="mt-2 rounded bg-[var(--surface-1)] p-2 text-xs text-[var(--text-tertiary)]">
-                <strong>{t('common.tip') || '提示'}:</strong> {t('skills.binaryFileNotSupported')}
+                <strong>{t('common.tip') || 'Tip'}:</strong> {t('skills.binaryFileNotSupported')}
               </div>
             )}
           </div>

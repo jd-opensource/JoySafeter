@@ -1,8 +1,8 @@
 """
-MCP Server 配置模型
+MCP Server configuration model
 
-用户级别的 MCP 服务器管理：
-- user_id 必填：MCP 服务器的所有者
+User-level MCP server management:
+- user_id required: owner of the MCP server
 """
 
 from datetime import datetime

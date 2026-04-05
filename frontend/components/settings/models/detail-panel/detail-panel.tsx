@@ -37,17 +37,17 @@ export function DetailPanel({ selectedProvider, onProviderDeleted }: DetailPanel
   }
 
   const handleDeleteProvider = () => {
-    if (confirm(`确定要删除供应商 "${provider.display_name}" 吗？此操作不可撤销。`)) {
+    if (confirm(`Are you sure you want to delete provider "${provider.display_name}"? This action cannot be undone.`)) {
       deleteProvider.mutate(provider.provider_name, {
         onSuccess: () => {
-          toast({ title: `已删除供应商 ${provider.display_name}` })
+          toast({ title: `Deleted provider ${provider.display_name}` })
           onProviderDeleted?.()
         },
         onError: (err) => {
           toast({
             variant: 'destructive',
-            title: '删除供应商失败',
-            description: err instanceof Error ? err.message : '请稍后重试',
+            title: 'Failed to delete provider',
+            description: err instanceof Error ? err.message : 'Please try again later',
           })
         },
       })
@@ -67,13 +67,13 @@ export function DetailPanel({ selectedProvider, onProviderDeleted }: DetailPanel
         <div className="border-b border-[var(--border-muted)] px-6">
           <TabsList className="h-10 bg-transparent p-0">
             <TabsTrigger value="models" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent">
-              模型列表
+              Model List
             </TabsTrigger>
             <TabsTrigger value="playground" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent">
               Playground
             </TabsTrigger>
             <TabsTrigger value="stats" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--text-primary)] data-[state=active]:bg-transparent">
-              统计
+              Stats
             </TabsTrigger>
           </TabsList>
         </div>

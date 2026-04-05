@@ -1,5 +1,5 @@
 """
-模型使用日志模型
+Model usage log model
 """
 
 from typing import Optional
@@ -11,25 +11,25 @@ from .base import BaseModel
 
 
 class ModelUsageLog(BaseModel):
-    """模型使用日志表"""
+    """Model usage log table."""
 
     __tablename__ = "model_usage_log"
 
-    provider_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="供应商名称")
-    model_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="模型名称")
-    model_type: Mapped[str] = mapped_column(String(50), nullable=False, default="chat", comment="模型类型")
+    provider_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="provider name")
+    model_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="model name")
+    model_type: Mapped[str] = mapped_column(String(50), nullable=False, default="chat", comment="model type")
     user_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
-        comment="用户ID",
+        comment="user ID",
     )
-    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="输入token数")
-    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="输出token数")
-    total_time_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, comment="总耗时(ms)")
-    ttft_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="首token时间(ms)")
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="success", comment="状态: success/error")
-    error_message: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True, comment="错误信息")
-    source: Mapped[str] = mapped_column(String(50), nullable=False, default="chat", comment="来源: chat/playground")
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="input token count")
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="output token count")
+    total_time_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, comment="total time (ms)")
+    ttft_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="time to first token (ms)")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="success", comment="status: success/error")
+    error_message: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True, comment="error message")
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="chat", comment="source: chat/playground")
 
     __table_args__ = (
         Index("model_usage_log_created_at_idx", "created_at"),

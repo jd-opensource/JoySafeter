@@ -1,7 +1,7 @@
 """
-日志中间件
+Logging middleware.
 
-记录每个请求的详细信息，包括请求方法、路径、耗时、响应状态码等
+Log detailed information for each request, including method, path, duration, status code, etc.
 """
 # mypy: ignore-errors
 
@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 class InterceptHandler(logging.Handler):
-    """拦截标准 logging 消息并将其路由到 loguru"""
+    """Intercept standard logging messages and route them to loguru."""
 
     def emit(self, record):
         try:
@@ -35,10 +35,10 @@ class InterceptHandler(logging.Handler):
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """HTTP 请求日志中间件"""
+    """HTTP request logging middleware."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """处理请求并记录日志"""
+        """Process the request and log details."""
         start_time = time.time()
         method = request.method
         str(request.url)
@@ -77,21 +77,21 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
 def setup_logging():
     """
-    配置 loguru 日志
+    Configure loguru logging.
 
-    设置日志格式、级别、输出文件等
+    Set up log format, level, output files, etc.
     """
     try:
         os.makedirs("logs", exist_ok=True)
     except PermissionError:
-        # 如果无法创建 logs 目录（例如在 Docker 容器中权限不足），只使用控制台输出
+        # if unable to create logs directory (e.g. insufficient permissions in Docker), use console only
         pass
     logger.configure(extra={"trace_id": "-", "method": "-", "path": "-", "client": "-"})
 
-    # 移除默认的 handler
+    # remove default handler
     logger.remove()
 
-    # 添加控制台输出（带颜色）
+    # add console output (with color)
     logger.add(
         sink=lambda msg: print(msg, end=""),
         format=(
@@ -106,13 +106,13 @@ def setup_logging():
         colorize=True,
     )
 
-    # 添加文件输出（所有日志）
+    # add file output (all logs)
     try:
         logger.add(
             "logs/app.log",
-            rotation="100 MB",  # 文件大小达到 100MB 时轮转
-            retention="30 days",  # 保留 30 天的日志
-            compression="zip",  # 压缩旧日志
+            rotation="100 MB",  # rotate when file reaches 100 MB
+            retention="30 days",  # retain logs for 30 days
+            compression="zip",  # compress old logs
             format=(
                 "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | trace_id={extra[trace_id]} | "
                 "{extra[method]} {extra[path]} | {name}:{function}:{line} | {message}"
@@ -120,7 +120,7 @@ def setup_logging():
             level="INFO",
         )
 
-        # 添加错误日志文件
+        # add error log file
         logger.add(
             "logs/error.log",
             rotation="50 MB",
@@ -133,14 +133,14 @@ def setup_logging():
             level="ERROR",
         )
     except (PermissionError, OSError):
-        # 如果无法创建日志文件（例如权限不足），只使用控制台输出
+        # if unable to create log files (e.g. insufficient permissions), use console only
         pass
 
-    # 拦截标准 logging 到 loguru
+    # intercept standard logging into loguru
     intercept_handler = InterceptHandler()
     for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
         std_logger = logging.getLogger(logger_name)
         std_logger.handlers = [intercept_handler]
         std_logger.propagate = False
 
-    logger.info("✅ 日志系统初始化完成")
+    logger.info("Logging system initialized")

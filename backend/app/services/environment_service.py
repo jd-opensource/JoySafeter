@@ -1,10 +1,10 @@
 """
-环境变量与机密管理服务
+Environment variable and secret management service.
 
-支持：
-- 用户环境变量（Environment）
-- 工作空间环境变量（WorkspaceEnvironment）
-提供基础的读取/更新与合并能力（未做加密，后续可挂接 KMS）
+Supports:
+- User environment variables (Environment)
+- Workspace environment variables (WorkspaceEnvironment)
+Provides basic read/update and merge capabilities (no encryption yet; KMS can be plugged in later).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app.models.settings import Environment, WorkspaceEnvironment
 
 
 class EnvironmentService:
-    """环境变量读写与合并"""
+    """Environment variable read/write and merge."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -65,10 +65,10 @@ class EnvironmentService:
         workspace_env = {}
         if workspace_id:
             workspace_env = await self.get_workspace_env(workspace_id)
-        # workspace 优先覆盖个人，保证团队配置生效
+        # workspace overrides personal, ensuring team config takes effect
         return {**user_env, **workspace_env}
 
     @staticmethod
     def mask_variables(variables: Dict[str, str]) -> Dict[str, str]:
-        """仅返回键名，用于安全展示"""
+        """Return key names only, for safe display."""
         return {k: "***" for k in variables.keys()}

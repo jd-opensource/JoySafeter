@@ -1,10 +1,10 @@
 """
 DeepAgents Copilot Manager.
 
-用 DeepAgents 的 Manager + 子代理模式来生成任意类型的图：
-- Manager：编排子代理、调用 create_node/connect_nodes 工具输出 GraphAction
-- 子代理：规划/设计/验证，产出思考文件
-- 最终输出：标准 GraphAction（与现有 Copilot 完全兼容）
+Use the DeepAgents Manager + sub-agent pattern to generate arbitrary graph types:
+- Manager: orchestrate sub-agents, call create_node/connect_nodes tools to output GraphActions
+- Sub-agents: plan/design/validate, producing artifact files
+- Final output: standard GraphActions (fully compatible with existing Copilot)
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from .prompts import (
 )
 
 # ==================== Optional deepagents imports ====================
-# 先声明为可选，避免在 except 中赋 None 触发 mypy "Cannot assign to a type"
+# declare as optional first to avoid assigning None in except block (mypy "Cannot assign to a type")
 create_deep_agent: Any = None
 FilesystemMiddleware: Type[Any] | None = None
 FilesystemBackend: Type[Any] | None = None
@@ -64,7 +64,7 @@ except ImportError:
 
 
 def get_artifacts_root() -> Path:
-    """获取产物根目录"""
+    """Return the artifacts root directory."""
     root = os.environ.get("DEEPAGENTS_ARTIFACTS_DIR", "")
     if not root:
         root = str(Path.home() / ".agent-platform" / "deepagents")
@@ -73,14 +73,14 @@ def get_artifacts_root() -> Path:
 
 def _build_subagents(backend: "FilesystemBackendT") -> List["SubAgentT"]:
     """
-    构建子代理列表。
+    Build the sub-agent list.
 
-    每个子代理只有 filesystem 工具（读写文件），不调用 Copilot 工具。
+    Each sub-agent only has filesystem tools (read/write files); they do not call Copilot tools.
 
-    SubAgent description 最佳实践（参考 DeepAgents 官方文档）：
-    - 具体、动作导向
-    - 说明"做什么"而不是"是什么"
-    - 帮助 Manager 正确选择子代理
+    SubAgent description best practices (per DeepAgents docs):
+    - specific, action-oriented
+    - describe "what it does" not "what it is"
+    - help the Manager select the right sub-agent
 
     Reference: https://docs.langchain.com/oss/python/deepagents/subagents
     """
@@ -88,24 +88,24 @@ def _build_subagents(backend: "FilesystemBackendT") -> List["SubAgentT"]:
         {
             "name": "requirements-analyst",
             "description": (
-                "分析用户的 Agent 工作流请求，输出结构化的需求规格。"
-                "用于：1) 判断创建新图还是更新现有图；"
-                "2) 评估复杂度级别；"
-                "3) 决定是否需要 DeepAgents 多代理协作。"
-                "输出 /analysis.json 包含 goal, mode, complexity, use_deep_agents 等字段。"
+                "Analyze the user's agent workflow request and output a structured requirements spec. "
+                "Used for: 1) determining whether to create a new graph or update an existing one; "
+                "2) assessing complexity level; "
+                "3) deciding whether DeepAgents multi-agent collaboration is needed. "
+                "Outputs /analysis.json containing fields such as goal, mode, complexity, use_deep_agents."
             ),
             "system_prompt": REQUIREMENTS_ANALYST_PROMPT,
-            "tools": [],  # 通过 middleware 获取 filesystem 工具
+            "tools": [],  # filesystem tools provided via middleware
         },
         {
             "name": "workflow-architect",
             "description": (
-                "基于需求分析设计 Agent 工作流的完整架构。"
-                "用于：1) 设计节点结构和连接关系；"
-                "2) 为每个 agent 编写专业的 systemPrompt；"
-                "3) 配置 DeepAgents 层级结构（Manager + 子代理）。"
-                "输出 /blueprint.json 包含 nodes, edges 的 ReactFlow 兼容格式。"
-                "也用于修复验证问题，需要先读取现有 blueprint 再针对性修改。"
+                "Design the complete architecture of an agent workflow based on requirements analysis. "
+                "Used for: 1) designing node structure and connection relationships; "
+                "2) writing professional systemPrompts for each agent; "
+                "3) configuring DeepAgents hierarchy (Manager + sub-agents). "
+                "Outputs /blueprint.json in ReactFlow-compatible format containing nodes and edges. "
+                "Also used to fix validation issues by reading the existing blueprint and making targeted modifications."
             ),
             "system_prompt": WORKFLOW_ARCHITECT_PROMPT,
             "tools": [],
@@ -113,12 +113,12 @@ def _build_subagents(backend: "FilesystemBackendT") -> List["SubAgentT"]:
         {
             "name": "validator",
             "description": (
-                "校验工作流蓝图的结构完整性和质量。"
-                "用于：1) 检查必填字段和数据格式；"
-                "2) 验证 DeepAgents 规则（description、层级限制）；"
-                "3) 评估 systemPrompt 质量；"
-                "4) 检测拓扑问题（孤立节点、无效边）。"
-                "输出 /validation.json 包含 is_valid, health_score, issues 列表。"
+                "Validate the structural integrity and quality of the workflow blueprint. "
+                "Used for: 1) checking required fields and data formats; "
+                "2) verifying DeepAgents rules (description, hierarchy constraints); "
+                "3) assessing systemPrompt quality; "
+                "4) detecting topology issues (orphan nodes, invalid edges). "
+                "Outputs /validation.json containing is_valid, health_score, and an issues list."
             ),
             "system_prompt": VALIDATOR_PROMPT,
             "tools": [],
@@ -136,20 +136,20 @@ def create_copilot_manager(
     base_url: Optional[str] = None,
 ) -> tuple[Runnable, ArtifactStore]:
     """
-    创建 DeepAgents Copilot Manager。
+    Create a DeepAgents Copilot Manager.
 
     Returns:
         (manager_agent, artifact_store)
     """
     if not DEEPAGENTS_AVAILABLE or create_deep_agent is None or FilesystemBackend is None:
         raise RuntimeError("deepagents library not available. Install with: pip install deepagents")
-    assert create_deep_agent is not None and FilesystemBackend is not None  # 供 mypy 收窄类型
+    assert create_deep_agent is not None and FilesystemBackend is not None  # narrow types for mypy
 
-    # 生成 run_id
+    # generate run_id
     if not run_id:
         run_id = f"run_{uuid.uuid4().hex[:12]}"
 
-    # 创建产物存储
+    # create artifact store
     artifacts_root = get_artifacts_root()
     graph_dir = graph_id or "unknown_graph"
     run_dir = artifacts_root / graph_dir / run_id
@@ -161,17 +161,17 @@ def create_copilot_manager(
         run_dir=run_dir,
     )
 
-    # 创建 LLM 模型
+    # create LLM model
     model = get_default_model(
         llm_model=llm_model,
         api_key=api_key,
         base_url=base_url,
     )
 
-    # 创建 filesystem backend（用于子代理读写文件）
+    # create filesystem backend (for sub-agent file I/O)
     backend = FilesystemBackend(root_dir=run_dir)
 
-    # Copilot 工具（Manager 用来生成 GraphAction）
+    # Copilot tools (Manager uses these to generate GraphActions)
     copilot_tools = [
         create_node,
         connect_nodes,
@@ -179,20 +179,18 @@ def create_copilot_manager(
         update_config,
     ]
 
-    # 子代理配置
+    # sub-agent configuration
     subagent_specs = _build_subagents(backend)
 
-    # FilesystemMiddleware 让 Agent 和子代理都能使用 filesystem 工具
-    # DeepAgents 已包含 FilesystemMiddleware
-    # filesystem_middleware = FilesystemMiddleware(backend=backend)
+    # FilesystemMiddleware gives both Agent and sub-agents filesystem tools
+    # DeepAgents already includes FilesystemMiddleware
 
-    # 创建 DeepAgents Manager
+    # create DeepAgents Manager
     manager = create_deep_agent(
         model=model,
         system_prompt=MANAGER_SYSTEM_PROMPT,
         tools=copilot_tools,
         subagents=subagent_specs,
-        # middleware=[filesystem_middleware],
         name="copilot-deepagents-manager",
     )
 

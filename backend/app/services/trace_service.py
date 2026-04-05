@@ -1,7 +1,7 @@
 """
-执行追踪 Service
+Execution trace service.
 
-封装 ExecutionTrace / ExecutionObservation 的 CRUD 操作。
+Encapsulate CRUD operations for ExecutionTrace / ExecutionObservation.
 """
 
 import uuid
@@ -23,7 +23,7 @@ from app.services.base import BaseService
 
 
 class TraceService(BaseService):
-    """执行追踪 Service"""
+    """Execution trace service."""
 
     # ==================== Query Helpers ====================
 
@@ -58,7 +58,7 @@ class TraceService(BaseService):
         metadata: Optional[dict] = None,
         tags: Optional[list] = None,
     ) -> ExecutionTrace:
-        """创建一个新的执行追踪"""
+        """Create a new execution trace."""
         trace = ExecutionTrace(
             id=trace_id or uuid.uuid4(),
             workspace_id=workspace_id,
@@ -85,7 +85,7 @@ class TraceService(BaseService):
         total_tokens: Optional[int] = None,
         total_cost: Optional[float] = None,
     ) -> Optional[ExecutionTrace]:
-        """完成一个执行追踪"""
+        """Complete an execution trace."""
         result = await self.db.execute(select(ExecutionTrace).where(ExecutionTrace.id == trace_id))
         trace = result.scalar_one_or_none()
         if trace is None:
@@ -103,7 +103,7 @@ class TraceService(BaseService):
         return trace
 
     async def get_trace(self, trace_id: uuid.UUID) -> Optional[ExecutionTrace]:
-        """获取单个 Trace (含 observations)"""
+        """Get a single Trace (with observations)."""
         result = await self.db.execute(
             select(ExecutionTrace)
             .options(selectinload(ExecutionTrace.observations))
@@ -120,7 +120,7 @@ class TraceService(BaseService):
         limit: int = 20,
         offset: int = 0,
     ) -> list[ExecutionTrace]:
-        """列表查询 Traces (不含 observations 详情，减少开销)"""
+        """List traces (without observation details, to reduce overhead)."""
         stmt = select(ExecutionTrace).order_by(ExecutionTrace.start_time.desc())
         stmt = self._apply_trace_filters(stmt, graph_id=graph_id, workspace_id=workspace_id, thread_id=thread_id)
 
@@ -135,7 +135,7 @@ class TraceService(BaseService):
         workspace_id: Optional[uuid.UUID] = None,
         thread_id: Optional[str] = None,
     ) -> int:
-        """统计符合条件的 Trace 总数（用于分页 total）"""
+        """Count traces matching the given filters (for pagination total)."""
         stmt = select(func.count()).select_from(ExecutionTrace)
         stmt = self._apply_trace_filters(stmt, graph_id=graph_id, workspace_id=workspace_id, thread_id=thread_id)
         result = await self.db.execute(stmt)
@@ -160,7 +160,7 @@ class TraceService(BaseService):
         model_parameters: Optional[dict] = None,
         metadata: Optional[dict] = None,
     ) -> ExecutionObservation:
-        """创建一个新的 Observation"""
+        """Create a new Observation."""
         obs = ExecutionObservation(
             id=observation_id or uuid.uuid4(),
             trace_id=trace_id,
@@ -194,7 +194,7 @@ class TraceService(BaseService):
         total_cost: Optional[float] = None,
         completion_start_time: Optional[datetime] = None,
     ) -> Optional[ExecutionObservation]:
-        """完成一个 Observation"""
+        """Complete an Observation."""
         result = await self.db.execute(select(ExecutionObservation).where(ExecutionObservation.id == observation_id))
         obs = result.scalar_one_or_none()
         if obs is None:
@@ -229,7 +229,7 @@ class TraceService(BaseService):
         return obs
 
     async def get_observations_for_trace(self, trace_id: uuid.UUID) -> list[ExecutionObservation]:
-        """获取某个 Trace 的所有 Observations (扁平列表, 按时间排序)"""
+        """Get all Observations for a Trace (flat list, sorted by time)."""
         result = await self.db.execute(
             select(ExecutionObservation)
             .where(ExecutionObservation.trace_id == trace_id)
@@ -244,7 +244,7 @@ class TraceService(BaseService):
         trace: ExecutionTrace,
         observations: list[ExecutionObservation],
     ) -> ExecutionTrace:
-        """批量创建 Trace 及其所有 Observations（一次 commit）"""
+        """Batch-create a Trace and all its Observations (single commit)."""
         self.db.add(trace)
         for obs in observations:
             self.db.add(obs)
@@ -252,7 +252,7 @@ class TraceService(BaseService):
         return trace
 
     async def aggregate_trace_tokens(self, trace_id: uuid.UUID) -> tuple[int, float]:
-        """聚合 Trace 下所有 GENERATION Observations 的 token 和 cost"""
+        """Aggregate tokens and cost across all GENERATION Observations under a Trace."""
         observations = await self.get_observations_for_trace(trace_id)
         total_tokens = 0
         total_cost = 0.0

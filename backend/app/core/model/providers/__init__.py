@@ -1,5 +1,5 @@
 """
-模型供应商模块
+Model provider module.
 """
 
 import importlib
@@ -11,19 +11,19 @@ from typing import List, Optional, Type
 from .base import BaseProvider, ModelType
 from .Custom import CustomProvider
 
-# 向后兼容：显式导入现有 provider（避免破坏现有代码）
+# backward compatibility: explicit import of existing provider
 from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
 
-# Provider 类缓存
+# provider class cache
 _provider_classes_cache: Optional[List[Type[BaseProvider]]] = None
 
 
 def _discover_provider_classes() -> List[Type[BaseProvider]]:
     """
-    自动发现所有继承自 BaseProvider 的类
+    Auto-discover all classes that inherit from BaseProvider.
 
     Returns:
-        所有发现的 Provider 类列表
+        List of all discovered provider classes.
     """
     global _provider_classes_cache
 
@@ -32,27 +32,27 @@ def _discover_provider_classes() -> List[Type[BaseProvider]]:
 
     provider_classes: List[Type[BaseProvider]] = []
 
-    # 获取当前包路径
+    # get current package path
     package_path = Path(__file__).parent
     package_name = __name__
 
-    # 遍历目录中的所有模块
+    # iterate over all modules in the directory
     for importer, modname, ispkg in pkgutil.iter_modules([str(package_path)]):
-        # 跳过 __init__ 和 base 模块
+        # skip __init__ and base modules
         if modname in ("__init__", "base"):
             continue
 
         try:
-            # 动态导入模块
+            # dynamically import the module
             module = importlib.import_module(f".{modname}", package=package_name)
 
-            # 遍历模块中的所有成员
+            # iterate over all members in the module
             for name, obj in inspect.getmembers(module, inspect.isclass):
-                # 检查是否是 BaseProvider 的子类（排除 BaseProvider 本身）
+                # check if it is a subclass of BaseProvider (excluding BaseProvider itself)
                 if issubclass(obj, BaseProvider) and obj is not BaseProvider and obj.__module__ == module.__name__:
                     provider_classes.append(obj)
         except Exception as e:
-            # 导入失败时记录警告，但不中断程序
+            # log warning on import failure without interrupting the program
             import warnings
 
             warnings.warn(f"Failed to import provider module '{modname}': {e}", ImportWarning)
@@ -63,20 +63,20 @@ def _discover_provider_classes() -> List[Type[BaseProvider]]:
 
 def get_all_provider_classes() -> List[Type[BaseProvider]]:
     """
-    获取所有 Provider 类
+    Return all provider classes.
 
     Returns:
-        所有 Provider 类的列表
+        List of all provider classes.
     """
     return _discover_provider_classes()
 
 
 def get_all_provider_instances() -> List[BaseProvider]:
     """
-    获取所有 Provider 实例
+    Return all provider instances.
 
     Returns:
-        所有 Provider 实例的列表
+        List of all provider instances.
     """
     classes = get_all_provider_classes()
     instances = []

@@ -1,5 +1,5 @@
 """
-工作空间文件存储服务
+Workspace file storage service.
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ from .base import BaseService
 
 
 class WorkspaceFileService(BaseService):
-    """工作空间文件业务逻辑"""
+    """Workspace file business logic."""
 
     CONTEXT = WorkspaceStoredFileRepository.CONTEXT_WORKSPACE
-    MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB 单文件限制
-    DEFAULT_STORAGE_LIMIT_BYTES = 5 * 1024 * 1024 * 1024  # 5GB 简单配额（可按需调整/接入计费）
+    MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB per-file limit
+    DEFAULT_STORAGE_LIMIT_BYTES = 5 * 1024 * 1024 * 1024  # 5GB simple quota (adjustable / billable)
     DOWNLOAD_TOKEN_EXPIRE_MINUTES = 15
 
     def __init__(self, db):
@@ -41,28 +41,28 @@ class WorkspaceFileService(BaseService):
         self.file_repo = WorkspaceStoredFileRepository(db)
 
     # ------------------------------------------------------------------ #
-    # 内部工具
+    # internal utilities
     # ------------------------------------------------------------------ #
     def _storage_root(self) -> Path:
-        """统一的文件根目录"""
+        """Unified file storage root directory."""
         return Path(settings.WORKSPACE_ROOT) / "workspace_files"
 
     def _sanitize_filename(self, filename: str) -> str:
-        """清理文件名，避免路径穿越
+        """Sanitize filename to prevent path traversal.
 
-        使用统一的 sanitize_filename 工具函数。
+        Use the unified sanitize_filename utility function.
         """
         return sanitize_filename(filename or "unnamed")
 
     def _generate_key(self, workspace_id: uuid.UUID, filename: str) -> str:
-        """生成存储 Key：workspace/<workspace_id>/<timestamp>-<random>-<safe_name>"""
+        """Generate a storage key: workspace/<workspace_id>/<timestamp>-<random>-<safe_name>."""
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         random_part = secrets.token_hex(4)
         safe_name = self._sanitize_filename(filename).replace(" ", "-")
         return f"workspace/{workspace_id}/{timestamp}-{random_part}-{safe_name}"
 
     def _build_serve_path(self, workspace_id: uuid.UUID, file_id: uuid.UUID) -> str:
-        """生成文件对外访问路径（未附带签名）"""
+        """Generate the external file access path (without signature)."""
         return f"/api/workspaces/{workspace_id}/files/{file_id}/serve"
 
     async def _write_file(self, path: Path, content: bytes) -> None:
@@ -127,7 +127,7 @@ class WorkspaceFileService(BaseService):
         return self._storage_root() / key
 
     def get_file_path(self, record) -> Path:
-        """获取文件绝对路径"""
+        """Get the absolute file path."""
         return self._file_path_from_key(record.key)
 
     def _serialize_file(self, record) -> Dict:
@@ -146,7 +146,7 @@ class WorkspaceFileService(BaseService):
         }
 
     # ------------------------------------------------------------------ #
-    # 公开方法
+    # public methods
     # ------------------------------------------------------------------ #
     async def list_files(self, workspace_id: uuid.UUID, current_user: User) -> List[Dict]:
         role = await self._ensure_member_role(workspace_id, current_user)
@@ -169,13 +169,13 @@ class WorkspaceFileService(BaseService):
         original_name = self._sanitize_filename(file.filename or "unnamed")
         exists = await self.file_repo.find_by_name(workspace_id, original_name)
         if exists:
-            # 对齐旧项目：重复文件返回 409，并标记 isDuplicate
+            # aligned with legacy project: duplicate file returns 409 with isDuplicate flag
             raise ConflictException(
                 f'A file named "{original_name}" already exists in this workspace',
                 data={"isDuplicate": True},
             )
 
-        # 简单配额校验
+        # simple quota check
         current_usage = await self.file_repo.sum_user_usage(current_user.id)
         if current_usage + size > self.DEFAULT_STORAGE_LIMIT_BYTES:
             raise ForbiddenException("Storage limit exceeded")

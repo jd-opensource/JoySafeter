@@ -1,12 +1,13 @@
 """
 Auto Layout Engine for DeepAgents Copilot.
 
-使用 networkx 实现分层布局算法，解决 LLM 无法生成整齐 ReactFlow 坐标的问题。
-采用拓扑排序 + 分层布局，确保：
-- Manager 节点在左侧
-- 子代理节点垂直排列在右侧
-- 自动避免节点重叠
-- 边连接整齐美观
+Use networkx to implement a hierarchical layout algorithm, solving the problem
+of LLMs being unable to generate tidy ReactFlow coordinates.
+Uses topological sort + layered layout to ensure:
+- Manager node on the left
+- Sub-agent nodes vertically aligned on the right
+- Automatic overlap avoidance
+- Clean edge connections
 """
 
 from __future__ import annotations
@@ -33,17 +34,17 @@ def apply_auto_layout(
     start_y: int = 100,
 ) -> Dict[str, Any]:
     """
-    使用拓扑排序计算分层布局，覆盖 LLM 生成的坐标。
+    Compute layered layout using topological sort, overriding LLM-generated coordinates.
 
     Args:
-        blueprint_data: 包含 nodes 和 edges 的 blueprint 字典
-        x_spacing: 水平方向节点间距
-        y_spacing: 垂直方向节点间距
-        start_x: 起始 X 坐标
-        start_y: 起始 Y 坐标
+        blueprint_data: blueprint dict containing nodes and edges
+        x_spacing: horizontal spacing between nodes
+        y_spacing: vertical spacing between nodes
+        start_x: starting X coordinate
+        start_y: starting Y coordinate
 
     Returns:
-        更新了 position 的 blueprint_data
+        blueprint_data with updated positions.
     """
     nodes = blueprint_data.get("nodes", [])
     blueprint_data.get("edges", [])
@@ -64,11 +65,11 @@ def _apply_networkx_layout(
     start_x: int,
     start_y: int,
 ) -> Dict[str, Any]:
-    """使用 networkx 实现分层布局"""
+    """Implement layered layout using networkx."""
     nodes = blueprint_data.get("nodes", [])
     edges = blueprint_data.get("edges", [])
 
-    # 构建有向图
+    # build directed graph
     G = nx.DiGraph()
     node_map = {n["id"]: n for n in nodes}
 
@@ -79,12 +80,12 @@ def _apply_networkx_layout(
         if source in node_map and target in node_map:
             G.add_edge(source, target)
 
-    # 处理可能存在的环（打破环以便拓扑排序）
+    # handle possible cycles (break them for topological sort)
     if not nx.is_directed_acyclic_graph(G):
         logger.warning("[LayoutEngine] Graph has cycles, attempting to break them")
         G = _break_cycles(G)
 
-    # 计算每个节点的层级（使用拓扑排序）
+    # compute each node's layer (via topological sort)
     levels: Dict[str, int] = {}
     try:
         for node_id in nx.topological_sort(G):
@@ -97,29 +98,29 @@ def _apply_networkx_layout(
         logger.warning(f"[LayoutEngine] Topological sort failed: {e}, using fallback")
         return _apply_fallback_layout(blueprint_data, x_spacing, y_spacing, start_x, start_y)
 
-    # 对于孤立节点（没有边连接），分配到层级 0
+    # assign orphan nodes (no edges) to layer 0
     for node in nodes:
         if node["id"] not in levels:
             levels[node["id"]] = 0
 
-    # 按层级分组并计算坐标
+    # group by layer and compute coordinates
     level_nodes: Dict[int, List[str]] = {}
     for node_id, lvl in levels.items():
         level_nodes.setdefault(lvl, []).append(node_id)
 
-    # 在每个层级内排序（保持原始顺序的稳定性）
+    # sort within each layer (preserve original order stability)
     node_order = {n["id"]: i for i, n in enumerate(nodes)}
     for lvl in level_nodes:
         level_nodes[lvl].sort(key=lambda nid: node_order.get(nid, 999))
 
-    # 分配坐标
+    # assign coordinates
     for node in nodes:
         node_id = node["id"]
         lvl = levels.get(node_id, 0)
         level_list = level_nodes.get(lvl, [])
         idx_in_level = level_list.index(node_id) if node_id in level_list else 0
 
-        # 计算居中偏移（使同层节点垂直居中）
+        # compute centering offset (vertically center nodes in the same layer)
         level_height = (len(level_list) - 1) * y_spacing
         y_offset = -level_height // 2 if len(level_list) > 1 else 0
 
@@ -140,15 +141,15 @@ def _apply_fallback_layout(
     start_y: int,
 ) -> Dict[str, Any]:
     """
-    Fallback 布局：不依赖 networkx 的简单分层布局。
-    基于边关系手动计算层级。
+    Fallback layout: simple layered layout without networkx dependency.
+    Manually compute layers based on edge relationships.
     """
     nodes = blueprint_data.get("nodes", [])
     edges = blueprint_data.get("edges", [])
 
     node_ids = {n["id"] for n in nodes}
 
-    # 构建邻接表
+    # build adjacency lists
     children: Dict[str, List[str]] = {n["id"]: [] for n in nodes}
     parents: Dict[str, List[str]] = {n["id"]: [] for n in nodes}
 
@@ -158,13 +159,13 @@ def _apply_fallback_layout(
             children[source].append(target)
             parents[target].append(source)
 
-    # 找出根节点（没有父节点的节点）
+    # find root nodes (no parents)
     roots = [nid for nid in node_ids if not parents[nid]]
     if not roots:
-        # 如果没有根节点，选择第一个节点作为根
+        # if no root nodes, pick the first node as root
         roots = [nodes[0]["id"]] if nodes else []
 
-    # BFS 计算层级
+    # BFS to compute layers
     levels: Dict[str, int] = {}
     visited: Set[str] = set()
     queue = [(root, 0) for root in roots]
@@ -180,17 +181,17 @@ def _apply_fallback_layout(
             if child not in visited:
                 queue.append((child, lvl + 1))
 
-    # 处理未访问的节点（孤立节点）
+    # handle unvisited nodes (orphan nodes)
     for node in nodes:
         if node["id"] not in levels:
             levels[node["id"]] = 0
 
-    # 按层级分组
+    # group by layer
     level_nodes: Dict[int, List[str]] = {}
     for node_id, lvl in levels.items():
         level_nodes.setdefault(lvl, []).append(node_id)
 
-    # 分配坐标
+    # assign coordinates
     node_map = {n["id"]: n for n in nodes}
     for lvl, node_list in level_nodes.items():
         for idx, node_id in enumerate(node_list):
@@ -207,20 +208,20 @@ def _apply_fallback_layout(
 
 def _break_cycles(G: "nx.DiGraph") -> "nx.DiGraph":
     """
-    打破图中的环以便拓扑排序。
-    使用反馈边集（feedback arc set）的简化方法。
+    Break cycles in the graph to enable topological sort.
+    Use a simplified feedback arc set approach.
     """
-    # 复制图
+    # copy the graph
     G_copy = G.copy()
 
-    # 尝试找到并移除环中的边
+    # find and remove edges in cycles
     try:
         cycles = list(nx.simple_cycles(G_copy))
         edges_to_remove = set()
 
         for cycle in cycles:
             if len(cycle) >= 2:
-                # 移除环中的最后一条边
+                # remove the last edge in the cycle
                 edges_to_remove.add((cycle[-1], cycle[0]))
 
         for edge in edges_to_remove:
@@ -240,10 +241,10 @@ def calculate_optimal_spacing(
     canvas_height: int = 800,
 ) -> tuple[int, int]:
     """
-    根据节点数量和画布大小计算最优间距。
+    Calculate optimal spacing based on node count and canvas size.
 
     Returns:
-        (x_spacing, y_spacing) 元组
+        (x_spacing, y_spacing) tuple.
     """
     num_nodes = len(nodes)
 
@@ -254,7 +255,7 @@ def calculate_optimal_spacing(
     elif num_nodes <= 10:
         return 280, 120
     else:
-        # 大型图，压缩间距
+        # large graph: compress spacing
         return 250, 100
 
 
@@ -264,13 +265,13 @@ def center_graph_on_canvas(
     canvas_height: int = 800,
 ) -> Dict[str, Any]:
     """
-    将整个图居中到画布中心。
+    Center the entire graph on the canvas.
     """
     nodes = blueprint_data.get("nodes", [])
     if not nodes:
         return blueprint_data
 
-    # 计算当前边界
+    # compute current bounds
     min_x = min(n["position"]["x"] for n in nodes)
     max_x = max(n["position"]["x"] for n in nodes)
     min_y = min(n["position"]["y"] for n in nodes)
@@ -279,11 +280,11 @@ def center_graph_on_canvas(
     graph_width = max_x - min_x
     graph_height = max_y - min_y
 
-    # 计算偏移使其居中
+    # compute offset to center
     offset_x = (canvas_width - graph_width) // 2 - min_x
     offset_y = (canvas_height - graph_height) // 2 - min_y
 
-    # 确保不会出现负坐标
+    # ensure no negative coordinates
     offset_x = max(offset_x, 50 - min_x)
     offset_y = max(offset_y, 50 - min_y)
 

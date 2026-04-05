@@ -218,7 +218,7 @@ export interface ExecutionStep {
   duration?: number
   content?: string // For streaming text content (agent_thought)
   data?: ToolExecutionData | any // For structured data (tool arguments/results)
-  // Trace / Observation 层级信息 (Phase D)
+  // Trace / Observation hierarchy (Phase D)
   traceId?: string
   observationId?: string
   parentObservationId?: string

@@ -63,14 +63,14 @@ async function fetchMyPermission(
   userId: string,
   userName: string | null = null,
 ): Promise<WorkspacePermissions> {
-  // 复用现有的 API_ENDPOINTS 和 apiGet
+  // reuse existing API_ENDPOINTS and apiGet
   const result = await apiGet<{
     role: 'owner' | 'admin' | 'member' | 'viewer'
     permissionType: 'read' | 'write' | 'admin'
     isOwner: boolean
   }>(`${API_ENDPOINTS.workspaces}/${workspaceId}/my-permission`)
 
-  // 复用现有的 mapRoleToPermissionType 函数
+  // reuse existing mapRoleToPermissionType function
   const users: WorkspaceUser[] = [
     {
       userId: userId,

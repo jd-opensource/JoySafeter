@@ -1,5 +1,5 @@
 """
-组织与成员服务
+Organization and member service.
 """
 
 import uuid
@@ -22,7 +22,7 @@ from .base import BaseService
 
 
 class OrganizationService(BaseService[Organization]):
-    """组织及成员相关业务"""
+    """Organization and member business logic."""
 
     ROLE_OWNER = "owner"
     ROLE_ADMIN = "admin"
@@ -37,7 +37,7 @@ class OrganizationService(BaseService[Organization]):
         self.user_repo = UserRepository(db)
 
     # --------------------------------------------------------------------- #
-    # 组织
+    # organization
     # --------------------------------------------------------------------- #
     async def create_organization(
         self,
@@ -47,7 +47,7 @@ class OrganizationService(BaseService[Organization]):
         logo: Optional[str],
         current_user: User,
     ) -> Dict:
-        """创建组织并将当前用户设为 owner"""
+        """Create an organization and set the current user as owner."""
         if await self.org_repo.slug_exists(slug):
             raise ConflictException("Slug already exists")
 
@@ -64,7 +64,7 @@ class OrganizationService(BaseService[Organization]):
         )
         await self.commit()
 
-        # 创建 owner 成员
+        # create owner member
         member = await self.member_repo.create(
             {
                 "user_id": current_user.id,
@@ -74,7 +74,7 @@ class OrganizationService(BaseService[Organization]):
         )
         await self.commit()
 
-        # 重新加载成员关系便于序列化
+        # reload member relationships for serialization
         organization = await self.org_repo.get_with_members(organization.id) or organization
         return self._serialize_org(organization, member.role, include_seats=True)
 
@@ -83,13 +83,13 @@ class OrganizationService(BaseService[Organization]):
         organization_id: uuid.UUID,
         current_user: User,
     ) -> Dict:
-        """设置当前活跃组织（目前仅校验成员身份并返回组织信息）"""
+        """Set the active organization (currently only validates membership and returns org info)."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
 
         member = await self._ensure_member(organization_id, current_user.id)
-        # 如果有持久化需求，可在此处写入用户设置/会话
+        # if persistence is needed, write to user settings/session here
         return self._serialize_org(organization, member.role, include_seats=True)
 
     async def get_organization(
@@ -98,7 +98,7 @@ class OrganizationService(BaseService[Organization]):
         include_seats: bool,
         current_user: User,
     ) -> Dict:
-        """获取组织详情"""
+        """Get organization details."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
@@ -115,7 +115,7 @@ class OrganizationService(BaseService[Organization]):
         logo: Optional[str],
         current_user: User,
     ) -> Dict:
-        """更新组织基础信息"""
+        """Update organization basic info."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
@@ -146,7 +146,7 @@ class OrganizationService(BaseService[Organization]):
         seats: int,
         current_user: User,
     ) -> Dict:
-        """更新 seats 信息"""
+        """Update seats info."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
@@ -172,7 +172,7 @@ class OrganizationService(BaseService[Organization]):
         return self._build_seats_info(organization, members_count=current_members)
 
     # --------------------------------------------------------------------- #
-    # 成员
+    # members
     # --------------------------------------------------------------------- #
     async def list_members(
         self,
@@ -180,7 +180,7 @@ class OrganizationService(BaseService[Organization]):
         include_usage: bool,
         current_user: User,
     ) -> List[Dict]:
-        """获取成员列表"""
+        """Get member list."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
@@ -197,7 +197,7 @@ class OrganizationService(BaseService[Organization]):
         role: str,
         current_user: User,
     ) -> Dict:
-        """邀请/添加新成员"""
+        """Invite/add a new member."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
@@ -241,7 +241,7 @@ class OrganizationService(BaseService[Organization]):
         include_usage: bool,
         current_user: User,
     ) -> Dict:
-        """获取成员详情"""
+        """Get member details."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
@@ -264,7 +264,7 @@ class OrganizationService(BaseService[Organization]):
         role: str,
         current_user: User,
     ) -> Dict:
-        """更新成员角色"""
+        """Update member role."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
@@ -281,7 +281,7 @@ class OrganizationService(BaseService[Organization]):
         if target.role == self.ROLE_OWNER:
             raise ForbiddenException("Cannot modify owner role")
 
-        # 权限控制：只有 owner 可以提升为 admin，其余变更 admin 也可以降级
+        # access control: only owner can promote to admin; admins can also demote
         if role == self.ROLE_ADMIN and actor.role != self.ROLE_OWNER:
             raise ForbiddenException("Only owner can promote to admin")
         if actor.role not in [self.ROLE_OWNER, self.ROLE_ADMIN]:
@@ -302,7 +302,7 @@ class OrganizationService(BaseService[Organization]):
         *,
         should_reduce_seats: bool = False,
     ) -> bool:
-        """移除成员"""
+        """Remove a member."""
         organization = await self.org_repo.get_with_members(organization_id)
         if not organization:
             raise NotFoundException("Organization not found")
@@ -414,7 +414,7 @@ class OrganizationService(BaseService[Organization]):
         return data
 
     def _build_member_usage(self, member: Member) -> Dict:
-        # TODO: 根据实际业务补充使用量统计
+        # Stub: usage stats not yet implemented
         return {
             "messages": 0,
             "storage_bytes": 0,

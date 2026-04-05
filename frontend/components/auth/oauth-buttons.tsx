@@ -12,7 +12,7 @@ import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('OAuthButtons')
 
-// 图标映射
+// icon mapping
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   github: Github,
   google: Chrome,
@@ -35,7 +35,7 @@ interface OAuthProvidersResponse {
 }
 
 /**
- * 获取 OAuth 提供商列表
+ * Fetch the list of OAuth providers
  */
 async function fetchOAuthProviders(): Promise<OAuthProvider[]> {
   const response = await fetch(`${API_BASE}/auth/oauth/providers`, {
@@ -52,19 +52,19 @@ async function fetchOAuthProviders(): Promise<OAuthProvider[]> {
 
 interface OAuthButtonsProps {
   /**
-   * 登录成功后的回调 URL
+   * Callback URL after successful login
    */
   callbackUrl?: string
   /**
-   * 是否显示分隔线
+   * Whether to show the divider
    */
   showDivider?: boolean
 }
 
 /**
- * OAuth/SSO 登录按钮组件
+ * OAuth/SSO login button component
  *
- * 从后端动态获取已启用的 OAuth 提供商，并渲染对应的登录按钮。
+ * Dynamically fetches enabled OAuth providers from the backend and renders login buttons.
  */
 export function OAuthButtons({ callbackUrl = '/chat', showDivider = true }: OAuthButtonsProps) {
   const { t } = useTranslation()
@@ -76,11 +76,11 @@ export function OAuthButtons({ callbackUrl = '/chat', showDivider = true }: OAut
   } = useQuery<OAuthProvider[]>({
     queryKey: ['oauth-providers'],
     queryFn: fetchOAuthProviders,
-    staleTime: 5 * 60 * 1000, // 5 分钟缓存
+    staleTime: 5 * 60 * 1000, // 5-minute cache
     retry: 1,
   })
 
-  // 如果没有提供商或加载出错，不显示任何内容
+  // if no providers or loading error, render nothing
   if (error) {
     logger.warn('Failed to fetch OAuth providers:', error)
     return null
@@ -106,7 +106,7 @@ export function OAuthButtons({ callbackUrl = '/chat', showDivider = true }: OAut
     )
   }
 
-  // 如果没有启用的提供商，不显示
+  // if no enabled providers, render nothing
   if (!providers?.length) {
     return null
   }

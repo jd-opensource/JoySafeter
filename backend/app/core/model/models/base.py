@@ -1,4 +1,4 @@
-"""模型基类包装器"""
+"""Base model wrapper."""
 
 from typing import Any, Generic, Type, TypeVar, Union
 
@@ -6,23 +6,24 @@ T = TypeVar("T")
 
 
 class BaseModelWrapper(Generic[T]):
-    """模型包装器基类
+    """Base class for model wrappers.
 
-    这个类主要用于统一管理模型实例，支持任何类型的模型实例，
-    通过 __getattr__ 代理所有方法调用到内部模型，以确保完全兼容。
+    Provide unified model instance management for any model type.
+    Proxy all attribute access to the inner model via __getattr__
+    to ensure full compatibility.
 
     Attributes:
-        provider_name: 供应商名称
-        model_name: 模型名称
+        provider_name: provider identifier
+        model_name: model identifier
     """
 
     def __init__(self, model: T, provider_name: str, model_name: str):
-        """初始化模型包装器
+        """Initialize the model wrapper.
 
         Args:
-            model: 模型实例（可以是任何类型）
-            provider_name: 供应商名称
-            model_name: 模型名称
+            model: model instance (any type)
+            provider_name: provider identifier
+            model_name: model identifier
         """
         self._model: T = model
         self.provider_name = provider_name
@@ -34,43 +35,43 @@ class BaseModelWrapper(Generic[T]):
         expected_type: Union[Type[Any], tuple[Type[Any], ...]],
         type_name: str,
     ) -> None:
-        """验证模型类型
+        """Validate the model type.
 
         Args:
-            model: 要验证的模型实例
-            expected_type: 期望的类型或类型元组
-            type_name: 类型名称（用于错误消息）
+            model: model instance to validate
+            expected_type: expected type or tuple of types
+            type_name: type name for error messages
 
         Raises:
-            TypeError: 如果model不是期望类型的实例
+            TypeError: if model is not an instance of expected_type
         """
         if not isinstance(model, expected_type):
-            raise TypeError(f"model必须是{type_name}的实例，但得到: {type(model)}")
+            raise TypeError(f"model must be an instance of {type_name}, got: {type(model)}")
 
     @property
     def model(self) -> T:
-        """获取模型实例
+        """Return the inner model instance.
 
         Returns:
-            内部模型实例
+            The inner model instance.
         """
         return self._model
 
     def __getattr__(self, name: str) -> Any:
-        """代理所有方法调用到内部模型
+        """Proxy attribute access to the inner model.
 
         Args:
-            name: 属性或方法名
+            name: attribute or method name
 
         Returns:
-            内部模型的属性或方法
+            The attribute or method from the inner model.
         """
         return getattr(self._model, name)
 
     def __repr__(self) -> str:
-        """返回对象的字符串表示
+        """Return a string representation of this wrapper.
 
         Returns:
-            对象的字符串表示
+            String representation.
         """
         return f"{self.__class__.__name__}(provider_name={self.provider_name!r}, model_name={self.model_name!r})"

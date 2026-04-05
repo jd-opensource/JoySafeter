@@ -1,5 +1,5 @@
 """
-CustomTool 服务：权限校验 + 配额限制 + CRUD
+CustomTool service: permission checks + quota limits + CRUD.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ class CustomToolService(BaseService[CustomTool]):
         self.repo = CustomToolRepository(db)
 
     async def list_tools(self, current_user_id: str) -> List[CustomTool]:
-        """获取当前用户的所有工具"""
+        """Get all tools for the current user."""
         return await self.repo.list_by_user(current_user_id)  # type: ignore
 
     async def create_tool(
@@ -34,12 +34,12 @@ class CustomToolService(BaseService[CustomTool]):
         runtime: str = "python",
         enabled: bool = True,
     ) -> CustomTool:
-        """创建工具"""
+        """Create a tool."""
         current_count = await self.repo.count_by_user(owner_id)
         if current_count >= MAX_TOOLS_PER_USER:
             raise BadRequestException("User custom tool quota exceeded")
 
-        # 检查同名工具是否存在
+        # check if a tool with the same name exists
         existing = await self.repo.get_by(owner_id=owner_id, name=name)
         if existing:
             raise BadRequestException("Tool name already exists for this user")
@@ -68,12 +68,12 @@ class CustomToolService(BaseService[CustomTool]):
         runtime: Optional[str] = None,
         enabled: Optional[bool] = None,
     ) -> CustomTool:
-        """更新工具"""
+        """Update a tool."""
         tool = await self.repo.get(tool_id)
         if not tool:
             raise NotFoundException("Custom tool not found")
 
-        # 验证所有权
+        # verify ownership
         if tool.owner_id != current_user_id:
             raise ForbiddenException("You can only update your own tools")
 
@@ -96,12 +96,12 @@ class CustomToolService(BaseService[CustomTool]):
         return tool  # type: ignore
 
     async def delete_tool(self, tool_id: uuid.UUID, current_user_id: str) -> None:
-        """删除工具"""
+        """Delete a tool."""
         tool = await self.repo.get(tool_id)
         if not tool:
             raise NotFoundException("Custom tool not found")
 
-        # 验证所有权
+        # verify ownership
         if tool.owner_id != current_user_id:
             raise ForbiddenException("You can only delete your own tools")
 

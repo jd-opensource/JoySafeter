@@ -1,10 +1,10 @@
 """
-MCP Tool Utilities - 统一的 MCP 工具名称解析和验证工具函数
+MCP Tool Utilities - Unified MCP tool name parsing and validation helpers.
 
-提供统一的工具函数用于：
-1. 解析 MCP 工具名称（格式：server_name::tool_name）
-2. 查找真实的 MCP server instance
-3. 验证和获取 MCP 工具
+Provide unified utility functions for:
+1. Parsing MCP tool names (format: server_name::tool_name)
+2. Resolving the actual MCP server instance
+3. Validating and retrieving MCP tools
 """
 
 import uuid
@@ -20,44 +20,42 @@ from app.services.mcp_server_service import McpServerService
 
 
 def _assert_not_uuid(server_identifier: str, context: str = "") -> None:
-    """
-    断言 server_identifier 不是 UUID 格式
+    """Assert that server_identifier is not a UUID.
 
-    如果 server_identifier 是 UUID 格式，则抛出 AssertionError。
-    这确保我们始终使用服务器名称而不是 UUID。
+    Raise AssertionError if server_identifier is a valid UUID,
+    ensuring we always use server names rather than UUIDs.
 
     Args:
-        server_identifier: 服务器标识符
-        context: 上下文信息（用于错误消息）
+        server_identifier: Server identifier string.
+        context: Context info for the error message.
 
     Raises:
-        AssertionError: 如果 server_identifier 是 UUID 格式
+        AssertionError: If server_identifier is a UUID.
     """
     if not server_identifier:
         return
 
     try:
         uuid.UUID(server_identifier)
-        # 如果是有效的 UUID，抛出断言错误
+        # valid UUID — raise assertion error
         context_msg = f" in {context}" if context else ""
         raise AssertionError(
             f"Server identifier must be a server name, not UUID{context_msg}: {server_identifier}. "
             f"Please use the server name (e.g., 'my_server') instead of UUID."
         )
     except (ValueError, AttributeError, TypeError):
-        # 不是 UUID 格式，通过检查
+        # not a UUID — passes the check
         pass
 
 
 def parse_mcp_tool_name(tool_name: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    解析 MCP 工具名称（格式：server_name::tool_name）
+    """Parse an MCP tool name (format: server_name::tool_name).
 
     Args:
-        tool_name: 工具名称，可能是 "server_name::tool_name" 格式或普通工具名称
+        tool_name: Tool name, possibly in "server_name::tool_name" format.
 
     Returns:
-        (server_name, tool_name) 元组，如果不是 MCP 工具格式则返回 (None, None)
+        (server_name, tool_name) tuple; (None, None) if not in MCP format.
 
     Examples:
         >>> parse_mcp_tool_name("my_server::my_tool")
@@ -78,26 +76,25 @@ def parse_mcp_tool_name(tool_name: str) -> Tuple[Optional[str], Optional[str]]:
     if not server_name or not actual_tool_name:
         return None, None
 
-    # 断言 server_name 不是 UUID 格式
+    # assert server_name is not a UUID
     _assert_not_uuid(server_name, f"parsing tool '{tool_name}'")
 
     return server_name, actual_tool_name
 
 
 async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncSession) -> Optional[McpServer]:
-    """
-    通过 server_name 查找真实的 MCP server instance
+    """Resolve the actual MCP server instance by server_name.
 
     Args:
-        server_name: MCP 服务器名称（每个用户唯一，必须是名称，不能是 UUID）
-        user_id: 用户 ID
-        db: 数据库会话
+        server_name: MCP server name (unique per user; must be a name, not a UUID).
+        user_id: User ID.
+        db: Database session.
 
     Returns:
-        McpServer 实例，如果不存在或已删除则返回 None
+        McpServer instance, or None if not found or deleted.
 
     Raises:
-        AssertionError: 如果 server_name 是 UUID 格式
+        AssertionError: If server_name is a UUID.
     """
     if not server_name or not user_id:
         logger.warning(
@@ -105,7 +102,7 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
         )
         return None
 
-    # 断言 server_name 不是 UUID 格式
+    # assert server_name is not a UUID
     _assert_not_uuid(server_name, f"resolve_mcp_server_instance(user_id={user_id})")
 
     try:
@@ -136,29 +133,28 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
 
 
 async def validate_mcp_server_for_tool(server: McpServer, user_id: str) -> bool:
-    """
-    验证 MCP server instance 是否可用于工具执行
+    """Validate that an MCP server instance is usable for tool execution.
 
     Args:
-        server: MCP 服务器实例
-        user_id: 用户 ID
+        server: MCP server instance.
+        user_id: User ID.
 
     Returns:
-        True 如果服务器可用，否则抛出 RuntimeError
+        True if the server is usable.
 
     Raises:
-        RuntimeError: 如果验证失败
+        RuntimeError: If validation fails.
     """
     if not server:
         raise RuntimeError("MCP server instance is None.")
 
-    # 验证用户权限
+    # verify user ownership
     if server.user_id != user_id:
         error_msg = f"User {user_id} does not own server {server.name}"
         logger.error(f"[validate_mcp_server_for_tool] {error_msg}")
         raise RuntimeError(f"Permission denied: You do not own MCP server '{server.name}'.")
 
-    # 验证服务器已启用
+    # verify server is enabled
     if not server.enabled:
         error_msg = f"Server {server.name} is disabled"
         logger.warning(f"[validate_mcp_server_for_tool] {error_msg}")
@@ -170,37 +166,36 @@ async def validate_mcp_server_for_tool(server: McpServer, user_id: str) -> bool:
 async def get_mcp_tool_with_instance(
     server_name: str, tool_name: str, user_id: str, db: AsyncSession
 ) -> Optional[EnhancedTool]:
-    """
-    获取 MCP 工具并验证 server instance
+    """Retrieve an MCP tool after validating its server instance.
 
-    完整的验证流程：
-    1. 查找 MCP server instance（通过 server_name）
-    2. 验证 server instance（权限、启用状态）
-    3. 从 registry 获取工具（使用 server.name）
+    Full validation flow:
+    1. Resolve MCP server instance by server_name
+    2. Validate server instance (ownership, enabled status)
+    3. Look up tool in the registry using server.name
 
     Args:
-        server_name: MCP 服务器名称（每个用户唯一）
-        tool_name: 工具名称
-        user_id: 用户 ID
-        db: 数据库会话
+        server_name: MCP server name (unique per user).
+        tool_name: Tool name.
+        user_id: User ID.
+        db: Database session.
 
     Returns:
-        EnhancedTool 实例
+        EnhancedTool instance.
 
     Raises:
-        RuntimeError: 如果任何验证步骤失败
+        RuntimeError: If any validation step fails.
     """
-    # 1. 查找 MCP server instance
+    # 1. resolve MCP server instance
     server = await resolve_mcp_server_instance(server_name, user_id, db)
     if not server:
         # resolve_mcp_server_instance now raises RuntimeError, so this branch might be unreachable
         # but kept for robustness if resolve_mcp_server_instance returns None
         raise RuntimeError(f"MCP server '{server_name}' not found.")
 
-    # 2. 验证 server instance
+    # 2. validate server instance
     await validate_mcp_server_for_tool(server, user_id)
 
-    # 3. 从 registry 获取工具（使用 server.name）
+    # 3. look up tool in registry using server.name
     registry = get_global_registry()
     tool = registry.get_mcp_tool(server.name, tool_name)
 
@@ -217,20 +212,19 @@ async def get_mcp_tool_with_instance(
 
 
 async def resolve_mcp_tool_from_string(tool_id: str, user_id: str, db: AsyncSession) -> Optional[EnhancedTool]:
-    """
-    从字符串格式的工具 ID 解析并获取 MCP 工具（统一入口）
+    """Parse a string tool ID and retrieve the MCP tool (unified entry point).
 
-    支持格式：
-    - "server_name::tool_name" - MCP 工具（必须使用服务器名称，不能使用 UUID）
-    - 其他格式将被忽略（返回 None）
+    Supported formats:
+    - "server_name::tool_name" — MCP tool (must use server name, not UUID)
+    - Other formats are ignored (returns None)
 
     Args:
-        tool_id: 工具 ID 字符串，格式: "server_name::tool_name"
-        user_id: 用户 ID
-        db: 数据库会话
+        tool_id: Tool ID string, format: "server_name::tool_name".
+        user_id: User ID.
+        db: Database session.
 
     Returns:
-        EnhancedTool 实例，如果不是 MCP 工具格式或验证失败则返回 None
+        EnhancedTool instance, or None if not in MCP format or validation fails.
     """
     server_name, tool_name = parse_mcp_tool_name(tool_id)
     if not server_name or not tool_name:
@@ -240,16 +234,15 @@ async def resolve_mcp_tool_from_string(tool_id: str, user_id: str, db: AsyncSess
 
 
 async def resolve_mcp_tools_from_list(tool_ids: list[str], user_id: str, db: AsyncSession) -> list[EnhancedTool]:
-    """
-    批量解析并获取 MCP 工具列表（统一入口）
+    """Batch-resolve a list of MCP tool IDs (unified entry point).
 
     Args:
-        tool_ids: 工具 ID 列表，格式: ["server_name::tool_name", ...]
-        user_id: 用户 ID
-        db: 数据库会话
+        tool_ids: Tool ID list, format: ["server_name::tool_name", ...].
+        user_id: User ID.
+        db: Database session.
 
     Returns:
-        EnhancedTool 实例列表
+        List of EnhancedTool instances.
     """
     tools = []
     for tool_id in tool_ids:

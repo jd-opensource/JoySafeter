@@ -1,5 +1,5 @@
 """
-工作空间文件存储 Repository
+Workspace file storage Repository
 """
 
 import uuid
@@ -14,7 +14,7 @@ from .base import BaseRepository
 
 
 class WorkspaceStoredFileRepository(BaseRepository[WorkspaceStoredFile]):
-    """工作空间文件元数据访问"""
+    """Workspace file metadata access."""
 
     CONTEXT_WORKSPACE = "workspace"
 
@@ -22,7 +22,7 @@ class WorkspaceStoredFileRepository(BaseRepository[WorkspaceStoredFile]):
         super().__init__(WorkspaceStoredFile, db)
 
     async def list_workspace_files(self, workspace_id: uuid.UUID) -> List[WorkspaceStoredFile]:
-        """按上传时间顺序获取工作空间文件列表"""
+        """List workspace files ordered by upload time."""
         query = (
             select(WorkspaceStoredFile)
             .where(
@@ -37,7 +37,7 @@ class WorkspaceStoredFileRepository(BaseRepository[WorkspaceStoredFile]):
     async def get_by_id_and_workspace(
         self, file_id: uuid.UUID, workspace_id: uuid.UUID
     ) -> Optional[WorkspaceStoredFile]:
-        """根据文件 ID 与工作空间获取记录"""
+        """Get a record by file ID and workspace."""
         query = select(WorkspaceStoredFile).where(
             WorkspaceStoredFile.id == file_id,
             WorkspaceStoredFile.workspace_id == workspace_id,
@@ -47,7 +47,7 @@ class WorkspaceStoredFileRepository(BaseRepository[WorkspaceStoredFile]):
         return result.scalar_one_or_none()
 
     async def find_by_name(self, workspace_id: uuid.UUID, original_name: str) -> Optional[WorkspaceStoredFile]:
-        """检测同名文件"""
+        """Detect a file with the same name."""
         query = select(WorkspaceStoredFile).where(
             WorkspaceStoredFile.workspace_id == workspace_id,
             WorkspaceStoredFile.original_name == original_name,
@@ -57,7 +57,7 @@ class WorkspaceStoredFileRepository(BaseRepository[WorkspaceStoredFile]):
         return result.scalar_one_or_none()
 
     async def sum_user_usage(self, user_id: uuid.UUID) -> int:
-        """计算用户所有文件占用空间（字节）"""
+        """Calculate total storage used by all files of a user (bytes)."""
         query = select(func.coalesce(func.sum(WorkspaceStoredFile.size), 0)).where(
             WorkspaceStoredFile.user_id == user_id
         )
@@ -66,7 +66,7 @@ class WorkspaceStoredFileRepository(BaseRepository[WorkspaceStoredFile]):
         return int(total)
 
     async def sum_workspace_usage(self, workspace_id: uuid.UUID) -> int:
-        """计算工作空间下文件占用空间（字节）"""
+        """Calculate total storage used by files in a workspace (bytes)."""
         query = select(func.coalesce(func.sum(WorkspaceStoredFile.size), 0)).where(
             WorkspaceStoredFile.workspace_id == workspace_id,
             WorkspaceStoredFile.context == self.CONTEXT_WORKSPACE,

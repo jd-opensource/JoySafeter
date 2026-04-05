@@ -1,8 +1,8 @@
 """
-Ollama 本地模型供应商实现
+Ollama local model provider implementation.
 
-通过 Ollama 的 REST API 自动发现本地已安装的模型，
-并通过 OpenAI 兼容端点 (/v1) 创建运行时模型实例。
+Discover locally installed models via Ollama's REST API
+and create runtime model instances through the OpenAI-compatible endpoint (/v1).
 """
 
 from typing import Any, Dict, List, Optional
@@ -14,12 +14,12 @@ from pydantic import SecretStr
 
 from .base import BaseProvider, ModelType
 
-# Ollama REST API 超时（秒）
+# Ollama REST API timeout (seconds)
 _OLLAMA_API_TIMEOUT = 5.0
 
 
 def _fetch_ollama_models(base_url: str) -> List[Dict[str, Any]]:
-    """调用 Ollama GET /api/tags 获取本地模型列表。"""
+    """Call Ollama GET /api/tags to retrieve the local model list."""
     url = f"{base_url.rstrip('/')}/api/tags"
     with httpx.Client(timeout=_OLLAMA_API_TIMEOUT) as client:
         resp = client.get(url)
@@ -39,7 +39,7 @@ def _fetch_ollama_models(base_url: str) -> List[Dict[str, Any]]:
             {
                 "name": name,
                 "display_name": name,
-                "description": f"Ollama — {', '.join(desc_parts)}" if desc_parts else "Ollama 本地模型",
+                "description": f"Ollama — {', '.join(desc_parts)}" if desc_parts else "Ollama local model",
                 "is_available": True,
             }
         )
@@ -47,12 +47,12 @@ def _fetch_ollama_models(base_url: str) -> List[Dict[str, Any]]:
 
 
 class OllamaProvider(BaseProvider):
-    """Ollama 本地模型供应商"""
+    """Ollama local model provider."""
 
     def __init__(self):
         super().__init__(
             provider_name="ollama",
-            display_name="Ollama (本地部署)",
+            display_name="Ollama (Local)",
             is_template=False,
             provider_type="system",
         )
@@ -67,7 +67,7 @@ class OllamaProvider(BaseProvider):
                 "base_url": {
                     "type": "string",
                     "title": "Ollama Server URL",
-                    "description": "Ollama 服务地址，默认 http://localhost:11434",
+                    "description": "Ollama server URL, default http://localhost:11434",
                     "default": "http://localhost:11434",
                     "required": True,
                 },
@@ -83,7 +83,7 @@ class OllamaProvider(BaseProvider):
                     "temperature": {
                         "type": "number",
                         "title": "Temperature",
-                        "description": "控制输出的随机性，范围0-2",
+                        "description": "Controls output randomness, range 0-2",
                         "default": 0.7,
                         "minimum": 0,
                         "maximum": 2,
@@ -91,14 +91,14 @@ class OllamaProvider(BaseProvider):
                     "max_tokens": {
                         "type": "integer",
                         "title": "Max Tokens",
-                        "description": "生成的最大token数",
+                        "description": "Maximum number of tokens to generate",
                         "default": None,
                         "minimum": 1,
                     },
                     "top_p": {
                         "type": "number",
                         "title": "Top P",
-                        "description": "核采样参数，范围0-1",
+                        "description": "Nucleus sampling parameter, range 0-1",
                         "default": 1.0,
                         "minimum": 0,
                         "maximum": 1,
@@ -106,14 +106,14 @@ class OllamaProvider(BaseProvider):
                     "timeout": {
                         "type": "number",
                         "title": "Timeout",
-                        "description": "请求超时时间（秒）",
+                        "description": "Request timeout in seconds",
                         "default": 120.0,
                         "minimum": 1.0,
                     },
                     "max_retries": {
                         "type": "integer",
                         "title": "Max Retries",
-                        "description": "最大重试次数",
+                        "description": "Maximum number of retries",
                         "default": 2,
                         "minimum": 0,
                     },
@@ -122,24 +122,24 @@ class OllamaProvider(BaseProvider):
         return None
 
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
-        """通过调用 Ollama API 检测服务是否可达。"""
+        """Validate credentials by checking Ollama API reachability."""
         base_url = credentials.get("base_url", "http://localhost:11434")
         try:
             models = _fetch_ollama_models(base_url)
             if models:
                 return True, None
-            return True, None  # 服务可达但无模型，仍视为有效
+            return True, None  # service reachable but no models; still valid
         except httpx.ConnectError:
-            return False, f"无法连接到 Ollama 服务：{base_url}，请确认 Ollama 已启动"
+            return False, f"Cannot connect to Ollama service: {base_url}. Ensure Ollama is running."
         except httpx.TimeoutException:
-            return False, f"连接 Ollama 服务超时：{base_url}"
+            return False, f"Connection to Ollama service timed out: {base_url}"
         except Exception as e:
-            return False, f"Ollama 服务验证失败：{e}"
+            return False, f"Ollama service validation failed: {e}"
 
     def get_model_list(
         self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """动态获取 Ollama 本地模型列表。无凭据时返回空列表。"""
+        """Dynamically fetch Ollama local model list. Return empty list when no credentials."""
         if model_type != ModelType.CHAT:
             return []
         if not credentials or not credentials.get("base_url"):
@@ -160,7 +160,7 @@ class OllamaProvider(BaseProvider):
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> BaseChatModel:
         if model_type != ModelType.CHAT:
-            raise ValueError(f"Ollama 供应商不支持模型类型: {model_type}")
+            raise ValueError(f"Ollama provider does not support model type: {model_type}")
 
         base_url = credentials.get("base_url", "http://localhost:11434")
         openai_base = f"{base_url.rstrip('/')}/v1"

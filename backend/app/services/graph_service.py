@@ -1,5 +1,5 @@
 """
-Graph 相关 Service
+Graph service.
 """
 
 import hashlib
@@ -104,25 +104,25 @@ class GraphService(BaseService):
         required_role: WorkspaceMemberRole = WorkspaceMemberRole.viewer,
     ) -> None:
         """
-        确保用户有访问图的权限
+        Ensure the user has permission to access the graph.
 
         Args:
-            graph: 要访问的图
-            current_user: 当前用户
-            required_role: 所需的最低工作空间角色（仅对工作空间图有效）
+            graph: the graph to access
+            current_user: current user
+            required_role: minimum required workspace role (only applies to workspace graphs)
 
         Raises:
-            ForbiddenException: 如果用户没有访问权限
+            ForbiddenException: if the user has no access
         """
-        # 超级用户有所有权限
+        # superuser has all permissions
         if current_user.is_superuser:
             return
 
-        # 如果是图的所有者，直接允许
+        # if the user owns the graph, allow directly
         if graph.user_id == current_user.id:
             return
 
-        # 如果是工作空间图，检查工作空间权限
+        # if it's a workspace graph, check workspace permissions
         if graph.workspace_id:
             has_access = await check_workspace_access(
                 self.db,
@@ -133,7 +133,7 @@ class GraphService(BaseService):
             if has_access:
                 return
 
-        # 无权限
+        # no permission
         raise ForbiddenException("No access to graph")
 
     async def _create_graph_with_id(
@@ -145,17 +145,17 @@ class GraphService(BaseService):
         description: Optional[str] = None,
     ) -> AgentGraph:
         """
-        使用指定的 ID 创建图（用于 upsert 场景）
+        Create a graph with a specified ID (for upsert scenarios).
 
         Args:
-            graph_id: 指定的图ID
-            name: 图名称
-            user_id: 用户ID
-            workspace_id: 工作空间ID（可选）
-            description: 描述（可选）
+            graph_id: specified graph ID
+            name: graph name
+            user_id: user ID
+            workspace_id: workspace ID (optional)
+            description: description (optional)
 
         Returns:
-            创建的图对象
+            The created graph object
         """
         graph_data = {
             "id": graph_id,
@@ -180,31 +180,31 @@ class GraphService(BaseService):
         variables: Optional[Dict[str, Any]] = None,
     ) -> AgentGraph:
         """
-        创建新图
+        Create a new graph.
 
         Args:
-            name: 图名称
-            user_id: 用户ID
-            workspace_id: 工作空间ID（可选）
-            folder_id: 文件夹ID（可选）
-            parent_id: 父图ID（可选）
-            description: 描述（可选）
-            color: 颜色（可选）
-            variables: 变量（可选）
+            name: graph name
+            user_id: user ID
+            workspace_id: workspace ID (optional)
+            folder_id: folder ID (optional)
+            parent_id: parent graph ID (optional)
+            description: description (optional)
+            color: color (optional)
+            variables: variables (optional)
 
         Returns:
-            创建的图对象
+            The created graph object
 
         Raises:
-            NotFoundException: 如果父图不存在
+            NotFoundException: if the parent graph does not exist
         """
-        # 验证 parent_id 是否存在
+        # validate parent_id exists
         if parent_id:
             parent_graph = await self.graph_repo.get(parent_id)
             if not parent_graph:
                 raise NotFoundException(f"Parent graph with id {parent_id} not found")
 
-        # 验证 folder_id 是否存在且属于指定的 workspace
+        # validate folder_id exists and belongs to the specified workspace
         if folder_id:
             from app.repositories.workspace_folder import WorkflowFolderRepository
 
@@ -212,10 +212,10 @@ class GraphService(BaseService):
             folder = await folder_repo.get(folder_id)
             if not folder:
                 raise NotFoundException(f"Folder with id {folder_id} not found")
-            # 如果指定了 workspace_id，确保 folder 属于该 workspace
+            # if workspace_id is specified, ensure the folder belongs to that workspace
             if workspace_id and folder.workspace_id != workspace_id:
                 raise BadRequestException(f"Folder {folder_id} does not belong to workspace {workspace_id}")
-            # 如果没有指定 workspace_id，则从 folder 中获取
+            # if workspace_id is not specified, derive it from the folder
             if not workspace_id:
                 workspace_id = folder.workspace_id
 
@@ -240,16 +240,16 @@ class GraphService(BaseService):
         viewport: Optional[Dict[str, Any]] = None,
         variables: Optional[Dict[str, Any]] = None,
         current_user: Optional[AuthUser] = None,
-        # upsert 参数
+        # upsert params
         name: Optional[str] = None,
         workspace_id: Optional[uuid.UUID] = None,
     ) -> Dict[str, Any]:
         """
-        保存图的完整状态（节点和边）- 支持 upsert 模式
+        Save the complete graph state (nodes and edges) — supports upsert mode.
 
-        如果图不存在且提供了 name 参数，会自动创建新图。
+        If the graph does not exist and a name parameter is provided, automatically create a new graph.
 
-        前端格式：
+        Frontend format:
         {
             "nodes": [...],
             "edges": [...],
@@ -257,10 +257,10 @@ class GraphService(BaseService):
             ...
         }
         """
-        # 使用事务确保原子性：所有操作要么全部成功，要么全部失败
-        # 检查是否已经在事务中，避免重复开始事务
+        # use a transaction to ensure atomicity: all operations succeed or all fail
+        # check if already in a transaction to avoid starting a duplicate
         if self.db.in_transaction():
-            # 已经在事务中，直接执行操作
+            # already in a transaction, execute directly
             return await self._save_graph_state_internal(
                 graph_id=graph_id,
                 nodes=nodes,
@@ -272,7 +272,7 @@ class GraphService(BaseService):
                 workspace_id=workspace_id,
             )
         else:
-            # 不在事务中，开始新事务
+            # not in a transaction, start a new one
             async with self.db.begin():
                 return await self._save_graph_state_internal(
                     graph_id=graph_id,
@@ -293,30 +293,30 @@ class GraphService(BaseService):
         viewport: Optional[Dict[str, Any]] = None,
         variables: Optional[Dict[str, Any]] = None,
         current_user: Optional[AuthUser] = None,
-        # upsert 参数
+        # upsert params
         name: Optional[str] = None,
         workspace_id: Optional[uuid.UUID] = None,
     ) -> Dict[str, Any]:
-        """内部方法：实际执行保存图状态的逻辑"""
-        # 获取图
+        """Internal method: execute the actual save graph state logic."""
+        # get the graph
         graph = await self.graph_repo.get(graph_id)
         if not graph:
-            # Upsert 模式：如果图不存在，自动创建新图
+            # upsert mode: if the graph does not exist, auto-create a new graph
             if current_user:
-                # 如果没有提供工作空间ID，查找用户的默认工作空间
+                # if no workspace_id provided, find the user's default workspace
                 if not workspace_id:
                     from app.repositories.workspace import WorkspaceRepository
 
                     workspace_repo = WorkspaceRepository(self.db)
                     workspace = await workspace_repo.get_by_name_and_owner(
-                        name="默认工作空间",
+                        name="Default Workspace",
                         owner_id=current_user.id,
                     )
                     if workspace:
                         workspace_id = workspace.id
 
-                # 使用默认名称如果没有提供
-                graph_name = name or "未命名图"
+                # use default name if none provided
+                graph_name = name or "Untitled Graph"
 
                 import uuid as uuid_lib
 
@@ -330,52 +330,52 @@ class GraphService(BaseService):
             else:
                 raise NotFoundException("Graph not found")
 
-        # 加载现有节点，建立前端ID到数据库ID的映射
+        # load existing nodes, build frontend-ID-to-database-ID mapping
         existing_nodes = await self.node_repo.list_by_graph(graph_id)
         existing_node_map: Dict[str, GraphNode] = {}
         for node in existing_nodes:
-            # 前端使用数据库UUID的字符串形式作为节点ID
+            # frontend uses the database UUID string form as node ID
             frontend_id = str(node.id)
             existing_node_map[frontend_id] = node
 
-        # 创建节点映射（前端ID -> 数据库UUID）
+        # create node mapping (frontend ID -> database UUID)
         node_id_map: Dict[str, uuid.UUID] = {}
         nodes_to_create: List[Dict[str, Any]] = []
         nodes_to_update: List[Tuple[uuid.UUID, Dict[str, Any]]] = []
 
-        # 保存节点
+        # save nodes
         for node_data in nodes:
-            # 转换前端节点格式到数据库格式
+            # convert frontend node format to database format
             node_id = node_data.get("id")
             if not node_id:
                 continue
 
-            # 尝试将前端ID解析为UUID，如果成功且节点已存在，则更新；否则创建新节点
+            # try to parse frontend ID as UUID; if successful and node exists, update; otherwise create new node
             db_node_id: uuid.UUID
             try:
-                # 尝试将前端ID解析为UUID
+                # try to parse frontend ID as UUID
                 node_id_str = str(node_id)
                 parsed_uuid = uuid.UUID(node_id_str)
                 if str(parsed_uuid) in existing_node_map:
-                    # 节点已存在，更新
+                    # node exists, update
                     db_node_id = parsed_uuid
                     nodes_to_update.append((db_node_id, node_data))
                 else:
-                    # UUID格式但节点不存在，创建新节点
+                    # UUID format but node does not exist, create new node
                     db_node_id = uuid.uuid4()
                     nodes_to_create.append(node_data)
             except (ValueError, AttributeError):
-                # 前端ID不是UUID格式（如 node_xxx），创建新节点
+                # frontend ID is not UUID format (e.g. node_xxx), create new node
                 db_node_id = uuid.uuid4()
                 nodes_to_create.append(node_data)
 
             node_id_map[node_id] = db_node_id
 
-        # 删除不再存在的节点和所有边（稍后会重新创建边）
-        # 建立数据库UUID集合，用于判断哪些节点需要删除
-        # node_id_map 的 value 是数据库 UUID，key 是前端 ID
+        # delete nodes that no longer exist and all edges (edges will be recreated later)
+        # build database UUID set to determine which nodes to delete
+        # node_id_map values are database UUIDs, keys are frontend IDs
         existing_db_node_ids = set(node_id_map.values())
-        # 还要包含已更新的节点（这些节点会保留，不应该删除）
+        # also include updated nodes (these are kept, should not be deleted)
         for db_node_id, _ in nodes_to_update:
             existing_db_node_ids.add(db_node_id)
 
@@ -386,7 +386,7 @@ class GraphService(BaseService):
             await self.node_repo.delete_by_ids(graph_id, nodes_to_delete)
             await self.edge_repo.delete_by_graph(graph_id)
 
-        # 创建新节点
+        # create new nodes
         for node_data in nodes_to_create:
             node_id = node_data.get("id")
             if not node_id:
@@ -425,7 +425,7 @@ class GraphService(BaseService):
 
             await self.node_repo.create(node_create_data)
 
-        # 更新现有节点
+        # update existing nodes
         for db_node_id, node_data in nodes_to_update:
             position = node_data.get("position", {})
             position_absolute = node_data.get("positionAbsolute", position)
@@ -463,10 +463,10 @@ class GraphService(BaseService):
 
             await self.node_repo.update(db_node_id, update_data)
 
-        # 保存边（带去重）
+        # save edges (with dedup)
         saved_edges_count = 0
         skipped_edges_count = 0
-        seen_edges: set[tuple[str, str]] = set()  # 用于去重
+        seen_edges: set[tuple[str, str]] = set()  # for dedup
 
         for edge_data in edges:
             source_id = edge_data.get("source")
@@ -476,14 +476,14 @@ class GraphService(BaseService):
                 skipped_edges_count += 1
                 continue
 
-            # 边去重：同一 source-target 组合只保存一次
+            # edge dedup: only save each source-target pair once
             edge_key = (source_id, target_id)
             if edge_key in seen_edges:
                 skipped_edges_count += 1
                 continue
             seen_edges.add(edge_key)
 
-            # 查找对应的数据库节点ID
+            # find the corresponding database node ID
             source_node_id = node_id_map.get(source_id)
             target_node_id = node_id_map.get(target_id)
 
@@ -491,38 +491,38 @@ class GraphService(BaseService):
                 skipped_edges_count += 1
                 continue
 
-            # 提取边的 data 字段（包括 edge_type, route_key, source_handle_id 等）
+            # extract edge data fields (including edge_type, route_key, source_handle_id, etc.)
             edge_data_payload = edge_data.get("data", {}) or {}
 
             edge_create_data = {
                 "graph_id": graph_id,
                 "source_node_id": source_node_id,
                 "target_node_id": target_node_id,
-                "data": edge_data_payload,  # 保存边的元数据（edge_type, route_key 等）
+                "data": edge_data_payload,  # save edge metadata (edge_type, route_key, etc.)
             }
 
             await self.edge_repo.create(edge_create_data)
             saved_edges_count += 1
 
-        # 更新图的变量（保存 viewport 和 context 变量等元数据）和更新时间
+        # update graph variables (save viewport and context variables metadata) and updated_at
         update_data = {}
         graph_variables = graph.variables or {}
 
         if viewport:
             graph_variables["viewport"] = viewport
 
-        # 如果提供了 variables，合并到 graph_variables 中
+        # if variables provided, merge into graph_variables
         if variables:
-            # 合并 variables，保留现有的 viewport 等字段
+            # merge variables, preserving existing viewport and other fields
             for key, value in variables.items():
                 graph_variables[key] = value
 
         if viewport or variables:
             update_data["variables"] = graph_variables
 
-        # 更新图的更新时间（确保列表排序正确）
-        # BaseModel 使用 updated_at 字段，SQLAlchemy 的 onupdate 会自动更新
-        # 但为了确保更新，我们显式触发一次更新
+        # update graph updated_at (ensure list sorting is correct)
+        # BaseModel uses the updated_at field; SQLAlchemy's onupdate auto-updates it
+        # but to be safe, we explicitly trigger an update
         from app.utils.datetime import utc_now
 
         update_data["updated_at"] = utc_now()
@@ -544,9 +544,9 @@ class GraphService(BaseService):
         current_user: Optional[AuthUser] = None,
     ) -> Dict[str, Any]:
         """
-        加载图的完整状态（节点和边）
+        Load the complete graph state (nodes and edges).
 
-        返回前端期望的格式：
+        Return the format expected by the frontend:
         {
             "nodes": [...],
             "edges": [...],
@@ -554,40 +554,40 @@ class GraphService(BaseService):
             ...
         }
         """
-        # 获取图
+        # get the graph
         graph = await self.graph_repo.get(graph_id, relations=["nodes", "edges"])
         if not graph:
             raise NotFoundException("Graph not found")
 
-        # 权限检查
+        # permission check
         if current_user:
             await self._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
 
-        # 加载节点和边
+        # load nodes and edges
         nodes = await self.node_repo.list_by_graph(graph_id)
         edges = await self.edge_repo.list_by_graph(graph_id)
 
-        # 构建节点映射（数据库UUID -> 前端ID）
+        # build node mapping (database UUID -> frontend ID)
         node_id_map: Dict[uuid.UUID, str] = {}
         frontend_nodes = []
 
         for node in nodes:
-            # 生成前端ID（使用节点ID的字符串形式）
+            # generate frontend ID (use node ID string form)
             frontend_id = str(node.id)
             node_id_map[node.id] = frontend_id
 
-            # 构建前端节点格式
-            # 注意：ReactFlow 的 type 字段应该是 "custom"（所有节点都使用 BuilderNode 组件）
-            # 而实际的节点类型（如 "agent", "condition" 等）存储在 data.type 中
+            # build frontend node format
+            # note: ReactFlow's type field should be "custom" (all nodes use the BuilderNode component)
+            # the actual node type (e.g. "agent", "condition") is stored in data.type
             node_data = node.data or {}
 
-            # 确保 data.type 存在（用于从 nodeRegistry 获取颜色等信息）
-            # 如果 node.data 中没有 type，则使用数据库的 node.type 字段
+            # ensure data.type exists (used to get colors etc. from nodeRegistry)
+            # if node.data has no type, use the database node.type field
             if "type" not in node_data:
                 node_data["type"] = node.type
 
-            # 恢复位置信息：使用保存的 position 和 positionAbsolute
-            # 如果 position_absolute_x/y 不存在（旧数据），则使用 position_x/y 作为回退
+            # restore position info: use saved position and positionAbsolute
+            # if position_absolute_x/y don't exist (old data), fall back to position_x/y
             pos_x = float(node.position_x)
             pos_y = float(node.position_y)
             pos_abs_x = float(node.position_absolute_x) if node.position_absolute_x is not None else pos_x
@@ -595,7 +595,7 @@ class GraphService(BaseService):
 
             frontend_node: Dict[str, Any] = {
                 "id": frontend_id,
-                "type": "custom",  # ReactFlow 节点类型，所有节点都使用 BuilderNode
+                "type": "custom",  # ReactFlow node type, all nodes use BuilderNode
                 "position": {
                     "x": pos_x,
                     "y": pos_y,
@@ -611,11 +611,11 @@ class GraphService(BaseService):
                 "dragging": False,
             }
 
-            # 确保 config 字段存在
+            # ensure config field exists
             node_data_dict = frontend_node["data"] if isinstance(frontend_node["data"], dict) else {}
             if "config" not in node_data_dict:
                 node_data_dict["config"] = {}
-            # 脱敏：若仍为明文 a2a_auth_headers，不返回给前端
+            # redact: if plaintext a2a_auth_headers remain, do not return to frontend
             a2a_headers = node_data_dict.get("config", {}).get("a2a_auth_headers")
             if isinstance(a2a_headers, dict) and "__secretRef" not in a2a_headers and a2a_headers:
                 node_data_dict.setdefault("config", {})["a2a_auth_headers"] = {"__redacted": True}
@@ -623,7 +623,7 @@ class GraphService(BaseService):
 
             frontend_nodes.append(frontend_node)
 
-        # 构建前端边格式
+        # build frontend edge format
         frontend_edges = []
         for edge in edges:
             source_id = node_id_map.get(edge.source_node_id)
@@ -632,47 +632,47 @@ class GraphService(BaseService):
             if not source_id or not target_id:
                 continue
 
-            # 从数据库恢复边的 data 字段
+            # restore edge data field from database
             edge_data = edge.data or {}
             edge_type = edge_data.get("edge_type", "normal")
 
-            # 根据 edge_type 设置样式和类型
+            # set style and type based on edge_type
             if edge_type == "loop_back":
                 edge_style = {
-                    "stroke": "#9333ea",  # 紫色，与前端 LoopBackEdge 一致
+                    "stroke": "#9333ea",  # purple, matches frontend LoopBackEdge
                     "strokeWidth": 2.5,
                     "strokeDasharray": "5,5",
                 }
                 edge_type_for_reactflow = "loop_back"
             elif edge_type == "conditional":
                 edge_style = {
-                    "stroke": "#3b82f6",  # 蓝色，与前端条件边一致
+                    "stroke": "#3b82f6",  # blue, matches frontend condition edge
                     "strokeWidth": 2,
                 }
                 edge_type_for_reactflow = "default"
             else:
-                # normal 或其他类型
+                # normal or other types
                 edge_style = {
-                    "stroke": "#cbd5e1",  # 与前端 defaultEdgeOptions 中的颜色一致
+                    "stroke": "#cbd5e1",  # matches frontend defaultEdgeOptions color
                     "strokeWidth": 1.5,
                 }
                 edge_type_for_reactflow = "default"
 
-            # 使用与前端一致的默认边样式（与 BuilderCanvas.tsx 中的 defaultEdgeOptions 保持一致）
+            # use default edge styles consistent with frontend (matches BuilderCanvas.tsx defaultEdgeOptions)
             frontend_edge = {
                 "source": source_id,
                 "target": target_id,
                 "sourceHandle": None,
                 "targetHandle": None,
-                "type": edge_type_for_reactflow,  # 设置 ReactFlow 边类型
+                "type": edge_type_for_reactflow,  # set ReactFlow edge type
                 "animated": True,
                 "style": edge_style,
-                "data": edge_data,  # 恢复边的元数据（edge_type, route_key, source_handle_id 等）
+                "data": edge_data,  # restore edge metadata (edge_type, route_key, source_handle_id, etc.)
                 "id": f"reactflow__edge-{source_id}-{target_id}",
             }
             frontend_edges.append(frontend_edge)
 
-        # 获取 viewport 和 variables
+        # get viewport and variables
         viewport = graph.variables.get("viewport", {}) if graph.variables else {}
         variables = graph.variables or {}
 
@@ -688,7 +688,7 @@ class GraphService(BaseService):
         graph_id: uuid.UUID,
         current_user: Optional[AuthUser] = None,
     ) -> Dict[str, Any]:
-        """获取图的详细信息（包括状态）"""
+        """Get detailed graph information (including state)."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -696,7 +696,7 @@ class GraphService(BaseService):
         if current_user:
             await self._ensure_access(graph, current_user, WorkspaceMemberRole.viewer)
 
-        # 加载状态
+        # load state
         state = await self.load_graph_state(graph_id, current_user)
 
         return {
@@ -742,7 +742,7 @@ class GraphService(BaseService):
         # In-memory graph (not added to session)
         graph = AgentGraph(
             id=graph_id,
-            name="默认对话",
+            name="Default Conversation",
             user_id=str(user_id) if user_id is not None else "",
             variables={},
         )

@@ -47,13 +47,13 @@ export function CollapsibleList<T>({
       {hiddenCount > 0 && (
         <button onClick={() => onToggle(expandKey)} className={buttonClassName}>
           <ChevronDown size={10} />
-          <span>{expandText || `展开 ${hiddenCount} 个已折叠的项`}</span>
+          <span>{expandText || `Expand ${hiddenCount} collapsed items`}</span>
         </button>
       )}
       {isExpanded && hasMultiple && (
         <button onClick={() => onToggle(expandKey)} className={buttonClassName}>
           <ChevronUp size={10} />
-          <span>{collapseText || '折叠列表'}</span>
+          <span>{collapseText || 'Collapse list'}</span>
         </button>
       )}
     </div>

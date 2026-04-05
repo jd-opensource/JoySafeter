@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding=utf-8
 """
 CodeAgent - Main agent class for code-based task solving.
 

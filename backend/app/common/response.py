@@ -1,5 +1,5 @@
 """
-统一响应格式
+Unified response format.
 """
 
 from datetime import datetime
@@ -11,7 +11,7 @@ T = TypeVar("T")
 
 
 class ApiResponse(BaseModel, Generic[T]):
-    """统一 API 响应格式"""
+    """Unified API response format."""
 
     success: bool = True
     code: int = 200
@@ -26,7 +26,7 @@ class ApiResponse(BaseModel, Generic[T]):
 
 
 class PaginatedData(BaseModel, Generic[T]):
-    """分页数据"""
+    """Paginated data."""
 
     items: List[T]
     total: int
@@ -40,7 +40,7 @@ def success_response(
     message: str = "Success",
     code: int = 200,
 ) -> dict:
-    """成功响应"""
+    """Build a success response."""
     return {
         "success": True,
         "code": code,
@@ -55,7 +55,7 @@ def error_response(
     code: int = 400,
     data: Any = None,
 ) -> dict:
-    """错误响应"""
+    """Build an error response."""
     return {
         "success": False,
         "code": code,
@@ -72,7 +72,7 @@ def paginated_response(
     page_size: int = 20,
     message: str = "Success",
 ) -> dict:
-    """分页响应"""
+    """Build a paginated response."""
     pages = (total + page_size - 1) // page_size if page_size > 0 else 0
     return success_response(
         data={

@@ -146,7 +146,7 @@ export function CopilotChat({
                   }
                 }}
                 className="absolute right-1 top-1 z-10 rounded p-1.5 opacity-0 transition-opacity hover:bg-black/10 group-hover:opacity-100"
-                title="复制"
+                title="Copy"
               >
                 {copiedMessageId === i ? (
                   <Check
@@ -198,7 +198,7 @@ export function CopilotChat({
                     <Zap size={10} className="fill-current" /> {t('workspace.actionsExecuted')}
                     {m.actions.length > 0 && (
                       <span className="rounded bg-[var(--brand-100)] px-1.5 py-0.5 text-[9px] font-normal normal-case text-[var(--brand-600)]">
-                        {m.actions.length} 项
+                        {m.actions.length} items
                       </span>
                     )}
                   </div>

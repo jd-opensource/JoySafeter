@@ -33,12 +33,6 @@ const menuItems = [
     icon: Blocks,
     href: '/workspace',
   },
-  // {
-  //   id: 'discover',
-  //   labelKey: 'sidebar.discover',
-  //   icon: Compass,
-  //   href: '/discover',
-  // },
   {
     id: 'tools',
     labelKey: 'sidebar.toolsAndMcp',

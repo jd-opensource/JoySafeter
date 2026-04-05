@@ -1,5 +1,5 @@
 """
-用户相关 API（路径 /api/v1/users）
+User API (path: /api/v1/users)
 """
 
 from typing import Optional
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/v1/users", tags=["Users"])
 
 
 class UserCreateRequest(BaseModel):
-    """创建用户请求"""
+    """Create user request."""
 
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
@@ -35,7 +35,7 @@ class UserCreateRequest(BaseModel):
 
 
 class UserUpdateRequest(BaseModel):
-    """更新用户请求"""
+    """Update user request."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     email: Optional[EmailStr] = None
@@ -46,7 +46,7 @@ class UserUpdateRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """用户响应"""
+    """User response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,7 +62,7 @@ class UserResponse(BaseModel):
 
 
 class SettingsUpdateRequest(BaseModel):
-    """更新设置请求"""
+    """Update settings request."""
 
     autoConnect: Optional[bool] = None
     showTrainingControls: Optional[bool] = None
@@ -81,7 +81,7 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取当前用户信息"""
+    """Get current user profile."""
     return success_response(
         data=_user_to_response(current_user),
         message="Fetched user profile",
@@ -94,7 +94,7 @@ async def update_me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新当前用户信息"""
+    """Update current user profile."""
     service = UserService(db)
     updated_user = await service.update_user(
         current_user,
@@ -113,12 +113,12 @@ async def get_settings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取当前用户设置"""
+    """Get current user settings."""
     result = await db.execute(select(Settings).where(Settings.user_id == current_user.id))
     settings = result.scalar_one_or_none()
 
     if not settings:
-        # 如果不存在，返回默认值
+        # if no record exists, return defaults
         default_settings = {
             "autoConnect": True,
             "showTrainingControls": False,
@@ -150,16 +150,16 @@ async def update_settings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新当前用户设置"""
+    """Update current user settings."""
     result = await db.execute(select(Settings).where(Settings.user_id == current_user.id))
     settings = result.scalar_one_or_none()
 
     if not settings:
-        # 如果不存在，创建新记录
+        # if no record exists, create one
         settings = Settings(user_id=current_user.id)
         db.add(settings)
 
-    # 更新字段（只更新提供的字段）
+    # update only the provided fields
     if request.autoConnect is not None:
         settings.auto_connect = request.autoConnect
     if request.showTrainingControls is not None:
@@ -197,7 +197,7 @@ async def get_usage_limits(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """查询当前用户的存储使用情况（工作空间文件）"""
+    """Get current user's storage usage (workspace files)."""
     service = WorkspaceFileService(db)
     storage = await service.get_user_storage_usage(current_user)
     usage = {"plan": "standard"}
@@ -214,7 +214,7 @@ async def get_user(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """根据 ID 获取用户信息（需要超级用户权限）"""
+    """Get user by ID (requires superuser permission)."""
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -231,12 +231,12 @@ async def get_user(
 
 @router.get("", response_model=list[UserResponse])
 async def list_users(
-    keyword: Optional[str] = Query(None, description="搜索关键词"),
-    limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
+    keyword: Optional[str] = Query(None, description="Search keyword"),
+    limit: int = Query(20, ge=1, le=100, description="Result limit"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """搜索/列出用户（需要超级用户权限）"""
+    """Search/list users (requires superuser permission)."""
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -258,7 +258,7 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建新用户（需要超级用户权限）"""
+    """Create a new user (requires superuser permission)."""
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -284,7 +284,7 @@ async def update_user(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新用户信息（需要超级用户权限）"""
+    """Update user info (requires superuser permission)."""
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -315,7 +315,7 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除用户（需要超级用户权限）"""
+    """Delete a user (requires superuser permission)."""
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -329,7 +329,7 @@ async def delete_user(
 
 
 def _user_to_response(user: User) -> dict:
-    """将 User 模型转换为响应格式"""
+    """Convert a User model to response format."""
     return {
         "id": user.id,
         "email": user.email,

@@ -19,7 +19,7 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         super().__init__(ModelInstance, db)
 
     async def get_by_name(self, model_name: str) -> ModelInstance | None:
-        """获取指定模型名的实例（全局）；若有多个同名实例，取最新的一个。"""
+        """Get the instance for a model name (global); if multiple exist, return the newest."""
         result = await self.db.execute(
             select(ModelInstance)
             .where(ModelInstance.model_name == model_name)
@@ -35,7 +35,7 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         provider_name: str = "",  # kept for call-site compatibility; unused
         user_id: Optional[str] = None,
     ) -> ModelInstance | None:
-        """根据供应商和模型名获取实例。优先返回全局实例，否则返回任意有效实例。"""
+        """Get an instance by provider and model name. Prefer global instances; fall back to any valid one."""
         conditions = [
             ModelInstance.model_name == model_name,
             ModelInstance.provider_id == provider_id,
@@ -56,7 +56,7 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         return instances[0]
 
     async def list_all(self) -> list[ModelInstance]:
-        """获取所有模型实例（所有用户和工作空间可见）"""
+        """List all model instances (visible to all users and workspaces)."""
         result = await self.db.execute(select(ModelInstance).options(selectinload(ModelInstance.provider)))
         return list(result.scalars().all())
 
@@ -65,7 +65,7 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         provider_id: uuid.UUID,
         provider_name: Optional[str] = None,  # kept for call-site compatibility; unused
     ) -> list[ModelInstance]:
-        """按供应商筛选模型实例。"""
+        """Filter model instances by provider."""
         query = (
             select(ModelInstance)
             .options(selectinload(ModelInstance.provider))
@@ -78,13 +78,13 @@ class ModelInstanceRepository(BaseRepository[ModelInstance]):
         self,
         provider_id: uuid.UUID,
     ) -> int:
-        """按供应商统计模型实例数量。"""
+        """Count model instances by provider."""
         query = select(func.count()).select_from(ModelInstance).where(ModelInstance.provider_id == provider_id)
         result = await self.db.execute(query)
         return result.scalar() or 0
 
     async def count_grouped_by_provider(self) -> Dict[uuid.UUID, int]:
-        """一次查询返回所有 provider 的模型实例数量。"""
+        """Return instance counts grouped by provider in a single query."""
         query = select(ModelInstance.provider_id, func.count().label("cnt")).group_by(ModelInstance.provider_id)
         result = await self.db.execute(query)
         return {row.provider_id: row.cnt for row in result.all() if row.provider_id}

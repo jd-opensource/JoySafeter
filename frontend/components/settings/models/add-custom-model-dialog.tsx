@@ -62,7 +62,7 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onC
         credentials,
         validate: true,
       })
-      toast({ title: '模型添加成功' })
+      toast({ title: 'Model added successfully' })
       setModelName('')
       setCredFields({})
       onOpenChange(false)
@@ -70,8 +70,8 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onC
     } catch (err) {
       toast({
         variant: 'destructive',
-        title: '添加模型失败',
-        description: err instanceof Error ? err.message : '请检查模型信息后重试',
+        title: 'Failed to add model',
+        description: err instanceof Error ? err.message : 'Please check model info and try again',
       })
     }
   }
@@ -80,21 +80,21 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onC
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>添加自定义模型</DialogTitle>
+          <DialogTitle>Add Custom Model</DialogTitle>
           <DialogDescription>
-            添加一个新的自定义模型实例
+            Add a new custom model instance
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label htmlFor="model-name">
-              模型名称
+              Model Name
               <span className="text-destructive ml-1">*</span>
             </Label>
             <Input
               id="model-name"
-              placeholder="如 gpt-4o, claude-3-5-sonnet"
+              placeholder="e.g. gpt-4o, claude-3-5-sonnet"
               value={modelName}
               onChange={(e) => setModelName(e.target.value)}
             />
@@ -114,7 +114,7 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onC
                   }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={`选择${field.title}`} />
+                    <SelectValue placeholder={`Select ${field.title}`} />
                   </SelectTrigger>
                   <SelectContent>
                     {field.enum.map((val, i) => (
@@ -149,10 +149,10 @@ export function AddCustomModelDialog({ open, onOpenChange, credentialSchema, onC
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            Cancel
           </Button>
           <Button onClick={handleAdd} disabled={createCustomProvider.isPending || !canSubmit}>
-            {createCustomProvider.isPending ? '添加中...' : '添加'}
+            {createCustomProvider.isPending ? 'Adding...' : 'Add'}
           </Button>
         </DialogFooter>
       </DialogContent>

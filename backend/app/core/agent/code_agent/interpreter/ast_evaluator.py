@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding=utf-8
 """
 AST Evaluator - Core Python AST interpreter for CodeAgent.
 

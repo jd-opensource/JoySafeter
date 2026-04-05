@@ -1,5 +1,5 @@
 """
-OpenAI供应商实现
+OpenAI API-compatible provider implementation.
 """
 
 import ast
@@ -14,17 +14,17 @@ from .base import BaseProvider, ModelType
 
 
 def _format_validation_error(exc: Exception) -> str:
-    """从上游异常中解析 message/cause，返回更友好的中文提示。"""
+    """Parse message/cause from upstream exception and return a user-friendly error."""
     raw = str(exc)
-    # 形如 "Error code: 400 - {'error': {'message': '...', 'cause': '...'}, ...}}"
+    # e.g. "Error code: 400 - {'error': {'message': '...', 'cause': '...'}, ...}}"
     if " - " in raw:
         payload = raw.split(" - ", 1)[1].strip()
         try:
-            # 上游可能返回单引号形式的 dict，先尝试 JSON
+            # upstream may return single-quoted dicts; try JSON first
             try:
                 data = json.loads(payload)
             except json.JSONDecodeError:
-                # 单引号 dict 用 ast 解析
+                # single-quoted dict fallback via ast
                 data = ast.literal_eval(payload) if payload.startswith("{") else {}
             err = data.get("error") if isinstance(data, dict) else None
             if isinstance(err, dict):
@@ -36,74 +36,74 @@ def _format_validation_error(exc: Exception) -> str:
                 if cause and cause != msg:
                     parts.append(f"（{cause}）")
                 if parts:
-                    return "凭据验证失败：" + " ".join(parts)
+                    return "Credential validation failed: " + " ".join(parts)
         except Exception:
             pass
-    return f"凭据验证失败：{raw}"
+    return f"Credential validation failed: {raw}"
 
 
 class OpenAIAPICompatibleProvider(BaseProvider):
-    """OpenAI供应商"""
+    """OpenAI API-compatible provider."""
 
-    # 凭据验证使用的低成本模型
+    # low-cost model used for credential validation
     VALIDATION_MODEL = "gpt-4o-mini"
 
-    # 预定义的Chat模型列表（OpenAI 官方标准模型）
+    # predefined chat models (OpenAI official standard models)
     PREDEFINED_CHAT_MODELS = [
         {
             "name": "o3",
             "display_name": "o3",
-            "description": "OpenAI 最强推理模型，适合复杂多步骤任务",
+            "description": "OpenAI's strongest reasoning model for complex multi-step tasks",
         },
         {
             "name": "o4-mini",
             "display_name": "o4-mini",
-            "description": "OpenAI 高性价比推理模型，速度快且成本低",
+            "description": "OpenAI's cost-effective reasoning model, fast and affordable",
         },
         {
             "name": "gpt-4.1",
             "display_name": "GPT-4.1",
-            "description": "OpenAI 旗舰模型，编码与指令遵循能力强",
+            "description": "OpenAI flagship model, strong at coding and instruction following",
         },
         {
             "name": "gpt-4.1-mini",
             "display_name": "GPT-4.1 Mini",
-            "description": "GPT-4.1 的轻量版本，兼顾性能与成本",
+            "description": "Lightweight GPT-4.1 variant balancing performance and cost",
         },
         {
             "name": "gpt-4.1-nano",
             "display_name": "GPT-4.1 Nano",
-            "description": "GPT-4.1 最快最经济的版本，适合简单任务",
+            "description": "Fastest and most economical GPT-4.1 variant for simple tasks",
         },
         {
             "name": "gpt-4o",
             "display_name": "GPT-4o",
-            "description": "OpenAI 多模态模型，支持文本、图像和音频",
+            "description": "OpenAI multimodal model supporting text, image, and audio",
         },
         {
             "name": "gpt-4o-mini",
             "display_name": "GPT-4o Mini",
-            "description": "GPT-4o 的轻量版本，快速且经济",
+            "description": "Lightweight GPT-4o variant, fast and economical",
         },
         {
             "name": "gpt-4.5-preview",
             "display_name": "GPT-4.5 Preview",
-            "description": "OpenAI 最大模型预览版，创意写作与对话能力突出",
+            "description": "OpenAI's largest model preview, excels at creative writing and conversation",
         },
         {
             "name": "o3-mini",
             "display_name": "o3-mini",
-            "description": "OpenAI 小型推理模型，STEM 领域表现优秀",
+            "description": "OpenAI's small reasoning model, strong in STEM domains",
         },
         {
             "name": "o1",
             "display_name": "o1",
-            "description": "OpenAI 推理模型，擅长科学、数学和编程",
+            "description": "OpenAI reasoning model, excels at science, math, and coding",
         },
         {
             "name": "o1-mini",
             "display_name": "o1-mini",
-            "description": "o1 的轻量版本，推理速度更快",
+            "description": "Lightweight o1 variant with faster reasoning",
         },
     ]
 
@@ -116,24 +116,24 @@ class OpenAIAPICompatibleProvider(BaseProvider):
         )
 
     def get_supported_model_types(self) -> List[ModelType]:
-        """获取支持的模型类型"""
+        """Return supported model types."""
         return [ModelType.CHAT]
 
     def get_credential_schema(self) -> Dict[str, Any]:
-        """获取凭据表单规则"""
+        """Return credential form schema."""
         return {
             "type": "object",
             "properties": {
                 "api_key": {
                     "type": "string",
                     "title": "API Key",
-                    "description": "OpenAI API密钥",
+                    "description": "OpenAI API key",
                     "required": True,
                 },
                 "base_url": {
                     "type": "string",
                     "title": "Base URL",
-                    "description": "API基础URL（用于自定义端点），路径请以 /v1 结尾",
+                    "description": "API base URL (for custom endpoints), path should end with /v1",
                     "required": True,
                 },
             },
@@ -141,7 +141,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
         }
 
     def get_config_schema(self, model_type: ModelType) -> Optional[Dict[str, Any]]:
-        """获取模型参数配置规则"""
+        """Return model parameter config schema."""
         if model_type == ModelType.CHAT:
             return {
                 "type": "object",
@@ -149,7 +149,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                     "temperature": {
                         "type": "number",
                         "title": "Temperature",
-                        "description": "控制输出的随机性，范围0-2",
+                        "description": "Controls output randomness, range 0-2",
                         "default": 1.0,
                         "minimum": 0,
                         "maximum": 2,
@@ -157,14 +157,14 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                     "max_tokens": {
                         "type": "integer",
                         "title": "Max Tokens",
-                        "description": "生成的最大token数",
+                        "description": "Maximum number of tokens to generate",
                         "default": None,
                         "minimum": 1,
                     },
                     "top_p": {
                         "type": "number",
                         "title": "Top P",
-                        "description": "核采样参数，范围0-1",
+                        "description": "Nucleus sampling parameter, range 0-1",
                         "default": 1.0,
                         "minimum": 0,
                         "maximum": 1,
@@ -172,7 +172,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                     "frequency_penalty": {
                         "type": "number",
                         "title": "Frequency Penalty",
-                        "description": "频率惩罚，范围-2.0到2.0",
+                        "description": "Frequency penalty, range -2.0 to 2.0",
                         "default": 0.0,
                         "minimum": -2.0,
                         "maximum": 2.0,
@@ -180,7 +180,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                     "presence_penalty": {
                         "type": "number",
                         "title": "Presence Penalty",
-                        "description": "存在惩罚，范围-2.0到2.0",
+                        "description": "Presence penalty, range -2.0 to 2.0",
                         "default": 0.0,
                         "minimum": -2.0,
                         "maximum": 2.0,
@@ -188,14 +188,14 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                     "timeout": {
                         "type": "number",
                         "title": "Timeout",
-                        "description": "请求超时时间（秒）",
+                        "description": "Request timeout in seconds",
                         "default": 60.0,
                         "minimum": 1.0,
                     },
                     "max_retries": {
                         "type": "integer",
                         "title": "Max Retries",
-                        "description": "最大重试次数",
+                        "description": "Maximum number of retries",
                         "default": 2,
                         "minimum": 0,
                     },
@@ -204,15 +204,15 @@ class OpenAIAPICompatibleProvider(BaseProvider):
         return None
 
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
-        """验证凭据"""
+        """Validate credentials."""
         try:
             api_key = credentials.get("api_key")
             if not api_key:
-                return False, "API Key不能为空"
+                return False, "API key is required"
 
             base_url = credentials.get("base_url")
 
-            # 创建一个临时模型实例进行测试
+            # create a temporary model instance for testing
             model = ChatOpenAI(
                 model=self.VALIDATION_MODEL,
                 api_key=api_key,
@@ -221,19 +221,19 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                 timeout=5.0,
             )  # type: ignore[misc]
 
-            # 尝试调用API
+            # attempt an API call
             response = await model.ainvoke("Hello, how are you?")
             if response and response.content:
                 return True, None
             else:
-                return False, "API调用失败：未收到有效响应"
+                return False, "API call failed: no valid response received"
         except Exception as e:
             return False, _format_validation_error(e)
 
     def get_model_list(
         self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """获取模型列表"""
+        """Return the model list."""
         if model_type == ModelType.CHAT:
             models = []
             for model in self.PREDEFINED_CHAT_MODELS:
@@ -241,14 +241,14 @@ class OpenAIAPICompatibleProvider(BaseProvider):
                     "name": model["name"],
                     "display_name": model["display_name"],
                     "description": model["description"],
-                    "is_available": True,  # 预定义模型总是可用
+                    "is_available": True,  # predefined models are always available
                 }
                 models.append(model_info)
             return models
         return []
 
     def get_predefined_models(self, model_type: ModelType) -> List[Dict[str, Any]]:
-        """获取预定义模型列表"""
+        """Return predefined model list."""
         if model_type == ModelType.CHAT:
             return self.PREDEFINED_CHAT_MODELS.copy()
         return []
@@ -260,27 +260,27 @@ class OpenAIAPICompatibleProvider(BaseProvider):
         credentials: Dict[str, Any],
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> BaseChatModel:
-        """创建模型实例"""
+        """Create a model instance."""
         if model_type != ModelType.CHAT:
-            raise ValueError(f"OpenAI供应商不支持模型类型: {model_type}")
+            raise ValueError(f"OpenAI provider does not support model type: {model_type}")
 
         api_key = credentials.get("api_key")
         if not api_key:
-            raise ValueError("API Key不能为空")
+            raise ValueError("API key is required")
 
         base_url = credentials.get("base_url")
 
-        # 构建模型参数
+        # build model kwargs
         model_kwargs = {
             "model": model_name,
             "api_key": SecretStr(api_key),
-            "streaming": True,  # 默认启用流式输出
+            "streaming": True,  # streaming enabled by default
         }
 
         if base_url:
             model_kwargs["base_url"] = base_url
 
-        # 添加模型参数
+        # apply model parameters
         if model_parameters:
             if "temperature" in model_parameters:
                 model_kwargs["temperature"] = model_parameters["temperature"]
@@ -300,7 +300,7 @@ class OpenAIAPICompatibleProvider(BaseProvider):
         return ChatOpenAI(**model_kwargs)  # type: ignore[arg-type,misc]
 
     async def test_output(self, instance_dict: Dict[str, Any], input: str) -> str:
-        """测试模型输出"""
+        """Test model output."""
 
         instance = self.create_model_instance(
             model_name=instance_dict["model_name"],

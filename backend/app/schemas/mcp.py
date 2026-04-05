@@ -1,11 +1,11 @@
 """
-MCP 相关的 Pydantic Schemas
+MCP Pydantic Schemas
 
-职责划分:
-- McpServerCreate/Update: 输入 DTO
-- McpServerResponse: 输出 DTO
-- ToolInfo/ToolResponse: 工具信息
-- ConnectionTestResult: 连接测试结果
+Responsibilities:
+- McpServerCreate/Update: input DTO
+- McpServerResponse: output DTO
+- ToolInfo/ToolResponse: tool information
+- ConnectionTestResult: connection test result
 """
 
 from typing import Dict, List, Optional
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 
 class McpServerCreate(BaseModel):
-    """创建 MCP 服务器（用户级别）"""
+    """Create MCP server (user level)."""
 
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
@@ -29,7 +29,7 @@ class McpServerCreate(BaseModel):
 
 
 class McpServerUpdate(BaseModel):
-    """更新 MCP 服务器"""
+    """Update MCP server."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
@@ -42,7 +42,7 @@ class McpServerUpdate(BaseModel):
 
 
 class McpServerResponse(BaseModel):
-    """MCP 服务器响应"""
+    """MCP server response."""
 
     id: str
     name: str
@@ -62,7 +62,7 @@ class McpServerResponse(BaseModel):
 
     @classmethod
     def from_model(cls, server) -> "McpServerResponse":
-        """从数据库模型创建"""
+        """Create from database model."""
         return cls(
             id=str(server.id),
             name=server.name,
@@ -86,7 +86,7 @@ class McpServerResponse(BaseModel):
 
 
 class ConnectionTestResult(BaseModel):
-    """连接测试结果"""
+    """Connection test result."""
 
     success: bool
     message: str = ""
@@ -100,9 +100,9 @@ class ConnectionTestResult(BaseModel):
 
 class ToolInfo(BaseModel):
     """
-    工具信息 (Service 层)
+    Tool information (Service layer).
 
-    包含所有权信息，用于权限控制
+    Include ownership info for permission control.
     """
 
     id: str
@@ -119,11 +119,11 @@ class ToolInfo(BaseModel):
     enabled: bool = True
 
     def to_response(self) -> "ToolResponse":
-        """转换为 API 响应"""
-        # 使用 label_name 作为显示名称
+        """Convert to API response."""
+        # use label_name as display name
         display_name = self.label_name or self.name
         return ToolResponse(
-            id=self.id,  # label_name（用于管理和显示）
+            id=self.id,  # label_name (used for management and display)
             label=display_name.replace("_", " ").title(),
             name=self.name,
             labelName=self.label_name or self.name,
@@ -138,7 +138,7 @@ class ToolInfo(BaseModel):
 
 
 class ToolResponse(BaseModel):
-    """工具响应 (API 层)"""
+    """Tool response (API layer)."""
 
     id: str
     label: str

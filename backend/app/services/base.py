@@ -1,5 +1,5 @@
 """
-基础 Service
+Base service.
 """
 
 from typing import Generic, TypeVar
@@ -11,18 +11,18 @@ T = TypeVar("T")
 
 class BaseService(Generic[T]):
     """
-    基础 Service 类
+    Base service class.
 
-    提供通用的业务逻辑层基础设施
+    Provide common infrastructure for the business-logic layer.
     """
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def commit(self):
-        """提交事务"""
+        """Commit the transaction."""
         await self.db.commit()
 
     async def rollback(self):
-        """回滚事务"""
+        """Roll back the transaction."""
         await self.db.rollback()

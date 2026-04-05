@@ -1,5 +1,5 @@
 """
-Graph 部署版本 Schema
+Graph deployment version schemas
 """
 
 import uuid
@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class GraphDeploymentVersionResponse(BaseModel):
-    """Graph 部署版本响应"""
+    """Graph deployment version response."""
 
     id: uuid.UUID
     version: int
@@ -24,7 +24,7 @@ class GraphDeploymentVersionResponse(BaseModel):
 
 
 class GraphDeploymentVersionResponseCamel(BaseModel):
-    """Graph 部署版本响应 - 使用 camelCase 字段名"""
+    """Graph deployment version response -- camelCase field names."""
 
     id: str
     version: int
@@ -32,14 +32,14 @@ class GraphDeploymentVersionResponseCamel(BaseModel):
     isActive: bool
     createdAt: str
     createdBy: Optional[str] = None
-    createdByName: Optional[str] = None  # 创建者用户名
+    createdByName: Optional[str] = None  # creator username
 
     class Config:
         from_attributes = True
 
 
 class GraphDeploymentVersionStateResponse(BaseModel):
-    """Graph 部署版本状态响应 - 包含完整的 nodes, edges 等"""
+    """Graph deployment version state response -- includes full nodes, edges, etc."""
 
     id: str
     version: int
@@ -47,41 +47,41 @@ class GraphDeploymentVersionStateResponse(BaseModel):
     isActive: bool
     createdAt: str
     createdBy: Optional[str] = None
-    # 完整的图状态，前端可以用来预览
-    state: dict = Field(default_factory=dict, description="版本的完整状态 (nodes, edges, variables)")
+    # full graph state; frontend can use this for preview
+    state: dict = Field(default_factory=dict, description="full version state (nodes, edges, variables)")
 
     class Config:
         from_attributes = True
 
 
 class GraphDeploymentVersionListResponse(BaseModel):
-    """Graph 部署版本列表响应（分页）"""
+    """Graph deployment version list response (paginated)."""
 
     versions: List[GraphDeploymentVersionResponseCamel]
     total: int
-    page: int = Field(default=1, description="当前页码")
-    pageSize: int = Field(default=10, description="每页数量")
-    totalPages: int = Field(default=1, description="总页数")
+    page: int = Field(default=1, description="current page")
+    pageSize: int = Field(default=10, description="page size")
+    totalPages: int = Field(default=1, description="total pages")
 
 
 class GraphDeployRequest(BaseModel):
-    """部署 Graph 请求"""
+    """Deploy graph request."""
 
-    name: Optional[str] = Field(None, description="版本名称（可选）")
+    name: Optional[str] = Field(None, description="version name (optional)")
 
 
 class GraphDeployResponse(BaseModel):
-    """部署 Graph 响应"""
+    """Deploy graph response."""
 
     success: bool
     message: str
     version: int
     isActive: bool
-    needsRedeployment: bool = Field(default=False, description="是否需要重新部署")
+    needsRedeployment: bool = Field(default=False, description="whether redeployment is needed")
 
 
 class GraphRevertResponse(BaseModel):
-    """回滚版本响应"""
+    """Revert version response."""
 
     success: bool
     message: str
@@ -90,6 +90,6 @@ class GraphRevertResponse(BaseModel):
 
 
 class GraphRenameVersionRequest(BaseModel):
-    """重命名版本请求"""
+    """Rename version request."""
 
-    name: str = Field(..., min_length=1, max_length=255, description="新的版本名称")
+    name: str = Field(..., min_length=1, max_length=255, description="new version name")

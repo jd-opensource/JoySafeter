@@ -16,21 +16,22 @@ from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
 
 
 class PoolEntry:
-    """池条目"""
+    """Pool entry."""
 
     def __init__(self, adapter: PydanticSandboxAdapter):
         self.adapter = adapter
         self.last_used = time.time()
         self.created_at = time.time()
-        self.active_count = 0  # 当前有多少个请求正在使用此沙箱
+        self.active_count = 0  # number of active requests using this sandbox
 
 
 class SandboxPool:
     """
-    线程安全的沙箱实例池
+    Thread-safe sandbox instance pool.
 
-    管理活跃的 PydanticSandboxAdapter 实例，避免重复创建和销毁 Docker 客户端连接。
-    同时负责清理长时间未使用的连接。
+    Manage active PydanticSandboxAdapter instances to avoid redundant creation and
+    destruction of Docker client connections.  Also responsible for cleaning up
+    idle connections.
 
     IMPORTANT: All synchronous Docker calls (adapter.stop(), adapter.cleanup())
     are performed OUTSIDE the asyncio.Lock to avoid blocking the event loop.
@@ -44,7 +45,7 @@ class SandboxPool:
         self._shutdown = False
 
     async def get(self, sandbox_id: str) -> Optional[PydanticSandboxAdapter]:
-        """获取沙箱实例，如果要使用，请务必配合 context manager 或 try-finally 确保正确计数"""
+        """Get a sandbox instance; caller must use a context manager or try-finally to ensure correct ref counting."""
         async with self._lock:
             if self._shutdown:
                 return None
@@ -57,7 +58,7 @@ class SandboxPool:
             return None
 
     async def put(self, sandbox_id: str, adapter: PydanticSandboxAdapter) -> None:
-        """注册新的沙箱实例到池中"""
+        """Register a new sandbox instance in the pool."""
         old_adapter = None
 
         async with self._lock:
@@ -93,7 +94,7 @@ class SandboxPool:
             self._safe_cleanup(adapter)
 
     async def release(self, sandbox_id: str) -> None:
-        """释放沙箱引用计数"""
+        """Decrement the sandbox reference count."""
         async with self._lock:
             entry = self._pool.get(sandbox_id)
             if entry:
@@ -101,7 +102,7 @@ class SandboxPool:
                 entry.last_used = time.time()
 
     async def stop(self, sandbox_id: str) -> None:
-        """仅停止容器，不从池中移除，不删除容器（用于 stop/restart 语义）
+        """Stop the container only; do not remove from pool or delete the container (for stop/restart semantics).
 
         The synchronous adapter.stop() call is performed OUTSIDE the lock.
         """
@@ -120,7 +121,7 @@ class SandboxPool:
                 logger.warning(f"Error stopping adapter {sandbox_id}: {e}")
 
     async def remove(self, sandbox_id: str) -> None:
-        """从池中移除并彻底清理沙箱（stop + remove container）"""
+        """Remove from pool and fully clean up the sandbox (stop + remove container)."""
         adapter = None
         async with self._lock:
             if sandbox_id in self._pool:
@@ -132,7 +133,7 @@ class SandboxPool:
             logger.debug(f"Removed sandbox {sandbox_id} from pool")
 
     async def cleanup_idle(self) -> list[str]:
-        """清理空闲超时的沙箱，返回被清理的沙箱ID列表。
+        """Clean up idle-timed-out sandboxes and return the list of evicted sandbox IDs.
 
         Also audits entries with active_count > 0 for longer than 30 minutes
         (potential leak detection).
@@ -166,7 +167,7 @@ class SandboxPool:
         return evicted_ids
 
     async def shutdown(self):
-        """关闭连接池"""
+        """Shut down the connection pool."""
         adapters = []
         async with self._lock:
             self._shutdown = True
@@ -189,7 +190,7 @@ class SandboxPool:
             logger.warning(f"Error closing adapter: {e}")
 
     def _evict_lru_entry(self) -> Optional[PydanticSandboxAdapter]:
-        """淘汰最久未使用的闲置连接 (called inside lock).
+        """Evict the least-recently-used idle connection (called inside lock).
 
         Returns the evicted adapter (to be cleaned up outside lock), or None.
         """

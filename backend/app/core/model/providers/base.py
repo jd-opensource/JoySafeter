@@ -1,5 +1,5 @@
 """
-供应商基类
+Provider base class.
 """
 
 from abc import ABC, abstractmethod
@@ -10,7 +10,7 @@ from langchain_core.language_models.base import BaseLanguageModel
 
 
 class ModelType(str, Enum):
-    """模型类型枚举"""
+    """Model type enumeration."""
 
     CHAT = "chat"
     EMBEDDING = "embedding"
@@ -21,23 +21,23 @@ class ModelType(str, Enum):
 
 
 class BaseProvider(ABC):
-    """供应商基类
+    """Provider base class.
 
-    所有供应商都应该继承此类，实现以下方法：
-    - validate_credentials: 验证凭据
-    - get_model_list: 获取模型列表
-    - create_model_instance: 创建模型实例
+    All providers should inherit from this class and implement:
+    - validate_credentials: validate credentials
+    - get_model_list: list available models
+    - create_model_instance: create a model instance
     """
 
     def __init__(self, provider_name: str, display_name: str, is_template: bool = False, provider_type: str = "system"):
         """
-        初始化供应商
+        Initialize the provider.
 
         Args:
-            provider_name: 供应商唯一标识（如 'openai'）
-            display_name: 显示名称（如 'OpenAI'）
-            is_template: 是否为模板（用于创建自定义供应商）
-            provider_type: 供应商类型：system, custom
+            provider_name: unique provider identifier (e.g. 'openai')
+            display_name: human-readable name (e.g. 'OpenAI')
+            is_template: whether this is a template for creating custom providers
+            provider_type: provider category: system, custom
         """
         self.provider_name = provider_name
         self.display_name = display_name
@@ -47,46 +47,46 @@ class BaseProvider(ABC):
     @abstractmethod
     def get_supported_model_types(self) -> List[ModelType]:
         """
-        获取支持的模型类型列表
+        Return the list of supported model types.
 
         Returns:
-            支持的模型类型列表
+            List of supported model types.
         """
         pass
 
     @abstractmethod
     def get_credential_schema(self) -> Dict[str, Any]:
         """
-        获取凭据表单规则（JSON Schema格式）
+        Return the credential form schema (JSON Schema format).
 
         Returns:
-            凭据表单规则字典
+            Credential form schema dict.
         """
         pass
 
     @abstractmethod
     def get_config_schema(self, model_type: ModelType) -> Optional[Dict[str, Any]]:
         """
-        获取模型参数配置规则（JSON Schema格式）
+        Return the model parameter config schema (JSON Schema format).
 
         Args:
-            model_type: 模型类型
+            model_type: model type
 
         Returns:
-            配置规则字典，如果该模型类型不支持配置则返回None
+            Config schema dict, or None if the model type has no configurable parameters.
         """
         pass
 
     @abstractmethod
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """
-        验证凭据
+        Validate provider credentials.
 
         Args:
-            credentials: 凭据字典
+            credentials: credential dict
 
         Returns:
-            (是否有效, 错误信息)
+            (is_valid, error_message)
         """
         pass
 
@@ -95,18 +95,18 @@ class BaseProvider(ABC):
         self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        获取模型列表
+        Return the list of available models.
 
         Args:
-            model_type: 模型类型
-            credentials: 可选的凭据，用于获取远程模型列表
+            model_type: model type
+            credentials: optional credentials for fetching remote model lists
 
         Returns:
-            模型列表，每个模型包含：
-            - name: 模型名称
-            - display_name: 显示名称
-            - description: 描述
-            - is_available: 是否可用（需要凭据时）
+            List of model dicts, each containing:
+            - name: model name
+            - display_name: display name
+            - description: description
+            - is_available: availability (may require credentials)
         """
         pass
 
@@ -119,40 +119,40 @@ class BaseProvider(ABC):
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> BaseLanguageModel:
         """
-        创建模型实例
+        Create a model instance.
 
         Args:
-            model_name: 模型名称
-            model_type: 模型类型
-            credentials: 凭据字典
-            model_parameters: 模型参数（如 temperature, max_tokens 等）
+            model_name: model name
+            model_type: model type
+            credentials: credential dict
+            model_parameters: model parameters (e.g. temperature, max_tokens)
 
         Returns:
-            LangChain模型实例（BaseChatModel, BaseLLM等）
+            LangChain model instance (BaseChatModel, BaseLLM, etc.)
         """
         pass
 
     def get_predefined_models(self, model_type: ModelType) -> List[Dict[str, Any]]:
         """
-        获取预定义模型列表（不需要凭据）
+        Return predefined models (no credentials required).
 
         Args:
-            model_type: 模型类型
+            model_type: model type
 
         Returns:
-            预定义模型列表
+            List of predefined model dicts.
         """
         return []
 
     async def test_output(self, instance_dict: Dict[str, Any], input: str) -> str:
         """
-        测试模型输出
+        Test model output.
 
         Args:
-            instance_dict: 模型实例字典
-            input: 输入
+            instance_dict: model instance dict
+            input: input text
 
         Returns:
-            测试输出字符串
+            Test output string.
         """
         return ""

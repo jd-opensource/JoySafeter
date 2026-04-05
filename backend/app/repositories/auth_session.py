@@ -1,7 +1,7 @@
 """
 AuthSession Repository
 
-管理会话记录（drizzle `session` 表）。
+Manage session records (drizzle `session` table).
 """
 
 from datetime import datetime
@@ -16,23 +16,23 @@ from .base import BaseRepository
 
 
 class AuthSessionRepository(BaseRepository[AuthSession]):
-    """AuthSession 数据访问"""
+    """AuthSession data access."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(AuthSession, db)
 
     async def get_by_token(self, token: str) -> Optional[AuthSession]:
-        """根据 token 获取会话"""
+        """Get a session by token."""
         return await self.get_by(token=token)
 
     async def delete_by_token(self, token: str) -> int:
-        """根据 token 删除会话，返回删除行数"""
+        """Delete a session by token; return the number of deleted rows."""
         result = await self.db.execute(delete(AuthSession).where(AuthSession.token == token))
         await self.db.flush()
         return getattr(result, "rowcount", 0) or 0
 
     async def purge_expired(self, now: datetime) -> int:
-        """清理过期会话，返回删除行数"""
+        """Purge expired sessions; return the number of deleted rows."""
         result = await self.db.execute(delete(AuthSession).where(AuthSession.expires_at < now))
         await self.db.flush()
         return getattr(result, "rowcount", 0) or 0

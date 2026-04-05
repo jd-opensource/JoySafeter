@@ -140,7 +140,7 @@ export function CopilotStreaming({
                 <button
                   onClick={onCopyStreaming}
                   className="absolute right-1 top-1 z-10 rounded p-1.5 opacity-0 transition-opacity hover:bg-[var(--surface-3)] group-hover:opacity-100"
-                  title="复制"
+                  title="Copy"
                 >
                   {copiedStreaming ? (
                     <Check size={12} className="text-green-600" />
@@ -193,7 +193,7 @@ export function CopilotStreaming({
                           </span>
                           {hasMultiple && !isExpanded && idx === visibleResults.length - 1 && (
                             <span className="rounded bg-green-100/50 px-1.5 py-0.5 text-[9px] font-medium text-green-600">
-                              {results.length} 项
+                              {results.length} items
                             </span>
                           )}
                         </div>
@@ -212,7 +212,7 @@ export function CopilotStreaming({
                     >
                       <ChevronDown size={10} />
                       <span>
-                        展开 {hiddenCount} 个已折叠的 {type} 操作
+                        Expand {hiddenCount} collapsed {type} operations
                       </span>
                     </button>
                   )}
@@ -223,7 +223,7 @@ export function CopilotStreaming({
                     >
                       <ChevronUp size={10} />
                       <span>
-                        折叠 {results.length - 1} 个 {type} 操作
+                        Collapse {results.length - 1} {type} operations
                       </span>
                     </button>
                   )}

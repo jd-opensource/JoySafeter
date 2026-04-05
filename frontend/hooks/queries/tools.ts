@@ -61,7 +61,7 @@ export function useBuiltinTools(options?: { enabled?: boolean }) {
         mcpServer: tool.mcp_server ?? null,
       }))
     },
-    enabled: options?.enabled !== false, // 默认 true，但可以设置为 false
+    enabled: options?.enabled !== false, // defaults to true, but can be set to false
     retry: false,
     staleTime: STALE_TIME.STANDARD,
     placeholderData: keepPreviousData,

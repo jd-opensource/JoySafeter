@@ -47,7 +47,7 @@ async def list_skills(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """获取 Skills 列表"""
+    """List skills."""
     service = SkillService(db)
     user_id = current_user.id if current_user else None
     skills = await service.list_skills(
@@ -67,7 +67,7 @@ async def create_skill(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建 Skill"""
+    """Create a skill."""
     service = SkillService(db)
 
     files_data = None
@@ -89,7 +89,7 @@ async def create_skill(
         files=files_data,
     )
 
-    # 重新加载以获取文件
+    # reload to include files
     skill = await service.get_skill(skill.id, current_user.id)
 
     # Trigger sync to OpenClaw container
@@ -109,7 +109,7 @@ async def get_skill(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """获取 Skill 详情"""
+    """Get skill details."""
     service = SkillService(db)
     user_id = current_user.id if current_user else None
     skill = await service.get_skill(skill_id, user_id)
@@ -126,7 +126,7 @@ async def update_skill(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新 Skill"""
+    """Update a skill."""
     service = SkillService(db)
 
     # Convert files to dict format if provided
@@ -149,7 +149,7 @@ async def update_skill(
         license=payload.license,
         files=files_data,
     )
-    # 重新加载以获取文件
+    # reload to include files
     skill = await service.get_skill(skill.id, current_user.id)
 
     # Trigger sync to OpenClaw container
@@ -169,10 +169,10 @@ async def delete_skill(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除 Skill"""
+    """Delete a skill."""
     service = SkillService(db)
 
-    # 获取要删除的 skill 名称
+    # get the skill name before deletion
     from app.common.exceptions import NotFoundException
 
     try:
@@ -216,7 +216,7 @@ async def add_file(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """添加文件到 Skill"""
+    """Add a file to a skill."""
     service = SkillService(db)
     file_obj = await service.add_file(
         skill_id=skill_id,
@@ -247,7 +247,7 @@ async def delete_file(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除文件"""
+    """Delete a file."""
     service = SkillService(db)
     await service.delete_file(file_id, current_user.id)
 
@@ -266,7 +266,7 @@ async def update_file(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新文件内容或重命名文件"""
+    """Update file content or rename a file."""
     service = SkillService(db)
     file_obj = await service.update_file(
         file_id=file_id,

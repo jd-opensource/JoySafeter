@@ -1,7 +1,7 @@
 """
-自定义验证器模块
+Custom validators module
 
-提供增强的参数验证功能和详细的错误提示
+Provide enhanced parameter validation with detailed error messages.
 """
 
 import re
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ValidationErrorDetail(BaseModel):
-    """验证错误详情"""
+    """Validation error detail."""
 
     field: str
     message: str
@@ -20,78 +20,78 @@ class ValidationErrorDetail(BaseModel):
 
 
 class EnhancedBaseModel(BaseModel):
-    """增强的基础模型，提供更好的验证错误处理"""
+    """Enhanced base model with improved validation error handling."""
 
     model_config = ConfigDict(
-        str_strip_whitespace=True,  # 自动去除字符串前后空格
-        validate_assignment=True,  # 允许赋值时验证
+        str_strip_whitespace=True,  # auto-strip leading/trailing whitespace
+        validate_assignment=True,  # validate on assignment
     )
 
 
-# 密码验证器
+# password validator
 def validate_password_strength(password: str, strict: bool = False) -> str:
-    """验证密码强度"""
+    """Validate password strength."""
     if len(password) < 8:
-        raise ValueError("密码长度至少为8位")
+        raise ValueError("Password must be at least 8 characters")
     if strict:
         if not re.search(r"[A-Z]", password):
-            raise ValueError("密码必须包含至少一个大写字母")
+            raise ValueError("Password must contain at least one uppercase letter")
 
         if not re.search(r"[a-z]", password):
-            raise ValueError("密码必须包含至少一个小写字母")
+            raise ValueError("Password must contain at least one lowercase letter")
 
         if not re.search(r"\d", password):
-            raise ValueError("密码必须包含至少一个数字")
+            raise ValueError("Password must contain at least one digit")
 
         if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-            raise ValueError("密码必须包含至少一个特殊字符")
+            raise ValueError("Password must contain at least one special character")
 
     return password
 
 
 def validate_username(username: str) -> str:
-    """验证用户名"""
+    """Validate username."""
     if not username:
-        raise ValueError("用户名不能为空")
+        raise ValueError("Username must not be empty")
 
     if len(username) < 3:
-        raise ValueError("用户名长度至少为3位")
+        raise ValueError("Username must be at least 3 characters")
 
     if len(username) > 50:
-        raise ValueError("用户名长度不能超过50位")
+        raise ValueError("Username must not exceed 50 characters")
 
-    # 只允许字母、数字、下划线和连字符
+    # only allow letters, digits, underscores, and hyphens
     if not re.match(r"^[a-zA-Z0-9_-]+$", username):
-        raise ValueError("用户名只能包含字母、数字、下划线和连字符")
+        raise ValueError("Username may only contain letters, digits, underscores, and hyphens")
 
-    # 不能以数字开头
+    # must not start with a digit
     if username[0].isdigit():
-        raise ValueError("用户名不能以数字开头")
+        raise ValueError("Username must not start with a digit")
 
     return username
 
 
 def validate_nickname(nickname: str) -> str:
-    """验证昵称"""
+    """Validate nickname."""
     if not nickname:
-        raise ValueError("昵称不能为空")
+        raise ValueError("Nickname must not be empty")
 
     if len(nickname) < 2:
-        raise ValueError("昵称长度至少为2位")
+        raise ValueError("Nickname must be at least 2 characters")
 
     if len(nickname) > 50:
-        raise ValueError("昵称长度不能超过50位")
+        raise ValueError("Nickname must not exceed 50 characters")
 
-    # 检查是否包含非法字符（这里只禁止一些明显的有问题的字符）
+    # reject obviously dangerous characters
     if re.search(r'[<>"/\\|]', nickname):
-        raise ValueError("昵称包含非法字符")
+        raise ValueError("Nickname contains illegal characters")
 
     return nickname
 
 
 def validate_email_domain(email: str) -> str:
-    """验证邮箱域名"""
-    # 检查常见的一次性邮箱域名
+    """Validate email domain."""
+    # reject common disposable email domains
     disposable_domains = [
         "10minutemail.com",
         "guerrillamail.com",
@@ -103,52 +103,52 @@ def validate_email_domain(email: str) -> str:
 
     domain = email.split("@")[-1].lower()
     if domain in disposable_domains:
-        raise ValueError("不支持使用临时邮箱")
+        raise ValueError("Disposable email addresses are not allowed")
 
     return email
 
 
 def validate_thread_id(thread_id: str) -> str:
-    """验证会话线程ID"""
+    """Validate conversation thread ID."""
     if not thread_id:
-        raise ValueError("会话ID不能为空")
+        raise ValueError("Thread ID must not be empty")
 
-    # 允许UUID格式或其他自定义格式
+    # allow UUID format or other custom formats
     uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     if not re.match(uuid_pattern, thread_id, re.IGNORECASE):
-        raise ValueError("会话ID格式不正确")
+        raise ValueError("Thread ID format is invalid")
 
     return thread_id
 
 
 def validate_temperature(temp: float) -> float:
-    """验证温度参数"""
+    """Validate temperature parameter."""
     if not (0.0 <= temp <= 2.0):
-        raise ValueError("温度参数必须在0.0到2.0之间")
+        raise ValueError("Temperature must be between 0.0 and 2.0")
 
     return temp
 
 
 def validate_max_tokens(tokens: int) -> int:
-    """验证最大token数"""
+    """Validate max token count."""
     if tokens < 1:
-        raise ValueError("最大token数必须大于0")
+        raise ValueError("Max tokens must be greater than 0")
 
-    if tokens > 32768:  # 一些模型的上限
-        raise ValueError("最大token数不能超过32768")
+    if tokens > 32768:  # upper limit for some models
+        raise ValueError("Max tokens must not exceed 32768")
 
     return tokens
 
 
-# 增强的字段验证器 - 在Pydantic模型中使用field_validator
+# enhanced field validators — use with Pydantic field_validator
 
 
 def create_validation_error_response(errors: list) -> dict[str, Any]:
-    """创建验证错误响应"""
+    """Create a validation error response."""
     return {
         "success": False,
         "code": 422,
-        "message": "请求参数验证失败",
+        "message": "Request parameter validation failed",
         "errors": [
             ValidationErrorDetail(
                 field=error["loc"][0] if error["loc"] else "unknown",

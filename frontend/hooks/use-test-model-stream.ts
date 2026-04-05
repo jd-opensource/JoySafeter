@@ -62,7 +62,7 @@ export function useTestModelStream() {
           } else if (eventType === 'metrics') {
             setState((prev) => ({ ...prev, metrics: data as TestModelStreamMetrics }))
           } else if (eventType === 'error') {
-            setState((prev) => ({ ...prev, error: data.error ?? '未知错误', isStreaming: false }))
+            setState((prev) => ({ ...prev, error: data.error ?? 'Unknown error', isStreaming: false }))
             return
           } else if (eventType === 'done') {
             // handled below
@@ -71,7 +71,7 @@ export function useTestModelStream() {
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') return
-      setState((prev) => ({ ...prev, error: err?.message ?? '请求失败', isStreaming: false }))
+      setState((prev) => ({ ...prev, error: err?.message ?? 'Request failed', isStreaming: false }))
       return
     }
 

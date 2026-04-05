@@ -125,14 +125,14 @@ function addSecurityHeaders(
 }
 
 /**
- * 从 NEXT_PUBLIC_API_URL 环境变量提取后端 API 域名
- * 用于 CSP connect-src / frame-src 指令
+ * Extract backend API domain from NEXT_PUBLIC_API_URL env var.
+ * Used for CSP connect-src / frame-src directives.
  *
- * 自动生成规则：
- * 1. 精确匹配后端 API URL（含端口）的 http/https/ws/wss 变体
- * 2. 同主机端口通配（hostname:*），自动覆盖同一主机上的 MCP 等关联服务
+ * Auto-generated rules:
+ * 1. Exact match for the backend API URL (with port) across http/https/ws/wss variants
+ * 2. Wildcard port on the same hostname, covering MCP and related services
  *
- * 如需添加不同主机的域名，请使用 NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA / NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA
+ * To add domains on a different host, use NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA / NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA
  */
 function getBackendApiDomains(): string {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
@@ -140,10 +140,10 @@ function getBackendApiDomains(): string {
 
   try {
     const url = new URL(apiUrl)
-    const hostname = url.hostname // 不含端口，如 "[IP_ADDRESS]"
-    const host = url.host // 含端口，如 "[IP_ADDRESS]"
+    const hostname = url.hostname // without port
+    const host = url.host // with port
 
-    // 精确匹配 + 端口通配，同时覆盖 http/https/ws/wss 四种协议
+    // exact match + wildcard port, covering http/https/ws/wss protocols
     if (url.protocol === 'https:') {
       return `https://${host} wss://${host} https://${hostname}:* wss://${hostname}:*`
     } else {
@@ -156,8 +156,8 @@ function getBackendApiDomains(): string {
 }
 
 /**
- * 生成 Content Security Policy 头
- * 增强版：移除 unsafe-inline，限制 img-src，添加更严格的控制
+ * Generate Content Security Policy header.
+ * Strict mode: removes unsafe-inline, restricts img-src, adds tighter controls.
  */
 function generateCSPHeader(whiteList: string, nonce: string, isProduction: boolean): string {
   const csp = `'nonce-${nonce}'`
@@ -171,13 +171,13 @@ function generateCSPHeader(whiteList: string, nonce: string, isProduction: boole
     "'sha256-hweB5ft6P5GckAdddQeQ/oIE/5wsGJGlNDKQmAvF9CU='",
   ]
 
-  // 从 NEXT_PUBLIC_API_URL 自动推导后端域名（含端口通配，覆盖同主机 MCP 等服务）
+  // derive backend domains from NEXT_PUBLIC_API_URL (wildcard port covers MCP etc.)
   const backendApiDomains = getBackendApiDomains()
 
-  // 额外的 connect-src 域名（用于非后端主机的外部服务，如第三方 API）
+  // extra connect-src domains (for external services on non-backend hosts)
   const connectSrcExtra = process.env.NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA || ''
 
-  // 额外的 frame-src 域名（用于非后端主机的外部 iframe 嵌入）
+  // extra frame-src domains (for external iframe embeds on non-backend hosts)
   const frameSrcExtra = process.env.NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA || ''
 
   // Enhanced strict CSP policy
@@ -218,8 +218,8 @@ function generateCSPHeader(whiteList: string, nonce: string, isProduction: boole
 }
 
 /**
- * Next.js 中间件
- * 处理安全头、CSP、X-Frame-Options 等
+ * Next.js middleware.
+ * Handles security headers, CSP, X-Frame-Options, etc.
  */
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -287,17 +287,17 @@ export function middleware(request: NextRequest) {
 }
 
 /**
- * 中间件配置
- * 定义哪些路径需要经过中间件处理
+ * Middleware configuration.
+ * Define which paths should be processed by the middleware.
  */
 export const config = {
   matcher: [
     /*
-     * 匹配所有请求路径，除了：
-     * - _next/static (静态文件)
-     * - _next/image (图片优化文件)
-     * - favicon.ico (网站图标)
-     * - 静态资源文件 (.png, .jpg, .jpeg, .gif, .svg, .ico, .webp, .woff, .woff2, .ttf, .eot)
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization)
+     * - favicon.ico (site icon)
+     * - static assets (.png, .jpg, .jpeg, .gif, .svg, .ico, .webp, .woff, .woff2, .ttf, .eot)
      */
     {
       source:

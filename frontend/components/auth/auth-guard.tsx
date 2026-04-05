@@ -11,8 +11,8 @@ import {
 } from '@/lib/core/constants/routes'
 
 /**
- * Auth Guard 组件
- * 保护需要登录才能访问的路由
+ * Auth Guard component
+ * Protects routes that require authentication
  */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const session = useSession()

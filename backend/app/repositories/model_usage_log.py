@@ -23,7 +23,7 @@ class ModelUsageLogRepository(BaseRepository[ModelUsageLog]):
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """聚合统计：调用次数、token数、平均响应时间、错误率"""
+        """Aggregate statistics: call count, token count, average response time, error rate."""
         query = select(
             func.count().label("total_calls"),
             func.sum(ModelUsageLog.input_tokens).label("total_input_tokens"),
@@ -58,7 +58,7 @@ class ModelUsageLogRepository(BaseRepository[ModelUsageLog]):
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """按时间粒度分桶的调用数据"""
+        """Return call data bucketed by time granularity."""
         trunc = func.date_trunc(granularity, ModelUsageLog.created_at)
 
         query = (
@@ -96,7 +96,7 @@ class ModelUsageLogRepository(BaseRepository[ModelUsageLog]):
         since: datetime,
         provider_name: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """按模型分组统计，按调用次数降序"""
+        """Group statistics by model, ordered by call count descending."""
         query = (
             select(
                 ModelUsageLog.model_name,
@@ -124,7 +124,7 @@ class ModelUsageLogRepository(BaseRepository[ModelUsageLog]):
         ]
 
     async def cleanup_old_logs(self, days: int = 90) -> int:
-        """删除超过指定天数的旧日志"""
+        """Delete logs older than the specified number of days."""
         from datetime import timedelta, timezone
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)

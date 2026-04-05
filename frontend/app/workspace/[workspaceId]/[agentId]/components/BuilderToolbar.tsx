@@ -151,15 +151,15 @@ export function BuilderToolbar({
 
   const getDeployText = () => {
     if (isDeploying) {
-      return t('workspace.deploying', { defaultValue: '发布中' })
+      return t('workspace.deploying', { defaultValue: 'Publishing' })
     }
     if (deploymentStatus?.isDeployed) {
       if ((deploymentStatus as any).needsRedeployment) {
-        return t('workspace.publishUpdate', { defaultValue: '发布更新' })
+        return t('workspace.publishUpdate', { defaultValue: 'Publish Update' })
       }
-      return t('workspace.activeDeploymentShort', { defaultValue: '已发布' })
+      return t('workspace.activeDeploymentShort', { defaultValue: 'Published' })
     }
-    return t('workspace.publish', { defaultValue: '发布' })
+    return t('workspace.publish', { defaultValue: 'Publish' })
   }
 
   const isDeployed = deploymentStatus?.isDeployed || false

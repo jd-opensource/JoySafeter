@@ -1,5 +1,5 @@
 """
-邮件服务
+Email service.
 """
 
 import logging
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class EmailService:
-    """邮件服务"""
+    """Email service."""
 
     def __init__(self):
         self.smtp_host = settings.smtp_host
@@ -24,7 +24,7 @@ class EmailService:
         self.from_name = settings.from_name
         self.frontend_url = settings.frontend_url
 
-        # 开发模式
+        # development mode
         self.is_dev = settings.environment == "development"
 
     async def send_email(
@@ -34,15 +34,15 @@ class EmailService:
         html_content: str,
         text_content: Optional[str] = None,
     ) -> bool:
-        """发送邮件"""
+        """Send an email."""
         if self.is_dev:
-            # 开发模式下只打印日志
+            # in development mode, only log
             logger.info(f"[DEV] Email to: {to_email}")
             logger.info(f"[DEV] Subject: {subject}")
             logger.info(f"[DEV] Content: {html_content[:200]}...")
             return True
 
-        # 生产模式 - 使用 SMTP
+        # production mode — use SMTP
         if not self.smtp_host or not self.smtp_user:
             logger.warning("SMTP not configured, email not sent")
             return False
@@ -79,7 +79,7 @@ class EmailService:
         reset_token: str,
         frontend_url: Optional[str] = None,
     ) -> bool:
-        """发送密码重置邮件"""
+        """Send a password reset email."""
         url = frontend_url or self.frontend_url
         reset_link = f"{url}/reset-password?token={reset_token}"
 
@@ -150,7 +150,7 @@ class EmailService:
         verify_token: str,
         frontend_url: Optional[str] = None,
     ) -> bool:
-        """发送邮箱验证邮件"""
+        """Send an email verification email."""
         url = frontend_url or self.frontend_url
         verify_link = f"{url}/verify-email?token={verify_token}"
 
@@ -215,7 +215,7 @@ class EmailService:
         to_email: str,
         username: str,
     ) -> bool:
-        """发送欢迎邮件"""
+        """Send a welcome email."""
         subject = "[JoySafeter] 欢迎加入 JoySafeter！🎉"
 
         html_content = f"""

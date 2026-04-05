@@ -88,13 +88,11 @@ class MemoryManager:
         self.clear_memories = clear_memories
         self.debug_mode = debug_mode
 
-        # TODO not impl model config
-        # if self.model is not None:
-        #    self.model = get_model(self.model)
+        # model configuration is injected by the external caller; no secondary conversion here
 
     def get_model(self) -> BaseChatModel:
         if self.model is None:
-            raise ValueError("请在创建 MemoryManager 时传入 model 参数")
+            raise ValueError("A model parameter is required when creating MemoryManager")
         return self.model
 
     def _get_message_content_string(self, msg: Message) -> str:
@@ -163,15 +161,8 @@ class MemoryManager:
         return None
 
     def set_log_level(self):
-        # TODO not impl
+        """Log level is configured externally; this is a reserved interface."""
         pass
-        """
-        if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
-            self.debug_mode = True
-            set_log_level_to_debug()
-        else:
-            set_log_level_to_info()
-        """
 
     def initialize(self, user_id: Optional[str] = None):
         self.set_log_level()
@@ -445,9 +436,7 @@ class MemoryManager:
                 "clear_user_memories() is not supported with an async DB. Please use aclear_user_memories() instead."
             )
 
-        # TODO: This is inefficient - we fetch all memories just to get their IDs.
-        # Extend delete_user_memories() to accept just user_id and delete all memories
-        # for that user directly without requiring a list of memory_ids.
+        # current implementation: fetch all then batch-delete by ID; can be optimized to delete by user_id directly
         memories = self.get_user_memories(user_id=user_id)
         if not memories:
             logger.debug(f"No memories found for user {user_id}")

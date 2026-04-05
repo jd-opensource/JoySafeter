@@ -31,7 +31,7 @@ export type { GraphAction, CopilotResponse, ConversationMessage, StreamGraphActi
 function convertConversationHistory(
   history: Array<{ role: 'user' | 'model'; text: string; actions?: GraphAction[] }>,
 ): Array<ConversationMessage> {
-  const ERROR_KEYWORDS = ['请求已取消', 'systemError', 'error', 'cancelled']
+  const ERROR_KEYWORDS = ['request cancelled', 'systemError', 'error', 'cancelled']
 
   return history
     .filter((msg) => {

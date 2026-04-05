@@ -1,5 +1,5 @@
 """
-文件夹业务逻辑
+Folder business logic.
 """
 
 from __future__ import annotations
@@ -18,12 +18,12 @@ from app.repositories.workspace_folder import WorkflowFolderRepository
 
 from .base import BaseService
 
-# 文件夹最大深度限制：只能有两层（根目录深度为0，第一层深度为1）
+# max folder depth limit: only two levels (root depth is 0, first level depth is 1)
 MAX_FOLDER_DEPTH = 1
 
 
 class FolderService(BaseService[WorkspaceFolder]):
-    """文件夹服务"""
+    """Folder service."""
 
     def __init__(self, db):
         super().__init__(db)
@@ -32,7 +32,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         self.member_repo = WorkspaceMemberRepository(db)
 
     # ------------------------------------------------------------------ #
-    # 权限校验
+    # permission checks
     # ------------------------------------------------------------------ #
     async def _get_member_role(self, workspace_id: uuid.UUID, current_user: User) -> Optional[str]:
         workspace = await self.workspace_repo.get(workspace_id)
@@ -69,7 +69,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         raise ForbiddenException("Insufficient workspace permission")
 
     # ------------------------------------------------------------------ #
-    # 查询
+    # queries
     # ------------------------------------------------------------------ #
     async def list_folders(self, workspace_id: uuid.UUID, *, current_user: User) -> List[WorkspaceFolder]:
         await self._ensure_permission(workspace_id, current_user, "read")
@@ -77,7 +77,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         return list(result) if result is not None else []
 
     # ------------------------------------------------------------------ #
-    # 树/循环检测辅助
+    # tree/cycle detection helpers
     # ------------------------------------------------------------------ #
     async def _build_children_index(self, workspace_id: uuid.UUID) -> Dict[Optional[uuid.UUID], List[uuid.UUID]]:
         relations = await self.folder_repo.list_relations_by_workspace(workspace_id)
@@ -88,8 +88,8 @@ class FolderService(BaseService[WorkspaceFolder]):
 
     async def _collect_subtree_ids(self, workspace_id: uuid.UUID, root_id: uuid.UUID) -> List[uuid.UUID]:
         """
-        返回 root_id 及其所有后代 folder id（BFS），用于删除/复制。
-        只在 workspace 内遍历，避免跨 workspace 的 parentId 造成污染。
+        Return root_id and all its descendant folder IDs (BFS), for deletion/duplication.
+        Only traverse within the workspace to avoid cross-workspace parentId pollution.
         """
         children_index = await self._build_children_index(workspace_id)
         queue: List[uuid.UUID] = [root_id]
@@ -115,7 +115,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         folder_id: uuid.UUID,
         new_parent_id: uuid.UUID,
     ) -> bool:
-        """检查是否会创建循环引用"""
+        """Check whether a cycle would be created."""
         seen: Set[uuid.UUID] = set()
         current: Optional[uuid.UUID] = new_parent_id
 
@@ -133,7 +133,7 @@ class FolderService(BaseService[WorkspaceFolder]):
 
     async def _calculate_depth(self, folder_id: uuid.UUID, workspace_id: uuid.UUID) -> int:
         """
-        计算文件夹的深度（从根目录开始，根目录深度为 0）
+        Calculate the folder depth (starting from root, root depth is 0).
         """
         depth = 0
         current_id: Optional[uuid.UUID] = folder_id
@@ -150,7 +150,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         return depth
 
     async def _check_depth_limit(self, parent_id: Optional[uuid.UUID], workspace_id: uuid.UUID) -> None:
-        """检查在指定父文件夹下创建子文件夹是否会超过深度限制"""
+        """Check whether creating a subfolder under the specified parent would exceed the depth limit."""
         if parent_id is None:
             return
 
@@ -159,7 +159,7 @@ class FolderService(BaseService[WorkspaceFolder]):
             raise BadRequestException(f"Maximum folder depth ({MAX_FOLDER_DEPTH + 1}) would be exceeded")
 
     # ------------------------------------------------------------------ #
-    # 创建
+    # create
     # ------------------------------------------------------------------ #
     async def create_folder(
         self,
@@ -194,7 +194,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         return result  # type: ignore
 
     # ------------------------------------------------------------------ #
-    # 更新
+    # update
     # ------------------------------------------------------------------ #
     async def update_folder(
         self,
@@ -238,7 +238,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         return result  # type: ignore
 
     # ------------------------------------------------------------------ #
-    # 删除
+    # delete
     # ------------------------------------------------------------------ #
     async def delete_folder(
         self,
@@ -261,7 +261,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         workspace_id: uuid.UUID,
         current_user: User,
     ) -> Dict[str, int]:
-        """递归删除整个 folder 子树（软删除），需要 write 权限（member 及以上）"""
+        """Recursively soft-delete the entire folder subtree; requires write permission (member and above)."""
         await self._ensure_permission(workspace_id, current_user, "write")
         await self.folder_repo.ensure_same_workspace(folder_id, workspace_id)
 
@@ -274,7 +274,7 @@ class FolderService(BaseService[WorkspaceFolder]):
         return {"folders": len(target_ids), "workflows": 0}
 
     # ------------------------------------------------------------------ #
-    # 复制
+    # duplicate
     # ------------------------------------------------------------------ #
     async def duplicate_folder(
         self,
@@ -314,7 +314,7 @@ class FolderService(BaseService[WorkspaceFolder]):
             new_root_id = folder_id_map[source.id]
             new_root = WorkspaceFolder(
                 id=new_root_id,
-                name=(name or f"{source.name} 副本").strip(),
+                name=(name or f"{source.name} Copy").strip(),
                 user_id=current_user.id,
                 workspace_id=workspace_id,
                 parent_id=effective_parent_id,

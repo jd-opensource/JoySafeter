@@ -334,11 +334,11 @@ function MetadataTab() {
       endTime: step.endTime ? new Date(step.endTime).toISOString() : null,
       duration: step.duration ? `${step.duration}ms` : null,
     }
-    // Trace / Observation 信息
+    // trace / observation info
     if (step.traceId) meta.traceId = step.traceId
     if (step.observationId) meta.observationId = step.observationId
     if (step.parentObservationId) meta.parentObservationId = step.parentObservationId
-    // Token 使用
+    // token usage
     if (step.promptTokens) meta.promptTokens = step.promptTokens
     if (step.completionTokens) meta.completionTokens = step.completionTokens
     if (step.totalTokens) meta.totalTokens = step.totalTokens

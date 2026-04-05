@@ -1,5 +1,5 @@
 """
-Graph 部署版本 Repository
+Graph deployment version Repository
 """
 
 from __future__ import annotations
@@ -17,13 +17,13 @@ from .base import BaseRepository
 
 
 class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
-    """Graph 部署版本 Repository"""
+    """Graph deployment version Repository."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(GraphDeploymentVersion, db)
 
     async def get_by_graph_and_version(self, graph_id: uuid.UUID, version: int) -> Optional[GraphDeploymentVersion]:
-        """获取指定 graph 的指定版本"""
+        """Get a specific version of a graph."""
         query = select(GraphDeploymentVersion).where(
             and_(
                 GraphDeploymentVersion.graph_id == graph_id,
@@ -34,7 +34,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         return result.scalar_one_or_none()
 
     async def get_active_version(self, graph_id: uuid.UUID) -> Optional[GraphDeploymentVersion]:
-        """获取指定 graph 的活跃版本"""
+        """Get the active version of a graph."""
         query = (
             select(GraphDeploymentVersion)
             .where(
@@ -49,7 +49,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         return result.scalar_one_or_none()
 
     async def list_by_graph(self, graph_id: uuid.UUID, include_inactive: bool = True) -> List[GraphDeploymentVersion]:
-        """获取指定 graph 的所有版本"""
+        """List all versions of a graph."""
         query = select(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id)
 
         if not include_inactive:
@@ -67,24 +67,24 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         page_size: int = 10,
         include_inactive: bool = True,
     ) -> tuple[List[GraphDeploymentVersion], int]:
-        """获取指定 graph 的版本（分页）
+        """List versions of a graph (paginated).
 
         Returns:
-            tuple: (版本列表, 总数量)
+            tuple: (version list, total count)
         """
         base_query = select(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id)
 
         if not include_inactive:
             base_query = base_query.where(GraphDeploymentVersion.is_active)
 
-        # 获取总数
+        # get total count
         count_query = select(func.count()).where(GraphDeploymentVersion.graph_id == graph_id)
         if not include_inactive:
             count_query = count_query.where(GraphDeploymentVersion.is_active)
         count_result = await self.db.execute(count_query)
         total = count_result.scalar() or 0
 
-        # 分页查询
+        # paginated query
         offset = (page - 1) * page_size
         query = base_query.order_by(GraphDeploymentVersion.version.desc()).offset(offset).limit(page_size)
 
@@ -94,7 +94,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         return versions, total
 
     async def get_next_version_number(self, graph_id: uuid.UUID) -> int:
-        """获取下一个版本号"""
+        """Get the next version number."""
         query = select(func.coalesce(func.max(GraphDeploymentVersion.version), 0)).where(
             GraphDeploymentVersion.graph_id == graph_id
         )
@@ -103,7 +103,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         return max_version + 1
 
     async def deactivate_all_versions(self, graph_id: uuid.UUID) -> int:
-        """停用指定 graph 的所有版本"""
+        """Deactivate all versions of a graph."""
         stmt = update(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id).values(is_active=False)
         result = await self.db.execute(stmt)
         return getattr(result, "rowcount", 0) or 0
@@ -115,7 +115,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         created_by: Optional[str] = None,
         name: Optional[str] = None,
     ) -> GraphDeploymentVersion:
-        """创建新版本"""
+        """Create a new version."""
         next_version = await self.get_next_version_number(graph_id)
         await self.deactivate_all_versions(graph_id)
 
@@ -139,7 +139,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         return instance
 
     async def activate_version(self, graph_id: uuid.UUID, version: int) -> Optional[GraphDeploymentVersion]:
-        """激活指定版本"""
+        """Activate a specific version."""
         await self.deactivate_all_versions(graph_id)
 
         stmt = (
@@ -158,7 +158,7 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         return await self.get_by_graph_and_version(graph_id, version)
 
     async def rename_version(self, graph_id: uuid.UUID, version: int, name: str) -> Optional[GraphDeploymentVersion]:
-        """重命名版本"""
+        """Rename a version."""
         stmt = (
             update(GraphDeploymentVersion)
             .where(
@@ -175,19 +175,19 @@ class GraphDeploymentVersionRepository(BaseRepository[GraphDeploymentVersion]):
         return await self.get_by_graph_and_version(graph_id, version)
 
     async def count_by_graph(self, graph_id: uuid.UUID) -> int:
-        """计算指定 graph 的版本数量"""
+        """Count versions for a graph."""
         query = select(func.count()).where(GraphDeploymentVersion.graph_id == graph_id)
         result = await self.db.execute(query)
         return result.scalar() or 0
 
     async def delete_by_graph(self, graph_id: uuid.UUID) -> int:
-        """删除指定 graph 的所有版本"""
+        """Delete all versions of a graph."""
         stmt = delete(GraphDeploymentVersion).where(GraphDeploymentVersion.graph_id == graph_id)
         result = await self.db.execute(stmt)
         return getattr(result, "rowcount", 0) or 0
 
     async def delete_version(self, graph_id: uuid.UUID, version: int) -> int:
-        """删除指定版本"""
+        """Delete a specific version."""
         stmt = delete(GraphDeploymentVersion).where(
             and_(
                 GraphDeploymentVersion.graph_id == graph_id,

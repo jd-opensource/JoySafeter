@@ -65,13 +65,13 @@ export function ParamDrawer({
         instanceId,
         request: { model_parameters: finalParams },
       })
-      toast({ title: '参数已保存' })
+      toast({ title: 'Parameters saved' })
       onOpenChange(false)
     } catch (err) {
       toast({
         variant: 'destructive',
-        title: '保存失败',
-        description: err instanceof Error ? err.message : '请重试',
+        title: 'Save failed',
+        description: err instanceof Error ? err.message : 'Please try again',
       })
     }
   }
@@ -102,11 +102,11 @@ export function ParamDrawer({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="right" className="w-[400px] sm:w-[480px]">
           <SheetHeader>
-            <SheetTitle>参数设置 — {modelName}</SheetTitle>
-            <SheetDescription>调整模型运行参数</SheetDescription>
+            <SheetTitle>Parameters — {modelName}</SheetTitle>
+            <SheetDescription>Adjust model runtime parameters</SheetDescription>
           </SheetHeader>
           <div className="flex h-40 items-center justify-center text-[var(--text-muted)]">
-            <p className="text-sm">该模型暂无可配置参数</p>
+            <p className="text-sm">No configurable parameters for this model</p>
           </div>
         </SheetContent>
       </Sheet>
@@ -117,8 +117,8 @@ export function ParamDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-[400px] sm:w-[480px] flex flex-col">
         <SheetHeader>
-          <SheetTitle>参数设置 — {modelName}</SheetTitle>
-          <SheetDescription>调整模型运行参数，如 temperature、max_tokens 等</SheetDescription>
+          <SheetTitle>Parameters — {modelName}</SheetTitle>
+          <SheetDescription>Adjust model runtime parameters such as temperature, max_tokens, etc.</SheetDescription>
         </SheetHeader>
 
         <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
@@ -142,7 +142,7 @@ export function ParamDrawer({
                   </div>
                   {hasProviderDefault && (
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-xs text-[var(--text-muted)]">默认</span>
+                      <span className="text-xs text-[var(--text-muted)]">Default</span>
                       <Switch
                         checked={isUsingDefault}
                         onCheckedChange={(v) =>
@@ -175,8 +175,8 @@ export function ParamDrawer({
                     disabled={isUsingDefault}
                     placeholder={
                       field.default !== undefined && field.default !== null
-                        ? `默认: ${field.default}`
-                        : '未设置'
+                        ? `Default: ${field.default}`
+                        : 'Not set'
                     }
                     onChange={(e) => {
                       const raw = e.target.value
@@ -196,10 +196,10 @@ export function ParamDrawer({
 
         <SheetFooter className="mt-4 pt-4 border-t border-[var(--border-muted)]">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            Cancel
           </Button>
           <Button onClick={handleSave} disabled={updateInstance.isPending}>
-            {updateInstance.isPending ? '保存中...' : '保存'}
+            {updateInstance.isPending ? 'Saving...' : 'Save'}
           </Button>
         </SheetFooter>
       </SheetContent>

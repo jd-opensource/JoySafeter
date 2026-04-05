@@ -16,25 +16,25 @@ import { cn } from '@/lib/utils'
 interface UnifiedDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** 对话框最大宽度，默认 max-w-lg */
+  /** Dialog max width, defaults to max-w-lg */
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl'
-  /** 对话框标题 */
+  /** Dialog title */
   title: React.ReactNode
-  /** 对话框描述（可选） */
+  /** Dialog description (optional) */
   description?: React.ReactNode
-  /** 标题图标（可选） */
+  /** Title icon (optional) */
   icon?: React.ReactNode
-  /** 图标背景色，默认 bg-blue-50 */
+  /** Icon background color, defaults to bg-blue-50 */
   iconBgColor?: string
-  /** 图标颜色，默认 text-blue-600 */
+  /** Icon color, defaults to text-blue-600 */
   iconColor?: string
-  /** 对话框内容 */
+  /** Dialog content */
   children: React.ReactNode
-  /** Footer 内容（可选） */
+  /** Footer content (optional) */
   footer?: React.ReactNode
-  /** 内容区域的 className */
+  /** className for the content area */
   contentClassName?: string
-  /** 是否显示内容区域背景色，默认 true */
+  /** Whether to show content area background color, defaults to true */
   showContentBg?: boolean
 }
 
@@ -118,7 +118,7 @@ export function UnifiedDialog({
   )
 }
 
-/** 统一的验证提示框样式 */
+/** Unified validation alert box styles */
 interface ValidationBoxProps {
   type: 'error' | 'warning' | 'success' | 'info'
   icon?: React.ReactNode
@@ -171,7 +171,7 @@ export function ValidationBox({ type, icon, title, items, children }: Validation
   )
 }
 
-/** 统一的文件列表预览框 */
+/** Unified file list preview box */
 interface FileListBoxProps {
   title: React.ReactNode
   files: { name: string; size?: number; icon?: React.ReactNode }[]

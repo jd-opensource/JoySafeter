@@ -1,8 +1,8 @@
 """
-DeepAgents Copilot - 非流式与流式运行入口。
+DeepAgents Copilot - Non-streaming and streaming run entry points.
 
-run_copilot_manager: 一次性调用并返回结果。
-stream_copilot_manager: 流式产出事件供前端消费。
+run_copilot_manager: invoke once and return the result.
+stream_copilot_manager: yield events for frontend consumption.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ async def run_copilot_manager(
     conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
-    运行 DeepAgents Copilot Manager（非流式）。
+    Run DeepAgents Copilot Manager (non-streaming).
 
     Returns:
         {
@@ -113,16 +113,16 @@ async def stream_copilot_manager(
     conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
-    运行 DeepAgents Copilot Manager（流式）。
+    Run DeepAgents Copilot Manager (streaming).
 
-    Yields SSE 事件:
-        - status: 阶段更新
-        - content: 流式内容
-        - tool_call: 工具调用
-        - tool_result: 工具结果
-        - result: 最终结果
-        - done: 完成
-        - error: 错误
+    Yields SSE events:
+        - status: stage update
+        - content: streaming content
+        - tool_call: tool invocation
+        - tool_result: tool result
+        - result: final result
+        - done: completion
+        - error: error
     """
     from langchain_core.messages import HumanMessage
 

@@ -1,7 +1,7 @@
 """
-API 路由聚合
+API route aggregation
 
-- /api/v1/... 版本化接口（包括 auth, workspaces, graphs, users, environment 等）
+- /api/v1/... versioned endpoints (including auth, workspaces, graphs, users, environment, etc.)
 """
 
 from fastapi import APIRouter

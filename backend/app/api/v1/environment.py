@@ -1,10 +1,10 @@
 """
-环境变量管理 API（路径 /api/v1/environment）
+Environment variable management API (path: /api/v1/environment)
 
-- /api/v1/environment/user                 获取当前用户环境变量（仅返回键名，值被掩码）
-- /api/v1/environment/user (PUT)           更新当前用户环境变量
-- /api/v1/environment/workspaces/{id}      获取工作空间环境变量（需 admin 及以上，掩码）
-- /api/v1/environment/workspaces/{id} (PUT)更新工作空间环境变量（需 admin 及以上）
+- /api/v1/environment/user                 Get current user's environment variables (keys only, values masked)
+- /api/v1/environment/user (PUT)           Update current user's environment variables
+- /api/v1/environment/workspaces/{id}      Get workspace environment variables (admin+ required, masked)
+- /api/v1/environment/workspaces/{id} (PUT)Update workspace environment variables (admin+ required)
 """
 
 from __future__ import annotations

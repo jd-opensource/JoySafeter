@@ -37,7 +37,7 @@ export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCusto
   return (
     <div className="flex w-[260px] shrink-0 flex-col border-r border-[var(--border-muted)] bg-[var(--surface-elevated)]">
       <div className="flex items-center justify-between border-b border-[var(--border-muted)] p-3">
-        <span className="text-xs font-semibold text-[var(--text-tertiary)]">供应商</span>
+        <span className="text-xs font-semibold text-[var(--text-tertiary)]">Providers</span>
         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onAddCustomModel}>
           <Plus className="h-3.5 w-3.5" />
         </Button>
@@ -50,7 +50,7 @@ export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCusto
       <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
         {systemProviders.length > 0 && (
           <div>
-            <p className="px-2 py-1 text-xs font-semibold text-[var(--text-muted)]">系统内置</p>
+            <p className="px-2 py-1 text-xs font-semibold text-[var(--text-muted)]">Built-in</p>
             {systemProviders.map((provider) => (
               <ProviderItem
                 key={provider.provider_name}
@@ -66,7 +66,7 @@ export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCusto
 
         {customProviders.length > 0 && (
           <div>
-            <p className="px-2 py-1 text-xs font-semibold text-[var(--text-muted)]">自定义</p>
+            <p className="px-2 py-1 text-xs font-semibold text-[var(--text-muted)]">Custom</p>
             {customProviders.map((provider) => (
               <ProviderItem
                 key={provider.provider_name}
@@ -81,7 +81,7 @@ export function ProviderSidebar({ selectedProvider, onSelectProvider, onAddCusto
         )}
 
         {filtered.length === 0 && (
-          <p className="px-2 py-4 text-center text-xs text-[var(--text-muted)]">无匹配供应商</p>
+          <p className="px-2 py-4 text-center text-xs text-[var(--text-muted)]">No matching providers</p>
         )}
       </div>
     </div>

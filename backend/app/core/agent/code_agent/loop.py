@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding=utf-8
 """
 CodeAgent Loop - The core Thought-Code-Observation iteration engine.
 
@@ -173,7 +172,7 @@ class CodeAgentLoop:
         """Format the system prompt with task and tools."""
         prompt = self._system_prompt
         prompt = prompt.replace("{{task}}", task)
-        prompt = prompt.replace("{{tool_descriptions}}", tool_descriptions or "无可用工具")
+        prompt = prompt.replace("{{tool_descriptions}}", tool_descriptions or "No tools available")
         return prompt
 
     def _build_prompt(self, task: str, history: str = "") -> str:
@@ -182,7 +181,7 @@ class CodeAgentLoop:
         system_prompt = self._format_system_prompt(task, tool_desc)
 
         if history:
-            return f"{system_prompt}\n\n## 执行历史\n\n{history}\n\n请继续执行任务。"
+            return f"{system_prompt}\n\n## Execution History\n\n{history}\n\nPlease continue executing the task."
         return system_prompt
 
     def _get_tool_descriptions(self) -> str:
@@ -193,11 +192,11 @@ class CodeAgentLoop:
         for name, func in tools.items():
             if name.startswith("_") or name in ("print", "final_answer"):
                 continue
-            doc = getattr(func, "__doc__", "") or "无描述"
+            doc = getattr(func, "__doc__", "") or "No description"
             doc = doc.strip().split("\n")[0]  # First line only
             descriptions.append(f"- `{name}`: {doc}")
 
-        return "\n".join(descriptions) if descriptions else "无额外工具"
+        return "\n".join(descriptions) if descriptions else "No additional tools"
 
     async def run(self, task: str) -> Any:
         """
@@ -456,14 +455,14 @@ class CodeAgentLoop:
         action_steps = self.memory.action_steps
         completed = sum(1 for s in action_steps if s.success)
         failed = sum(1 for s in action_steps if s.error)
-        return f"已执行 {len(action_steps)} 步，成功 {completed} 步，失败 {failed} 步"
+        return f"Executed {len(action_steps)} steps: {completed} succeeded, {failed} failed"
 
     def _get_issues_summary(self) -> str:
         """Get a summary of encountered issues."""
         action_steps = self.memory.action_steps
         issues = [s.error for s in action_steps if s.error]
         if not issues:
-            return "暂无问题"
+            return "No issues so far"
         return "\n".join(f"- {issue}" for issue in issues[-3:])  # Last 3 issues
 
     async def _call_llm(self, prompt: str) -> str:

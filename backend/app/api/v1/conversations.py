@@ -179,8 +179,8 @@ async def create_conversation(
 )
 async def list_conversations(
     current_user: CurrentUser,
-    page: int = Query(default=1, ge=1, description="页码"),
-    page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
+    page: int = Query(default=1, ge=1, description="Page number"),
+    page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
 ) -> BaseResponse[PageResult[ConversationResponse]]:
     """
@@ -286,12 +286,12 @@ async def delete_all_conversations(
 
         for conversation in conversations:
             try:
-                # 删除检查点
+                # delete checkpoints
                 await delete_thread_checkpoints(conversation.thread_id)
             except Exception as e:
                 logger.warning(f"Failed to delete checkpoints for {conversation.thread_id}: {e}")
 
-            # 删除会话（消息会通过 cascade 自动删除）
+            # delete conversation (messages are cascade-deleted)
             await db.delete(conversation)
             deleted_count += 1
     else:
@@ -524,7 +524,7 @@ async def reset_conversation(
 
         # 2. Delete all message records
         result = await db.execute(delete(Message).where(Message.thread_id == thread_id))
-        # 获取删除的行数（SQLAlchemy 2.0+ 的 Result 对象有 rowcount 属性）
+        # get deleted row count (SQLAlchemy 2.0+ Result has rowcount attribute)
         deleted_count = getattr(result, "rowcount", 0)
         logger.info(f"✅ Deleted {deleted_count} messages for thread: {thread_id}")
 
@@ -773,7 +773,7 @@ async def import_conversation(
     # Create conversation
     conversation = Conversation(
         thread_id=thread_id,
-        user_id=current_user.id,  # 使用当前用户ID
+        user_id=current_user.id,
         title=data["conversation"]["title"],
         meta_data=data["conversation"].get("metadata", {}),
     )
@@ -899,13 +899,13 @@ async def get_user_stats(
     Returns:
         BaseResponse[UserStatsResponse]: User statistics
     """
-    # 总会话数
+    # total conversations
     conv_result = await db.execute(
         select(func.count(Conversation.id)).where(Conversation.user_id == current_user.id, Conversation.is_active == 1)
     )
     total_conversations = conv_result.scalar() or 0
 
-    # 总消息数
+    # total messages
     msg_result = await db.execute(
         select(func.count(Message.id))
         .join(Conversation, Message.thread_id == Conversation.thread_id)
@@ -913,7 +913,7 @@ async def get_user_stats(
     )
     total_messages = msg_result.scalar() or 0
 
-    # 最近会话
+    # recent conversations
     recent_result = await db.execute(
         select(Conversation)
         .where(Conversation.user_id == current_user.id, Conversation.is_active == 1)

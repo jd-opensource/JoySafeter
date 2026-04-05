@@ -1,5 +1,5 @@
 """
-组织与成员相关 API
+Organization and member API
 """
 
 import uuid
@@ -34,7 +34,7 @@ class UpdateSeatsRequest(BaseModel):
 class InviteMemberRequest(BaseModel):
     email: EmailStr
     role: Optional[str] = Field(default="member")
-    workspaceInvitations: Optional[list] = None  # 兼容前端多工作空间邀请参数
+    workspaceInvitations: Optional[list] = None  # compatible with frontend multi-workspace invitation params
 
 
 class UpdateMemberRoleRequest(BaseModel):
@@ -56,7 +56,7 @@ async def create_organization(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建组织并设当前用户为 owner"""
+    """Create an organization and set the current user as owner."""
     service = OrganizationService(db)
     data = await service.create_organization(
         name=payload.name,
@@ -73,7 +73,7 @@ async def set_active_organization(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """设置活跃组织（当前仅校验成员身份并返回组织信息）"""
+    """Set active organization (currently only validates membership and returns org info)."""
     service = OrganizationService(db)
     data = await service.set_active_organization(organization_id, current_user)
     return success_response(data=data, message="Organization set active")
@@ -82,11 +82,11 @@ async def set_active_organization(
 @router.get("/{organization_id}")
 async def get_organization(
     organization_id: uuid.UUID,
-    include: Optional[str] = Query(None, description="可选 seats"),
+    include: Optional[str] = Query(None, description="Optional: seats"),
     db: AsyncSession = Depends(get_db),
     current_user: User = require_org_role("member"),
 ):
-    """获取组织详情"""
+    """Get organization details."""
     service = OrganizationService(db)
     include_seats = "seats" in _parse_include(include)
     data = await service.get_organization(organization_id, include_seats, current_user)
@@ -100,7 +100,7 @@ async def update_organization(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_org_role("admin"),
 ):
-    """更新组织设置"""
+    """Update organization settings."""
     service = OrganizationService(db)
     data = await service.update_organization(
         organization_id,
@@ -119,7 +119,7 @@ async def update_seats(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_org_role("admin"),
 ):
-    """更新 seats"""
+    """Update seats."""
     service = OrganizationService(db)
     data = await service.update_seats(
         organization_id,
@@ -135,11 +135,11 @@ async def update_seats(
 @router.get("/{organization_id}/members")
 async def list_members(
     organization_id: uuid.UUID,
-    include: Optional[str] = Query(None, description="可选 usage"),
+    include: Optional[str] = Query(None, description="Optional: usage"),
     db: AsyncSession = Depends(get_db),
     current_user: User = require_org_role("member"),
 ):
-    """获取成员列表"""
+    """List members."""
     service = OrganizationService(db)
     include_usage = "usage" in _parse_include(include)
     data = await service.list_members(
@@ -157,7 +157,7 @@ async def invite_member(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_org_role("admin"),
 ):
-    """邀请新成员"""
+    """Invite a new member."""
     service = OrganizationService(db)
     data = await service.invite_member(
         organization_id,
@@ -172,11 +172,11 @@ async def invite_member(
 async def get_member(
     organization_id: uuid.UUID,
     member_id: uuid.UUID,
-    include: Optional[str] = Query(None, description="可选 usage"),
+    include: Optional[str] = Query(None, description="Optional: usage"),
     db: AsyncSession = Depends(get_db),
     current_user: User = require_org_role("member"),
 ):
-    """获取成员详情"""
+    """Get member details."""
     service = OrganizationService(db)
     include_usage = "usage" in _parse_include(include)
     data = await service.get_member(
@@ -196,7 +196,7 @@ async def update_member_role(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_org_role("admin"),
 ):
-    """更新成员角色"""
+    """Update member role."""
     service = OrganizationService(db)
     data = await service.update_member_role(
         organization_id,
@@ -211,11 +211,11 @@ async def update_member_role(
 async def remove_member(
     organization_id: uuid.UUID,
     member_id: uuid.UUID,
-    shouldReduceSeats: bool = Query(False, description="移除成员时是否同步减少 seats"),
+    shouldReduceSeats: bool = Query(False, description="Whether to reduce seats when removing a member"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """移除成员"""
+    """Remove a member."""
     service = OrganizationService(db)
     await service.remove_member(
         organization_id,

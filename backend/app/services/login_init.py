@@ -1,8 +1,9 @@
 """
-登录后初始化 - 与普通登录/OAuth 登录共用
+Post-login initialization shared by normal login and OAuth login.
 
-统一执行：更新最后登录时间与 IP、记录登录成功审计、确保个人空间。
-供 auth_service.login 与 oauth_callback 调用，避免逻辑分散。
+Update last-login time and IP, record a login-success audit event, and ensure
+the personal workspace exists.  Called by auth_service.login and oauth_callback
+to keep the logic centralized.
 """
 
 from datetime import datetime, timezone
@@ -16,9 +17,9 @@ if TYPE_CHECKING:
 
 async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: str) -> None:
     """
-    登录成功后统一初始化：更新 last_login、审计、确保个人空间。
+    Run unified post-login initialization: update last_login, audit, ensure personal workspace.
 
-    与 auth_service.login 及 oauth_callback 行为一致，集中维护。
+    Consistent with auth_service.login and oauth_callback; maintained in one place.
     """
     user.last_login_at = datetime.now(timezone.utc)
     user.last_login_ip = ip_address

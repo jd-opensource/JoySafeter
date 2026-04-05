@@ -1,5 +1,5 @@
 """
-环境变量/设置模型
+Environment variable and settings models
 """
 
 import uuid
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class Environment(BaseModel):
-    """用户环境变量（一人一份）"""
+    """User environment variables (one per user)."""
 
     __tablename__ = "environment"
 
@@ -33,7 +33,7 @@ class Environment(BaseModel):
 
 
 class WorkspaceEnvironment(BaseModel):
-    """工作空间环境变量（一空间一份）"""
+    """Workspace environment variables (one per workspace)."""
 
     __tablename__ = "workspace_environment"
 
@@ -50,7 +50,7 @@ class WorkspaceEnvironment(BaseModel):
 
 
 class Settings(BaseModel):
-    """用户设置（一人一份）"""
+    """User settings (one per user)."""
 
     __tablename__ = "settings"
 

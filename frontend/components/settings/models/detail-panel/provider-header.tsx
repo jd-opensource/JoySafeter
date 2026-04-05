@@ -19,7 +19,7 @@ function CredentialStatusBadge({ credential }: { credential?: ModelCredential })
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-[var(--surface-3)] px-2 py-0.5 text-xs text-[var(--text-muted)]">
         <span className="h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
-        未配置
+        Not configured
       </span>
     )
   }
@@ -27,14 +27,14 @@ function CredentialStatusBadge({ credential }: { credential?: ModelCredential })
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700">
         <CheckCircle className="h-3 w-3" />
-        有效
+        Valid
       </span>
     )
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs text-red-700">
       <XCircle className="h-3 w-3" />
-      无效
+      Invalid
     </span>
   )
 }
@@ -48,13 +48,13 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
     if (credential?.id) {
       validateMutation.mutate(credential.id, {
         onSuccess: (data) => {
-          toast({ title: data.is_valid ? '凭证验证通过' : '凭证验证失败' })
+          toast({ title: data.is_valid ? 'Credential validation passed' : 'Credential validation failed' })
         },
         onError: (err) => {
           toast({
             variant: 'destructive',
-            title: '验证请求失败',
-            description: err instanceof Error ? err.message : '请稍后重试',
+            title: 'Validation request failed',
+            description: err instanceof Error ? err.message : 'Please try again later',
           })
         },
       })
@@ -65,13 +65,13 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
     if (!credential?.id) return
     deleteMutation.mutate(credential.id, {
       onSuccess: () => {
-        toast({ title: '凭证已清除' })
+        toast({ title: 'Credential cleared' })
       },
       onError: (err) => {
         toast({
           variant: 'destructive',
-          title: '清除凭证失败',
-          description: err instanceof Error ? err.message : '请稍后重试',
+          title: 'Failed to clear credential',
+          description: err instanceof Error ? err.message : 'Please try again later',
         })
       },
     })
@@ -97,11 +97,11 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
         <div className="flex items-center gap-2">
           {provider.provider_type === 'custom' && onDeleteProvider && (
             <Button variant="outline" size="sm" onClick={onDeleteProvider} className="text-red-600 hover:text-red-700">
-              删除
+              Delete
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={onEditCredential}>
-            {credential ? '编辑凭证' : '配置凭证'}
+            {credential ? 'Edit Credential' : 'Configure Credential'}
           </Button>
         </div>
       </div>
@@ -110,7 +110,7 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
       <div className="mt-4 rounded-lg border border-[var(--border-muted)] bg-[var(--surface-3)] p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-[var(--text-secondary)]">凭证状态</span>
+            <span className="text-xs font-medium text-[var(--text-secondary)]">Credential Status</span>
             <CredentialStatusBadge credential={credential} />
           </div>
           {credential && (
@@ -122,7 +122,7 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
                 onClick={handleRevalidate}
                 disabled={validateMutation.isPending}
               >
-                重新验证
+                Re-validate
               </Button>
               {isBuiltinProvider && (
                 <Button
@@ -132,7 +132,7 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
                   onClick={handleClearCredential}
                   disabled={deleteMutation.isPending}
                 >
-                  {deleteMutation.isPending ? '清除中...' : '清除凭证'}
+                  {deleteMutation.isPending ? 'Clearing...' : 'Clear Credential'}
                 </Button>
               )}
             </div>
@@ -142,7 +142,7 @@ export function ProviderHeader({ provider, credential, onEditCredential, onDelet
         {credential?.last_validated_at && (
           <div className="mt-1 flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
             <Clock className="h-3 w-3" />
-            最后验证：{new Date(credential.last_validated_at).toLocaleString()}
+            Last validated: {new Date(credential.last_validated_at).toLocaleString()}
           </div>
         )}
 

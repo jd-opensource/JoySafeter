@@ -1,5 +1,5 @@
 """
-Graph 部署版本 Service
+Graph deployment version service.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from .workspace_permission import check_workspace_access
 
 
 class GraphDeploymentVersionService(BaseService):
-    """Graph 部署版本 Service"""
+    """Graph deployment version service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -48,7 +48,7 @@ class GraphDeploymentVersionService(BaseService):
         current_user: AuthUser,
         required_role: WorkspaceMemberRole = WorkspaceMemberRole.viewer,
     ) -> None:
-        """确保用户有访问图的权限"""
+        """Ensure the user has permission to access the graph."""
         if current_user.is_superuser:
             return
         if graph.user_id == current_user.id:
@@ -65,7 +65,7 @@ class GraphDeploymentVersionService(BaseService):
         raise ForbiddenException("No access to graph")
 
     async def _ensure_can_deploy(self, graph: AgentGraph, current_user: AuthUser) -> None:
-        """确保用户可以部署"""
+        """Ensure the user can deploy."""
         if current_user.is_superuser:
             return
         if graph.user_id == current_user.id:
@@ -82,11 +82,11 @@ class GraphDeploymentVersionService(BaseService):
         raise ForbiddenException("Only graph owner or workspace admin can deploy")
 
     def _normalize_graph_state(self, nodes: List, edges: List, variables: Dict[str, Any]) -> Dict[str, Any]:
-        """规范化图状态 - 存储到 deployment_version.state
+        """Normalize graph state — store into deployment_version.state.
 
-        重要：需要深拷贝 node.data，否则 SQLAlchemy 代理对象可能导致序列化问题。
-        同时确保 config 中包含所有必要的配置（如 model、temp 等），
-        这样回滚时能完整恢复。
+        Important: deep-copy node.data to avoid serialization issues with SQLAlchemy proxy objects.
+        Also ensure config contains all necessary settings (e.g. model, temp, etc.)
+        so that a revert can fully restore the state.
         """
         import copy
 
@@ -94,10 +94,10 @@ class GraphDeploymentVersionService(BaseService):
         for node in nodes:
             node_id = str(node.id)
 
-            # 深拷贝 data，避免 SQLAlchemy 代理对象序列化问题
+            # deep-copy data to avoid SQLAlchemy proxy object serialization issues
             node_data = copy.deepcopy(dict(node.data)) if node.data else {}
 
-            # 确保 config 存在
+            # ensure config exists
             if "config" not in node_data:
                 node_data["config"] = {}
 
@@ -140,16 +140,16 @@ class GraphDeploymentVersionService(BaseService):
         }
 
     def _compute_state_hash(self, state: Dict[str, Any]) -> str:
-        """计算状态的 hash 值，用于快速比较"""
+        """Compute a hash of the state for quick comparison."""
         import hashlib
 
-        # 排除 lastSaved 字段，因为它每次都不同
+        # exclude lastSaved field since it differs every time
         state_copy = {k: v for k, v in state.items() if k != "lastSaved"}
         state_json = json.dumps(state_copy, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(state_json.encode()).hexdigest()[:16]
 
     def _has_graph_changed(self, current_state: Dict[str, Any], deployed_state: Dict[str, Any]) -> bool:
-        """检查图是否有变化（使用 hash 快速比较）"""
+        """Check whether the graph has changed (using hash for quick comparison)."""
         current_hash = self._compute_state_hash(current_state)
         deployed_hash = self._compute_state_hash(deployed_state)
         return current_hash != deployed_hash
@@ -157,7 +157,7 @@ class GraphDeploymentVersionService(BaseService):
     async def deploy(
         self, graph_id: uuid.UUID, current_user: AuthUser, name: Optional[str] = None
     ) -> GraphDeployResponse:
-        """部署图"""
+        """Deploy a graph."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -170,12 +170,12 @@ class GraphDeploymentVersionService(BaseService):
         current_state = self._normalize_graph_state(nodes, edges, graph.variables)
         active_version = await self.version_repo.get_active_version(graph_id)
 
-        # 检查是否有变化
+        # check if there are changes
         has_changes = True
         if active_version:
             has_changes = self._has_graph_changed(current_state, active_version.state)
 
-        # 如果没有变化且已部署，返回当前激活版本信息
+        # if no changes and already deployed, return current active version info
         if not has_changes and graph.is_deployed and active_version:
             return GraphDeployResponse(
                 success=True,
@@ -185,7 +185,7 @@ class GraphDeploymentVersionService(BaseService):
                 needsRedeployment=False,
             )
 
-        # 有变化或首次部署，创建新版本
+        # changes detected or first deploy, create a new version
         new_version = await self.version_repo.create_version(
             graph_id=graph_id,
             state=current_state,
@@ -213,7 +213,7 @@ class GraphDeploymentVersionService(BaseService):
         )
 
     async def undeploy(self, graph_id: uuid.UUID, current_user: AuthUser) -> Dict[str, Any]:
-        """取消部署"""
+        """Undeploy."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -236,7 +236,7 @@ class GraphDeploymentVersionService(BaseService):
         }
 
     async def get_deployment_status(self, graph_id: uuid.UUID, current_user: AuthUser) -> Dict[str, Any]:
-        """获取部署状态"""
+        """Get deployment status."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -269,7 +269,7 @@ class GraphDeploymentVersionService(BaseService):
         page: int = 1,
         page_size: int = 10,
     ) -> GraphDeploymentVersionListResponse:
-        """获取所有版本（分页）"""
+        """Get all versions (paginated)."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -278,7 +278,7 @@ class GraphDeploymentVersionService(BaseService):
 
         versions, total = await self.version_repo.list_by_graph_paginated(graph_id, page=page, page_size=page_size)
 
-        # 批量获取用户名
+        # batch-fetch usernames
         user_ids = list(set(v.created_by for v in versions if v.created_by))
         user_names: Dict[str, str] = {}
         for user_id in user_ids:
@@ -308,7 +308,7 @@ class GraphDeploymentVersionService(BaseService):
     async def get_version(
         self, graph_id: uuid.UUID, version: int, current_user: AuthUser
     ) -> GraphDeploymentVersionResponseCamel:
-        """获取特定版本"""
+        """Get a specific version."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -324,7 +324,7 @@ class GraphDeploymentVersionService(BaseService):
     async def get_version_state(
         self, graph_id: uuid.UUID, version: int, current_user: AuthUser
     ) -> GraphDeploymentVersionStateResponse:
-        """获取特定版本的完整状态（包含 nodes, edges 等用于预览）"""
+        """Get the full state of a specific version (including nodes, edges, etc. for preview)."""
         import copy
 
         graph = await self.graph_repo.get(graph_id)
@@ -337,10 +337,10 @@ class GraphDeploymentVersionService(BaseService):
         if not deployment_version:
             raise NotFoundException("Deployment version not found")
 
-        # 深拷贝状态，转换为前端期望的格式
+        # deep-copy state, convert to frontend-expected format
         state = copy.deepcopy(deployment_version.state) if deployment_version.state else {}
 
-        # 将 state 中的 nodes 转换为前端格式（ReactFlow 格式）
+        # convert state nodes to frontend format (ReactFlow format)
         frontend_nodes = []
         nodes_data = state.get("nodes", {})
         for node_id, node_data in nodes_data.items():
@@ -349,7 +349,7 @@ class GraphDeploymentVersionService(BaseService):
 
             frontend_node = {
                 "id": node_id,
-                "type": "custom",  # ReactFlow 使用 custom 类型
+                "type": "custom",  # ReactFlow uses custom type
                 "position": position,
                 "positionAbsolute": {
                     "x": position_absolute.get("x") if position_absolute else position.get("x", 0),
@@ -363,7 +363,7 @@ class GraphDeploymentVersionService(BaseService):
             }
             frontend_nodes.append(frontend_node)
 
-        # 转换 edges 格式
+        # convert edges format
         frontend_edges = []
         edges_data = state.get("edges", [])
         for edge_data in edges_data:
@@ -395,7 +395,7 @@ class GraphDeploymentVersionService(BaseService):
     async def activate_version(
         self, graph_id: uuid.UUID, version: int, current_user: AuthUser
     ) -> GraphDeploymentVersionResponseCamel:
-        """激活版本"""
+        """Activate a version."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -418,9 +418,9 @@ class GraphDeploymentVersionService(BaseService):
         return self._to_response_camel(activated_version)
 
     async def revert_to_version(self, graph_id: uuid.UUID, version: int, current_user: AuthUser) -> GraphRevertResponse:
-        """回滚到指定版本
+        """Revert to a specific version.
 
-        从部署版本中恢复完整的节点状态，包括 data.config 中的所有配置。
+        Restore the full node state from the deployment version, including all settings in data.config.
         """
         import copy
 
@@ -434,16 +434,16 @@ class GraphDeploymentVersionService(BaseService):
         if not target_version:
             raise NotFoundException("Deployment version not found")
 
-        # 恢复 nodes/edges 数据
+        # restore nodes/edges data
         state = target_version.state
         if not state or "nodes" not in state:
             raise NotFoundException("Version state is invalid")
 
-        # 1. 删除现有的所有 nodes 和 edges
+        # 1. delete all existing nodes and edges
         await self.node_repo.delete_by_graph(graph_id)
         await self.edge_repo.delete_by_graph(graph_id)
 
-        # 2. 恢复 nodes（使用原始 ID）
+        # 2. restore nodes (using original IDs)
         from app.models.graph import GraphNode
 
         nodes_data = state["nodes"]
@@ -451,11 +451,11 @@ class GraphDeploymentVersionService(BaseService):
             position = node_data.get("position", {})
             position_absolute = node_data.get("position_absolute")
 
-            # 深拷贝 data，确保数据完整性
+            # deep-copy data to ensure data integrity
             restored_data = copy.deepcopy(node_data.get("data", {}))
 
             node = GraphNode(
-                id=uuid.UUID(node_id),  # 使用原始 ID
+                id=uuid.UUID(node_id),  # use original ID
                 graph_id=graph_id,
                 type=node_data["type"],
                 position_x=position.get("x", 0) if position else 0,
@@ -464,27 +464,27 @@ class GraphDeploymentVersionService(BaseService):
                 position_absolute_y=position_absolute.get("y") if position_absolute else None,
                 width=node_data.get("width", 0),
                 height=node_data.get("height", 0),
-                data=restored_data,  # 完整的 data（包含 config）
+                data=restored_data,  # full data (including config)
             )
             self.db.add(node)
 
-        # 先 flush 确保 nodes 被创建
+        # flush first to ensure nodes are created
         await self.db.flush()
 
-        # 3. 恢复 edges
+        # 3. restore edges
         from app.models.graph import GraphEdge
 
         edges_data = state.get("edges", [])
         for edge_data in edges_data:
             edge = GraphEdge(
-                id=uuid.UUID(edge_data["id"]),  # 使用原始 ID
+                id=uuid.UUID(edge_data["id"]),  # use original ID
                 graph_id=graph_id,
                 source_node_id=uuid.UUID(edge_data["source"]),
                 target_node_id=uuid.UUID(edge_data["target"]),
             )
             self.db.add(edge)
 
-        # 4. 更新 variables
+        # 4. update variables
         await self.graph_repo.update(
             graph_id,
             {
@@ -492,7 +492,7 @@ class GraphDeploymentVersionService(BaseService):
             },
         )
 
-        # 5. 激活版本
+        # 5. activate version
         await self.version_repo.activate_version(graph_id, version)
 
         await self.graph_repo.update(
@@ -514,7 +514,7 @@ class GraphDeploymentVersionService(BaseService):
     async def rename_version(
         self, graph_id: uuid.UUID, version: int, name: str, current_user: AuthUser
     ) -> GraphDeploymentVersionResponseCamel:
-        """重命名版本"""
+        """Rename a version."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -530,7 +530,7 @@ class GraphDeploymentVersionService(BaseService):
         return self._to_response_camel(renamed_version)
 
     async def delete_version(self, graph_id: uuid.UUID, version: int, current_user: AuthUser) -> Dict[str, Any]:
-        """删除版本"""
+        """Delete a version."""
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
@@ -541,7 +541,7 @@ class GraphDeploymentVersionService(BaseService):
         if not target_version:
             raise NotFoundException("Deployment version not found")
 
-        # 不允许删除当前激活的版本
+        # cannot delete the currently active version
         if target_version.is_active:
             raise ForbiddenException("Cannot delete the active deployment version")
 
@@ -556,7 +556,7 @@ class GraphDeploymentVersionService(BaseService):
     def _to_response_camel(
         self, version: GraphDeploymentVersion, created_by_name: Optional[str] = None
     ) -> GraphDeploymentVersionResponseCamel:
-        """转换为 camelCase 响应格式"""
+        """Convert to camelCase response format."""
         return GraphDeploymentVersionResponseCamel(
             id=str(version.id),
             version=version.version,

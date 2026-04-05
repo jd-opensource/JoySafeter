@@ -1,5 +1,5 @@
 """
-基础模型
+Base models
 """
 
 import uuid
@@ -15,7 +15,7 @@ from app.core.database import Base
 
 
 class TSVECTOR(UserDefinedType):
-    """PostgreSQL tsvector 类型，用于全文搜索"""
+    """PostgreSQL tsvector type for full-text search."""
 
     def get_col_spec(self):
         return "tsvector"
@@ -40,7 +40,7 @@ def utc_now():
 
 
 class TimestampMixin:
-    """时间戳混入"""
+    """Timestamp mixin."""
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -58,7 +58,7 @@ class TimestampMixin:
 
 
 class SoftDeleteMixin:
-    """软删除混入"""
+    """Soft-delete mixin."""
 
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
@@ -72,7 +72,7 @@ class SoftDeleteMixin:
 
 
 class BaseModel(Base, TimestampMixin):
-    """基础模型"""
+    """Base model."""
 
     __abstract__ = True
 

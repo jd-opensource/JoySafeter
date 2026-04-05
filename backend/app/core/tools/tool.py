@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 
-# ============= 1. 元数据与过滤定义 =============
+# ============= 1. Metadata and filter definitions =============
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Set, Type
@@ -21,7 +21,7 @@ class ToolSourceType(str, Enum):
 
 @dataclass
 class ToolMetadata:
-    """工具元数据，包含来源、权限、缓存等信息"""
+    """Tool metadata including source, permissions, and caching info."""
 
     source_type: ToolSourceType
     tags: Set[str] = field(default_factory=set)
@@ -55,7 +55,7 @@ class ToolMetadata:
 
 @dataclass
 class ToolFilter:
-    """工具过滤器，用于查询符合条件的工具"""
+    """Tool filter for querying tools that match given criteria."""
 
     source_types: Optional[Set[ToolSourceType]] = None
     categories: Optional[Set[str]] = None
@@ -76,7 +76,7 @@ class ToolFilter:
     include_global: bool = True  # Include tools without owner (builtin, global)
 
     def matches_tool(self, tool_name: str, metadata: ToolMetadata) -> bool:
-        """检查工具是否匹配过滤条件"""
+        """Check whether a tool matches the filter criteria."""
         if self.include_tools and tool_name not in self.include_tools:
             return False
         if self.exclude_tools and tool_name in self.exclude_tools:
@@ -109,13 +109,12 @@ class ToolFilter:
         return True
 
     def _matches_ownership(self, metadata: ToolMetadata) -> bool:
-        """
-        检查工具所有权是否匹配
+        """Check whether tool ownership matches the filter.
 
-        所有权语义:
-        - Global tools (owner_user_id=None): 内置工具，对所有用户可见
-        - User-level tools (owner_workspace_id=None): 用户私有工具，仅所有者可见
-        - Workspace-level tools (owner_workspace_id!=None): 工作区共享工具，工作区内所有成员可见
+        Ownership semantics:
+        - Global tools (owner_user_id=None): built-in tools, visible to all users
+        - User-level tools (owner_workspace_id=None): private tools, visible only to owner
+        - Workspace-level tools (owner_workspace_id!=None): shared tools, visible to all workspace members
         """
         # If no owner filter specified, match all
         if self.owner_user_id is None and self.owner_workspace_id is None:
@@ -139,7 +138,7 @@ class ToolFilter:
         return True
 
 
-# ============= 2. 增强工具类 (适配器模式) =============
+# ============= 2. Enhanced tool class (adapter pattern) =============
 
 
 class EnhancedTool(BaseTool):
@@ -158,23 +157,20 @@ class EnhancedTool(BaseTool):
     _wrapped_tool: Optional[BaseTool] = PrivateAttr(default=None)
 
     def get_label_name(self) -> str:
-        """获取标签名称，如果未设置则返回 name"""
+        """Return label_name if set, otherwise fall back to name."""
         return self.label_name if self.label_name is not None else self.name
 
     async def _execute_logic(self, kwargs: dict, config: Optional[RunnableConfig] = None) -> Any:
-        """核心执行逻辑：处理超时、包装调用"""
+        """Execute core logic: handle timeout and dispatch the call."""
         timeout = self.tool_metadata.custom_attrs.get("execution_timeout", 60)
 
-        # 过滤掉 deepagents FilesystemMiddleware 注入的 runtime 参数
-        # runtime 是 middleware 内部使用的，不应该传递给实际工具
+        # filter out the runtime param injected by deepagents FilesystemMiddleware;
+        # runtime is internal to the middleware and should not be forwarded to tools
         filtered_kwargs = {k: v for k, v in kwargs.items() if k != "runtime"}
-
-        # 打印工具调用信息：工具名称和参数
-        # logger.info(f"[Tool Call] 工具名称: {self.name}, 参数: {filtered_kwargs}")
 
         try:
             if self._wrapped_tool:
-                # 关键：调用 ainvoke 解决 config 参数缺失问题
+                # call ainvoke to ensure config is properly propagated
                 return await asyncio.wait_for(
                     self._wrapped_tool.ainvoke(filtered_kwargs, config=config), timeout=timeout
                 )
@@ -202,9 +198,9 @@ class EnhancedTool(BaseTool):
 
     @classmethod
     def from_langchain_tool(cls, tool: BaseTool, tool_metadata: Optional[ToolMetadata] = None):
-        """将 @tool 或 BaseTool 子类转换为 EnhancedTool"""
+        """Convert a @tool or BaseTool subclass into an EnhancedTool."""
         metadata = tool_metadata or ToolMetadata(source_type=ToolSourceType.LANGCHAIN)
-        # 提取原有描述
+        # extract the original description
         args_schema = tool.args_schema
         if args_schema is not None and not isinstance(args_schema, type):
             args_schema = None  # type: ignore[assignment]
@@ -219,7 +215,7 @@ class EnhancedTool(BaseTool):
 
     @classmethod
     def from_callable(cls, callable_func: Callable, name=None, description=None, tool_metadata=None):
-        """将函数转换为 EnhancedTool"""
+        """Convert a callable function into an EnhancedTool."""
         t_name = name or callable_func.__name__
         t_desc = description or callable_func.__doc__ or ""
         metadata = tool_metadata or ToolMetadata(source_type=ToolSourceType.BUILTIN)
@@ -242,15 +238,14 @@ class EnhancedTool(BaseTool):
         args_schema: Optional[Type[BaseModel]] = None,
         tool_metadata: Optional[ToolMetadata] = None,
     ):
-        """
-        从 entrypoint 函数创建 EnhancedTool
+        """Create an EnhancedTool from an entrypoint function.
 
         Args:
-            name: 工具名称
-            description: 工具描述
-            entrypoint: 执行入口函数（可以是同步或异步函数）
-            args_schema: 参数验证模型（可选）
-            tool_metadata: 工具元数据（可选）
+            name: Tool name.
+            description: Tool description.
+            entrypoint: Execution entry function (sync or async).
+            args_schema: Optional argument validation model.
+            tool_metadata: Optional tool metadata.
         """
         metadata = tool_metadata or ToolMetadata(source_type=ToolSourceType.CUSTOM)
 

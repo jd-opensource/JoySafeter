@@ -1,4 +1,4 @@
-"""认证服务 - 注册、登录、密码重置等业务逻辑"""
+"""Auth service — registration, login, password reset, and related business logic."""
 
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -24,7 +24,7 @@ from app.services.security_audit_service import SecurityAuditService
 
 
 class AuthService(BaseService):
-    """用户认证服务"""
+    """User authentication service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -39,24 +39,24 @@ class AuthService(BaseService):
         return token, expires
 
     async def _issue_jwt_tokens(self, user_id: str) -> tuple[str, str, str, datetime, datetime]:
-        """生成 JWT access token、refresh token 和 CSRF token"""
+        """Generate JWT access token, refresh token, and CSRF token."""
         from app.core.redis import RedisClient
         from app.core.security import create_access_token, create_csrf_token, generate_refresh_token
 
         access_expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
         refresh_expires = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
 
-        # 生成 access token (JWT)
+        # generate access token (JWT)
         access_token = create_access_token(
             subject=user_id, expires_delta=timedelta(minutes=settings.access_token_expire_minutes)
         )
 
-        # 生成 refresh token (随机字符串，存储在 Redis)
+        # generate refresh token (random string, stored in Redis)
         refresh_token = generate_refresh_token()
         refresh_token_key = f"refresh_token:{refresh_token}"
         refresh_token_user_key = f"account_refresh_token:{user_id}"
 
-        # 存储到 Redis（仅在 Redis 可用时）
+        # store in Redis (only when Redis is available)
         if RedisClient.is_available():
             try:
                 refresh_expire_seconds = int(refresh_expires.timestamp() - datetime.now(timezone.utc).timestamp())
@@ -65,13 +65,13 @@ class AuthService(BaseService):
             except Exception:
                 pass
 
-        # 生成 CSRF token (JWT)
+        # generate CSRF token (JWT)
         csrf_token = create_csrf_token(user_id)
 
         return access_token, refresh_token, csrf_token, access_expires, refresh_expires
 
     async def _delete_refresh_token(self, refresh_token: str, user_id: str) -> None:
-        """删除 Redis 中的 refresh token"""
+        """Delete the refresh token from Redis."""
         from app.core.redis import RedisClient
 
         redis_client = RedisClient.get_client()
@@ -90,7 +90,7 @@ class AuthService(BaseService):
         access_expires: datetime,
         refresh_expires: datetime,
     ) -> dict:
-        """构建登录响应（JWT 模式）"""
+        """Build login response (JWT mode)."""
         response = {
             "user": {
                 "id": user.id,
@@ -117,7 +117,7 @@ class AuthService(BaseService):
         expires_at: datetime,
         session: Optional[AuthSession] = None,
     ) -> dict:
-        """构建登录响应（对齐 better-auth 格式）"""
+        """Build login response (aligned with better-auth format)."""
 
         response: Dict[str, Any] = {
             "user": {
@@ -340,7 +340,7 @@ class AuthService(BaseService):
 
     # ---------------------------------------------------------------- refresh token
     async def refresh_token(self, refresh_token: str) -> dict:
-        """刷新 access token"""
+        """Refresh the access token."""
         from app.core.redis import RedisClient
 
         if not RedisClient.is_available():

@@ -1,5 +1,5 @@
 """
-模型工具模块
+Model utility module.
 """
 
 from .credential_resolver import LLMCredentialResolver

@@ -13,21 +13,21 @@ from .base import BaseRepository
 
 
 class AuthUserRepository(BaseRepository[AuthUser]):
-    """AuthUser 数据访问"""
+    """AuthUser data access."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(AuthUser, db)
 
     async def get_by_id(self, user_id: str) -> Optional[AuthUser]:
-        """根据用户 ID 获取用户（AuthUser 主键为 str）"""
+        """Get a user by ID (AuthUser primary key is str)."""
         return await self.get_by(id=user_id)
 
     async def get_by_email(self, email: str) -> Optional[AuthUser]:
-        """根据邮箱获取用户"""
+        """Get a user by email."""
         return await self.get_by(email=email)
 
     async def get_by_reset_token(self, token: str) -> Optional[AuthUser]:
-        """根据密码重置令牌获取用户"""
+        """Get a user by password reset token."""
         result = await self.db.execute(
             select(AuthUser).where(
                 AuthUser.password_reset_token == token,
@@ -37,7 +37,7 @@ class AuthUserRepository(BaseRepository[AuthUser]):
         return result.scalar_one_or_none()
 
     async def get_by_verify_token(self, token: str) -> Optional[AuthUser]:
-        """根据邮箱验证令牌获取用户"""
+        """Get a user by email verification token."""
         result = await self.db.execute(
             select(AuthUser).where(
                 AuthUser.email_verify_token == token,
@@ -47,7 +47,7 @@ class AuthUserRepository(BaseRepository[AuthUser]):
         return result.scalar_one_or_none()
 
     async def search(self, keyword: str, limit: int = 20) -> list[AuthUser]:
-        """按 email/name 模糊搜索活跃用户"""
+        """Fuzzy-search active users by email/name."""
         pattern = f"%{keyword}%"
         result = await self.db.execute(
             select(AuthUser)

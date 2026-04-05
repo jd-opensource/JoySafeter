@@ -70,7 +70,7 @@ export function DeviceManager() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-        <CardTitle className="text-sm font-medium">设备配对</CardTitle>
+        <CardTitle className="text-sm font-medium">Device Pairing</CardTitle>
         {devices.length > 0 && (
           <Button
             variant="outline"
@@ -83,7 +83,7 @@ export function DeviceManager() {
             ) : (
               <CheckCheck className="mr-1 h-3.5 w-3.5" />
             )}
-            全部批准
+            Approve All
           </Button>
         )}
       </CardHeader>
@@ -91,12 +91,12 @@ export function DeviceManager() {
         {isLoading ? (
           <div className="flex items-center justify-center py-8 text-sm text-[var(--text-secondary)]">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            加载设备...
+            Loading devices...
           </div>
         ) : devices.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8">
             <Smartphone className="mb-2 h-6 w-6 text-[var(--text-tertiary)]" />
-            <p className="text-xs text-[var(--text-tertiary)]">暂无配对设备</p>
+            <p className="text-xs text-[var(--text-tertiary)]">No paired devices</p>
           </div>
         ) : (
           <ul className="divide-y divide-[var(--border)]">
@@ -126,7 +126,7 @@ export function DeviceManager() {
                       disabled={approveMutation.isPending}
                     >
                       <Check className="mr-0.5 h-3 w-3" />
-                      批准
+                      Approve
                     </Button>
                   )}
                 </div>

@@ -17,40 +17,40 @@ if TYPE_CHECKING:
 
 class UserSandbox(Base, TimestampMixin):
     """
-    用户沙箱记录表
+    User sandbox record table.
 
-    存储用户的个人沙箱实例信息，包括容器ID、状态、资源限制等。
-    每个用户同一时间只能有一个活跃沙箱记录。
+    Store per-user sandbox instance info including container ID, status, and resource limits.
+    Each user may have only one active sandbox record at a time.
     """
 
     __tablename__ = "user_sandbox"
 
-    # 沙箱 ID (通常与 user_id 关联，或者是独立的 UUID)
+    # sandbox ID (typically associated with user_id, or an independent UUID)
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
 
-    # 关联用户
+    # associated user
     user_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False, unique=True
     )
 
-    # Docker 容器信息
+    # Docker container info
     container_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # 状态: pending, creating, running, stopped, failed, terminating
+    # status: pending, creating, running, stopped, failed, terminating
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
 
-    # 镜像和运行时配置
+    # image and runtime configuration
     image: Mapped[str] = mapped_column(String(255), default="python:3.12-slim", nullable=False)
     runtime: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    # 运行状态跟踪
+    # runtime state tracking
     last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # 资源限制配置
-    cpu_limit: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # CPU 核心数，如 1.0
-    memory_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 内存大小 (MB)，如 512
-    idle_timeout: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)  # 闲置超时 (秒)
+    # resource limit configuration
+    cpu_limit: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # CPU cores, e.g. 1.0
+    memory_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # memory in MB, e.g. 512
+    idle_timeout: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)  # idle timeout in seconds
 
-    # 关系
+    # relationship
     user: Mapped["AuthUser"] = relationship("AuthUser", back_populates="sandbox")

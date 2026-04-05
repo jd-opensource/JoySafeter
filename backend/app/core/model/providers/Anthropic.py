@@ -1,5 +1,5 @@
 """
-Anthropic Claude 供应商实现
+Anthropic Claude provider implementation.
 """
 
 from typing import Any, Dict, List, Optional
@@ -12,7 +12,7 @@ from .base import BaseProvider, ModelType
 
 
 class AnthropicProvider(BaseProvider):
-    """Anthropic 供应商"""
+    """Anthropic provider."""
 
     PREDEFINED_CHAT_MODELS = [
         {
@@ -28,22 +28,22 @@ class AnthropicProvider(BaseProvider):
         {
             "name": "claude-3-7-sonnet-20250219",
             "display_name": "Claude 3.7 Sonnet",
-            "description": "Anthropic最新且最智能的模型，擅长高级推理和编程",
+            "description": "Anthropic's latest and most intelligent model, excels at advanced reasoning and coding",
         },
         {
             "name": "claude-3-5-sonnet-20241022",
             "display_name": "Claude 3.5 Sonnet",
-            "description": "智能且快速的模型，非常适合各种任务",
+            "description": "Smart and fast model, well-suited for a wide range of tasks",
         },
         {
             "name": "claude-3-5-haiku-20241022",
             "display_name": "Claude 3.5 Haiku",
-            "description": "同类中最快的模型，适合需要速度的应用",
+            "description": "Fastest model in its class, ideal for latency-sensitive applications",
         },
         {
             "name": "claude-3-opus-20240229",
             "display_name": "Claude 3 Opus",
-            "description": "在处理高度复杂的任务时表现强大的旧版旗舰模型",
+            "description": "Previous-generation flagship model, strong at highly complex tasks",
         },
     ]
 
@@ -51,24 +51,24 @@ class AnthropicProvider(BaseProvider):
         super().__init__(provider_name="anthropic", display_name="Anthropic (Claude)")
 
     def get_supported_model_types(self) -> List[ModelType]:
-        """获取支持的模型类型"""
+        """Return supported model types."""
         return [ModelType.CHAT]
 
     def get_credential_schema(self) -> Dict[str, Any]:
-        """获取凭据表单规则"""
+        """Return credential form schema."""
         return {
             "type": "object",
             "properties": {
                 "api_key": {
                     "type": "string",
                     "title": "API Key",
-                    "description": "Anthropic API密钥",
+                    "description": "Anthropic API key",
                     "required": True,
                 },
                 "base_url": {
                     "type": "string",
                     "title": "Base URL",
-                    "description": "API基础URL (仅自定义代理时需要设置)",
+                    "description": "API base URL (only needed for custom proxies)",
                     "required": False,
                 },
             },
@@ -76,7 +76,7 @@ class AnthropicProvider(BaseProvider):
         }
 
     def get_config_schema(self, model_type: ModelType) -> Optional[Dict[str, Any]]:
-        """获取模型参数配置规则"""
+        """Return model parameter config schema."""
         if model_type == ModelType.CHAT:
             return {
                 "type": "object",
@@ -84,7 +84,7 @@ class AnthropicProvider(BaseProvider):
                     "temperature": {
                         "type": "number",
                         "title": "Temperature",
-                        "description": "控制输出的随机性，范围0-1",
+                        "description": "Controls output randomness, range 0-1",
                         "default": 1.0,
                         "minimum": 0,
                         "maximum": 1,
@@ -92,14 +92,14 @@ class AnthropicProvider(BaseProvider):
                     "max_tokens": {
                         "type": "integer",
                         "title": "Max Tokens",
-                        "description": "生成的最大token数",
+                        "description": "Maximum number of tokens to generate",
                         "default": 4096,
                         "minimum": 1,
                     },
                     "top_p": {
                         "type": "number",
                         "title": "Top P",
-                        "description": "核采样参数，范围0-1",
+                        "description": "Nucleus sampling parameter, range 0-1",
                         "default": 1.0,
                         "minimum": 0,
                         "maximum": 1,
@@ -107,14 +107,14 @@ class AnthropicProvider(BaseProvider):
                     "timeout": {
                         "type": "number",
                         "title": "Timeout",
-                        "description": "请求超时时间（秒）",
+                        "description": "Request timeout in seconds",
                         "default": 60.0,
                         "minimum": 1.0,
                     },
                     "max_retries": {
                         "type": "integer",
                         "title": "Max Retries",
-                        "description": "最大重试次数",
+                        "description": "Maximum number of retries",
                         "default": 2,
                         "minimum": 0,
                     },
@@ -123,15 +123,15 @@ class AnthropicProvider(BaseProvider):
         return None
 
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
-        """验证凭据"""
+        """Validate credentials."""
         try:
             api_key = credentials.get("api_key")
             if not api_key:
-                return False, "API Key不能为空"
+                return False, "API key is required"
 
             base_url = credentials.get("base_url")
 
-            # 创建一个临时模型实例进行测试
+            # create a temporary model instance for testing
             kwargs: Dict[str, Any] = {
                 "model_name": self.PREDEFINED_CHAT_MODELS[0]["name"],
                 "api_key": api_key,
@@ -144,20 +144,20 @@ class AnthropicProvider(BaseProvider):
 
             model = ChatAnthropic(**kwargs)  # type: ignore[misc]
 
-            # 尝试调用API
+            # attempt an API call
             response = await model.ainvoke("Hello")
             if response and response.content:
                 return True, None
             else:
-                return False, "API调用失败：未收到有效响应"
+                return False, "API call failed: no valid response received"
         except Exception as e:
             msg = str(e)
-            return False, f"凭据验证失败：{msg}"
+            return False, f"Credential validation failed: {msg}"
 
     def get_model_list(
         self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """获取模型列表"""
+        """Return the model list."""
         if model_type == ModelType.CHAT:
             models = []
             for model in self.PREDEFINED_CHAT_MODELS:
@@ -178,17 +178,17 @@ class AnthropicProvider(BaseProvider):
         credentials: Dict[str, Any],
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> BaseChatModel:
-        """创建模型实例"""
+        """Create a model instance."""
         if model_type != ModelType.CHAT:
-            raise ValueError(f"Anthropic 供应商不支持模型类型: {model_type}")
+            raise ValueError(f"Anthropic provider does not support model type: {model_type}")
 
         api_key = credentials.get("api_key")
         if not api_key:
-            raise ValueError("API Key不能为空")
+            raise ValueError("API key is required")
 
         base_url = credentials.get("base_url")
 
-        # 构建模型参数
+        # build model kwargs
         model_kwargs: Dict[str, Any] = {
             "model_name": model_name,
             "api_key": SecretStr(api_key),
@@ -198,7 +198,7 @@ class AnthropicProvider(BaseProvider):
         if base_url:
             model_kwargs["anthropic_api_url"] = base_url
 
-        # 添加模型参数
+        # apply model parameters
         if model_parameters:
             if "temperature" in model_parameters:
                 model_kwargs["temperature"] = model_parameters["temperature"]

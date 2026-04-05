@@ -1,7 +1,7 @@
 """
 Custom Tool CRUD API (User-level)
-- 读写：基于用户所有权
-- 用户级配额限制（默认 100）
+- Read/write: based on user ownership
+- User-level quota limit (default 100)
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ async def list_custom_tools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取当前用户的所有工具"""
+    """List all tools for the current user."""
     service = CustomToolService(db)
     tools = await service.list_tools(current_user.id)
     return {"success": True, "data": [_serialize(t) for t in tools]}
@@ -72,7 +72,7 @@ async def create_custom_tool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建工具（用户级别）"""
+    """Create a tool (user-level)."""
     service = CustomToolService(db)
     tool = await service.create_tool(
         owner_id=current_user.id,
@@ -91,12 +91,12 @@ async def get_custom_tool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取工具详情（仅限所有者）"""
+    """Get tool details (owner only)."""
     service = CustomToolService(db)
     tool = await service.repo.get(tool_id)
     if not tool:
         return {"success": False, "error": "Not found"}
-    # 验证所有权
+    # verify ownership
     if tool.owner_id != current_user.id:
         return {"success": False, "error": "Forbidden"}
     return {"success": True, "data": _serialize(tool)}
@@ -109,7 +109,7 @@ async def update_custom_tool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新工具（仅限所有者）"""
+    """Update a tool (owner only)."""
     service = CustomToolService(db)
     tool = await service.update_tool(
         tool_id,

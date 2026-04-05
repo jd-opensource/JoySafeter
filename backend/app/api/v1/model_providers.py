@@ -1,4 +1,4 @@
-"""模型供应商管理API"""
+"""Model provider management API"""
 
 from typing import Any, Dict, Optional
 
@@ -16,10 +16,10 @@ router = APIRouter(prefix="/v1/model-providers", tags=["ModelProviders"])
 
 
 class ProviderDefaultsUpdate(BaseModel):
-    """更新 Provider 默认参数请求"""
+    """Update provider default parameters request."""
 
     default_parameters: Dict[str, Any] = Field(
-        description="Provider 级默认参数，如 {temperature: 0.7, max_tokens: 2000}"
+        description="Provider-level default parameters, e.g. {temperature: 0.7, max_tokens: 2000}"
     )
 
 
@@ -28,20 +28,20 @@ async def list_providers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取所有供应商列表"""
+    """List all providers."""
     service = ModelProviderService(db)
     providers = await service.get_all_providers()
-    return success_response(data=providers, message="获取供应商列表成功")
+    return success_response(data=providers, message="Provider list retrieved")
 
 
 class CustomProviderCreate(BaseModel):
-    """添加自定义 Provider 请求"""
+    """Add custom provider request."""
 
-    model_name: str = Field(description="模型名称", examples=["gpt-4o"])
-    credentials: Dict[str, Any] = Field(description="凭据字典（明文）")
-    display_name: Optional[str] = Field(default=None, description="自定义显示名称")
-    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数")
-    validate_credentials: bool = Field(default=True, description="是否验证凭据")
+    model_name: str = Field(description="Model name", examples=["gpt-4o"])
+    credentials: Dict[str, Any] = Field(description="Credentials dict (plaintext)")
+    display_name: Optional[str] = Field(default=None, description="Custom display name")
+    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="Model parameters")
+    validate_credentials: bool = Field(default=True, description="Whether to validate credentials")
 
 
 @router.post("/custom")
@@ -50,7 +50,7 @@ async def add_custom_provider(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """添加自定义 Provider（一步创建 provider + credential + model_instance）"""
+    """Add a custom provider (one-step creation of provider + credential + model_instance)."""
     service = ModelProviderService(db)
     result = await service.add_custom_provider(
         user_id=current_user.id,
@@ -60,7 +60,7 @@ async def add_custom_provider(
         model_parameters=payload.model_parameters,
         validate=payload.validate_credentials,
     )
-    return success_response(data=result, message="添加自定义供应商成功")
+    return success_response(data=result, message="Custom provider added")
 
 
 @router.get("/{provider_name}")
@@ -69,16 +69,16 @@ async def get_provider(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取单个供应商详情"""
+    """Get a single provider's details."""
     service = ModelProviderService(db)
     provider = await service.get_provider(provider_name)
 
     if not provider:
         from app.common.exceptions import NotFoundException
 
-        raise NotFoundException(f"供应商不存在: {provider_name}")
+        raise NotFoundException(f"Provider not found: {provider_name}")
 
-    return success_response(data=provider, message="获取供应商详情成功")
+    return success_response(data=provider, message="Provider details retrieved")
 
 
 @router.patch("/{provider_name}/defaults")
@@ -88,10 +88,10 @@ async def update_provider_defaults(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新 Provider 级默认参数"""
+    """Update provider-level default parameters."""
     service = ModelProviderService(db)
     provider = await service.update_provider_defaults(provider_name, payload.default_parameters)
-    return success_response(data=provider, message="更新供应商默认参数成功")
+    return success_response(data=provider, message="Provider defaults updated")
 
 
 @router.post("/sync")
@@ -99,10 +99,10 @@ async def sync_providers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """同步供应商、模型信息到数据库"""
+    """Sync providers and model info to the database."""
     service = ModelProviderService(db)
     result = await service.sync_all()
-    return success_response(data=result, message="同步完成")
+    return success_response(data=result, message="Sync completed")
 
 
 @router.delete("/{provider_name}")
@@ -111,7 +111,7 @@ async def delete_provider(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除供应商（仅限自定义供应商）"""
+    """Delete a provider (custom providers only)."""
     service = ModelProviderService(db)
     await service.delete_provider(provider_name)
-    return success_response(message=f"删除供应商 {provider_name} 成功")
+    return success_response(message=f"Provider {provider_name} deleted")

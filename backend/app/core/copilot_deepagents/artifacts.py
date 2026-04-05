@@ -4,12 +4,12 @@ Artifacts store for DeepAgents Copilot runs.
 Directory layout (per run):
   $DEEPAGENTS_ARTIFACTS_DIR/{graph_id}/{run_id}/
     00_request.json
-    analysis.json      (子代理产物)
-    blueprint.json     (子代理产物)
-    validation.json    (子代理产物)
-    actions.json       (最终 GraphAction 列表)
-    events.sse.jsonl   (SSE 事件流)
-    index.json         (运行索引)
+    analysis.json      (sub-agent artifact)
+    blueprint.json     (sub-agent artifact)
+    validation.json    (sub-agent artifact)
+    actions.json       (final GraphAction list)
+    events.sse.jsonl   (SSE event stream)
+    index.json         (run index)
 """
 
 from __future__ import annotations
@@ -39,35 +39,35 @@ def resolve_artifacts_root() -> Path:
 
 def _sanitize_path_component(component: str, default: str = "unknown") -> str:
     """
-    清理路径组件，防止目录遍历攻击。
+    Sanitize a path component to prevent directory traversal attacks.
 
-    规则：
-    1. 移除所有路径分隔符（/, \\）
-    2. 移除所有相对路径符号（.., .）
-    3. 移除控制字符和特殊字符
-    4. 限制长度（防止过长的路径）
-    5. 如果清理后为空，使用默认值
+    Rules:
+    1. Remove all path separators (/, \\)
+    2. Remove relative path symbols (.., .)
+    3. Remove control characters and special characters
+    4. Limit length (prevent excessively long paths)
+    5. Fall back to default if sanitized result is empty
 
     Args:
-        component: 要清理的路径组件
-        default: 清理失败时的默认值
+        component: path component to sanitize
+        default: fallback value if sanitization yields empty string
 
     Returns:
-        清理后的安全路径组件
+        Sanitized path component safe for filesystem use.
     """
     if not component:
         return default
 
-    # 移除所有路径分隔符和相对路径符号
+    # remove all path separators and relative path symbols
     sanitized = re.sub(r"[\\/\.\.]+", "", component)
 
-    # 移除控制字符、空格和特殊字符（只保留字母、数字、下划线、连字符）
+    # remove control characters, spaces, and special characters (keep letters, digits, underscores, hyphens)
     sanitized = re.sub(r"[^\w\-]", "", sanitized)
 
-    # 限制长度（防止过长的路径）
+    # limit length (prevent excessively long paths)
     sanitized = sanitized[:100]
 
-    # 如果清理后为空，使用默认值
+    # fall back to default if empty
     if not sanitized:
         return default
 
@@ -76,26 +76,26 @@ def _sanitize_path_component(component: str, default: str = "unknown") -> str:
 
 def _sanitize_filename(filename: str) -> str:
     """
-    清理文件名，防止目录遍历攻击。
+    Sanitize a filename to prevent directory traversal attacks.
 
-    只允许字母、数字、下划线、连字符、点号，且不能包含路径分隔符。
+    Only allow letters, digits, underscores, hyphens, and dots; no path separators.
 
     Args:
-        filename: 要清理的文件名
+        filename: filename to sanitize
 
     Returns:
-        清理后的安全文件名
+        Sanitized filename safe for filesystem use.
     """
     if not filename:
         raise ValueError("Filename cannot be empty")
 
-    # 移除所有路径分隔符
+    # remove all path separators
     sanitized = filename.replace("/", "").replace("\\", "")
 
-    # 移除相对路径符号
+    # remove relative path symbols
     sanitized = sanitized.replace("..", "").replace(".", "")
 
-    # 只保留字母、数字、下划线、连字符、点号
+    # keep only letters, digits, underscores, hyphens, dots
     sanitized = re.sub(r"[^\w\-\.]", "", sanitized)
 
     if not sanitized:
@@ -113,20 +113,20 @@ class ArtifactStore:
     run_dir: Optional[Path] = None
 
     def __post_init__(self):
-        # 如果没有指定 run_dir，自动构建
+        # if run_dir is not specified, build it automatically
         if self.run_dir is None:
             root = resolve_artifacts_root()
-            # 清理 graph_id 和 run_id，防止目录遍历
+            # sanitize graph_id and run_id to prevent directory traversal
             graph_dir = _sanitize_path_component(self.graph_id or "unknown_graph", default="unknown_graph")
             run_id_sanitized = _sanitize_path_component(self.run_id, default=f"run_{uuid.uuid4().hex[:12]}")
             self.run_dir = root / graph_dir / run_id_sanitized
-            # 更新 run_id 为清理后的值，保持一致性
+            # update run_id to the sanitized value for consistency
             self.run_id = run_id_sanitized
         else:
-            # 如果提供了 run_dir，验证它是否在 artifacts root 内
+            # if run_dir is provided, verify it is within the artifacts root
             root = resolve_artifacts_root()
             try:
-                # 使用 resolve() 解析绝对路径，然后检查是否在 root 内
+                # use resolve() to get absolute path, then check containment
                 resolved_run_dir = Path(self.run_dir).resolve()
                 resolved_root = root.resolve()
                 if not str(resolved_run_dir).startswith(str(resolved_root)):
@@ -137,17 +137,17 @@ class ArtifactStore:
                 logger.error(f"[ArtifactStore] Invalid run_dir: {e}")
                 raise ValueError(f"Invalid run_dir: {e}") from e
 
-        # 确保类型为 Path
+        # ensure type is Path
         if isinstance(self.run_dir, str):
             self.run_dir = Path(self.run_dir)
 
     def ensure(self) -> None:
-        """确保运行目录存在"""
+        """Ensure the run directory exists."""
         if self.run_dir is None:
             raise ValueError("run_dir must be set")
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
-        # 额外验证：确保目录确实在 artifacts root 内
+        # extra validation: ensure directory is within artifacts root
         root = resolve_artifacts_root()
         try:
             resolved_run_dir = self.run_dir.resolve()
@@ -159,15 +159,15 @@ class ArtifactStore:
             raise
 
     def _write_json(self, filename: str, data: Any) -> None:
-        """安全写入 JSON 文件"""
+        """Safely write a JSON file."""
         self.ensure()
         if self.run_dir is None:
             raise ValueError("run_dir must be set")
-        # 清理文件名，防止目录遍历
+        # sanitize filename to prevent directory traversal
         safe_filename = _sanitize_filename(filename)
         path = self.run_dir / safe_filename
 
-        # 额外验证：确保最终路径仍在 run_dir 内（防御性编程）
+        # extra validation: ensure final path is still within run_dir (defense in depth)
         try:
             resolved_path = path.resolve()
             resolved_run_dir = self.run_dir.resolve()
@@ -196,8 +196,8 @@ class ArtifactStore:
         self._write_json("actions.json", payload)
 
     def write_index(self, payload: Dict[str, Any]) -> None:
-        """写入运行索引"""
-        # 添加时间戳
+        """Write the run index."""
+        # add timestamp
         if "created_at" not in payload:
             payload["created_at"] = datetime.utcnow().isoformat()
         self._write_json("index.json", payload)
@@ -207,10 +207,10 @@ class ArtifactStore:
         self.ensure()
         if self.run_dir is None:
             raise ValueError("run_dir must be set")
-        # 使用硬编码的文件名，不需要清理
+        # use hardcoded filename; no sanitization needed
         path = self.run_dir / "events.sse.jsonl"
 
-        # 验证路径安全性
+        # verify path safety
         try:
             resolved_path = path.resolve()
             resolved_run_dir = self.run_dir.resolve()
@@ -226,14 +226,14 @@ class ArtifactStore:
     # ==================== Read Methods ====================
 
     def _read_json(self, filename: str) -> Optional[Dict[str, Any]]:
-        """安全读取 JSON 文件，失败返回 None"""
+        """Safely read a JSON file; return None on failure."""
         if self.run_dir is None:
             raise ValueError("run_dir must be set")
-        # 清理文件名，防止目录遍历
+        # sanitize filename to prevent directory traversal
         safe_filename = _sanitize_filename(filename)
         path = self.run_dir / safe_filename
 
-        # 验证路径安全性
+        # verify path safety
         try:
             resolved_path = path.resolve()
             resolved_run_dir = self.run_dir.resolve()
@@ -255,37 +255,37 @@ class ArtifactStore:
             return None
 
     def read_analysis(self) -> Optional[Dict[str, Any]]:
-        """读取需求分析结果"""
+        """Read the requirement analysis result."""
         return self._read_json("analysis.json")
 
     def read_blueprint(self) -> Optional[Dict[str, Any]]:
-        """读取工作流蓝图"""
+        """Read the workflow blueprint."""
         return self._read_json("blueprint.json")
 
     def read_validation(self) -> Optional[Dict[str, Any]]:
-        """读取验证报告"""
+        """Read the validation report."""
         return self._read_json("validation.json")
 
     def read_actions(self) -> Optional[List[Dict[str, Any]]]:
-        """读取 actions 列表"""
+        """Read the actions list."""
         data = self._read_json("actions.json")
         if isinstance(data, list):
             return data
         return None
 
     def read_index(self) -> Optional[Dict[str, Any]]:
-        """读取运行索引"""
+        """Read the run index."""
         return self._read_json("index.json")
 
     def file_exists(self, filename: str) -> bool:
-        """检查文件是否存在"""
+        """Check whether a file exists."""
         if self.run_dir is None:
             raise ValueError("run_dir must be set")
         try:
             safe_filename = _sanitize_filename(filename)
             path = self.run_dir / safe_filename
 
-            # 验证路径安全性
+            # verify path safety
             resolved_path = path.resolve()
             resolved_run_dir = self.run_dir.resolve()
             if not str(resolved_path).startswith(str(resolved_run_dir)):
@@ -299,8 +299,8 @@ class ArtifactStore:
 
 
 def new_run_store(graph_id: str) -> ArtifactStore:
-    """创建新的 ArtifactStore 实例"""
-    # graph_id 会在 __post_init__ 中被清理
+    """Create a new ArtifactStore instance."""
+    # graph_id will be sanitized in __post_init__
     store = ArtifactStore(graph_id=graph_id)
     try:
         store.ensure()

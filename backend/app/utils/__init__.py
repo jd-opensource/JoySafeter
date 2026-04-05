@@ -1,7 +1,7 @@
 """
-工具函数模块
+Utility functions module.
 
-提供通用的工具函数和辅助功能
+Provide general-purpose utility functions and helpers.
 """
 
 from app.utils.datetime import utc_now

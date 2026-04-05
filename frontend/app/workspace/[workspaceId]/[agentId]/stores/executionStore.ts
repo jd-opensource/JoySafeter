@@ -1,8 +1,8 @@
 /**
- * Execution Store - 兼容层
+ * Execution Store - compatibility layer
  *
- * 从新的模块化结构重新导出
- * 保持向后兼容，现有代码无需修改
+ * Re-exports from the new modular structure.
+ * Maintains backward compatibility so existing code needs no changes.
  */
 
 export { useExecutionStore } from './execution/executionStore'

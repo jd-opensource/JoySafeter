@@ -15,7 +15,7 @@ interface ModelIOCardProps {
 }
 
 /**
- * 格式化JSON以便更好地显示包含换行符的字符串值
+ * Format JSON for better display of string values containing newlines
  */
 function formatJsonWithNewlines(data: any): string {
   const jsonString = JSON.stringify(data, null, 2)
@@ -153,7 +153,7 @@ export function ModelIOCard({
             </span>
             {isRunning && (
               <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                等待输出...
+                Awaiting output...
               </span>
             )}
           </div>
@@ -184,7 +184,7 @@ export function ModelIOCard({
           {!hasOutput && hasInput && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
               <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-              <span className="text-xs text-amber-700">等待模型响应...</span>
+              <span className="text-xs text-amber-700">Awaiting model response...</span>
             </div>
           )}
         </div>
@@ -270,7 +270,7 @@ export function ModelIOCard({
           {!hasOutput && hasInput && (
             <div className="flex items-center gap-2 rounded border border-amber-200 bg-amber-50 p-2">
               <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-              <span className="text-[10px] text-amber-700">等待模型响应...</span>
+              <span className="text-[10px] text-amber-700">Awaiting model response...</span>
             </div>
           )}
         </div>

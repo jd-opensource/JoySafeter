@@ -1,5 +1,5 @@
 """
-Auth 用户与会话表模型
+Auth user and session table models
 """
 
 import uuid
@@ -20,15 +20,15 @@ if TYPE_CHECKING:
 
 
 def _generate_str_id() -> str:
-    """与 drizzle text 主键兼容的字符串 UUID 生成器。"""
+    """Generate a string UUID compatible with drizzle text primary keys."""
     return str(uuid.uuid4())
 
 
 class AuthUser(Base, TimestampMixin):
     """
-    对应原始项目的 `user` 表。
+    Correspond to the original project's `user` table.
 
-    采用 text 主键以兼容 drizzle 定义，并保留基础时间戳字段。
+    Use text primary key for drizzle compatibility, with base timestamp columns.
     """
 
     __tablename__ = "user"
@@ -41,10 +41,10 @@ class AuthUser(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # 认证字段
+    # auth fields
     hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # token 字段
+    # token fields
     password_reset_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     password_reset_expires: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     email_verify_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -53,14 +53,14 @@ class AuthUser(Base, TimestampMixin):
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_super_user: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # 安全增强字段
+    # security fields
     failed_login_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     lock_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login_ip: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # 关系
+    # relationships
     sessions: Mapped[List["AuthSession"]] = relationship(
         "AuthSession",
         back_populates="user",
@@ -89,27 +89,27 @@ class AuthUser(Base, TimestampMixin):
 
     @property
     def full_name(self) -> str:
-        """返回用户全名（兼容性属性）"""
+        """Return user full name (compatibility property)."""
         return self.name
 
     @property
     def is_superuser(self) -> bool:
-        """兼容性属性：映射 is_super_user"""
+        """Compatibility property: map to is_super_user."""
         return self.is_super_user
 
     @is_superuser.setter
     def is_superuser(self, value: bool) -> None:
-        """兼容性属性设置器"""
+        """Compatibility property setter."""
         self.is_super_user = value
 
     def is_locked(self) -> bool:
-        """检查账户是否被锁定"""
+        """Check whether the account is locked."""
         if not self.locked_until:
             return False
         return datetime.now(timezone.utc) < self.locked_until
 
     def unlock(self) -> None:
-        """解锁账户"""
+        """Unlock the account."""
         self.locked_until = None
         self.lock_reason = None
         self.failed_login_attempts = 0
@@ -117,11 +117,11 @@ class AuthUser(Base, TimestampMixin):
 
 class AuthSession(Base, TimestampMixin):
     """
-    对应原始项目的 `session` 表。
+    Correspond to the original project's `session` table.
 
-    完全对齐原始项目的 drizzle schema：
-    - 表名: session
-    - 字段: id, expires_at, token, created_at, updated_at, ip_address, user_agent, user_id, active_organization_id
+    Fully aligned with the original drizzle schema:
+    - table: session
+    - columns: id, expires_at, token, created_at, updated_at, ip_address, user_agent, user_id, active_organization_id
     """
 
     __tablename__ = "session"
@@ -150,13 +150,13 @@ class AuthSession(Base, TimestampMixin):
         nullable=True,
     )
 
-    # 安全增强字段
+    # security fields
     last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     device_fingerprint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     device_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_trusted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # 关系
+    # relationships
     user: Mapped["AuthUser"] = relationship("AuthUser", back_populates="sessions")
     active_organization: Mapped[Optional["Organization"]] = relationship(
         "Organization",

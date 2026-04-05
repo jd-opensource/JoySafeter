@@ -1,5 +1,5 @@
 """
-自定义工具模型
+Custom tool model
 """
 
 from __future__ import annotations

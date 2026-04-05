@@ -351,7 +351,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
         'system',
         i18n
           .t('execution.agentStarted', {
-            defaultValue: '智能体已启动，输入：{{input}}',
+            defaultValue: 'Agent started, input: {{input}}',
             input,
           })
           .replace('{{input}}', input),
@@ -390,7 +390,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
       if (get().isExecuting) {
         get().addLog(
           'system',
-          i18n.t('execution.agentCompleted', { defaultValue: '智能体成功完成。' }),
+          i18n.t('execution.agentCompleted', { defaultValue: 'Agent completed successfully.' }),
           'success',
         )
         set({ isExecuting: false, activeExecutionNodeId: null })

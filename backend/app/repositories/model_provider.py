@@ -17,27 +17,27 @@ class ModelProviderRepository(BaseRepository[ModelProvider]):
         super().__init__(ModelProvider, db)
 
     async def get_by_name(self, name: str) -> ModelProvider | None:
-        """根据名称获取供应商"""
+        """Get a provider by name."""
         result = await self.db.execute(select(ModelProvider).where(ModelProvider.name == name))
         return result.scalar_one_or_none()
 
     async def list_enabled(self) -> list[ModelProvider]:
-        """获取所有启用的供应商"""
+        """List all enabled providers."""
         result = await self.db.execute(select(ModelProvider).where(ModelProvider.is_enabled))
         return list(result.scalars().all())
 
     async def list_by_type(self, provider_type: str) -> list[ModelProvider]:
-        """根据类型获取供应商列表"""
+        """List providers by type."""
         result = await self.db.execute(select(ModelProvider).where(ModelProvider.provider_type == provider_type))
         return list(result.scalars().all())
 
     async def count_all(self) -> int:
-        """获取供应商总数"""
+        """Get total provider count."""
         result = await self.db.execute(select(func.count()).select_from(ModelProvider))
         return result.scalar() or 0
 
     async def update_default_parameters(self, name: str, default_parameters: Dict[str, Any]) -> ModelProvider | None:
-        """更新供应商默认参数"""
+        """Update provider default parameters."""
         provider = await self.get_by_name(name)
         if not provider:
             return None

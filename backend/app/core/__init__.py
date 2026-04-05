@@ -1,4 +1,4 @@
-"""Core module - 核心配置和工具"""
+"""Core module — configuration and utilities."""
 
 from .database import Base, engine, get_db
 from .settings import settings

@@ -48,7 +48,7 @@ export function ToolsPage() {
   }
 
   /**
-   * 切换 MCP 服务器启用状态
+   * Toggle MCP server enabled state
    */
   const handleToggleEnabled = async (server: McpServer) => {
     try {

@@ -59,7 +59,7 @@ export function GraphStatusBar() {
       return (
         <span className="flex items-center gap-1 text-amber-600">
           <WifiOff size={12} />
-          {t('status.offline', { defaultValue: '离线' })}
+          {t('status.offline', { defaultValue: 'Offline' })}
         </span>
       )
     }
@@ -69,7 +69,7 @@ export function GraphStatusBar() {
       return (
         <span className="flex items-center gap-1 text-primary">
           <Loader2 size={12} className="animate-spin" />
-          {t('status.saving', { defaultValue: '保存中...' })}
+          {t('status.saving', { defaultValue: 'Saving...' })}
         </span>
       )
     }
@@ -79,7 +79,7 @@ export function GraphStatusBar() {
       return (
         <span className="flex items-center gap-1 text-red-500" title={lastSaveError}>
           <AlertCircle size={12} />
-          {t('status.saveFailed', { defaultValue: '保存失败' })}
+          {t('status.saveFailed', { defaultValue: 'Save failed' })}
         </span>
       )
     }
@@ -88,7 +88,7 @@ export function GraphStatusBar() {
     if (saveRetryCount > 0 && saveRetryCount < 3) {
       return (
         <span className="text-amber-500">
-          {t('status.retrying', { defaultValue: '重试中' })} ({saveRetryCount}/3)
+          {t('status.retrying', { defaultValue: 'Retrying' })} ({saveRetryCount}/3)
         </span>
       )
     }
@@ -96,8 +96,8 @@ export function GraphStatusBar() {
     // Graph not ready for saving
     if (!isGraphReady) {
       return (
-        <span className="text-[var(--text-muted)]" title="等待图表初始化...">
-          {t('status.waiting', { defaultValue: '等待中...' })}
+        <span className="text-[var(--text-muted)]" title="Waiting for graph initialization...">
+          {t('status.waiting', { defaultValue: 'Waiting...' })}
         </span>
       )
     }
@@ -106,7 +106,7 @@ export function GraphStatusBar() {
     if (hasPendingChanges) {
       return (
         <span className="flex items-center gap-1.5 text-[var(--text-muted)]">
-          {t('status.unsavedChanges', { defaultValue: '有未保存的更改' })}
+          {t('status.unsavedChanges', { defaultValue: 'Unsaved changes' })}
           <Button
             variant="ghost"
             size="sm"
@@ -114,7 +114,7 @@ export function GraphStatusBar() {
             className="h-5 px-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
           >
             <Save size={11} className="mr-1" />
-            {t('status.save', { defaultValue: '保存' })}
+            {t('status.save', { defaultValue: 'Save' })}
           </Button>
         </span>
       )

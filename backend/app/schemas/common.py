@@ -1,5 +1,5 @@
 """
-通用 Schema
+Common schemas
 """
 
 import uuid
@@ -14,7 +14,7 @@ T = TypeVar("T")
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
-    """分页响应"""
+    """Paginated response."""
 
     items: List[T]
     total: int
@@ -24,20 +24,20 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
 
 class BaseSchema(BaseModel):
-    """基础 Schema"""
+    """Base schema."""
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class TimestampSchema(BaseSchema):
-    """带时间戳的 Schema"""
+    """Schema with timestamps."""
 
     created_at: datetime
     updated_at: datetime
 
 
 class IDSchema(TimestampSchema):
-    """带 ID 的 Schema"""
+    """Schema with ID."""
 
     id: uuid.UUID
 

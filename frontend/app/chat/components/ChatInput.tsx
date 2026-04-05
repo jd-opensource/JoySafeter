@@ -45,7 +45,7 @@ export default function ChatInput({
     (uploadedFile: UploadedFile, rawFile: File) => {
       if (currentMode === 'apk-vulnerability' && rawFile.name.toLowerCase().endsWith('.apk')) {
         const taskText = t('chat.apkVulnerabilityTaskWithPath', {
-          defaultValue: '任务APK IntentBridge漏洞挖掘  apk路径为 {{path}}',
+          defaultValue: 'Task: APK IntentBridge vulnerability mining, APK path: {{path}}',
           path: uploadedFile.path,
         })
         onSubmit(taskText, currentMode, currentGraphId || undefined, [uploadedFile])
@@ -80,7 +80,7 @@ export default function ChatInput({
       input.trim() ||
       (currentMode === 'apk-vulnerability' && files.length > 0
         ? t('chat.apkVulnerabilityTaskStart', {
-            defaultValue: '开启任务：APK IntentBridge 漏洞挖掘',
+            defaultValue: 'Start task: APK IntentBridge vulnerability mining',
           })
         : '')
     if (!text && files.length === 0) return

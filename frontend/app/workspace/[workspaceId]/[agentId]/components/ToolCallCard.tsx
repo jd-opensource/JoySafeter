@@ -24,7 +24,7 @@ interface ToolCallCardProps {
 }
 
 /**
- * 格式化JSON以便更好地显示包含换行符的字符串值
+ * Format JSON for better display of string values containing newlines
  */
 function formatJsonWithNewlines(data: any): string {
   const jsonString = JSON.stringify(data, null, 2)
@@ -211,8 +211,8 @@ export function ToolCallCard({
                     className="rounded px-2 py-0.5 text-[9px] font-medium text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
                   >
                     {outputCollapsed
-                      ? t('tool.expand', { defaultValue: '展开' })
-                      : t('tool.collapse', { defaultValue: '折叠' })}
+                      ? t('tool.expand', { defaultValue: 'Expand' })
+                      : t('tool.collapse', { defaultValue: 'Collapse' })}
                   </button>
                 )}
               </div>
@@ -225,7 +225,7 @@ export function ToolCallCard({
                     onClick={() => setOutputCollapsed(false)}
                     className="mt-1 text-[9px] font-medium text-emerald-600 hover:text-emerald-700"
                   >
-                    {t('tool.clickToExpand', { defaultValue: '点击展开查看完整输出' })}
+                    {t('tool.clickToExpand', { defaultValue: 'Click to expand full output' })}
                   </button>
                 </div>
               ) : (

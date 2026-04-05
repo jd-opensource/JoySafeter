@@ -42,29 +42,29 @@ async def _get_user_lock(user_id: str) -> asyncio.Lock:
 
 class SandboxManagerService:
     """
-    用户沙箱管理服务 - 生产级实现
+    User sandbox management service — production-grade implementation.
 
-    核心职责：
-    1. 管理 UserSandbox 数据库记录
-    2. 协调 Docker 容器的生命周期 (通过 PydanticSandboxAdapter)
-    3. 维护沙箱连接池
-    4. 监控沙箱状态
+    Core responsibilities:
+    1. Manage UserSandbox database records
+    2. Coordinate Docker container lifecycle (via PydanticSandboxAdapter)
+    3. Maintain the sandbox connection pool
+    4. Monitor sandbox status
 
-    并发安全：
-    - ensure_sandbox_running 使用 per-user lock 防止同一用户并发创建多个容器
-    - SandboxPool 使用 asyncio.Lock 保护内部状态
+    Concurrency safety:
+    - ensure_sandbox_running uses a per-user lock to prevent concurrent container creation for the same user
+    - SandboxPool uses asyncio.Lock to protect internal state
     """
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def get_user_sandbox_record(self, user_id: str) -> Optional[UserSandbox]:
-        """获取用户的沙箱记录"""
+        """Get the user's sandbox record."""
         result = await self.db.execute(select(UserSandbox).where(UserSandbox.user_id == user_id))
         return result.scalar_one_or_none()
 
     async def create_sandbox_record(self, user_id: str) -> UserSandbox:
-        """创建新的沙箱记录（不启动容器）"""
+        """Create a new sandbox record (do not start a container)."""
         existing = await self.get_user_sandbox_record(user_id)
         if existing:
             return existing
@@ -89,12 +89,12 @@ class SandboxManagerService:
 
     async def ensure_sandbox_running(self, user_id: str) -> Any:
         """
-        确保用户的沙箱正在运行，并返回 SandboxHandle。
-        如果沙箱不存在则创建，如果已停止则启动。
+        Ensure the user's sandbox is running and return a SandboxHandle.
+        Create if it does not exist, start if stopped.
 
-        使用 per-user lock 防止并发创建多个容器。
-        返回的 SandboxHandle 已在 pool 中 active_count += 1，
-        调用方必须通过 handle.release() 或 async with handle 释放引用。
+        Use a per-user lock to prevent concurrent container creation.
+        The returned SandboxHandle already has active_count += 1 in the pool;
+        the caller must release via handle.release() or async with handle.
         """
         from app.services import sandbox_handle
 
@@ -107,21 +107,22 @@ class SandboxManagerService:
 
     async def warm_up_sandbox(self, user_id: str) -> None:
         """
-        确保用户的沙箱正在运行，但不增加 active_count。
-        用于登录后的后台预热，不需要操作沙箱内容。
+        Ensure the user's sandbox is running, but do not increment active_count.
+        Used for background warm-up after login; no sandbox content operations needed.
         """
         user_lock = await _get_user_lock(user_id)
         async with user_lock:
             await self._ensure_sandbox_running_locked(user_id)
-            # 立即释放 pool 引用（_ensure_sandbox_running_locked 内部 pool.get/put 已 +1）
+            # immediately release pool reference (_ensure_sandbox_running_locked internally did pool.get/put +1)
             record = await self.get_user_sandbox_record(user_id)
             if record:
                 await _sandbox_pool.release(str(record.id))
 
     async def _get_or_create_sandbox_record_for_update(self, user_id: str) -> UserSandbox:
-        """获取或创建沙箱记录，使用 SELECT FOR UPDATE 防止跨进程竞争。
+        """Get or create a sandbox record, using SELECT FOR UPDATE to prevent cross-process races.
 
-        持有行锁直到调用方提交或回滚，确保同一用户不会被多个 worker 并发创建容器。
+        Hold the row lock until the caller commits or rolls back, ensuring the same user
+        is not concurrently assigned multiple containers by different workers.
         """
         result = await self.db.execute(select(UserSandbox).where(UserSandbox.user_id == user_id).with_for_update())
         record = result.scalar_one_or_none()
@@ -134,7 +135,7 @@ class SandboxManagerService:
         return new_sandbox
 
     async def _ensure_sandbox_running_locked(self, user_id: str) -> PydanticSandboxAdapter:
-        """ensure_sandbox_running 的内部实现（已持有 per-user lock）"""
+        """Internal implementation of ensure_sandbox_running (per-user lock already held)."""
         sandbox_record = await self._get_or_create_sandbox_record_for_update(user_id)
 
         adapter = await _sandbox_pool.get(sandbox_record.id)
@@ -142,7 +143,7 @@ class SandboxManagerService:
             if adapter.is_started():
                 await self._update_last_active(sandbox_record.id)
                 return adapter
-            # 已停止但未移除：尝试重启同一容器
+            # stopped but not removed: try restarting the same container
             try:
                 adapter.start()
                 container_id = adapter.get_container_id()
@@ -177,7 +178,7 @@ class SandboxManagerService:
                 logger.warning(f"Failed to reconnect container {sandbox_record.container_id} for user {user_id}: {e}")
                 self._force_remove_container(sandbox_record.container_id)
 
-        # flush_only=True 保持行锁直到 container_id 写入，防止第二个 worker 在此期间读到 container_id=None 并重复创建容器
+        # flush_only=True keeps the row lock until container_id is written, preventing a second worker from reading container_id=None and creating a duplicate container
         try:
             await self._update_status(sandbox_record.id, "creating", flush_only=True)
 
@@ -219,7 +220,7 @@ class SandboxManagerService:
 
     @staticmethod
     def _force_remove_container(container_id: str) -> None:
-        """强制删除 Docker 容器，忽略所有错误（用于清理孤儿容器）"""
+        """Force-remove a Docker container, ignoring all errors (for cleaning up orphan containers)."""
         try:
             import docker
 
@@ -230,10 +231,10 @@ class SandboxManagerService:
 
     @staticmethod
     def _reconnect_container(sandbox_record: UserSandbox) -> Optional[PydanticSandboxAdapter]:
-        """尝试重连已存在的 Docker 容器（app 重启恢复场景）。
+        """Try to reconnect to an existing Docker container (app restart recovery scenario).
 
         Returns:
-            成功时返回 PydanticSandboxAdapter, 失败返回 None
+            PydanticSandboxAdapter on success, None on failure
         """
         try:
             import docker
@@ -268,10 +269,10 @@ class SandboxManagerService:
         error_message: Optional[str] = None,
         flush_only: bool = False,
     ):
-        """更新沙箱状态。
+        """Update sandbox status.
 
-        flush_only=True: 仅 flush（保持事务和行锁），由调用方负责 commit。
-        flush_only=False（默认）: flush + commit，立即提交。
+        flush_only=True: only flush (keep transaction and row lock), caller is responsible for commit.
+        flush_only=False (default): flush + commit, commit immediately.
         """
         values: Dict[str, Any] = {"status": status, "last_active_at": datetime.now(timezone.utc)}
         if container_id is not None:
@@ -288,14 +289,14 @@ class SandboxManagerService:
             await self.db.commit()
 
     async def _update_last_active(self, sandbox_id: str):
-        """仅更新活跃时间"""
+        """Update last-active time only."""
         await self.db.execute(
             update(UserSandbox).where(UserSandbox.id == sandbox_id).values(last_active_at=datetime.now(timezone.utc))
         )
         await self.db.commit()
 
     async def stop_sandbox(self, sandbox_id: str) -> bool:
-        """停止沙箱（仅停止容器，不删除、不移出池）"""
+        """Stop the sandbox (stop container only, do not delete or remove from pool)."""
         await _sandbox_pool.stop(sandbox_id)
         result = await self.db.execute(
             update(UserSandbox)
@@ -306,7 +307,7 @@ class SandboxManagerService:
         return bool(cast(CursorResult, result).rowcount > 0)
 
     async def restart_sandbox(self, sandbox_id: str) -> bool:
-        """重启沙箱（启动同一容器，不删不新建）"""
+        """Restart the sandbox (start the same container, no delete or recreate)."""
         result = await self.db.execute(select(UserSandbox).where(UserSandbox.id == sandbox_id))
         record = result.scalar_one_or_none()
         if not record:
@@ -339,7 +340,7 @@ class SandboxManagerService:
             return False
 
     async def rebuild_sandbox(self, sandbox_id: str) -> bool:
-        """重建沙箱：删除旧容器并启动新容器"""
+        """Rebuild the sandbox: delete the old container and start a new one."""
         result = await self.db.execute(select(UserSandbox).where(UserSandbox.id == sandbox_id))
         record = result.scalar_one_or_none()
         if not record:
@@ -356,7 +357,7 @@ class SandboxManagerService:
             return False
 
     async def update_sandbox_config(self, sandbox_id: str, image: Optional[str] = None) -> bool:
-        """更新沙箱配置（如 image）；新镜像在下次 rebuild 或新建容器时生效"""
+        """Update sandbox config (e.g. image); the new image takes effect on the next rebuild or container creation."""
         values: Dict[str, Any] = {}
         if image is not None:
             image_str = image.strip()
@@ -372,14 +373,14 @@ class SandboxManagerService:
         return bool(cast(CursorResult, result).rowcount > 0)
 
     async def delete_sandbox(self, sandbox_id: str) -> bool:
-        """彻底删除沙箱记录和容器"""
+        """Permanently delete the sandbox record and container."""
         await _sandbox_pool.remove(sandbox_id)  # stop + remove container
         result = await self.db.execute(delete(UserSandbox).where(UserSandbox.id == sandbox_id))
         await self.db.commit()
         return bool(cast(CursorResult, result).rowcount > 0)
 
     async def cleanup_idle_sandboxes(self) -> int:
-        """清理所有闲置沙箱（后台任务）"""
+        """Clean up all idle sandboxes (background task)."""
         evicted_ids = await _sandbox_pool.cleanup_idle()
 
         if evicted_ids:

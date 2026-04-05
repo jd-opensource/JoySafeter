@@ -2,7 +2,7 @@
 LangGraph checkpoint management.
 
 Manages persistence of conversation state.
-集中管理 checkpointer 的所有逻辑，提供统一的接口。
+Centralize all checkpointer logic and provide a unified interface.
 """
 
 import os
@@ -16,13 +16,12 @@ if TYPE_CHECKING:
 
 
 class CheckpointerManager:
-    """
-    集中管理 checkpointer 的全局管理器。
+    """Global manager for centralized checkpointer management.
 
-    负责：
-    - 全局连接池的生命周期管理
-    - 根据配置自动提供 checkpointer 实例
-    - 数据库表的初始化
+    Responsible for:
+    - Global connection pool lifecycle management
+    - Providing checkpointer instances based on configuration
+    - Database table initialization
     """
 
     _pool: Optional[AsyncConnectionPool] = None
@@ -30,16 +29,16 @@ class CheckpointerManager:
 
     @classmethod
     def _get_db_uri(cls) -> str:
-        """
-        构建数据库连接 URI。
+        """Build the database connection URI.
 
-        从环境变量读取 PostgreSQL 连接信息并构建连接字符串。
+        Read PostgreSQL connection info from environment variables and build
+        the connection string.
 
         Returns:
-            str: PostgreSQL 连接 URI，格式为 postgresql://user:password@host:port/database
+            str: PostgreSQL connection URI (postgresql://user:password@host:port/database).
 
         Raises:
-            ValueError: 如果必需的环境变量未设置
+            ValueError: If required environment variables are not set.
         """
         user = os.getenv("POSTGRES_USER")
         password = os.getenv("POSTGRES_PASSWORD")
@@ -52,25 +51,24 @@ class CheckpointerManager:
         if not database:
             raise ValueError("POSTGRES_DB environment variable is required")
 
-        # password 可以为空字符串，所以只检查是否为 None
+        # password can be an empty string, so only check for None
         password = password or ""
 
         return f"postgresql://{user}:{password}@{host}:{port}/{database}"
 
     @classmethod
     async def initialize(cls) -> None:
-        """
-        应用启动时初始化连接池。
+        """Initialize the connection pool at application startup.
 
-        应该在应用启动时调用一次，通常在 lifespan 中。
-        此方法会：
-        1. 创建 AsyncConnectionPool 连接池
-        2. 打开连接池
-        3. 初始化数据库表结构
+        Should be called once at startup, typically in the lifespan handler.
+        This method will:
+        1. Create an AsyncConnectionPool
+        2. Open the pool
+        3. Initialize database table schema
 
         Raises:
-            ValueError: 如果数据库连接配置无效
-            Exception: 如果连接池初始化或数据库表创建失败
+            ValueError: If database connection config is invalid.
+            Exception: If pool initialization or table creation fails.
         """
         if cls._initialized:
             logger.warning("CheckpointerManager already initialized, skipping")
@@ -83,9 +81,9 @@ class CheckpointerManager:
                 min_size=int(os.getenv("DB_POOL_MIN_SIZE", 1)),
                 max_size=int(os.getenv("DB_POOL_MAX_SIZE", 10)),
                 kwargs={"autocommit": True, "prepare_threshold": 0},
-                open=False,  # 不在构造函数中自动打开
+                open=False,  # do not auto-open in constructor
             )
-            # 显式打开连接池
+            # explicitly open the pool
             await cls._pool.open()
             cls._initialized = True
             logger.info(
@@ -93,11 +91,11 @@ class CheckpointerManager:
                 f"pool_size={os.getenv('DB_POOL_MIN_SIZE', 1)}-{os.getenv('DB_POOL_MAX_SIZE', 10)}"
             )
 
-            # 初始化数据库表结构
+            # initialize database table schema
             await cls._init_db()
         except Exception as e:
             logger.error(f"Failed to initialize CheckpointerManager: {e}")
-            # 如果初始化失败，确保清理连接池
+            # if initialization fails, ensure the pool is cleaned up
             if cls._pool:
                 try:
                     await cls._pool.close()
@@ -108,15 +106,14 @@ class CheckpointerManager:
 
     @classmethod
     async def _init_db(cls) -> None:
-        """
-        确保数据库表结构已创建。
+        """Ensure database table schema is created.
 
-        使用 AsyncPostgresSaver 创建必要的数据库表和索引。
-        此方法在连接池初始化后自动调用。
+        Use AsyncPostgresSaver to create the necessary tables and indexes.
+        Called automatically after pool initialization.
 
         Raises:
-            RuntimeError: 如果连接池未初始化
-            Exception: 如果数据库表创建失败
+            RuntimeError: If the pool is not initialized.
+            Exception: If table creation fails.
         """
         if not cls._pool:
             raise RuntimeError("Pool not initialized. Call initialize() first.")
@@ -129,14 +126,13 @@ class CheckpointerManager:
 
     @classmethod
     def _get_pool(cls) -> AsyncConnectionPool:
-        """
-        获取连接池（内部方法）。
+        """Get the connection pool (internal method).
 
         Returns:
-            AsyncConnectionPool: 已初始化的连接池实例
+            AsyncConnectionPool: The initialized pool instance.
 
         Raises:
-            RuntimeError: 如果 CheckpointerManager 未初始化
+            RuntimeError: If CheckpointerManager is not initialized.
         """
         if not cls._pool:
             raise RuntimeError(
@@ -146,16 +142,16 @@ class CheckpointerManager:
 
     @classmethod
     def get_checkpointer(cls) -> Optional["AsyncPostgresSaver"]:
-        """
-        获取 checkpointer 实例。
+        """Get a checkpointer instance.
 
-        每次调用都会创建新的 AsyncPostgresSaver 实例，确保使用最新的连接池状态。
+        Each call creates a new AsyncPostgresSaver instance to ensure
+        the latest pool state is used.
 
         Returns:
-            Optional[AsyncPostgresSaver]: AsyncPostgresSaver 实例或 None
+            Optional[AsyncPostgresSaver]: An AsyncPostgresSaver instance, or None.
 
         Raises:
-            RuntimeError: 如果 CheckpointerManager 未初始化
+            RuntimeError: If CheckpointerManager is not initialized.
         """
         pool = cls._get_pool()
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -164,14 +160,13 @@ class CheckpointerManager:
 
     @classmethod
     async def close(cls) -> None:
-        """
-        应用关闭时关闭连接池。
+        """Close the connection pool at application shutdown.
 
-        应该在应用关闭时调用，通常在 lifespan 中。
-        此方法会安全地关闭连接池并清理资源。
+        Should be called at shutdown, typically in the lifespan handler.
+        Safely closes the pool and cleans up resources.
 
         Note:
-            即使关闭过程中出现异常，也会确保资源被清理。
+            Resources are cleaned up even if an exception occurs during close.
         """
         if cls._pool:
             try:
@@ -185,17 +180,16 @@ class CheckpointerManager:
 
 
 def get_checkpointer() -> Optional["AsyncPostgresSaver"]:
-    """
-    统一的 checkpointer 获取接口。
+    """Unified checkpointer access interface.
 
-    便捷函数，内部调用 CheckpointerManager.get_checkpointer()。
-    自动根据配置返回 checkpointer 或 None。
+    Convenience function that delegates to CheckpointerManager.get_checkpointer().
+    Automatically returns a checkpointer or None based on configuration.
 
     Returns:
-        Optional[AsyncPostgresSaver]: AsyncPostgresSaver 实例或 None
+        Optional[AsyncPostgresSaver]: An AsyncPostgresSaver instance, or None.
 
     Raises:
-        RuntimeError: 如果 CheckpointerManager 未初始化
+        RuntimeError: If CheckpointerManager is not initialized.
     """
     return CheckpointerManager.get_checkpointer()
 

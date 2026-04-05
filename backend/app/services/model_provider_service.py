@@ -1,5 +1,5 @@
 """
-模型供应商服务
+Model provider service.
 """
 
 from typing import Any, Dict, List, Optional
@@ -14,12 +14,12 @@ from app.repositories.model_provider import ModelProviderRepository
 
 from .base import BaseService
 
-# 内置供应商固定展示顺序
+# built-in provider fixed display order
 BUILTIN_PROVIDER_ORDER = ("openaiapicompatible", "anthropic", "gemini", "zhipu", "ollama", "custom")
 
 
 def _provider_sort_key(provider_data: Dict[str, Any]) -> int:
-    """用于按固定顺序排序供应商。内置供应商优先，custom 其次，其他放最后。"""
+    """Sort providers in fixed order. Built-in providers first, custom second, others last."""
     name = provider_data.get("provider_name", "")
     try:
         return BUILTIN_PROVIDER_ORDER.index(name)
@@ -28,7 +28,7 @@ def _provider_sort_key(provider_data: Dict[str, Any]) -> int:
 
 
 class ModelProviderService(BaseService):
-    """模型供应商服务"""
+    """Model provider service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -37,7 +37,7 @@ class ModelProviderService(BaseService):
         self.factory = get_factory()
 
     async def sync_providers_from_factory(self) -> List[Dict[str, Any]]:
-        """从工厂同步供应商到数据库（upsert：不存在则创建，存在则更新）"""
+        """Sync providers from factory to database (upsert: create if missing, update if exists)."""
         from loguru import logger
 
         factory_providers = self.factory.get_all_providers()
@@ -63,7 +63,7 @@ class ModelProviderService(BaseService):
                 if existing:
                     await self.repo.update(existing.id, provider_data)
                     db_provider = existing
-                    logger.debug(f"已更新供应商: {provider_name}")
+                    logger.debug(f"Updated provider: {provider_name}")
                 else:
                     db_provider = await self.repo.create(
                         {
@@ -72,7 +72,7 @@ class ModelProviderService(BaseService):
                             **provider_data,
                         }
                     )
-                    logger.info(f"已创建供应商: {provider_name}")
+                    logger.info(f"Created provider: {provider_name}")
 
                 synced_providers.append(
                     {
@@ -89,18 +89,18 @@ class ModelProviderService(BaseService):
                     }
                 )
             except Exception as e:
-                error_msg = f"同步供应商 {provider_name} 失败: {str(e)}"
+                error_msg = f"Failed to sync provider {provider_name}: {str(e)}"
                 errors.append(error_msg)
                 logger.error(error_msg)
 
         if errors:
-            logger.warning(f"同步过程中有 {len(errors)} 个供应商失败: {', '.join(errors)}")
+            logger.warning(f"{len(errors)} providers failed during sync: {', '.join(errors)}")
 
         await self.commit()
         return synced_providers
 
     def _serialize_provider(self, db_provider: Any, factory_provider: Any, model_count: int) -> Dict[str, Any]:
-        """将 DB provider + factory provider 序列化为 API 响应 dict。"""
+        """Serialize a DB provider + factory provider into an API response dict."""
         config_schemas: Dict[str, Any] = {}
         if factory_provider:
             for model_type in factory_provider.get_supported_model_types():
@@ -134,7 +134,7 @@ class ModelProviderService(BaseService):
         return data
 
     async def get_all_providers(self) -> List[Dict[str, Any]]:
-        """获取所有供应商信息（过滤掉 is_template=True 的模板 provider）"""
+        """Get all provider info (filter out template providers where is_template=True)."""
         db_providers = await self.repo.find()
         model_counts = await self.instance_repo.count_grouped_by_provider()
 
@@ -152,7 +152,7 @@ class ModelProviderService(BaseService):
         return result
 
     async def get_provider(self, provider_name: str) -> Dict[str, Any] | None:
-        """获取单个供应商信息（不过滤模板，允许查询 custom 等模板 provider）"""
+        """Get a single provider's info (no template filtering, allows querying custom template providers)."""
         db_provider = await self.repo.get_by_name(provider_name)
         if not db_provider:
             return None
@@ -164,17 +164,17 @@ class ModelProviderService(BaseService):
 
     async def update_provider_defaults(self, provider_name: str, default_parameters: Dict[str, Any]) -> Dict[str, Any]:
         """
-        更新供应商的默认参数
+        Update a provider's default parameters.
 
         Args:
-            provider_name: 供应商名称
-            default_parameters: 默认参数字典
+            provider_name: provider name
+            default_parameters: default parameter dict
 
         Returns:
-            更新后的供应商信息
+            Updated provider info
 
         Raises:
-            NotFoundException: 供应商不存在
+            NotFoundException: provider does not exist
         """
         db_provider = await self.repo.get_by_name(provider_name)
         if not db_provider:
@@ -189,7 +189,7 @@ class ModelProviderService(BaseService):
         return result
 
     async def _create_derived_provider(self, template: Any, name: str, display_name: str, template_name: str) -> Any:
-        """从模板创建派生 Provider DB 记录。"""
+        """Create a derived Provider DB record from a template."""
         return await self.repo.create(
             {
                 "name": name,
@@ -213,7 +213,7 @@ class ModelProviderService(BaseService):
         model_parameters: Optional[Dict[str, Any]] = None,
         validate: bool = True,
     ) -> Dict[str, Any]:
-        """一步添加自定义 provider：创建 provider + credential + model_instance。"""
+        """Add a custom provider in one step: create provider + credential + model_instance."""
         import time
 
         from app.core.model import validate_provider_credentials
@@ -275,8 +275,8 @@ class ModelProviderService(BaseService):
 
     async def delete_provider(self, provider_name: str) -> None:
         """
-        删除供应商。仅允许删除自定义供应商（provider_type='custom'）。
-        由于数据库配置了级联删除，相关的凭据和模型实例会自动清理。
+        Delete a provider. Only custom providers (provider_type='custom') can be deleted.
+        Related credentials and model instances are cleaned up automatically via cascade delete.
         """
         from loguru import logger
 
@@ -291,12 +291,12 @@ class ModelProviderService(BaseService):
             raise BadRequestException(f"Only custom providers can be deleted: {provider_name}")
 
         await self.repo.delete(provider.id)
-        logger.info(f"已删除自定义供应商: {provider_name}")
+        logger.info(f"Deleted custom provider: {provider_name}")
 
         await self.commit()
 
     async def sync_all(self) -> Dict[str, Any]:
-        """统一同步接口：同步供应商和模型到数据库"""
+        """Unified sync interface: sync providers and models to the database."""
         from loguru import logger
 
         result: Dict[str, Any] = {
@@ -309,18 +309,18 @@ class ModelProviderService(BaseService):
         try:
             synced_providers = await self.sync_providers_from_factory()
             result["providers"] = len(synced_providers)
-            logger.info(f"同步供应商完成，共 {len(synced_providers)} 个")
+            logger.info(f"Provider sync complete, {len(synced_providers)} total")
         except Exception as e:
-            error_msg = f"同步供应商失败: {str(e)}"
+            error_msg = f"Failed to sync providers: {str(e)}"
             result["errors"].append(error_msg)
             logger.error(error_msg)
 
         try:
             models_count = await self._sync_models()
             result["models"] = models_count
-            logger.info(f"同步模型完成，共 {models_count} 个")
+            logger.info(f"Model sync complete, {models_count} total")
         except Exception as e:
-            error_msg = f"同步模型失败: {str(e)}"
+            error_msg = f"Failed to sync models: {str(e)}"
             result["errors"].append(error_msg)
             logger.error(error_msg)
 
@@ -329,11 +329,12 @@ class ModelProviderService(BaseService):
 
     async def _ensure_model_instances_for_provider(self, provider: Any) -> int:
         """
-        确保该 provider 的所有模型在 model_instance 表中存在全局记录。
-        对于动态发现型 provider（如 Ollama），还会清理已不存在的过期模型实例。
+        Ensure all models for this provider exist as global records in the model_instance table.
+        For dynamically-discovered providers (e.g. Ollama), also clean up stale model instances
+        that no longer exist.
 
         Returns:
-            本次新创建的模型实例数量
+            Number of newly created model instances
         """
         from loguru import logger
 
@@ -343,7 +344,7 @@ class ModelProviderService(BaseService):
         if not provider_instance:
             return 0
 
-        # 获取该 provider 的解密凭据（动态发现型 provider 需要凭据来获取模型列表）
+        # get decrypted credentials for this provider (dynamically-discovered providers need credentials to fetch model lists)
         credential_repo = ModelCredentialRepository(self.db)
         credential = await credential_repo.get_by_provider(provider.id)
         decrypted_creds = None
@@ -375,23 +376,23 @@ class ModelProviderService(BaseService):
                             }
                         )
                         synced_count += 1
-                        logger.debug(f"已自动创建模型实例: {provider.name}/{model_name}")
+                        logger.debug(f"Auto-created model instance: {provider.name}/{model_name}")
 
-                # 清理过期模型实例（仅当有凭据且获取到模型列表时执行）
+                # clean up stale model instances (only when credentials exist and model list was fetched)
                 if decrypted_creds and current_model_names:
                     existing_instances = await self.instance_repo.list_by_provider(provider_id=provider.id)
                     for inst in existing_instances:
                         if inst.user_id is None and inst.model_name not in current_model_names:
                             await self.instance_repo.delete(inst.id)
-                            logger.debug(f"已删除过期模型实例: {provider.name}/{inst.model_name}")
+                            logger.debug(f"Deleted stale model instance: {provider.name}/{inst.model_name}")
 
             except Exception as e:
-                logger.warning(f"自动创建模型实例失败 {provider.name}/{model_type.value}: {str(e)}")
+                logger.warning(f"Failed to auto-create model instances {provider.name}/{model_type.value}: {str(e)}")
 
         return synced_count
 
     async def _sync_models(self) -> int:
-        """同步模型到 model_instance 表（全局记录，user_id 和 workspace_id 为 NULL）"""
+        """Sync models to the model_instance table (global records, user_id and workspace_id are NULL)."""
         providers = await self.repo.find(filters={})
         synced_count = 0
         for provider in providers:

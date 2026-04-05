@@ -107,7 +107,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
       const promptMessage: Message = {
         id: generateId(),
         role: 'assistant',
-        content: t('chat.apkUploadPrompt', { defaultValue: '请上传 APK 文件以开始漏洞检测分析。' }),
+        content: t('chat.apkUploadPrompt', { defaultValue: 'Please upload an APK file to start vulnerability analysis.' }),
         timestamp: Date.now(),
       }
       dispatch({ type: 'APPEND_MESSAGE', message: promptMessage })
@@ -314,7 +314,7 @@ export default function ChatLayout({ chatId: propChatId }: ChatLayoutProps) {
               onValueChange={(val) => setSelectedModel(val || undefined)}
             >
               <SelectTrigger className="h-8 w-[180px] text-xs">
-                <SelectValue placeholder={t('chat.selectModel', { defaultValue: '选择模型' })} />
+                <SelectValue placeholder={t('chat.selectModel', { defaultValue: 'Select model' })} />
               </SelectTrigger>
               <SelectContent>
                 {modelOptions.map((m) => (

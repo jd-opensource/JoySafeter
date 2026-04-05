@@ -3,29 +3,29 @@
 /**
  * Workspace Permissions Provider
  *
- * 🚧 功能状态: 待集成
+ * Status: pending integration
  *
- * 用途: 管理 workspace 的权限系统
+ * Purpose: manage workspace permission system
  *
- * 功能说明:
- * - 获取和管理 workspace 权限
- * - 计算用户权限（读/写/管理员等）
- * - 支持离线模式
- * - 集成协作工作流
+ * Features:
+ * - Fetch and manage workspace permissions
+ * - Compute user permissions (read/write/admin, etc.)
+ * - Support offline mode
+ * - Integrate with collaboration workflows
  *
- * 提供的权限:
- * - canRead: 是否可以查看
- * - canEdit: 是否可以编辑
- * - canDelete: 是否可以删除
- * - canManageMembers: 是否可以管理成员
- * - isOfflineMode: 离线模式标记
+ * Provided permissions:
+ * - canRead: whether the user can view
+ * - canEdit: whether the user can edit
+ * - canDelete: whether the user can delete
+ * - canManageMembers: whether the user can manage members
+ * - isOfflineMode: offline mode flag
  *
- * 当前状态:
- * - 代码完整，功能可用
- * - 暂未集成到应用布局中
- * - 依赖多个 hooks 和 stores
+ * Current status:
+ * - Code is complete and functional
+ * - Not yet integrated into the app layout
+ * - Depends on multiple hooks and stores
  *
- * 集成方式:
+ * Integration:
  * ```tsx
  * import { WorkspacePermissionsProvider } from './providers/workspace-permissions-provider'
  *

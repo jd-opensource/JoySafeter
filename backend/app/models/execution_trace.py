@@ -1,8 +1,8 @@
 """
-执行追踪模型
+Execution trace model
 
-参考 Langfuse Trace / Observation 模型，用于持久化 LangGraph 执行数据。
-支持层级 observation 关系（parent_observation_id -> self）。
+Modeled after Langfuse Trace / Observation for persisting LangGraph execution data.
+Support hierarchical observations via parent_observation_id self-reference.
 """
 
 import enum
@@ -68,52 +68,52 @@ class ObservationStatus(str, enum.Enum):
 
 class ExecutionTrace(Base):
     """
-    执行追踪表 — 对应一次完整的 Graph 执行。
-    类似 Langfuse 的 Trace。
+    Execution trace table -- represents a single complete Graph execution.
+    Analogous to a Langfuse Trace.
     """
 
     __tablename__ = "execution_traces"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # 关联
+    # associations
     workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True, index=True, comment="工作空间 ID"
+        UUID(as_uuid=True), nullable=True, index=True, comment="workspace ID"
     )
     graph_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True, index=True, comment="Graph ID"
     )
-    thread_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True, comment="对话线程 ID")
-    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True, comment="用户 ID")
+    thread_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True, comment="conversation thread ID")
+    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True, comment="user ID")
 
-    # 基本信息
-    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment="Graph / Trace 名称")
+    # basic info
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment="Graph / Trace name")
     status: Mapped[TraceStatus] = mapped_column(
-        Enum(TraceStatus), default=TraceStatus.RUNNING, nullable=False, comment="执行状态"
+        Enum(TraceStatus), default=TraceStatus.RUNNING, nullable=False, comment="execution status"
     )
 
-    # 输入输出
-    input: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="执行输入")
-    output: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="执行输出")
+    # input / output
+    input: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="execution input")
+    output: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="execution output")
 
-    # 时间
+    # timing
     start_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False, comment="开始时间"
+        DateTime(timezone=True), default=utc_now, nullable=False, comment="start time"
     )
-    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="结束时间")
-    duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="执行时长(毫秒)")
+    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="end time")
+    duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="duration in milliseconds")
 
-    # Token / Cost 聚合
-    total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="总 token 数")
-    total_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="总费用")
+    # token / cost aggregates
+    total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="total token count")
+    total_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="total cost")
 
-    # 元数据
+    # metadata
     metadata_: Mapped[Optional[dict]] = mapped_column(
-        "metadata", JSON, nullable=True, comment="自定义元数据 (tags, etc.)"
+        "metadata", JSON, nullable=True, comment="custom metadata (tags, etc.)"
     )
-    tags: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, comment="标签列表")
+    tags: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, comment="tag list")
 
-    # 时间戳
+    # timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False
     )
@@ -121,8 +121,7 @@ class ExecutionTrace(Base):
         DateTime(timezone=True), default=utc_now, server_default=func.now(), onupdate=utc_now, nullable=False
     )
 
-    # 关系
-    observations: Mapped[list["ExecutionObservation"]] = relationship(
+    # relationship
         "ExecutionObservation",
         back_populates="trace",
         cascade="all, delete-orphan",
@@ -144,86 +143,85 @@ class ExecutionTrace(Base):
 
 class ExecutionObservation(Base):
     """
-    执行观测表 — 对应一个 Observation (Span / Generation / Tool / Event)。
-    通过 parent_observation_id 支持 N 层嵌套。
-    类似 Langfuse 的 Observation。
+    Execution observation table -- represents a single Observation (Span / Generation / Tool / Event).
+    Support N-level nesting via parent_observation_id.
+    Analogous to a Langfuse Observation.
     """
 
     __tablename__ = "execution_observations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # 关联
+    # associations
     trace_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("execution_traces.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="关联的 Trace ID",
+        comment="foreign key to execution trace",
     )
     parent_observation_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("execution_observations.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        comment="父 Observation ID (实现层级嵌套)",
+        comment="parent observation ID (hierarchical nesting)",
     )
 
-    # 类型与标识
-    type: Mapped[ObservationType] = mapped_column(Enum(ObservationType), nullable=False, comment="观测类型")
+    # type and identity
+    type: Mapped[ObservationType] = mapped_column(Enum(ObservationType), nullable=False, comment="observation type")
     name: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True, comment="名称 (node name, tool name, model name)"
+        String(255), nullable=True, comment="name (node name, tool name, model name)"
     )
     level: Mapped[ObservationLevel] = mapped_column(
-        Enum(ObservationLevel), default=ObservationLevel.DEFAULT, nullable=False, comment="日志级别"
+        Enum(ObservationLevel), default=ObservationLevel.DEFAULT, nullable=False, comment="log level"
     )
     status: Mapped[ObservationStatus] = mapped_column(
-        Enum(ObservationStatus), default=ObservationStatus.RUNNING, nullable=False, comment="执行状态"
+        Enum(ObservationStatus), default=ObservationStatus.RUNNING, nullable=False, comment="execution status"
     )
-    status_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="状态信息 / 错误信息")
+    status_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="status / error message")
 
-    # 时间
+    # timing
     start_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False, comment="开始时间"
+        DateTime(timezone=True), default=utc_now, nullable=False, comment="start time"
     )
-    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="结束时间")
-    duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="执行时长(毫秒)")
+    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="end time")
+    duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="duration in milliseconds")
     completion_start_time: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, comment="首 token 时间 (GENERATION)"
+        DateTime(timezone=True), nullable=True, comment="time to first token (GENERATION)"
     )
 
-    # 输入输出
-    input: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="输入数据")
-    output: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="输出数据")
+    # input / output
+    input: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="input data")
+    output: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="output data")
 
-    # 模型信息 (GENERATION type)
-    model_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment="模型名称")
-    model_provider: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="模型提供商")
+    # model info (GENERATION type)
+    model_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment="model name")
+    model_provider: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="model provider")
     model_parameters: Mapped[Optional[dict]] = mapped_column(
-        JSON, nullable=True, comment="模型参数 (temperature, etc.)"
+        JSON, nullable=True, comment="model parameters (temperature, etc.)"
     )
 
-    # Token 使用
-    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="输入 token 数")
-    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="输出 token 数")
-    total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="总 token 数")
+    # token usage
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="prompt token count")
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="completion token count")
+    total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="total token count")
 
-    # 费用
-    input_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="输入费用")
-    output_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="输出费用")
-    total_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="总费用")
+    # cost
+    input_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="input cost")
+    output_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="output cost")
+    total_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="total cost")
 
-    # 元数据
-    metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True, comment="自定义元数据")
-    version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, comment="代码/模型版本")
+    # metadata
+    metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True, comment="custom metadata")
+    version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, comment="code / model version")
 
-    # 时间戳
+    # timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False
     )
 
-    # 关系
-    trace: Mapped["ExecutionTrace"] = relationship("ExecutionTrace", back_populates="observations")
+    # relationships
     children: Mapped[list["ExecutionObservation"]] = relationship(
         "ExecutionObservation",
         back_populates="parent",

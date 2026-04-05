@@ -1,4 +1,4 @@
-"""工作空间相关 API"""
+"""Workspace API."""
 
 import uuid
 from typing import Optional
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/v1/workspaces", tags=["Workspaces"])
 class CreateWorkspaceRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=500)
-    type: Optional[str] = Field(default="team", description="工作空间类型: personal 或 team")
+    type: Optional[str] = Field(default="team", description="Workspace type: personal or team")
 
 
 class UpdateWorkspaceRequest(BaseModel):
@@ -31,12 +31,12 @@ class UpdateWorkspaceRequest(BaseModel):
 
 
 class DeleteWorkspaceRequest(BaseModel):
-    deleteTemplates: bool = Field(default=True, description="是否同时删除模板数据")
+    deleteTemplates: bool = Field(default=True, description="Whether to also delete template data")
 
 
 class AddMemberRequest(BaseModel):
     email: EmailStr
-    role: str = Field(default="member", description="成员角色: admin/member/viewer")
+    role: str = Field(default="member", description="Member role: admin/member/viewer")
 
 
 class RemoveMemberRequest(BaseModel):
@@ -45,7 +45,7 @@ class RemoveMemberRequest(BaseModel):
 
 class UpdateMemberRoleRequest(BaseModel):
     workspaceId: uuid.UUID
-    role: str = Field(..., description="成员角色: owner/admin/member/viewer")
+    role: str = Field(..., description="Member role: owner/admin/member/viewer")
 
 
 @router.get("")
@@ -53,7 +53,7 @@ async def list_workspaces(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取当前用户的所有 workspace"""
+    """List all workspaces for the current user."""
     service = WorkspaceService(db)
     data = await service.list_workspaces(current_user)
     return {"workspaces": data}
@@ -65,7 +65,7 @@ async def create_workspace(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建新 workspace（默认创建团队工作空间）"""
+    """Create a new workspace (defaults to team workspace)."""
     from app.models.workspace import WorkspaceType
 
     workspace_type = WorkspaceType.team
@@ -88,7 +88,7 @@ async def create_workspace(
 
 
 # ------------------------------------------------------------------ #
-# 动态 /{workspace_id} 路由
+# Dynamic /{workspace_id} routes
 # ------------------------------------------------------------------ #
 
 
@@ -98,7 +98,7 @@ async def get_workspace(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
 ):
-    """获取单个 workspace 详情"""
+    """Get a single workspace's details."""
     service = WorkspaceService(db)
     workspace = await service.get_workspace(workspace_id, current_user)
     return {"workspace": workspace}
@@ -111,7 +111,7 @@ async def update_workspace(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
 ):
-    """更新 workspace 元数据"""
+    """Update workspace metadata."""
     service = WorkspaceService(db)
     workspace = await service.update_workspace(
         workspace_id,
@@ -130,7 +130,7 @@ async def update_workspace_put(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
 ):
-    """对齐旧项目：PUT 别名"""
+    """Legacy compatibility: PUT alias."""
     return await update_workspace(workspace_id, payload, db, current_user)
 
 
@@ -141,7 +141,7 @@ async def delete_workspace(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
 ):
-    """删除 workspace 及其所有相关数据"""
+    """Delete a workspace and all related data."""
     service = WorkspaceService(db)
     await service.delete_workspace(
         workspace_id,
@@ -158,7 +158,7 @@ async def duplicate_workspace(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """复制工作空间"""
+    """Duplicate a workspace."""
     service = WorkspaceService(db)
     workspace = await service.duplicate_workspace(
         workspace_id,
@@ -175,7 +175,7 @@ async def add_member(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
 ):
-    """直接添加成员到工作空间"""
+    """Add a member to the workspace directly."""
     service = WorkspaceService(db)
     member = await service.add_member(
         workspace_id=workspace_id,
@@ -193,7 +193,7 @@ async def list_members(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.viewer),
 ):
-    """获取工作空间成员列表（支持分页）"""
+    """List workspace members (paginated)."""
     service = WorkspaceService(db)
     result = await service.list_members_paginated(workspace_id, current_user, pagination)
     return result
@@ -206,7 +206,7 @@ async def get_my_permission(
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取当前用户在工作空间中的权限（轻量级，只返回当前用户权限）
+    Get the current user's permission in the workspace (lightweight, returns only the current user's permission).
 
     Returns:
         {
@@ -224,7 +224,7 @@ async def get_my_permission(
     if not role:
         raise ForbiddenException("No access to workspace")
 
-    # 复用前端的映射逻辑（保持一致）
+    # reuse the frontend's role-to-permission mapping for consistency
     role_to_permission = {
         WorkspaceMemberRole.owner: "admin",
         WorkspaceMemberRole.admin: "admin",
@@ -235,7 +235,7 @@ async def get_my_permission(
     workspace = await service.workspace_repo.get(workspace_id)
     is_owner = workspace.owner_id == current_user.id if workspace else False
 
-    # 复用现有的 success_response 函数保持响应格式一致
+    # reuse the existing success_response helper for consistent response format
     return success_response(
         data={
             "role": role.value,
@@ -249,16 +249,16 @@ async def get_my_permission(
 @router.get("/{workspace_id}/search-users")
 async def search_users_for_invitation(
     workspace_id: uuid.UUID,
-    keyword: str = Query(..., min_length=1, description="搜索关键词（邮箱或姓名）"),
-    limit: int = Query(10, ge=1, le=20, description="返回数量限制"),
+    keyword: str = Query(..., min_length=1, description="Search keyword (email or name)"),
+    limit: int = Query(10, ge=1, le=20, description="Result limit"),
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.admin),
 ):
-    """搜索用户（用于添加成员，需要管理员权限）"""
+    """Search users (for adding members, requires admin permission)."""
     user_service = UserService(db)
     users = await user_service.search_users(keyword, limit)
 
-    # 序列化用户信息
+    # serialize user info
     result = []
     for user in users:
         result.append(
@@ -274,7 +274,7 @@ async def search_users_for_invitation(
 
 
 # ------------------------------------------------------------------ #
-# 成员管理路由（/members/* 不会被 /{workspace_id} 遮蔽）
+# Member management routes (/members/* won't be shadowed by /{workspace_id})
 # ------------------------------------------------------------------ #
 
 
@@ -285,7 +285,7 @@ async def update_member_role(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新工作空间成员角色（仅 admin 可操作）"""
+    """Update a workspace member's role (admin only)."""
     from app.models.workspace import WorkspaceMemberRole
 
     try:
@@ -312,7 +312,7 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """移除 workspace 成员（admin 可移除他人，成员可移除自己）"""
+    """Remove a workspace member (admin can remove others, members can remove themselves)."""
     service = WorkspaceService(db)
     await service.remove_member(
         workspace_id=payload.workspaceId,

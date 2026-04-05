@@ -1,5 +1,5 @@
 """
-Graph 相关模型
+Graph models
 """
 
 import uuid
@@ -32,7 +32,7 @@ def utc_now():
 
 
 class AgentGraph(BaseModel, SoftDeleteMixin):
-    """Agent 图模型（支持软删除）"""
+    """Agent graph model (supports soft-delete)."""
 
     __tablename__ = "graphs"
 
@@ -62,14 +62,14 @@ class AgentGraph(BaseModel, SoftDeleteMixin):
     is_deployed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     variables: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
-    # 部署相关字段 - 对应 sim 项目的 workflow 表
+    # deployment fields — correspond to the sim project's workflow table
     deployed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         default=None,
     )
 
-    # 关系
+    # relationships
     user: Mapped["AuthUser"] = relationship("AuthUser", lazy="selectin")
     workspace: Mapped[Optional["Workspace"]] = relationship("Workspace", lazy="selectin")
     folder: Mapped[Optional["WorkspaceFolder"]] = relationship(
@@ -112,7 +112,7 @@ class AgentGraph(BaseModel, SoftDeleteMixin):
 
 
 class GraphNode(BaseModel):
-    """图节点模型"""
+    """Graph node model."""
 
     __tablename__ = "graph_nodes"
 
@@ -130,7 +130,7 @@ class GraphNode(BaseModel):
     data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
 
-    # 关系
+    # relationship
     graph: Mapped["AgentGraph"] = relationship("AgentGraph", back_populates="nodes", lazy="selectin")
     source_edges: Mapped[List["GraphEdge"]] = relationship(
         "GraphEdge",
@@ -152,14 +152,14 @@ class GraphNode(BaseModel):
 
 
 class GraphEdge(BaseModel):
-    """图边模型
+    """Graph edge model.
 
-    支持条件路由和复杂流程模式：
-    - data.route_key: 路由键，用于条件路由（对应 RouterNodeExecutor 的返回值）
-    - data.source_handle_id: React Flow 的 Handle ID（如 "Yes", "No", "Unknown"）
-    - data.condition_expression: 边级别的条件表达式（可选）
-    - data.edge_type: 边类型（"normal" | "conditional" | "loop_back"），用于区分不同类型的边
-    - data.label: 边的显示标签（可选），用于日志和调试
+    Support conditional routing and complex flow patterns:
+    - data.route_key: routing key for conditional routing (maps to RouterNodeExecutor return value)
+    - data.source_handle_id: React Flow Handle ID (e.g. "Yes", "No", "Unknown")
+    - data.condition_expression: edge-level condition expression (optional)
+    - data.edge_type: edge type ("normal" | "conditional" | "loop_back") to distinguish edge kinds
+    - data.label: display label for the edge (optional), used for logging and debugging
     """
 
     __tablename__ = "graph_edges"
@@ -179,11 +179,11 @@ class GraphEdge(BaseModel):
         ForeignKey("graph_nodes.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # 边的元数据，存储路由信息
-    # 结构: { "route_key": str, "source_handle_id": str, "condition_expression": str }
+    # edge metadata storing routing info
+    # structure: { "route_key": str, "source_handle_id": str, "condition_expression": str }
     data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
-    # 关系
+    # relationships
     graph: Mapped["AgentGraph"] = relationship("AgentGraph", back_populates="edges", lazy="selectin")
     source_node: Mapped["GraphNode"] = relationship(
         "GraphNode",

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding=utf-8
 """
 Planning Engine for CodeAgent.
 
@@ -70,18 +69,18 @@ class PlanStep:
 
         status_str = f" {status_symbol.get(self.status, '?')}" if include_status else ""
 
-        lines = [f"### 步骤 {self.step_id}: {self.name}{status_str}"]
-        lines.append(f"- 目的: {self.description}")
+        lines = [f"### Step {self.step_id}: {self.name}{status_str}"]
+        lines.append(f"- Purpose: {self.description}")
         if self.method:
-            lines.append(f"- 方法: {self.method}")
+            lines.append(f"- Method: {self.method}")
         if self.expected_output:
-            lines.append(f"- 预期输出: {self.expected_output}")
+            lines.append(f"- Expected output: {self.expected_output}")
         if self.dependencies:
-            lines.append(f"- 依赖: 步骤 {', '.join(map(str, self.dependencies))}")
+            lines.append(f"- Dependencies: step {', '.join(map(str, self.dependencies))}")
         if self.actual_output and self.status == PlanStatus.COMPLETED:
-            lines.append(f"- 实际输出: {self.actual_output[:200]}...")
+            lines.append(f"- Actual output: {self.actual_output[:200]}...")
         if self.error:
-            lines.append(f"- 错误: {self.error}")
+            lines.append(f"- Error: {self.error}")
 
         return "\n".join(lines)
 
@@ -165,22 +164,22 @@ class Plan:
     def format_for_prompt(self, include_completed: bool = True) -> str:
         """Format plan for inclusion in prompt."""
         lines = [
-            "## 任务目标",
+            "## Task Goal",
             f"{self.goal or self.task}",
             "",
-            f"## 执行步骤 (进度: {self.progress_pct:.0f}%)",
+            f"## Execution Steps (progress: {self.progress_pct:.0f}%)",
         ]
 
         for step in self.steps:
             if step.status == PlanStatus.COMPLETED and not include_completed:
-                lines.append(f"### 步骤 {step.step_id}: {step.name} ✓ (已完成)")
+                lines.append(f"### Step {step.step_id}: {step.name} ✓ (completed)")
             else:
                 lines.append("")
                 lines.append(step.format_for_prompt())
 
         if self.notes:
             lines.append("")
-            lines.append("## 注意事项")
+            lines.append("## Notes")
             for note in self.notes:
                 lines.append(f"- {note}")
 
@@ -261,40 +260,40 @@ class PlanningEngine:
         Returns:
             Generated Plan object.
         """
-        prompt = f"""请为以下任务创建一个执行计划。
+        prompt = f"""Please create an execution plan for the following task.
 
-## 任务
+## Task
 {task}
 
-## 可用工具
-{", ".join(tools) if tools else "无特定工具限制"}
+## Available Tools
+{", ".join(tools) if tools else "No specific tool restrictions"}
 
-## 上下文
-{context or "无"}
+## Context
+{context or "None"}
 
-## 要求
-1. 将任务分解为 {self.max_steps} 个以内的步骤
-2. 每个步骤应该具体可执行
-3. 标明步骤之间的依赖关系
-4. 考虑可能的风险和应对策略
+## Requirements
+1. Break the task into at most {self.max_steps} steps
+2. Each step should be specific and actionable
+3. Indicate dependencies between steps
+4. Consider potential risks and mitigation strategies
 
-## 输出格式
-请按以下 JSON 格式输出：
+## Output Format
+Please output in the following JSON format:
 ```json
-{{
-  "goal": "任务总目标",
+{{{{
+  "goal": "Overall task goal",
   "steps": [
-    {{
+    {{{{
       "step_id": 1,
-      "name": "步骤名称",
-      "description": "步骤描述",
-      "method": "实现方法",
-      "expected_output": "预期输出",
+      "name": "Step name",
+      "description": "Step description",
+      "method": "Implementation method",
+      "expected_output": "Expected output",
       "dependencies": []
-    }}
+    }}}}
   ],
-  "notes": ["注意事项1", "注意事项2"]
-}}
+  "notes": ["Note 1", "Note 2"]
+}}}}
 ```"""
 
         if self.llm_call:
@@ -344,7 +343,7 @@ class PlanningEngine:
             steps=[
                 PlanStep(
                     step_id=1,
-                    name="执行任务",
+                    name="Execute task",
                     description=task,
                 )
             ],
@@ -370,25 +369,25 @@ class PlanningEngine:
         if not self._current_plan:
             raise ValueError("No current plan to update")
 
-        prompt = f"""请根据当前进度更新执行计划。
+        prompt = f"""Please update the execution plan based on current progress.
 
-## 原计划
+## Original Plan
 {self._current_plan.format_for_prompt()}
 
-## 当前进度
+## Current Progress
 {progress}
 
-## 遇到的问题
-{chr(10).join(f"- {issue}" for issue in (issues or [])) or "暂无"}
+## Issues Encountered
+{chr(10).join(f"- {issue}" for issue in (issues or [])) or "None so far"}
 
-## 要求
-1. 保留已完成的步骤
-2. 根据实际情况调整后续步骤
-3. 添加必要的新步骤
-4. 移除不再需要的步骤
+## Requirements
+1. Keep completed steps
+2. Adjust subsequent steps based on actual progress
+3. Add necessary new steps
+4. Remove steps that are no longer needed
 
-## 输出格式
-请按与原计划相同的 JSON 格式输出更新后的计划。"""
+## Output Format
+Please output the updated plan in the same JSON format as the original plan."""
 
         if self.llm_call:
             try:

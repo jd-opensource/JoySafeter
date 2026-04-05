@@ -1,11 +1,11 @@
 """
-OpenAPI Graph Service — 核心业务逻辑
+OpenAPI Graph Service — core business logic.
 
-负责：
-- 启动 graph 后台执行 (run)
-- 查询执行状态 (status)
-- 中止执行 (abort)
-- 获取执行结果 (result)
+Responsibilities:
+- Start graph background execution (run)
+- Query execution status (status)
+- Abort execution (abort)
+- Get execution result (result)
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from .base import BaseService
 
 
 class OpenApiGraphService(BaseService):
-    """OpenAPI Graph 执行服务"""
+    """OpenAPI graph execution service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -47,17 +47,17 @@ class OpenApiGraphService(BaseService):
         variables: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        启动 graph 执行（后台异步）。
+        Start graph execution (background async).
 
         Returns:
             {"executionId": str, "status": str}
         """
-        # 验证 graph 存在
+        # verify graph exists
         graph = await self.graph_repo.get(graph_id)
         if not graph:
             raise NotFoundException("Graph not found")
 
-        # 创建执行记录
+        # create execution record
         execution = GraphExecution(
             graph_id=graph_id,
             user_id=user_id,
@@ -71,7 +71,7 @@ class OpenApiGraphService(BaseService):
         execution_id = execution.id
         logger.info(f"[OpenAPI] Graph execution created | execution_id={execution_id} graph_id={graph_id}")
 
-        # 启动后台执行任务
+        # start background execution task
         asyncio.create_task(
             self._execute_graph_background(
                 execution_id=execution_id,
@@ -93,10 +93,10 @@ class OpenApiGraphService(BaseService):
         user_id: str,
         variables: Dict[str, Any],
     ) -> None:
-        """后台执行 graph（使用独立 DB session）"""
+        """Execute graph in background (using an independent DB session)."""
         try:
             async with AsyncSessionLocal() as db:
-                # 更新状态为 executing
+                # update status to executing
                 exec_repo = GraphExecutionRepository(db)
                 execution = await exec_repo.get(execution_id)
                 if not execution:
@@ -106,7 +106,7 @@ class OpenApiGraphService(BaseService):
                 execution.started_at = datetime.now(timezone.utc)
                 await db.commit()
 
-                # 获取 LLM 凭据
+                # get LLM credentials
                 llm_params = await LLMCredentialResolver.get_llm_params(
                     db=db,
                     api_key=None,
@@ -116,7 +116,7 @@ class OpenApiGraphService(BaseService):
                     user_id=user_id,
                 )
 
-                # 编译 graph
+                # compile graph
                 graph_service = GraphService(db)
                 compiled_graph = await graph_service.create_graph_by_graph_id(
                     graph_id=graph_id,
@@ -127,29 +127,29 @@ class OpenApiGraphService(BaseService):
                     user_id=user_id,
                 )
 
-                # 构建输入消息
-                # 如果 variables 中有 message 字段，使用它作为用户消息
+                # build input messages
+                # if variables contains a message field, use it as the user message
                 user_message = variables.pop("message", "")
                 if not user_message:
-                    user_message = variables.pop("query", "请执行任务")
+                    user_message = variables.pop("query", "Execute task")
 
                 initial_context = {}
-                # 将剩余 variables 作为 context
+                # put remaining variables into context
                 for key, value in variables.items():
                     initial_context[key] = value
 
-                # 同时加载 graph.variables.context
+                # also load graph.variables.context
                 graph_model = await GraphRepository(db).get(graph_id)
                 if graph_model and graph_model.variables:
                     context_vars = graph_model.variables.get("context", {})
                     for key, value in context_vars.items():
-                        if key not in initial_context:  # variables 优先
+                        if key not in initial_context:  # variables take precedence
                             if isinstance(value, dict) and "value" in value:
                                 initial_context[key] = value["value"]
                             else:
                                 initial_context[key] = value
 
-                # 配置
+                # configuration
                 thread_id = f"openapi_{execution_id}"
                 from langchain_core.runnables.config import RunnableConfig
 
@@ -158,7 +158,7 @@ class OpenApiGraphService(BaseService):
                     "recursion_limit": 150,
                 }
 
-                # 注册到 task_manager 以支持 abort
+                # register with task_manager to support abort
                 invoke_task = asyncio.create_task(
                     compiled_graph.ainvoke(
                         {"messages": [HumanMessage(content=user_message)], "context": initial_context},
@@ -170,7 +170,7 @@ class OpenApiGraphService(BaseService):
                 try:
                     result = await invoke_task
                 except asyncio.CancelledError:
-                    # 被 abort 中止
+                    # aborted by user
                     execution = await exec_repo.get(execution_id)
                     if execution:
                         execution.status = ExecutionStatus.FAILED
@@ -181,7 +181,7 @@ class OpenApiGraphService(BaseService):
                 finally:
                     await task_manager.unregister_task(thread_id)
 
-                # 提取结果
+                # extract result
                 messages = result.get("messages", [])
                 last_ai_msg = next(
                     (m for m in reversed(messages) if isinstance(m, AIMessage)),
@@ -200,7 +200,7 @@ class OpenApiGraphService(BaseService):
                             for tc in last_ai_msg.tool_calls
                         ]
 
-                # 更新执行记录
+                # update execution record
                 execution = await exec_repo.get(execution_id)
                 if execution:
                     execution.status = ExecutionStatus.FINISH
@@ -229,7 +229,7 @@ class OpenApiGraphService(BaseService):
         execution_id: uuid.UUID,
         user_id: str,
     ) -> Dict[str, Any]:
-        """获取执行状态"""
+        """Get execution status."""
         execution = await self.exec_repo.get_by_id_and_user(execution_id, user_id)
         if not execution:
             raise NotFoundException("Execution not found")
@@ -248,7 +248,7 @@ class OpenApiGraphService(BaseService):
         execution_id: uuid.UUID,
         user_id: str,
     ) -> Dict[str, Any]:
-        """中止执行"""
+        """Abort execution."""
         execution = await self.exec_repo.get_by_id_and_user(execution_id, user_id)
         if not execution:
             raise NotFoundException("Execution not found")
@@ -256,13 +256,13 @@ class OpenApiGraphService(BaseService):
         if execution.status != ExecutionStatus.EXECUTING:
             raise BadRequestException(f"Cannot abort execution with status: {execution.status.value}")
 
-        # 通过 task_manager 停止任务
+        # stop the task via task_manager
         thread_id = f"openapi_{execution_id}"
         stopped = await task_manager.stop_task(thread_id)
         if stopped:
             await task_manager.cancel_task(thread_id)
 
-        # 更新状态
+        # update status
         execution.status = ExecutionStatus.FAILED
         execution.error_message = "Aborted by user"
         execution.finished_at = datetime.now(timezone.utc)
@@ -279,7 +279,7 @@ class OpenApiGraphService(BaseService):
         execution_id: uuid.UUID,
         user_id: str,
     ) -> Dict[str, Any]:
-        """获取执行结果"""
+        """Get execution result."""
         execution = await self.exec_repo.get_by_id_and_user(execution_id, user_id)
         if not execution:
             raise NotFoundException("Execution not found")

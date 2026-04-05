@@ -124,7 +124,7 @@ async def get_agent(
     Returns:
         Runnable: The compiled Agent graph.
     """
-    # 如果提供了模型对象，直接使用它；否则，使用 get_default_model 创建模型实例
+    # if a model object is provided, use it directly; otherwise create one via get_default_model
     if model is None:
         model = get_default_model(
             llm_model=llm_model,
@@ -147,12 +147,12 @@ async def get_agent(
     if tools is None:
         tools = []
     else:
-        # 检查 tools 是否是 ToolMetadata 对象（不应该直接作为 tools 参数传递）
+        # check if tools is a ToolMetadata object (should not be passed directly as tools param)
         if isinstance(tools, ToolMetadata):
             logger.error(f"[get_agent] ERROR: tools parameter is a ToolMetadata object, not a list! metadata: {tools}")
             logger.warning("[get_agent] Converting ToolMetadata to empty list")
             tools = []
-        # 检查 tools 是否是列表或可迭代对象
+        # check if tools is a list or iterable
         elif not isinstance(tools, (list, tuple)):
             logger.warning(f"[get_agent] tools is not a list/tuple, type: {type(tools)}, converting to list")
             try:
@@ -161,7 +161,7 @@ async def get_agent(
                 logger.error(f"[get_agent] Failed to convert tools to list: {e}")
                 tools = []
 
-        # 从 ToolRegistry 获取工具（如果已注册）
+        # get tools from ToolRegistry if registered
         registry = get_global_registry()
         resolved_tools = []
         for tool in tools:
@@ -173,13 +173,13 @@ async def get_agent(
                 continue
 
             if isinstance(tool, str):
-                # 先尝试直接获取（内置工具）
+                # try direct lookup first (builtin tools)
                 registry_tool = registry.get_tool(tool)
                 if registry_tool:
                     resolved_tools.append(registry_tool)
                     continue
 
-                # 尝试解析为 MCP 工具（格式: server_name::tool_name）
+                # try parsing as MCP tool (format: server_name::tool_name)
                 if "::" in tool:
                     from app.core.tools.mcp_tool_utils import parse_mcp_tool_name
 
@@ -190,7 +190,7 @@ async def get_agent(
                             resolved_tools.append(mcp_tool)
                             continue
 
-                # 无法解析，记录警告但跳过（不添加字符串到工具列表）
+                # unable to resolve; log warning and skip (do not add string to tools list)
                 logger.warning(f"[get_agent] Unable to resolve tool '{tool}', skipping")
                 continue
 

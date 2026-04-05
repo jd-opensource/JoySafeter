@@ -1,6 +1,4 @@
-"""
-安全相关 - JWT 和密码处理
-"""
+"""Security utilities — JWT and password handling."""
 
 import hmac
 import secrets
@@ -14,26 +12,26 @@ from .settings import settings
 
 
 def generate_token(length: int = 32) -> str:
-    """生成随机令牌"""
+    """Generate a random URL-safe token."""
     return secrets.token_urlsafe(length)
 
 
 def generate_password_reset_token() -> tuple[str, datetime]:
-    """生成密码重置令牌和过期时间"""
+    """Generate a password reset token and expiration time."""
     token = generate_token(32)
-    expires = datetime.now(timezone.utc) + timedelta(hours=24)  # 24小时有效
+    expires = datetime.now(timezone.utc) + timedelta(hours=24)  # valid for 24 hours
     return token, expires
 
 
 def generate_email_verify_token() -> tuple[str, datetime]:
-    """生成邮箱验证令牌和过期时间"""
+    """Generate an email verification token and expiration time."""
     token = generate_token(32)
-    expires = datetime.now(timezone.utc) + timedelta(hours=72)  # 72小时有效
+    expires = datetime.now(timezone.utc) + timedelta(hours=72)  # valid for 72 hours
     return token, expires
 
 
 class TokenPayload(BaseModel):
-    """Token 载荷"""
+    """Token payload."""
 
     sub: str  # user_id
     exp: datetime
@@ -42,7 +40,7 @@ class TokenPayload(BaseModel):
 
 
 class Token(BaseModel):
-    """Token 响应"""
+    """Token response."""
 
     access_token: str
     token_type: str = "bearer"
@@ -51,21 +49,19 @@ class Token(BaseModel):
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    验证密码（只支持 SHA-256 格式）
+    Verify password (SHA-256 format only).
 
-    接收的 plain_password 和 hashed_password 都必须是 SHA-256 哈希值
-    （64个字符的十六进制字符串）
-
-    使用安全的字符串比较防止时序攻击
+    Both plain_password and hashed_password must be SHA-256 hex strings
+    (64 hex characters). Uses constant-time comparison to prevent timing attacks.
     """
     if not plain_password or not hashed_password:
         return False
 
-    # 标准化输入（小写）
+    # normalize input (lowercase)
     plain_password = plain_password.lower().strip()
     hashed_password = hashed_password.lower().strip()
 
-    # 验证格式（必须是 SHA-256）
+    # validate format (must be SHA-256)
     if len(plain_password) != 64 or not all(
         c in "0123456789abcdef" for c in plain_password
     ):  # pragma: allowlist secret
@@ -74,21 +70,20 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     if len(hashed_password) != 64 or not all(c in "0123456789abcdef" for c in hashed_password):
         return False
 
-    # 直接比较两个 SHA-256 哈希值
-    # 使用 hmac.compare_digest 防止时序攻击
+    # compare two SHA-256 hashes using constant-time comparison to prevent timing attacks
     return hmac.compare_digest(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """
-    获取密码哈希（只支持 SHA-256 格式）
+    Get password hash (SHA-256 format only).
 
-    接收的 password 必须是 SHA-256 哈希值（64个字符的十六进制字符串）
-    直接返回标准化后的 SHA-256 哈希值
+    The input password must be a SHA-256 hex string (64 hex characters).
+    Returns the normalized lowercase SHA-256 hash.
     """
     password = password.strip().lower()
 
-    # 验证格式（必须是 SHA-256）
+    # validate format (must be SHA-256)
     if len(password) != 64 or not all(c in "0123456789abcdef" for c in password):
         raise ValueError("Password must be a SHA-256 hash (64 hex characters)")
 
@@ -96,7 +91,7 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(subject: str | Any, expires_delta: Optional[timedelta] = None) -> str:
-    """创建访问令牌"""
+    """Create an access token."""
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
@@ -114,12 +109,12 @@ def create_access_token(subject: str | Any, expires_delta: Optional[timedelta] =
 
 
 def generate_refresh_token(length: int = 64) -> str:
-    """生成刷新令牌（随机字符串，存储在 Redis）"""
+    """Generate a refresh token (random string, stored in Redis)."""
     return secrets.token_hex(length)
 
 
 def create_csrf_token(user_id: str) -> str:
-    """创建 CSRF token（JWT）"""
+    """Create a CSRF token (JWT)."""
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
 
     to_encode = {
@@ -134,7 +129,7 @@ def create_csrf_token(user_id: str) -> str:
 
 
 def decode_token(token: str) -> Optional[TokenPayload]:
-    """解码令牌"""
+    """Decode a JWT token."""
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         return TokenPayload(**payload)

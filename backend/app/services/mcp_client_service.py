@@ -1,8 +1,8 @@
 """
-MCP Client Service - MCP 客户端服务
+MCP Client Service
 
-封装与 MCP 服务器的连接、工具获取等底层操作
-职责单一：只负责 MCP 协议层面的交互
+Encapsulate low-level operations for connecting to MCP servers and fetching tools.
+Single responsibility: only handle MCP protocol-level interactions.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app.models.mcp import McpServer
 
 @dataclass
 class McpConnectionConfig:
-    """MCP 连接配置"""
+    """MCP connection configuration."""
 
     url: str
     transport: str = "streamable-http"
@@ -33,7 +33,7 @@ class McpConnectionConfig:
 
 @dataclass
 class McpConnectionResult:
-    """MCP 连接结果"""
+    """MCP connection result."""
 
     success: bool
     tools: List[EnhancedTool]
@@ -43,36 +43,36 @@ class McpConnectionResult:
 
 @runtime_checkable
 class IMcpClient(Protocol):
-    """MCP 客户端接口 - 用于依赖注入和测试"""
+    """MCP client interface — for dependency injection and testing."""
 
     async def connect_and_fetch_tools(
         self,
         config: McpConnectionConfig,
     ) -> McpConnectionResult:
-        """连接到 MCP 服务器并获取工具列表"""
+        """Connect to an MCP server and fetch the tool list."""
         ...
 
     async def test_connection(
         self,
         config: McpConnectionConfig,
     ) -> McpConnectionResult:
-        """测试连接"""
+        """Test the connection."""
         ...
 
 
 class McpClientService:
     """
-    MCP 客户端服务
+    MCP client service.
 
-    封装与 MCP 服务器的底层交互：
-    - 连接管理
-    - 工具获取
-    - 连接测试
+    Encapsulate low-level interactions with MCP servers:
+    - Connection management
+    - Tool fetching
+    - Connection testing
 
-    设计原则：
-    - 单一职责：只负责 MCP 协议交互
-    - 可测试：通过 IMcpClient 协议支持 mock
-    - 可扩展：支持不同的 transport 类型
+    Design principles:
+    - Single responsibility: only handle MCP protocol interactions
+    - Testable: supports mocking via the IMcpClient protocol
+    - Extensible: supports different transport types
     """
 
     async def connect_and_fetch_tools(
@@ -81,14 +81,14 @@ class McpClientService:
         server: McpServer,
     ) -> McpConnectionResult:
         """
-        连接到 MCP 服务器并获取工具列表
+        Connect to an MCP server and fetch the tool list.
 
         Args:
-            config: 连接配置
-            server: MCP 服务器对象
+            config: connection configuration
+            server: MCP server object
 
         Returns:
-            McpConnectionResult 包含工具列表或错误信息
+            McpConnectionResult containing the tool list or error info
         """
         start_time = time.time()
 
@@ -119,11 +119,11 @@ class McpClientService:
         server: Optional[McpServer] = None,
     ) -> McpConnectionResult:
         """
-        测试 MCP 服务器连接
+        Test the MCP server connection.
 
         Args:
-            config: 连接配置
-            server: MCP 服务器对象（可选，用于测试连接前）
+            config: connection configuration
+            server: MCP server object (optional, for testing before creation)
 
         Returns:
             McpConnectionResult
@@ -150,14 +150,14 @@ class McpClientService:
         server: McpServer,
     ) -> List[EnhancedTool]:
         """
-        从 MCP 服务器获取工具定义并创建 EnhancedTool 列表
+        Fetch tool definitions from an MCP server and create an EnhancedTool list.
 
         Args:
-            config: 连接配置（主要使用 timeout_seconds）
-            server: MCP 服务器对象
+            config: connection configuration (primarily timeout_seconds)
+            server: MCP server object
 
         Returns:
-            工具列表（使用 lazy entrypoint）
+            Tool list (using lazy entrypoints)
         """
         from app.services.mcp_toolkit_manager import get_toolkit_manager
         from app.utils.mcp_tool_builder import create_mcp_tools_from_definitions
@@ -188,10 +188,10 @@ class McpClientService:
     @staticmethod
     def config_from_server(server: McpServer) -> McpConnectionConfig:
         """
-        从 McpServer 模型创建连接配置
+        Create a connection configuration from an McpServer model.
 
         Args:
-            server: MCP 服务器模型
+            server: MCP server model
 
         Returns:
             McpConnectionConfig
@@ -206,12 +206,12 @@ class McpClientService:
         )
 
 
-# 默认客户端实例（可在测试中替换）
+# default client instance (can be replaced in tests)
 _default_client: Optional[McpClientService] = None
 
 
 def get_mcp_client() -> McpClientService:
-    """获取 MCP 客户端实例"""
+    """Get the MCP client instance."""
     global _default_client
     if _default_client is None:
         _default_client = McpClientService()
@@ -219,6 +219,6 @@ def get_mcp_client() -> McpClientService:
 
 
 def set_mcp_client(client: McpClientService) -> None:
-    """设置 MCP 客户端实例（用于测试）"""
+    """Set the MCP client instance (for testing)."""
     global _default_client
     _default_client = client

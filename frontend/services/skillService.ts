@@ -794,7 +794,7 @@ export async function processLocalDirectoryFiles(fileList: FileList): Promise<{
       // If reading fails, it might be binary
       rejectedFiles.push({
         path: relativePath,
-        reason: `无法读取文件: ${e instanceof Error ? e.message : '未知错误'}`,
+        reason: `Failed to read file: ${e instanceof Error ? e.message : 'unknown error'}`,
       })
     }
   }

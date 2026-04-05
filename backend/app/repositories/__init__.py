@@ -1,5 +1,5 @@
 """
-数据访问层 (Repository Layer)
+Data access layer (Repository Layer)
 """
 
 from .auth_session import AuthSessionRepository

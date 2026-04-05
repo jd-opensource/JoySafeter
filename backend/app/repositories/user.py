@@ -1,7 +1,7 @@
 """
-用户 Repository
+User Repository
 
-只包含基础用户信息查询，认证相关查询在 AuthUserRepository 中。
+Only basic user info queries; auth-related queries live in AuthUserRepository.
 """
 
 from typing import List, Optional
@@ -16,24 +16,24 @@ from .base import BaseRepository
 
 class UserRepository(BaseRepository[User]):
     """
-    用户数据访问（对齐原始项目实现）
+    User data access (aligned with the original project).
 
-    只包含基础用户信息查询，不包含认证相关字段查询。
+    Only basic user info queries; does not include auth-related column queries.
     """
 
     def __init__(self, db: AsyncSession):
         super().__init__(User, db)
 
     async def get_by_email(self, email: str) -> Optional[User]:
-        """根据邮箱获取用户"""
+        """Get a user by email."""
         return await self.get_by(email=email)
 
     async def get_by_id(self, user_id: str) -> Optional[User]:
-        """根据 ID 获取用户（text 类型）"""
+        """Get a user by ID (text type)."""
         return await self.get_by(id=user_id)
 
     async def email_exists(self, email: str, exclude_id: Optional[str] = None) -> bool:
-        """检查邮箱是否存在"""
+        """Check whether an email exists."""
         query = select(User).where(User.email == email)
         if exclude_id:
             query = query.where(User.id != exclude_id)
@@ -41,7 +41,7 @@ class UserRepository(BaseRepository[User]):
         return result.scalar_one_or_none() is not None
 
     async def search(self, keyword: str, limit: int = 20) -> List[User]:
-        """按 email/name 模糊搜索用户"""
+        """Fuzzy-search users by email/name."""
         pattern = f"%{keyword}%"
         query = (
             select(User)
@@ -57,7 +57,7 @@ class UserRepository(BaseRepository[User]):
         return list(result.scalars().all())
 
     async def list_users(self, limit: int = 100) -> List[User]:
-        """获取用户列表"""
+        """List users."""
         query = select(User).limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())

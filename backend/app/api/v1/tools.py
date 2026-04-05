@@ -1,7 +1,7 @@
 """
 Tools API - List available builtin, MCP, and custom tools
 
-支持用户级别的工具查询
+Supports user-level tool queries
 """
 
 from typing import Optional
@@ -26,16 +26,16 @@ async def list_tools(
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取用户可用的工具列表（用户级别）
+    List tools available to the user (user-level).
 
-    包括:
-    - 内置工具 (builtin)
-    - 用户的 MCP 服务器工具
-    - 用户的自定义工具
+    Includes:
+    - Builtin tools
+    - User's MCP server tools
+    - User's custom tools
 
     Args:
-        category: 按类别过滤
-        tool_type: 按工具类型过滤 (builtin, mcp, custom)
+        category: filter by category
+        tool_type: filter by tool type (builtin, mcp, custom)
 
     Returns:
         {"success": True, "data": [ToolResponse, ...]}
@@ -49,7 +49,7 @@ async def list_tools(
         category=category,
     )
 
-    # ToolInfo.to_response() 统一转换
+    # ToolInfo.to_response() provides unified conversion
     return success_response(
         data=[t.to_response() for t in tools],
         message="Tools retrieved successfully",
@@ -62,7 +62,7 @@ async def list_builtin_tools(
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取所有内置工具
+    List all builtin tools.
 
     Returns:
         {"success": True, "data": [ToolResponse, ...]}
@@ -84,10 +84,10 @@ async def get_tool(
     current_user: User = Depends(get_current_user),
 ):
     """
-    获取工具详情
+    Get tool details.
 
     Args:
-        tool_id: 工具 ID (对于 MCP 工具: server::tool_name)
+        tool_id: tool ID (for MCP tools: server::tool_name)
 
     Returns:
         {"success": True, "data": ToolResponse}

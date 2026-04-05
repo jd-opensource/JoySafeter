@@ -1,10 +1,10 @@
 """
-MCP Server API - MCP 服务器管理
+MCP Server API - MCP server management
 
-遵循项目规范:
-- Query 参数: snake_case (alias 支持 camelCase)
-- 响应体: camelCase (前端兼容)
-- 返回格式: {"success": True, "data": ...}
+Follows project conventions:
+- Query params: snake_case (alias supports camelCase)
+- Response body: camelCase (frontend compatible)
+- Return format: {"success": True, "data": ...}
 """
 
 from typing import Any, Dict, Optional
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/v1/mcp", tags=["MCP Servers"])
 
 
 class McpServerCreateRequest(BaseModel):
-    """创建 MCP 服务器"""
+    """Create MCP server."""
 
     model_config = {"populate_by_name": True}
 
@@ -43,7 +43,7 @@ class McpServerCreateRequest(BaseModel):
 
 
 class McpServerUpdateRequest(BaseModel):
-    """更新 MCP 服务器"""
+    """Update MCP server."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
@@ -60,7 +60,7 @@ class ToggleRequest(BaseModel):
 
 
 class McpTestRequest(BaseModel):
-    """连接测试请求"""
+    """Connection test request."""
 
     transport: str = "streamable-http"
     url: Optional[str] = None
@@ -69,9 +69,9 @@ class McpTestRequest(BaseModel):
 
 
 class McpToolExecuteRequest(BaseModel):
-    """工具执行请求
+    """Tool execution request.
 
-    使用 serverName 查找服务器（每个用户唯一）。
+    Uses serverName to look up the server (unique per user).
     """
 
     serverName: str = Field(..., description="Server name (unique per user)")
@@ -83,7 +83,7 @@ class McpToolExecuteRequest(BaseModel):
 
 
 def _serialize_server(server) -> Dict[str, Any]:
-    """序列化服务器为 camelCase 响应"""
+    """Serialize a server to a camelCase response."""
     return {
         "id": str(server.id),
         "name": server.name,
@@ -104,7 +104,7 @@ def _serialize_server(server) -> Dict[str, Any]:
 
 
 def _serialize_tool(tool_info) -> Dict[str, Any]:
-    """序列化工具为 camelCase 响应"""
+    """Serialize a tool to a camelCase response."""
     display_name = tool_info.label_name or tool_info.name
     return {
         "id": tool_info.id,
@@ -130,7 +130,7 @@ async def list_mcp_servers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取当前用户的 MCP 服务器列表（用户级别）"""
+    """List MCP servers for the current user (user-level)."""
     service = ToolService(db)
     servers = await service.list_mcp_servers(
         user_id=current_user.id,
@@ -146,7 +146,7 @@ async def create_mcp_server(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建 MCP 服务器"""
+    """Create an MCP server."""
     from loguru import logger
 
     from app.schemas.mcp import McpServerCreate
@@ -179,7 +179,7 @@ async def get_mcp_server(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取 MCP 服务器详情"""
+    """Get MCP server details."""
     service = ToolService(db)
     server = await service.get_mcp_server(server_id=server_id, user_id=current_user.id)
 
@@ -193,7 +193,7 @@ async def update_mcp_server(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新 MCP 服务器"""
+    """Update an MCP server."""
     from app.schemas.mcp import McpServerUpdate
 
     service = ToolService(db)
@@ -221,7 +221,7 @@ async def delete_mcp_server(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除 MCP 服务器"""
+    """Delete an MCP server."""
     service = ToolService(db)
     await service.delete_mcp_server(server_id=server_id, user_id=current_user.id)
 
@@ -238,7 +238,7 @@ async def toggle_mcp_server(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """启用/禁用 MCP 服务器"""
+    """Enable/disable an MCP server."""
     service = ToolService(db)
     server = await service.toggle_mcp_server(
         server_id=server_id,
@@ -255,7 +255,7 @@ async def test_server_connection(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """测试已存在服务器的连接"""
+    """Test an existing server's connection."""
     service = ToolService(db)
     result = await service.test_connection(server_id=server_id, user_id=current_user.id)
 
@@ -277,7 +277,7 @@ async def refresh_server_tools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """刷新服务器工具列表"""
+    """Refresh a server's tool list."""
     service = ToolService(db)
     tools = await service.refresh_server_tools(server_id=server_id, user_id=current_user.id)
 
@@ -290,7 +290,7 @@ async def list_server_tools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取服务器的工具列表"""
+    """List a server's tools."""
     service = ToolService(db)
     tools = await service.get_server_tools(server_id=server_id, user_id=current_user.id)
 
@@ -305,7 +305,7 @@ async def test_connection(
     request: McpTestRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """测试连接 (创建前)"""
+    """Test connection (before creation)."""
     mcp_client = get_mcp_client()
     config = McpConnectionConfig(
         url=request.url or "",
@@ -333,7 +333,7 @@ async def discover_tools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """发现当前用户的所有 MCP 工具（用户级别）"""
+    """Discover all MCP tools for the current user (user-level)."""
     service = ToolService(db)
 
     servers = await service.list_mcp_servers(
@@ -363,10 +363,10 @@ async def execute_tool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """执行 MCP 工具
+    """Execute an MCP tool.
 
-    使用 serverName 查找真实的 MCP server instance，并验证权限和状态。
-    确保使用真实的 server instance 和 tool_name 执行工具。
+    Use serverName to find the real MCP server instance, validating permissions and status.
+    Ensure the real server instance and tool_name are used for execution.
     """
     from loguru import logger
 

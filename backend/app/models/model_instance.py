@@ -1,5 +1,5 @@
 """
-模型实例配置模型
+Model instance configuration model
 """
 
 import uuid
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class ModelInstance(BaseModel):
-    """模型实例配置表"""
+    """Model instance configuration table."""
 
     __tablename__ = "model_instance"
 
@@ -26,28 +26,28 @@ class ModelInstance(BaseModel):
         String(255),
         ForeignKey("user.id", ondelete="CASCADE"),
         nullable=True,
-        comment="用户ID，如果为None则为全局模型记录",
+        comment="user ID; NULL means global model record",
     )
     workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=True,
-        comment="工作空间ID，如果为None则为用户级配置",
+        comment="workspace ID; NULL means user-level config",
     )
     provider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_provider.id", ondelete="CASCADE"),
         nullable=False,
-        comment="供应商ID",
+        comment="provider ID",
     )
     model_name: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="模型名称，如 'gpt-4o', 'claude-3-5-sonnet'"
+        String(255), nullable=False, comment="model name, e.g. 'gpt-4o', 'claude-3-5-sonnet'"
     )
 
-    # 模型参数配置（JSON格式），如 {"temperature": 0.7, "max_tokens": 2000}
-    model_parameters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, comment="模型参数配置")
+    # model parameter configuration (JSON), e.g. {"temperature": 0.7, "max_tokens": 2000}
+    model_parameters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, comment="model parameter config")
 
-    # 关系
+    # relationships
     provider: Mapped[Optional["ModelProvider"]] = relationship(
         "ModelProvider", back_populates="model_instances", lazy="selectin"
     )

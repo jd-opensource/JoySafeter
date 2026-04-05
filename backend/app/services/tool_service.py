@@ -1,15 +1,15 @@
 """
-Tool Service - 统一工具管理服务
+Tool Service — unified tool management service.
 
-职责：
-- 工具注册/注销（同步到 ToolRegistry）
-- 工具查询（从 ToolRegistry 读取）
-- 协调 MCP 服务器与工具同步
+Responsibilities:
+- Tool registration/unregistration (sync to ToolRegistry)
+- Tool queries (read from ToolRegistry)
+- Coordinate MCP server and tool synchronization
 
-设计原则：
-- 门面模式 (Facade)：提供统一的工具管理入口
-- 组合优于继承：组合 McpServerService 和 McpClientService
-- 单一职责：专注于工具管理，MCP 服务器 CRUD 委托给 McpServerService
+Design principles:
+- Facade pattern: provide a single entry point for tool management
+- Composition over inheritance: compose McpServerService and McpClientService
+- Single responsibility: focus on tool management; MCP server CRUD is delegated to McpServerService
 """
 
 from __future__ import annotations
@@ -37,17 +37,17 @@ from app.services.mcp_server_service import McpServerService
 
 class ToolService(BaseService[McpServer]):
     """
-    统一工具管理服务 (Facade)
+    Unified tool management service (Facade).
 
-    职责:
-    - 协调 MCP 服务器管理与工具注册
-    - 工具查询
-    - 工具同步
+    Responsibilities:
+    - Coordinate MCP server management and tool registration
+    - Tool queries
+    - Tool synchronization
 
-    组合的服务:
-    - McpServerService: MCP 服务器 CRUD
-    - McpClientService: MCP 连接和工具获取
-    - ToolRegistry: 工具注册中心
+    Composed services:
+    - McpServerService: MCP server CRUD
+    - McpClientService: MCP connection and tool fetching
+    - ToolRegistry: tool registration center
     """
 
     def __init__(
@@ -62,12 +62,12 @@ class ToolService(BaseService[McpServer]):
 
     @property
     def registry(self) -> ToolRegistry:
-        """获取全局工具注册中心"""
+        """Get the global tool registry."""
         return self._registry
 
     @property
     def server_service(self) -> McpServerService:
-        """获取 MCP 服务器服务"""
+        """Get the MCP server service."""
         return self._server_service
 
     # ==================== MCP Server Operations (Delegate) ====================
@@ -78,7 +78,7 @@ class ToolService(BaseService[McpServer]):
         data: McpServerCreate,
     ) -> McpServer:
         """
-        创建 MCP 服务器并同步工具
+        Create an MCP server and sync tools.
         """
         server = await self._server_service.create(user_id, data)
 
@@ -95,31 +95,31 @@ class ToolService(BaseService[McpServer]):
         data: McpServerUpdate,
     ) -> McpServer:
         """
-        更新 MCP 服务器并同步工具到 registry
+        Update an MCP server and sync tools to the registry.
 
-        处理逻辑：
-        1. 名称变更：先注销旧名称工具，更新后注册新名称工具
-        2. 状态变更：enabled→disabled 注销工具，disabled→enabled 同步工具
-        3. 配置变更：如果连接配置改变，重新同步工具
+        Handling logic:
+        1. Name change: unregister old-name tools first, then register new-name tools after update
+        2. State change: enabled->disabled unregisters tools, disabled->enabled syncs tools
+        3. Config change: if connection config changed, re-sync tools
         """
-        # 获取当前服务器状态
+        # get current server state
         server = await self._server_service.get(server_id, user_id)
         old_name = server.name
         was_enabled = server.enabled
 
-        # 检测变更类型
+        # detect change types
         name_changed = data.name is not None and data.name != server.name
         needs_resync = self._server_service.needs_resync(data, server)
 
-        # 处理名称变更：先注销旧名称的工具
+        # handle name change: unregister old-name tools first
         if name_changed and was_enabled:
             await self._unregister_server_tools_by_name(old_name, user_id)
 
-        # 执行更新
+        # execute update
         server = await self._server_service.update(server_id, user_id, data)
         will_be_enabled = server.enabled
 
-        # 处理工具同步逻辑
+        # handle tool sync logic
         await self._handle_tool_sync_after_update(
             server=server,
             was_enabled=was_enabled,
@@ -136,7 +136,7 @@ class ToolService(BaseService[McpServer]):
         user_id: str,
     ) -> bool:
         """
-        删除 MCP 服务器并注销工具
+        Delete an MCP server and unregister its tools.
         """
         server = await self._server_service.get(server_id, user_id)
         await self._unregister_server_tools(server)
@@ -147,7 +147,7 @@ class ToolService(BaseService[McpServer]):
         server_id: uuid.UUID,
         user_id: str,
     ) -> McpServer:
-        """获取 MCP 服务器"""
+        """Get an MCP server."""
         return await self._server_service.get(server_id, user_id)
 
     async def list_mcp_servers(
@@ -156,11 +156,11 @@ class ToolService(BaseService[McpServer]):
         enabled_only: bool = False,
     ) -> List[McpServer]:
         """
-        获取 MCP 服务器列表（用户级别）
+        Get MCP server list (user-level).
 
         Args:
-            user_id: 用户 ID
-            enabled_only: 是否只返回启用的
+            user_id: user ID
+            enabled_only: whether to return only enabled servers
         """
         return await self._server_service.list(user_id, enabled_only)
 
@@ -171,7 +171,7 @@ class ToolService(BaseService[McpServer]):
         enabled: bool,
     ) -> McpServer:
         """
-        切换 MCP 服务器启用状态
+        Toggle MCP server enabled state.
         """
         server = await self._server_service.get(server_id, user_id)
 
@@ -195,7 +195,7 @@ class ToolService(BaseService[McpServer]):
         user_id: str,
     ) -> ConnectionTestResult:
         """
-        测试 MCP 服务器连接
+        Test MCP server connection.
         """
         server = await self._server_service.get(server_id, user_id)
         config = McpClientService.config_from_server(server)
@@ -226,7 +226,7 @@ class ToolService(BaseService[McpServer]):
         user_id: str,
     ) -> List[ToolInfo]:
         """
-        刷新 MCP 服务器工具
+        Refresh MCP server tools.
         """
         server = await self._server_service.get(server_id, user_id)
 
@@ -240,10 +240,10 @@ class ToolService(BaseService[McpServer]):
         user_id: str,
     ) -> int:
         """
-        同步用户所有启用的 MCP 服务器工具（用户级别）
+        Sync all enabled MCP server tools for a user (user-level).
 
         Args:
-            user_id: 用户 ID
+            user_id: user ID
         """
         servers = await self._server_service.list(user_id, enabled_only=True)
 
@@ -266,18 +266,18 @@ class ToolService(BaseService[McpServer]):
         category: Optional[str] = None,
     ) -> List[ToolInfo]:
         """
-        获取用户可用的工具列表（用户级别）
+        Get available tools for a user (user-level).
 
         Args:
-            user_id: 用户 ID
-            tool_type: 工具类型过滤
-            category: 类别过滤
+            user_id: user ID
+            tool_type: tool type filter
+            category: category filter
         """
         filter_config = self._build_filter(tool_type, category)
 
         tools = self._registry.get_tools_for_scope(
             user_id=user_id,
-            workspace_id=None,  # 用户级别，无 workspace
+            workspace_id=None,  # user-level, no workspace
             filter_config=filter_config,
             include_builtin=True,
         )
@@ -285,17 +285,17 @@ class ToolService(BaseService[McpServer]):
         return [self._tool_to_info(t) for t in tools]
 
     def get_builtin_tools(self) -> List[ToolInfo]:
-        """获取所有内置工具"""
+        """Get all built-in tools."""
         tools = self._registry.get_tools(ToolFilter(source_types={ToolSourceType.BUILTIN}))
         return [self._tool_to_info(t) for t in tools]
 
     def get_tool_by_key(self, tool_key: str) -> Optional[ToolInfo]:
-        """通过工具键获取工具信息"""
+        """Get tool info by tool key."""
         tool = self._registry.get_tool(tool_key)
         return self._tool_to_info(tool) if tool else None
 
     def get_mcp_tool(self, server_name: str, tool_name: str) -> Optional[ToolInfo]:
-        """获取 MCP 工具"""
+        """Get an MCP tool."""
         tool = self._registry.get_mcp_tool(server_name, tool_name)
         return self._tool_to_info(tool) if tool else None
 
@@ -305,14 +305,14 @@ class ToolService(BaseService[McpServer]):
         user_id: str,
     ) -> List[ToolInfo]:
         """
-        获取 MCP 服务器的工具列表
+        Get the tool list for an MCP server.
 
-        先验证权限，再从 Registry 获取工具
+        Verify permissions first, then fetch tools from the Registry.
         """
-        # 验证权限
+        # verify permissions
         server = await self._server_service.get(server_id, user_id)
 
-        # 从 Registry 获取该服务器的工具
+        # fetch tools for this server from the Registry
         tools = self._registry.get_mcp_server_tools(server.name)
         return [self._tool_to_info(t) for t in tools]
 
@@ -327,40 +327,40 @@ class ToolService(BaseService[McpServer]):
         needs_resync: bool,
     ) -> None:
         """
-        处理更新后的工具同步逻辑
+        Handle tool sync logic after an update.
 
         Args:
-            server: 更新后的服务器对象
-            was_enabled: 更新前的启用状态
-            will_be_enabled: 更新后的启用状态
-            name_changed: 是否发生了名称变更
-            needs_resync: 是否需要重新同步（配置变更）
+            server: the updated server object
+            was_enabled: enabled state before the update
+            will_be_enabled: enabled state after the update
+            name_changed: whether the name changed
+            needs_resync: whether a re-sync is needed (config change)
         """
-        # 情况1: 从 enabled 变为 disabled → 注销工具
+        # case 1: enabled -> disabled — unregister tools
         if not will_be_enabled and was_enabled:
-            if not name_changed:  # 名称未变，使用新名称注销
+            if not name_changed:  # name unchanged, unregister by new name
                 await self._unregister_server_tools(server)
-            # 如果名称已变，旧名称的工具已在更新前注销
+            # if name changed, old-name tools were already unregistered before the update
 
-        # 情况2: 保持或变为 enabled → 根据条件同步工具
+        # case 2: stays or becomes enabled — sync tools based on conditions
         elif will_be_enabled:
             should_sync = (
-                needs_resync  # 配置改变需要重新同步
-                or name_changed  # 名称改变需要注册新名称工具
-                or not was_enabled  # 从 disabled 变为 enabled 需要同步
+                needs_resync  # config changed, needs re-sync
+                or name_changed  # name changed, needs to register new-name tools
+                or not was_enabled  # disabled -> enabled, needs sync
             )
             if should_sync:
                 await self._sync_server_tools_safe(server)
 
     async def _sync_server_tools_safe(self, server: McpServer) -> None:
-        """安全地同步服务器工具（捕获异常）"""
+        """Safely sync server tools (catch exceptions)."""
         try:
             await self._sync_server_tools(server)
         except Exception as e:
             logger.warning(f"Failed to sync tools for server {server.name}: {e}")
 
     async def _sync_server_tools(self, server: McpServer) -> List[ToolInfo]:
-        """同步服务器工具到 Registry"""
+        """Sync server tools to the Registry."""
         config = McpClientService.config_from_server(server)
 
         try:
@@ -378,7 +378,7 @@ class ToolService(BaseService[McpServer]):
                 mcp_server_name=server.name,
                 tools=result.tools,
                 owner_user_id=server.user_id,
-                owner_workspace_id=None,  # 用户级别，无 workspace
+                owner_workspace_id=None,  # user-level, no workspace
                 category="mcp",
             )
 
@@ -396,19 +396,19 @@ class ToolService(BaseService[McpServer]):
 
     async def _unregister_server_tools(self, server: McpServer) -> int:
         """
-        从 Registry 注销服务器的所有工具，并关闭对应的 Toolkit
+        Unregister all tools for a server from the Registry, and close the corresponding Toolkit.
 
         Args:
-            server: MCP 服务器对象
+            server: MCP server object
 
         Returns:
-            注销的工具数量
+            Number of tools unregistered
         """
         count = self._registry.unregister_mcp_server_tools(server.name)
         if count > 0:
             logger.info(f"Unregistered {count} tools from server: {server.name}")
 
-        # 关闭对应的 Toolkit
+        # close the corresponding Toolkit
         from app.services.mcp_toolkit_manager import get_toolkit_manager
 
         toolkit_manager = get_toolkit_manager()
@@ -421,20 +421,20 @@ class ToolService(BaseService[McpServer]):
 
     async def _unregister_server_tools_by_name(self, server_name: str, user_id: str) -> int:
         """
-        根据服务器名称注销工具（用于名称变更场景），并关闭对应的 Toolkit
+        Unregister tools by server name (for name-change scenarios), and close the corresponding Toolkit.
 
         Args:
-            server_name: 服务器名称
-            user_id: 用户 ID
+            server_name: server name
+            user_id: user ID
 
         Returns:
-            注销的工具数量
+            Number of tools unregistered
         """
         count = self._registry.unregister_mcp_server_tools(server_name)
         if count > 0:
             logger.info(f"Unregistered {count} tools from server: {server_name}")
 
-        # 关闭对应的 Toolkit
+        # close the corresponding Toolkit
         from app.services.mcp_toolkit_manager import get_toolkit_manager
 
         toolkit_manager = get_toolkit_manager()
@@ -452,7 +452,7 @@ class ToolService(BaseService[McpServer]):
         tool_type: Optional[str],
         category: Optional[str],
     ) -> Optional[ToolFilter]:
-        """构建工具过滤器"""
+        """Build a tool filter."""
         if not tool_type and not category:
             return None
 
@@ -472,13 +472,13 @@ class ToolService(BaseService[McpServer]):
 
     def _tool_to_info(self, tool: EnhancedTool) -> ToolInfo:
         """
-        转换 EnhancedTool 为 ToolInfo
+        Convert an EnhancedTool to ToolInfo.
 
         Args:
-            tool: EnhancedTool 实例
+            tool: EnhancedTool instance
 
         Returns:
-            ToolInfo 对象
+            ToolInfo object
         """
         metadata = tool.tool_metadata
         tool_type = metadata.custom_attrs.get("tool_type", metadata.source_type.value)
@@ -497,7 +497,7 @@ class ToolService(BaseService[McpServer]):
             mcp_server=metadata.mcp_server_name,
             mcp_tool_name=metadata.mcp_tool_name,
             owner_user_id=metadata.owner_user_id,
-            owner_workspace_id=None,  # 用户级别，不再使用 workspace
+            owner_workspace_id=None,  # user-level, no longer uses workspace
             enabled=metadata.enabled,
         )
 
@@ -514,22 +514,22 @@ async def initialize_mcp_tools_on_startup(
     allow_partial_failure: bool = True,
 ) -> int:
     """
-    应用启动时加载所有启用的 MCP 服务器工具到全局 registry
+    Load all enabled MCP server tools into the global registry at application startup.
 
-    流程：
-    1. 查询所有启用的 MCP 服务器
-    2. 连接到每个服务器并获取工具列表（带重试机制）
-    3. 将工具注册到全局 ToolRegistry
-    4. 更新服务器的连接状态和工具数量
+    Flow:
+    1. Query all enabled MCP servers
+    2. Connect to each server and fetch tool lists (with retry mechanism)
+    3. Register tools into the global ToolRegistry
+    4. Update server connection status and tool count
 
     Args:
-        db: 数据库会话
-        max_retries: 每个服务器连接失败时的最大重试次数
-        retry_delay: 重试延迟（秒），使用指数退避
-        allow_partial_failure: 如果为 True，单个服务器失败不会影响其他服务器
+        db: database session
+        max_retries: max retry count per server on connection failure
+        retry_delay: retry delay (seconds), using exponential backoff
+        allow_partial_failure: if True, a single server failure does not affect others
 
     Returns:
-        加载的工具总数
+        Total number of tools loaded
     """
     import asyncio
 
@@ -559,7 +559,7 @@ async def initialize_mcp_tools_on_startup(
                         mcp_server_name=server.name,
                         tools=result.tools,
                         owner_user_id=server.user_id,
-                        owner_workspace_id=None,  # 用户级别，无 workspace
+                        owner_workspace_id=None,  # user-level, no workspace
                         category="mcp",
                     )
 

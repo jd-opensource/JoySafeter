@@ -1,4 +1,4 @@
-"""工作空间服务"""
+"""Workspace service."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ ROLE_RANK = {
 
 
 class WorkspaceService(BaseService[Workspace]):
-    """工作空间业务逻辑"""
+    """Workspace business logic."""
 
     def __init__(self, db):
         super().__init__(db)
@@ -33,7 +33,7 @@ class WorkspaceService(BaseService[Workspace]):
         self.member_repo = WorkspaceMemberRepository(db)
 
     async def _serialize_workspace(self, workspace: Workspace, current_user: User) -> Dict:
-        """序列化 workspace，对齐旧项目 camelCase 字段命名"""
+        """Serialize workspace, aligned with legacy project camelCase field naming."""
         role = await self._get_role(workspace, current_user)
         return {
             "id": str(workspace.id),
@@ -69,16 +69,16 @@ class WorkspaceService(BaseService[Workspace]):
 
     async def get_user_role(self, workspace_id: uuid.UUID, current_user: User) -> Optional[WorkspaceMemberRole]:
         """
-        获取用户在工作空间中的角色（复用 _ensure_member 逻辑，但不抛异常）
+        Get the user's role in a workspace (reuse _ensure_member logic, but do not raise).
 
         Returns:
-            用户角色，如果用户不是成员则返回 None
+            User role, or None if the user is not a member
         """
         try:
-            # 复用现有的 _ensure_member 方法，它已经处理了所有情况（超级用户、所有者、普通成员）
+            # reuse the existing _ensure_member method, which already handles all cases (superuser, owner, regular member)
             return await self._ensure_member(workspace_id, current_user)
         except (NotFoundException, ForbiddenException):
-            # 如果用户不是成员，返回 None 而不是抛异常（因为这是查询方法，不是验证方法）
+            # if the user is not a member, return None instead of raising (this is a query method, not a validation method)
             return None
 
     def _ensure_admin_role(self, role: WorkspaceMemberRole):
@@ -90,7 +90,7 @@ class WorkspaceService(BaseService[Workspace]):
         return [await self._serialize_workspace(ws, current_user) for ws in workspaces]
 
     async def ensure_personal_workspace(self, current_user: User) -> Workspace:
-        """确保用户有个人空间，如果没有则创建一个"""
+        """Ensure the user has a personal workspace; create one if missing."""
         workspaces = await self.workspace_repo.list_for_user(current_user.id)
         personal_workspace = None
         for ws in workspaces:
@@ -105,11 +105,11 @@ class WorkspaceService(BaseService[Workspace]):
         return personal_workspace
 
     async def _create_personal_workspace(self, current_user: User) -> Workspace:
-        """创建个人空间"""
+        """Create a personal workspace."""
         ws = await self.workspace_repo.create(
             {
-                "name": "个人空间",
-                "description": "个人空间",
+                "name": "Personal Space",
+                "description": "Personal Space",
                 "owner_id": current_user.id,
                 "type": WorkspaceType.personal,
             }
@@ -127,7 +127,7 @@ class WorkspaceService(BaseService[Workspace]):
         current_user: User,
         workspace_type: WorkspaceType = WorkspaceType.team,
     ) -> Dict:
-        """创建工作空间（默认创建团队工作空间）"""
+        """Create a workspace (default: team workspace)."""
         workspace = await self.workspace_repo.create(
             {
                 "name": name,
@@ -179,14 +179,14 @@ class WorkspaceService(BaseService[Workspace]):
         if update_data:
             updated_workspace = await self.workspace_repo.update(workspace_id, update_data)  # type: ignore
             await self.commit()
-            # 提交后重新刷新以确保获取数据库中的最新数据
+            # refresh after commit to ensure we get the latest data from the database
             await self.db.refresh(updated_workspace)
             workspace = updated_workspace
         else:
-            # 如果没有更新数据，重新获取以确保数据最新
+            # if no update data, re-fetch to ensure data is current
             workspace = await self.workspace_repo.get(workspace_id)
 
-        # 确保返回最新的序列化数据
+        # ensure the latest serialized data is returned
         return await self._serialize_workspace(workspace, current_user)
 
     async def delete_workspace(
@@ -199,13 +199,13 @@ class WorkspaceService(BaseService[Workspace]):
         role = await self._ensure_member(workspace_id, current_user)
         self._ensure_admin_role(role)
 
-        # 检查是否为个人空间，个人空间不允许删除
+        # check if it's a personal workspace; personal workspaces cannot be deleted
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
             raise NotFoundException("Workspace not found")
 
         if workspace.type == WorkspaceType.personal:
-            raise BadRequestException("个人空间不允许删除")
+            raise BadRequestException("Personal workspace cannot be deleted")
 
         # Revoke all tokens bound to this workspace
         from app.services.platform_token_service import PlatformTokenService
@@ -215,7 +215,7 @@ class WorkspaceService(BaseService[Workspace]):
 
         deleted = await self.workspace_repo.delete(workspace_id)
         await self.commit()
-        # 模板删除逻辑预留，当前模型中未挂载模板实体
+        # template deletion logic reserved; no template entity mounted in current model
         return bool(deleted) if deleted is not None else False
 
     async def duplicate_workspace(
@@ -225,34 +225,34 @@ class WorkspaceService(BaseService[Workspace]):
         name: Optional[str],
         current_user: User,
     ) -> Dict:
-        """复制工作空间"""
-        # 获取源工作空间
+        """Duplicate a workspace."""
+        # get source workspace
         source_workspace = await self.workspace_repo.get(workspace_id)
         if not source_workspace:
             raise NotFoundException("Workspace not found")
 
-        # 确保用户有权限访问源工作空间
+        # ensure user has permission to access the source workspace
         await self._ensure_member(workspace_id, current_user)
 
-        # 检查是否为个人空间，个人空间不允许复制
+        # check if it's a personal workspace; personal workspaces cannot be duplicated
         if source_workspace.type == WorkspaceType.personal:
-            raise BadRequestException("个人空间不允许复制")
+            raise BadRequestException("Personal workspace cannot be duplicated")
 
-        # 生成新名称
+        # generate new name
         new_name = name or f"{source_workspace.name} (Copy)"
 
-        # 创建新工作空间
+        # create new workspace
         new_workspace = await self.workspace_repo.create(
             {
                 "name": new_name,
                 "description": source_workspace.description,
                 "owner_id": current_user.id,
-                "type": WorkspaceType.team,  # 复制的都是团队空间
+                "type": WorkspaceType.team,  # duplicated workspaces are always team workspaces
                 "settings": source_workspace.settings.copy() if source_workspace.settings else None,
             }
         )
 
-        # 将当前用户添加为新工作空间的拥有者
+        # add current user as owner of the new workspace
         await self.member_repo.create(
             {"workspace_id": new_workspace.id, "user_id": current_user.id, "role": WorkspaceMemberRole.owner}
         )
@@ -261,7 +261,7 @@ class WorkspaceService(BaseService[Workspace]):
         return await self._serialize_workspace(new_workspace, current_user)
 
     # ------------------------------------------------------------------ #
-    # 直接添加成员
+    # add member directly
     # ------------------------------------------------------------------ #
     async def add_member(
         self,
@@ -271,7 +271,7 @@ class WorkspaceService(BaseService[Workspace]):
         role: str,
         current_user: User,
     ) -> Dict:
-        """直接添加成员到工作空间（无需邀请流程）"""
+        """Add a member to the workspace directly (no invitation flow)."""
         member_role = await self._ensure_member(workspace_id, current_user)
         self._ensure_admin_role(member_role)
 
@@ -280,11 +280,11 @@ class WorkspaceService(BaseService[Workspace]):
 
         target_role = WorkspaceMemberRole(role)
 
-        # owner 角色不能通过添加成员赋予
+        # owner role cannot be assigned via add member
         if target_role == WorkspaceMemberRole.owner:
             raise BadRequestException("Cannot assign owner role")
 
-        # 角色层级保护：非 owner 不能添加 >= 自己等级的角色
+        # role hierarchy protection: non-owner cannot add a role >= their own
         if member_role != WorkspaceMemberRole.owner:
             if ROLE_RANK.get(target_role, 0) >= ROLE_RANK.get(member_role, 0):
                 raise ForbiddenException("Cannot add a member with a role equal to or higher than your own")
@@ -315,7 +315,7 @@ class WorkspaceService(BaseService[Workspace]):
         }
 
     # ------------------------------------------------------------------ #
-    # 成员管理
+    # member management
     # ------------------------------------------------------------------ #
     async def list_members_paginated(
         self,
@@ -323,7 +323,7 @@ class WorkspaceService(BaseService[Workspace]):
         current_user: User,
         pagination: PaginationParams,
     ) -> PageResult:
-        """获取工作空间成员列表（分页）"""
+        """Get workspace member list (paginated)."""
         from app.common.pagination import PageResult
 
         workspace = await self.workspace_repo.get(workspace_id)
@@ -398,46 +398,46 @@ class WorkspaceService(BaseService[Workspace]):
         new_role: WorkspaceMemberRole,
         current_user: User,
     ) -> Dict:
-        """更新成员角色"""
+        """Update member role."""
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
             raise NotFoundException("Workspace not found")
 
-        # 确保当前用户是 admin
+        # ensure current user is admin
         current_role = await self._ensure_member(workspace_id, current_user)
         self._ensure_admin_role(current_role)
 
-        # 获取目标成员
+        # get target member
         target_member = await self.member_repo.get_member(workspace_id, target_user_id)
         if not target_member:
             raise NotFoundException("User not found in workspace")
 
-        # 不能修改拥有者的角色
+        # cannot modify the owner's role
         if workspace.owner_id == target_user_id:
             raise BadRequestException("Cannot change owner role")
 
-        # owner 角色不能通过角色更新赋予
+        # owner role cannot be assigned via role update
         if new_role == WorkspaceMemberRole.owner:
             raise BadRequestException("Cannot assign owner role")
 
-        # 角色层级保护：非 owner 不能修改 >= 自己等级的成员
+        # role hierarchy protection: non-owner cannot modify members >= their own level
         if current_role != WorkspaceMemberRole.owner:
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
                 raise ForbiddenException("Cannot modify a member with equal or higher role")
             if ROLE_RANK.get(new_role, 0) >= ROLE_RANK.get(current_role, 0):
                 raise ForbiddenException("Cannot assign a role equal to or higher than your own")
 
-        # 如果修改的是 admin，检查是否是最后一个 admin
+        # if modifying an admin, check if they are the last admin
         if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
             if admin_count <= 1 and new_role not in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
                 raise BadRequestException("Cannot remove the last admin from a workspace")
 
-        # 更新角色
+        # update role
         updated_member = await self.member_repo.update_member_role(workspace_id, target_user_id, new_role)
         await self.commit()
 
-        # 返回更新后的成员信息
+        # return updated member info
         from app.repositories.auth_user import AuthUserRepository
 
         user_repo = AuthUserRepository(self.db)
@@ -467,25 +467,25 @@ class WorkspaceService(BaseService[Workspace]):
         current_user: User,
     ) -> bool:
         """
-        移除 workspace 成员。
-        对齐旧项目逻辑：
-        - admin 可以移除任何成员（除了自己是最后一个 admin）
-        - 普通成员只能移除自己
+        Remove a workspace member.
+        Aligned with legacy project logic:
+        - Admin can remove any member (unless they are the last admin)
+        - Regular members can only remove themselves
         """
         workspace = await self.workspace_repo.get(workspace_id)
         if not workspace:
             raise NotFoundException("Workspace not found")
 
-        # 获取目标用户的成员记录
+        # get target user's member record
         target_member = await self.member_repo.get_member(workspace_id, str(target_user_id))
         if not target_member:
             raise NotFoundException("User not found in workspace")
 
-        # 不能移除工作空间拥有者
+        # cannot remove the workspace owner
         if str(workspace.owner_id) == str(target_user_id):
             raise BadRequestException("Cannot remove workspace owner")
 
-        # 获取当前用户的角色
+        # get current user's role
         current_role = await self._get_role(workspace, current_user)
         is_admin = current_role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}
         is_self = str(target_user_id) == current_user.id
@@ -493,19 +493,19 @@ class WorkspaceService(BaseService[Workspace]):
         if not is_admin and not is_self:
             raise ForbiddenException("Insufficient permissions")
 
-        # 角色层级保护：非 owner 不能移除 >= 自己等级的成员
+        # role hierarchy protection: non-owner cannot remove members >= their own level
         if is_admin and not is_self and current_role != WorkspaceMemberRole.owner:
             assert isinstance(current_role, WorkspaceMemberRole)
             if ROLE_RANK.get(target_member.role, 0) >= ROLE_RANK.get(current_role, 0):
                 raise ForbiddenException("Cannot remove a member with equal or higher role")
 
-        # 如果移除的是 admin/owner 角色成员，检查是否是最后一个 admin
+        # if removing an admin/owner role member, check if they are the last admin
         if target_member.role in {WorkspaceMemberRole.owner, WorkspaceMemberRole.admin}:
             admin_count = await self.member_repo.count_admins(workspace_id)
             if admin_count <= 1:
                 raise BadRequestException("Cannot remove the last admin from a workspace")
 
-        # 执行删除
+        # execute deletion
         await self.member_repo.delete_member(workspace_id, str(target_user_id))
         await self.commit()
         return True

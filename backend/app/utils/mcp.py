@@ -44,11 +44,9 @@ def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
             logger.debug(f"Session ping failed: {e}")
 
         try:
-            # 打印工具调用信息：工具名称和参数
-            # logger.info(f"[MCP Tool Call] 工具名称: {tool_name}, 参数: {kwargs}")
-            # 特别突出显示文件路径参数
+            # log tool call info: tool name and arguments
             if "filepath" in kwargs:
-                logger.warning(f"[MCP Tool Call] 🔍 文件路径参数: {kwargs['filepath']}")
+                logger.warning(f"[MCP Tool Call] file path argument: {kwargs['filepath']}")
             result: CallToolResult = await session.call_tool(tool_name, kwargs)  # type: ignore
 
             # Return an error if the tool call failed
@@ -70,7 +68,7 @@ def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
 
 
 class ToolExecutionError(Exception):
-    """工具执行错误"""
+    """Tool execution error."""
 
     def __init__(self, message: str, error_type: str = "unknown", retryable: bool = False):
         self.message = message
@@ -80,7 +78,7 @@ class ToolExecutionError(Exception):
 
 
 def _is_retryable_error(error: Exception) -> bool:
-    """判断错误是否可重试"""
+    """Determine whether an error is retryable."""
     error_str = str(error).lower()
     retryable_keywords = [
         "timeout",
@@ -102,7 +100,7 @@ def create_lazy_mcp_entrypoint(
     max_retries: int = 2,
     retry_delay: float = 0.5,
 ):
-    """创建 MCP 工具的 lazy entrypoint"""
+    """Create a lazy entrypoint for an MCP tool."""
 
     async def call_tool(**kwargs) -> ToolResult:
         import asyncio
@@ -147,16 +145,16 @@ def create_lazy_mcp_entrypoint(
         last_error = None
         for attempt in range(max_retries + 1):
             try:
-                # 打印工具调用信息：工具名称和参数
+                # log tool call info: tool name and arguments
                 logger.info(
-                    f"[MCP Tool Call] 工具名称: {tool_name}, "
-                    f"服务器: {server_name}, "
-                    f"参数: {kwargs}, "
-                    f"尝试次数: {attempt + 1}/{max_retries + 1}"
+                    f"[MCP Tool Call] tool: {tool_name}, "
+                    f"server: {server_name}, "
+                    f"args: {kwargs}, "
+                    f"attempt: {attempt + 1}/{max_retries + 1}"
                 )
-                # 特别突出显示文件路径参数
+                # highlight file path arguments
                 if "filepath" in kwargs:
-                    logger.warning(f"[MCP Tool Call] 🔍 文件路径参数: {kwargs['filepath']}")
+                    logger.warning(f"[MCP Tool Call] file path argument: {kwargs['filepath']}")
 
                 result: CallToolResult = await session.call_tool(tool_name, kwargs)  # type: ignore
 

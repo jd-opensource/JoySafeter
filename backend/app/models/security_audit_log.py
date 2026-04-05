@@ -1,5 +1,5 @@
 """
-安全审计日志模型
+Security audit log model
 """
 
 import uuid
@@ -15,12 +15,12 @@ from app.models.base import TimestampMixin
 
 class SecurityAuditLog(Base, TimestampMixin):
     """
-    安全审计日志表
+    Security audit log table.
 
-    记录所有安全相关事件，用于：
-    - 安全事件追踪
-    - 异常行为检测
-    - 合规要求（SOC 2, GDPR等）
+    Record all security-related events for:
+    - Security event tracking
+    - Anomalous behavior detection
+    - Compliance requirements (SOC 2, GDPR, etc.)
     """
 
     __tablename__ = "security_audit_log"
@@ -38,30 +38,30 @@ class SecurityAuditLog(Base, TimestampMixin):
         default=uuid.uuid4,
     )
 
-    # 用户信息（可选，未登录操作可能没有 user_id）
+    # user info (optional; unauthenticated operations may lack user_id)
     user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     user_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # 事件信息
+    # event info
     event_type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
         index=True,
-        comment="事件类型：login, logout, password_change, password_reset, 2fa_enable, account_lock, etc.",
+        comment="event type: login, logout, password_change, password_reset, 2fa_enable, account_lock, etc.",
     )
     event_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, index=True, comment="事件状态：success, failure, blocked"
+        String(20), nullable=False, index=True, comment="event status: success, failure, blocked"
     )
 
-    # 请求信息
+    # request info
     ip_address: Mapped[str] = mapped_column(String(255), nullable=False)
     user_agent: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     device_fingerprint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     country: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
 
-    # 详细信息（JSON）
-    details: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, comment="额外信息，如错误原因、操作对象等")
+    # details (JSON)
+    details: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, comment="extra info such as error reason, target entity, etc.")
 
-    # 时间戳（继承自 TimestampMixin）
-    # created_at 用于记录事件发生时间
+    # timestamps (inherited from TimestampMixin)
+    # created_at records when the event occurred

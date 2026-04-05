@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding=utf-8
 """
 Backend-based Python Executor for CodeAgent.
 

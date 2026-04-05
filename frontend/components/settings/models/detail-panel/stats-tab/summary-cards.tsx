@@ -46,14 +46,14 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <StatCard label="总调用次数" value={String(summary?.total_calls ?? 0)} />
-      <StatCard label="总 Token 数" value={formatTokenCount(totalTokens)} />
+      <StatCard label="Total Calls" value={String(summary?.total_calls ?? 0)} />
+      <StatCard label="Total Tokens" value={formatTokenCount(totalTokens)} />
       <StatCard
-        label="平均响应时间"
+        label="Avg Response Time"
         value={`${(summary?.avg_response_time_ms ?? 0).toFixed(0)} ms`}
       />
       <StatCard
-        label="错误率"
+        label="Error Rate"
         value={`${((summary?.error_rate ?? 0) * 100).toFixed(1)}%`}
       />
     </div>

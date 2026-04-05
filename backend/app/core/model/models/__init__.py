@@ -1,5 +1,5 @@
 """
-模型包装器模块
+Model wrapper module.
 """
 
 from .base import BaseModelWrapper

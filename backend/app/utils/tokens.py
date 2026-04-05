@@ -1,4 +1,4 @@
-"""使用LangChain model进行精确token计数的实用工具。"""
+"""Utility for precise token counting using LangChain models."""
 
 from pathlib import Path
 
@@ -7,20 +7,22 @@ from loguru import logger
 
 
 def calculate_baseline_tokens(model, agent_dir: Path, system_prompt: str) -> int:
-    """使用模型的官方分词器计算基线上下文token数。
+    """Count baseline context tokens using the model's official tokenizer.
 
-    这使用模型的get_num_tokens_from_messages()方法来获取初始上下文（系统提示+agent.md）的精确token计数。
+    Use the model's get_num_tokens_from_messages() method to get a precise
+    token count for the initial context (system prompt + agent.md).
 
-    注意：由于LangChain限制，工具定义无法在第一次API调用之前准确计数。
-    它们将在第一条消息发送后包含在总数中（约5000个token）。
+    Note: due to LangChain limitations, tool definitions cannot be accurately
+    counted before the first API call. They will be included in the total
+    after the first message is sent (~5000 tokens).
 
     Args:
-        model: LangChain模型实例 (ChatAnthropic或ChatOpenAI)
-        agent_dir: 包含agent.md的代理目录路径
-        system_prompt: 基础系统提示字符串
+        model: LangChain model instance (ChatAnthropic or ChatOpenAI)
+        agent_dir: path to the agent directory containing agent.md
+        system_prompt: base system prompt string
 
     Returns:
-        系统提示+agent.md的token计数（不包括工具）
+        Token count for system prompt + agent.md (excluding tools)
     """
     # Load agent.md content
     agent_md_path = agent_dir / "agent.md"
@@ -47,52 +49,52 @@ def calculate_baseline_tokens(model, agent_dir: Path, system_prompt: str) -> int
         token_count = model.get_num_tokens_from_messages(messages)
         return int(token_count)  # type: ignore[no-any-return]
     except NotImplementedError as e:
-        # 某些模型（如GLM、自定义模型）没有实现token计数方法
-        logger.info(f"[yellow]Token计数不可用: {e}[/yellow]")
-        logger.info("[dim]使用估算方法计算token数...[/dim]")
+        # some models (e.g. GLM, custom models) do not implement token counting
+        logger.info(f"[yellow]Token counting unavailable: {e}[/yellow]")
+        logger.info("[dim]Falling back to estimated token count...[/dim]")
         return estimate_token_count(full_system_prompt)
     except Exception as e:
-        # 其他错误的处理
-        logger.info(f"[yellow]Token计算失败: {e}[/yellow]")
-        logger.info("[dim]使用估算方法计算token数...[/dim]")
+        # handle other errors
+        logger.info(f"[yellow]Token counting failed: {e}[/yellow]")
+        logger.info("[dim]Falling back to estimated token count...[/dim]")
         return estimate_token_count(full_system_prompt)
 
 
 def estimate_token_count(text: str) -> int:
-    """估算文本的token数量。
+    """Estimate the token count of a text string.
 
-    这是一个简单的估算方法，对于中英文混合文本比较有效。
-    注意：这是一个估算值，实际token数可能因模型而异。
+    A simple heuristic that works reasonably well for mixed Chinese/English text.
+    Note: this is an approximation; actual token counts vary by model.
 
     Args:
-        text: 要估算token数的文本
+        text: the text to estimate token count for
 
     Returns:
-        估算的token数量
+        Estimated token count
     """
     if not text:
         return 0
 
-    # 基本的token估算规则：
-    # 1. 英文单词平均约 1.3 tokens
-    # 2. 中文字符通常 1 个字符约 2 tokens
-    # 3. 代码、标点、空格等按字符计数
+    # basic token estimation rules:
+    # 1. English words average ~1.3 tokens
+    # 2. Chinese characters are typically ~2 tokens each
+    # 3. code, punctuation, whitespace counted by character
 
     import re
 
-    # 分离中文字符和英文内容
+    # separate Chinese characters from English content
     chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
     english_words = len(re.findall(r"\b[a-zA-Z]+\b", text))
     other_chars = len(text) - chinese_chars - len("".join(re.findall(r"\b[a-zA-Z]+\b", text)))
 
-    # 估算token数
+    # estimate token count
     estimated_tokens = chinese_chars * 2 + english_words * 1.3 + other_chars * 0.5
 
     return int(estimated_tokens)
 
 
 def get_memory_system_prompt() -> str:
-    """获取长期记忆系统提示文本"""
+    """Return the long-term memory system prompt text."""
     # Import from agent_memory middleware
     from ..midware.memory_in_file import LONGTERM_MEMORY_SYSTEM_PROMPT
 

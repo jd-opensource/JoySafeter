@@ -85,13 +85,13 @@ export function CredentialDialog({
         credentials,
         validate: true,
       })
-      toast({ title: '凭证保存成功' })
+      toast({ title: 'Credential saved successfully' })
       onOpenChange(false)
     } catch (err) {
       toast({
         variant: 'destructive',
-        title: '保存凭证失败',
-        description: err instanceof Error ? err.message : '请检查凭证信息后重试',
+        title: 'Failed to save credential',
+        description: err instanceof Error ? err.message : 'Please check credential info and try again',
       })
     }
   }
@@ -100,7 +100,7 @@ export function CredentialDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>配置 {provider.display_name} 凭证</DialogTitle>
+          <DialogTitle>Configure {provider.display_name} Credential</DialogTitle>
           {provider.description && (
             <DialogDescription>{provider.description}</DialogDescription>
           )}
@@ -121,7 +121,7 @@ export function CredentialDialog({
                   }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={`选择${field.title}`} />
+                    <SelectValue placeholder={`Select ${field.title}`} />
                   </SelectTrigger>
                   <SelectContent>
                     {field.enum.map((val, i) => (
@@ -156,10 +156,10 @@ export function CredentialDialog({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            Cancel
           </Button>
           <Button onClick={handleSave} disabled={createCredential.isPending || !canSubmit}>
-            {createCredential.isPending ? '保存中...' : '保存'}
+            {createCredential.isPending ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>

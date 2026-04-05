@@ -1,5 +1,5 @@
 """
-工作流文件夹 Repository
+Workspace folder Repository
 """
 
 import uuid
@@ -14,7 +14,7 @@ from .base import BaseRepository
 
 
 class WorkflowFolderRepository(BaseRepository[WorkspaceFolder]):
-    """文件夹数据访问"""
+    """Folder data access."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(WorkspaceFolder, db)
@@ -33,8 +33,8 @@ class WorkflowFolderRepository(BaseRepository[WorkspaceFolder]):
 
     async def max_sort_order(self, workspace_id: uuid.UUID, parent_id: Optional[uuid.UUID]) -> int:
         """
-        返回指定 workspace + parent 下最大的 sort_order。
-        若不存在任何记录，返回 -1（方便上层 next_sort = max + 1 使首个为 0）。
+        Return the maximum sort_order under the given workspace + parent.
+        Return -1 if no records exist (so the caller can use next_sort = max + 1, starting at 0).
         """
         conditions = [
             WorkspaceFolder.workspace_id == workspace_id,
@@ -50,7 +50,7 @@ class WorkflowFolderRepository(BaseRepository[WorkspaceFolder]):
         return current if current is not None else -1
 
     async def list_relations_by_workspace(self, workspace_id: uuid.UUID) -> List[Tuple[uuid.UUID, Optional[uuid.UUID]]]:
-        """获取 workspace 内所有 folder 的 (id, parent_id) 关系，用于构建树/子树。"""
+        """Get all (id, parent_id) pairs in a workspace for building a tree/subtree."""
         query = select(WorkspaceFolder.id, WorkspaceFolder.parent_id).where(
             WorkspaceFolder.workspace_id == workspace_id,
             WorkspaceFolder.deleted_at.is_(None),

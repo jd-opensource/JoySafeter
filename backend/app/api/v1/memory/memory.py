@@ -222,7 +222,7 @@ async def get_memories(
 ) -> PaginatedResponse[UserMemorySchema]:
     db = MemoryService(db_session)
 
-    # 强制限定为当前用户
+    # restrict to current user
     user_id = str(current_user.id)
 
     # Ensure limit/page are proper ints
@@ -302,7 +302,7 @@ async def get_topics(
     current_user: User = Depends(get_current_user),
 ) -> List[str]:
     db = MemoryService(db_session)
-    # 仅返回当前用户的主题；如果需要全局统计，可引入 admin 判定
+    # only return topics for the current user; for global stats, an admin check could be added
     user_id = str(current_user.id)
     return await db.get_all_memory_topics(user_id=user_id)
 
@@ -332,7 +332,7 @@ async def update_memory(
     db_session: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserMemorySchema:
-    # 强制使用当前用户
+    # restrict to current user
     payload.user_id = str(current_user.id)
 
     db = MemoryService(db_session)
@@ -381,7 +381,7 @@ async def optimize_memories(
         if not api_key or not model_name:
             raise HTTPException(
                 status_code=400,
-                detail="当前没有可用的模型配置，请前往「设置 → 模型供应商」添加至少一个模型的 API Key 后再试",
+                detail="No model configuration available. Go to Settings → Model Providers and add at least one API key.",
             )
 
         # Use the model factory to construct the correct model type for the provider

@@ -1,6 +1,6 @@
 """
-Rate limiting decorator for API endpoints
-使用 Redis 实现基于 IP 和用户的速率限制
+Rate limiting decorator for API endpoints.
+IP-based and user-based rate limiting using in-memory storage.
 """
 
 import time
@@ -11,73 +11,73 @@ from fastapi import HTTPException, Request
 
 
 class RateLimiter:
-    """基于内存的速率限制器（简单实现，生产环境应使用 Redis）"""
+    """In-memory rate limiter (simple implementation; production should use Redis)."""
 
     def __init__(self):
         self._requests: dict[str, list[float]] = {}
 
     def is_allowed(self, key: str, max_requests: int, window_seconds: int) -> bool:
         """
-        检查是否允许请求
+        Check whether the request is allowed.
 
         Args:
-            key: 限流键（通常是 IP 地址或用户 ID）
-            max_requests: 时间窗口内允许的最大请求数
-            window_seconds: 时间窗口（秒）
+            key: rate-limit key (typically an IP address or user ID)
+            max_requests: maximum number of requests within the time window
+            window_seconds: time window in seconds
 
         Returns:
             True if allowed, False otherwise
         """
         now = time.time()
 
-        # 获取该键的请求历史
+        # get request history for this key
         if key not in self._requests:
             self._requests[key] = []
 
-        # 清理过期的请求记录
+        # remove expired request records
         cutoff_time = now - window_seconds
         self._requests[key] = [req_time for req_time in self._requests[key] if req_time > cutoff_time]
 
-        # 检查是否超过限制
+        # check whether the limit is exceeded
         if len(self._requests[key]) >= max_requests:
             return False
 
-        # 记录本次请求
+        # record this request
         self._requests[key].append(now)
         return True
 
     def get_remaining(self, key: str, max_requests: int, window_seconds: int) -> int:
-        """获取剩余请求次数"""
+        """Return the remaining request count."""
         now = time.time()
         cutoff_time = now - window_seconds
 
         if key not in self._requests:
             return max_requests
 
-        # 清理过期记录
+        # remove expired records
         self._requests[key] = [req_time for req_time in self._requests[key] if req_time > cutoff_time]
 
         used = len(self._requests[key])
         return max(0, max_requests - used)
 
 
-# 全局速率限制器实例
+# global rate limiter instance
 _rate_limiter = RateLimiter()
 
 
 def get_client_ip(request: Request) -> str:
-    """获取客户端 IP 地址"""
-    # 优先从 X-Forwarded-For 获取（考虑代理/负载均衡）
+    """Return the client IP address."""
+    # prefer X-Forwarded-For (behind proxy / load balancer)
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return str(forwarded).split(",")[0].strip()
 
-    # 从 X-Real-IP 获取
+    # try X-Real-IP
     real_ip = request.headers.get("X-Real-IP")
     if real_ip:
         return str(real_ip)
 
-    # 直接从 client 获取
+    # fall back to direct client address
     if request.client:
         return str(request.client.host)
 
@@ -86,13 +86,13 @@ def get_client_ip(request: Request) -> str:
 
 def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Optional[Callable[[Request], str]] = None):
     """
-    速率限制装饰器
+    Rate-limit decorator.
 
     Args:
-        max_requests: 时间窗口内允许的最大请求数
-        window_seconds: 时间窗口（秒）
-        key_func: 自定义键函数，接收 Request 对象，返回限流键
-                  默认使用 IP 地址
+        max_requests: maximum number of requests within the time window
+        window_seconds: time window in seconds
+        key_func: custom key function; receives a Request and returns a rate-limit key.
+                  Defaults to using the client IP address.
 
     Example:
         @router.post("/login")
@@ -104,16 +104,16 @@ def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Option
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # 从参数中提取 Request 对象
+            # extract the Request object from arguments
             request: Optional[Request] = None
 
-            # 从位置参数查找
+            # search positional arguments
             for arg in args:
                 if isinstance(arg, Request):
                     request = arg
                     break
 
-            # 从关键字参数查找（检查多个可能的名称）
+            # search keyword arguments (check several common names)
             if not request:
                 for key in ["http_request", "request", "req"]:
                     if key in kwargs and isinstance(kwargs[key], Request):
@@ -121,16 +121,16 @@ def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Option
                         break
 
             if not request:
-                # 如果找不到 Request 对象，跳过限流
+                # if no Request object found, skip rate limiting
                 return await func(*args, **kwargs)
 
-            # 生成限流键
+            # generate rate-limit key
             if key_func:
                 rate_limit_key = key_func(request)
             else:
                 rate_limit_key = f"rate_limit:ip:{get_client_ip(request)}"
 
-            # 检查速率限制
+            # check rate limit
             if not _rate_limiter.is_allowed(rate_limit_key, max_requests, window_seconds):
                 remaining = _rate_limiter.get_remaining(rate_limit_key, max_requests, window_seconds)
                 raise HTTPException(
@@ -143,10 +143,10 @@ def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Option
                     },
                 )
 
-            # 添加速率限制响应头
+            # add rate-limit response headers
             remaining = _rate_limiter.get_remaining(rate_limit_key, max_requests, window_seconds)
 
-            # 执行原函数
+            # execute the original function
             result = await func(*args, **kwargs)
 
             return result
@@ -156,17 +156,17 @@ def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Option
     return decorator
 
 
-# 预定义的常用速率限制配置
+# pre-defined common rate-limit configurations
 def auth_rate_limit():
-    """认证端点的速率限制：5次/分钟"""
+    """Rate limit for auth endpoints: 5 requests/minute."""
     return rate_limit(max_requests=5, window_seconds=60)
 
 
 def strict_rate_limit():
-    """严格的速率限制：3次/分钟"""
+    """Strict rate limit: 3 requests/minute."""
     return rate_limit(max_requests=3, window_seconds=60)
 
 
 def api_rate_limit():
-    """一般 API 的速率限制：60次/分钟"""
+    """General API rate limit: 60 requests/minute."""
     return rate_limit(max_requests=60, window_seconds=60)

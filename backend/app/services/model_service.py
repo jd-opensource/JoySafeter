@@ -1,5 +1,5 @@
 """
-模型服务
+Model service.
 """
 
 import json
@@ -42,7 +42,7 @@ def _raise_model_error(
 
 
 class ModelService(BaseService):
-    """模型服务"""
+    """Model service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -58,7 +58,7 @@ class ModelService(BaseService):
     # ------------------------------------------------------------------
 
     async def _build_provider_credentials_context(self, provider_ids: set) -> Dict[Any, Dict[str, Any]]:
-        """一次性构建 provider 凭证上下文。Keyed by provider_id。"""
+        """Build provider credential context in one pass. Keyed by provider_id."""
         from app.core.model.utils import decrypt_credentials
 
         credentials = await self.credential_repo.list_by_provider_ids(provider_ids)
@@ -91,8 +91,8 @@ class ModelService(BaseService):
 
     async def _resolve_and_create_model(self, model_name: str, user_id: Optional[str] = None) -> tuple:
         """
-        统一 resolve provider -> get credential -> create model 逻辑。
-        返回 (model, provider_name, implementation_name, instance)。
+        Unified resolve provider -> get credential -> create model logic.
+        Return (model, provider_name, implementation_name, instance).
         """
         instance = await self.repo.get_by_name(model_name)
         if not instance:
@@ -125,7 +125,7 @@ class ModelService(BaseService):
     # ------------------------------------------------------------------
 
     async def get_available_models(self, model_type: ModelType, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """获取可用模型列表，含 unavailable_reason。"""
+        """Get available model list, including unavailable_reason."""
         all_instances = await self.repo.list_all()
 
         # Collect provider_ids for all instances that have one
@@ -179,7 +179,7 @@ class ModelService(BaseService):
                 else:
                     model_found_in_list = False
 
-            # 统一判断 unavailable_reason
+            # unified unavailable_reason check
             unavailable_reason: Optional[str] = None
             if ctx["error"] == "no_credentials":
                 unavailable_reason = "no_credentials"
@@ -205,7 +205,7 @@ class ModelService(BaseService):
         return models
 
     async def get_overview(self) -> Dict[str, Any]:
-        """返回全局模型概览：Provider 健康摘要、最近凭证失败。"""
+        """Return a global model overview: provider health summary, recent credential failures."""
         all_providers = await self.provider_repo.find()
         all_instances = await self.repo.list_all()
 
@@ -257,7 +257,7 @@ class ModelService(BaseService):
         instance_id: uuid.UUID,
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """更新模型实例参数。"""
+        """Update model instance parameters."""
         instance = await self.repo.get(instance_id)
         if not instance:
             raise NotFoundException(f"Model instance not found: {instance_id}")
@@ -290,7 +290,7 @@ class ModelService(BaseService):
         model_type: ModelType,
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """创建模型实例配置（全局）。"""
+        """Create a model instance configuration (global)."""
         provider = await self.provider_repo.get_by_name(provider_name)
 
         instance = await self.repo.create(
@@ -319,7 +319,7 @@ class ModelService(BaseService):
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
     ) -> Any:
-        """获取模型实例（LangChain 模型对象）。需要显式传入 provider_name 和 model_name。"""
+        """Get a model instance (LangChain model object). Requires explicit provider_name and model_name."""
         implementation_name: Optional[str] = None
         model_parameters: Dict[str, Any] = {}
         if not provider_name or not model_name:
@@ -377,7 +377,7 @@ class ModelService(BaseService):
         return model
 
     async def list_model_instances(self) -> List[Dict[str, Any]]:
-        """获取所有模型实例配置（全局）。"""
+        """Get all model instance configurations (global)."""
         instances = await self.repo.list_all()
         out = []
         for i in instances:
@@ -395,7 +395,7 @@ class ModelService(BaseService):
         return out
 
     async def get_runtime_model_by_name(self, model_name: str, user_id: Optional[str] = None) -> Any:
-        """根据 model_name 获取运行时模型实例（LangChain 模型对象）。"""
+        """Get a runtime model instance (LangChain model object) by model_name."""
         from loguru import logger
 
         logger.debug(f"[ModelService.get_runtime_model_by_name] Looking up model | model_name={model_name}")
@@ -447,7 +447,7 @@ class ModelService(BaseService):
         return model
 
     async def test_output(self, user_id: str, model_name: str, input_text: str) -> str:
-        """测试模型输出（全局，与 workspace 无关）"""
+        """Test model output (global, not workspace-specific)."""
         instance = await self.repo.get_by_name(model_name)
 
         if not instance:
@@ -518,8 +518,8 @@ class ModelService(BaseService):
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[str, None]:
         """
-        流式测试模型输出，yield SSE 格式事件。
-        事件类型：token, metrics, error, done
+        Stream test model output, yielding SSE-formatted events.
+        Event types: token, metrics, error, done
         """
         instance = await self.repo.get_by_name(model_name)
         if not instance:

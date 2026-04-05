@@ -1,10 +1,10 @@
 """
 DeepAgents Copilot Streaming.
 
-简化版：直接透传 DeepAgents 的 tool_call/tool_result 事件。
-Manager 已经负责 SSE 事件生成，这里只做简单的包装。
+Simplified: directly pass through DeepAgents tool_call/tool_result events.
+The Manager already handles SSE event generation; this module is a thin wrapper.
 
-凭据获取：ChatOpenAI 会自动从 OPENAI_API_KEY 环境变量获取。
+Credentials: ChatOpenAI automatically reads from the OPENAI_API_KEY env var.
 """
 
 from __future__ import annotations
@@ -26,12 +26,12 @@ async def stream_deepagents_actions(
     conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
-    流式生成 DeepAgents Copilot actions。
+    Stream DeepAgents Copilot actions.
 
-    直接调用 manager.stream_copilot_manager 并透传事件。
-    凭据自动从环境变量获取（OPENAI_API_KEY）。
+    Directly call manager.stream_copilot_manager and pass through events.
+    Credentials are automatically read from env vars (OPENAI_API_KEY).
 
-    Yields SSE 事件（与现有 Copilot 兼容）:
+    Yields SSE events (compatible with existing Copilot):
         - status: {type, stage, message}
         - content: {type, content}
         - tool_call: {type, tool, input}

@@ -20,22 +20,22 @@ export function formatActionContent(action: GraphAction): string {
   if (action.payload) {
     switch (action.type) {
       case 'CREATE_NODE':
-        if (action.payload.label) parts.push(`创建节点: ${action.payload.label}`)
-        if (action.payload.type) parts.push(`类型: ${action.payload.type}`)
+        if (action.payload.label) parts.push(`create node: ${action.payload.label}`)
+        if (action.payload.type) parts.push(`type: ${action.payload.type}`)
         break
       case 'CONNECT_NODES':
         if (action.payload.source && action.payload.target) {
-          parts.push(`连接: ${action.payload.source} → ${action.payload.target}`)
+          parts.push(`connect: ${action.payload.source} → ${action.payload.target}`)
         }
         break
       case 'DELETE_NODE':
-        if (action.payload.id) parts.push(`删除节点: ${action.payload.id}`)
+        if (action.payload.id) parts.push(`delete node: ${action.payload.id}`)
         break
       case 'UPDATE_CONFIG':
-        if (action.payload.id) parts.push(`更新配置: ${action.payload.id}`)
+        if (action.payload.id) parts.push(`update config: ${action.payload.id}`)
         break
       case 'UPDATE_POSITION':
-        if (action.payload.id) parts.push(`更新位置: ${action.payload.id}`)
+        if (action.payload.id) parts.push(`update position: ${action.payload.id}`)
         break
     }
   }

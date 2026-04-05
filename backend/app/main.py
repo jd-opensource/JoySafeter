@@ -67,9 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     print(f"   Debug: {settings.debug}")
     print("   Architecture: MVC (Model-View-Controller)")
 
-    # Note: Database tables are created via Alembic migrations, create_all is no longer used
-    # To initialize database, run: alembic upgrade head
-    # init_db() is deprecated and no longer called
+    # Database tables are managed by Alembic migrations; run: alembic upgrade head
 
     # Warning for misconfigured FRONTEND_URL in production
     if settings.environment == "production" and "localhost" in settings.frontend_url:
@@ -242,8 +240,6 @@ app.add_middleware(
 )
 
 
-# ENV = os.getenv("ENV", "dev")  # dev / prod
-
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
@@ -258,7 +254,7 @@ async def global_exception_handler(request, exc):
 
 app.include_router(api_router, prefix="/api")
 
-# Sessions router lives outside /api/v1 (legacy path /api/sessions)
+# Sessions router mounted outside /api/v1 to keep /api/sessions path compatible
 app.include_router(sessions_router, prefix="/api/sessions", tags=["sessions"])
 
 
@@ -268,7 +264,7 @@ async def root():
     """Root path, health check"""
     return {
         "status": "ok",
-        "message": "Langchain+fastapi production-grade backend is running!",
+        "message": "JoySafeter backend is running!",
         "docs": "/docs",
         "redoc": "/redoc",
     }

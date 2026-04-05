@@ -1,12 +1,12 @@
 'use client'
 
 /**
- * 实例与设备管理（合并逻辑）
+ * Instance and device management (combined logic)
  *
- * 逻辑顺序：先实例、后设备
- * - 实例：每用户一个 OpenClaw 容器，需先启动才能使用 WebUI 与设备配对
- * - 设备：仅在实例 running 时，在容器内通过 openclaw CLI 列出/批准设备
- * - 依赖：设备列表与批准都依赖「运行中的实例」，故先拉实例状态，再按需拉设备
+ * Order: instance first, then devices
+ * - Instance: one OpenClaw container per user; must be started before using WebUI or device pairing
+ * - Devices: only available when instance is running; listed/approved via openclaw CLI inside the container
+ * - Dependency: device list and approval both depend on a running instance, so instance status is fetched first
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -232,9 +232,9 @@ export function OpenClawManagement() {
 
   return (
     <div className="space-y-6">
-      {/* 实例信息卡片 */}
+      {/* instance info card */}
       <div className="flex flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] shadow-sm">
-        {/* 上半部分：状态与操作 */}
+        {/* upper section: status and actions */}
         <div className="relative p-4 sm:p-5">
           <div className="flex flex-col gap-4">
             <div className="flex min-w-0 items-start gap-3.5">
@@ -372,7 +372,7 @@ export function OpenClawManagement() {
           </div>
         </div>
 
-        {/* 下半部分：详细信息 */}
+        {/* lower section: detailed info */}
         <div className="border-t border-[var(--border)] bg-[var(--bg)] p-4 sm:p-5">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
@@ -432,7 +432,7 @@ export function OpenClawManagement() {
         </div>
       </div>
 
-      {/* 技能同步 */}
+      {/* skill sync */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
@@ -482,7 +482,7 @@ export function OpenClawManagement() {
         </div>
       </div>
 
-      {/* 设备配对 */}
+      {/* device pairing */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">

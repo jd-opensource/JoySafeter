@@ -1,13 +1,13 @@
 /**
  * Execution Store Utils
  *
- * 共享的工具函数
+ * Shared utility functions
  */
 
 /**
- * 生成唯一ID
- * @param prefix ID前缀
- * @returns 唯一ID字符串
+ * Generate a unique ID
+ * @param prefix ID prefix
+ * @returns unique ID string
  */
 export function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`

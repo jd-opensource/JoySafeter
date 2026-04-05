@@ -1,8 +1,8 @@
 """
-MCP Server Service - MCP 服务器管理服务
+MCP Server Service — MCP server management service.
 
-职责：MCP 服务器配置的 CRUD 操作
-单一职责：只负责服务器配置的数据库持久化
+Responsibility: CRUD operations for MCP server configuration.
+Single responsibility: only handle database persistence of server configuration.
 """
 
 from __future__ import annotations
@@ -22,15 +22,15 @@ from app.services.base import BaseService
 
 class McpServerService(BaseService[McpServer]):
     """
-    MCP 服务器管理服务
+    MCP server management service.
 
-    职责:
-    - MCP 服务器配置的 CRUD
-    - 不涉及工具注册（由 ToolService 负责）
+    Responsibilities:
+    - CRUD for MCP server configuration
+    - Does not handle tool registration (delegated to ToolService)
 
-    设计原则：
-    - 单一职责：只负责服务器配置管理
-    - 高内聚：所有方法都与服务器配置相关
+    Design principles:
+    - Single responsibility: only manage server configuration
+    - High cohesion: all methods relate to server configuration
     """
 
     def __init__(self, db: AsyncSession):
@@ -45,14 +45,14 @@ class McpServerService(BaseService[McpServer]):
         data: McpServerCreate,
     ) -> McpServer:
         """
-        创建 MCP 服务器
+        Create an MCP server.
 
         Args:
-            user_id: 用户 ID
-            data: 创建数据
+            user_id: user ID
+            data: creation data
 
         Returns:
-            创建的 MCP 服务器
+            The created MCP server
         """
         logger.info(f"[McpServerService] create - user_id={user_id}, name={data.name}")
 
@@ -89,15 +89,15 @@ class McpServerService(BaseService[McpServer]):
         data: McpServerUpdate,
     ) -> McpServer:
         """
-        更新 MCP 服务器配置
+        Update MCP server configuration.
 
         Args:
-            server_id: 服务器 ID
-            user_id: 用户 ID
-            data: 更新数据
+            server_id: server ID
+            user_id: user ID
+            data: update data
 
         Returns:
-            更新后的 MCP 服务器
+            The updated MCP server
         """
         server = await self.get_with_permission(server_id, user_id)
 
@@ -130,18 +130,18 @@ class McpServerService(BaseService[McpServer]):
         user_id: str,
     ) -> bool:
         """
-        删除 MCP 服务器 (硬删除)
+        Delete an MCP server (hard delete).
 
         Args:
-            server_id: 服务器 ID
-            user_id: 用户 ID
+            server_id: server ID
+            user_id: user ID
 
         Returns:
-            是否删除成功
+            Whether the deletion succeeded
         """
         server = await self.get_with_permission(server_id, user_id)
 
-        # 硬删除：彻底移除记录，避免唯一约束被软删除的行占用
+        # hard delete: remove the record entirely to avoid unique constraints occupied by soft-deleted rows
         result = await self.repo.delete(server_id)
         await self.commit()
         logger.info(f"Deleted MCP server: {server.name}")
@@ -153,26 +153,26 @@ class McpServerService(BaseService[McpServer]):
         user_id: str,
     ) -> McpServer:
         """
-        获取 MCP 服务器
+        Get an MCP server.
 
         Args:
-            server_id: 服务器 ID
-            user_id: 用户 ID
+            server_id: server ID
+            user_id: user ID
 
         Returns:
-            MCP 服务器
+            MCP server
         """
         return await self.get_with_permission(server_id, user_id)
 
     async def get_by_id(self, server_id: uuid.UUID) -> Optional[McpServer]:
         """
-        根据 ID 获取服务器（无权限检查，内部使用）
+        Get a server by ID (no permission check, internal use).
 
         Args:
-            server_id: 服务器 ID
+            server_id: server ID
 
         Returns:
-            MCP 服务器或 None
+            MCP server or None
         """
         server = await self.repo.get(server_id)
         if server and server.deleted_at:
@@ -185,14 +185,14 @@ class McpServerService(BaseService[McpServer]):
         enabled_only: bool = False,
     ) -> List[McpServer]:
         """
-        获取用户可访问的 MCP 服务器列表（用户级别）
+        Get the list of MCP servers accessible to a user (user-level).
 
         Args:
-            user_id: 用户 ID
-            enabled_only: 是否只返回启用的
+            user_id: user ID
+            enabled_only: whether to return only enabled servers
 
         Returns:
-            MCP 服务器列表
+            MCP server list
         """
         return await self.repo.find_for_user_scope(
             user_id=user_id,
@@ -201,10 +201,10 @@ class McpServerService(BaseService[McpServer]):
 
     async def list_all_enabled(self) -> List[McpServer]:
         """
-        获取所有启用的服务器（用于启动加载）
+        Get all enabled servers (for startup loading).
 
         Returns:
-            所有启用的 MCP 服务器
+            All enabled MCP servers
         """
         return await self.repo.find_all_enabled()
 
@@ -217,15 +217,15 @@ class McpServerService(BaseService[McpServer]):
         enabled: bool,
     ) -> McpServer:
         """
-        切换启用状态
+        Toggle enabled state.
 
         Args:
-            server_id: 服务器 ID
-            user_id: 用户 ID
-            enabled: 是否启用
+            server_id: server ID
+            user_id: user ID
+            enabled: whether to enable
 
         Returns:
-            更新后的 MCP 服务器
+            The updated MCP server
         """
         server = await self.get_with_permission(server_id, user_id)
 
@@ -246,15 +246,15 @@ class McpServerService(BaseService[McpServer]):
         error: Optional[str] = None,
     ) -> Optional[McpServer]:
         """
-        更新连接状态
+        Update connection status.
 
         Args:
-            server_id: 服务器 ID
-            status: 连接状态
-            error: 错误信息
+            server_id: server ID
+            status: connection status
+            error: error message
 
         Returns:
-            更新后的 MCP 服务器
+            The updated MCP server
         """
         server = await self.repo.update_connection_status(server_id, status, error)
         await self.commit()
@@ -266,14 +266,14 @@ class McpServerService(BaseService[McpServer]):
         tool_count: int,
     ) -> Optional[McpServer]:
         """
-        更新工具数量
+        Update tool count.
 
         Args:
-            server_id: 服务器 ID
-            tool_count: 工具数量
+            server_id: server ID
+            tool_count: tool count
 
         Returns:
-            更新后的 MCP 服务器
+            The updated MCP server
         """
         server = await self.repo.update_tool_count(server_id, tool_count)
         await self.commit()
@@ -287,17 +287,17 @@ class McpServerService(BaseService[McpServer]):
         user_id: str,
     ) -> McpServer:
         """
-        获取服务器并检查权限
+        Get a server and check permissions.
 
         Args:
-            server_id: 服务器 ID
-            user_id: 用户 ID
+            server_id: server ID
+            user_id: user ID
 
         Returns:
-            MCP 服务器
+            MCP server
 
         Raises:
-            NotFoundException: 服务器不存在或无权限
+            NotFoundException: server does not exist or no permission
         """
         server = await self.repo.get(server_id)
 
@@ -311,14 +311,14 @@ class McpServerService(BaseService[McpServer]):
 
     def needs_resync(self, update_data: McpServerUpdate, server: McpServer) -> bool:
         """
-        判断更新是否需要重新同步工具
+        Determine whether an update requires re-syncing tools.
 
         Args:
-            update_data: 更新数据
-            server: 当前服务器
+            update_data: update data
+            server: current server
 
         Returns:
-            是否需要重新同步
+            Whether a re-sync is needed
         """
         resync_fields = ["transport", "url", "headers"]
         for field in resync_fields:
@@ -333,13 +333,13 @@ class McpServerService(BaseService[McpServer]):
         user_id: Optional[str] = None,
     ) -> Dict[uuid.UUID, McpServer]:
         """
-        批量获取 MCP 服务器（用于工具解析）
+        Batch-fetch MCP servers (for tool resolution).
 
         Args:
-            server_ids: 服务器 ID 列表
-            user_id: 可选的用户 ID（用于权限过滤）
+            server_ids: list of server IDs
+            user_id: optional user ID (for permission filtering)
 
         Returns:
-            UUID -> McpServer 的映射字典
+            UUID -> McpServer mapping dict
         """
         return await self.repo.get_by_ids(server_ids, user_id)

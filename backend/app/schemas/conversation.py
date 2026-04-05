@@ -1,7 +1,7 @@
 """
-会话相关的 Pydantic Schema
+Conversation Pydantic schemas
 
-用于会话管理的请求和响应数据验证
+Request and response validation for conversation management.
 """
 
 import uuid
@@ -14,44 +14,44 @@ from app.schemas.validators import EnhancedBaseModel
 
 
 class ConversationCreate(EnhancedBaseModel):
-    """创建会话请求"""
+    """Create conversation request."""
 
-    # user_id 从认证中获取，不再需要在请求中提供
-    title: str = Field(default="New Conversation", min_length=1, max_length=200, description="会话标题")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
+    # user_id is obtained from authentication; no longer needed in the request
+    title: str = Field(default="New Conversation", min_length=1, max_length=200, description="conversation title")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="metadata")
 
 
 class ConversationUpdate(EnhancedBaseModel):
-    """更新会话请求"""
+    """Update conversation request."""
 
-    title: str | None = Field(None, min_length=1, max_length=200, description="会话标题")
-    metadata: dict[str, Any] | None = Field(None, description="元数据")
+    title: str | None = Field(None, min_length=1, max_length=200, description="conversation title")
+    metadata: dict[str, Any] | None = Field(None, description="metadata")
 
 
 class ConversationResponse(BaseModel):
-    """会话响应"""
+    """Conversation response."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID = Field(..., description="会话ID")
-    thread_id: str = Field(..., description="线程ID")
-    user_id: str = Field(..., description="用户ID(text)")
-    title: str = Field(..., description="会话标题")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
-    message_count: int = Field(default=0, description="消息数量")
+    id: uuid.UUID = Field(..., description="conversation ID")
+    thread_id: str = Field(..., description="thread ID")
+    user_id: str = Field(..., description="user ID (text)")
+    title: str = Field(..., description="conversation title")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="metadata")
+    created_at: datetime = Field(..., description="creation time")
+    updated_at: datetime = Field(..., description="update time")
+    message_count: int = Field(default=0, description="message count")
 
 
 class ConversationDetailResponse(BaseModel):
-    """会话详情响应"""
+    """Conversation detail response."""
 
     conversation: ConversationResponse
-    messages: list[dict[str, Any]] = Field(default_factory=list, description="消息列表")
+    messages: list[dict[str, Any]] = Field(default_factory=list, description="message list")
 
 
 class ConversationExportResponse(BaseModel):
-    """会话导出响应"""
+    """Conversation export response."""
 
     conversation: dict[str, Any]
     messages: list[dict[str, Any]]
@@ -59,37 +59,37 @@ class ConversationExportResponse(BaseModel):
 
 
 class ConversationImportRequest(BaseModel):
-    """会话导入请求"""
+    """Conversation import request."""
 
-    # user_id 从认证中获取，不再需要在请求中提供
-    data: dict[str, Any] = Field(..., description="导入数据")
+    # user_id is obtained from authentication; no longer needed in the request
+    data: dict[str, Any] = Field(..., description="import data")
 
 
 class CheckpointResponse(BaseModel):
-    """检查点响应"""
+    """Checkpoint response."""
 
     thread_id: str
     checkpoints: list[dict[str, Any]]
 
 
 class SearchRequest(BaseModel):
-    """搜索请求"""
+    """Search request."""
 
-    # user_id 从认证中获取，不再需要在请求中提供
-    query: str = Field(..., description="搜索关键词")
-    skip: int = Field(default=0, ge=0, description="跳过数量")
-    limit: int = Field(default=20, ge=1, le=100, description="返回数量")
+    # user_id is obtained from authentication; no longer needed in the request
+    query: str = Field(..., description="search keyword")
+    skip: int = Field(default=0, ge=0, description="number to skip")
+    limit: int = Field(default=20, ge=1, le=100, description="number to return")
 
 
 class SearchResponse(BaseModel):
-    """搜索响应"""
+    """Search response."""
 
     query: str
     results: list[dict[str, Any]]
 
 
 class UserStatsResponse(BaseModel):
-    """用户统计响应"""
+    """User statistics response."""
 
     user_id: str
     total_conversations: int
@@ -98,12 +98,12 @@ class UserStatsResponse(BaseModel):
 
 
 class ConversationMessageResponse(BaseModel):
-    """会话消息响应"""
+    """Conversation message response."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID = Field(..., description="消息ID")
-    role: str = Field(..., description="消息角色")
-    content: str = Field(..., description="消息内容")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
-    created_at: datetime = Field(..., description="创建时间")
+    id: uuid.UUID = Field(..., description="message ID")
+    role: str = Field(..., description="message role")
+    content: str = Field(..., description="message content")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="metadata")
+    created_at: datetime = Field(..., description="creation time")

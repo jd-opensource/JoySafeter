@@ -1,7 +1,7 @@
 """
-MCP Tool Builder - 从工具定义创建 EnhancedTool
+MCP Tool Builder - Create EnhancedTool instances from tool definitions.
 
-使用 lazy entrypoint，在执行时从 toolkit manager 获取 toolkit。
+Use a lazy entrypoint that retrieves the toolkit from the toolkit manager at execution time.
 """
 
 from typing import Any, List, Optional
@@ -91,7 +91,7 @@ def create_mcp_tools_from_definitions(
     user_id: str,
     timeout_seconds: int = 60,
 ) -> List[EnhancedTool]:
-    """从 MCP 工具定义创建 EnhancedTool 列表"""
+    """Create a list of EnhancedTool instances from MCP tool definitions."""
     enhanced_tools = []
 
     for tool in mcp_tools:

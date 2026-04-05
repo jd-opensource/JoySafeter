@@ -1,4 +1,4 @@
-"""Folders API（版本化路径 /api/v1/folders）"""
+"""Folders API (versioned path: /api/v1/folders)"""
 
 import uuid
 from typing import Optional
@@ -183,13 +183,13 @@ async def list_folder_graphs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取文件夹下的所有 graphs"""
+    """List all graphs in a folder."""
     from sqlalchemy import func, select
 
     from app.models.graph import AgentGraph, GraphNode
     from app.repositories.graph import GraphRepository
 
-    # 验证 folder 存在并获取 workspace_id
+    # verify folder exists and get workspace_id
     repo = WorkflowFolderRepository(db)
     folder = await repo.get(folder_id)
     if not folder:
@@ -197,11 +197,11 @@ async def list_folder_graphs(
 
         raise NotFoundException("Folder not found")
 
-    # 验证用户权限（读权限）
+    # verify user permission (read access)
     service = FolderService(db)
     await service._ensure_permission(folder.workspace_id, current_user, "read")
 
-    # 查询该 folder 下的所有 graphs
+    # query all graphs in this folder
     GraphRepository(db)
     stmt = (
         select(AgentGraph)
@@ -212,7 +212,7 @@ async def list_folder_graphs(
     result = await db.execute(stmt)
     graphs = list(result.scalars().all())
 
-    # 批量查询节点数量
+    # batch-query node counts
     graph_ids = [graph.id for graph in graphs]
     node_counts = {}
     if graph_ids:
@@ -225,7 +225,7 @@ async def list_folder_graphs(
         for row in count_result:
             node_counts[row.graph_id] = row.count
 
-    # 序列化 graphs
+    # serialize graphs
     data = []
     for graph in graphs:
         data.append(

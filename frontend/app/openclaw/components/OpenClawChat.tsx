@@ -110,7 +110,7 @@ export function OpenClawChat() {
         if (last?.role === 'assistant' && !last.content) {
           updated[updated.length - 1] = {
             ...last,
-            content: `[错误] ${err instanceof Error ? err.message : '请求失败'}`,
+            content: `[Error] ${err instanceof Error ? err.message : 'Request failed'}`,
           }
         }
         return updated
@@ -134,13 +134,13 @@ export function OpenClawChat() {
   return (
     <Card className="flex h-full flex-col overflow-hidden">
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm font-medium">OpenClaw 对话</CardTitle>
+        <CardTitle className="text-sm font-medium">OpenClaw Chat</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col overflow-hidden p-0">
         <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-3">
           {messages.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
-              发送消息开始与 OpenClaw Agent 对话
+              Send a message to start chatting with OpenClaw Agent
             </div>
           ) : (
             <div className="space-y-4">
@@ -173,7 +173,7 @@ export function OpenClawChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入消息..."
+              placeholder="Type a message..."
               rows={1}
               className="flex-1 resize-none rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary/40"
             />

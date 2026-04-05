@@ -1,7 +1,7 @@
 """
-消息模型
+Message model
 
-用于 LangGraph 对话系统的消息存储
+Store messages for the LangGraph dialogue system.
 """
 
 import json
@@ -58,15 +58,15 @@ class Citations(PydanticBaseModel):
 
 
 class Message(SQLAlchemyBaseModel, SoftDeleteMixin):
-    """消息表 - 存储对话消息
+    """Message table -- store conversation messages.
 
-    继承自 BaseTableMixin,包含以下字段:
-    - id: 主键ID
-    - create_by: 创建人
-    - update_by: 更新人
-    - create_time: 创建时间
-    - update_time: 更新时间
-    - deleted: 逻辑删除标记
+    Inherit from BaseTableMixin with the following columns:
+    - id: primary key
+    - create_by: creator
+    - update_by: updater
+    - create_time: creation timestamp
+    - update_time: update timestamp
+    - deleted: soft-delete flag
     """
 
     __tablename__ = "messages"
@@ -77,11 +77,11 @@ class Message(SQLAlchemyBaseModel, SoftDeleteMixin):
         ForeignKey("conversations.thread_id", ondelete="CASCADE"),
         index=True,
         nullable=False,
-        comment="线程ID",
+        comment="thread ID",
     )
-    role: Mapped[str] = mapped_column(String(20), nullable=False, comment="角色(user/assistant/system)")
-    content: Mapped[str] = mapped_column(Text, nullable=False, comment="消息内容")
-    meta_data: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict, comment="元数据")
+    role: Mapped[str] = mapped_column(String(20), nullable=False, comment="role (user/assistant/system)")
+    content: Mapped[str] = mapped_column(Text, nullable=False, comment="message content")
+    meta_data: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict, comment="metadata")
 
     # Compressed content of the message
     compressed_content: Optional[str] = None
@@ -130,8 +130,6 @@ class Message(SQLAlchemyBaseModel, SoftDeleteMixin):
     add_to_agent_memory: bool = True
     # This flag is enabled when a message is fetched from the agent's memory.
     from_history: bool = False
-    # Metrics for the message.
-    # metrics: Metrics = Field(default_factory=Metrics)
     # The references added to the message for RAG
     references: Optional[MessageReferences] = None
 

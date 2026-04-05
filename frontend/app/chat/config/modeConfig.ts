@@ -46,8 +46,8 @@ export const modeConfigs: ModeConfig[] = [
     icon: Server,
     type: 'simple',
     starterPrompts: [
-      '扫描我的MCP服务配置',
-      '检查MCP权限设置是否安全',
+      'Scan my MCP service configuration',
+      'Check if MCP permission settings are secure',
     ],
   },
   {
@@ -59,8 +59,8 @@ export const modeConfigs: ModeConfig[] = [
     templateName: 'apk-detector',
     templateGraphName: 'APK Detector',
     starterPrompts: [
-      '上传APK进行IntentBridge漏洞检测',
-      '分析APK的组件暴露风险',
+      'Upload APK for IntentBridge vulnerability detection',
+      'Analyze APK component exposure risks',
     ],
   },
   {
@@ -72,8 +72,8 @@ export const modeConfigs: ModeConfig[] = [
     templateName: 'skill-creator',
     templateGraphName: 'Skill Creator',
     starterPrompts: [
-      '创建一个网络扫描技能',
-      '帮我设计一个自动化渗透测试技能',
+      'Create a network scanning skill',
+      'Help me design an automated penetration testing skill',
     ],
   },
 ]

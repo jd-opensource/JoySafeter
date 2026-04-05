@@ -39,7 +39,7 @@ interface AuthState {
   setError: (error: string | null) => void
   clearAuth: () => void
 }
-// ...
+
 function extractSafeUserInfo(user: AuthUser | null): SafeUserInfo | null {
   if (!user) return null
   return {

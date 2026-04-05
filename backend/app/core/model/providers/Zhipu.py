@@ -1,5 +1,5 @@
 """
-Zhipu 智谱大模型供应商实现
+Zhipu (GLM) model provider implementation.
 """
 
 from typing import Any, Dict, Optional
@@ -11,7 +11,7 @@ from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
 
 
 class ZhipuProvider(OpenAIAPICompatibleProvider):
-    """Zhipu 智谱大模型供应商"""
+    """Zhipu (GLM) model provider."""
 
     VALIDATION_MODEL = "glm-4-flash"
 
@@ -19,27 +19,27 @@ class ZhipuProvider(OpenAIAPICompatibleProvider):
         {
             "name": "glm-4.7",
             "display_name": "GLM-4.7",
-            "description": "智谱最新旗舰大模型",
+            "description": "Zhipu's latest flagship model",
         },
         {
             "name": "glm-5",
             "display_name": "GLM-5",
-            "description": "智谱新一代的旗舰基座模型，面向Agentic Engineering 打造，能够在复杂系统工程与长程Agent 任务中提供可靠生产力",
+            "description": "Zhipu's next-generation flagship base model, built for Agentic Engineering with reliable productivity on complex system engineering and long-horizon agent tasks",
         },
         {
             "name": "glm-4-0520",
             "display_name": "GLM-4",
-            "description": "智谱综合大模型",
+            "description": "Zhipu general-purpose model",
         },
         {
             "name": "glm-4-air",
             "display_name": "GLM-4 Air",
-            "description": "性价比高的主力模型",
+            "description": "Cost-effective workhorse model",
         },
         {
             "name": "glm-4-flash",
             "display_name": "GLM-4 Flash",
-            "description": "速度极快、价格极低的轻量级模型",
+            "description": "Ultra-fast, ultra-low-cost lightweight model",
         },
     ]
 
@@ -47,21 +47,21 @@ class ZhipuProvider(OpenAIAPICompatibleProvider):
         BaseProvider.__init__(self, provider_name="zhipu", display_name="Zhipu (GLM)")
 
     def get_credential_schema(self) -> Dict[str, Any]:
-        """获取凭据表单规则"""
+        """Return credential form schema."""
         schema = super().get_credential_schema()
 
-        # 定制 Zhipu 的基础 URL
+        # customize the base URL for Zhipu
         base_url_prop = schema["properties"]["base_url"]
-        base_url_prop["description"] = "Zhipu API 基础 URL (保留为空则使用默认值)"
+        base_url_prop["description"] = "Zhipu API base URL (leave empty to use default)"
         base_url_prop["default"] = "https://open.bigmodel.cn/api/paas/v4/"
-        # 移除 strict required, 使得 default 可以生效或者可以在代码中配置
+        # remove strict required so the default can take effect
         if "required" in schema and "base_url" in schema["required"]:
             schema["required"].remove("base_url")
 
         return schema
 
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
-        """验证凭据"""
+        """Validate credentials."""
         creds = credentials.copy()
         if not creds.get("base_url"):
             creds["base_url"] = "https://open.bigmodel.cn/api/paas/v4/"
@@ -75,7 +75,7 @@ class ZhipuProvider(OpenAIAPICompatibleProvider):
         credentials: Dict[str, Any],
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> BaseChatModel:
-        """创建模型实例"""
+        """Create a model instance."""
         creds = credentials.copy()
         if not creds.get("base_url"):
             creds["base_url"] = "https://open.bigmodel.cn/api/paas/v4/"

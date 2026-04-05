@@ -19,8 +19,8 @@ from .schemas import ValidationReport, WorkflowBlueprint
 
 def safe_read_blueprint(store: ArtifactStore) -> Optional[WorkflowBlueprint]:
     """
-    安全读取 blueprint，校验失败返回 None。
-    使用 Pydantic 模型验证数据结构。
+    Safely read the blueprint; return None on validation failure.
+    Use Pydantic model to validate data structure.
     """
     try:
         if not store.run_dir:
@@ -43,7 +43,7 @@ def safe_read_blueprint(store: ArtifactStore) -> Optional[WorkflowBlueprint]:
 
 def safe_read_validation(store: ArtifactStore) -> Optional[ValidationReport]:
     """
-    安全读取 validation report，校验失败返回 None。
+    Safely read the validation report; return None on failure.
     """
     try:
         if not store.run_dir:
@@ -66,30 +66,30 @@ def safe_read_validation(store: ArtifactStore) -> Optional[ValidationReport]:
 
 def read_and_layout_blueprint(store: ArtifactStore) -> Optional[Dict[str, Any]]:
     """
-    读取 blueprint 并应用自动布局。
-    返回带有优化坐标的 blueprint 字典。
+    Read the blueprint and apply auto layout.
+    Return the blueprint dict with optimized coordinates.
     """
     blueprint = safe_read_blueprint(store)
     if not blueprint:
         return None
 
-    # 转换为字典
+    # convert to dict
     blueprint_dict = blueprint.model_dump()
 
-    # 计算最优间距
+    # calculate optimal spacing
     x_spacing, y_spacing = calculate_optimal_spacing(
         blueprint_dict.get("nodes", []),
         blueprint_dict.get("edges", []),
     )
 
-    # 应用自动布局
+    # apply auto layout
     blueprint_dict = apply_auto_layout(
         blueprint_dict,
         x_spacing=x_spacing,
         y_spacing=y_spacing,
     )
 
-    # 居中到画布
+    # center on canvas
     blueprint_dict = center_graph_on_canvas(blueprint_dict)
 
     logger.info("[DeepAgentsCopilot] Applied auto layout to blueprint")
@@ -98,9 +98,9 @@ def read_and_layout_blueprint(store: ArtifactStore) -> Optional[Dict[str, Any]]:
 
 def _extract_actions_from_result(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    从 agent 结果中提取 actions。
+    Extract actions from agent result.
 
-    使用统一的工具函数提取并展开 actions。
+    Use the unified tool function to extract and expand actions.
 
     Returns:
         List of action dicts (not GraphAction objects, for compatibility)
@@ -125,7 +125,7 @@ def _extract_actions_from_result(result: Dict[str, Any]) -> List[Dict[str, Any]]
 
 
 def _extract_final_message(result: Dict[str, Any]) -> str:
-    """从 agent 结果中提取最终消息"""
+    """Extract the final message from agent result."""
     messages = result.get("messages", [])
 
     for msg in reversed(messages):
@@ -140,18 +140,18 @@ def _extract_final_message(result: Dict[str, Any]) -> str:
 
 def _apply_layout_to_actions(actions: List[Dict[str, Any]], store: ArtifactStore) -> List[Dict[str, Any]]:
     """
-    应用自动布局优化 actions 中的坐标。
+    Apply auto layout to optimize coordinates in actions.
 
-    读取 blueprint，使用布局引擎计算坐标，
-    然后更新 CREATE_NODE actions 中的 position。
+    Read the blueprint, compute coordinates via the layout engine,
+    then update positions in CREATE_NODE actions.
     """
-    # 尝试读取并布局 blueprint
+    # try to read and layout the blueprint
     blueprint_dict = read_and_layout_blueprint(store)
     if not blueprint_dict:
         logger.warning("[DeepAgentsCopilot] Could not apply layout: blueprint not found")
         return actions
 
-    # 构建节点 ID 到坐标的映射
+    # build node ID to position mapping
     node_positions: Dict[str, Dict[str, float]] = {}
     for node in blueprint_dict.get("nodes", []):
         node_id = node.get("id")
@@ -162,7 +162,7 @@ def _apply_layout_to_actions(actions: List[Dict[str, Any]], store: ArtifactStore
     if not node_positions:
         return actions
 
-    # 更新 CREATE_NODE actions 的坐标（action 结构为 {type, payload: {id, ...}, reasoning}）
+    # update positions in CREATE_NODE actions (action structure: {type, payload: {id, ...}, reasoning})
     updated_actions = []
     for action in actions:
         if action.get("type") == "CREATE_NODE":
@@ -252,15 +252,15 @@ def _fix_edge_node_ids(actions: List[Dict[str, Any]], store: ArtifactStore) -> L
 
 def _parse_tool_output_to_action(tool_output: Any) -> Optional[Dict[str, Any]]:
     """
-    解析工具输出为 action。
+    Parse tool output into an action dict.
 
-    使用统一的 parse_tool_output 函数。
+    Use the unified parse_tool_output function.
 
     Args:
-        tool_output: 工具输出
+        tool_output: tool output
 
     Returns:
-        解析后的 action dict，如果解析失败则返回 None
+        Parsed action dict, or None on failure.
     """
     from app.core.copilot.tool_output_parser import parse_tool_output
 

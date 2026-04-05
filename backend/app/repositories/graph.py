@@ -1,5 +1,5 @@
 """
-Graph 相关 Repository
+Graph repositories
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class GraphRepository(BaseRepository[AgentGraph]):
         parent_id: Optional[uuid.UUID] = None,
         workspace_id: Optional[uuid.UUID] = None,
     ) -> List[AgentGraph]:
-        """根据用户ID获取图列表（排除已软删除）"""
+        """List graphs by user ID (exclude soft-deleted)."""
         query = select(AgentGraph).where(AgentGraph.user_id == user_id)
         query = _graph_not_deleted(query)
         if parent_id is not None:
@@ -63,19 +63,19 @@ class GraphNodeRepository(BaseRepository[GraphNode]):
         super().__init__(GraphNode, db)
 
     async def list_by_graph(self, graph_id: uuid.UUID) -> List[GraphNode]:
-        """根据图ID获取所有节点"""
+        """List all nodes for a graph."""
         query = select(GraphNode).where(GraphNode.graph_id == graph_id)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def delete_by_graph(self, graph_id: uuid.UUID) -> int:
-        """删除图的所有节点"""
+        """Delete all nodes of a graph."""
         stmt = delete(GraphNode).where(GraphNode.graph_id == graph_id)
         result = await self.db.execute(stmt)
         return getattr(result, "rowcount", 0) or 0
 
     async def delete_by_ids(self, graph_id: uuid.UUID, node_ids: List[uuid.UUID]) -> int:
-        """批量删除节点"""
+        """Batch-delete nodes by IDs."""
         if not node_ids:
             return 0
         stmt = delete(GraphNode).where(
@@ -95,19 +95,19 @@ class GraphEdgeRepository(BaseRepository[GraphEdge]):
         super().__init__(GraphEdge, db)
 
     async def list_by_graph(self, graph_id: uuid.UUID) -> List[GraphEdge]:
-        """根据图ID获取所有边"""
+        """List all edges for a graph."""
         query = select(GraphEdge).where(GraphEdge.graph_id == graph_id)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def delete_by_graph(self, graph_id: uuid.UUID) -> int:
-        """删除图的所有边"""
+        """Delete all edges of a graph."""
         stmt = delete(GraphEdge).where(GraphEdge.graph_id == graph_id)
         result = await self.db.execute(stmt)
         return getattr(result, "rowcount", 0) or 0
 
     async def delete_by_node_ids(self, graph_id: uuid.UUID, node_ids: List[uuid.UUID]) -> int:
-        """删除与指定节点相关的所有边"""
+        """Delete all edges connected to the specified nodes."""
         if not node_ids:
             return 0
         stmt = delete(GraphEdge).where(

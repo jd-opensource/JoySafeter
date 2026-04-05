@@ -20,7 +20,7 @@ class GraphExecutionRepository(BaseRepository[GraphExecution]):
         super().__init__(GraphExecution, db)
 
     async def get_by_id_and_user(self, execution_id: uuid.UUID, user_id: str) -> Optional[GraphExecution]:
-        """获取指定用户的执行记录"""
+        """Get an execution record for a specific user."""
         result = await self.db.execute(
             select(GraphExecution).where(
                 GraphExecution.id == execution_id,

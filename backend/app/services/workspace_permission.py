@@ -1,5 +1,5 @@
 """
-工作空间权限检查工具函数
+Workspace permission check utilities.
 """
 
 import uuid
@@ -10,7 +10,7 @@ from app.models.auth import AuthUser
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
 
-# 角色权限等级（从低到高）
+# role privilege hierarchy (low to high)
 ROLE_HIERARCHY = [
     WorkspaceMemberRole.viewer,
     WorkspaceMemberRole.member,
@@ -21,14 +21,14 @@ ROLE_HIERARCHY = [
 
 def has_sufficient_role(user_role: WorkspaceMemberRole, required_role: WorkspaceMemberRole) -> bool:
     """
-    检查用户角色是否满足所需角色要求
+    Check whether the user's role meets the required role.
 
     Args:
-        user_role: 用户的角色
-        required_role: 所需的角色
+        user_role: the user's role
+        required_role: the required role
 
     Returns:
-        如果用户角色等级 >= 所需角色等级，返回 True
+        True if the user's role level >= the required role level
     """
     return ROLE_HIERARCHY.index(user_role) >= ROLE_HIERARCHY.index(required_role)
 
@@ -40,18 +40,18 @@ async def check_workspace_access(
     required_role: WorkspaceMemberRole,
 ) -> bool:
     """
-    检查用户是否有工作空间的访问权限
+    Check whether the user has access to the workspace.
 
     Args:
-        db: 数据库会话
-        workspace_id: 工作空间ID
-        current_user: 当前用户
-        required_role: 所需的最低角色
+        db: database session
+        workspace_id: workspace ID
+        current_user: current user
+        required_role: minimum required role
 
     Returns:
-        如果有权限返回 True，否则返回 False
+        True if authorized, False otherwise
     """
-    # 超级用户有所有权限
+    # superuser has all permissions
     if current_user.is_superuser:
         return True
 
@@ -60,11 +60,11 @@ async def check_workspace_access(
     if not workspace:
         return False
 
-    # 工作空间所有者有所有权限
+    # workspace owner has all permissions
     if workspace.owner_id == current_user.id:
         return True
 
-    # 检查成员角色
+    # check member role
     member_repo = WorkspaceMemberRepository(db)
     member = await member_repo.get_member(workspace_id, current_user.id)
     if not member:

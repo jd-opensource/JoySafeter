@@ -205,7 +205,7 @@ export function useAvailableModels(modelType: string = 'chat', options?: { enabl
       const params = new URLSearchParams({ model_type: modelType })
       return await apiGet<AvailableModel[]>(`${MODELS_PATH}?${params.toString()}`)
     },
-    enabled: options?.enabled !== false, // 默认 true，但可以设置为 false
+    enabled: options?.enabled !== false, // defaults to true, but can be set to false
     retry: false,
     staleTime: STALE_TIME.SHORT,
     placeholderData: keepPreviousData,
@@ -260,7 +260,7 @@ export function useModels(options?: { enabled?: boolean }) {
         isAvailable: model.is_available,
       }))
     },
-    enabled: options?.enabled !== false, // 默认 true，但可以设置为 false
+    enabled: options?.enabled !== false, // defaults to true, but can be set to false
     retry: false,
     staleTime: STALE_TIME.STANDARD,
     placeholderData: keepPreviousData,
@@ -284,7 +284,7 @@ export function useCreateCredential() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      // 认证变化影响模型可用状态
+      // credential changes affect model availability
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
     },
   })
@@ -323,7 +323,7 @@ export function useValidateCredential() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
-      // 验证结果影响模型可用状态
+      // validation result affects model availability
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
     },
   })
@@ -340,7 +340,7 @@ export function useDeleteCredential() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: modelKeys.credentials() })
       queryClient.invalidateQueries({ queryKey: modelKeys.providers() })
-      // 清除认证影响模型可用状态
+      // clearing credentials affects model availability
       queryClient.invalidateQueries({ queryKey: modelKeys.instances() })
     },
   })

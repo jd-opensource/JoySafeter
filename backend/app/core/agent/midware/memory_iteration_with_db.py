@@ -1,11 +1,11 @@
-"""MemoryManager 驱动的记忆中间件
+"""MemoryManager-driven memory middleware.
 
-在模型调用前：
-- 根据当前用户输入检索用户的相关长期记忆（支持 last_n / first_n / agentic）
-- 将检索到的记忆以结构化片段注入到系统提示，增强上下文
+Before model call:
+- Retrieve relevant long-term memories for the current user input (supports last_n / first_n / agentic)
+- Inject retrieved memories as structured fragments into the system prompt to enrich context
 
-在模型调用后：
-- 将本次用户输入提交给 MemoryManager，由其根据捕获规则判定是否新增/更新/删除记忆
+After model call:
+- Submit the current user input to MemoryManager, which decides whether to add/update/delete memories based on capture rules
 """
 
 import asyncio
@@ -25,28 +25,28 @@ if TYPE_CHECKING:
 
 
 class AgenticMemoryState(AgentState):
-    """Agentic Memory 中间件的扩展状态"""
+    """Extended state for the Agentic Memory middleware."""
 
     user_id: NotRequired[str | None]  # type: ignore[valid-type]
     agent_memory_context: NotRequired[str | None]  # type: ignore[valid-type]
 
 
 class AgentMemoryIterationMiddleware(AgentMiddleware):
-    """使用 MemoryManager 的 Agent 记忆中间件
+    """Agent memory middleware using MemoryManager.
 
-    - before: 从 MemoryManager 检索用户相关记忆并注入系统提示
-    - after: 将用户输入交由 MemoryManager 进行记忆写入/更新
+    - before: retrieve user-related memories from MemoryManager and inject into system prompt
+    - after: pass user input to MemoryManager for memory write/update
 
     Args:
-        memory_manager: 已配置的 MemoryManager 实例（需提供 model/db）
-        retrieval_method: 检索方式，支持 "last_n" | "first_n" | "agentic"
-        retrieval_limit: 检索条数限制
-        context_header: 注入系统提示时的记忆片段标题
-        enable_writeback: 是否在模型调用后写入记忆
-        capture_source: 写入记忆时的来源，"user" 或 "assistant"，默认 "user"
+        memory_manager: Pre-configured MemoryManager instance (must have model/db).
+        retrieval_method: Retrieval method — "last_n" | "first_n" | "agentic".
+        retrieval_limit: Maximum number of memories to retrieve.
+        context_header: Header for the memory fragment injected into the system prompt.
+        enable_writeback: Whether to write memories after the model call.
+        capture_source: Source for memory capture — "user" or "assistant" (default "user").
     """
 
-    priority = 50  # 中等优先级，与技能中间件并行执行
+    priority = 50  # medium priority, runs alongside skill middleware
     state_schema = AgenticMemoryState
 
     def __init__(
@@ -55,7 +55,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         memory_manager: MemoryManager,
         retrieval_method: str = "last_n",
         retrieval_limit: int = 5,
-        context_header: str = "## 相关用户记忆",
+        context_header: str = "## Relevant User Memories",
         enable_writeback: bool = True,
         capture_source: str = "user",
         user_id: Optional[str] = None,
@@ -82,31 +82,31 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
     # Helpers
     # ---------------------------
     def _get_user_id(self) -> Optional[str]:
-        """获取当前用户的 user_id
+        """Get the current user's user_id.
 
         Returns:
-            user_id 字符串，如果不存在则返回 None
+            user_id string, or None if not available.
         """
         if not self.user_id:
             logger.warning("No user_id configured in middleware instance")
         return self.user_id
 
     def _extract_user_input(self, request: ModelRequest) -> Optional[str]:
-        """从请求中提取用户输入文本（LangGraph ModelRequest 格式）"""
-        # 从消息列表中取最后一个 HumanMessage 消息
+        """Extract user input text from the request (LangGraph ModelRequest format)."""
+        # get the last HumanMessage from the message list
         if hasattr(request, "messages") and request.messages:
             try:
-                # 从后往前遍历消息列表，找到最后一个 HumanMessage
+                # iterate messages in reverse to find the last HumanMessage
                 for msg in reversed(request.messages):
-                    # 检查是否为 HumanMessage 类型
+                    # check if it is a HumanMessage type
                     if isinstance(msg, HumanMessage):
                         content = getattr(msg, "content", None)
                         if content:
-                            # 处理不同类型的 content
+                            # handle different content types
                             if isinstance(content, str):
                                 extracted = content
                             elif isinstance(content, list):
-                                # 处理 content_blocks 格式
+                                # handle content_blocks format
                                 text_parts = []
                                 for block in content:
                                     if isinstance(block, dict) and block.get("type") == "text":
@@ -121,7 +121,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                                 logger.debug(f"Extracted user input from HumanMessage: {extracted[:100]}...")
                                 return extracted
 
-                    # 兼容性：检查消息的 type 属性（LangChain 消息类型）
+                    # compatibility: check the message's type attribute (LangChain message types)
                     elif hasattr(msg, "type"):
                         if msg.type == "human":
                             content = getattr(msg, "content", None)
@@ -133,7 +133,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                                     )
                                     return extracted
 
-                    # 兼容性：检查字典格式的消息
+                    # compatibility: check dict-format messages
                     elif isinstance(msg, dict):
                         msg_type = msg.get("type") or msg.get("role")
                         if msg_type in ("human", "user"):
@@ -150,8 +150,8 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         return None
 
     def _extract_assistant_response(self, response: ModelResponse) -> Optional[str]:
-        """从 ModelResponse 中提取助手响应文本（LangGraph ModelResponse 格式）"""
-        # 优先检查 response.content（如果是字符串）
+        """Extract assistant response text from ModelResponse (LangGraph ModelResponse format)."""
+        # prefer response.content if it is a string
         if hasattr(response, "content"):
             content = response.content
             if isinstance(content, str):
@@ -159,20 +159,20 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                     logger.debug(f"Extracted assistant response from response.content: {content[:100]}...")
                     return content
 
-        # 从消息列表中取最后一个 AIMessage 消息
+        # get the last AIMessage from the message list
         if hasattr(response, "messages") and response.messages:
             try:
-                # 从后往前遍历消息列表，找到最后一个 AIMessage
+                # iterate messages in reverse to find the last AIMessage
                 for msg in reversed(response.messages):
-                    # 检查是否为 AIMessage 类型
+                    # check if it is an AIMessage type
                     if isinstance(msg, AIMessage):
                         content = getattr(msg, "content", None)
                         if content:
-                            # 处理不同类型的 content
+                            # handle different content types
                             if isinstance(content, str):
                                 extracted = content
                             elif isinstance(content, list):
-                                # 处理 content_blocks 格式
+                                # handle content_blocks format
                                 text_parts = []
                                 for block in content:
                                     if isinstance(block, dict) and block.get("type") == "text":
@@ -187,7 +187,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                                 logger.debug(f"Extracted assistant response from AIMessage: {extracted[:100]}...")
                                 return extracted
 
-                    # 兼容性：检查消息的 type 属性（LangChain 消息类型）
+                    # compatibility: check the message's type attribute (LangChain message types)
                     elif hasattr(msg, "type"):
                         if msg.type == "ai":
                             content = getattr(msg, "content", None)
@@ -199,7 +199,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                                     )
                                     return extracted
 
-                    # 兼容性：检查字典格式的消息
+                    # compatibility: check dict-format messages
                     elif isinstance(msg, dict):
                         msg_type = msg.get("type") or msg.get("role")
                         if msg_type in ("ai", "assistant"):
@@ -218,7 +218,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         return None
 
     def _format_memories(self, memories: List[UserMemory]) -> str:
-        """将 UserMemory 列表格式化为系统提示片段"""
+        """Format a list of UserMemory objects into a system prompt fragment."""
         if not memories:
             return ""
 
@@ -236,7 +236,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         return "\n".join(lines)
 
     async def _build_memory_context(self, request: ModelRequest, user_id: str) -> str:
-        """按配置从 MemoryManager 检索记忆并构建上下文（统一使用异步方式）"""
+        """Retrieve memories from MemoryManager per config and build context (async)."""
         query: Optional[str] = None
         if self.retrieval_method == "agentic":
             query = self._extract_user_input(request)
@@ -281,7 +281,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         state: AgentState[Any],  # type: ignore[override]
         runtime,  # type: ignore[no-untyped-def]
     ) -> dict[str, Any]:  # type: ignore[override]
-        """可在此处进行必要初始化"""
+        """Perform necessary initialization here."""
         user_id = self._get_user_id()
         if user_id:
             logger.debug(f"Initializing MemoryManager for user_id={user_id}")
@@ -307,20 +307,20 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
-        """在模型调用前注入记忆；在调用后按需写入记忆（同步版本，内部使用 asyncio.run）"""
+        """Inject memories before model call; write back memories after call (sync version, uses asyncio.run internally)."""
         user_id = self._get_user_id()
 
         if not user_id:
             logger.warning("Skipping memory operations: no user_id available")
             return handler(request)
 
-        # 构建并注入记忆上下文
-        # 简化：直接用 asyncio.run() 运行异步方法
-        # 如果已在事件循环中，LangGraph 会调用 awrap_model_call 而不是这里
+        # build and inject memory context
+        # simplified: use asyncio.run() directly for the async method;
+        # if already inside an event loop, LangGraph calls awrap_model_call instead
         memory_context = asyncio.run(self._build_memory_context(request, user_id))
 
         if memory_context:
-            # 记录到状态中，便于下游使用或调试
+            # store in state for downstream use or debugging
             try:
                 request.state["agent_memory_context"] = memory_context  # type: ignore[typeddict-unknown-key]
             except Exception:
@@ -334,20 +334,20 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         else:
             logger.debug(f"No memory context to inject for user_id={user_id}")
 
-        # 调用模型
+        # call model
         logger.debug(f"Calling model handler for user_id={user_id}")
         response = handler(request)
 
-        # 写入记忆：使用用户输入作为记忆捕获的依据
+        # write back memories: use user input as the basis for memory capture
         if self.enable_writeback:
             logger.info(f"Attempting to write back memory for user_id={user_id}, capture_source={self.capture_source}")
             try:
                 message_text: Optional[str] = None
                 if self.capture_source == "assistant":
-                    # 从 ModelResponse 中提取助手响应内容
+                    # extract assistant response content from ModelResponse
                     message_text = self._extract_assistant_response(response)
                 else:
-                    # 默认从用户输入捕获
+                    # default: capture from user input
                     message_text = self._extract_user_input(request)
 
                 if message_text and message_text.strip():
@@ -355,8 +355,8 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
                         f"Writing memory for user_id={user_id}, "
                         f"message_length={len(message_text)}, capture_source={self.capture_source}"
                     )
-                    # 简化：直接用 asyncio.run() 运行异步方法
-                    # 如果已在事件循环中，LangGraph 会调用 awrap_model_call 而不是这里
+                    # simplified: use asyncio.run() directly for the async method;
+                    # if already inside an event loop, LangGraph calls awrap_model_call instead
                     asyncio.run(self.memory_manager.acreate_user_memories(message=message_text, user_id=user_id))
                     logger.info(f"Memory writeback completed successfully for user_id={user_id}")
                 else:
@@ -373,14 +373,14 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
-        """异步版本：在模型调用前注入记忆；在调用后按需写入记忆"""
+        """Async version: inject memories before model call; write back memories after call."""
         user_id = self._get_user_id()
 
         if not user_id:
             logger.warning("Skipping memory operations: no user_id available")
             return await handler(request)
 
-        # 构建并注入记忆上下文
+        # build and inject memory context
         memory_context = await self._build_memory_context(request, user_id)
         if memory_context:
             try:
@@ -396,20 +396,20 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
         else:
             logger.debug(f"No memory context to inject for user_id={user_id}")
 
-        # 调用模型
+        # call model
         logger.debug(f"Calling model handler for user_id={user_id}")
         response = await handler(request)
 
-        # 写入记忆
+        # write back memories
         if self.enable_writeback:
             logger.info(f"Attempting to write back memory for user_id={user_id}, capture_source={self.capture_source}")
             try:
                 message_text: Optional[str] = None
                 if self.capture_source == "assistant":
-                    # 从 ModelResponse 中提取助手响应内容
+                    # extract assistant response content from ModelResponse
                     message_text = self._extract_assistant_response(response)
                 else:
-                    # 默认从用户输入捕获
+                    # default: capture from user input
                     message_text = self._extract_user_input(request)
 
                 if message_text and message_text.strip():

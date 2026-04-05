@@ -1,5 +1,5 @@
 """
-组织/成员模型
+Organization and member models
 """
 
 import uuid
@@ -18,20 +18,20 @@ if TYPE_CHECKING:
 
 
 def _generate_str_id() -> str:
-    """与 drizzle text 主键兼容的字符串 UUID 生成器"""
+    """Generate a string UUID compatible with drizzle text primary keys."""
     return str(uuid.uuid4())
 
 
 class Organization(Base, TimestampMixin):
     """
-    组织（对齐原始项目 drizzle `organization` 表）
+    Organization (aligned with the original drizzle `organization` table).
 
-    采用 text 主键以兼容 drizzle 定义。
+    Use text primary key for drizzle compatibility.
     """
 
     __tablename__ = "organization"
 
-    # 主键（使用 text 类型对齐原始项目）
+    # primary key (text type to match original project)
     id: Mapped[str] = mapped_column(
         String(255),
         primary_key=True,
@@ -41,7 +41,7 @@ class Organization(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     logo: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    # NOTE: `metadata` 是 SQLAlchemy Declarative 的保留属性名，这里用 metadata_ 映射到列 metadata
+    # NOTE: `metadata` is a reserved attribute name in SQLAlchemy Declarative; use metadata_ mapped to the metadata column
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
 
     org_usage_limit: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
@@ -62,14 +62,14 @@ class Organization(Base, TimestampMixin):
 
 class Member(Base, TimestampMixin):
     """
-    组织成员（对齐原始项目 drizzle `member` 表）
+    Organization member (aligned with the original drizzle `member` table).
 
-    采用 text 主键以兼容 drizzle 定义。
+    Use text primary key for drizzle compatibility.
     """
 
     __tablename__ = "member"
 
-    # 主键（使用 text 类型对齐原始项目）
+    # primary key (text type to match original project)
     id: Mapped[str] = mapped_column(
         String(255),
         primary_key=True,

@@ -1,11 +1,11 @@
 """
-OpenAPI Graph 路由 — 通过 PlatformToken 认证触发 Graph 执行
+OpenAPI Graph routes — trigger Graph execution via PlatformToken auth
 
-端点：
-- POST /v1/openapi/graph/{graphId}/run      启动执行
-- GET  /v1/openapi/graph/{executionId}/status  查询状态
-- POST /v1/openapi/graph/{executionId}/abort   中止执行
-- GET  /v1/openapi/graph/{executionId}/result   获取结果
+Endpoints:
+- POST /v1/openapi/graph/{graphId}/run      Start execution
+- GET  /v1/openapi/graph/{executionId}/status  Query status
+- POST /v1/openapi/graph/{executionId}/abort   Abort execution
+- GET  /v1/openapi/graph/{executionId}/result   Get result
 """
 
 from __future__ import annotations
@@ -31,16 +31,16 @@ router = APIRouter(prefix="/v1/openapi/graph", tags=["OpenAPI Graph"])
 
 
 class RunGraphRequest(BaseModel):
-    """启动 Graph 执行的请求体"""
+    """Request body for starting a Graph execution."""
 
     variables: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="运行时变量。message/query 用作用户消息，其余作为 context 变量。",
+        description="Runtime variables. message/query is used as the user message; the rest are context variables.",
     )
 
 
 class OpenApiResponse(BaseModel):
-    """统一响应格式"""
+    """Unified response format."""
 
     success: bool = True
     data: Optional[Dict[str, Any]] = None
@@ -84,10 +84,10 @@ async def run_graph(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    启动 Graph 执行
+    Start a Graph execution.
 
-    通过 PlatformToken 认证，启动一个 Graph 的异步执行。
-    返回 executionId 用于后续查询状态和获取结果。
+    Authenticate via PlatformToken and start an async Graph execution.
+    Returns an executionId for subsequent status queries and result retrieval.
     """
     _require_graph_execute(auth, graph_id)
     user = auth.user
@@ -113,9 +113,9 @@ async def get_execution_status(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    查询执行状态
+    Query execution status.
 
-    返回执行的当前状态（init / executing / finish / failed）。
+    Return the current status (init / executing / finish / failed).
     """
     user = auth.user
     log = _bind_log(request, user_id=str(user.id), execution_id=str(execution_id))
@@ -138,9 +138,9 @@ async def abort_execution(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    中止执行
+    Abort execution.
 
-    中止一个正在运行的 Graph 执行。
+    Abort a running Graph execution.
     """
     user = auth.user
     log = _bind_log(request, user_id=str(user.id), execution_id=str(execution_id))
@@ -163,10 +163,10 @@ async def get_execution_result(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    获取执行结果
+    Get execution result.
 
-    获取 Graph 执行的输出结果。
-    如果执行尚未完成，output 为 null。
+    Retrieve the output of a Graph execution.
+    If execution is not yet complete, output is null.
     """
     user = auth.user
     log = _bind_log(request, user_id=str(user.id), execution_id=str(execution_id))

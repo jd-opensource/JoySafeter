@@ -244,9 +244,8 @@ export function ProfilePage() {
   }
 
   const handleNameSave = () => {
-    // TODO: Implement name update API call
+    // Stub: name update API not yet implemented
     setIsEditingName(false)
-    // For now, just update local state
   }
 
   const handleNameCancel = () => {

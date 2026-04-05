@@ -36,7 +36,7 @@ export function useSkills(includePublic: boolean = true, options?: { enabled?: b
       const skills = await apiGet<Skill[]>(url)
       return skills || []
     },
-    enabled: options?.enabled !== false, // 默认 true，但可以设置为 false
+    enabled: options?.enabled !== false, // defaults to true, but can be set to false
     retry: false,
     staleTime: STALE_TIME.STANDARD,
     placeholderData: keepPreviousData,

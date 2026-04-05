@@ -1,5 +1,5 @@
 """
-模型管理API（全局，与 workspace 无关）
+Model management API (global, workspace-independent)
 """
 
 import uuid
@@ -21,27 +21,27 @@ router = APIRouter(prefix="/v1/models", tags=["Models"])
 
 
 class ModelInstanceCreate(BaseModel):
-    """创建模型实例配置请求"""
+    """Create model instance configuration request."""
 
-    provider_name: str = Field(description="供应商名称", examples=["openaiapicompatible"])
-    model_name: str = Field(description="模型名称", examples=["gpt-4o"])
-    model_type: str = Field(default="chat", description="模型类型：chat, llm, embedding等", examples=["chat"])
-    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="模型参数配置", examples=[{}])
+    provider_name: str = Field(description="Provider name", examples=["openaiapicompatible"])
+    model_name: str = Field(description="Model name", examples=["gpt-4o"])
+    model_type: str = Field(default="chat", description="Model type: chat, llm, embedding, etc.", examples=["chat"])
+    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="Model parameter configuration", examples=[{}])
 
 
 class ModelInstanceUpdate(BaseModel):
-    """更新模型实例请求"""
+    """Update model instance request."""
 
     model_parameters: Optional[Dict[str, Any]] = Field(
-        default=None, description="模型参数覆盖值（仅包含用户显式设置的字段）"
+        default=None, description="Model parameter overrides (only user-specified fields)"
     )
 
 
 class ModelTestRequest(BaseModel):
-    """测试模型输出请求"""
+    """Test model output request."""
 
-    model_name: str = Field(description="模型名称", examples=["gpt-4o"])
-    input: str = Field(description="输入文本", examples=["你好，请介绍一下你自己"])
+    model_name: str = Field(description="Model name", examples=["gpt-4o"])
+    input: str = Field(description="Input text", examples=["Hello, please introduce yourself"])
 
 
 @router.get("/overview")
@@ -49,29 +49,29 @@ async def get_models_overview(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取全局模型概览：Provider 健康摘要、最近凭证失败"""
+    """Get global model overview: provider health summary, recent credential failures."""
     service = ModelService(db)
     overview = await service.get_overview()
-    return success_response(data=overview, message="获取模型概览成功")
+    return success_response(data=overview, message="Model overview retrieved")
 
 
 @router.get("")
 async def list_available_models(
-    model_type: str = Query(default="chat", description="模型类型：chat, llm, embedding等"),
+    model_type: str = Query(default="chat", description="Model type: chat, llm, embedding, etc."),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取可用模型列表（含 unavailable_reason）"""
+    """List available models (includes unavailable_reason)."""
     try:
         model_type_enum = ModelType(model_type)
     except ValueError:
         from app.common.exceptions import BadRequestException
 
-        raise BadRequestException(f"不支持的模型类型: {model_type}")
+        raise BadRequestException(f"Unsupported model type: {model_type}")
 
     service = ModelService(db)
     models = await service.get_available_models(model_type=model_type_enum, user_id=current_user.id)
-    return success_response(data=models, message="获取模型列表成功")
+    return success_response(data=models, message="Model list retrieved")
 
 
 @router.post("/instances")
@@ -80,13 +80,13 @@ async def create_model_instance(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建模型实例配置"""
+    """Create a model instance configuration."""
     try:
         model_type_enum = ModelType(payload.model_type)
     except ValueError:
         from app.common.exceptions import BadRequestException
 
-        raise BadRequestException(f"不支持的模型类型: {payload.model_type}")
+        raise BadRequestException(f"Unsupported model type: {payload.model_type}")
 
     service = ModelService(db)
     instance = await service.create_model_instance_config(
@@ -96,7 +96,7 @@ async def create_model_instance(
         model_type=model_type_enum,
         model_parameters=payload.model_parameters,
     )
-    return success_response(data=instance, message="创建模型实例配置成功")
+    return success_response(data=instance, message="Model instance configuration created")
 
 
 @router.get("/instances")
@@ -104,10 +104,10 @@ async def list_model_instances(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取模型实例配置列表（全局）"""
+    """List model instance configurations (global)."""
     service = ModelService(db)
     instances = await service.list_model_instances()
-    return success_response(data=instances, message="获取模型实例配置列表成功")
+    return success_response(data=instances, message="Model instance configurations retrieved")
 
 
 @router.patch("/instances/{instance_id}")
@@ -117,21 +117,21 @@ async def update_model_instance(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新模型实例参数"""
+    """Update model instance parameters."""
     service = ModelService(db)
     instance = await service.update_model_instance(
         instance_id=instance_id,
         model_parameters=payload.model_parameters,
     )
-    return success_response(data=instance, message="更新模型实例成功")
+    return success_response(data=instance, message="Model instance updated")
 
 
 class ModelTestStreamRequest(BaseModel):
-    """流式测试模型输出请求"""
+    """Streaming model output test request."""
 
-    model_name: str = Field(description="模型名称")
-    input: str = Field(description="输入文本")
-    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="临时参数覆盖")
+    model_name: str = Field(description="Model name")
+    input: str = Field(description="Input text")
+    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="Temporary parameter overrides")
 
 
 @router.post("/test-output-stream")
@@ -140,7 +140,7 @@ async def test_output_stream(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """流式测试模型输出（SSE）"""
+    """Test model output via SSE streaming."""
     service = ModelService(db)
 
     async def event_generator():
@@ -169,11 +169,11 @@ async def test_output(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """测试模型输出"""
+    """Test model output."""
     service = ModelService(db)
     output = await service.test_output(
         user_id=current_user.id,
         model_name=payload.model_name,
         input_text=payload.input,
     )
-    return success_response(data={"output": output}, message="测试模型输出成功")
+    return success_response(data={"output": output}, message="Model output test completed")

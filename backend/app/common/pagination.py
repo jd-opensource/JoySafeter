@@ -1,5 +1,5 @@
 """
-分页工具
+Pagination utilities.
 """
 
 from typing import Any, Callable, Generic, List, Optional, TypeVar
@@ -13,10 +13,10 @@ T = TypeVar("T")
 
 
 class PaginationParams(BaseModel):
-    """分页参数"""
+    """Pagination parameters."""
 
-    page: int = Field(default=1, ge=1, description="页码")
-    page_size: int = Field(default=20, ge=1, le=100, description="每页数量")
+    page: int = Field(default=1, ge=1, description="page number")
+    page_size: int = Field(default=20, ge=1, le=100, description="items per page")
 
     @property
     def offset(self) -> int:
@@ -28,13 +28,13 @@ class PaginationParams(BaseModel):
 
 
 class ConversationMessagesPaginationParams(PaginationParams):
-    """会话消息分页参数，允许读取更长的历史记录。"""
+    """Conversation message pagination parameters, allowing longer history reads."""
 
-    page_size: int = Field(default=20, ge=1, le=200, description="每页数量")
+    page_size: int = Field(default=20, ge=1, le=200, description="items per page")
 
 
 class PageResult(BaseModel, Generic[T]):
-    """分页结果"""
+    """Paginated result."""
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -46,7 +46,7 @@ class PageResult(BaseModel, Generic[T]):
 
 
 class Paginator:
-    """分页器"""
+    """Paginator."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -58,15 +58,15 @@ class Paginator:
         transformer: Optional[Callable[[Any], Any]] = None,
     ) -> PageResult:
         """
-        执行分页查询
+        Execute a paginated query.
 
         Args:
-            query: SQLAlchemy 查询
-            params: 分页参数
-            transformer: 可选的结果转换函数
+            query: SQLAlchemy query
+            params: pagination parameters
+            transformer: optional result transformation function
 
         Returns:
-            分页结果
+            Paginated result
         """
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.db.execute(count_query)

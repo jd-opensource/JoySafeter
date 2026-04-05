@@ -254,10 +254,10 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         return self._started
 
     def get_runtime_config(self) -> RuntimeConfig | None:
-        """获取当前使用的运行时配置。
+        """Get the current runtime configuration.
 
         Returns:
-            RuntimeConfig 实例，如果没有使用运行时配置则返回 None
+            RuntimeConfig instance, or None if no runtime config is in use.
         """
         return self._runtime_config
 

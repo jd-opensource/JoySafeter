@@ -1,5 +1,5 @@
 """
-模型使用统计服务
+Model usage statistics service.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -13,7 +13,7 @@ from .base import BaseService
 
 
 class ModelUsageService(BaseService):
-    """模型使用统计服务"""
+    """Model usage statistics service."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -33,7 +33,7 @@ class ModelUsageService(BaseService):
         model_type: str = "chat",
         source: str = "chat",
     ) -> None:
-        """记录一次模型调用日志，失败时只记录警告，不抛出异常"""
+        """Record a model invocation log; on failure only log a warning, do not raise."""
         try:
             await self.repo.create(
                 {
@@ -63,7 +63,7 @@ class ModelUsageService(BaseService):
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """获取使用统计数据"""
+        """Get usage statistics."""
         period_map = {
             "24h": timedelta(hours=24),
             "7d": timedelta(days=7),
@@ -83,7 +83,7 @@ class ModelUsageService(BaseService):
         }
 
     async def cleanup(self, days: int = 90) -> int:
-        """清理旧日志"""
+        """Clean up old logs."""
         count = await self.repo.cleanup_old_logs(days)
         await self.db.commit()
         return count

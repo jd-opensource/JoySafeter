@@ -1,5 +1,5 @@
 """
-基础 Repository - 通用 CRUD 操作
+Base Repository -- generic CRUD operations
 """
 
 import uuid
@@ -16,7 +16,7 @@ T = TypeVar("T", bound=Base)
 
 class BaseRepository(Generic[T]):
     """
-    基础 Repository，提供通用 CRUD 操作
+    Base Repository providing generic CRUD operations.
 
     Usage:
         class UserRepository(BaseRepository[User]):
@@ -29,7 +29,7 @@ class BaseRepository(Generic[T]):
         self.db = db
 
     async def get(self, id: uuid.UUID, relations: Optional[List[str]] = None) -> Optional[T]:
-        """根据 ID 获取记录"""
+        """Get a record by ID."""
         query = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
 
         if relations:
@@ -40,7 +40,7 @@ class BaseRepository(Generic[T]):
         return result.scalar_one_or_none()  # type: ignore[return-value]
 
     async def get_by(self, **kwargs) -> Optional[T]:
-        """根据条件获取单条记录"""
+        """Get a single record by filter conditions."""
         query = select(self.model)
         for key, value in kwargs.items():
             query = query.where(getattr(self.model, key) == value)
@@ -55,7 +55,7 @@ class BaseRepository(Generic[T]):
         order_by: Optional[str] = None,
         order_desc: bool = True,
     ) -> List[T]:
-        """查询多条记录"""
+        """Query multiple records."""
         query = select(self.model)
 
         if filters:
@@ -76,7 +76,7 @@ class BaseRepository(Generic[T]):
         return list(result.scalars().all())
 
     async def create(self, data: Dict[str, Any]) -> T:
-        """创建记录"""
+        """Create a record."""
         instance = self.model(**data)
         self.db.add(instance)
         await self.db.flush()
@@ -84,7 +84,7 @@ class BaseRepository(Generic[T]):
         return instance
 
     async def update(self, id: uuid.UUID, data: Dict[str, Any]) -> Optional[T]:
-        """更新记录"""
+        """Update a record."""
         instance = await self.get(id)
         if not instance:
             return None
@@ -98,7 +98,7 @@ class BaseRepository(Generic[T]):
         return instance
 
     async def delete(self, id: uuid.UUID) -> bool:
-        """删除记录"""
+        """Delete a record."""
         instance = await self.get(id)
         if not instance:
             return False
@@ -108,7 +108,7 @@ class BaseRepository(Generic[T]):
         return True
 
     async def soft_delete(self, id: uuid.UUID) -> bool:
-        """软删除记录"""
+        """Soft-delete a record."""
         from datetime import datetime, timezone
 
         instance = await self.get(id)
@@ -123,7 +123,7 @@ class BaseRepository(Generic[T]):
         return await self.delete(id)
 
     async def count(self, filters: Optional[Dict[str, Any]] = None) -> int:
-        """计数"""
+        """Count records."""
         query = select(func.count()).select_from(self.model)
 
         if filters:

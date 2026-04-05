@@ -168,12 +168,12 @@ export function TokenList({ resourceType, resourceId, header }: TokenListProps) 
           <Table>
             <TableHeader>
               <TableRow className="bg-[var(--surface-1)] hover:bg-[var(--surface-1)]">
-                <TableHead className="w-[200px] text-[var(--text-secondary)] font-medium">{t('settings.tokens.name', { defaultValue: '名称' })}</TableHead>
+                <TableHead className="w-[200px] text-[var(--text-secondary)] font-medium">{t('settings.tokens.name', { defaultValue: 'Name' })}</TableHead>
                 <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.key', { defaultValue: 'Key' })}</TableHead>
-                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.type', { defaultValue: '类型' })}</TableHead>
-                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.createdAt', { defaultValue: '创建时间' })}</TableHead>
-                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.expiresAt', { defaultValue: '过期时间' })}</TableHead>
-                <TableHead className="w-[80px] text-right text-[var(--text-secondary)] font-medium">{t('settings.tokens.actions', { defaultValue: '操作' })}</TableHead>
+                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.type', { defaultValue: 'Type' })}</TableHead>
+                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.createdAt', { defaultValue: 'Created At' })}</TableHead>
+                <TableHead className="text-[var(--text-secondary)] font-medium">{t('settings.tokens.expiresAt', { defaultValue: 'Expires At' })}</TableHead>
+                <TableHead className="w-[80px] text-right text-[var(--text-secondary)] font-medium">{t('settings.tokens.actions', { defaultValue: 'Actions' })}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

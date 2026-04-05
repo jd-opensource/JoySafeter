@@ -24,7 +24,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
       const validation = isAllowedFile(file)
       if (!validation.allowed) {
         toastError(
-          validation.reason || t('chat.fileNotAllowed', { defaultValue: '文件不符合要求' }),
+          validation.reason || t('chat.fileNotAllowed', { defaultValue: 'File does not meet requirements' }),
           t('chat.fileUploadFailed'),
         )
         return
@@ -41,7 +41,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
 
         if (!fileData || !fileData.filename || !fileData.path) {
           toastError(
-            t('chat.uploadFailed', { defaultValue: '上传失败，响应格式异常' }),
+            t('chat.uploadFailed', { defaultValue: 'Upload failed, unexpected response format' }),
             t('chat.fileUploadFailed'),
           )
           return
@@ -62,7 +62,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
             ? error.message
             : typeof error === 'string'
               ? error
-              : t('chat.retry', { defaultValue: '请重试' })
+              : t('chat.retry', { defaultValue: 'Please retry' })
         toastError(errorMessage, t('chat.fileUploadFailed'))
       } finally {
         setIsUploading(false)
@@ -78,7 +78,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
         if (selectedFiles.length > UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD) {
           toastError(
             t('chat.tooManyFiles', {
-              defaultValue: '最多只能同时上传 {{maxFiles}} 个文件',
+              defaultValue: 'You can upload at most {{maxFiles}} files at once',
               maxFiles: UPLOAD_LIMITS.MAX_FILES_PER_UPLOAD,
             }),
             t('chat.fileUploadFailed'),

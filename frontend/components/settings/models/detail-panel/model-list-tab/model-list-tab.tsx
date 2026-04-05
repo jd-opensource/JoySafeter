@@ -23,7 +23,7 @@ export function ModelListTab({ providerName, provider }: ModelListTabProps) {
   if (providerModels.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center text-[var(--text-muted)]">
-        <p className="text-sm">该供应商暂无模型实例</p>
+        <p className="text-sm">No model instances for this provider</p>
       </div>
     )
   }

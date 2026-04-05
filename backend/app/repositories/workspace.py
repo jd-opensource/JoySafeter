@@ -1,5 +1,5 @@
 """
-工作空间 Repository
+Workspace Repository
 """
 
 import uuid
@@ -15,13 +15,13 @@ from .base import BaseRepository
 
 
 class WorkspaceRepository(BaseRepository[Workspace]):
-    """工作空间数据访问"""
+    """Workspace data access."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(Workspace, db)
 
     async def list_for_user(self, user_id: str) -> List[Workspace]:
-        """获取用户可访问的所有工作空间（拥有者或成员）"""
+        """List all workspaces accessible to the user (owner or member)."""
         query = (
             select(Workspace)
             .outerjoin(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
@@ -33,7 +33,7 @@ class WorkspaceRepository(BaseRepository[Workspace]):
         return list(result.scalars().all())
 
     async def get_by_name_and_owner(self, name: str, owner_id: str) -> Optional[Workspace]:
-        """根据名称和拥有者获取工作空间"""
+        """Get a workspace by name and owner."""
         query = select(Workspace).where(
             Workspace.name == name,
             Workspace.owner_id == owner_id,
@@ -43,7 +43,7 @@ class WorkspaceRepository(BaseRepository[Workspace]):
 
 
 class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
-    """工作空间成员数据访问"""
+    """Workspace member data access."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(WorkspaceMember, db)
@@ -57,7 +57,7 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
         return result.scalar_one_or_none()
 
     async def count_admins(self, workspace_id: uuid.UUID) -> int:
-        """统计 workspace 中 admin/owner 数量"""
+        """Count admin/owner members in the workspace."""
         query = (
             select(func.count())
             .select_from(WorkspaceMember)
@@ -70,7 +70,7 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
         return int(result.scalar() or 0)
 
     async def list_by_workspace(self, workspace_id: uuid.UUID) -> List[WorkspaceMember]:
-        """获取工作空间的所有成员，包含用户信息"""
+        """List all members of a workspace, including user info."""
         query = (
             select(WorkspaceMember)
             .where(WorkspaceMember.workspace_id == workspace_id)
@@ -82,7 +82,7 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
     async def update_member_role(
         self, workspace_id: uuid.UUID, user_id: str, role: WorkspaceMemberRole
     ) -> WorkspaceMember:
-        """更新成员角色"""
+        """Update a member's role."""
         member = await self.get_member(workspace_id, user_id)
         if not member:
             raise ValueError(f"Member not found: {user_id} in workspace {workspace_id}")
@@ -91,7 +91,7 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
         return member
 
     async def delete_member(self, workspace_id: uuid.UUID, user_id: str) -> bool:
-        """删除成员"""
+        """Remove a member."""
         stmt = delete(WorkspaceMember).where(
             and_(
                 WorkspaceMember.workspace_id == workspace_id,

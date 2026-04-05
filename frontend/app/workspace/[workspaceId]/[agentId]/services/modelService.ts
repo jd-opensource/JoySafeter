@@ -25,7 +25,7 @@ export type { AvailableModel }
 
 export const modelService = {
   /**
-   * Get available model list（全局，与 workspace 无关）
+   * Get available model list (global, not workspace-specific)
    */
   async getAvailableModels(modelType: string = 'chat'): Promise<AvailableModel[]> {
     try {
@@ -39,7 +39,7 @@ export const modelService = {
   },
 
   /**
-   * Test model output（全局，与 workspace 无关）
+   * Test model output (global, not workspace-specific)
    */
   async testModelOutput(modelName: string, input: string): Promise<string> {
     try {

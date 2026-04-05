@@ -27,7 +27,7 @@ class SkillRepository(BaseRepository[Skill]):
         include_public: bool = True,
         tags: Optional[List[str]] = None,
     ) -> List[Skill]:
-        """获取用户的 Skills（包括公开的）"""
+        """List skills for a user (including public ones)."""
         query = select(Skill).options(selectinload(Skill.files))
 
         conditions = []
@@ -41,30 +41,15 @@ class SkillRepository(BaseRepository[Skill]):
                         Skill.owner_id == user_id,
                         Skill.id.in_(collab_subquery),
                         Skill.is_public.is_(True),
-                        Skill.owner_id.is_(None),  # 系统级公共 Skill
-                    )
-                )
-            else:
-                conditions.append(
-                    or_(
-                        Skill.owner_id == user_id,
-                        Skill.id.in_(collab_subquery),
-                    )
-                )
-        elif include_public:
-            # 只获取公开的 Skills
-            conditions.append(
-                or_(
-                    Skill.is_public.is_(True),
-                    Skill.owner_id.is_(None),  # 系统级公共 Skill
+                        Skill.owner_id.is_(None),  # system-level public skill
                 )
             )
         else:
-            # 如果 user_id 为 None 且 include_public 为 False，不返回任何结果
-            conditions.append(Skill.id.is_(None))  # 永远不匹配的条件
+            # if user_id is None and include_public is False, return no results
+            conditions.append(Skill.id.is_(None))  # condition that never matches
 
         if tags:
-            # 使用 JSONB 数组查询
+            # use JSONB array query
             for tag in tags:
                 conditions.append(Skill.tags.contains([tag]))
 
@@ -75,14 +60,14 @@ class SkillRepository(BaseRepository[Skill]):
         return list(result.scalars().all())
 
     async def get_with_files(self, skill_id: uuid.UUID) -> Optional[Skill]:
-        """获取 Skill 及其关联的文件"""
+        """Get a skill with its associated files."""
         query = select(Skill).where(Skill.id == skill_id)
         query = query.options(selectinload(Skill.files))
         result = await self.db.execute(query)
         return result.scalar_one_or_none()  # type: ignore[return-value]
 
     async def get_by_name_and_owner(self, name: str, owner_id: Optional[str]) -> Optional[Skill]:
-        """根据名称和拥有者获取 Skill"""
+        """Get a skill by name and owner."""
         query = select(Skill).where(and_(Skill.name == name, Skill.owner_id == owner_id))
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
@@ -93,12 +78,12 @@ class SkillFileRepository(BaseRepository[SkillFile]):
         super().__init__(SkillFile, db)
 
     async def list_by_skill(self, skill_id: uuid.UUID) -> List[SkillFile]:
-        """获取 Skill 的所有文件"""
+        """List all files for a skill."""
         result = await self.db.execute(select(SkillFile).where(SkillFile.skill_id == skill_id))
         return list(result.scalars().all())
 
     async def delete_by_skill(self, skill_id: uuid.UUID) -> int:
-        """删除 Skill 的所有文件"""
+        """Delete all files for a skill."""
         from sqlalchemy import delete
 
         stmt = delete(SkillFile).where(SkillFile.skill_id == skill_id)

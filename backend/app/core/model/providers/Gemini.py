@@ -1,5 +1,5 @@
 """
-Google Gemini 供应商实现
+Google Gemini provider implementation.
 """
 
 from typing import Any, Dict, List, Optional
@@ -12,7 +12,7 @@ from .base import BaseProvider, ModelType
 
 
 class GeminiProvider(BaseProvider):
-    """Google Gemini 供应商"""
+    """Google Gemini provider."""
 
     PREDEFINED_CHAT_MODELS = [
         {
@@ -33,22 +33,22 @@ class GeminiProvider(BaseProvider):
         {
             "name": "gemini-2.5-pro",
             "display_name": "Gemini 2.5 Pro",
-            "description": "Google 最强推理与复杂任务模型，拥有巨大的上下文窗口",
+            "description": "Google's strongest reasoning model with a massive context window",
         },
         {
             "name": "gemini-2.5-flash",
             "display_name": "Gemini 2.5 Flash",
-            "description": "Google 快速、轻量多模态主力模型，专为多频率和通用任务构建",
+            "description": "Google's fast, lightweight multimodal workhorse for high-frequency and general tasks",
         },
         {
             "name": "gemini-1.5-pro",
             "display_name": "Gemini 1.5 Pro",
-            "description": "Google 上一代旗舰模型",
+            "description": "Google's previous-generation flagship model",
         },
         {
             "name": "gemini-1.5-flash",
             "display_name": "Gemini 1.5 Flash",
-            "description": "Google 上一代快速模型",
+            "description": "Google's previous-generation fast model",
         },
     ]
 
@@ -56,24 +56,24 @@ class GeminiProvider(BaseProvider):
         super().__init__(provider_name="gemini", display_name="Google Gemini")
 
     def get_supported_model_types(self) -> List[ModelType]:
-        """获取支持的模型类型"""
+        """Return supported model types."""
         return [ModelType.CHAT]
 
     def get_credential_schema(self) -> Dict[str, Any]:
-        """获取凭据表单规则"""
+        """Return credential form schema."""
         return {
             "type": "object",
             "properties": {
                 "api_key": {
                     "type": "string",
                     "title": "API Key",
-                    "description": "Google Gemini API密钥",
+                    "description": "Google Gemini API key",
                     "required": True,
                 },
                 "base_url": {
                     "type": "string",
                     "title": "Base URL",
-                    "description": "API基础URL (如果使用代理则配置)",
+                    "description": "API base URL (configure if using a proxy)",
                     "required": False,
                 },
             },
@@ -81,7 +81,7 @@ class GeminiProvider(BaseProvider):
         }
 
     def get_config_schema(self, model_type: ModelType) -> Optional[Dict[str, Any]]:
-        """获取模型参数配置规则"""
+        """Return model parameter config schema."""
         if model_type == ModelType.CHAT:
             return {
                 "type": "object",
@@ -89,7 +89,7 @@ class GeminiProvider(BaseProvider):
                     "temperature": {
                         "type": "number",
                         "title": "Temperature",
-                        "description": "控制输出的随机性，范围0-2",
+                        "description": "Controls output randomness, range 0-2",
                         "default": 1.0,
                         "minimum": 0,
                         "maximum": 2,
@@ -97,14 +97,14 @@ class GeminiProvider(BaseProvider):
                     "max_tokens": {
                         "type": "integer",
                         "title": "Max Tokens",
-                        "description": "生成的最大token数",
+                        "description": "Maximum number of tokens to generate",
                         "default": None,
                         "minimum": 1,
                     },
                     "top_p": {
                         "type": "number",
                         "title": "Top P",
-                        "description": "核采样参数，范围0-1",
+                        "description": "Nucleus sampling parameter, range 0-1",
                         "default": 0.95,
                         "minimum": 0,
                         "maximum": 1,
@@ -112,21 +112,21 @@ class GeminiProvider(BaseProvider):
                     "top_k": {
                         "type": "integer",
                         "title": "Top K",
-                        "description": "Top-K 采样参数",
+                        "description": "Top-K sampling parameter",
                         "default": 40,
                         "minimum": 1,
                     },
                     "timeout": {
                         "type": "number",
                         "title": "Timeout",
-                        "description": "请求超时时间（秒）",
+                        "description": "Request timeout in seconds",
                         "default": 60.0,
                         "minimum": 1.0,
                     },
                     "max_retries": {
                         "type": "integer",
                         "title": "Max Retries",
-                        "description": "最大重试次数",
+                        "description": "Maximum number of retries",
                         "default": 2,
                         "minimum": 0,
                     },
@@ -135,15 +135,15 @@ class GeminiProvider(BaseProvider):
         return None
 
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
-        """验证凭据"""
+        """Validate credentials."""
         try:
             api_key = credentials.get("api_key")
             if not api_key:
-                return False, "API Key不能为空"
+                return False, "API key is required"
 
             base_url = credentials.get("base_url")
 
-            # 创建一个临时模型实例进行测试
+            # create a temporary model instance for testing
             kwargs: Dict[str, Any] = {
                 "model": self.PREDEFINED_CHAT_MODELS[0]["name"],
                 "api_key": api_key,
@@ -157,20 +157,20 @@ class GeminiProvider(BaseProvider):
 
             model = ChatGoogleGenerativeAI(**kwargs)  # type: ignore[misc]
 
-            # 尝试调用API
+            # attempt an API call
             response = await model.ainvoke("Hello")
             if response and response.content:
                 return True, None
             else:
-                return False, "API调用失败：未收到有效响应"
+                return False, "API call failed: no valid response received"
         except Exception as e:
             msg = str(e)
-            return False, f"凭据验证失败：{msg}"
+            return False, f"Credential validation failed: {msg}"
 
     def get_model_list(
         self, model_type: ModelType, credentials: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """获取模型列表"""
+        """Return the model list."""
         if model_type == ModelType.CHAT:
             models = []
             for model in self.PREDEFINED_CHAT_MODELS:
@@ -191,17 +191,17 @@ class GeminiProvider(BaseProvider):
         credentials: Dict[str, Any],
         model_parameters: Optional[Dict[str, Any]] = None,
     ) -> BaseChatModel:
-        """创建模型实例"""
+        """Create a model instance."""
         if model_type != ModelType.CHAT:
-            raise ValueError(f"Gemini 供应商不支持模型类型: {model_type}")
+            raise ValueError(f"Gemini provider does not support model type: {model_type}")
 
         api_key = credentials.get("api_key")
         if not api_key:
-            raise ValueError("API Key不能为空")
+            raise ValueError("API key is required")
 
         base_url = credentials.get("base_url")
 
-        # 构建模型参数
+        # build model kwargs
         model_kwargs: Dict[str, Any] = {
             "model": model_name,
             "api_key": SecretStr(api_key),
@@ -212,7 +212,7 @@ class GeminiProvider(BaseProvider):
             model_kwargs["transport"] = "rest"
             model_kwargs["client_options"] = {"api_endpoint": base_url}
 
-        # 添加模型参数
+        # apply model parameters
         if model_parameters:
             if "temperature" in model_parameters:
                 model_kwargs["temperature"] = model_parameters["temperature"]

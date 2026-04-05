@@ -1,15 +1,15 @@
 """
 Token Usage Normalization
 
-参考 Langfuse _parse_usage_model() 实现。
-将各 LLM 厂商的 token 用量统一为标准格式 {input, output, total}。
-支持 OpenAI, Anthropic, Bedrock, Vertex AI, IBM watsonx 等。
+Modeled after Langfuse _parse_usage_model().
+Normalize token usage from various LLM vendors into a standard {input, output, total} format.
+Support OpenAI, Anthropic, Bedrock, Vertex AI, IBM watsonx, etc.
 """
 
 from typing import Any, Optional
 
-# 各厂商 key -> 标准化 key 的映射表
-# 顺序很重要：先尝试特定厂商的 key，最后才是通用 key
+# vendor key -> normalized key mapping table
+# order matters: try vendor-specific keys first, generic keys last
 USAGE_KEY_MAPPING: list[tuple[str, str]] = [
     # Anthropic (via langchain-anthropic, also Bedrock-Anthropic)
     ("input_tokens", "input"),
@@ -35,20 +35,20 @@ USAGE_KEY_MAPPING: list[tuple[str, str]] = [
 
 def normalize_usage(raw_usage: Any) -> Optional[dict[str, int]]:
     """
-    将各厂商的 token 用量统一为 {input, output, total}。
+    Normalize token usage from various vendors into {input, output, total}.
 
-    参考 Langfuse CallbackHandler._parse_usage_model()
+    Modeled after Langfuse CallbackHandler._parse_usage_model()
 
     Args:
-        raw_usage: 原始 usage 数据，可以是 dict、pydantic model 或其他对象
+        raw_usage: raw usage data; may be a dict, pydantic model, or other object
 
     Returns:
-        标准化的 {input: int, output: int, total: int}，若无法解析返回 None
+        Normalized {input: int, output: int, total: int}, or None if unparseable
     """
     if raw_usage is None:
         return None
 
-    # 转为 dict
+    # convert to dict
     usage: dict
     if isinstance(raw_usage, dict):
         usage = raw_usage.copy()
@@ -65,7 +65,7 @@ def normalize_usage(raw_usage: Any) -> Optional[dict[str, int]]:
     if not usage:
         return None
 
-    # 检测是否是标准 OpenAI 格式（直接返回，不做转换）
+    # detect standard OpenAI format (return directly, no conversion needed)
     openai_keys_full = {
         "prompt_tokens",
         "completion_tokens",
@@ -81,22 +81,22 @@ def normalize_usage(raw_usage: Any) -> Optional[dict[str, int]]:
             "total": usage.get("total_tokens", 0) or 0,
         }
 
-    # 按映射表转换
+    # convert using mapping table
     result: dict[str, int] = {}
     for source_key, target_key in USAGE_KEY_MAPPING:
         if source_key in usage:
             value = usage.pop(source_key)
-            # Bedrock 流式返回可能是 list
+            # Bedrock streaming may return a list
             if isinstance(value, list):
                 value = sum(v for v in value if isinstance(v, (int, float)))
             if isinstance(value, (int, float)):
                 result[target_key] = int(value)
 
-    # 确保 total 存在
+    # ensure total exists
     if "total" not in result and "input" in result and "output" in result:
         result["total"] = result["input"] + result["output"]
 
-    # 只保留有效整数值
+    # keep only valid integer values
     result = {k: v for k, v in result.items() if isinstance(v, int) and v >= 0}
 
     return result if result else None
@@ -104,20 +104,20 @@ def normalize_usage(raw_usage: Any) -> Optional[dict[str, int]]:
 
 def extract_usage_from_output(output: Any) -> Optional[dict[str, int]]:
     """
-    从 LangChain LLM output 中多源提取 token usage。
+    Extract token usage from a LangChain LLM output using multiple sources.
 
-    参考 Langfuse CallbackHandler._parse_usage()，按优先级尝试多个源：
-    1. output.usage_metadata (langchain_core >= 0.2, 最直接)
+    Modeled after Langfuse CallbackHandler._parse_usage(), trying sources by priority:
+    1. output.usage_metadata (langchain_core >= 0.2, most direct)
     2. output.response_metadata["token_usage"] (OpenAI)
     3. output.response_metadata["usage"] (Bedrock-Anthropic)
     4. output.response_metadata["amazon-bedrock-invocationMetrics"] (Bedrock-Titan)
     5. output.response_metadata["usage_metadata"] (legacy)
 
     Args:
-        output: LLM 输出对象 (通常是 AIMessage 或 ChatGeneration)
+        output: LLM output object (typically AIMessage or ChatGeneration)
 
     Returns:
-        标准化的 token 用量，或 None
+        Normalized token usage, or None
     """
     if output is None:
         return None
@@ -128,7 +128,7 @@ def extract_usage_from_output(output: Any) -> Optional[dict[str, int]]:
     if hasattr(output, "usage_metadata") and output.usage_metadata:
         raw_usage = output.usage_metadata
 
-    # 2-5. response_metadata 内的各种位置
+    # 2-5. various locations inside response_metadata
     if raw_usage is None and hasattr(output, "response_metadata"):
         rm = output.response_metadata
         if isinstance(rm, dict):
@@ -152,25 +152,25 @@ def extract_usage_from_output(output: Any) -> Optional[dict[str, int]]:
 
 def extract_usage_from_llm_result(response: Any) -> Optional[dict[str, int]]:
     """
-    从 LLMResult 对象提取 token usage。
+    Extract token usage from an LLMResult object.
 
     Args:
-        response: LLMResult 对象 (on_llm_end 的 response 参数)
+        response: LLMResult object (the response parameter of on_llm_end)
 
     Returns:
-        标准化的 token 用量，或 None
+        Normalized token usage, or None
     """
     if response is None:
         return None
 
     raw_usage = None
 
-    # 从 llm_output 中提取
+    # extract from llm_output
     llm_output = getattr(response, "llm_output", None)
     if isinstance(llm_output, dict):
         raw_usage = llm_output.get("token_usage") or llm_output.get("usage")
 
-    # 从 generations 中提取
+    # extract from generations
     if raw_usage is None:
         generations = getattr(response, "generations", None)
         if generations and len(generations) > 0:

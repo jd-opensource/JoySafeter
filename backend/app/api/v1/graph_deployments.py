@@ -1,5 +1,5 @@
 """
-Graph 部署版本 API
+Graph deployment version API
 """
 
 import uuid
@@ -37,7 +37,7 @@ async def get_deployment_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取部署状态"""
+    """Get deployment status."""
     log = _bind_log(request, graph_id=str(graph_id))
     log.info("Getting deployment status for graph: {}", graph_id)
 
@@ -53,7 +53,7 @@ async def deploy_graph(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """部署图"""
+    """Deploy a graph."""
     log = _bind_log(request, graph_id=str(graph_id))
     log.info("Deploying graph: {}", graph_id)
 
@@ -78,7 +78,7 @@ async def undeploy_graph(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """取消部署"""
+    """Undeploy a graph."""
     log = _bind_log(request, graph_id=str(graph_id))
     log.info("Undeploying graph: {}", graph_id)
 
@@ -95,7 +95,7 @@ async def list_deployment_versions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取所有部署版本（分页）"""
+    """List all deployment versions (paginated)."""
     log = _bind_log(request, graph_id=str(graph_id))
     log.info("Listing deployment versions for graph: {} (page={}, page_size={})", graph_id, page, page_size)
 
@@ -111,7 +111,7 @@ async def get_deployment_version(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取特定部署版本"""
+    """Get a specific deployment version."""
     log = _bind_log(request, graph_id=str(graph_id), version=version)
     log.info("Getting deployment version: {} v{}", graph_id, version)
 
@@ -127,7 +127,7 @@ async def get_deployment_version_state(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取特定部署版本的完整状态（用于预览）"""
+    """Get a specific deployment version's full state (for preview)."""
     log = _bind_log(request, graph_id=str(graph_id), version=version)
     log.info("Getting deployment version state: {} v{}", graph_id, version)
 
@@ -144,7 +144,7 @@ async def rename_deployment_version(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """重命名部署版本"""
+    """Rename a deployment version."""
     log = _bind_log(request, graph_id=str(graph_id), version=version)
     log.info("Renaming deployment version: {} v{} to '{}'", graph_id, version, body.name)
 
@@ -160,7 +160,7 @@ async def activate_deployment_version(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """激活部署版本"""
+    """Activate a deployment version."""
     log = _bind_log(request, graph_id=str(graph_id), version=version)
     log.info("Activating deployment version: {} v{}", graph_id, version)
 
@@ -181,7 +181,7 @@ async def revert_to_deployment_version(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """回滚到指定版本"""
+    """Revert to a specific deployment version."""
     log = _bind_log(request, graph_id=str(graph_id), version=version)
     log.info("Reverting to deployment version: {} v{}", graph_id, version)
 
@@ -197,7 +197,7 @@ async def delete_deployment_version(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """删除部署版本"""
+    """Delete a deployment version."""
     log = _bind_log(request, graph_id=str(graph_id), version=version)
     log.info("Deleting deployment version: {} v{}", graph_id, version)
 

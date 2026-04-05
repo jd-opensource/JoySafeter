@@ -1,5 +1,5 @@
 """
-Skill 模型
+Skill model
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class Skill(BaseModel):
-    """Skill 主表"""
+    """Skill table."""
 
     __tablename__ = "skills"
 
@@ -45,7 +45,7 @@ class Skill(BaseModel):
     meta_data: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     allowed_tools: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
 
-    # 关系
+    # relationships
     owner: Mapped[Optional["AuthUser"]] = relationship(
         "AuthUser",
         foreign_keys=[owner_id],
@@ -73,7 +73,7 @@ class Skill(BaseModel):
 
 
 class SkillFile(BaseModel):
-    """Skill 文件表"""
+    """Skill file table."""
 
     __tablename__ = "skill_files"
 
@@ -90,7 +90,7 @@ class SkillFile(BaseModel):
     storage_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    # 关系
+    # relationship
     skill: Mapped["Skill"] = relationship("Skill", back_populates="files", lazy="selectin")
 
     __table_args__ = (

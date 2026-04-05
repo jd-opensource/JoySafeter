@@ -355,7 +355,7 @@ class SkillSandboxLoader:
         backend_type = SkillSandboxLoader._detect_backend_type(backend)
         backend_class_name = type(backend).__name__
 
-        # DEBUG: Log all parameters and backend info
+        # log path resolution parameters for debugging skill loading issues
         logger.debug(
             f"[resolve_skills_base_dir] override_dir={override_dir!r}, "
             f"instance_dir={instance_dir!r}, "
@@ -448,7 +448,7 @@ class SkillSandboxLoader:
             # Construct full path in sandbox using PurePosixPath
             file_path = str(skill_dir_path / skill_file.path)
 
-            # Write file (use overwrite mode if available; BackendProtocol 扩展可能有 write_overwrite)
+            # write file (use overwrite mode if available; BackendProtocol extension may have write_overwrite)
             try:
                 write_overwrite_fn = getattr(backend, "write_overwrite", None) if use_overwrite else None
                 if write_overwrite_fn is not None and callable(write_overwrite_fn):

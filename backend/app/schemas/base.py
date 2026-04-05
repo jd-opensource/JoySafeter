@@ -6,10 +6,10 @@ T = TypeVar("T")
 
 
 class BaseResponse(PydanticBaseModel, Generic[T]):
-    """所有API响应的基类"""
+    """Base class for all API responses."""
 
     success: bool
-    code: int  # 状态码 (200=成功, 其他=错误码)
-    msg: str  # 用户友好的消息
+    code: int  # status code (200=success, other=error code)
+    msg: str  # user-friendly message
     data: Optional[T] = None
     err: Optional[T] = None
