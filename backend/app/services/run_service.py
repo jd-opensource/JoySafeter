@@ -114,6 +114,10 @@ class RunService:
         definition = self.get_agent_definition(agent_name)
         resolved_thread_id = thread_id or str(uuid.uuid4())
         run_input = dict(input or {})
+
+        from app.core.trace_context import get_trace_id
+
+        trace_id = get_trace_id()
         run = AgentRun(
             user_id=user_id,
             workspace_id=workspace_id,
@@ -135,6 +139,7 @@ class RunService:
                 **run_input,
             },
             last_heartbeat_at=utc_now(),
+            trace_id=uuid.UUID(trace_id) if trace_id else None,
         )
         self.db.add(run)
         await self.db.flush()

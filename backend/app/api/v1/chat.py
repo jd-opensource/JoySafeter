@@ -335,9 +335,10 @@ async def get_user_config(user_id: str, thread_id: str, db: AsyncSession, llm_mo
     from app.common.exceptions import ModelConfigError, NotFoundException
     from app.core.agent.langfuse_callback import get_langfuse_callbacks
     from app.core.model.utils.credential_resolver import LLMCredentialResolver
+    from app.core.trace_context import get_trace_id
 
     config: RunnableConfig = {
-        "configurable": {"thread_id": thread_id, "user_id": str(user_id)},
+        "configurable": {"thread_id": thread_id, "user_id": str(user_id), "trace_id": get_trace_id()},
         "recursion_limit": 300,
         "callbacks": get_langfuse_callbacks(enabled=settings.langfuse_enabled),
     }

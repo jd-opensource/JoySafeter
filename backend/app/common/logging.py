@@ -8,12 +8,13 @@ Log detailed information for each request, including method, path, duration, sta
 import logging
 import os
 import time
-import uuid
 from collections.abc import Callable
 
 from fastapi import Request, Response
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from app.core.trace_context import get_trace_id, set_trace_id
 
 
 class InterceptHandler(logging.Handler):
@@ -41,11 +42,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         """Process the request and log details."""
         start_time = time.time()
         method = request.method
-        str(request.url)
         path = request.url.path
         client_host = request.client.host if request.client else "unknown"
 
-        trace_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        trace_id = set_trace_id(request.headers.get("X-Request-ID") or None)
         request.state.trace_id = trace_id
         log = logger.bind(trace_id=trace_id, method=method, path=path, client=client_host)
 
@@ -86,7 +86,12 @@ def setup_logging():
     except PermissionError:
         # if unable to create logs directory (e.g. insufficient permissions in Docker), use console only
         pass
-    logger.configure(extra={"trace_id": "-", "method": "-", "path": "-", "client": "-"})
+    logger.configure(
+        patcher=lambda record: record["extra"].update(
+            trace_id=get_trace_id() or record["extra"].get("trace_id", "-")
+        ),
+        extra={"trace_id": "-", "method": "-", "path": "-", "client": "-"},
+    )
 
     # remove default handler
     logger.remove()

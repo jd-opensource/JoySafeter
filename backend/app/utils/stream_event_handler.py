@@ -128,7 +128,9 @@ class StreamState:
         self.interrupt_state: dict | None = None
 
         # ============ Trace / Observation tracking ============
-        self.trace_id: str = str(uuid.uuid4())
+        from app.core.trace_context import get_trace_id
+
+        self.trace_id: str = get_trace_id() or str(uuid.uuid4())
         self.trace_start_time: float = time.time() * 1000  # epoch ms
 
         # core mappings (modeled after Langfuse CallbackHandler)

@@ -87,6 +87,15 @@ async def close_all_clients():
     _client_pool.clear()
 
 
+def _inject_trace_header(headers: dict[str, str]) -> None:
+    """Add X-Request-ID from the current trace context if available."""
+    from app.core.trace_context import get_trace_id
+
+    trace_id = get_trace_id()
+    if trace_id:
+        headers["X-Request-ID"] = trace_id
+
+
 # ==================== Result Types ====================
 
 
@@ -115,6 +124,7 @@ async def resolve_a2a_url(
     """
     client = _get_client(agent_card_url, config)
     headers = dict(auth_headers or {})
+    _inject_trace_header(headers)
     try:
         resp = await client.get(agent_card_url, headers=headers or None)
         resp.raise_for_status()
@@ -240,6 +250,7 @@ async def get_task(
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if auth_headers:
         headers.update(auth_headers)
+    _inject_trace_header(headers)
 
     client = _get_client(url, config)
 
@@ -344,6 +355,7 @@ async def send_message(
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if auth_headers:
         headers.update(auth_headers)
+    _inject_trace_header(headers)
 
     client = _get_client(url, config)
 

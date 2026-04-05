@@ -83,8 +83,14 @@ def get_langfuse_callbacks(enabled: bool = True, **kwargs: Any) -> list[Any]:
         return []
 
     try:
-        # Create handler - environment variables are automatically read
-        handler = LangfuseCallbackHandler()
+        # Create handler with trace_id from context for cross-system correlation
+        from app.core.trace_context import get_trace_id
+
+        trace_id = get_trace_id()
+        handler = LangfuseCallbackHandler(
+            trace_id=trace_id or None,
+            trace_name="graph_execution",
+        )
         logger.info(f"[langfuse] Langfuse callback handler created successfully (host: {host})")
         return [handler]
     except Exception as e:

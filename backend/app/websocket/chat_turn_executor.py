@@ -107,6 +107,9 @@ class ChatTurnExecutor:
 
     async def execute_standard_turn(self, request_id: str, payload: ChatRequest) -> None:
         """Stream a new user message through the graph and emit events to the client."""
+        from app.core.trace_context import set_trace_id
+
+        set_trace_id(request_id)
         handler = self._handler
         module = self._module
         state: StreamState | None = None
@@ -458,6 +461,9 @@ class ChatTurnExecutor:
 
     async def execute_resume_turn(self, request_id: str, thread_id: str, command: dict[str, object]) -> None:
         """Resume an interrupted graph execution and stream the remaining events."""
+        from app.core.trace_context import set_trace_id
+
+        set_trace_id(request_id)
         handler = self._handler
         module = self._module
         state: StreamState | None = None
@@ -552,6 +558,10 @@ class ChatTurnExecutor:
                     handler._task_supervisor.update(request_id, thread_id=thread_id, task=current_task)
                 await module.task_manager.register_task(thread_id, current_task)
 
+                task_entry = handler._task_supervisor.get(request_id)
+                agent_run_id = task_entry.run_id if task_entry else None
+                assistant_message_id = f"msg-assistant-{uuid_lib.uuid4()}"
+
             await handler._send(
                 {
                     "type": "accepted",
@@ -568,6 +578,8 @@ class ChatTurnExecutor:
             await handler._send_event_from_sse(
                 stream_handler.format_sse("status", {"status": "resumed", "_meta": {"node_name": "system"}}, thread_id),
                 request_id,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
             )
 
             interrupted = False
@@ -576,7 +588,12 @@ class ChatTurnExecutor:
                     state.stopped = True
                     break
                 async for sse_str in module._dispatch_stream_event(event, stream_handler, state):
-                    await handler._send_event_from_sse(sse_str, request_id)
+                    await handler._send_event_from_sse(
+                        sse_str,
+                        request_id,
+                        agent_run_id=agent_run_id,
+                        assistant_message_id=assistant_message_id,
+                    )
 
             try:
                 snap = await module.safe_get_state(

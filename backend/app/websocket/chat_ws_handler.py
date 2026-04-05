@@ -162,6 +162,10 @@ class ChatWsHandler:
             )
             return
 
+        from app.core.trace_context import set_trace_id
+
+        set_trace_id(prepared.request_id)
+
         async def runner() -> None:
             await self._turn_executor.run_standard_turn(prepared)
 
@@ -196,6 +200,10 @@ class ChatWsHandler:
                 }
             )
             return
+
+        from app.core.trace_context import set_trace_id
+
+        set_trace_id(request_id)
 
         async def runner() -> None:
             await self._turn_executor.run_resume_turn(request_id=request_id, thread_id=thread_id, command=command)
