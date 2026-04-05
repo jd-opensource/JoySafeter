@@ -49,7 +49,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
-from app.common.exceptions import raise_internal_error, raise_not_found_error
+from app.common.exceptions import InternalServerException, raise_not_found_error
 from app.common.pagination import ConversationMessagesPaginationParams, PageResult, PaginationParams, Paginator
 from app.core.agent.checkpointer.checkpointer import get_checkpointer
 from app.core.agent.sample_agent import get_agent
@@ -546,9 +546,8 @@ async def reset_conversation(
 
     except Exception as e:
         await db.rollback()
-        logger.error(f"❌ Failed to reset conversation {thread_id}: {e}")
-        raise_internal_error(f"Failed to reset conversation: {str(e)}")
-        return BaseResponse(success=False, code=500, msg=f"Failed to reset conversation: {str(e)}", data={})  # type: ignore[unreachable]
+        logger.error(f"Failed to reset conversation {thread_id}: {e}")
+        raise InternalServerException("Failed to reset conversation") from e
 
 
 # ==================== Message management endpoints ====================
@@ -675,10 +674,7 @@ async def get_checkpoints(
         )
     except Exception as e:
         logger.error(f"Get checkpoints error: {e}")
-        raise_internal_error(str(e))
-        return BaseResponse(
-            success=False, code=500, msg=str(e), data=CheckpointResponse(thread_id=thread_id, checkpoints=[])
-        )  # type: ignore[unreachable]
+        raise InternalServerException("Failed to fetch checkpoints") from e
 
 
 # ==================== Export/Import endpoints ====================

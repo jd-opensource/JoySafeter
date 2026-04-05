@@ -7,6 +7,8 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.model import ModelType
+from app.models.enums import ModelUsageSource
 from app.repositories.model_usage_log import ModelUsageLogRepository
 
 from .base import BaseService
@@ -30,8 +32,8 @@ class ModelUsageService(BaseService):
         status: str = "success",
         error_message: Optional[str] = None,
         user_id: Optional[str] = None,
-        model_type: str = "chat",
-        source: str = "chat",
+        model_type: str = ModelType.CHAT,
+        source: str = ModelUsageSource.CHAT,
     ) -> None:
         """Record a model invocation log; on failure only log a warning, do not raise."""
         try:

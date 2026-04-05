@@ -10,8 +10,10 @@ from typing import Dict, List, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.enums import McpConnectionStatus
 from app.models.mcp import McpServer
 from app.repositories.base import BaseRepository
+from app.utils.datetime import utc_now
 
 
 class McpServerRepository(BaseRepository[McpServer]):
@@ -161,15 +163,13 @@ class McpServerRepository(BaseRepository[McpServer]):
         Returns:
             updated MCP server
         """
-        from datetime import datetime
-
         update_data = {
             "connection_status": status,
             "last_error": error,
         }
 
-        if status == "connected":
-            update_data["last_connected"] = datetime.utcnow()  # type: ignore[assignment]  # naive datetime for TIMESTAMP WITHOUT TIME ZONE
+        if status == McpConnectionStatus.CONNECTED:
+            update_data["last_connected"] = utc_now()  # type: ignore[assignment]  # naive datetime for TIMESTAMP WITHOUT TIME ZONE
             update_data["last_error"] = None
 
         return await self.update(server_id, update_data)
@@ -189,11 +189,9 @@ class McpServerRepository(BaseRepository[McpServer]):
         Returns:
             updated MCP server
         """
-        from datetime import datetime
-
         update_data = {
             "tool_count": tool_count,
-            "last_tools_refresh": datetime.utcnow(),  # naive datetime for TIMESTAMP WITHOUT TIME ZONE
+            "last_tools_refresh": utc_now(),  # naive datetime for TIMESTAMP WITHOUT TIME ZONE
         }
 
         return await self.update(server_id, update_data)

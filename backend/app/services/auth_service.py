@@ -16,6 +16,7 @@ from app.core.security import (
 )
 from app.core.settings import settings
 from app.models.auth import AuthSession, AuthUser
+from app.models.enums import SecurityAuditEventType
 from app.repositories.auth_user import AuthUserRepository
 from app.services.auth_session_service import AuthSessionService
 from app.services.base import BaseService
@@ -282,7 +283,7 @@ class AuthService(BaseService):
             else:
                 try:
                     await self.audit_service.log_event(
-                        event_type="login_failure",
+                        event_type=SecurityAuditEventType.LOGIN_FAILURE,
                         event_status="failure",
                         ip_address=ip_address or "unknown",
                         user_id=user.id if user else None,

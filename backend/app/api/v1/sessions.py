@@ -34,7 +34,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
-from app.common.exceptions import BadRequestException, NotFoundException
+from app.common.exceptions import AppException, InternalServerException, NotFoundException
 from app.core.database import get_db
 from app.schemas.common import SessionCreate, SessionMessageResponse, SessionResponse
 from app.services.session_service import SessionService
@@ -62,8 +62,10 @@ async def create_session(
     """Create a new session."""
     try:
         return await session_service.create_session(session_data, user_id=current_user.id)
+    except AppException:
+        raise
     except Exception as e:
-        raise BadRequestException(str(e))
+        raise InternalServerException("Failed to create session") from e
 
 
 @router.get("/", response_model=List[SessionResponse])
@@ -74,8 +76,10 @@ async def get_sessions(
     """Get all sessions for the current user."""
     try:
         return await session_service.get_user_sessions(user_id=current_user.id)
+    except AppException:
+        raise
     except Exception as e:
-        raise BadRequestException(str(e))
+        raise InternalServerException("Failed to get sessions") from e
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
@@ -104,8 +108,10 @@ async def update_session_title(
         if not updated_session:
             raise NotFoundException("Session not found")
         return updated_session
+    except AppException:
+        raise
     except Exception as e:
-        raise BadRequestException(str(e))
+        raise InternalServerException("Failed to update session title") from e
 
 
 @router.delete("/{session_id}")
@@ -120,8 +126,10 @@ async def delete_session(
         if not success:
             raise NotFoundException("Session not found")
         return {"success": True, "message": "Session deleted successfully"}
+    except AppException:
+        raise
     except Exception as e:
-        raise BadRequestException(str(e))
+        raise InternalServerException("Failed to delete session") from e
 
 
 @router.get("/{session_id}/messages", response_model=List[SessionMessageResponse])
@@ -145,5 +153,7 @@ async def get_session_messages(
             )
             for msg in messages
         ]
+    except AppException:
+        raise
     except Exception as e:
-        raise BadRequestException(str(e))
+        raise InternalServerException("Failed to get session messages") from e

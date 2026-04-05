@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.enums import SecurityAuditEventType
 from app.models.security_audit_log import SecurityAuditLog
 from app.services.base import BaseService
 
@@ -115,7 +116,7 @@ class SecurityAuditService(BaseService):
         anomalies = []
 
         # detect: multiple failed logins
-        failed_logins = [log for log in logs if log.event_type == "login_failure"]
+        failed_logins = [log for log in logs if log.event_type == SecurityAuditEventType.LOGIN_FAILURE]
         if len(failed_logins) >= 3:
             anomalies.append(
                 {
@@ -128,7 +129,7 @@ class SecurityAuditService(BaseService):
 
         # detect: new device login
         # simplified — requires comparison with user's device history
-        successful_logins = [log for log in logs if log.event_type == "login_success"]
+        successful_logins = [log for log in logs if log.event_type == SecurityAuditEventType.LOGIN_SUCCESS]
         if successful_logins:
             latest_login = successful_logins[0]
             if latest_login.device_fingerprint:

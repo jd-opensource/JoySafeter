@@ -19,11 +19,12 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
+
+from app.utils.datetime import utc_now
 
 
 def _default_artifacts_root() -> Path:
@@ -199,7 +200,7 @@ class ArtifactStore:
         """Write the run index."""
         # add timestamp
         if "created_at" not in payload:
-            payload["created_at"] = datetime.utcnow().isoformat()
+            payload["created_at"] = utc_now().isoformat()
         self._write_json("index.json", payload)
 
     def append_event(self, event: Dict[str, Any]) -> None:

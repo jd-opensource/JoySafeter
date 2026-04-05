@@ -228,10 +228,10 @@ class OAuthService(BaseService):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"{LOG_PREFIX} Token exchange failed: {e.response.text}")
-            raise BadRequestException(f"Failed to exchange code for tokens: {e.response.text}")
+            raise BadRequestException("Failed to exchange code for tokens")
         except Exception as e:
             logger.error(f"{LOG_PREFIX} Token exchange error: {e}")
-            raise BadRequestException(f"Token exchange failed: {str(e)}")
+            raise BadRequestException("Token exchange failed")
 
     # ==================== User Info ====================
 
@@ -288,10 +288,10 @@ class OAuthService(BaseService):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"{LOG_PREFIX} Failed to fetch userinfo: {e.response.text}")
-            raise BadRequestException(f"Failed to fetch user info: {e.response.text}")
+            raise BadRequestException("Failed to fetch user info")
         except Exception as e:
             logger.error(f"{LOG_PREFIX} Userinfo fetch error: {e}")
-            raise BadRequestException(f"Failed to fetch user info: {str(e)}")
+            raise BadRequestException("Failed to fetch user info")
 
     async def _fetch_github_email(self, access_token: str) -> Optional[str]:
         """Get GitHub primary email."""

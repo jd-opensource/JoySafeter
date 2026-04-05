@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.redis import RedisClient
 from app.core.settings import settings
 from app.models.agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
+from app.models.enums import ModelUsageSource
 from app.repositories.agent_run import AgentRunRepository
 from app.services.agent_registry import AgentDefinition
 from app.services.run_reducers import agent_registry
@@ -212,7 +213,7 @@ class RunService:
             message=message,
             input={"edit_skill_id": edit_skill_id},
             workspace_id=workspace_id,
-            source="skills_creator_page",
+            source=ModelUsageSource.SKILLS_CREATOR,
         )
 
     async def get_run(self, run_id: uuid.UUID, user_id: str) -> Optional[AgentRun]:

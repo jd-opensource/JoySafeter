@@ -2,10 +2,11 @@
 Unified response format.
 """
 
-from datetime import datetime
 from typing import Any, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel
+
+from app.utils.datetime import utc_now
 
 T = TypeVar("T")
 
@@ -21,7 +22,7 @@ class ApiResponse(BaseModel, Generic[T]):
 
     def __init__(self, **data):
         if "timestamp" not in data or not data["timestamp"]:
-            data["timestamp"] = datetime.utcnow().isoformat() + "Z"
+            data["timestamp"] = utc_now().isoformat() + "Z"
         super().__init__(**data)
 
 
@@ -46,7 +47,7 @@ def success_response(
         "code": code,
         "message": message,
         "data": data,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": utc_now().isoformat() + "Z",
     }
 
 
@@ -61,7 +62,7 @@ def error_response(
         "code": code,
         "message": message,
         "data": data,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": utc_now().isoformat() + "Z",
     }
 
 

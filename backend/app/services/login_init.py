@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 if TYPE_CHECKING:
     from app.models.auth import AuthUser
 
+from app.models.enums import SecurityAuditEventType
+
 
 async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: str) -> None:
     """
@@ -31,7 +33,7 @@ async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: st
 
         audit_service = SecurityAuditService(db)
         await audit_service.log_event(
-            event_type="login_success",
+            event_type=SecurityAuditEventType.LOGIN_SUCCESS,
             event_status="success",
             ip_address=ip_address or "unknown",
             user_id=user.id,

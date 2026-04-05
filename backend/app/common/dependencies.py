@@ -16,6 +16,7 @@ from app.common.exceptions import ForbiddenException, NotFoundException, Unautho
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.auth import AuthUser as User
+from app.models.enums import OrgRole
 from app.models.organization import Member as OrgMember
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceMemberRepository, WorkspaceRepository
@@ -164,13 +165,13 @@ def require_workspace_role(min_role: WorkspaceMemberRole):
     return Depends(checker)
 
 
-def require_org_role(min_role: str):
+def require_org_role(min_role: OrgRole):
     """
     Verify the current user's role on the given organization_id
     (simple string comparison: owner > admin > member).
     Requires organization_id in path/query params.
     """
-    role_order = ["member", "admin", "owner"]
+    role_order = [OrgRole.MEMBER, OrgRole.ADMIN, OrgRole.OWNER]
 
     def _rank(r: str) -> int:
         try:

@@ -8,7 +8,6 @@ OPTIMIZED VERSION: Modular prompt construction with direct value injection.
 """
 
 import json
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.core.copilot.graph_analyzer import (
@@ -18,6 +17,7 @@ from app.core.copilot.graph_analyzer import (
     generate_topology_description,
     normalize_node,
 )
+from app.utils.datetime import utc_now
 
 
 def build_copilot_system_prompt(
@@ -66,7 +66,7 @@ def build_copilot_system_prompt(
     models_summary = _build_models_summary(available_models or [])
 
     # Get current time for temporal context in search operations
-    current_time = datetime.utcnow().isoformat()
+    current_time = utc_now().isoformat()
 
     # Detect if graph has DeepAgents (to conditionally load those instructions)
     has_deep_agents = any(node.get("config", {}).get("useDeepAgents", False) for node in normalized_nodes)

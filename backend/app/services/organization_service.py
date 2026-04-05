@@ -14,6 +14,7 @@ from app.common.exceptions import (
     NotFoundException,
 )
 from app.models.auth import AuthUser as User
+from app.models.enums import OrgRole
 from app.models.organization import Member, Organization
 from app.repositories.organization import MemberRepository, OrganizationRepository
 from app.repositories.user import UserRepository
@@ -24,11 +25,8 @@ from .base import BaseService
 class OrganizationService(BaseService[Organization]):
     """Organization and member business logic."""
 
-    ROLE_OWNER = "owner"
-    ROLE_ADMIN = "admin"
-    ROLE_MEMBER = "member"
     TEAM_PLAN = "team"
-    SUPPORTED_ROLES = {ROLE_OWNER, ROLE_ADMIN, ROLE_MEMBER}
+    SUPPORTED_ROLES = {OrgRole.OWNER, OrgRole.ADMIN, OrgRole.MEMBER}
 
     def __init__(self, db):
         super().__init__(db)
@@ -69,7 +67,7 @@ class OrganizationService(BaseService[Organization]):
             {
                 "user_id": current_user.id,
                 "organization_id": organization.id,
-                "role": self.ROLE_OWNER,
+                "role": OrgRole.OWNER,
             }
         )
         await self.commit()
@@ -205,10 +203,10 @@ class OrganizationService(BaseService[Organization]):
         inviter = await self._ensure_member(organization_id, current_user.id)
         self._ensure_admin_or_owner(inviter)
 
-        normalized_role = role or self.ROLE_MEMBER
+        normalized_role = role or OrgRole.MEMBER
         if normalized_role not in self.SUPPORTED_ROLES:
             raise BadRequestException("Invalid role")
-        if normalized_role == self.ROLE_OWNER:
+        if normalized_role == OrgRole.OWNER:
             raise BadRequestException("Cannot assign owner when inviting")
 
         invitee = await self.user_repo.get_by_email(email)
@@ -251,7 +249,7 @@ class OrganizationService(BaseService[Organization]):
         if not target or target.organization_id != organization.id:
             raise NotFoundException("Member not found")
 
-        if requester.user_id != target.user_id and requester.role not in [self.ROLE_OWNER, self.ROLE_ADMIN]:
+        if requester.user_id != target.user_id and requester.role not in [OrgRole.OWNER, OrgRole.ADMIN]:
             raise ForbiddenException("Not allowed to view this member")
 
         return self._serialize_member(target, include_usage)
@@ -276,17 +274,17 @@ class OrganizationService(BaseService[Organization]):
 
         if role not in self.SUPPORTED_ROLES:
             raise BadRequestException("Invalid role")
-        if role == self.ROLE_OWNER:
+        if role == OrgRole.OWNER:
             raise BadRequestException("Owner role cannot be reassigned")
-        if target.role == self.ROLE_OWNER:
+        if target.role == OrgRole.OWNER:
             raise ForbiddenException("Cannot modify owner role")
 
         # access control: only owner can promote to admin; admins can also demote
-        if role == self.ROLE_ADMIN and actor.role != self.ROLE_OWNER:
+        if role == OrgRole.ADMIN and actor.role != OrgRole.OWNER:
             raise ForbiddenException("Only owner can promote to admin")
-        if actor.role not in [self.ROLE_OWNER, self.ROLE_ADMIN]:
+        if actor.role not in [OrgRole.OWNER, OrgRole.ADMIN]:
             raise ForbiddenException("Insufficient permission to update roles")
-        if actor.role == self.ROLE_ADMIN and target.role in [self.ROLE_ADMIN, self.ROLE_OWNER]:
+        if actor.role == OrgRole.ADMIN and target.role in [OrgRole.ADMIN, OrgRole.OWNER]:
             raise ForbiddenException("Admin cannot change other admins/owner")
 
         target.role = role
@@ -312,11 +310,11 @@ class OrganizationService(BaseService[Organization]):
         if not target or target.organization_id != organization.id:
             raise NotFoundException("Member not found")
 
-        if target.role == self.ROLE_OWNER:
+        if target.role == OrgRole.OWNER:
             raise ForbiddenException("Cannot remove organization owner")
-        if actor.role == self.ROLE_ADMIN and target.role in [self.ROLE_ADMIN, self.ROLE_OWNER]:
+        if actor.role == OrgRole.ADMIN and target.role in [OrgRole.ADMIN, OrgRole.OWNER]:
             raise ForbiddenException("Admin cannot remove admins or owner")
-        if actor.role not in [self.ROLE_OWNER, self.ROLE_ADMIN] and actor.user_id != target.user_id:
+        if actor.role not in [OrgRole.OWNER, OrgRole.ADMIN] and actor.user_id != target.user_id:
             raise ForbiddenException("Not allowed to remove this member")
 
         members_before = await self.member_repo.count_by_org(organization.id)
@@ -347,7 +345,7 @@ class OrganizationService(BaseService[Organization]):
         return member  # type: ignore
 
     def _ensure_admin_or_owner(self, member: Member) -> None:
-        if member.role not in [self.ROLE_OWNER, self.ROLE_ADMIN]:
+        if member.role not in [OrgRole.OWNER, OrgRole.ADMIN]:
             raise ForbiddenException("Only owner or admin can perform this action")
 
     def _validate_plan_for_seats(self, organization: Organization) -> None:
@@ -373,9 +371,9 @@ class OrganizationService(BaseService[Organization]):
 
     def _role_permissions(self, role: str) -> Dict[str, bool]:
         return {
-            "manage_org": role in [self.ROLE_OWNER, self.ROLE_ADMIN],
-            "manage_members": role in [self.ROLE_OWNER, self.ROLE_ADMIN],
-            "manage_seats": role in [self.ROLE_OWNER, self.ROLE_ADMIN],
+            "manage_org": role in [OrgRole.OWNER, OrgRole.ADMIN],
+            "manage_members": role in [OrgRole.OWNER, OrgRole.ADMIN],
+            "manage_seats": role in [OrgRole.OWNER, OrgRole.ADMIN],
             "view_usage": True,
         }
 

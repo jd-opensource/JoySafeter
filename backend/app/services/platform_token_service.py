@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple
 
 from app.common.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.common.permissions import VALID_SCOPES
+from app.models.enums import OrgRole
 from app.models.platform_token import PlatformToken
 from app.repositories.platform_token import PlatformTokenRepository
 from app.utils.string import hash_string_sha256
@@ -79,7 +80,7 @@ class PlatformTokenService(BaseService[PlatformToken]):
                     raise NotFoundException(f"Workspace {resource_id} not found")
                 if workspace.owner_id != user_id:
                     member = await member_repo.get_member(resource_id, user_id)
-                    if not member or member.role not in {"admin", "owner"}:
+                    if not member or member.role not in {OrgRole.ADMIN, OrgRole.OWNER}:
                         raise ForbiddenException("No permission to create token for this workspace")
             elif resource_type == "tool":
                 from app.repositories.tool import ToolRepository

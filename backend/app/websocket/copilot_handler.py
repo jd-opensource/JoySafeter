@@ -11,6 +11,7 @@ from loguru import logger
 from starlette.websockets import WebSocketState
 
 from app.core.redis import RedisClient
+from app.models.enums import CopilotSessionStatus
 
 
 class CopilotWebSocketHandler:
@@ -100,7 +101,7 @@ class CopilotWebSocketHandler:
         try:
             # Check session status before subscribing: if already completed/failed, send and close
             status = await RedisClient.get_copilot_status(session_id)
-            if status == "completed":
+            if status == CopilotSessionStatus.COMPLETED:
                 result = await RedisClient.get_copilot_result(session_id)
                 if result:
                     result_json = json.dumps(result, ensure_ascii=False)
@@ -113,7 +114,7 @@ class CopilotWebSocketHandler:
                 except Exception:
                     logger.debug("error closing websocket after session completed", exc_info=True)
                 return
-            if status == "failed":
+            if status == CopilotSessionStatus.FAILED:
                 error_msg = await RedisClient.get_copilot_error(session_id) or "Unknown error"
                 error_event = {"type": "error", "message": error_msg, "code": "UNKNOWN_ERROR"}
                 error_json = json.dumps(error_event, ensure_ascii=False)
@@ -135,7 +136,7 @@ class CopilotWebSocketHandler:
                 return
 
             # If generating and we have a cached result (e.g. client reconnected after result), send it once
-            if status == "generating":
+            if status == CopilotSessionStatus.GENERATING:
                 result = await RedisClient.get_copilot_result(session_id)
                 if result:
                     result_json = json.dumps(result, ensure_ascii=False)

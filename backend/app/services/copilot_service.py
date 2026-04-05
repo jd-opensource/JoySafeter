@@ -43,9 +43,11 @@ from app.core.copilot.response_parser import (
 from app.core.copilot.tool_output_parser import parse_tool_output
 from app.core.copilot.tools import reset_node_registry
 from app.core.model.utils.credential_resolver import LLMCredentialResolver
+from app.models.enums import CopilotSessionStatus
 from app.repositories.auth_user import AuthUserRepository
 from app.repositories.copilot_chat_repository import CopilotChatRepository
 from app.services.graph_service import GraphService
+from app.utils.datetime import utc_now
 
 
 class CopilotService:
@@ -613,7 +615,7 @@ class CopilotService:
                         ]
 
                     # Parse created_at
-                    created_at = datetime.utcnow()
+                    created_at = utc_now()
                     if msg_data.get("created_at"):
                         try:
                             created_at = datetime.fromisoformat(msg_data["created_at"].replace("Z", "+00:00"))
@@ -729,14 +731,14 @@ class CopilotService:
             user_msg = CopilotMessage(
                 role="user",
                 content=prompt,
-                created_at=datetime.utcnow(),
+                created_at=utc_now(),
             )
 
             # Create assistant message with all collected data
             assistant_msg = CopilotMessage(
                 role="assistant",
                 content=final_message,
-                created_at=datetime.utcnow(),
+                created_at=utc_now(),
                 actions=final_actions if final_actions else None,
                 thought_steps=[
                     CopilotThoughtStep(index=s.get("index", 0), content=s.get("content", ""))
@@ -788,7 +790,7 @@ class CopilotService:
                     "id": msg.id,
                     "role": msg.role,
                     "content": msg.content,
-                    "created_at": msg.created_at.isoformat() if msg.created_at else datetime.utcnow().isoformat(),
+                    "created_at": msg.created_at.isoformat() if msg.created_at else utc_now().isoformat(),
                 }
                 if msg.actions:
                     data["actions"] = msg.actions
@@ -979,7 +981,7 @@ class CopilotService:
                 # Capture error message as final_message so it can be saved to DB
                 final_message = event.get("message", "")
                 # Set status as failed in Redis
-                await RedisClient.set_copilot_status(session_id, "failed")
+                await RedisClient.set_copilot_status(session_id, CopilotSessionStatus.FAILED)
                 await RedisClient.set_copilot_error(session_id, final_message)
 
         return (collected_thought_steps, collected_tool_calls, final_message, final_actions)
@@ -1028,7 +1030,7 @@ class CopilotService:
 
         if not RedisClient.is_available():
             logger.error(f"[CopilotService] Redis not available for async task session_id={session_id}")
-            await RedisClient.set_copilot_status(session_id, "failed")
+            await RedisClient.set_copilot_status(session_id, CopilotSessionStatus.FAILED)
             await RedisClient.publish_copilot_event(
                 session_id,
                 {"type": "error", "message": "Redis not available", "code": "REDIS_UNAVAILABLE"},
@@ -1043,7 +1045,7 @@ class CopilotService:
 
         try:
             # Set initial status
-            await RedisClient.set_copilot_status(session_id, "generating")
+            await RedisClient.set_copilot_status(session_id, CopilotSessionStatus.GENERATING)
             await RedisClient.publish_copilot_event(
                 session_id, {"type": "status", "stage": "thinking", "message": "Thinking..."}
             )
@@ -1066,7 +1068,7 @@ class CopilotService:
                 ) = await self._consume_stream_and_publish_to_redis(session_id, stream)
             except CopilotCredentialError as e:
                 logger.error(f"[CopilotService] Credential error in async task: {e}")
-                await RedisClient.set_copilot_status(session_id, "failed")
+                await RedisClient.set_copilot_status(session_id, CopilotSessionStatus.FAILED)
                 await RedisClient.set_copilot_error(session_id, str(e))
                 await RedisClient.publish_copilot_event(
                     session_id,
@@ -1097,7 +1099,7 @@ class CopilotService:
             execution_time_ms = int(execution_time * 1000)
 
             # Update status to completed
-            await RedisClient.set_copilot_status(session_id, "completed")
+            await RedisClient.set_copilot_status(session_id, CopilotSessionStatus.COMPLETED)
             await RedisClient.publish_copilot_event(session_id, {"type": "done"})
 
             # Enhanced completion log with detailed information
@@ -1124,7 +1126,7 @@ class CopilotService:
                 f"error_type={type(e).__name__} error={e}",
                 exc_info=True,
             )
-            await RedisClient.set_copilot_status(session_id, "failed")
+            await RedisClient.set_copilot_status(session_id, CopilotSessionStatus.FAILED)
             await RedisClient.set_copilot_error(session_id, str(e))
             await RedisClient.publish_copilot_event(
                 session_id,

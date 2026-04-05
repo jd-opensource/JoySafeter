@@ -1,11 +1,12 @@
 """WebSocket notification manager for real-time user notifications."""
 
 import json
-from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Set
 
 from fastapi import WebSocket
+
+from app.utils.datetime import utc_now
 
 
 class NotificationType(str, Enum):
@@ -39,14 +40,14 @@ class NotificationManager:
         self.user_connections[user_id].add(websocket)
         self.connection_metadata[websocket] = {
             "user_id": user_id,
-            "connected_at": datetime.utcnow().isoformat(),
+            "connected_at": utc_now().isoformat(),
         }
 
         await self.send_to_connection(
             websocket,
             {
                 "type": NotificationType.CONNECTED.value,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now().isoformat(),
             },
         )
 
@@ -84,7 +85,7 @@ class NotificationManager:
             return 0
 
         if "timestamp" not in message:
-            message["timestamp"] = datetime.utcnow().isoformat()
+            message["timestamp"] = utc_now().isoformat()
 
         success_count = 0
         disconnected = set()

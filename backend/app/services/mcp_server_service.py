@@ -14,6 +14,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import BadRequestException, NotFoundException
+from app.models.enums import McpConnectionStatus
 from app.models.mcp import McpServer
 from app.repositories.mcp_server import McpServerRepository
 from app.schemas.mcp import McpServerCreate, McpServerUpdate
@@ -74,7 +75,7 @@ class McpServerService(BaseService[McpServer]):
                 "timeout": data.timeout,
                 "retries": data.retries,
                 "enabled": data.enabled,
-                "connection_status": "disconnected",
+                "connection_status": McpConnectionStatus.DISCONNECTED,
             }
         )
 

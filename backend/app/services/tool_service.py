@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import BadRequestException
 from app.core.tools.tool import EnhancedTool, ToolFilter, ToolSourceType
 from app.core.tools.tool_registry import ToolRegistry, get_global_registry
+from app.models.enums import McpConnectionStatus
 from app.models.mcp import McpServer
 from app.schemas.mcp import (
     ConnectionTestResult,
@@ -204,9 +205,9 @@ class ToolService(BaseService[McpServer]):
 
         # Update server status
         if result.success:
-            await self._server_service.update_connection_status(server_id, "connected")
+            await self._server_service.update_connection_status(server_id, McpConnectionStatus.CONNECTED)
         else:
-            await self._server_service.update_connection_status(server_id, "error", result.error)
+            await self._server_service.update_connection_status(server_id, McpConnectionStatus.ERROR, result.error)
 
         tool_names = [t.name for t in result.tools]
 
@@ -367,7 +368,7 @@ class ToolService(BaseService[McpServer]):
             result = await self._mcp_client.connect_and_fetch_tools(config, server)
 
             if not result.success:
-                await self._server_service.update_connection_status(server.id, "error", result.error)
+                await self._server_service.update_connection_status(server.id, McpConnectionStatus.ERROR, result.error)
                 raise Exception(result.error)
 
             # Unregister old tools
@@ -384,12 +385,12 @@ class ToolService(BaseService[McpServer]):
 
             # Update server stats
             await self._server_service.update_tool_count(server.id, len(registered))
-            await self._server_service.update_connection_status(server.id, "connected")
+            await self._server_service.update_connection_status(server.id, McpConnectionStatus.CONNECTED)
 
             return [self._tool_to_info(t) for t in registered]
 
         except Exception as e:
-            await self._server_service.update_connection_status(server.id, "error", str(e))
+            await self._server_service.update_connection_status(server.id, McpConnectionStatus.ERROR, str(e))
             raise
 
     # ==================== Private Helpers: Registry Operations ====================
@@ -564,7 +565,7 @@ async def initialize_mcp_tools_on_startup(
                     )
 
                     await server_service.update_tool_count(server.id, len(registered))
-                    await server_service.update_connection_status(server.id, "connected")
+                    await server_service.update_connection_status(server.id, McpConnectionStatus.CONNECTED)
 
                     total_tools += len(registered)
                     successful_servers += 1
@@ -584,7 +585,7 @@ async def initialize_mcp_tools_on_startup(
                         await asyncio.sleep(delay)
                     else:
                         # Max retries reached
-                        await server_service.update_connection_status(server.id, "error", result.error)
+                        await server_service.update_connection_status(server.id, McpConnectionStatus.ERROR, result.error)
                         failed_servers += 1
                         logger.error(
                             f"Failed to load tools from MCP server {server.name} after {max_retries} retries: "
@@ -608,7 +609,7 @@ async def initialize_mcp_tools_on_startup(
                     await asyncio.sleep(delay)
                 else:
                     # Max retries reached
-                    await server_service.update_connection_status(server.id, "error", str(e))
+                    await server_service.update_connection_status(server.id, McpConnectionStatus.ERROR, str(e))
                     failed_servers += 1
                     logger.error(
                         f"Failed to load tools from MCP server {server.name} after {max_retries} retries: {e}",

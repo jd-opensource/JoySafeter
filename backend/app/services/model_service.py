@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import BadRequestException, ModelConfigError, NotFoundException
 from app.core.model import ModelType, create_model_instance
 from app.core.model.factory import get_factory
+from app.models.enums import ModelUsageSource
 from app.repositories.model_credential import ModelCredentialRepository
 from app.repositories.model_instance import ModelInstanceRepository
 from app.repositories.model_provider import ModelProviderRepository
@@ -494,7 +495,7 @@ class ModelService(BaseService):
                 total_time_ms=total_time_ms,
                 status="success",
                 user_id=user_id,
-                source="playground",
+                source=ModelUsageSource.PLAYGROUND,
             )
             return content
         except Exception as e:
@@ -506,7 +507,7 @@ class ModelService(BaseService):
                 status="error",
                 error_message=str(e)[:2000],
                 user_id=user_id,
-                source="playground",
+                source=ModelUsageSource.PLAYGROUND,
             )
             raise
 
@@ -600,7 +601,7 @@ class ModelService(BaseService):
                 ttft_ms=round(ttft * 1000, 1),
                 status="success",
                 user_id=user_id,
-                source="playground",
+                source=ModelUsageSource.PLAYGROUND,
             )
             yield f"event: metrics\ndata: {json.dumps(metrics)}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
@@ -614,6 +615,6 @@ class ModelService(BaseService):
                 status="error",
                 error_message=str(e)[:2000],
                 user_id=user_id,
-                source="playground",
+                source=ModelUsageSource.PLAYGROUND,
             )
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"

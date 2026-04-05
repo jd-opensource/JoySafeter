@@ -24,11 +24,13 @@ from app.core.database import get_db
 from app.core.redis import RedisClient
 from app.core.settings import settings
 from app.models.auth import AuthUser as User
+from app.models.enums import CopilotSessionStatus
 from app.models.graph import AgentGraph, GraphNode
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.workspace import WorkspaceRepository
 from app.services.copilot_service import CopilotService
 from app.services.graph_service import GraphService
+from app.utils.datetime import utc_now
 
 router = APIRouter(prefix="/v1/graphs", tags=["Graphs"])
 
@@ -769,7 +771,6 @@ async def create_copilot_task(
         {session_id, status, created_at}
     """
     import uuid as uuid_lib
-    from datetime import datetime
 
     log = _bind_log(request, user_id=str(current_user.id))
 
@@ -786,10 +787,10 @@ async def create_copilot_task(
 
     # Generate session ID
     session_id = f"copilot_{uuid_lib.uuid4().hex[:16]}"
-    created_at = datetime.utcnow()
+    created_at = utc_now()
 
     # Initialize session in Redis
-    await RedisClient.set_copilot_status(session_id, "generating")
+    await RedisClient.set_copilot_status(session_id, CopilotSessionStatus.GENERATING)
 
     # Start background task
     service = CopilotService(user_id=str(current_user.id), llm_model=payload.model, db=db)
@@ -807,7 +808,7 @@ async def create_copilot_task(
 
     return {
         "session_id": session_id,
-        "status": "generating",
+        "status": CopilotSessionStatus.GENERATING,
         "created_at": created_at.isoformat(),
     }
 
@@ -827,8 +828,6 @@ async def get_copilot_session(
         - If status="generating": returns Redis content (real-time)
         - If status="completed" or not found: returns None (check database history)
     """
-    from datetime import datetime
-
     log = _bind_log(request, user_id=str(current_user.id))
 
     # Check Redis availability
@@ -856,26 +855,28 @@ async def get_copilot_session(
         }
 
     # For generating sessions, return Redis content and cached result if any
-    if session_data["status"] == "generating":
+    if session_data["status"] == CopilotSessionStatus.GENERATING:
+        now = utc_now().isoformat()
         return {
             "session_id": session_id,
             "status": session_data["status"],
             "content": session_data.get("content", ""),
             "result": session_data.get("result"),
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": now,
+            "updated_at": now,
         }
 
     # For completed/failed sessions, Redis data is temporary
     # History should be loaded from database via graph_id
+    now = utc_now().isoformat()
     out = {
         "session_id": session_id,
         "status": session_data["status"],
         "content": None,  # Completed sessions are in database
         "result": session_data.get("result"),
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
+        "created_at": now,
+        "updated_at": now,
     }
-    if session_data["status"] == "failed":
+    if session_data["status"] == CopilotSessionStatus.FAILED:
         out["error"] = session_data.get("error")
     return out

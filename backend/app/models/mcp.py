@@ -12,6 +12,8 @@ from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.models.enums import McpConnectionStatus
+
 from .base import BaseModel, SoftDeleteMixin
 
 if TYPE_CHECKING:
@@ -49,7 +51,7 @@ class McpServer(BaseModel, SoftDeleteMixin):
     # Status
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_connected: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-    connection_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="disconnected")
+    connection_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default=McpConnectionStatus.DISCONNECTED)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Tool statistics

@@ -13,6 +13,7 @@ from app.common.dependencies import get_current_user, require_org_role
 from app.common.response import success_response
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
+from app.models.enums import OrgRole
 from app.services.organization_service import OrganizationService
 
 router = APIRouter(prefix="/v1/organizations", tags=["Organizations"])
@@ -33,7 +34,7 @@ class UpdateSeatsRequest(BaseModel):
 
 class InviteMemberRequest(BaseModel):
     email: EmailStr
-    role: Optional[str] = Field(default="member")
+    role: Optional[str] = Field(default=OrgRole.MEMBER)
     workspaceInvitations: Optional[list] = None  # compatible with frontend multi-workspace invitation params
 
 
@@ -84,7 +85,7 @@ async def get_organization(
     organization_id: uuid.UUID,
     include: Optional[str] = Query(None, description="Optional: seats"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = require_org_role("member"),
+    current_user: User = require_org_role(OrgRole.MEMBER),
 ):
     """Get organization details."""
     service = OrganizationService(db)
@@ -98,7 +99,7 @@ async def update_organization(
     organization_id: uuid.UUID,
     payload: UpdateOrganizationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = require_org_role("admin"),
+    current_user: User = require_org_role(OrgRole.ADMIN),
 ):
     """Update organization settings."""
     service = OrganizationService(db)
@@ -117,7 +118,7 @@ async def update_seats(
     organization_id: uuid.UUID,
     payload: UpdateSeatsRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = require_org_role("admin"),
+    current_user: User = require_org_role(OrgRole.ADMIN),
 ):
     """Update seats."""
     service = OrganizationService(db)
@@ -137,7 +138,7 @@ async def list_members(
     organization_id: uuid.UUID,
     include: Optional[str] = Query(None, description="Optional: usage"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = require_org_role("member"),
+    current_user: User = require_org_role(OrgRole.MEMBER),
 ):
     """List members."""
     service = OrganizationService(db)
@@ -155,14 +156,14 @@ async def invite_member(
     organization_id: uuid.UUID,
     payload: InviteMemberRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = require_org_role("admin"),
+    current_user: User = require_org_role(OrgRole.ADMIN),
 ):
     """Invite a new member."""
     service = OrganizationService(db)
     data = await service.invite_member(
         organization_id,
         email=payload.email,
-        role=payload.role or "member",
+        role=payload.role or OrgRole.MEMBER,
         current_user=current_user,
     )
     return success_response(data=data, message="Member invited")
@@ -174,7 +175,7 @@ async def get_member(
     member_id: uuid.UUID,
     include: Optional[str] = Query(None, description="Optional: usage"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = require_org_role("member"),
+    current_user: User = require_org_role(OrgRole.MEMBER),
 ):
     """Get member details."""
     service = OrganizationService(db)
@@ -194,7 +195,7 @@ async def update_member_role(
     member_id: uuid.UUID,
     payload: UpdateMemberRoleRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = require_org_role("admin"),
+    current_user: User = require_org_role(OrgRole.ADMIN),
 ):
     """Update member role."""
     service = OrganizationService(db)
