@@ -1,0 +1,12 @@
+{% extends "email/base.html" %}
+
+{% block content %}
+<h2>Welcome to JoySafeter!</h2>
+<p>Hello, {{ username }}! Thanks for signing up. Please click the button below to verify your email:</p>
+<p style="text-align: center; margin: 30px 0;">
+    <a href="{{ verify_link }}" class="button">Verify Email</a>
+</p>
+<p>Or copy and paste this link into your browser:</p>
+<p style="word-break: break-all; color: #3b82f6;">{{ verify_link }}</p>
+<p style="color: #6b7280; font-size: 12px; margin-top: 20px;">This link will expire in 72 hours.</p>
+{% endblock %}

@@ -61,13 +61,13 @@ async def run_copilot_manager(
         "edges": len(graph_context.get("edges", [])),
     }
 
-    full_prompt = f"""用户请求: {user_prompt}
+    full_prompt = f"""User request: {user_prompt}
 
-当前图状态:
-- 节点数: {context_summary["nodes"]}
-- 边数: {context_summary["edges"]}
+Current graph state:
+- Nodes: {context_summary["nodes"]}
+- Edges: {context_summary["edges"]}
 
-请按照工作流程生成完整的 Agent 工作流图。"""
+Generate a complete agent workflow graph following the workflow process."""
 
     store.write_request(
         {
@@ -142,13 +142,13 @@ async def stream_copilot_manager(
             "edges": len(graph_context.get("edges", [])),
         }
 
-        full_prompt = f"""用户请求: {user_prompt}
+        full_prompt = f"""User request: {user_prompt}
 
-当前图状态:
-- 节点数: {context_summary["nodes"]}
-- 边数: {context_summary["edges"]}
+Current graph state:
+- Nodes: {context_summary["nodes"]}
+- Edges: {context_summary["edges"]}
 
-请按照工作流程生成完整的 Agent 工作流图。"""
+Generate a complete agent workflow graph following the workflow process."""
 
         store.write_request(
             {
