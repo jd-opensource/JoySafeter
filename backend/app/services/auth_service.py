@@ -63,7 +63,7 @@ class AuthService(BaseService):
                 await RedisClient.set(refresh_token_key, user_id, expire=refresh_expire_seconds)
                 await RedisClient.set(refresh_token_user_key, refresh_token, expire=refresh_expire_seconds)
             except Exception:
-                pass
+                logger.debug("Failed to store refresh token in Redis", exc_info=True)
 
         # generate CSRF token (JWT)
         csrf_token = create_csrf_token(user_id)
@@ -165,6 +165,24 @@ class AuthService(BaseService):
         image: Optional[str] = None,
         is_super_user: bool = False,
     ) -> dict:
+        """Register a new user account, send a verification email, and return JWT tokens.
+
+        Creates the user record, provisions a personal workspace, and issues
+        JWT access/refresh tokens so the user is logged in immediately.
+
+        Args:
+            email: Email address for the new account.
+            name: Display name.
+            password: Client-side hashed password.
+            image: Optional profile image URL.
+            is_super_user: Whether to grant super-user privileges.
+
+        Returns:
+            JWT login response dict containing user info and tokens.
+
+        Raises:
+            BadRequestException: If the email is already registered.
+        """
         if await self.user_repo.get_by_email(email):
             raise BadRequestException("Email already registered")
 
@@ -197,7 +215,7 @@ class AuthService(BaseService):
             workspace_service = WorkspaceService(self.db)
             await workspace_service.ensure_personal_workspace(user)
         except Exception:
-            pass
+            logger.debug("Failed to ensure personal workspace during registration", exc_info=True)
 
         access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(user.id)
         return self._build_jwt_login_response(
@@ -212,6 +230,26 @@ class AuthService(BaseService):
         skip_password_check: bool = False,
         ip_address: Optional[str] = None,
     ) -> dict:
+        """Authenticate a user by email and password, then return JWT tokens.
+
+        Validates the password format, verifies credentials, checks account
+        status, logs audit events on failure, and runs post-login initialization
+        on success.
+
+        Args:
+            email: User's email address.
+            password: Client-side hashed password (64-char hex string).
+            skip_password_check: If True, bypass password verification (for
+                OAuth/SSO flows).
+            ip_address: Client IP address for audit logging.
+
+        Returns:
+            JWT login response dict containing user info and tokens.
+
+        Raises:
+            UnauthorizedException: If credentials are invalid, the account is
+                inactive, or email verification is required but not completed.
+        """
         user = await self.user_repo.get_by_email(email)
         if not user:
             raise UnauthorizedException("Incorrect email or password")
@@ -252,7 +290,7 @@ class AuthService(BaseService):
                         details={},
                     )
                 except Exception:
-                    pass
+                    logger.debug("Failed to log login failure audit event", exc_info=True)
 
                 await self.commit()
                 raise UnauthorizedException("Incorrect email or password")
@@ -277,6 +315,16 @@ class AuthService(BaseService):
 
     # ---------------------------------------------------------------- password reset
     async def request_password_reset(self, email: str) -> bool:
+        """Send a password-reset email if the account exists.
+
+        Always returns True to avoid leaking whether an email is registered.
+
+        Args:
+            email: Email address to send the reset link to.
+
+        Returns:
+            True unconditionally.
+        """
         user = await self.user_repo.get_by_email(email)
         if not user:
             return True
@@ -292,6 +340,18 @@ class AuthService(BaseService):
         return True
 
     async def reset_password(self, token: str, new_password: str) -> bool:
+        """Reset a user's password using a previously issued reset token.
+
+        Args:
+            token: The password-reset token from the email link.
+            new_password: Client-side hashed new password.
+
+        Returns:
+            True on success.
+
+        Raises:
+            BadRequestException: If the token is invalid or expired.
+        """
         user = await self.user_repo.get_by_reset_token(token)
         if not user:
             raise BadRequestException("Invalid or expired reset token")
@@ -313,6 +373,17 @@ class AuthService(BaseService):
 
     # ---------------------------------------------------------------- email verify
     async def verify_email(self, token: str) -> bool:
+        """Verify a user's email address using the emailed verification token.
+
+        Args:
+            token: The email verification token.
+
+        Returns:
+            True on success.
+
+        Raises:
+            BadRequestException: If the token is invalid or expired.
+        """
         user = await self.user_repo.get_by_verify_token(token)
         if not user:
             raise BadRequestException("Invalid or expired verification token")
@@ -325,6 +396,17 @@ class AuthService(BaseService):
         return True
 
     async def resend_verification_email(self, user: AuthUser) -> bool:
+        """Generate a new verification token and resend the verification email.
+
+        Args:
+            user: The user requesting re-verification.
+
+        Returns:
+            True on success.
+
+        Raises:
+            BadRequestException: If the email is already verified.
+        """
         if user.email_verified:
             raise BadRequestException("Email already verified")
         token, expires = generate_email_verify_token()
@@ -380,15 +462,48 @@ class AuthService(BaseService):
 
     # ---------------------------------------------------------------- misc
     async def get_user_by_id(self, user_id: str) -> Optional[AuthUser]:
+        """Fetch a user by their unique ID.
+
+        Args:
+            user_id: The user's ID.
+
+        Returns:
+            The AuthUser if found, otherwise None.
+        """
         return await self.user_repo.get_by(id=user_id)
 
     async def invalidate_session(self, token: str) -> bool:
+        """Invalidate an active session by its token (logout).
+
+        Args:
+            token: The session token to invalidate.
+
+        Returns:
+            True if the session was found and invalidated, False otherwise.
+        """
         return await self.session_service.invalidate_session(token)
 
     async def search_users(self, keyword: str, limit: int = 20) -> list[AuthUser]:
+        """Search users by name or email keyword.
+
+        Args:
+            keyword: Search term to match against user names and emails.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of matching AuthUser records.
+        """
         return await self.user_repo.search(keyword, limit)
 
     async def deactivate_user(self, user_id: str) -> bool:
+        """Deactivate a user account, preventing future logins.
+
+        Args:
+            user_id: ID of the user to deactivate.
+
+        Returns:
+            True if the user was found and deactivated, False if not found.
+        """
         user = await self.user_repo.get_by(id=user_id)
         if not user:
             return False
@@ -397,6 +512,14 @@ class AuthService(BaseService):
         return True
 
     async def delete_user(self, user_id: str) -> bool:
+        """Permanently delete a user account and all associated data.
+
+        Args:
+            user_id: ID of the user to delete.
+
+        Returns:
+            True if the user was found and deleted, False if not found.
+        """
         user = await self.user_repo.get_by(id=user_id)
         if not user:
             return False

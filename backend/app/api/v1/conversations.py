@@ -604,10 +604,7 @@ async def get_messages(
         for msg in reversed(list(messages))
     ]
 
-    # Debug logging
-    logger.info(f"Loaded {len(message_list)} messages for thread {thread_id}")
-    for msg in message_list:
-        logger.info(f"  - role={msg.role}, content_length={len(msg.content) if msg.content else 0}")
+    logger.debug(f"Loaded {len(message_list)} messages for thread {thread_id}")
 
     return BaseResponse(
         success=True,

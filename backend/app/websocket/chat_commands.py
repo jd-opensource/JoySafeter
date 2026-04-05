@@ -1,3 +1,5 @@
+"""Command types and dispatch for chat WebSocket frames."""
+
 from __future__ import annotations
 
 import uuid as uuid_lib
@@ -9,6 +11,8 @@ from app.websocket.chat_protocol import ParsedChatStartFrame
 
 @dataclass(frozen=True)
 class StandardChatTurnCommand:
+    """Command representing a normal user chat message."""
+
     request_id: str
     message: str
     thread_id: str | None
@@ -20,6 +24,8 @@ class StandardChatTurnCommand:
 
 @dataclass(frozen=True)
 class SkillCreatorTurnCommand(StandardChatTurnCommand):
+    """Command for a Skill Creator turn, extending the standard command."""
+
     run_id: str | None
     edit_skill_id: str | None
 
@@ -28,6 +34,7 @@ ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand
 
 
 def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnCommand:
+    """Convert a validated ParsedChatStartFrame into a ChatTurnCommand."""
     metadata, files = _sanitize_metadata_files(frame.metadata, frame.input.files)
     model = frame.input.model
 

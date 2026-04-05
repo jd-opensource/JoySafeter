@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
-等待数据库就绪的 Python 脚本
-用于在 Docker 容器中等待数据库服务可用
+Python script to wait for database readiness.
+Used in Docker containers to wait for the database service to become available.
 """
 
 import sys
 from pathlib import Path
 
-# 确保可以导入同目录的模块
+# Ensure sibling modules can be imported
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import get_db_config, load_env_file, wait_for_db
 
-# 加载 .env 文件
+# Load .env file
 env_path = load_env_file()
 if env_path:
-    print(f"📋 已加载环境变量文件: {env_path}")
+    print(f"📋 Loaded environment file: {env_path}")
 
 
 if __name__ == "__main__":
-    # 获取数据库配置并等待连接
+    # Get database config and wait for connection
     config = get_db_config()
 
     if not wait_for_db(config):

@@ -129,7 +129,7 @@ def test_patch_defaults_provider_not_found_returns_404(mock_cls, client: TestCli
     from app.common.exceptions import NotFoundException
 
     mock_svc = mock_cls.return_value
-    mock_svc.update_provider_defaults = AsyncMock(side_effect=NotFoundException("供应商不存在: nonexistent"))
+    mock_svc.update_provider_defaults = AsyncMock(side_effect=NotFoundException("Provider not found: nonexistent"))
 
     resp = client.patch(
         "/v1/model-providers/nonexistent/defaults",

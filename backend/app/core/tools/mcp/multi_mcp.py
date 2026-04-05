@@ -239,7 +239,7 @@ class MultiMCPTools(Toolkit):
                             "execution_timeout": exec_timeout,
                         }
                     except Exception:
-                        pass
+                        logger.debug("Failed to record session metadata for stdio transport", exc_info=True)
                     self._successful_connections += 1
 
                 # Handle SSE connections
@@ -264,7 +264,7 @@ class MultiMCPTools(Toolkit):
                             "execution_timeout": exec_timeout,
                         }
                     except Exception:
-                        pass
+                        logger.debug("Failed to record session metadata for SSE transport", exc_info=True)
                     self._successful_connections += 1
 
                 # Handle Streamable HTTP connections
@@ -292,7 +292,7 @@ class MultiMCPTools(Toolkit):
                             "execution_timeout": exec_timeout,
                         }
                     except Exception:
-                        pass
+                        logger.debug("Failed to record session metadata for streamable-http transport", exc_info=True)
                     self._successful_connections += 1
 
             except Exception as e:

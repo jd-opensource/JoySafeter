@@ -7,7 +7,7 @@ Support hierarchical observations via parent_observation_id self-reference.
 
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
@@ -26,10 +26,7 @@ from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
+from app.utils.datetime import utc_now
 
 
 # ============ Enums ============

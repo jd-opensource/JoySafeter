@@ -41,7 +41,7 @@ async def upload_workspace_file(
     db: AsyncSession = Depends(get_db),
     current_user: User = require_workspace_role(WorkspaceMemberRole.member),
 ):
-    # legacy frontend compatibility: duplicate file returns 409 + isDuplicate with error field
+    # Duplicate file returns 409 + isDuplicate with error field for frontend
     try:
         service = WorkspaceFileService(db)
         record = await service.upload_file(workspace_id, file, current_user)
@@ -57,7 +57,7 @@ async def upload_workspace_file(
             },
         )
     except AppException as exc:
-        # keep error field consistent with legacy frontend while preserving unified response (success=false)
+        # Return error field alongside unified response (success=false) for frontend compatibility
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -76,7 +76,7 @@ async def delete_workspace_file(
 ):
     service = WorkspaceFileService(db)
     await service.delete_file(workspace_id, file_id, current_user)
-    # legacy frontend compatibility: allow checking success only
+    # Include top-level success field for frontend compatibility
     base = success_response(message="File deleted", data={"fileId": str(file_id)})
     return {**base, "success": True}
 
@@ -93,7 +93,7 @@ async def generate_workspace_file_download_url(
     url = await service.generate_download_url(workspace_id, file_id, current_user)
     record = await service.get_file_record(workspace_id, file_id)
 
-    # generate absolute downloadUrl (matching the legacy getBaseUrl() behavior)
+    # Generate absolute downloadUrl from the request base URL
     base_url = str(request.base_url).rstrip("/")
     download_url = f"{base_url}{url}"
     viewer_url = f"{settings.frontend_url.rstrip('/')}/workspace/{workspace_id}/files/{file_id}/view"

@@ -103,9 +103,8 @@ class ModalBackend(BaseSandbox):
             List of FileDownloadResponse objects, one per input path.
             Response order matches input order.
 
-        TODO: Implement proper error handling with standardized FileOperationError codes.
-        Need to determine what exceptions Modal's sandbox.open() actually raises.
-        Currently only implements happy path.
+        Note: Error handling is limited to the happy path; Modal's sandbox.open()
+        exception behavior is not yet fully documented.
         """
         # This implementation relies on the Modal sandbox file API.
         # https://modal.com/doc/guide/sandbox-files
@@ -131,9 +130,8 @@ class ModalBackend(BaseSandbox):
             List of FileUploadResponse objects, one per input file.
             Response order matches input order.
 
-        TODO: Implement proper error handling with standardized FileOperationError codes.
-        Need to determine what exceptions Modal's sandbox.open() actually raises.
-        Currently only implements happy path.
+        Note: Error handling is limited to the happy path; Modal's sandbox.open()
+        exception behavior is not yet fully documented.
         """
         # This implementation relies on the Modal sandbox file API.
         # https://modal.com/doc/guide/sandbox-files

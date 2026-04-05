@@ -100,7 +100,7 @@ class CheckpointerManager:
                 try:
                     await cls._pool.close()
                 except Exception:
-                    pass
+                    logger.debug("Failed to close pool during initialization cleanup", exc_info=True)
                 cls._pool = None
             raise
 

@@ -1335,7 +1335,7 @@ def evaluate_ast(
     elif isinstance(expression, ast.Delete):
         return evaluate_delete(expression, *common_params)
 
-    # Legacy Python 3.8 Index node
+    # Python 3.8 Index node (backward compatibility)
     elif hasattr(ast, "Index") and isinstance(expression, ast.Index):
         value = getattr(expression, "value", None)
         if value is not None:

@@ -1,7 +1,7 @@
 [project]
 name = "joysafeter"
 version = "0.1.0"
-description = "JoySafeter Backend - 智能体平台后端服务"
+description = "JoySafeter Backend - Intelligent Agent Platform Backend Service"
 requires-python = ">=3.12,<3.14"
 license = {text = "Apache-2.0"}
 authors = [
@@ -126,7 +126,7 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
-# 不把未标注函数体的检查提示当作必须修复项，避免 CI 因 note 失败
+# Do not treat unannotated function body notes as errors; avoids CI failure on notes
 disable_error_code = ["annotation-unchecked"]
 
 [tool.uv]

@@ -20,8 +20,8 @@ class WorkspaceStatus(str, PyEnum):
     """Workspace status."""
 
     active = "active"
-    deprecated = "deprecated"
-    archived = "archived"
+    deprecated = "deprecated"  # retained for DB backward compatibility
+    archived = "archived"  # retained for DB backward compatibility
 
 
 class WorkspaceType(str, PyEnum):

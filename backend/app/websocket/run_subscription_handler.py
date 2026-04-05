@@ -13,7 +13,10 @@ from app.websocket.run_subscription_manager import run_subscription_manager
 
 
 class RunSubscriptionHandler:
+    """Handles subscribe/unsubscribe frames for durable run event streams."""
+
     async def handle_connection(self, websocket: WebSocket, user_id: str) -> None:
+        """Accept the WebSocket and process frames until disconnect."""
         await websocket.accept()
         try:
             while True:
@@ -25,6 +28,7 @@ class RunSubscriptionHandler:
             run_subscription_manager.disconnect(websocket)
 
     async def _handle_frame(self, websocket: WebSocket, user_id: str, raw: str) -> None:
+        """Parse a raw JSON frame and handle subscribe, unsubscribe, or ping."""
         try:
             frame = json.loads(raw)
         except json.JSONDecodeError:

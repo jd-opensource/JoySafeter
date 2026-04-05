@@ -1,3 +1,5 @@
+"""Supervisor for cancellable async tasks tied to a WebSocket connection."""
+
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +16,8 @@ _UNSET = object()
 
 @dataclass
 class ChatTaskEntry:
+    """Tracks an in-flight chat turn and its associated asyncio task."""
+
     thread_id: str | None
     task: asyncio.Task[Any]
     heartbeat_task: asyncio.Task[Any] | None = None
@@ -23,20 +27,34 @@ class ChatTaskEntry:
 
 
 class ChatTaskSupervisor:
+    """Manages the lifecycle of concurrent chat tasks for one connection.
+
+    Provides request-id and thread-id based lookup, cancellation,
+    and graceful cleanup on disconnect.
+    """
+
     def __init__(
         self,
         *,
         stop_task: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
+        """Initialize the supervisor.
+
+        Args:
+            stop_task: Optional callback to stop a task by thread_id;
+                falls back to the global task_manager.
+        """
         self._tasks: dict[str, ChatTaskEntry] = {}
         self._thread_to_request: dict[str, str] = {}
         self._stop_task = stop_task
 
     @property
     def tasks(self) -> dict[str, ChatTaskEntry]:
+        """Return the internal request_id-to-entry mapping."""
         return self._tasks
 
     def register(self, request_id: str, entry: ChatTaskEntry) -> None:
+        """Register an already-created task entry."""
         if not entry.request_id:
             entry.request_id = request_id
         self._tasks[request_id] = entry
@@ -52,6 +70,7 @@ class ChatTaskSupervisor:
         run_id: uuid_lib.UUID | None = None,
         persist_on_disconnect: bool = False,
     ) -> ChatTaskEntry:
+        """Create an asyncio task from a coroutine, register it, and return the entry."""
         task = asyncio.create_task(runner, name=name)
         entry = ChatTaskEntry(
             request_id=request_id,
@@ -64,6 +83,7 @@ class ChatTaskSupervisor:
         return entry
 
     def get(self, request_id: str) -> ChatTaskEntry | None:
+        """Look up a task entry by request_id."""
         return self._tasks.get(request_id)
 
     def update(
@@ -76,6 +96,7 @@ class ChatTaskSupervisor:
         run_id: uuid_lib.UUID | None | object = _UNSET,
         persist_on_disconnect: bool | object = _UNSET,
     ) -> ChatTaskEntry | None:
+        """Patch fields on an existing entry, skipping any that are _UNSET."""
         entry = self._tasks.get(request_id)
         if entry is None:
             return None
@@ -96,9 +117,11 @@ class ChatTaskSupervisor:
         return entry
 
     def has_request(self, request_id: str) -> bool:
+        """Return True if a task is tracked under the given request_id."""
         return request_id in self._tasks
 
     def is_thread_active(self, thread_id: str) -> bool:
+        """Return True if any tracked task is running on the given thread."""
         request_id = self._thread_to_request.get(thread_id)
         if request_id is not None:
             entry = self._tasks.get(request_id)
@@ -113,6 +136,7 @@ class ChatTaskSupervisor:
         return False
 
     async def stop_by_request_id(self, request_id: str) -> None:
+        """Signal a stop and cancel the asyncio task for the given request."""
         entry = self._tasks.get(request_id)
         if entry is None:
             return
@@ -128,6 +152,7 @@ class ChatTaskSupervisor:
             entry.heartbeat_task.cancel()
 
     async def finalize(self, request_id: str) -> ChatTaskEntry | None:
+        """Remove a task entry and cancel its heartbeat, returning the entry."""
         entry = self._tasks.pop(request_id, None)
         if entry and entry.thread_id:
             self._thread_to_request.pop(entry.thread_id, None)
@@ -140,6 +165,7 @@ class ChatTaskSupervisor:
         return entry
 
     async def cancel_all(self) -> None:
+        """Cancel all non-persistent tasks and await their completion."""
         cancellable = [
             (request_id, entry) for request_id, entry in list(self._tasks.items()) if not entry.persist_on_disconnect
         ]

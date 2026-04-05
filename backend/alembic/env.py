@@ -1,5 +1,5 @@
 """
-Alembic 环境配置
+Alembic environment configuration
 """
 
 import asyncio
@@ -10,7 +10,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
-from app import models  # noqa: F401 - 导入所有模型，确保它们注册到 Base.metadata
+from app import models  # noqa: F401 - Import all models to ensure they are registered with Base.metadata
 from app.core.database import Base
 from app.core.settings import settings
 
@@ -19,8 +19,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 对于异步迁移，使用异步 URL；对于离线迁移，使用同步 URL
-# 这里先设置同步 URL（用于离线模式），在线模式会使用异步 URL
+# For async migrations, use the async URL; for offline migrations, use the sync URL.
+# Set the sync URL here (for offline mode); online mode will use the async URL.
 config.set_main_option("sqlalchemy.url", settings.database_url_sync)
 
 target_metadata = Base.metadata
@@ -51,7 +51,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    # 对于异步迁移，直接使用异步数据库 URL
+    # For async migrations, use the async database URL directly
     connectable = create_async_engine(
         settings.database_url,
         poolclass=pool.NullPool,

@@ -447,7 +447,7 @@ class CopilotService:
                             new_last_streamed_steps_count = len(steps)
                             new_last_streamed_thought = thought_content
                 except Exception:
-                    pass
+                    logger.debug("Failed to parse thought steps from stream content", exc_info=True)
 
         return new_accumulated_content, new_last_streamed_thought, new_last_streamed_steps_count, thought_step_event
 

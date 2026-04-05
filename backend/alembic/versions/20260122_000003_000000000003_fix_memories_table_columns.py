@@ -4,10 +4,10 @@ Revision ID: 000000000003
 Revises: 000000000002
 Create Date: 2026-01-22 00:00:03.000000+00:00
 
-修复 memories 表缺失的列：
-- 添加 memory 列（JSON，NOT NULL）
-- 添加 topics 列（JSON，nullable）
-如果列已存在则跳过
+Fix missing columns in the memories table:
+- Add memory column (JSON, NOT NULL)
+- Add topics column (JSON, nullable)
+Skip if columns already exist
 """
 
 from typing import Sequence, Union
@@ -22,25 +22,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """添加缺失的 memory 和 topics 列到 memories 表"""
-    # 使用 DO 块安全地检查并添加列
+    """Add missing memory and topics columns to the memories table"""
+    # Use a DO block to safely check and add columns
     op.execute("""
         DO $$
         BEGIN
-            -- 检查并添加 memory 列
+            -- Check and add the memory column
             IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'memories' AND column_name = 'memory'
             ) THEN
-                -- 如果表中有数据，先添加为可空列，然后设置默认值
+                -- If the table has data, add as nullable first, then set defaults
                 ALTER TABLE memories ADD COLUMN memory JSON;
-                -- 为现有记录设置默认值（空 JSON 对象）
+                -- Set default value for existing rows (empty JSON object)
                 UPDATE memories SET memory = '{}'::json WHERE memory IS NULL;
-                -- 设置为 NOT NULL
+                -- Set to NOT NULL
                 ALTER TABLE memories ALTER COLUMN memory SET NOT NULL;
             END IF;
 
-            -- 检查并添加 topics 列
+            -- Check and add the topics column
             IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'memories' AND column_name = 'topics'
@@ -52,11 +52,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """移除 memory 和 topics 列（仅在存在时）"""
+    """Remove memory and topics columns (only if they exist)"""
     op.execute("""
         DO $$
         BEGIN
-            -- 移除 topics 列（如果存在）
+            -- Remove topics column if it exists
             IF EXISTS (
                 SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'memories' AND column_name = 'topics'
@@ -64,7 +64,7 @@ def downgrade() -> None:
                 ALTER TABLE memories DROP COLUMN topics;
             END IF;
 
-            -- 移除 memory 列（如果存在）
+            -- Remove memory column if it exists
             IF EXISTS (
                 SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'memories' AND column_name = 'memory'

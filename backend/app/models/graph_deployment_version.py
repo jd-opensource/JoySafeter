@@ -3,7 +3,7 @@ Graph deployment version model
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
@@ -16,8 +16,7 @@ if TYPE_CHECKING:
     from .graph import AgentGraph
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from app.utils.datetime import utc_now
 
 
 class GraphDeploymentVersion(BaseModel):

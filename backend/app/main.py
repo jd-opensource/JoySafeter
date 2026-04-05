@@ -194,12 +194,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
         await CheckpointerManager.close()
     except Exception:
-        pass
+        logger.debug("Failed to close CheckpointerManager during shutdown", exc_info=True)
 
     try:
         await RedisClient.close()
     except Exception:
-        pass
+        logger.debug("Failed to close Redis client during shutdown", exc_info=True)
     await close_db()
     print("👋 Application shutdown")
 
@@ -319,18 +319,6 @@ async def notification_websocket_endpoint(websocket: WebSocket):
     is_authenticated, user_id = await authenticate_websocket(websocket)
     if not is_authenticated or not user_id:
         await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
-        return
-    await _run_notification_loop(websocket, user_id)
-
-
-@app.websocket("/ws/notifications/{user_id}")
-async def notification_websocket_endpoint_legacy(websocket: WebSocket, user_id: str):
-    is_authenticated, token_user_id = await authenticate_websocket(websocket)
-    if not is_authenticated or not token_user_id:
-        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
-        return
-    if str(token_user_id) != str(user_id):
-        await reject_websocket(websocket, code=WebSocketCloseCode.FORBIDDEN, reason="User ID mismatch")
         return
     await _run_notification_loop(websocket, user_id)
 

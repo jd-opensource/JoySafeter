@@ -154,15 +154,15 @@ class BusinessLogicException(BadRequestException):
 
 
 class ParameterValidationException(BadRequestException):
-    """Parameter/business validation error (default 400, business code default 1001; legacy compat)."""
+    """Parameter/business validation error (default 400, business code default 1001)."""
 
     def __init__(self, message: str, *, code: int | None = 1001, data: Any = None):
         super().__init__(message=message, code=code, data=data)
 
 
-# Compatibility aliases (from legacy app/exceptions.py naming)
+# Aliases
 
-# Legacy naming semantics: Authentication -> 401, Authorization -> 403
+# Authentication -> 401, Authorization -> 403
 AuthenticationException = UnauthorizedException
 AuthorizationException = ForbiddenException
 ResourceNotFoundException = NotFoundException
@@ -270,7 +270,7 @@ def register_exception_handlers(app: Any) -> None:
     app.add_exception_handler(Exception, general_exception_handler)
 
 
-# Convenience raise_* helpers (from legacy app/exceptions.py)
+# Convenience raise_* helpers
 
 
 def raise_validation_error(message: str, data: Any = None) -> None:

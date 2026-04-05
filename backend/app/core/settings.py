@@ -339,12 +339,6 @@ class Settings(BaseSettings):
         description="PyPI index URL for UV and pip",
     )
 
-    # Model Provider Sync
-    auto_sync_providers_on_startup: bool = Field(
-        default=False,
-        description="[Deprecated] Provider info is now loaded directly from code; this setting is no longer used. To sync model lists and global credentials, manually call /api/v1/model-providers/sync",
-    )
-
     # Credential Encryption
     credential_encryption_key: Optional[str] = Field(
         default=None,

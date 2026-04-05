@@ -110,8 +110,7 @@ class RunloopBackend(BaseSandbox):
         FileDownloadResponse objects preserving order and reporting per-file
         errors rather than raising exceptions.
 
-        TODO: Implement proper error handling with standardized FileOperationError codes.
-        Currently only implements happy path.
+        Note: Error handling is limited to the happy path.
         """
         responses: list[FileDownloadResponse] = []
         for path in paths:
@@ -129,8 +128,7 @@ class RunloopBackend(BaseSandbox):
         FileUploadResponse objects preserving order and reporting per-file
         errors rather than raising exceptions.
 
-        TODO: Implement proper error handling with standardized FileOperationError codes.
-        Currently only implements happy path.
+        Note: Error handling is limited to the happy path.
         """
         responses: list[FileUploadResponse] = []
         for path, content in files:

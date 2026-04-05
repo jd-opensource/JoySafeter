@@ -239,7 +239,7 @@ def extract_metadata_from_frontmatter(frontmatter: Dict[str, Any]) -> Dict[str, 
         "compatibility": frontmatter.get("compatibility"),
         "metadata": metadata,
         "allowed_tools": allowed_tools,
-        # Legacy fields (for backward compatibility)
+        # Backward-compatible fields
         "version": frontmatter.get("version"),
         "author": frontmatter.get("author"),
     }

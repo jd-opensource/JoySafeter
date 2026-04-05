@@ -310,7 +310,7 @@ class MCPTools(Toolkit):
                     url = getattr(self.server_params, "url")
                     return str(url) if url is not None else None
         except Exception:
-            pass
+            logger.debug("Failed to determine MCP server identifier", exc_info=True)
         return None
 
     def _json_schema_to_pydantic_model(self, schema: Any, name: str) -> Optional[type[BaseModel]]:

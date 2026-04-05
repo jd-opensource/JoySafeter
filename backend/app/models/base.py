@@ -3,7 +3,7 @@ Base models
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import DateTime, func
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import UserDefinedType
 
 from app.core.database import Base
+from app.utils.datetime import utc_now
 
 
 class TSVECTOR(UserDefinedType):
@@ -33,10 +34,6 @@ class TSVECTOR(UserDefinedType):
             return value
 
         return process
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
 
 
 class TimestampMixin:

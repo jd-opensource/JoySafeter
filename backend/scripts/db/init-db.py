@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-数据库初始化脚本
-等待数据库就绪，创建数据库（如果不存在），然后运行 Alembic 迁移
+Database initialization script
+Waits for the database to be ready, creates it if it doesn't exist, then runs Alembic migrations
 """
 
 import os
@@ -12,18 +12,18 @@ from pathlib import Path
 import psycopg2
 from psycopg2 import sql
 
-# 确保可以导入同目录的模块
+# Ensure sibling modules can be imported
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import get_db_config, load_env_file, print_db_info, wait_for_db
 
-# 加载 .env 文件
+# Load .env file
 env_path = load_env_file()
 if env_path:
-    print(f"📋 已加载环境变量文件: {env_path}")
+    print(f"📋 Loaded environment file: {env_path}")
 
 
 def fix_collation_warning(config):
-    """修复 PostgreSQL collation 版本警告"""
+    """Fix PostgreSQL collation version warning"""
     try:
         conn = psycopg2.connect(
             host=config["host"],
@@ -35,7 +35,7 @@ def fix_collation_warning(config):
         conn.autocommit = True
         cursor = conn.cursor()
 
-        # 更新 collation 版本信息，消除警告
+        # Update collation version info to suppress the warning
         cursor.execute(
             """
             UPDATE pg_database
@@ -46,19 +46,19 @@ def fix_collation_warning(config):
         )
 
         if cursor.rowcount > 0:
-            print(f"✅ 已修复数据库 {config['db_name']} 的 collation 版本警告")
+            print(f"✅ Fixed collation version warning for database {config['db_name']}")
 
         cursor.close()
         conn.close()
         return True
     except Exception as e:
-        # 忽略错误，不影响主流程
-        print(f"⚠️  修复 collation 警告时出错（可忽略）: {e}")
+        # Ignore errors; don't block the main flow
+        print(f"⚠️  Error fixing collation warning (can be ignored): {e}")
         return True
 
 
 def create_database_if_not_exists(config):
-    """如果数据库不存在则创建"""
+    """Create the database if it doesn't exist"""
     try:
         conn = psycopg2.connect(
             host=config["host"],
@@ -72,46 +72,46 @@ def create_database_if_not_exists(config):
 
         db_name = config["db_name"]
 
-        # 检查数据库是否存在
+        # Check if the database exists
         cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
         exists = cursor.fetchone()
 
         if not exists:
-            print(f"📦 创建数据库: {db_name}")
+            print(f"📦 Creating database: {db_name}")
             cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db_name)))
-            print(f"✅ 数据库创建成功: {db_name}")
+            print(f"✅ Database created successfully: {db_name}")
         else:
-            print(f"✅ 数据库已存在: {db_name}")
-            # 如果数据库已存在，尝试修复 collation 警告
+            print(f"✅ Database already exists: {db_name}")
+            # If the database already exists, try to fix collation warning
             fix_collation_warning(config)
 
         cursor.close()
         conn.close()
         return True
     except Exception as e:
-        print(f"❌ 创建数据库失败: {e}")
+        print(f"❌ Failed to create database: {e}")
         return False
 
 
 def run_migrations(config):
-    """运行 Alembic 迁移"""
-    print("🚀 运行数据库迁移...")
+    """Run Alembic migrations"""
+    print("🚀 Running database migrations...")
 
-    # 自动检测工作目录
+    # Auto-detect working directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if "/scripts/db" in script_dir or "\\scripts\\db" in script_dir:
-        # 本地运行：backend/scripts/db/init-db.py -> backend/
+        # Local run: backend/scripts/db/init-db.py -> backend/
         work_dir = os.path.dirname(os.path.dirname(script_dir))
     elif script_dir.startswith("/app"):
-        # Docker 容器运行
+        # Running inside Docker container
         work_dir = "/app"
     else:
-        # 默认使用当前工作目录
+        # Default to current working directory
         work_dir = os.getcwd()
 
-    print(f"📁 工作目录: {work_dir}")
+    print(f"📁 Working directory: {work_dir}")
 
-    # 为 alembic 构造同步/异步 URL，并通过 env 传递
+    # Build sync/async URL for alembic and pass via env
     host = config["host"]
     port = config["port"]
     user = config["user"]
@@ -137,93 +137,93 @@ def run_migrations(config):
     )
 
     if result.returncode == 0:
-        print("✅ 数据库迁移完成")
+        print("✅ Database migrations complete")
         if result.stdout:
             print(result.stdout)
         return True
     else:
-        print("❌ 数据库迁移失败")
+        print("❌ Database migrations failed")
         if result.stderr:
             print(result.stderr)
         return False
 
 
 def run_skill_loader():
-    """运行 Skill 加载脚本"""
-    print("📦 正在加载 Skills...")
+    """Run skill loader script"""
+    print("📦 Loading skills...")
 
-    # 自动检测工作目录
+    # Auto-detect working directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if "/scripts/db" in script_dir or "\\scripts\\db" in script_dir:
-        # 本地运行：backend/scripts/db/init-db.py -> backend/scripts/load_skills.py
+        # Local run: backend/scripts/db/init-db.py -> backend/scripts/load_skills.py
         loader_script = os.path.join(os.path.dirname(script_dir), "load_skills.py")
     elif script_dir.startswith("/app"):
-        # Docker 容器运行
+        # Running inside Docker container
         loader_script = "/app/scripts/load_skills.py"
     else:
-        # 默认尝试
+        # Default fallback
         loader_script = "scripts/load_skills.py"
 
     if not os.path.exists(loader_script):
-        print(f"⚠️  Skill 加载脚本未找到: {loader_script}")
+        print(f"⚠️  Skill loader script not found: {loader_script}")
         return False
 
     try:
-        # 使用当前环境变量运行
+        # Run with current environment variables
         result = subprocess.run([sys.executable, loader_script], capture_output=True, text=True, env=os.environ.copy())
 
         if result.returncode == 0:
-            print("✅ Skills 加载完成")
+            print("✅ Skills loaded successfully")
             if result.stdout:
                 print(result.stdout)
             return True
         else:
-            print("❌ Skills 加载失败")
+            print("❌ Skills loading failed")
             if result.stderr:
                 print(result.stderr)
-            print(result.stdout)  # 打印 stdout 以便调试
+            print(result.stdout)  # Print stdout for debugging
             return False
     except Exception as e:
-        print(f"❌ 执行 Skill 加载脚本出错: {e}")
+        print(f"❌ Error running skill loader script: {e}")
         return False
 
 
 def main():
-    """主函数"""
-    # 获取数据库配置
+    """Main function"""
+    # Get database config
     config = get_db_config()
 
     print("=" * 60)
-    print("🚀 开始数据库初始化")
+    print("🚀 Starting database initialization")
     print("=" * 60)
     print_db_info(config)
     print("=" * 60)
 
-    # 1. 等待数据库就绪（连接到 postgres 数据库）
+    # 1. Wait for database to be ready (connect to postgres database)
     postgres_config = config.copy()
     postgres_config["db_name"] = "postgres"
     if not wait_for_db(postgres_config):
-        print("❌ 无法连接到数据库，初始化失败")
+        print("❌ Cannot connect to database, initialization failed")
         sys.exit(1)
 
-    # 2. 创建数据库（如果不存在）
+    # 2. Create database (if it doesn't exist)
     if not create_database_if_not_exists(config):
-        print("❌ 数据库创建失败，初始化失败")
+        print("❌ Database creation failed, initialization failed")
         sys.exit(1)
 
-    # 3. 运行迁移
+    # 3. Run migrations
     if not run_migrations(config):
-        print("❌ 数据库迁移失败，初始化失败")
+        print("❌ Database migration failed, initialization failed")
         sys.exit(1)
 
-    # 4. 修复 collation 警告（可选）
+    # 4. Fix collation warning (optional)
     fix_collation_warning(config)
 
-    # 5. 加载 Skills
+    # 5. Load Skills
     # run_skill_loader()
 
     print("=" * 60)
-    print("✅ 数据库初始化完成！")
+    print("✅ Database initialization complete!")
     print("=" * 60)
 
 

@@ -65,6 +65,7 @@ class ChatWsHandler:
     """Handle a persistent `/ws/chat` connection for a single user."""
 
     def __init__(self, user_id: str, websocket: WebSocket):
+        """Initialize the handler for a single authenticated user connection."""
         self.user_id = user_id
         self.websocket = websocket
         self._task_supervisor = ChatTaskSupervisor(
@@ -77,9 +78,11 @@ class ChatWsHandler:
         self._runtime_owner_id = settings.run_runtime_instance_id
 
     async def _stop_managed_task(self, thread_id: str) -> None:
+        """Delegate task cancellation to the global task manager."""
         await task_manager.stop_task(thread_id)
 
     async def run(self) -> None:
+        """Read frames in a loop until the client disconnects."""
         try:
             while True:
                 raw = await self.websocket.receive_text()
@@ -91,6 +94,7 @@ class ChatWsHandler:
             await self._cancel_all_tasks()
 
     async def _handle_frame(self, raw: str) -> None:
+        """Parse and dispatch a single client frame."""
         try:
             frame = json.loads(raw)
         except json.JSONDecodeError:
@@ -131,10 +135,12 @@ class ChatWsHandler:
         await self._send({"type": "ws_error", "message": f"unknown frame type: {frame_type}"})
 
     async def _handle_chat_start_frame(self, frame: ParsedChatStartFrame) -> None:
+        """Convert a parsed chat.start frame into a turn command and launch it."""
         command = build_command_from_parsed_frame(frame)
         await self._start_turn_from_command(command)
 
     async def _start_turn_from_command(self, command: ChatTurnCommand) -> None:
+        """Validate and schedule a new chat turn as a supervised async task."""
         prepared = self._turn_executor.prepare_standard_turn(command)
         request_id = prepared.request_id
         message = prepared.payload.message
@@ -169,6 +175,7 @@ class ChatWsHandler:
         )
 
     async def _handle_resume(self, frame: dict[str, Any]) -> None:
+        """Resume an interrupted graph turn for the given thread."""
         request_id = str(frame.get("request_id") or "")
         thread_id = str(frame.get("thread_id") or "")
         raw_command = frame.get("command")
@@ -201,6 +208,7 @@ class ChatWsHandler:
         )
 
     async def _handle_stop(self, frame: dict[str, Any]) -> None:
+        """Cancel the running turn identified by request_id."""
         request_id = str(frame.get("request_id") or "")
         if not request_id:
             return
@@ -209,6 +217,7 @@ class ChatWsHandler:
 
     @staticmethod
     def _parse_uuid(value: Any) -> uuid_lib.UUID | None:
+        """Parse a value into a UUID, returning None on failure."""
         if not value:
             return None
         try:
@@ -226,6 +235,7 @@ class ChatWsHandler:
         observation_id: uuid_lib.UUID | None = None,
         parent_observation_id: uuid_lib.UUID | None = None,
     ) -> None:
+        """Persist a stream event to the durable run event log."""
         async with async_session_factory() as db:
             service = RunService(db)
             await service.append_event(
@@ -247,6 +257,7 @@ class ChatWsHandler:
         error_message: str | None = None,
         result_summary: dict[str, Any] | None = None,
     ) -> None:
+        """Update the persisted status of a durable agent run."""
         async with async_session_factory() as db:
             service = RunService(db)
             await service.mark_status(
@@ -260,6 +271,7 @@ class ChatWsHandler:
             )
 
     async def _touch_run_heartbeat(self, *, run_id: uuid_lib.UUID) -> None:
+        """Send a single heartbeat for a durable run to indicate liveness."""
         async with async_session_factory() as db:
             service = RunService(db)
             await service.touch_run_heartbeat(
@@ -268,6 +280,7 @@ class ChatWsHandler:
             )
 
     async def _run_persisted_run_heartbeat(self, run_id: uuid_lib.UUID) -> None:
+        """Periodically touch the heartbeat for a persisted run until cancelled."""
         while True:
             try:
                 await asyncio.sleep(settings.run_heartbeat_interval_seconds)
@@ -285,6 +298,7 @@ class ChatWsHandler:
         event: dict[str, Any],
         assistant_message_id: str | None,
     ) -> None:
+        """Translate a WS stream event and persist it to the durable run log."""
         event_type = str(event.get("type") or "")
         raw_data = event.get("data")
         data = raw_data if isinstance(raw_data, dict) else {}
@@ -354,6 +368,7 @@ class ChatWsHandler:
         agent_run_id: uuid_lib.UUID | None = None,
         assistant_message_id: str | None = None,
     ) -> None:
+        """Send an event to the client and optionally mirror it to durable storage."""
         outbound = dict(event)
         if request_id is not None:
             outbound["request_id"] = request_id
@@ -369,9 +384,11 @@ class ChatWsHandler:
         await self._send(outbound, tolerate_disconnect=tolerate_disconnect)
 
     async def _run_chat_turn(self, request_id: str, payload: ChatRequest) -> None:
+        """Execute a standard (new-message) chat turn."""
         await self._turn_executor.execute_standard_turn(request_id=request_id, payload=payload)
 
     async def _run_resume_turn(self, request_id: str, thread_id: str, command: dict[str, Any]) -> None:
+        """Execute a resume turn to continue an interrupted graph."""
         await self._turn_executor.execute_resume_turn(request_id=request_id, thread_id=thread_id, command=command)
 
     async def _finalize_task(
@@ -386,6 +403,7 @@ class ChatWsHandler:
         workspace_id: str | None,
         graph_name: str | None,
     ) -> None:
+        """Clean up after a turn: save results, write artifacts, and update run status."""
         task_entry = await self._task_supervisor.finalize(request_id)
         agent_run_id = task_entry.run_id if task_entry else None
 
@@ -504,6 +522,7 @@ class ChatWsHandler:
         agent_run_id: uuid_lib.UUID | None = None,
         assistant_message_id: str | None = None,
     ) -> None:
+        """Parse an SSE-formatted string and emit it as a WebSocket event."""
         event = self._parse_sse_event(sse_str)
         if not event:
             return
@@ -516,6 +535,7 @@ class ChatWsHandler:
         )
 
     def _parse_sse_event(self, sse_str: str | None) -> dict[str, Any] | None:
+        """Extract the JSON payload from an SSE data line."""
         if not sse_str:
             return None
 
@@ -541,6 +561,16 @@ class ChatWsHandler:
         return cast(dict[str, Any], payload)
 
     async def _send(self, event: dict[str, Any], *, tolerate_disconnect: bool = False) -> bool:
+        """Serialize and send a JSON event over the WebSocket.
+
+        Returns:
+            True if sent successfully, False if the socket is disconnected
+            and tolerate_disconnect is True.
+
+        Raises:
+            WebSocketDisconnect: If the socket is disconnected and
+                tolerate_disconnect is False.
+        """
         if not self._socket_connected:
             if tolerate_disconnect:
                 return False
@@ -561,7 +591,9 @@ class ChatWsHandler:
             raise WebSocketDisconnect()
 
     def _is_thread_active(self, thread_id: str) -> bool:
+        """Check whether a turn is currently running for the given thread."""
         return self._task_supervisor.is_thread_active(thread_id)
 
     async def _cancel_all_tasks(self) -> None:
+        """Cancel all non-persistent tasks on disconnect."""
         await self._task_supervisor.cancel_all()

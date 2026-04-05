@@ -114,7 +114,7 @@ class ModelResolver:
                 all_instances = await self._model_service.repo.list_all()
                 return [inst.model_name for inst in all_instances]
         except Exception:
-            pass
+            logger.debug("Failed to list available model names from ModelService", exc_info=True)
         return []
 
     def extract_credentials(self, resolved_model: Any) -> dict[str, Any]:
@@ -133,7 +133,7 @@ class ModelResolver:
             elif hasattr(resolved_model, "model"):
                 model_name = resolved_model.model
         except Exception:
-            pass
+            logger.debug("Failed to extract credentials from resolved model", exc_info=True)
 
         return {
             "api_key": api_key,

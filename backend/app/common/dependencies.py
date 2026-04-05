@@ -7,6 +7,7 @@ from typing import Annotated, Optional
 
 from fastapi import Depends, Request
 from fastapi.security import OAuth2PasswordBearer
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +39,8 @@ async def get_current_user(
     cookie_token = None
     try:
         if request:
-            # prefer configured cookie_name, then try other possible names            cookie_token = (
+            # prefer configured cookie_name, then try other possible names
+            cookie_token = (
                 request.cookies.get(settings.cookie_name)  # prefer configured cookie name
                 or request.cookies.get("session-token")
                 or request.cookies.get("session_token")
@@ -47,7 +49,7 @@ async def get_current_user(
                 or request.cookies.get("auth_token")
             )
     except Exception:
-        pass
+        logger.debug("Failed to read auth token from cookies", exc_info=True)
     token = token or cookie_token
     if not token:
         raise UnauthorizedException("Missing credentials")
@@ -88,7 +90,8 @@ async def get_current_user_optional(
     cookie_token = None
     try:
         if request:
-            # prefer configured cookie_name, then try other possible names            cookie_token = (
+            # prefer configured cookie_name, then try other possible names
+            cookie_token = (
                 request.cookies.get(settings.cookie_name)  # prefer configured cookie name
                 or request.cookies.get("session-token")
                 or request.cookies.get("session_token")
@@ -97,7 +100,7 @@ async def get_current_user_optional(
                 or request.cookies.get("auth_token")
             )
     except Exception:
-        pass
+        logger.debug("Failed to read auth token from cookies", exc_info=True)
     token = token or cookie_token
     if not token:
         return None

@@ -216,7 +216,7 @@ class TestPydanticSandboxAdapterInit:
 
     def test_import_error_without_backend(self):
         """Test ImportError is raised when pydantic-ai-backend is not available."""
-        pytest.skip("pydantic-ai-backend[docker] 是必选依赖；不再覆盖缺失依赖的分支测试")
+        pytest.skip("pydantic-ai-backend[docker] is a required dependency; skipping missing-dependency branch test")
 
 
 class TestPydanticSandboxAdapterProperties:

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-列出数据库中的用户
+List users in the database
 
-使用方法:
+Usage:
     uv run python scripts/list_users.py
 """
 
@@ -20,17 +20,17 @@ from app.models.auth import AuthUser
 
 
 async def list_users():
-    """列出所有用户"""
+    """List all users"""
     async with async_session_factory() as session:
         stmt = select(AuthUser.id, AuthUser.username, AuthUser.email).limit(20)
         result = await session.execute(stmt)
         users = result.all()
 
         if not users:
-            print("数据库中没有用户")
+            print("No users in the database")
             return
 
-        print(f"\n找到 {len(users)} 个用户:\n")
+        print(f"\nFound {len(users)} users:\n")
         print(f"{'ID':<40} {'Username':<20} {'Email':<30}")
         print("-" * 90)
 

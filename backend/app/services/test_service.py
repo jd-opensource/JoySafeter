@@ -113,7 +113,7 @@ class TestService:
         # 3. specific node mapping
         # Compiler uses node IDs (UUIDs) as graph node names in LangGraph
         # But inputs/outputs in test cases might prefer easier names?
-        # For now, let's assume inputs keys match the graph state schema keys.
+        # Input keys are assumed to match the graph state schema keys.
 
         for test in test_cases:
             test_result: Dict[str, Any] = {

@@ -764,13 +764,7 @@ class MemoryManager:
             return self._get_last_n_memories(user_id=user_id, limit=limit)
 
     def _get_response_format(self) -> Union[Dict[str, Any], Type[BaseModel]]:
-        """Get response format for structured output.
-
-        Note: This method is deprecated for LangChain models.
-        Use with_structured_output() instead.
-        """
-        # LangChain models use with_structured_output() directly
-        # This method is kept for backwards compatibility
+        """Get response format for structured output."""
         return MemorySearchResponse
 
     def _search_user_memories_agentic(self, user_id: str, query: str, limit: Optional[int] = None) -> List[UserMemory]:

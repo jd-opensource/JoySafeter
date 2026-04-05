@@ -1,3 +1,5 @@
+"""Chat WebSocket protocol: frame parsing, validation, and message types."""
+
 from __future__ import annotations
 
 import uuid as uuid_lib
@@ -17,6 +19,8 @@ ALLOWED_CLIENT_FRAME_TYPES = {
 
 
 class ChatProtocolError(Exception):
+    """Raised when a client frame violates the chat protocol."""
+
     def __init__(self, message: str, request_id: str | None = None) -> None:
         super().__init__(message)
         self.message = message
@@ -25,6 +29,8 @@ class ChatProtocolError(Exception):
 
 @dataclass(frozen=True)
 class ParsedChatInput:
+    """Validated user input extracted from a chat.start frame."""
+
     message: str
     files: list[dict[str, Any]]
     model: str | None
@@ -32,6 +38,8 @@ class ParsedChatInput:
 
 @dataclass(frozen=True)
 class ParsedSkillCreatorExtension:
+    """Extension payload for Skill Creator turns."""
+
     kind: Literal["skill_creator"]
     run_id: str | None
     edit_skill_id: str | None
@@ -39,6 +47,8 @@ class ParsedSkillCreatorExtension:
 
 @dataclass(frozen=True)
 class ParsedChatStartFrame:
+    """Fully validated chat.start frame ready for command construction."""
+
     request_id: str
     thread_id: str | None
     graph_id: uuid_lib.UUID | None
@@ -48,6 +58,15 @@ class ParsedChatStartFrame:
 
 
 def parse_client_frame(frame: dict[str, Any]) -> ParsedChatStartFrame | dict[str, Any]:
+    """Parse and validate a raw client JSON frame.
+
+    Returns:
+        A ParsedChatStartFrame for chat.start frames, or the raw dict
+        for other recognized frame types (ping, resume, stop).
+
+    Raises:
+        ChatProtocolError: If the frame type is unknown or invalid.
+    """
     frame_type = str(frame.get("type") or "")
     if frame_type not in ALLOWED_CLIENT_FRAME_TYPES:
         raise ChatProtocolError(f"unknown frame type: {frame_type or '<missing>'}")

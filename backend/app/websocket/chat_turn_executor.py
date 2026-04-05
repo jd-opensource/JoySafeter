@@ -1,3 +1,5 @@
+"""Executor for a single chat turn (standard or resume)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -31,6 +33,8 @@ async def _release_graph_sandbox(built_graph: Any) -> None:
 
 @dataclass(frozen=True)
 class PreparedStandardTurn:
+    """Immutable bundle of validated parameters ready for turn execution."""
+
     request_id: str
     payload: ChatRequest
     run_id: uuid_lib.UUID | None
@@ -38,16 +42,30 @@ class PreparedStandardTurn:
 
 
 class ChatTurnExecutor:
+    """Runs a single chat turn against the LangGraph agent.
+
+    Handles both new-message (standard) turns and resume turns for
+    interrupted graph executions.
+    """
+
     def __init__(
         self,
         *,
         handler: Any,
         dependencies: Any | None = None,
     ) -> None:
+        """Initialize the executor.
+
+        Args:
+            handler: The owning ChatWsHandler instance.
+            dependencies: Optional module providing helper functions; defaults
+                to the handler's own module.
+        """
         self._handler = handler
         self._module = dependencies or importlib.import_module(handler.__class__.__module__)
 
     def prepare_standard_turn(self, command: ChatTurnCommand) -> PreparedStandardTurn:
+        """Build a PreparedStandardTurn from a client command."""
         metadata = dict(command.metadata or {})
         if command.files:
             metadata["files"] = command.files
@@ -74,18 +92,21 @@ class ChatTurnExecutor:
         )
 
     async def run_standard_turn(self, prepared: PreparedStandardTurn) -> None:
+        """Dispatch a prepared standard turn to the handler or fallback executor."""
         run_chat_turn = getattr(self._handler, "_run_chat_turn", None)
         if not callable(run_chat_turn):
             run_chat_turn = self.execute_standard_turn
         await run_chat_turn(request_id=prepared.request_id, payload=prepared.payload)
 
     async def run_resume_turn(self, request_id: str, thread_id: str, command: dict[str, object]) -> None:
+        """Dispatch a resume turn to the handler or fallback executor."""
         run_resume_turn = getattr(self._handler, "_run_resume_turn", None)
         if not callable(run_resume_turn):
             run_resume_turn = self.execute_resume_turn
         await run_resume_turn(request_id=request_id, thread_id=thread_id, command=command)
 
     async def execute_standard_turn(self, request_id: str, payload: ChatRequest) -> None:
+        """Stream a new user message through the graph and emit events to the client."""
         handler = self._handler
         module = self._module
         state: StreamState | None = None
@@ -436,6 +457,7 @@ class ChatTurnExecutor:
             )
 
     async def execute_resume_turn(self, request_id: str, thread_id: str, command: dict[str, object]) -> None:
+        """Resume an interrupted graph execution and stream the remaining events."""
         handler = self._handler
         module = self._module
         state: StreamState | None = None
@@ -693,6 +715,7 @@ class ChatTurnExecutor:
 
     @staticmethod
     def _parse_uuid(value: object) -> uuid_lib.UUID | None:
+        """Parse a value into a UUID, returning None on failure."""
         if not value:
             return None
         try:

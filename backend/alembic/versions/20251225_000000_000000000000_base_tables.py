@@ -4,7 +4,7 @@ Revision ID: 000000000000
 Revises:
 Create Date: 2025-12-25 00:00:00.000000+00:00
 
-初始迁移：创建所有核心数据库表
+Initial migration: create all core database tables
 """
 
 from typing import Sequence, Union
@@ -23,7 +23,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # ===========================================
-    # 1. 创建枚举类型
+    # 1. Create enum types
     # ===========================================
     op.execute("CREATE TYPE workspacestatus AS ENUM ('active', 'deprecated', 'archived')")
     op.execute("CREATE TYPE workspacetype AS ENUM ('personal', 'team')")
@@ -32,10 +32,10 @@ def upgrade() -> None:
     op.execute("CREATE TYPE permissiontype AS ENUM ('admin', 'write', 'read')")
 
     # ===========================================
-    # 2. 创建核心用户表 (无外键依赖)
+    # 2. Create core user tables (no foreign key dependencies)
     # ===========================================
 
-    # user 表
+    # user table
     op.create_table(
         "user",
         sa.Column("id", sa.String(255), primary_key=True),
@@ -61,7 +61,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_user_email", "user", ["email"], unique=True)
 
-    # organization 表
+    # organization table
     op.create_table(
         "organization",
         sa.Column("id", sa.String(255), primary_key=True),
@@ -77,10 +77,10 @@ def upgrade() -> None:
     )
 
     # ===========================================
-    # 3. 创建依赖用户表的表
+    # 3. Create tables that depend on user tables
     # ===========================================
 
-    # session 表
+    # session table
     op.create_table(
         "session",
         sa.Column("id", sa.String(255), primary_key=True),
@@ -105,7 +105,7 @@ def upgrade() -> None:
     op.create_index("session_user_id_idx", "session", ["user_id"])
     op.create_index("session_token_idx", "session", ["token"], unique=True)
 
-    # member 表
+    # member table
     op.create_table(
         "member",
         sa.Column("id", sa.String(255), primary_key=True),
@@ -120,7 +120,7 @@ def upgrade() -> None:
     op.create_index("member_user_id_idx", "member", ["user_id"])
     op.create_index("member_organization_id_idx", "member", ["organization_id"])
 
-    # workspaces 表
+    # workspaces table
     op.create_table(
         "workspaces",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -146,7 +146,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )
 
-    # workspace_members 表
+    # workspace_members table
     op.create_table(
         "workspace_members",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -167,7 +167,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )
 
-    # workspace_folder 表
+    # workspace_folder table
     op.create_table(
         "workspace_folder",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -198,10 +198,10 @@ def upgrade() -> None:
     op.create_index("workspace_folder_deleted_at_idx", "workspace_folder", ["deleted_at"])
 
     # ===========================================
-    # 4. 创建 graphs 相关表
+    # 4. Create graph-related tables
     # ===========================================
 
-    # graphs 表
+    # graphs table
     op.create_table(
         "graphs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -235,7 +235,7 @@ def upgrade() -> None:
     op.create_index("graphs_folder_id_idx", "graphs", ["folder_id"])
     op.create_index("graphs_parent_id_idx", "graphs", ["parent_id"])
 
-    # graph_nodes 表
+    # graph_nodes table
     op.create_table(
         "graph_nodes",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -259,7 +259,7 @@ def upgrade() -> None:
     op.create_index("graph_nodes_graph_id_idx", "graph_nodes", ["graph_id"])
     op.create_index("graph_nodes_type_idx", "graph_nodes", ["type"])
 
-    # graph_edges 表
+    # graph_edges table
     op.create_table(
         "graph_edges",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -288,7 +288,7 @@ def upgrade() -> None:
     op.create_index("graph_edges_graph_source_idx", "graph_edges", ["graph_id", "source_node_id"])
     op.create_index("graph_edges_graph_target_idx", "graph_edges", ["graph_id", "target_node_id"])
 
-    # graph_deployment_version 表
+    # graph_deployment_version table
     op.create_table(
         "graph_deployment_version",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -308,10 +308,10 @@ def upgrade() -> None:
     op.create_index("graph_deployment_version_created_at_idx", "graph_deployment_version", ["created_at"])
 
     # ===========================================
-    # 5. 创建对话相关表
+    # 5. Create conversation-related tables
     # ===========================================
 
-    # conversations 表
+    # conversations table
     op.create_table(
         "conversations",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -327,7 +327,7 @@ def upgrade() -> None:
     op.create_index("ix_conversations_thread_id", "conversations", ["thread_id"], unique=True)
     op.create_index("ix_conversations_user_id", "conversations", ["user_id"])
 
-    # messages 表
+    # messages table
     op.create_table(
         "messages",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -343,7 +343,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_messages_thread_id", "messages", ["thread_id"])
 
-    # chat 表
+    # chat table
     op.create_table(
         "chat",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -363,7 +363,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("identifier", name="identifier_idx"),
     )
 
-    # copilot_chats 表
+    # copilot_chats table
     op.create_table(
         "copilot_chats",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -384,10 +384,10 @@ def upgrade() -> None:
     op.create_index("copilot_chats_updated_at_idx", "copilot_chats", ["updated_at"])
 
     # ===========================================
-    # 6. 创建权限和邀请相关表
+    # 6. Create permission and invitation tables
     # ===========================================
 
-    # workspace_invitation 表
+    # workspace_invitation table
     op.create_table(
         "workspace_invitation",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -424,7 +424,7 @@ def upgrade() -> None:
     op.create_index("workspace_invitation_expires_at_idx", "workspace_invitation", ["expires_at"])
     op.create_index("workspace_invitation_workspace_id_idx", "workspace_invitation", ["workspace_id"])
 
-    # permissions 表
+    # permissions table
     op.create_table(
         "permissions",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -449,10 +449,10 @@ def upgrade() -> None:
     op.create_index("permissions_user_entity_idx", "permissions", ["user_id", "entity_type", "entity_id"])
 
     # ===========================================
-    # 7. 创建设置相关表
+    # 7. Create settings-related tables
     # ===========================================
 
-    # environment 表
+    # environment table
     op.create_table(
         "environment",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -462,7 +462,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )
 
-    # workspace_environment 表
+    # workspace_environment table
     op.create_table(
         "workspace_environment",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -478,7 +478,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("workspace_id", name="workspace_environment_workspace_unique"),
     )
 
-    # settings 表
+    # settings table
     op.create_table(
         "settings",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -501,10 +501,10 @@ def upgrade() -> None:
     op.create_index("settings_user_id_idx", "settings", ["user_id"])
 
     # ===========================================
-    # 8. 创建文件存储相关表
+    # 8. Create file storage tables
     # ===========================================
 
-    # workspace_file 表
+    # workspace_file table
     op.create_table(
         "workspace_file",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -526,7 +526,7 @@ def upgrade() -> None:
     op.create_index("workspace_file_workspace_id_idx", "workspace_file", ["workspace_id"])
     op.create_index("workspace_file_key_idx", "workspace_file", ["key"])
 
-    # workspace_files 表
+    # workspace_files table
     op.create_table(
         "workspace_files",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -552,10 +552,10 @@ def upgrade() -> None:
     op.create_index("workspace_files_context_idx", "workspace_files", ["context"])
 
     # ===========================================
-    # 9. 创建 API Key 和工具相关表
+    # 9. Create API key and tool tables
     # ===========================================
 
-    # api_key 表
+    # api_key table
     op.create_table(
         "api_key",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -583,7 +583,7 @@ def upgrade() -> None:
     op.create_index("api_key_workspace_id_idx", "api_key", ["workspace_id"])
     op.create_index("api_key_key_idx", "api_key", ["key"])
 
-    # custom_tools 表
+    # custom_tools table
     op.create_table(
         "custom_tools",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -599,7 +599,7 @@ def upgrade() -> None:
     )
     op.create_index("custom_tools_owner_idx", "custom_tools", ["owner_id"])
 
-    # mcp_servers 表
+    # mcp_servers table
     op.create_table(
         "mcp_servers",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -629,10 +629,10 @@ def upgrade() -> None:
     op.create_index("mcp_servers_user_name_unique_idx", "mcp_servers", ["user_id", "name"], unique=True)
 
     # ===========================================
-    # 10. 创建模型相关表
+    # 10. Create model-related tables
     # ===========================================
 
-    # model_provider 表
+    # model_provider table
     op.create_table(
         "model_provider",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -650,7 +650,7 @@ def upgrade() -> None:
     op.create_index("model_provider_name_idx", "model_provider", ["name"])
     op.create_index("model_provider_enabled_idx", "model_provider", ["is_enabled"])
 
-    # model_credential 表
+    # model_credential table
     op.create_table(
         "model_credential",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -680,7 +680,7 @@ def upgrade() -> None:
     op.create_index("model_credential_provider_id_idx", "model_credential", ["provider_id"])
     op.create_index("model_credential_user_provider_idx", "model_credential", ["user_id", "provider_id"])
 
-    # model_instance 表
+    # model_instance table
     op.create_table(
         "model_instance",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -714,10 +714,10 @@ def upgrade() -> None:
     )
 
     # ===========================================
-    # 11. 创建 Skill 相关表
+    # 11. Create skill-related tables
     # ===========================================
 
-    # skills 表
+    # skills table
     op.create_table(
         "skills",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -741,7 +741,7 @@ def upgrade() -> None:
     op.create_index("skills_public_idx", "skills", ["is_public"])
     op.create_index("skills_tags_idx", "skills", ["tags"], postgresql_using="gin")
 
-    # skill_files 表
+    # skill_files table
     op.create_table(
         "skill_files",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -762,10 +762,10 @@ def upgrade() -> None:
     op.create_index("skill_files_path_idx", "skill_files", ["skill_id", "path"])
 
     # ===========================================
-    # 12. 创建安全审计和记忆相关表
+    # 12. Create security audit and memory tables
     # ===========================================
 
-    # memories 表
+    # memories table
     op.create_table(
         "memories",
         sa.Column("memory_id", sa.String(), primary_key=True),
@@ -783,7 +783,7 @@ def upgrade() -> None:
     op.create_index("ix_memories_updated_at", "memories", ["updated_at"])
     op.create_index("ix_memories_created_at", "memories", ["created_at"])
 
-    # security_audit_log 表
+    # security_audit_log table
     op.create_table(
         "security_audit_log",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -811,9 +811,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 按依赖关系反向删除表
+    # Drop tables in reverse dependency order
 
-    # 12. 安全审计和记忆相关表
+    # 12. Security audit and memory tables
     op.drop_index("audit_log_created_at_idx", table_name="security_audit_log")
     op.drop_index("audit_log_event_status_idx", table_name="security_audit_log")
     op.drop_index("audit_log_event_type_idx", table_name="security_audit_log")
@@ -829,7 +829,7 @@ def downgrade() -> None:
     op.drop_index("ix_memories_user_id", table_name="memories")
     op.drop_table("memories")
 
-    # 11. Skill 相关表
+    # 11. Skill-related tables
     op.drop_index("skill_files_path_idx", table_name="skill_files")
     op.drop_index("skill_files_skill_idx", table_name="skill_files")
     op.drop_table("skill_files")
@@ -840,7 +840,7 @@ def downgrade() -> None:
     op.drop_index("skills_owner_idx", table_name="skills")
     op.drop_table("skills")
 
-    # 10. 模型相关表
+    # 10. Model-related tables
     op.drop_index("model_instance_user_provider_model_idx", table_name="model_instance")
     op.drop_index("model_instance_provider_id_idx", table_name="model_instance")
     op.drop_index("model_instance_workspace_id_idx", table_name="model_instance")
@@ -857,7 +857,7 @@ def downgrade() -> None:
     op.drop_index("model_provider_name_idx", table_name="model_provider")
     op.drop_table("model_provider")
 
-    # 9. API Key 和工具相关表
+    # 9. API key and tool tables
     op.drop_index("mcp_servers_user_name_unique_idx", table_name="mcp_servers")
     op.drop_index("mcp_servers_user_enabled_idx", table_name="mcp_servers")
     op.drop_index("mcp_servers_user_id_idx", table_name="mcp_servers")
@@ -871,7 +871,7 @@ def downgrade() -> None:
     op.drop_index("api_key_user_id_idx", table_name="api_key")
     op.drop_table("api_key")
 
-    # 8. 文件存储相关表
+    # 8. File storage tables
     op.drop_index("workspace_files_context_idx", table_name="workspace_files")
     op.drop_index("workspace_files_workspace_id_idx", table_name="workspace_files")
     op.drop_index("workspace_files_user_id_idx", table_name="workspace_files")
@@ -882,13 +882,13 @@ def downgrade() -> None:
     op.drop_index("workspace_file_workspace_id_idx", table_name="workspace_file")
     op.drop_table("workspace_file")
 
-    # 7. 设置相关表
+    # 7. Settings-related tables
     op.drop_index("settings_user_id_idx", table_name="settings")
     op.drop_table("settings")
     op.drop_table("workspace_environment")
     op.drop_table("environment")
 
-    # 6. 权限和邀请相关表
+    # 6. Permission and invitation tables
     op.drop_index("permissions_user_entity_idx", table_name="permissions")
     op.drop_index("permissions_user_entity_permission_idx", table_name="permissions")
     op.drop_index("permissions_user_entity_type_idx", table_name="permissions")
@@ -901,7 +901,7 @@ def downgrade() -> None:
     op.drop_index("workspace_invitation_email_status_idx", table_name="workspace_invitation")
     op.drop_table("workspace_invitation")
 
-    # 5. 对话相关表
+    # 5. Conversation-related tables
     op.drop_index("copilot_chats_updated_at_idx", table_name="copilot_chats")
     op.drop_index("copilot_chats_created_at_idx", table_name="copilot_chats")
     op.drop_index("copilot_chats_user_id_idx", table_name="copilot_chats")
@@ -915,7 +915,7 @@ def downgrade() -> None:
     op.drop_index("ix_conversations_thread_id", table_name="conversations")
     op.drop_table("conversations")
 
-    # 4. graphs 相关表
+    # 4. Graph-related tables
     op.drop_index("graph_deployment_version_created_at_idx", table_name="graph_deployment_version")
     op.drop_index("graph_deployment_version_graph_active_idx", table_name="graph_deployment_version")
     op.drop_table("graph_deployment_version")
@@ -937,7 +937,7 @@ def downgrade() -> None:
     op.drop_index("graphs_user_id_idx", table_name="graphs")
     op.drop_table("graphs")
 
-    # 3. 依赖用户表的表
+    # 3. Tables that depend on user tables
     op.drop_index("workspace_folder_deleted_at_idx", table_name="workspace_folder")
     op.drop_index("workspace_folder_parent_sort_idx", table_name="workspace_folder")
     op.drop_index("workspace_folder_workspace_parent_idx", table_name="workspace_folder")
@@ -954,12 +954,12 @@ def downgrade() -> None:
     op.drop_index("session_user_id_idx", table_name="session")
     op.drop_table("session")
 
-    # 2. 核心用户表
+    # 2. Core user tables
     op.drop_table("organization")
     op.drop_index("ix_user_email", table_name="user")
     op.drop_table("user")
 
-    # 1. 删除枚举类型
+    # 1. Drop enum types
     op.execute("DROP TYPE IF EXISTS permissiontype")
     op.execute("DROP TYPE IF EXISTS workspaceinvitationstatus")
     op.execute("DROP TYPE IF EXISTS workspacememberrole")

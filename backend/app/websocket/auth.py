@@ -13,12 +13,19 @@ from app.models import User
 
 
 class WebSocketCloseCode:
+    """Application-level WebSocket close codes."""
+
     UNAUTHORIZED = 4001
     FORBIDDEN = 4003
     NOT_FOUND = 4004
 
 
 async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[str]]:
+    """Authenticate a WebSocket connection via cookie or query-param token.
+
+    Returns:
+        A tuple of (is_authenticated, user_id).
+    """
     token = None
 
     try:
@@ -46,6 +53,11 @@ async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[s
 
 
 async def authenticate_websocket_with_user(websocket: WebSocket, db: AsyncSession) -> Tuple[bool, Optional[User]]:
+    """Authenticate a WebSocket and load the active User from the database.
+
+    Returns:
+        A tuple of (is_authenticated, user) where user is None on failure.
+    """
     is_authenticated, user_id = await authenticate_websocket(websocket)
 
     if not is_authenticated or not user_id:
@@ -66,6 +78,7 @@ async def authenticate_websocket_with_user(websocket: WebSocket, db: AsyncSessio
 async def reject_websocket(
     websocket: WebSocket, code: int = WebSocketCloseCode.UNAUTHORIZED, reason: str = "Unauthorized"
 ) -> None:
+    """Accept then immediately close a WebSocket with an error code."""
     try:
         await websocket.accept()
         await websocket.close(code=code, reason=reason)

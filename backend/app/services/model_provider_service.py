@@ -352,7 +352,7 @@ class ModelProviderService(BaseService):
             try:
                 decrypted_creds = decrypt_credentials(credential.credentials)
             except Exception:
-                pass
+                logger.debug("Failed to decrypt credentials for provider %s", provider.name, exc_info=True)
 
         synced_count = 0
         for model_type in provider_instance.get_supported_model_types():

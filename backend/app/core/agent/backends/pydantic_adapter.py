@@ -409,7 +409,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 logger.debug(f"[{self._id}] _exec_command END: exit_code={exit_code}, output_len={len(output)}")
                 return output, exit_code
 
-            # 2. Handle legacy ExecutionResult format (stdout/returncode) - for compatibility
+            # 2. Handle ExecutionResult format (stdout/returncode)
             if hasattr(result, "stdout") and hasattr(result, "returncode"):
                 output = (
                     result.stdout.decode("utf-8", errors="replace")
@@ -417,7 +417,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                     else str(result.stdout or "")
                 )
                 logger.debug(
-                    f"[{self._id}] _exec_command END (legacy): exit_code={result.returncode}, output_len={len(output)}"
+                    f"[{self._id}] _exec_command END (ExecutionResult): exit_code={result.returncode}, output_len={len(output)}"
                 )
                 return output, result.returncode
 

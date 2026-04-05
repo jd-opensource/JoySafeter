@@ -76,7 +76,6 @@ def parse_mcp_tool_name(tool_name: str) -> Tuple[Optional[str], Optional[str]]:
     if not server_name or not actual_tool_name:
         return None, None
 
-    # assert server_name is not a UUID
     _assert_not_uuid(server_name, f"parsing tool '{tool_name}'")
 
     return server_name, actual_tool_name
@@ -102,7 +101,6 @@ async def resolve_mcp_server_instance(server_name: str, user_id: str, db: AsyncS
         )
         return None
 
-    # assert server_name is not a UUID
     _assert_not_uuid(server_name, f"resolve_mcp_server_instance(user_id={user_id})")
 
     try:

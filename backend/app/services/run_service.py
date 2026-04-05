@@ -36,20 +36,46 @@ def _build_snapshot_dict(run_id: str, snapshot: AgentRunSnapshot) -> dict[str, A
 
 
 class RunService:
+    """Orchestrates durable agent run lifecycle, event sourcing, and snapshot management."""
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repo = AgentRunRepository(db)
 
     async def list_agents(self) -> list[AgentDefinition]:
+        """Return all registered agent definitions.
+
+        Returns:
+            List of available agent definitions.
+        """
         return agent_registry.list_definitions()
 
     def get_agent_definition(self, agent_name: str) -> AgentDefinition:
+        """Look up an agent definition by name.
+
+        Args:
+            agent_name: Registered name of the agent.
+
+        Returns:
+            The matching agent definition.
+
+        Raises:
+            ValueError: If no agent with the given name is registered.
+        """
         try:
             return agent_registry.get(agent_name)
         except KeyError:
             raise ValueError(f"Unknown agent: {agent_name}")
 
     def get_agent_display_name(self, agent_name: str | None) -> str | None:
+        """Return the human-readable display name for an agent.
+
+        Args:
+            agent_name: Registered agent name, or None.
+
+        Returns:
+            The display name if the agent is found, otherwise the raw agent_name.
+        """
         definition = agent_registry.find(agent_name)
         return definition.display_name if definition else agent_name
 
@@ -66,6 +92,25 @@ class RunService:
         source: str = "run_center",
         run_type: Optional[str] = None,
     ) -> AgentRun:
+        """Create a new agent run with its initial snapshot and user message event.
+
+        Args:
+            user_id: ID of the user initiating the run.
+            agent_name: Registered agent name to execute.
+            graph_id: Graph to run the agent against.
+            thread_id: Conversation thread ID; auto-generated if None.
+            message: Initial user message for the run.
+            input: Optional extra input parameters forwarded to the agent.
+            workspace_id: Optional workspace scope for the run.
+            source: Origin label (e.g. "run_center", "skills_creator_page").
+            run_type: Override the agent's default run type if provided.
+
+        Returns:
+            The newly created AgentRun record.
+
+        Raises:
+            ValueError: If agent_name is not registered.
+        """
         definition = self.get_agent_definition(agent_name)
         resolved_thread_id = thread_id or str(uuid.uuid4())
         run_input = dict(input or {})
@@ -85,8 +130,8 @@ class RunService:
                 "graph_id": str(graph_id),
                 "thread_id": resolved_thread_id,
                 "input": run_input,
-                # Legacy: spread run_input at top level so older consumers that
-                # read keys directly (e.g. edit_skill_id) continue to work.
+                # Spread run_input at top level so consumers that read keys
+                # directly (e.g. edit_skill_id) continue to work.
                 **run_input,
             },
             last_heartbeat_at=utc_now(),
@@ -141,6 +186,19 @@ class RunService:
         edit_skill_id: Optional[str],
         workspace_id: Optional[uuid.UUID] = None,
     ) -> AgentRun:
+        """Create a run specifically for the skill_creator agent.
+
+        Args:
+            user_id: ID of the user initiating the run.
+            graph_id: Graph to run the agent against.
+            thread_id: Conversation thread ID; auto-generated if None.
+            message: Initial user message for skill creation/editing.
+            edit_skill_id: Existing skill ID to edit, or None for new skill creation.
+            workspace_id: Optional workspace scope for the run.
+
+        Returns:
+            The newly created AgentRun record.
+        """
         return await self.create_run(
             user_id=user_id,
             agent_name="skill_creator",
@@ -153,9 +211,27 @@ class RunService:
         )
 
     async def get_run(self, run_id: uuid.UUID, user_id: str) -> Optional[AgentRun]:
+        """Fetch a single run by ID, scoped to the given user.
+
+        Args:
+            run_id: Unique identifier of the run.
+            user_id: Owner user ID used for access control.
+
+        Returns:
+            The AgentRun if found and owned by the user, otherwise None.
+        """
         return await self.repo.get_by_id_and_user(run_id, user_id)
 
     async def get_snapshot(self, run_id: uuid.UUID, user_id: str) -> Optional[AgentRunSnapshot]:
+        """Fetch the latest projection snapshot for a run.
+
+        Args:
+            run_id: Unique identifier of the run.
+            user_id: Owner user ID used for access control.
+
+        Returns:
+            The snapshot if the run exists and belongs to the user, otherwise None.
+        """
         run = await self.get_run(run_id, user_id)
         if not run:
             return None
@@ -164,6 +240,18 @@ class RunService:
     async def list_events_after(
         self, run_id: uuid.UUID, user_id: str, after_seq: int = 0, limit: int = 500
     ) -> list[AgentRunEvent]:
+        """List run events with sequence numbers greater than after_seq.
+
+        Args:
+            run_id: Unique identifier of the run.
+            user_id: Owner user ID used for access control.
+            after_seq: Return only events with seq > this value.
+            limit: Maximum number of events to return.
+
+        Returns:
+            List of events ordered by sequence number, or empty list if the
+            run is not found.
+        """
         run = await self.get_run(run_id, user_id)
         if not run:
             return []
@@ -172,6 +260,16 @@ class RunService:
     async def find_latest_active_skill_creator_run(
         self, *, user_id: str, graph_id: uuid.UUID, thread_id: Optional[str] = None
     ) -> Optional[AgentRun]:
+        """Find the most recent active skill_creator run for a user and graph.
+
+        Args:
+            user_id: Owner user ID.
+            graph_id: Graph the run belongs to.
+            thread_id: Optional thread ID to narrow the search.
+
+        Returns:
+            The latest active skill_creator run, or None.
+        """
         return await self.find_latest_active_run(
             user_id=user_id,
             agent_name="skill_creator",
@@ -187,6 +285,17 @@ class RunService:
         graph_id: uuid.UUID,
         thread_id: Optional[str] = None,
     ) -> Optional[AgentRun]:
+        """Find the most recent active run for a given agent, user, and graph.
+
+        Args:
+            user_id: Owner user ID.
+            agent_name: Registered agent name.
+            graph_id: Graph the run belongs to.
+            thread_id: Optional thread ID to narrow the search.
+
+        Returns:
+            The latest active AgentRun, or None if no active run exists.
+        """
         return await self.repo.find_latest_active_run(
             user_id=user_id,
             agent_name=agent_name,
@@ -204,6 +313,19 @@ class RunService:
         search: Optional[str] = None,
         limit: int = 50,
     ) -> list[AgentRun]:
+        """List recent runs for a user with optional filters.
+
+        Args:
+            user_id: Owner user ID.
+            run_type: Filter by run type (e.g. "skill_creator").
+            agent_name: Filter by agent name.
+            status: Filter by run status string.
+            search: Free-text search against run titles.
+            limit: Maximum number of runs to return.
+
+        Returns:
+            List of matching AgentRun records, most recent first.
+        """
         return list(
             await self.repo.list_recent_runs_for_user(
                 user_id=user_id,
@@ -226,6 +348,23 @@ class RunService:
         error_message: Optional[str] = None,
         result_summary: Optional[dict[str, Any]] = None,
     ) -> Optional[AgentRun]:
+        """Transition a run to a new status, update its snapshot, and broadcast the change.
+
+        Handles runtime ownership assignment on RUNNING, clears it on terminal
+        states, and publishes status updates via Redis and WebSocket.
+
+        Args:
+            run_id: Unique identifier of the run.
+            user_id: Owner user ID, or None for system-level transitions.
+            status: Target status to transition to.
+            runtime_owner_id: Runtime instance claiming this run (for RUNNING).
+            error_code: Machine-readable error code (for FAILED).
+            error_message: Human-readable error description (for FAILED).
+            result_summary: Optional summary dict merged into the run record.
+
+        Returns:
+            The updated AgentRun, or None if the run was not found.
+        """
         run = await self.repo.get_run_for_update(run_id, user_id=user_id)
         if not run:
             return None
@@ -294,6 +433,18 @@ class RunService:
         run_id: uuid.UUID,
         runtime_owner_id: Optional[str] = None,
     ) -> Optional[AgentRun]:
+        """Update the heartbeat timestamp for an active run to prevent stale-run recovery.
+
+        Only updates runs in QUEUED or RUNNING status. Also sets the
+        runtime_owner_id if not already assigned.
+
+        Args:
+            run_id: Unique identifier of the run.
+            runtime_owner_id: Runtime instance ID to record as the owner.
+
+        Returns:
+            The updated AgentRun, or None if the run was not found.
+        """
         run = await self.repo.get_run_for_update(run_id)
         if not run:
             return None
@@ -311,6 +462,19 @@ class RunService:
         runtime_owner_id: str,
         stale_before: datetime,
     ) -> list[AgentRun]:
+        """Mark stale incomplete runs as FAILED and record recovery metadata.
+
+        Finds runs whose last heartbeat is older than stale_before and
+        transitions them to FAILED with a ``runtime_recovered`` error code.
+
+        Args:
+            runtime_owner_id: ID of the runtime performing the recovery.
+            stale_before: Cutoff timestamp; runs with an older heartbeat are
+                considered stale.
+
+        Returns:
+            List of AgentRun records that were recovered (marked as FAILED).
+        """
         stale_runs = await self.repo.list_recoverable_stale_runs(
             stale_before=stale_before,
         )
@@ -353,6 +517,28 @@ class RunService:
         parent_observation_id: Optional[uuid.UUID] = None,
         commit: bool = True,
     ) -> AgentRunEvent:
+        """Append a new event to a run's event log and update its snapshot projection.
+
+        Increments the run's sequence counter, applies the agent's reducer to
+        update the snapshot projection, and publishes the event via Redis and
+        WebSocket. Snapshot writes to Redis are throttled for content_delta events.
+
+        Args:
+            run_id: Unique identifier of the run.
+            event_type: Type label for the event (e.g. "user_message_added",
+                "content_delta").
+            payload: Arbitrary event data.
+            trace_id: Optional tracing ID for observability.
+            observation_id: Optional observation ID for observability.
+            parent_observation_id: Optional parent observation ID for nesting.
+            commit: Whether to commit the transaction and publish to Redis/WS.
+
+        Returns:
+            The newly created AgentRunEvent.
+
+        Raises:
+            ValueError: If the run is not found.
+        """
         run = await self.repo.get_run_for_update(run_id)
         if not run:
             raise ValueError(f"Run not found: {run_id}")

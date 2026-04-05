@@ -324,7 +324,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
             try:
                 request.state["agent_memory_context"] = memory_context  # type: ignore[typeddict-unknown-key]
             except Exception:
-                pass
+                logger.debug("Failed to store memory context in request state", exc_info=True)
 
             logger.info(f"Injecting memory context into system prompt for user_id={user_id}")
             if request.system_prompt:
@@ -386,7 +386,7 @@ class AgentMemoryIterationMiddleware(AgentMiddleware):
             try:
                 request.state["agent_memory_context"] = memory_context  # type: ignore[typeddict-unknown-key]
             except Exception:
-                pass
+                logger.debug("Failed to store memory context in request state", exc_info=True)
 
             logger.info(f"Injecting memory context into system prompt for user_id={user_id}")
             if request.system_prompt:

@@ -28,13 +28,10 @@ class ToolResult(BaseModel):
 
 
 def get_entrypoint_for_tool(tool: MCPTool, session: ClientSession):
-    """
-    DEPRECATED: This function is kept for backward compatibility.
+    """Return an entrypoint for an MCP tool that captures a live session.
 
-    Note: MCPTools.build_tools() still uses this for internal tool registration.
-    For registering tools to ToolRegistry, use create_lazy_mcp_entrypoint instead.
-
-    Return an entrypoint for an MCP tool that captures a session.
+    Used internally by MCPTools.build_tools() for session-bound tool registration.
+    For ToolRegistry registration (lazy session creation), use create_lazy_mcp_entrypoint instead.
     """
 
     async def call_tool(tool_name: str, **kwargs) -> ToolResult:
@@ -269,10 +266,6 @@ def create_lazy_mcp_entrypoint(
                     continue
                 else:
                     # Non-retryable error or max retries reached
-                    "timeout" if "timeout" in str(e).lower() else "unknown"
-                    if not is_retryable:
-                        "config" if "not found" in str(e).lower() or "disabled" in str(e).lower() else "unknown"
-
                     error_msg = f"Failed to execute MCP tool '{tool_name}' from server '{server_name}': {e}"
                     logger.error(f"[MCP Tool Execution] {error_msg}", exc_info=True)
                     return ToolResult(content=f"Error: {error_msg}")

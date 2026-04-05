@@ -76,6 +76,7 @@ class OpenClawBridgeHandler:
                 logger.debug("openclaw websocket close error", exc_info=True)
 
     async def _forward_client_to_gateway(self, client_ws: WebSocket, gw_ws, user_id: str):
+        """Forward messages from the client WebSocket to the OpenClaw gateway."""
         try:
             while True:
                 data = await client_ws.receive_text()
@@ -86,6 +87,7 @@ class OpenClawBridgeHandler:
             logger.debug(f"Client->GW bridge ended: user={user_id}, {e}")
 
     async def _forward_gateway_to_client(self, client_ws: WebSocket, gw_ws, user_id: str):
+        """Forward messages from the OpenClaw gateway to the client WebSocket."""
         try:
             async for message in gw_ws:
                 if isinstance(message, str):

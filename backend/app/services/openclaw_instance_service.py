@@ -58,7 +58,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                 if "docker" in content or "kubepods" in content:
                     return True
         except Exception:
-            pass
+            logger.debug("Failed to read /proc/1/cgroup for Docker detection", exc_info=True)
         return False
 
     def get_gateway_url(self, instance: OpenClawInstance) -> str:
@@ -295,7 +295,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                         logger.info(f"OpenClaw gateway ready on port {instance.gateway_port}")
                         return
             except Exception:
-                pass
+                logger.debug("Failed to poll OpenClaw gateway readiness on port %s", instance.gateway_port, exc_info=True)
             await asyncio.sleep(GATEWAY_READY_POLL_INTERVAL)
 
         # Last resort: check if container is still running
@@ -473,7 +473,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                     container = await asyncio.to_thread(client.containers.get, container_id)
                     await asyncio.to_thread(container.exec_run, cmd=["mkdir", "-p", "/workspace/skills"])
                 except Exception:
-                    pass
+                    logger.debug("Failed to create /workspace/skills directory in container %s", container_id, exc_info=True)
                 return 0
 
             client = docker.from_env()

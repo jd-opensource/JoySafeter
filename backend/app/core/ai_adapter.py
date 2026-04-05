@@ -430,26 +430,3 @@ class AgentBridge:
             self.has_sent_thinking_for_current_request = False
 
         return results
-
-    def get_memory_files(self) -> List[str]:
-        """Get list of memory files for this session."""
-        memory_files: List[str] = []
-        if self.memory_dir.exists():
-            for file_path in self.memory_dir.rglob("*"):
-                if file_path.is_file():
-                    relative_path = file_path.relative_to(self.memory_dir)
-                    memory_files.append(str(relative_path))
-        return memory_files
-
-    def read_memory_file(self, file_path: str) -> str:
-        """Read content from a memory file."""
-        full_path = self.memory_dir / file_path
-        if full_path.exists() and full_path.is_file():
-            return full_path.read_text(encoding="utf-8")
-        return ""
-
-    def write_memory_file(self, file_path: str, content: str) -> None:
-        """Write content to a memory file."""
-        full_path = self.memory_dir / file_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content, encoding="utf-8")

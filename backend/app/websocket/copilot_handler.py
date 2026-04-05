@@ -17,6 +17,7 @@ class CopilotWebSocketHandler:
     """Handles WebSocket connections for Copilot session subscriptions."""
 
     def __init__(self):
+        """Initialize with an empty subscription registry."""
         self.active_subscriptions: dict[str, asyncio.Task] = {}
 
     def _is_websocket_connected(self, websocket: WebSocket) -> bool:

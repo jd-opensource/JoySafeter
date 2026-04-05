@@ -4,7 +4,7 @@ Revision ID: 000000000004
 Revises: 000000000003
 Create Date: 2026-02-03 00:00:00.000000+00:00
 
-添加 OAuth 账户关联表，支持 GitHub、Google 及自定义 OIDC 提供商登录。
+Add OAuth account association table to support GitHub, Google, and custom OIDC provider logins.
 """
 
 from typing import Sequence, Union
@@ -22,7 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # 创建 oauth_account 表
+    # Create oauth_account table
     op.create_table(
         "oauth_account",
         sa.Column("id", sa.String(255), primary_key=True),
@@ -38,7 +38,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )
 
-    # 创建唯一索引：确保同一提供商的同一账户只能绑定一个用户
+    # Create unique index: ensure each provider account can only be linked to one user
     op.create_index(
         "ix_oauth_account_provider_account",
         "oauth_account",
@@ -46,7 +46,7 @@ def upgrade() -> None:
         unique=True,
     )
 
-    # 创建用户索引：加速按用户查询
+    # Create user index: speed up queries by user
     op.create_index(
         "ix_oauth_account_user_id",
         "oauth_account",

@@ -28,11 +28,11 @@ def upgrade() -> None:
             sa.Boolean(),
             nullable=False,
             server_default="false",
-            comment="是否为模板（用于创建自定义供应商）",
+            comment="Whether this is a template (used to create custom providers)",
         ),
     )
     op.add_column(
-        "model_provider", sa.Column("template_name", sa.String(length=100), nullable=True, comment="引用模板的名称")
+        "model_provider", sa.Column("template_name", sa.String(length=100), nullable=True, comment="Name of the referenced template")
     )
     op.add_column(
         "model_provider",
@@ -41,7 +41,7 @@ def upgrade() -> None:
             sa.String(length=50),
             nullable=False,
             server_default="system",
-            comment="供应商类型：system, custom",
+            comment="Provider type: system, custom",
         ),
     )
     # ### end Alembic commands ###

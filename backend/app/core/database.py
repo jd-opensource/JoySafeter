@@ -52,7 +52,7 @@ async_session_factory = async_sessionmaker(
     autoflush=False,
 )
 
-# backward-compatible alias: legacy code uses AsyncSessionLocal()
+# Alias: AsyncSessionLocal() is equivalent to async_session_factory()
 # async_sessionmaker is callable — calling it returns an AsyncSession
 AsyncSessionLocal = async_session_factory
 

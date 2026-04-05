@@ -182,10 +182,3 @@ def get_toolkit_manager() -> McpToolkitManager:
     if _global_toolkit_manager is None:
         _global_toolkit_manager = McpToolkitManager()
     return _global_toolkit_manager
-
-
-async def cleanup_all_toolkits() -> None:
-    """Clean up all toolkits (for application shutdown)."""
-    global _global_toolkit_manager
-    if _global_toolkit_manager:
-        await _global_toolkit_manager.cleanup_all()

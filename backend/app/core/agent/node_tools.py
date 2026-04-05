@@ -309,7 +309,7 @@ def _collect_files_from_backend(backend: Any, dir_path: str, base_dir: str, file
                 # Strip line numbers added by format_read_response
                 # format_content_with_line_numbers outputs: "{line_num}\t{content}"
                 # e.g. "     1\t---" or "     2\tname: foo"
-                # Also handle legacy " | " format for safety.
+                # Also handle " | " separator format.
                 stripped_lines = []
                 for line in content.splitlines():
                     # Try tab-separated format first: "  N\tcontent"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import CurrentUser
@@ -274,7 +275,7 @@ async def cancel_run(
         try:
             await task_manager.stop_task(run.thread_id)
         except Exception:
-            pass
+            logger.debug("Failed to stop task for thread_id=%s during run cancellation", run.thread_id, exc_info=True)
 
     run = await service.mark_status(
         run_id=run_id,

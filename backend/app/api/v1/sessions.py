@@ -1,10 +1,10 @@
 """
-Module: Sessions API (legacy, based on SessionService)
+Module: Sessions API (based on SessionService)
 
 Overview:
 - Provides session CRUD (create, list, get, update title, delete)
 - Provides listing messages for a specific session
-- Managed via SessionService (legacy module, to be unified with /conversations)
+- Managed via SessionService
 
 Routes:
 - POST /sessions/new_session: Create a session
@@ -23,10 +23,6 @@ Requests/Responses:
 - Response models: SessionResponse, MessageResponse
 - Unified errors: HTTPException
 
-Notes:
-- This implementation does not integrate user authentication yet; get_sessions temporarily returns user_id=1 (TODO: add auth and filter by actual user)
-- This module uses legacy relative imports (../models, ../services) and can coexist with newer app.* modules
-
 Error codes:
 - 404: Session not found
 - 400: Invalid parameters or business rule failure
@@ -44,7 +40,7 @@ from app.services.session_service import SessionService
 
 router = APIRouter()
 
-# ==================== Session endpoints (legacy, based on SessionService) ====================
+# --- Session endpoints (based on SessionService) ---
 # ----- Create -----
 # ----- Read -----
 # ----- Update -----

@@ -4,8 +4,8 @@ Revision ID: 000000000005
 Revises: 000000000004
 Create Date: 2026-02-06 00:00:00.000000+00:00
 
-新增执行追踪表 (execution_traces) 和执行观测表 (execution_observations)，
-用于持久化 LangGraph 执行数据，支持层级 Observation 嵌套关系。
+Add execution trace table (execution_traces) and execution observation table (execution_observations)
+for persisting LangGraph execution data, with support for hierarchical observation nesting.
 """
 
 from typing import Sequence, Union

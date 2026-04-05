@@ -67,10 +67,6 @@ async def demo_sse(host: str = "http://localhost:8000/sse"):
                 for tool in tools.tools[:10]:
                     print(f"  - {tool.name}: {tool.description}")
 
-                # Call a tool
-                # result = await session.call_tool("list_all_tool_categories", {})
-                # print(f"\nTool result: {result}")
-
                 while True:
                     tool_name = input("Enter tool name: ")
                     input_json = input("Enter kwargs: ")
@@ -155,22 +151,8 @@ async def demo_list_prompts():
 
 
 async def main():
-    # Uncomment the demo you want to run:
-
-    # Demo 1: STDIO (requires MCP server command)
-    # await demo_stdio()
-
     # Demo 2: SSE (requires MCP server on localhost:8000)
     await demo_sse(host="http://localhost:9100/sse")
-
-    # Demo 3: Streamable HTTP (requires MCP server)
-    # await demo_streamable_http()
-
-    # Demo 4: List resources
-    # await demo_list_resources()
-
-    # Demo 5: List prompts
-    # await demo_list_prompts()
 
 
 if __name__ == "__main__":

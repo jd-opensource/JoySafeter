@@ -218,13 +218,13 @@ async def logout(
             current_user = await _get_current_auth_user(token, db, request)
             user_id = current_user.id
         except (UnauthorizedException, HTTPException):
-            pass
+            logger.debug("Failed to resolve current user during logout", exc_info=True)
 
         if refresh_token and user_id:
             try:
                 await service._delete_refresh_token(refresh_token, user_id)
             except Exception:
-                pass
+                logger.debug("Failed to delete refresh token during logout", exc_info=True)
 
         response.delete_cookie(
             key=settings.cookie_name,
@@ -248,6 +248,7 @@ async def logout(
         return success_response(message="Logout successful")
 
     except Exception:
+        logger.debug("Failed to perform full logout, clearing cookies anyway", exc_info=True)
         response.delete_cookie(
             key=settings.cookie_name,
             domain=settings.cookie_domain,
@@ -388,7 +389,7 @@ async def refresh_token(
     try:
         refresh_token_value = request.cookies.get("refresh_token")
     except Exception:
-        pass
+        logger.debug("Failed to read refresh_token from cookies", exc_info=True)
 
     if not refresh_token_value and token:
         try:
@@ -413,7 +414,7 @@ async def refresh_token(
                         }
                     )
         except Exception:
-            pass
+            logger.debug("Failed to refresh token via Authorization header", exc_info=True)
 
     if refresh_token_value:
         try:
@@ -426,7 +427,7 @@ async def refresh_token(
                 }
             )
         except Exception:
-            pass
+            logger.debug("Failed to refresh token via cookie refresh_token", exc_info=True)
 
     raise UnauthorizedException("Invalid or expired refresh token")
 
@@ -450,7 +451,7 @@ async def _get_current_auth_user(
         try:
             token = _extract_bearer(auth_header)
         except HTTPException:
-            pass
+            logger.debug("Failed to extract bearer token from Authorization header", exc_info=True)
 
     if not token and request:
         try:
@@ -462,7 +463,7 @@ async def _get_current_auth_user(
                 or request.cookies.get("auth_token")
             )
         except Exception:
-            pass
+            logger.debug("Failed to read token from cookies", exc_info=True)
 
     if not token:
         raise UnauthorizedException("Missing credentials")

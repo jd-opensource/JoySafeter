@@ -3,7 +3,7 @@ Graph models
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
@@ -25,10 +25,6 @@ if TYPE_CHECKING:
     from .graph_deployment_version import GraphDeploymentVersion
     from .graph_test import GraphTestCase
     from .workspace import Workspace, WorkspaceFolder
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
 
 
 class AgentGraph(BaseModel, SoftDeleteMixin):

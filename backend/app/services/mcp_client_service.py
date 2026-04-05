@@ -216,9 +216,3 @@ def get_mcp_client() -> McpClientService:
     if _default_client is None:
         _default_client = McpClientService()
     return _default_client
-
-
-def set_mcp_client(client: McpClientService) -> None:
-    """Set the MCP client instance (for testing)."""
-    global _default_client
-    _default_client = client

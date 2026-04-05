@@ -4,7 +4,7 @@ GraphExecution model -- track Graph executions triggered via OpenAPI.
 
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text
@@ -12,10 +12,6 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import BaseModel
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
 
 
 class ExecutionStatus(str, enum.Enum):

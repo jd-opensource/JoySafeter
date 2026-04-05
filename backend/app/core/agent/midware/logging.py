@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 from deepagents.backends.protocol import BackendProtocol
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from loguru import logger
 from typing_extensions import NotRequired
 
 
@@ -571,7 +572,7 @@ class LoggingMiddleware(AgentMiddleware):
                 result = json.loads(session_data)
                 return result if isinstance(result, dict) else {"error": "Invalid session data format"}
         except Exception:
-            pass
+            logger.debug("Failed to read session statistics", exc_info=True)
 
         return {"error": "Session statistics not available"}
 
@@ -585,7 +586,7 @@ class LoggingMiddleware(AgentMiddleware):
 
                 return [json.loads(line) for line in recent_lines if line.strip()]
         except Exception:
-            pass
+            logger.debug("Failed to read recent conversations", exc_info=True)
 
         return []
 
