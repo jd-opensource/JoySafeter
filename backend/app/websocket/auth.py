@@ -7,8 +7,8 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.cookie_auth import extract_token_from_cookies
 from app.core.security import decode_token
-from app.core.settings import settings
 from app.models import User
 
 
@@ -29,13 +29,7 @@ async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[s
     token = None
 
     try:
-        token = (
-            websocket.cookies.get(settings.cookie_name)
-            or websocket.cookies.get("session-token")
-            or websocket.cookies.get("session_token")
-            or websocket.cookies.get("access_token")
-            or websocket.cookies.get("auth_token")
-        )
+        token = extract_token_from_cookies(websocket.cookies)
     except Exception as e:
         logger.warning(f"WebSocket cookie extraction failed: {e}")
 

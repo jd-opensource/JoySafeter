@@ -1,10 +1,10 @@
 """Pydantic schemas for Skill Version API."""
 
-import uuid
-from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
+
+from app.schemas.base import ISODatetime, UUIDStr
 
 
 class VersionPublishRequest(BaseModel):
@@ -17,8 +17,8 @@ class VersionRestoreRequest(BaseModel):
 
 
 class VersionFileSchema(BaseModel):
-    id: str
-    version_id: str
+    id: UUIDStr
+    version_id: UUIDStr
     path: str
     file_name: str
     file_type: str
@@ -27,20 +27,13 @@ class VersionFileSchema(BaseModel):
     storage_key: Optional[str] = None
     size: int = 0
 
-    @field_validator("id", "version_id", mode="before")
-    @classmethod
-    def convert_uuid_to_str(cls, v):
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return v
-
     class Config:
         from_attributes = True
 
 
 class VersionSchema(BaseModel):
-    id: str
-    skill_id: str
+    id: UUIDStr
+    skill_id: UUIDStr
     version: str
     release_notes: Optional[str] = None
     skill_name: str
@@ -52,23 +45,9 @@ class VersionSchema(BaseModel):
     compatibility: Optional[str] = None
     license: Optional[str] = None
     published_by_id: str
-    published_at: Optional[str] = None
-    created_at: Optional[str] = None
+    published_at: ISODatetime = None
+    created_at: ISODatetime = None
     files: Optional[List[VersionFileSchema]] = None
-
-    @field_validator("id", "skill_id", mode="before")
-    @classmethod
-    def convert_uuid_to_str(cls, v):
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return v
-
-    @field_validator("published_at", "created_at", mode="before")
-    @classmethod
-    def convert_datetime_to_str(cls, v):
-        if isinstance(v, datetime):
-            return v.isoformat()
-        return v
 
     class Config:
         from_attributes = True
@@ -81,14 +60,7 @@ class VersionSummarySchema(BaseModel):
     version: str
     release_notes: Optional[str] = None
     published_by_id: str
-    published_at: Optional[str] = None
-
-    @field_validator("published_at", mode="before")
-    @classmethod
-    def convert_datetime_to_str(cls, v):
-        if isinstance(v, datetime):
-            return v.isoformat()
-        return v
+    published_at: ISODatetime = None
 
     class Config:
         from_attributes = True

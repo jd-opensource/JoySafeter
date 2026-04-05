@@ -4,7 +4,9 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
+
+from app.schemas.base import ISODatetime, UUIDStr
 
 
 class TokenCreate(BaseModel):
@@ -18,64 +20,29 @@ class TokenCreate(BaseModel):
 class TokenCreateResponse(BaseModel):
     """Returned only once at creation — contains plaintext token."""
 
-    id: str
+    id: UUIDStr
     name: str
     token: str  # plaintext, shown only once
     token_prefix: str
     scopes: List[str]
     resource_type: Optional[str] = None
-    expires_at: Optional[str] = None
-    created_at: Optional[str] = None
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def convert_uuid_to_str(cls, v):
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return v
-
-    @field_validator("expires_at", "created_at", mode="before")
-    @classmethod
-    def convert_datetime_to_str(cls, v):
-        if isinstance(v, datetime):
-            return v.isoformat()
-        return v
+    expires_at: ISODatetime = None
+    created_at: ISODatetime = None
 
 
 class TokenSchema(BaseModel):
     """List view — never contains plaintext token."""
 
-    id: str
+    id: UUIDStr
     name: str
     token_prefix: str
     scopes: List[str]
     resource_type: Optional[str] = None
-    resource_id: Optional[str] = None
-    expires_at: Optional[str] = None
-    last_used_at: Optional[str] = None
+    resource_id: Optional[UUIDStr] = None
+    expires_at: ISODatetime = None
+    last_used_at: ISODatetime = None
     is_active: bool
-    created_at: Optional[str] = None
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def convert_uuid_to_str(cls, v):
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return v
-
-    @field_validator("resource_id", mode="before")
-    @classmethod
-    def convert_resource_id(cls, v):
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return v
-
-    @field_validator("expires_at", "last_used_at", "created_at", mode="before")
-    @classmethod
-    def convert_datetime_to_str(cls, v):
-        if isinstance(v, datetime):
-            return v.isoformat()
-        return v
+    created_at: ISODatetime = None
 
     class Config:
         from_attributes = True

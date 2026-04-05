@@ -1,17 +1,17 @@
 """Skill API schemas."""
 
-import uuid
-from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.schemas.base import ISODatetime, UUIDStr
 
 
 class SkillFileSchema(BaseModel):
     """Skill file schema."""
 
-    id: str
-    skill_id: str
+    id: UUIDStr
+    skill_id: UUIDStr
     path: str
     file_name: str
     file_type: str
@@ -19,24 +19,8 @@ class SkillFileSchema(BaseModel):
     storage_type: str = "database"
     storage_key: Optional[str] = None
     size: int = 0
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-
-    @field_validator("id", "skill_id", mode="before")
-    @classmethod
-    def convert_uuid_to_str(cls, v):
-        """Convert UUID to string."""
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return v
-
-    @field_validator("created_at", "updated_at", mode="before")
-    @classmethod
-    def convert_datetime_to_str(cls, v):
-        """Convert datetime to ISO format string."""
-        if isinstance(v, datetime):
-            return v.isoformat()
-        return v
+    created_at: ISODatetime = None
+    updated_at: ISODatetime = None
 
     class Config:
         from_attributes = True
@@ -65,7 +49,7 @@ class SkillFileCreate(BaseModel):
 class SkillSchema(BaseModel):
     """Skill schema for API responses."""
 
-    id: str
+    id: UUIDStr
     name: str
     description: str
     content: str
@@ -80,26 +64,10 @@ class SkillSchema(BaseModel):
     compatibility: Optional[str] = None
     metadata: dict = Field(default_factory=dict, validation_alias="meta_data")
     allowed_tools: List[str] = Field(default_factory=list)
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: ISODatetime = None
+    updated_at: ISODatetime = None
     files: Optional[List[SkillFileSchema]] = None
     latest_version: Optional[str] = None
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def convert_uuid_to_str(cls, v):
-        """Convert UUID to string."""
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return v
-
-    @field_validator("created_at", "updated_at", mode="before")
-    @classmethod
-    def convert_datetime_to_str(cls, v):
-        """Convert datetime to ISO format string."""
-        if isinstance(v, datetime):
-            return v.isoformat()
-        return v
 
     @model_validator(mode="before")
     @classmethod

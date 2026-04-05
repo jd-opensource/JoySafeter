@@ -3,15 +3,15 @@ from contextlib import AsyncExitStack
 from dataclasses import asdict
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from loguru import logger
-from pydantic import BaseModel
 
 from app.core.tools.mcp.params import SSEClientParams, StreamableHTTPClientParams
 from app.core.tools.tool import EnhancedTool, ToolMetadata, ToolSourceType
 from app.core.tools.toolkit import Toolkit
 from app.utils.mcp import get_entrypoint_for_tool, prepare_command
+from app.utils.mcp_tool_builder import json_schema_to_pydantic_model
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -346,68 +346,6 @@ class MultiMCPTools(Toolkit):
         self._initialized = False
         self._successful_connections = 0
 
-    def _json_schema_to_pydantic_model(self, schema: Any, name: str) -> Optional[type[BaseModel]]:
-        """
-        Convert a JSON Schema dict from MCP into a Pydantic BaseModel for validation.
-        Supports common primitives, arrays, and shallow objects. Returns None if unsupported.
-        """
-        from pydantic import create_model
-
-        try:
-            if not isinstance(schema, dict):
-                return None
-
-            properties = schema.get("properties", {}) or {}
-            required = set(schema.get("required", []) or [])
-
-            type_mapping = {
-                "string": str,
-                "integer": int,
-                "number": float,
-                "boolean": bool,
-            }
-
-            fields = {}
-            for prop_name, prop_schema in properties.items():
-                if not isinstance(prop_schema, dict):
-                    continue
-                prop_type = prop_schema.get("type")
-                default = prop_schema.get("default", None)
-                py_type: type[Any] = Any  # type: ignore[assignment]
-
-                if prop_type in type_mapping:
-                    py_type = type_mapping[prop_type]  # type: ignore[assignment]
-                elif prop_type == "array":
-                    items = prop_schema.get("items", {})
-                    if isinstance(items, dict):
-                        item_type_val = items.get("type")
-                        item_type: Any = type_mapping.get(item_type_val, Any) if isinstance(item_type_val, str) else Any
-                    else:
-                        item_type = Any
-                    from typing import List as TypingList
-
-                    py_type = TypingList[item_type]  # type: ignore[assignment]
-                elif prop_type == "object":
-                    from typing import Dict as TypingDict
-
-                    py_type = TypingDict[str, Any]  # type: ignore[assignment]
-
-                if prop_name in required and default is None:
-                    fields[prop_name] = (py_type, ...)  # type: ignore[assignment]
-                else:
-                    from typing import Optional as TypingOptional
-
-                    fields[prop_name] = (TypingOptional[py_type], default)  # type: ignore[assignment]
-
-            if not fields:
-                return None
-
-            model_name = f"MCP_{name}_Args"
-            return create_model(model_name, **fields)  # type: ignore
-        except Exception as e:
-            logger.debug(f"Failed to convert JSON schema to Pydantic for tool '{name}': {e}")
-            return None
-
     async def build_tools(self) -> None:
         for session in self._sessions:
             # Get the list of tools from the MCP server
@@ -428,7 +366,7 @@ class MultiMCPTools(Toolkit):
                     entrypoint = get_entrypoint_for_tool(tool, session)
 
                     # Build validation schema from MCP JSON Schema (if possible)
-                    args_schema_model = self._json_schema_to_pydantic_model(tool.inputSchema, tool.name)
+                    args_schema_model = json_schema_to_pydantic_model(tool.inputSchema, tool.name)
 
                     # Metadata per session
                     meta = self._session_meta.get(id(session), {})

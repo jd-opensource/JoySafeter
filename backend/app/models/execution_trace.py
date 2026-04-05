@@ -28,7 +28,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from app.utils.datetime import utc_now
 
-
 # ============ Enums ============
 
 
@@ -119,11 +118,12 @@ class ExecutionTrace(Base):
     )
 
     # relationship
+    observations: Mapped[list["ExecutionObservation"]] = relationship(
         "ExecutionObservation",
         back_populates="trace",
         cascade="all, delete-orphan",
         passive_deletes=True,
-        lazy="selectin",
+        lazy="noload",
     )
 
     __table_args__ = (
@@ -219,6 +219,11 @@ class ExecutionObservation(Base):
     )
 
     # relationships
+    trace: Mapped["ExecutionTrace"] = relationship(
+        "ExecutionTrace",
+        back_populates="observations",
+        lazy="raise",
+    )
     children: Mapped[list["ExecutionObservation"]] = relationship(
         "ExecutionObservation",
         back_populates="parent",

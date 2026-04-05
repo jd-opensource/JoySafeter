@@ -1,8 +1,21 @@
-from typing import Generic, Optional, TypeVar
+import uuid
+from datetime import datetime
+from typing import Annotated, Generic, Optional, TypeVar
 
 from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BeforeValidator
 
 T = TypeVar("T")
+
+UUIDStr = Annotated[
+    str,
+    BeforeValidator(lambda v: str(v) if isinstance(v, uuid.UUID) else v),
+]
+
+ISODatetime = Annotated[
+    Optional[str],
+    BeforeValidator(lambda v: v.isoformat() if isinstance(v, datetime) else v),
+]
 
 
 class BaseResponse(PydanticBaseModel, Generic[T]):

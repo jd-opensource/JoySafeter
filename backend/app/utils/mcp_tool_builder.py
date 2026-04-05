@@ -18,13 +18,10 @@ from app.core.tools.tool import EnhancedTool, ToolMetadata, ToolSourceType
 from app.utils.mcp import create_lazy_mcp_entrypoint
 
 
-def _json_schema_to_pydantic_model(schema: Any, name: str) -> Optional[type[BaseModel]]:
+def json_schema_to_pydantic_model(schema: Any, name: str) -> Optional[type[BaseModel]]:
     """
     Convert a JSON Schema dict from MCP into a Pydantic BaseModel for validation.
     Handles common primitive types, arrays, and objects. Falls back to None if unsupported.
-
-    This is a standalone version matching the logic in MCPTools._json_schema_to_pydantic_model
-    to avoid duplication while maintaining consistency.
     """
     from typing import Any
     from typing import Dict as TypingDict
@@ -34,9 +31,6 @@ def _json_schema_to_pydantic_model(schema: Any, name: str) -> Optional[type[Base
     from pydantic import create_model
 
     try:
-        if not isinstance(schema, dict):
-            return None
-
         if not isinstance(schema, dict):
             return None
         properties = schema.get("properties", {}) or {}  # type: ignore[union-attr]
@@ -102,7 +96,7 @@ def create_mcp_tools_from_definitions(
                 user_id=user_id,
             )
 
-            args_schema_model = _json_schema_to_pydantic_model(tool.inputSchema, tool.name)
+            args_schema_model = json_schema_to_pydantic_model(tool.inputSchema, tool.name)
 
             metadata = ToolMetadata(
                 source_type=ToolSourceType.MCP,

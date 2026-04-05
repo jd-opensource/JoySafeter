@@ -57,16 +57,9 @@ async def get_current_user_or_token(
     # Try to extract token from cookie if not in header
     raw_token = token
     if not raw_token and request:
-        from app.core.settings import settings
+        from app.common.cookie_auth import extract_token_from_cookies
 
-        raw_token = (
-            request.cookies.get(settings.cookie_name)
-            or request.cookies.get("session-token")
-            or request.cookies.get("session_token")
-            or request.cookies.get("access_token")
-            or request.cookies.get("Authorization")
-            or request.cookies.get("auth_token")
-        )
+        raw_token = extract_token_from_cookies(request.cookies)
 
     # PlatformToken path
     if raw_token and raw_token.startswith(TOKEN_PREFIX):

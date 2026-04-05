@@ -1,12 +1,9 @@
 """Pydantic schemas for Skill Collaborator API."""
 
-import uuid
-from datetime import datetime
-from typing import Optional
-
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.models.skill_collaborator import CollaboratorRole
+from app.schemas.base import ISODatetime, UUIDStr
 
 
 class CollaboratorCreate(BaseModel):
@@ -19,26 +16,12 @@ class CollaboratorUpdate(BaseModel):
 
 
 class CollaboratorSchema(BaseModel):
-    id: str
-    skill_id: str
+    id: UUIDStr
+    skill_id: UUIDStr
     user_id: str
     role: CollaboratorRole
     invited_by: str
-    created_at: Optional[str] = None
-
-    @field_validator("id", "skill_id", mode="before")
-    @classmethod
-    def convert_uuid_to_str(cls, v):
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return v
-
-    @field_validator("created_at", mode="before")
-    @classmethod
-    def convert_datetime_to_str(cls, v):
-        if isinstance(v, datetime):
-            return v.isoformat()
-        return v
+    created_at: ISODatetime = None
 
     class Config:
         from_attributes = True

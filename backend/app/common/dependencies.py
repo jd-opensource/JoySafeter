@@ -11,10 +11,10 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.cookie_auth import extract_token_from_cookies
 from app.common.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.core.settings import settings
 from app.models.auth import AuthUser as User
 from app.models.organization import Member as OrgMember
 from app.models.workspace import WorkspaceMemberRole
@@ -39,15 +39,7 @@ async def get_current_user(
     cookie_token = None
     try:
         if request:
-            # prefer configured cookie_name, then try other possible names
-            cookie_token = (
-                request.cookies.get(settings.cookie_name)  # prefer configured cookie name
-                or request.cookies.get("session-token")
-                or request.cookies.get("session_token")
-                or request.cookies.get("access_token")
-                or request.cookies.get("Authorization")
-                or request.cookies.get("auth_token")
-            )
+            cookie_token = extract_token_from_cookies(request.cookies)
     except Exception:
         logger.debug("Failed to read auth token from cookies", exc_info=True)
     token = token or cookie_token
@@ -90,15 +82,7 @@ async def get_current_user_optional(
     cookie_token = None
     try:
         if request:
-            # prefer configured cookie_name, then try other possible names
-            cookie_token = (
-                request.cookies.get(settings.cookie_name)  # prefer configured cookie name
-                or request.cookies.get("session-token")
-                or request.cookies.get("session_token")
-                or request.cookies.get("access_token")
-                or request.cookies.get("Authorization")
-                or request.cookies.get("auth_token")
-            )
+            cookie_token = extract_token_from_cookies(request.cookies)
     except Exception:
         logger.debug("Failed to read auth token from cookies", exc_info=True)
     token = token or cookie_token

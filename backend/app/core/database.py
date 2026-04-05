@@ -58,12 +58,12 @@ AsyncSessionLocal = async_session_factory
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    “””Get a database session.
+    """Get a database session.
 
     Convention:
     - This dependency only creates/closes the session and rolls back on exception.
     - Business code must explicitly call commit()/rollback() (or use `async with session.begin():`).
-    “””
+    """
     async with async_session_factory() as session:
         try:
             yield session
