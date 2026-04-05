@@ -798,25 +798,11 @@ export const useBuilderStore = create<BuilderState>((set, get) => {
     },
 
     applyAIChanges: ({ nodes, edges }) => {
-      console.warn('[BuilderStore] applyAIChanges called', {
-        nodesProvided: nodes !== undefined,
-        nodesLength: nodes?.length ?? 0,
-        edgesProvided: edges !== undefined,
-        edgesLength: edges?.length ?? 0,
-        currentNodesCount: get().nodes.length,
-        currentEdgesCount: get().edges.length,
-      })
-
       get().takeSnapshot()
       set((state) => ({
         nodes: nodes !== undefined ? nodes : state.nodes,
         edges: edges !== undefined ? edges : state.edges,
       }))
-
-      console.warn('[BuilderStore] applyAIChanges completed', {
-        newNodesCount: get().nodes.length,
-        newEdgesCount: get().edges.length,
-      })
 
       // Optimistic update only. Graph state is persisted by the backend after
       // Copilot generation; no frontend save here to avoid dual-write races.

@@ -16,7 +16,7 @@ interface InstanceStatus {
 
 function getApiBaseUrl(): string {
   const url = runtimeEnv('NEXT_PUBLIC_API_URL') || process.env.NEXT_PUBLIC_API_URL
-  return url?.replace(/\/api\/?$/, '') || 'http://localhost:8000'
+  return url?.replace(/\/api\/?$/, '') || process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:8000'
 }
 
 export function OpenClawWebUI() {

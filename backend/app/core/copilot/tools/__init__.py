@@ -40,7 +40,7 @@ from app.core.copilot.tools.registry import (
 from app.core.copilot.tools.think import think
 
 # Import external research tool
-from app.core.tools.buildin.research_tools import tavily_search
+from app.core.tools.builtin.research_tools import tavily_search
 
 # List of all Copilot tools
 COPILOT_TOOLS = [

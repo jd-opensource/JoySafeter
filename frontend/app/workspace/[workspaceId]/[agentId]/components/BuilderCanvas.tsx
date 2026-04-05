@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import ReactFlow, { Background, BackgroundVariant, useReactFlow } from 'reactflow'
 
-import { useToast } from '@/components/ui/use-toast'
+import { useToast } from '@/hooks/use-toast'
 import { useUserPermissions } from '@/hooks/use-user-permissions'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useTranslation } from '@/lib/i18n'

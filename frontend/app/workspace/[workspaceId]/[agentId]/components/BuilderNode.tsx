@@ -16,7 +16,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useToast } from '@/components/ui/use-toast'
+import { useToast } from '@/hooks/use-toast'
 import { useModels } from '@/hooks/queries/models'
 import { useBuiltinTools } from '@/hooks/queries/tools'
 import { useUserPermissions } from '@/hooks/use-user-permissions'

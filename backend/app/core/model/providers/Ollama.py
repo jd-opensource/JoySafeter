@@ -49,6 +49,8 @@ def _fetch_ollama_models(base_url: str) -> List[Dict[str, Any]]:
 class OllamaProvider(BaseProvider):
     """Ollama local model provider."""
 
+    DEFAULT_BASE_URL = "http://localhost:11434"
+
     def __init__(self):
         super().__init__(
             provider_name="ollama",
@@ -123,7 +125,7 @@ class OllamaProvider(BaseProvider):
 
     async def validate_credentials(self, credentials: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """Validate credentials by checking Ollama API reachability."""
-        base_url = credentials.get("base_url", "http://localhost:11434")
+        base_url = credentials.get("base_url", self.DEFAULT_BASE_URL)
         try:
             models = _fetch_ollama_models(base_url)
             if models:
@@ -162,7 +164,7 @@ class OllamaProvider(BaseProvider):
         if model_type != ModelType.CHAT:
             raise ValueError(f"Ollama provider does not support model type: {model_type}")
 
-        base_url = credentials.get("base_url", "http://localhost:11434")
+        base_url = credentials.get("base_url", self.DEFAULT_BASE_URL)
         openai_base = f"{base_url.rstrip('/')}/v1"
 
         model_kwargs: Dict[str, Any] = {

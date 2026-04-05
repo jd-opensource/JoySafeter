@@ -63,15 +63,17 @@ class OpenClawBridgeHandler:
                     t.cancel()
                     try:
                         await t
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                    except asyncio.CancelledError:
+                        logger.debug("openclaw listener cancelled")
+                    except Exception:
+                        logger.debug("openclaw listener stopped", exc_info=True)
 
         except Exception as e:
             logger.error(f"OpenClaw bridge error for user {user_id}: {e}")
             try:
                 await ws.close(code=1011, reason=str(e))
             except Exception:
-                pass
+                logger.debug("openclaw websocket close error", exc_info=True)
 
     async def _forward_client_to_gateway(self, client_ws: WebSocket, gw_ws, user_id: str):
         try:

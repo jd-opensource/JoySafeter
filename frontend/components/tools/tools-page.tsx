@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { AddMcpDialog } from '@/components/settings/add-mcp-dialog'
 import { McpServerCard, BuiltinToolCard } from '@/components/settings/mcp-server-card'
 import { Button } from '@/components/ui/button'
-import { useToast } from '@/components/ui/use-toast'
+import { useToast } from '@/hooks/use-toast'
 import {
   useMcpServers,
   useDeleteMcpServer,

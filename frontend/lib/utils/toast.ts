@@ -3,7 +3,7 @@
  * Used to display error and success messages anywhere in the application
  */
 
-import { toast as showToast } from '@/components/ui/use-toast'
+import { toast as showToast } from '@/hooks/use-toast'
 
 /**
  * Display error toast

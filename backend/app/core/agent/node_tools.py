@@ -112,7 +112,7 @@ def _resolve_builtin_tools(*, builtin_ids: List[str], root_dir: Path, user_id: s
 
     # Lazy imports to avoid import-time failures when optional dependencies
     # (e.g. `tavily-python`) are not installed.
-    from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
+    from app.core.tools.builtin.preview_skill import preview_skill_in_sandbox
 
     # Bind preview_skill with the user's sandbox root path
     # NOTE: We use a real wrapper function instead of functools.partial because

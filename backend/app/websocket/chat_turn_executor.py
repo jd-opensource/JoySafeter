@@ -384,7 +384,7 @@ class ChatTurnExecutor:
                     assistant_message_id=assistant_message_id,
                 )
             except Exception:
-                pass
+                _logger.debug("error sending stream event", exc_info=True)
             raise
         except Exception as exc:
             if state is not None and not (module.GraphBubbleUp is not None and type(exc) is module.GraphBubbleUp):
@@ -650,7 +650,7 @@ class ChatTurnExecutor:
                     }
                 )
             except Exception:
-                pass
+                _logger.debug("error during turn cleanup", exc_info=True)
             raise
         except Exception as exc:
             if state is not None and not (module.GraphBubbleUp is not None and type(exc) is module.GraphBubbleUp):

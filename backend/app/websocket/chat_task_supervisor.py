@@ -5,6 +5,8 @@ import uuid as uuid_lib
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Coroutine, cast
 
+from loguru import logger
+
 from app.utils.task_manager import task_manager
 
 _UNSET = object()
@@ -119,7 +121,7 @@ class ChatTaskSupervisor:
             try:
                 await self._stop_thread(entry.thread_id)
             except Exception:
-                pass
+                logger.debug("chat task supervisor cleanup error", exc_info=True)
 
         entry.task.cancel()
         if entry.heartbeat_task is not None:
@@ -134,7 +136,7 @@ class ChatTaskSupervisor:
             try:
                 await entry.heartbeat_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("task cancelled during cleanup")
         return entry
 
     async def cancel_all(self) -> None:
@@ -149,7 +151,7 @@ class ChatTaskSupervisor:
             try:
                 await entry.task
             except BaseException:
-                pass
+                logger.debug("suppressed exception during final cleanup", exc_info=True)
             if request_id in self._tasks:
                 await self.finalize(request_id)
 

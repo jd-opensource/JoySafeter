@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useToast } from '@/components/ui/use-toast'
+import { useToast } from '@/hooks/use-toast'
 import { TokenList } from '@/components/tokens/TokenList'
 import { TokenCreatedDialog } from '@/components/settings/token-created-dialog'
 import {

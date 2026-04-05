@@ -543,7 +543,7 @@ def get_global_registry() -> ToolRegistry:
 def _initialize_builtin_tools(registry: ToolRegistry):
     """Initialize builtin tools in the registry."""
     try:
-        from app.core.tools.buildin.research_tools import tavily_search, think_tool
+        from app.core.tools.builtin.research_tools import tavily_search, think_tool
 
         # 1. Register research tools (LangChain tools created with @tool decorator)
         registry.register_langchain_tool(
@@ -565,7 +565,7 @@ def _initialize_builtin_tools(registry: ToolRegistry):
         # for frontend display. The actual execution uses instances created in node_tools.py with real user context.
 
         # --- Skill Preview ---
-        from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
+        from app.core.tools.builtin.preview_skill import preview_skill_in_sandbox
 
         registry.register_builtin(
             callable_func=preview_skill_in_sandbox,

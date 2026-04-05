@@ -7,7 +7,7 @@ import { generateNonce } from '@/lib/utils/uuid'
 const logger = createLogger('Middleware')
 
 // Necessary third-party domains (for CSP)
-const NECESSARY_DOMAIN = '*.jd.com http://localhost:* http://127.0.0.1:*'
+const NECESSARY_DOMAIN = process.env.NEXT_PUBLIC_CSP_NECESSARY_DOMAIN || 'http://localhost:* http://127.0.0.1:*'
 
 // Paths allowed to be embedded in iframe (whitelist)
 const EMBEDDABLE_PATHS = ['']

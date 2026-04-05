@@ -25,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useToast } from '@/components/ui/use-toast'
+import { useToast } from '@/hooks/use-toast'
 import { useDeploymentStatus, graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'

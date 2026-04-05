@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { useToast } from '@/components/ui/use-toast'
+import { useToast } from '@/hooks/use-toast'
 import { useCreateMcpServer, useUpdateMcpServer, useTestMcpServer } from '@/hooks/queries/mcp'
 import type { McpServer } from '@/hooks/queries/mcp'
 import { useTranslation } from '@/lib/i18n'

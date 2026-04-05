@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.tools.buildin.preview_skill import preview_skill_in_sandbox
+from app.core.tools.builtin.preview_skill import preview_skill_in_sandbox
 
 
 @pytest.fixture

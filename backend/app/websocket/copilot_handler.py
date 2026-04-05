@@ -82,7 +82,7 @@ class CopilotWebSocketHandler:
             try:
                 await websocket.close(code=1011, reason="Redis not available")
             except Exception:
-                pass
+                logger.debug("error closing websocket after redis unavailable", exc_info=True)
             return
 
         try:
@@ -110,7 +110,7 @@ class CopilotWebSocketHandler:
                 try:
                     await websocket.close(code=1000, reason="Session completed")
                 except Exception:
-                    pass
+                    logger.debug("error closing websocket after session completed", exc_info=True)
                 return
             if status == "failed":
                 error_msg = await RedisClient.get_copilot_error(session_id) or "Unknown error"
@@ -121,7 +121,7 @@ class CopilotWebSocketHandler:
                 try:
                     await websocket.close(code=1011, reason=f"Error: {error_msg}")
                 except Exception:
-                    pass
+                    logger.debug("error closing websocket after session failed", exc_info=True)
                 return
 
             redis_client = RedisClient.get_client()
@@ -130,7 +130,7 @@ class CopilotWebSocketHandler:
                     if self._is_websocket_connected(websocket):
                         await websocket.close(code=1011, reason="Redis client not available")
                 except Exception:
-                    pass
+                    logger.debug("error closing websocket after redis client unavailable", exc_info=True)
                 return
 
             # If generating and we have a cached result (e.g. client reconnected after result), send it once
@@ -158,8 +158,10 @@ class CopilotWebSocketHandler:
                         task.cancel()
                         try:
                             await task
-                        except (asyncio.CancelledError, Exception):
-                            pass
+                        except asyncio.CancelledError:
+                            logger.debug("pending task cancelled during cleanup")
+                        except Exception:
+                            logger.debug("error awaiting pending task during cleanup", exc_info=True)
 
                     # Handle Redis messages
                     if redis_task in done:
@@ -184,7 +186,7 @@ class CopilotWebSocketHandler:
                                         try:
                                             await websocket.close(code=1000, reason="Session completed")
                                         except Exception:
-                                            pass
+                                            logger.debug("error closing websocket after done event", exc_info=True)
                                         break
                                     elif event.get("type") == "error":
                                         error_msg = event.get("message", "Unknown error")
@@ -194,7 +196,7 @@ class CopilotWebSocketHandler:
                                         try:
                                             await websocket.close(code=1011, reason=f"Error: {error_msg}")
                                         except Exception:
-                                            pass
+                                            logger.debug("error closing websocket after error event", exc_info=True)
                                         break
                                 except json.JSONDecodeError as e:
                                     logger.error(f"Failed to parse Redis message: {e}")
@@ -265,7 +267,7 @@ class CopilotWebSocketHandler:
                 if self._is_websocket_connected(websocket):
                     await websocket.close(code=1011)
             except Exception:
-                pass
+                logger.debug("error closing websocket after outer error", exc_info=True)
         finally:
             # Clean up
             if pubsub:

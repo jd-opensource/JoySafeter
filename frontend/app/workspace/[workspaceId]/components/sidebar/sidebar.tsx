@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { SearchInput } from '@/components/ui/search-input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useToast } from '@/components/ui/use-toast'
+import { useToast } from '@/hooks/use-toast'
 import {
   useFolders,
   useCreateFolder,
