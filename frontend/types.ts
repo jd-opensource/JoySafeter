@@ -34,7 +34,7 @@ export interface ToolCall {
   name: string
   args: Record<string, unknown>
   status: 'running' | 'completed' | 'failed'
-  result?: unknown
+  result?: string | Record<string, unknown>
   startTime: number
   endTime?: number
 }
@@ -202,8 +202,8 @@ export type ExecutionStepStatus = 'pending' | 'running' | 'waiting' | 'success' 
 
 // Tool execution data structure
 export interface ToolExecutionData {
-  request?: unknown // Tool input/arguments
-  response?: unknown // Tool output/result
+  request?: Record<string, unknown> // Tool input/arguments
+  response?: string | Record<string, unknown> // Tool output/result
 }
 
 export interface ExecutionStep {

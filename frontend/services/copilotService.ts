@@ -84,7 +84,7 @@ export const copilotService = {
    */
   async createCopilotTask(params: {
     userPrompt: string
-    graphContext: unknown
+    graphContext: { nodes: Array<Record<string, unknown>>; edges: Array<{ source: string; target: string }> }
     conversationHistory: Array<ConversationMessage>
     graphId: string | null
     mode?: 'standard' | 'deepagents'

@@ -69,7 +69,7 @@ export interface ToolCall {
   name: string
   args: Record<string, unknown>
   status: 'running' | 'completed' | 'failed'
-  result?: unknown
+  result?: string | Record<string, unknown>
   startTime: number
   endTime?: number
 }

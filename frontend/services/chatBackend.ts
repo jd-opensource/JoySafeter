@@ -56,47 +56,6 @@ export interface StateUpdateEventData {
 }
 
 /**
- * Standardized SSE event envelope structure
- * Consistent with backend format in backend/app/api/v1/chat.py
- */
-export interface StreamEventEnvelope {
-  type:
-    | 'content'
-    | 'tool_start'
-    | 'tool_end'
-    | 'node_start'
-    | 'node_end'
-    | 'status'
-    | 'error'
-    | 'done'
-    | 'thread_id'
-    | 'model_input'
-    | 'model_output'
-    | 'interrupt'
-    | 'command'
-    | 'route_decision'
-    | 'loop_iteration'
-    | 'parallel_task'
-    | 'state_update'
-    | 'code_agent_thought'
-    | 'code_agent_code'
-    | 'code_agent_observation'
-    | 'code_agent_final_answer'
-    | 'code_agent_planning'
-    | 'code_agent_error'
-    | 'file_event'
-  node_name: string
-  run_id: string
-  timestamp: number
-  thread_id: string
-  data: unknown
-  // trace / observation hierarchy info (Phase D)
-  trace_id?: string
-  observation_id?: string
-  parent_observation_id?: string
-}
-
-/**
  * Content event data structure
  */
 export interface ContentEventData {
@@ -116,7 +75,7 @@ export interface ToolStartEventData {
  */
 export interface ToolEndEventData {
   tool_name: string
-  tool_output: unknown
+  tool_output: string | Record<string, unknown>
   duration?: number
   status?: 'success' | 'error'
   files_changed?: Array<{ path: string; action: string }> | null
@@ -153,10 +112,35 @@ export interface ErrorEventData {
 }
 
 /**
+ * Status event data structure
+ */
+export interface StatusEventData {
+  status: string
+  [key: string]: unknown
+}
+
+/**
+ * Thread ID event data structure
+ */
+export interface ThreadIdEventData {
+  thread_id: string
+  [key: string]: unknown
+}
+
+/**
+ * File event data structure
+ */
+export interface FileEventData {
+  path: string
+  action: string
+  [key: string]: unknown
+}
+
+/**
  * Model Input event data structure
  */
 export interface ModelInputEventData {
-  messages: unknown[] // Input message list
+  messages: Array<Record<string, unknown>> // LangChain message objects
   model_name: string
   model_provider: string
 }
@@ -165,7 +149,7 @@ export interface ModelInputEventData {
  * Model Output event data structure
  */
 export interface ModelOutputEventData {
-  output: unknown // AIMessage object
+  output: Record<string, unknown> // AIMessage object
   model_name: string
   model_provider: string
   usage_metadata?: { input_tokens?: number; output_tokens?: number; total_tokens?: number }
@@ -218,7 +202,7 @@ export interface CodeAgentObservationEventData {
 export interface CodeAgentFinalAnswerEventData {
   node_name: string
   step: number
-  answer: unknown
+  answer: string | Record<string, unknown>
 }
 
 /**
@@ -239,6 +223,48 @@ export interface CodeAgentErrorEventData {
   step: number
   error: string
 }
+
+// --- Shared envelope fields (excluding type and data) ---
+interface StreamEventEnvelopeBase {
+  node_name: string
+  run_id: string
+  timestamp: number
+  thread_id: string
+  // trace / observation hierarchy info (Phase D)
+  trace_id?: string
+  observation_id?: string
+  parent_observation_id?: string
+}
+
+/**
+ * Discriminated union SSE event envelope.
+ * TypeScript narrows `data` automatically when you switch on `type`.
+ */
+export type StreamEventEnvelope =
+  | (StreamEventEnvelopeBase & { type: 'content'; data: ContentEventData })
+  | (StreamEventEnvelopeBase & { type: 'tool_start'; data: ToolStartEventData })
+  | (StreamEventEnvelopeBase & { type: 'tool_end'; data: ToolEndEventData })
+  | (StreamEventEnvelopeBase & { type: 'node_start'; data: NodeStartEventData })
+  | (StreamEventEnvelopeBase & { type: 'node_end'; data: NodeEndEventData })
+  | (StreamEventEnvelopeBase & { type: 'status'; data: StatusEventData })
+  | (StreamEventEnvelopeBase & { type: 'error'; data: ErrorEventData })
+  | (StreamEventEnvelopeBase & { type: 'done'; data: Record<string, unknown> })
+  | (StreamEventEnvelopeBase & { type: 'thread_id'; data: ThreadIdEventData })
+  | (StreamEventEnvelopeBase & { type: 'model_input'; data: ModelInputEventData })
+  | (StreamEventEnvelopeBase & { type: 'model_output'; data: ModelOutputEventData })
+  | (StreamEventEnvelopeBase & { type: 'interrupt'; data: InterruptEventData })
+  | (StreamEventEnvelopeBase & { type: 'command'; data: CommandEventData })
+  | (StreamEventEnvelopeBase & { type: 'route_decision'; data: RouteDecisionEventData })
+  | (StreamEventEnvelopeBase & { type: 'loop_iteration'; data: LoopIterationEventData })
+  | (StreamEventEnvelopeBase & { type: 'parallel_task'; data: ParallelTaskEventData })
+  | (StreamEventEnvelopeBase & { type: 'state_update'; data: StateUpdateEventData })
+  | (StreamEventEnvelopeBase & { type: 'code_agent_thought'; data: CodeAgentThoughtEventData })
+  | (StreamEventEnvelopeBase & { type: 'code_agent_code'; data: CodeAgentCodeEventData })
+  | (StreamEventEnvelopeBase & { type: 'code_agent_observation'; data: CodeAgentObservationEventData })
+  | (StreamEventEnvelopeBase & { type: 'code_agent_final_answer'; data: CodeAgentFinalAnswerEventData })
+  | (StreamEventEnvelopeBase & { type: 'code_agent_planning'; data: CodeAgentPlanningEventData })
+  | (StreamEventEnvelopeBase & { type: 'code_agent_error'; data: CodeAgentErrorEventData })
+  | (StreamEventEnvelopeBase & { type: 'file_event'; data: FileEventData })
 
 /**
  * Unified streaming event type (using standardized envelope structure)
