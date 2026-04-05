@@ -1,10 +1,10 @@
-import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Path, Query, Request
 from fastapi.routing import APIRouter
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import (
@@ -29,9 +29,6 @@ from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.schemas.memory import UserMemory
 from app.services.memory_service import MemoryService
-
-logger = logging.getLogger(__name__)
-
 
 # Create router and attach routes using MemoryService (async)
 router = APIRouter(

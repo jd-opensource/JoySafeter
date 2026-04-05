@@ -107,7 +107,7 @@ class LoggingMiddleware(AgentMiddleware):
             try:
                 self.backend.write(f"{directory}/.gitkeep", "")
             except Exception as e:
-                print(f"Warning: Failed to initialize log directory {directory}: {e}")
+                logger.warning(f"Failed to initialize log directory {directory}: {e}")
 
     def _write_log_entry(self, log_path: str, entry: Dict[str, Any]) -> None:
         """Write a log entry."""
@@ -132,7 +132,7 @@ class LoggingMiddleware(AgentMiddleware):
                 # if append fails, try writing directly
                 self.backend.write(log_path, log_line + "\n")
         except Exception as e:
-            print(f"Warning: Failed to write log entry to {log_path}: {e}")
+            logger.warning(f"Failed to write log entry to {log_path}: {e}")
 
     def _log_conversation_entry(self, entry_type: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Log a conversation entry."""
@@ -221,7 +221,7 @@ class LoggingMiddleware(AgentMiddleware):
             session_path = f"{self.log_path}sessions/{self.session_id}.json"
             self.backend.write(session_path, json.dumps(session_stats, indent=2))
         except Exception as e:
-            print(f"Warning: Failed to update session stats: {e}")
+            logger.warning(f"Failed to update session stats: {e}")
 
     def _extract_conversation_content(self, request: ModelRequest) -> str:
         """Extract conversation content from a request."""
@@ -641,7 +641,7 @@ class LoggingMiddleware(AgentMiddleware):
             # limited by BackendProtocol, this is a placeholder
             pass
         except Exception as e:
-            print(f"Warning: Failed to cleanup old logs: {e}")
+            logger.warning(f"Failed to cleanup old logs: {e}")
 
 
 # (no additional imports needed)

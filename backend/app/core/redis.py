@@ -3,17 +3,15 @@ Redis Configuration - Cache and Distributed Lock
 """
 
 import json
-import logging
 from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Dict, Optional, cast
 
 import redis.asyncio as redis_async
+from loguru import logger
 from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import LockError
 
 from .settings import settings
-
-logger = logging.getLogger(__name__)
 
 
 class RedisClient:
@@ -38,11 +36,11 @@ class RedisClient:
                 # Health check
                 await cls._client.ping()
                 cls._is_available = True
-                print(f"   ✅ Redis connected: {settings.redis_url}")
+                logger.info(f"Redis connected: {settings.redis_url}")
             except Exception as e:
                 cls._is_available = False
-                print(f"   ⚠️  Redis connection failed: {e}")
-                print("   ⚠️  Refresh token and rate limiting features will be degraded")
+                logger.warning(f"Redis connection failed: {e}")
+                logger.warning("Refresh token and rate limiting features will be degraded")
                 # Do not raise exception, allow app to start (degraded mode)
 
     @classmethod
@@ -173,7 +171,7 @@ class RedisClient:
                     # Lock might have expired (execution time > timeout) or ownership lost
                     logger.debug("Redis lock '%s' release failed (likely expired)", name, exc_info=True)
                 except Exception as e:
-                    print(f"   ⚠️  Error releasing lock {name}: {e}")
+                    logger.warning(f"Error releasing lock {name}: {e}")
 
     # ==================== Copilot Session Methods ====================
 

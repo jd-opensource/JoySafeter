@@ -392,9 +392,7 @@ class SkillService(BaseService[Skill]):
             is_valid, error = validate_compatibility(compatibility)
             if not is_valid:
                 # Truncate if too long (warn but continue)
-                import logging
-
-                logging.getLogger(__name__).warning(f"Skill compatibility exceeds 500 characters, truncating: {error}")
+                logger.warning(f"Skill compatibility exceeds 500 characters, truncating: {error}")
                 compatibility = truncate_compatibility(compatibility)
             skill.compatibility = compatibility
 
@@ -530,9 +528,7 @@ class SkillService(BaseService[Skill]):
         if path:
             is_common, warning = validate_file_extension(path)
             if warning:
-                import logging
-
-                logging.getLogger(__name__).warning(f"Skill file warning: {warning}")
+                logger.warning(f"Skill file warning: {warning}")
 
         file_obj = SkillFile(
             skill_id=skill_id,
@@ -612,9 +608,7 @@ class SkillService(BaseService[Skill]):
             # Log warning for uncommon file extensions (but don't reject)
             is_common, warning = validate_file_extension(path)
             if warning:
-                import logging
-
-                logging.getLogger(__name__).warning(f"Skill file warning: {warning}")
+                logger.warning(f"Skill file warning: {warning}")
 
         if content is not None:
             # Validate content

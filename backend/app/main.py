@@ -2,7 +2,6 @@
 FastAPI Main Application
 """
 
-import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator
@@ -37,8 +36,7 @@ async def _check_db_connection():
             await conn.execute(text("select 1"))
         logger.info("   Database connection check: OK")
     except Exception as e:
-        logger.error(f"   ⚠️  Database connection check failed: {e}")
-        traceback.print_exc()
+        logger.opt(exception=True).error(f"   Database connection check failed: {e}")
 
 
 async def _check_redis_connection():
@@ -54,18 +52,17 @@ async def _check_redis_connection():
         else:
             logger.error("   ⚠️  Redis connection check failed: Health check returned False")
     except Exception as e:
-        logger.error(f"   ⚠️  Redis connection check failed: {e}")
-        traceback.print_exc()
+        logger.opt(exception=True).error(f"   Redis connection check failed: {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     """Application Lifecycle"""
     # Startup
-    print(f"🚀 Starting {settings.app_name} v{settings.app_version}")
-    print(f"   Environment: {settings.environment}")
-    print(f"   Debug: {settings.debug}")
-    print("   Architecture: MVC (Model-View-Controller)")
+    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+    logger.info(f"   Environment: {settings.environment}")
+    logger.info(f"   Debug: {settings.debug}")
+    logger.info("   Architecture: MVC (Model-View-Controller)")
 
     # Database tables are managed by Alembic migrations; run: alembic upgrade head
 
@@ -201,7 +198,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception:
         logger.debug("Failed to close Redis client during shutdown", exc_info=True)
     await close_db()
-    print("👋 Application shutdown")
+    logger.info("Application shutdown")
 
 
 # Create application
@@ -244,8 +241,7 @@ app.add_middleware(
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Global exception handler"""
-    logger.error(f"Unhandled exception: {exc}")
-    traceback.print_exc()
+    logger.opt(exception=True).error(f"Unhandled exception: {exc}")
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},

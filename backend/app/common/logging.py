@@ -136,8 +136,11 @@ def setup_logging():
         # if unable to create log files (e.g. insufficient permissions), use console only
         pass
 
-    # intercept standard logging into loguru
+    # intercept ALL standard logging into loguru (root + named loggers)
     intercept_handler = InterceptHandler()
+    root_logger = logging.root
+    root_logger.handlers = [intercept_handler]
+    root_logger.setLevel(logging.DEBUG)
     for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
         std_logger = logging.getLogger(logger_name)
         std_logger.handlers = [intercept_handler]

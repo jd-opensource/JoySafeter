@@ -4,18 +4,17 @@ Model provider module.
 
 import importlib
 import inspect
-import logging
 import pkgutil
 from pathlib import Path
 from typing import List, Optional, Type
+
+from loguru import logger
 
 from .base import BaseProvider, ModelType
 from .Custom import CustomProvider
 
 # backward compatibility: explicit import of existing provider
 from .OpenaiApiCompatible import OpenAIAPICompatibleProvider
-
-logger = logging.getLogger(__name__)
 
 # provider class cache
 _provider_classes_cache: Optional[List[Type[BaseProvider]]] = None

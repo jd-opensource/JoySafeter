@@ -1,11 +1,9 @@
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from uuid import uuid4
 
+from loguru import logger
 from pydantic import BaseModel, field_validator, model_validator
-
-logger = logging.getLogger(__name__)
 
 
 class Image(BaseModel):

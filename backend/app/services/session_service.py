@@ -1,10 +1,10 @@
 """Session management service."""
 
-import logging
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,8 +13,6 @@ from app.core.settings import settings
 from app.models import Conversation, Message
 from app.schemas.common import SessionCreate, SessionResponse
 from app.utils.datetime import utc_now
-
-logger = logging.getLogger(__name__)
 
 
 class SessionService:

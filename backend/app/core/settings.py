@@ -7,6 +7,7 @@ import socket
 from pathlib import Path
 from typing import List, Optional, Union
 
+from loguru import logger
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine.url import make_url
@@ -137,7 +138,7 @@ class Settings(BaseSettings):
                     if port != 5432 and _is_tcp_port_open(host, 5432):
                         url = url.set(port=5432)
                         database_url = url.render_as_string(hide_password=False)
-                        print(f"   ⚠️  Database connection to {host}:{port} failed, auto-switched to 5432")
+                        logger.warning(f"Database connection to {host}:{port} failed, auto-switched to 5432")
         except Exception:
             pass  # Fall through to use original database_url; port auto-detect is best-effort
 

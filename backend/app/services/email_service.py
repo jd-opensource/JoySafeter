@@ -2,14 +2,13 @@
 Email service.
 """
 
-import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
-from app.core.settings import settings
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from app.core.settings import settings
 
 
 class EmailService:
