@@ -2,20 +2,15 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 
-import { getWsBaseUrl } from '@/lib/utils/wsUrl'
-import { NO_RECONNECT_CLOSE_CODES } from '@/lib/ws/constants'
+import { NotificationWsClient } from '@/lib/ws/notifications/NotificationWsClient'
+import type { NotificationMessage } from '@/lib/ws/notifications/NotificationWsClient'
+
+export type { NotificationMessage } from '@/lib/ws/notifications/NotificationWsClient'
 
 export enum NotificationType {
   PING = 'ping',
   PONG = 'pong',
   CONNECTED = 'connected',
-}
-
-export interface NotificationMessage {
-  type: NotificationType
-  data?: any
-  message?: string
-  timestamp?: string
 }
 
 export interface UseNotificationWebSocketOptions {
@@ -27,126 +22,46 @@ export interface UseNotificationWebSocketOptions {
 }
 
 export function useNotificationWebSocket(options: UseNotificationWebSocketOptions) {
-  const {
-    userId,
-    onNotification,
-    autoReconnect = true,
-    reconnectInterval = 3000,
-    maxReconnectAttempts = 10,
-  } = options
-
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectAttemptsRef = useRef(0)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null)
-
+  const { userId, onNotification } = options
+  const clientRef = useRef<NotificationWsClient | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [lastNotification, setLastNotification] = useState<NotificationMessage | null>(null)
 
-  const cleanup = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current)
-      reconnectTimeoutRef.current = null
-    }
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current)
-      pingIntervalRef.current = null
-    }
-    if (wsRef.current) {
-      // Remove all event handlers to prevent memory leaks
-      wsRef.current.onopen = null
-      wsRef.current.onmessage = null
-      wsRef.current.onclose = null
-      wsRef.current.onerror = null
-
-      // Close connection if still open or connecting
-      if (
-        wsRef.current.readyState === WebSocket.OPEN ||
-        wsRef.current.readyState === WebSocket.CONNECTING
-      ) {
-        wsRef.current.close()
-      }
-      wsRef.current = null
-    }
-    setIsConnected(false)
-  }, [])
-
-  // Use ref to store onNotification callback to avoid dependency issues
   const onNotificationRef = useRef(onNotification)
   useEffect(() => {
     onNotificationRef.current = onNotification
   }, [onNotification])
 
+  const getClient = useCallback(() => {
+    if (!clientRef.current) {
+      clientRef.current = new NotificationWsClient()
+    }
+    return clientRef.current
+  }, [])
+
+  const cleanup = useCallback(() => {
+    if (clientRef.current) {
+      clientRef.current.disconnect()
+      clientRef.current = null
+    }
+    setIsConnected(false)
+  }, [])
+
   const connect = useCallback(() => {
     if (!userId) return
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
+    const client = getClient()
 
-    cleanup()
+    client.setNotificationHandler((notification) => {
+      setLastNotification(notification)
+      onNotificationRef.current?.(notification)
+    })
 
-    const wsUrl = `${getWsBaseUrl()}/ws/notifications`
+    client.subscribeConnectionState((state) => {
+      setIsConnected(state.isConnected)
+    })
 
-    try {
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        setIsConnected(true)
-        reconnectAttemptsRef.current = 0
-
-        pingIntervalRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' }))
-          }
-        }, 30000)
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const notification: NotificationMessage = JSON.parse(event.data)
-          setLastNotification(notification)
-
-          switch (
-            notification.type
-            // Future notification types can be handled here
-          ) {
-          }
-
-          onNotificationRef.current?.(notification)
-        } catch {
-          // Ignore parse errors
-        }
-      }
-
-      ws.onclose = (event) => {
-        setIsConnected(false)
-
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current)
-          pingIntervalRef.current = null
-        }
-
-        const noReconnectCodes: readonly number[] = NO_RECONNECT_CLOSE_CODES
-
-        if (
-          autoReconnect &&
-          !noReconnectCodes.includes(event.code) &&
-          reconnectAttemptsRef.current < maxReconnectAttempts
-        ) {
-          reconnectAttemptsRef.current++
-          reconnectTimeoutRef.current = setTimeout(() => {
-            // eslint-disable-next-line react-hooks/immutability
-            connect()
-          }, reconnectInterval)
-        }
-      }
-
-      ws.onerror = (event) => {
-        console.error('[NotificationWS] Connection error:', event)
-      }
-    } catch {
-      // Ignore connection errors
-    }
-  }, [userId, autoReconnect, reconnectInterval, maxReconnectAttempts, cleanup])
+    void client.connect().catch(() => {})
+  }, [userId, getClient])
 
   useEffect(() => {
     if (userId) {
@@ -160,7 +75,8 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && userId) {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        const client = clientRef.current
+        if (!client || !client.getConnectionState().isConnected) {
           connect()
         }
       }
