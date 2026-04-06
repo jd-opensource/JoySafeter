@@ -191,7 +191,7 @@ def test_chat_reducer_node_start_and_end() -> None:
     next_projection = definition.reducer(
         projection,
         event_type="node_end",
-        payload={"node_id": "node-1", "end_time": 200},
+        payload={"node_id": "node-1", "node_name": "my_node", "end_time": 200},
         status="running",
     )
     assert len(next_projection["node_execution_log"]) == 1

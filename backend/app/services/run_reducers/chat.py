@@ -71,16 +71,22 @@ def apply_chat_event(
         return next_projection
 
     if event_type == "content_delta":
+        message_id = payload.get("message_id")
         delta = payload.get("delta") or ""
-        if delta and isinstance(next_projection["assistant_message"], dict):
-            msg = next_projection["assistant_message"]
+        if not message_id or not delta:
+            return next_projection
+        msg = next_projection["assistant_message"]
+        if isinstance(msg, dict) and msg.get("id") == message_id:
             msg["content"] = f"{msg.get('content', '')}{delta}"
         return next_projection
 
     if event_type == "tool_start":
+        message_id = payload.get("message_id")
         tool = payload.get("tool")
-        if isinstance(tool, dict) and isinstance(next_projection["assistant_message"], dict):
-            msg = next_projection["assistant_message"]
+        if not message_id or not isinstance(tool, dict):
+            return next_projection
+        msg = next_projection["assistant_message"]
+        if isinstance(msg, dict) and msg.get("id") == message_id:
             tools = msg.setdefault("tool_calls", [])
             tools.append(tool)
         return next_projection
@@ -137,10 +143,10 @@ def apply_chat_event(
         return next_projection
 
     if event_type == "node_end":
-        node_id = payload.get("node_id")
+        node_name = payload.get("node_name")
         end_time = payload.get("end_time")
-        for entry in next_projection["node_execution_log"]:
-            if entry.get("node_id") == node_id and entry.get("status") == "running":
+        for entry in reversed(next_projection["node_execution_log"]):
+            if entry.get("node_name") == node_name and entry.get("status") == "running":
                 entry["status"] = "completed"
                 entry["end_time"] = end_time
                 break
