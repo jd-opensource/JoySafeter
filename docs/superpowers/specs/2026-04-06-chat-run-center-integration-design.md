@@ -73,6 +73,8 @@ Register in `backend/app/services/run_reducers/__init__.py` alongside `skill_cre
     "content": "",
     "tool_calls": []
   },
+  "file_tree": {},
+  "preview_data": null,
   "node_execution_log": [],
   "interrupt": null,
   "meta": {
@@ -83,7 +85,6 @@ Register in `backend/app/services/run_reducers/__init__.py` alongside `skill_cre
 ```
 
 Key differences from skill_creator projection:
-- No `preview_data` or `file_tree` fields
 - Has `user_message` with the triggering message
 - `tool_calls` stored inline on `assistant_message`
 - `node_execution_log` for graph node tracking
@@ -98,7 +99,8 @@ Handles the same canonical event types as skill_creator, mapped to the chat proj
 | `assistant_message_started` | Initialize `assistant_message` with id |
 | `content_delta` | Append to `assistant_message.content` |
 | `tool_start` | Append to `assistant_message.tool_calls` (status: running) |
-| `tool_end` | Update matching tool_call (status: completed, result) |
+| `tool_end` | Update matching tool_call (status: completed, result); capture `preview_data` from designated preview tools |
+| `file_event` | Update `file_tree` — add/update on create/modify, remove on delete |
 | `node_start` / `node_end` | Update `node_execution_log` |
 | `interrupt` | Set `interrupt` |
 | `error` | Set status to `failed`, record error |
@@ -225,6 +227,8 @@ New Chat-specific Overview tab content:
 
 - **Message area**: User message + assistant reply (from projection `user_message` / `assistant_message`)
 - **Tool calls**: Expandable list of tool invocations with inputs/outputs
+- **File tree**: Files created/modified/deleted during the run (from `file_tree`)
+- **Preview**: Rendered preview output when available (from `preview_data`)
 - **Node execution log**: Timeline of graph node executions
 
 Events tab and Snapshot tab remain unchanged (generic capabilities).
