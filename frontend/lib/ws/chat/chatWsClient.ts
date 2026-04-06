@@ -7,6 +7,7 @@ import type { ChatStreamEvent } from '@/services/chatBackend'
 import { ChatWsError } from './errors'
 import { HEARTBEAT, UNRECOVERABLE_CLOSE_CODES, WS_CLOSE_CODE } from '../constants'
 import type {
+  ChatExtension,
   ChatResumeParams,
   ChatSendParams,
   ChatTerminalResult,
@@ -405,16 +406,27 @@ function serializeInput(input: ChatSendParams['input']): Record<string, unknown>
   return result
 }
 
-function serializeExtension(extension?: SkillCreatorExtension | null): Record<string, unknown> | null {
+function serializeExtension(extension?: SkillCreatorExtension | ChatExtension | null): Record<string, unknown> | null {
   if (!extension) {
     return null
   }
 
-  return {
-    kind: extension.kind,
-    run_id: extension.runId ?? null,
-    edit_skill_id: extension.editSkillId ?? null,
+  if (extension.kind === 'skill_creator') {
+    return {
+      kind: extension.kind,
+      run_id: (extension as SkillCreatorExtension).runId ?? null,
+      edit_skill_id: (extension as SkillCreatorExtension).editSkillId ?? null,
+    }
   }
+
+  if (extension.kind === 'chat') {
+    return {
+      kind: extension.kind,
+      run_id: (extension as ChatExtension).runId ?? null,
+    }
+  }
+
+  return null
 }
 
 let singleton: SharedChatWsClient | null = null

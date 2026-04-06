@@ -45,12 +45,17 @@ export interface SkillCreatorExtension {
   editSkillId?: string | null
 }
 
+export interface ChatExtension {
+  kind: 'chat'
+  runId?: string | null
+}
+
 export interface ChatSendParams {
   requestId?: string
   threadId?: string | null
   graphId?: string | null
   input: ChatSendInput
-  extension?: SkillCreatorExtension | null
+  extension?: SkillCreatorExtension | ChatExtension | null
   metadata?: Record<string, unknown>
   onEvent?: (evt: ChatStreamEvent) => void
   onAccepted?: (evt: IncomingChatAcceptedEvent) => void
