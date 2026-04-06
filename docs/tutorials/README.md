@@ -61,9 +61,7 @@
 ## 相关文档
 
 - [系统架构](../ARCHITECTURE.md)
-- [Graph Builder 架构详解](../GRAPH_BUILDER_ARCHITECTURE.md)
 - [MCP 工具分析](../mcp-tools-analysis.md)
-- [DeepResearch 完整指南](../deepresearch-complete-guide.md)
 
 ---
 

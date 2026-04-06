@@ -215,7 +215,4 @@ flowchart TB
 
 ## 相关文档
 
-- [Graph Builder 架构文档](./GRAPH_BUILDER_ARCHITECTURE.md)
-- [中间件架构文档](./middleware-architecture-complete.md)
 - [MCP工具集成文档](./mcp-skills-integration.md)
-- [DeepAgents完整指南](./deepresearch-complete-guide.md)
