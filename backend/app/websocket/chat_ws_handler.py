@@ -332,12 +332,21 @@ class ChatWsHandler:
 
         payload: dict[str, Any] | None = None
         if event_type == "status":
-            message = str(data.get("status") or "")
-            payload = {"message": message, "status": message}
+            # Chat events: {"status": "..."}, copilot events: {"stage": "...", "message": "..."}
+            stage = data.get("stage")
+            if stage is not None:
+                payload = {"stage": stage, "message": data.get("message", "")}
+            else:
+                message = str(data.get("status") or "")
+                payload = {"message": message, "status": message}
         elif event_type == "content" and assistant_message_id:
-            delta = data.get("delta")
+            # Chat events: {"delta": "..."}, copilot events: {"content": "..."}
+            delta = data.get("delta") or data.get("content")
             if delta:
                 payload = {"message_id": assistant_message_id, "delta": str(delta)}
+        elif event_type in ("thought_step", "tool_call", "tool_result", "result"):
+            # Copilot-specific events — store data as-is for the copilot reducer
+            payload = dict(data)
         elif event_type == "tool_start" and assistant_message_id:
             tool_input = data.get("tool_input")
             payload = {

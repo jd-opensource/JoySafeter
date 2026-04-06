@@ -7,10 +7,11 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 
 import { graphKeys } from '@/hooks/queries/graphs'
 import { useTranslation } from '@/lib/i18n'
+import { generateUUID } from '@/lib/utils/uuid'
 import { getChatWsClient } from '@/lib/ws/chat/chatWsClient'
 import type { CopilotExtension } from '@/lib/ws/chat/types'
 import type { ChatStreamEvent } from '@/services/chatBackend'
@@ -47,6 +48,7 @@ export function useCopilotActions({
   const params = useParams()
   const currentGraphId = params.agentId as string | undefined
   const { getGraphContext } = useBuilderStore()
+  const activeRequestIdRef = useRef<string | null>(null)
 
   const handleSendWithInput = useCallback(
     async (userText: string) => {
@@ -114,7 +116,11 @@ export function useCopilotActions({
           mode: copilotMode || 'deepagents',
         }
 
+        const requestId = generateUUID()
+        activeRequestIdRef.current = requestId
+
         await getChatWsClient().sendChat({
+          requestId,
           input: {
             message: userText,
             model: selectedModel,
@@ -123,8 +129,11 @@ export function useCopilotActions({
           extension,
           onEvent: (evt) => onCopilotEvent?.(evt),
         })
+
+        activeRequestIdRef.current = null
       } catch (e: unknown) {
         console.error('[CopilotPanel] Failed to send copilot message:', e)
+        activeRequestIdRef.current = null
 
         if (!refs.isMountedRef.current) return
 
@@ -161,6 +170,13 @@ export function useCopilotActions({
   }, [state.input, state.loading, handleSendWithInput])
 
   const handleStop = useCallback(() => {
+    // Send chat.stop frame to cancel the backend stream
+    const requestId = activeRequestIdRef.current
+    if (requestId) {
+      getChatWsClient().stopByRequestId(requestId)
+      activeRequestIdRef.current = null
+    }
+
     actions.clearSession()
 
     if (!refs.isMountedRef.current) return

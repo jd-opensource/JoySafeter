@@ -86,7 +86,7 @@ class CopilotService:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Single engine entry: returns a unified event stream for the given mode.
-        Callers (generate_actions_stream, generate_actions_async) only consume this stream.
+        Callers (execute_copilot_turn) only consume this stream.
         """
         reset_node_registry()
 
@@ -247,7 +247,7 @@ class CopilotService:
                 for action in actions
             ],
         }
-        # done is NOT yielded here; generate_actions_async publishes it
+        # done is NOT yielded here; execute_copilot_turn emits it
         # AFTER persistence completes.
         logger.info(f"[CopilotService] generate_actions_stream success actions_count={len(actions)}")
 
@@ -557,7 +557,6 @@ class CopilotService:
                     return msg.content
 
         return ""
-
 
     async def _persist_graph_from_actions(self, graph_id: str, final_actions: List[Dict[str, Any]]) -> bool:
         """Apply actions to graph state and persist in a dedicated transaction. Returns True if saved successfully."""

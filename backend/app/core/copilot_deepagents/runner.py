@@ -240,7 +240,7 @@ Generate a complete agent workflow graph following the workflow process."""
             "batch": True,
         }
 
-        # done is NOT yielded here; generate_actions_async publishes it
+        # done is NOT yielded here; execute_copilot_turn emits it
         # AFTER _persist_graph_from_actions completes, so frontend can
         # safely refetch the authoritative state on "done".
 

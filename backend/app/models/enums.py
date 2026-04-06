@@ -20,14 +20,6 @@ class InstanceStatus(str, enum.Enum):
     TERMINATING = "terminating"
 
 
-class CopilotSessionStatus(str, enum.Enum):
-    """Status for copilot analysis sessions (stored in Redis)."""
-
-    GENERATING = "generating"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
 class OrgRole(str, enum.Enum):
     """Organization membership roles."""
 
