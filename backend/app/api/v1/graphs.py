@@ -15,18 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.dependencies import get_current_user
 from app.common.exceptions import ForbiddenException, NotFoundException
 
-# Import Copilot types from the new module
-from app.core.copilot import (
-    CopilotRequest,
-    CopilotResponse,
-)
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.graph import AgentGraph, GraphNode
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.agent_run import AgentRunRepository
 from app.repositories.workspace import WorkspaceRepository
-from app.services.copilot_service import CopilotService
 from app.services.graph_service import GraphService
 
 router = APIRouter(prefix="/v1/graphs", tags=["Graphs"])
@@ -644,40 +638,3 @@ async def clear_copilot_history(
 
     log.info(f"copilot.history.clear success deleted={deleted}")
     return {"success": True}
-
-
-@router.post("/copilot/actions", response_model=CopilotResponse)
-async def generate_graph_actions(
-    request: Request,
-    payload: CopilotRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> CopilotResponse:
-    """
-    Generate graph actions using AI Copilot ("God Mode" Engine)
-
-    This endpoint uses an Agent-based approach with tools to generate
-    graph modification actions (CREATE_NODE, CONNECT_NODES, etc.)
-
-    Args:
-        payload: CopilotRequest with user prompt and graph context
-        current_user: Authenticated user
-
-    Returns:
-        CopilotResponse: Message to the user and array of actions to execute
-    """
-    log = _bind_log(request, user_id=str(current_user.id))
-
-    nodes = payload.graph_context.get("nodes", [])
-    log.info(f"copilot.actions start nodes={len(nodes)}")
-
-    # Use CopilotService for action generation
-    service = CopilotService(user_id=str(current_user.id), llm_model=payload.model, db=db)
-    response = await service.generate_actions(
-        prompt=payload.prompt,
-        graph_context=payload.graph_context,
-        conversation_history=payload.conversation_history,
-    )
-
-    log.info(f"copilot.actions success actions_count={len(response.actions)}")
-    return response
