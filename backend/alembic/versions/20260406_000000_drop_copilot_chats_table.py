@@ -4,7 +4,7 @@ Copilot conversation history is now stored in agent_runs / agent_run_events /
 agent_run_snapshots.  The copilot_chats table, its model, and its repository are
 no longer used.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: 4a6b5e9517ae
 Revises: 87be2dfd4240
 Create Date: 2026-04-06 00:00:00.000000
 """
@@ -17,7 +17,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "a1b2c3d4e5f6"
+revision: str = "4a6b5e9517ae"
 down_revision: Union[str, None] = "87be2dfd4240"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
