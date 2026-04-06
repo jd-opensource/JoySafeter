@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid as uuid_lib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from app.websocket.chat_protocol import ParsedChatExtension, ParsedChatStartFrame
+from app.websocket.chat_protocol import ParsedChatExtension, ParsedCopilotExtension, ParsedChatStartFrame
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,17 @@ class ChatRunTurnCommand(StandardChatTurnCommand):
     run_id: str | None = None
 
 
-ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand | ChatRunTurnCommand
+@dataclass(frozen=True)
+class CopilotTurnCommand(StandardChatTurnCommand):
+    """Command for a Copilot turn, extending the standard command."""
+
+    run_id: str | None = None
+    graph_context: dict[str, Any] = field(default_factory=dict)
+    conversation_history: list[dict[str, Any]] = field(default_factory=list)
+    mode: str = "deepagents"
+
+
+ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand | ChatRunTurnCommand | CopilotTurnCommand
 
 
 def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnCommand:
@@ -55,6 +65,21 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
             model=model,
             metadata=metadata,
             files=files,
+        )
+
+    if isinstance(extension, ParsedCopilotExtension):
+        return CopilotTurnCommand(
+            request_id=frame.request_id,
+            message=frame.input.message,
+            thread_id=frame.thread_id,
+            graph_id=frame.graph_id,
+            model=model,
+            metadata=metadata,
+            files=files,
+            run_id=extension.run_id,
+            graph_context=extension.graph_context,
+            conversation_history=extension.conversation_history,
+            mode=extension.mode,
         )
 
     if isinstance(extension, ParsedChatExtension):
