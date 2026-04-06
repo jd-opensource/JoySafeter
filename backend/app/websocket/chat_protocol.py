@@ -54,6 +54,17 @@ class ParsedChatExtension:
 
 
 @dataclass(frozen=True)
+class ParsedCopilotExtension:
+    """Extension payload for Copilot turns."""
+
+    kind: Literal["copilot"]
+    run_id: str | None
+    graph_context: dict[str, Any]
+    conversation_history: list[dict[str, Any]]
+    mode: str
+
+
+@dataclass(frozen=True)
 class ParsedChatStartFrame:
     """Fully validated chat.start frame ready for command construction."""
 
@@ -61,7 +72,7 @@ class ParsedChatStartFrame:
     thread_id: str | None
     graph_id: uuid_lib.UUID | None
     input: ParsedChatInput
-    extension: ParsedSkillCreatorExtension | ParsedChatExtension | None
+    extension: ParsedSkillCreatorExtension | ParsedChatExtension | ParsedCopilotExtension | None
     metadata: dict[str, Any]
 
 
@@ -127,7 +138,7 @@ def _parse_chat_start_frame(frame: dict[str, Any]) -> ParsedChatStartFrame:
     )
 
 
-def _parse_extension(raw_extension: Any, request_id: str) -> ParsedSkillCreatorExtension | ParsedChatExtension | None:
+def _parse_extension(raw_extension: Any, request_id: str) -> ParsedSkillCreatorExtension | ParsedChatExtension | ParsedCopilotExtension | None:
     if raw_extension is None:
         return None
     if not isinstance(raw_extension, dict):
@@ -142,6 +153,21 @@ def _parse_extension(raw_extension: Any, request_id: str) -> ParsedSkillCreatorE
 
     if kind == "chat":
         return ParsedChatExtension(kind="chat", run_id=run_id)
+
+    if kind == "copilot":
+        graph_context = raw_extension.get("graph_context")
+        if not isinstance(graph_context, dict):
+            raise ChatProtocolError("copilot extension requires graph_context object", request_id=request_id)
+        conversation_history_raw = raw_extension.get("conversation_history")
+        conversation_history = [item for item in conversation_history_raw if isinstance(item, dict)] if isinstance(conversation_history_raw, list) else []
+        mode = str(raw_extension.get("mode") or "deepagents")
+        return ParsedCopilotExtension(
+            kind="copilot",
+            run_id=run_id,
+            graph_context=graph_context,
+            conversation_history=conversation_history,
+            mode=mode,
+        )
 
     raise ChatProtocolError(
         f"unsupported extension kind: {kind or '<missing>'}",

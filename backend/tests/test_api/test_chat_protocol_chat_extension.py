@@ -47,7 +47,7 @@ def test_unsupported_extension_kind_still_rejected():
                 "type": "chat.start",
                 "request_id": "req-bad",
                 "input": {"message": "hi"},
-                "extension": {"kind": "copilot"},
+                "extension": {"kind": "unknown_future_kind"},
                 "metadata": {},
             }
         )
