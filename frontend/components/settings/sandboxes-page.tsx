@@ -326,7 +326,7 @@ export const SandboxesPage = () => {
                             </div>
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-[var(--text-primary)]">
-                                {sandbox.user?.name || sandbox.user?.email || 'Unknown'}
+                                {sandbox.user_name || sandbox.user_email || 'Unknown'}
                               </span>
                               <span className="font-mono text-[10px] text-[var(--text-muted)]">
                                 {sandbox.id.substring(0, 8)}...
