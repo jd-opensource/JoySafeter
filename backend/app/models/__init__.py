@@ -15,7 +15,7 @@ from .agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
 from .auth import AuthSession, AuthUser
 from .auth import AuthUser as User
 from .base import BaseModel, SoftDeleteMixin, TimestampMixin
-from .chat import Chat, CopilotChat
+from .chat import Chat
 from .custom_tool import CustomTool
 from .execution_trace import (
     ExecutionObservation,
@@ -67,7 +67,7 @@ __all__ = [
     "WorkspaceFolder",
     "UserSandbox",
     "Chat",
-    "CopilotChat",
+
     "Organization",
     "Member",
     "PermissionType",
