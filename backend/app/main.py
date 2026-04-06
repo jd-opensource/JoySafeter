@@ -22,7 +22,6 @@ from app.core.redis import RedisClient
 from app.core.settings import settings
 from app.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
 from app.websocket.chat_ws_handler import ChatWsHandler
-from app.websocket.copilot_handler import copilot_handler
 from app.websocket.notification_manager import NotificationType, notification_manager
 from app.websocket.openclaw_handler import openclaw_bridge_handler
 from app.websocket.run_subscription_handler import run_subscription_handler
@@ -335,26 +334,6 @@ async def notification_websocket_endpoint(websocket: WebSocket):
         await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
         return
     await _run_notification_loop(websocket, user_id)
-
-
-@app.websocket("/ws/copilot/{session_id}")
-async def copilot_websocket_endpoint(websocket: WebSocket, session_id: str):
-    """
-    WebSocket endpoint for Copilot session subscription.
-    Subscribes to Redis Pub/Sub and forwards events to clients.
-
-    Args:
-        session_id: Copilot session ID to subscribe to
-    """
-    # Authenticate WebSocket connection
-    is_authenticated, user_id = await authenticate_websocket(websocket)
-
-    if not is_authenticated or not user_id:
-        await reject_websocket(websocket, code=WebSocketCloseCode.UNAUTHORIZED, reason="Authentication required")
-        return
-
-    # Handle connection
-    await copilot_handler.handle_connection(websocket, session_id)
 
 
 @app.websocket("/ws/runs")

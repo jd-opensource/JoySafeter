@@ -17,7 +17,6 @@ import { useParams } from 'next/navigation'
 import { useCallback, useState } from 'react'
 
 import { CopilotErrorBoundary } from '@/components/copilot/CopilotErrorBoundary'
-import { useCopilotWebSocket } from '@/hooks/use-copilot-websocket'
 import { useModelSelector } from '@/hooks/use-model-selector'
 import { useTranslation } from '@/lib/i18n'
 
@@ -74,13 +73,6 @@ export function CopilotPanel() {
     refs,
     graphId,
     handleSendWithInput,
-  })
-
-  // WebSocket connection
-  useCopilotWebSocket({
-    sessionId: state.currentRunId,
-    callbacks: webSocketCallbacks,
-    autoReconnect: true,
   })
 
   // Stage config

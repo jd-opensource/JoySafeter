@@ -5,12 +5,10 @@
  *
  * Encapsulates Copilot-related API calls, including:
  * - Clear Copilot history
- * - Create Copilot tasks (async with WebSocket)
- * - Get Copilot session status
  * - Convert conversation history format
  */
 
-import { apiDelete, apiGet, apiPost } from '@/lib/api-client'
+import { apiDelete } from '@/lib/api-client'
 import type {
   GraphAction,
   CopilotResponse,
@@ -77,57 +75,4 @@ export const copilotService = {
    * Convert conversation history format (helper method)
    */
   convertConversationHistory,
-
-  /**
-   * Create a new Copilot task and return session ID.
-   * @param params.mode - Optional engine mode: 'standard' | 'deepagents'. Omit to use backend default (deepagents).
-   */
-  async createCopilotTask(params: {
-    userPrompt: string
-    graphContext: { nodes: Array<Record<string, unknown>>; edges: Array<{ source: string; target: string }> }
-    conversationHistory: Array<ConversationMessage>
-    graphId: string | null
-    mode?: 'standard' | 'deepagents'
-    model?: string
-  }): Promise<{ session_id: string; status: string; created_at: string }> {
-    const { userPrompt, graphContext, conversationHistory, graphId, mode, model } = params
-
-    const response = await apiPost<{ session_id: string; status: string; created_at: string }>(
-      'graphs/copilot/actions/create',
-      {
-        prompt: userPrompt,
-        graph_context: graphContext,
-        graph_id: graphId || undefined,
-        conversation_history: conversationHistory.length > 0 ? conversationHistory : undefined,
-        ...(mode !== undefined && { mode }),
-        ...(model !== undefined && { model }),
-      },
-    )
-
-    return response
-  },
-
-  /**
-   * Get Copilot session status, content, and cached result (for recovery).
-   */
-  async getSession(sessionId: string): Promise<{
-    session_id: string
-    status: string | null
-    content: string | null
-    result?: CopilotResponse | null
-    error?: string | null
-    created_at: string | null
-    updated_at: string | null
-  }> {
-    const response = await apiGet<{
-      session_id: string
-      status: string | null
-      content: string | null
-      result?: CopilotResponse | null
-      error?: string | null
-      created_at: string | null
-      updated_at: string | null
-    }>(`graphs/copilot/sessions/${sessionId}`)
-    return response
-  },
 }

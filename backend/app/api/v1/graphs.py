@@ -6,14 +6,14 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.dependencies import get_current_user
-from app.common.exceptions import ForbiddenException, InternalServerException, NotFoundException
+from app.common.exceptions import ForbiddenException, NotFoundException
 
 # Import Copilot types from the new module
 from app.core.copilot import (
@@ -21,17 +21,13 @@ from app.core.copilot import (
     CopilotResponse,
 )
 from app.core.database import get_db
-from app.core.redis import RedisClient
-from app.core.settings import settings
 from app.models.auth import AuthUser as User
-from app.models.enums import CopilotSessionStatus
 from app.models.graph import AgentGraph, GraphNode
 from app.models.workspace import WorkspaceMemberRole
 from app.repositories.agent_run import AgentRunRepository
 from app.repositories.workspace import WorkspaceRepository
 from app.services.copilot_service import CopilotService
 from app.services.graph_service import GraphService
-from app.utils.datetime import utc_now
 
 router = APIRouter(prefix="/v1/graphs", tags=["Graphs"])
 
@@ -646,73 +642,6 @@ async def clear_copilot_history(
     return {"success": True}
 
 
-@router.post("/{graph_id}/copilot/messages")
-async def save_copilot_messages(
-    request: Request,
-    graph_id: uuid.UUID,
-    payload: dict,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Save Copilot conversation messages for a specific graph.
-
-    This saves user and assistant messages to the conversation history.
-
-    Args:
-        graph_id: The graph ID to save messages for
-        payload: Message data containing user_message and assistant_message
-        current_user: Authenticated user
-
-    Returns:
-        Success status
-    """
-    log = _bind_log(request, user_id=str(current_user.id), graph_id=str(graph_id))
-    log.info("copilot.messages.save start")
-
-    graph_service = GraphService(db)
-    graph = await graph_service.graph_repo.get(graph_id)
-    if not graph:
-        raise NotFoundException("Graph not found")
-    await graph_service._ensure_access(graph, current_user, WorkspaceMemberRole.member)
-
-    try:
-        user_msg_data = payload.get("user_message", {})
-        assistant_msg_data = payload.get("assistant_message", {})
-
-        # Convert to CopilotMessage objects
-        from app.core.copilot.action_types import CopilotMessage, CopilotThoughtStep
-
-        user_message = CopilotMessage(
-            id=str(uuid.uuid4()),
-            role=user_msg_data.get("role", "user"),
-            content=user_msg_data.get("content", ""),
-        )
-
-        assistant_message = CopilotMessage(
-            id=str(uuid.uuid4()),
-            role=assistant_msg_data.get("role", "assistant"),
-            content=assistant_msg_data.get("content", ""),
-            actions=assistant_msg_data.get("actions"),
-            thought_steps=[
-                CopilotThoughtStep(index=step["index"], content=step["content"])
-                for step in assistant_msg_data.get("thought_steps", [])
-            ]
-            if assistant_msg_data.get("thought_steps")
-            else None,
-        )
-
-        service = CopilotService(user_id=str(current_user.id), db=db)
-        success = await service.save_messages(str(graph_id), user_message, assistant_message)
-
-        log.info(f"copilot.messages.save success={success}")
-        return {"success": success}
-
-    except Exception as e:
-        log.error(f"copilot.messages.save failed: {e}")
-        raise InternalServerException(f"Failed to save messages: {str(e)}")
-
-
 @router.post("/copilot/actions", response_model=CopilotResponse)
 async def generate_graph_actions(
     request: Request,
@@ -748,137 +677,3 @@ async def generate_graph_actions(
 
     log.info(f"copilot.actions success actions_count={len(response.actions)}")
     return response
-
-
-@router.post("/copilot/actions/create")
-async def create_copilot_task(
-    request: Request,
-    payload: CopilotRequest,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Create a new Copilot task and return immediately with session_id.
-
-    The actual generation runs asynchronously in the background.
-    Frontend should subscribe to WebSocket to receive real-time updates.
-
-    Args:
-        payload: CopilotRequest with user prompt, graph context, and optional graph_id
-        current_user: Authenticated user
-        background_tasks: FastAPI background tasks
-
-    Returns:
-        {session_id, status, created_at}
-    """
-    import uuid as uuid_lib
-
-    log = _bind_log(request, user_id=str(current_user.id))
-
-    # Check Redis availability
-    if not RedisClient.is_available():
-        from app.core.copilot.exceptions import CopilotSessionError
-
-        redis_status = "not configured" if not settings.redis_url else "connection failed"
-        log.error(f"Redis {redis_status} - Copilot requires Redis for session management")
-        raise CopilotSessionError(
-            f"Redis {redis_status}. Copilot feature requires Redis to be running.",
-            data={"redis_status": redis_status, "has_redis_url": bool(settings.redis_url)},
-        )
-
-    # Generate session ID
-    session_id = f"copilot_{uuid_lib.uuid4().hex[:16]}"
-    created_at = utc_now()
-
-    # Initialize session in Redis
-    await RedisClient.set_copilot_status(session_id, CopilotSessionStatus.GENERATING)
-
-    # Start background task
-    service = CopilotService(user_id=str(current_user.id), llm_model=payload.model, db=db)
-    background_tasks.add_task(
-        service.generate_actions_async,
-        session_id=session_id,
-        graph_id=payload.graph_id,
-        prompt=payload.prompt,
-        graph_context=payload.graph_context,
-        conversation_history=payload.conversation_history,
-        mode=payload.mode,
-    )
-
-    log.info(f"copilot.actions.create session_id={session_id} graph_id={payload.graph_id}")
-
-    return {
-        "session_id": session_id,
-        "status": CopilotSessionStatus.GENERATING,
-        "created_at": created_at.isoformat(),
-    }
-
-
-@router.get("/copilot/sessions/{session_id}")
-async def get_copilot_session(
-    request: Request,
-    session_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get Copilot session status and current content.
-
-    Returns:
-        {session_id, status, content?, created_at, updated_at}
-        - If status="generating": returns Redis content (real-time)
-        - If status="completed" or not found: returns None (check database history)
-    """
-    log = _bind_log(request, user_id=str(current_user.id))
-
-    # Check Redis availability
-    if not RedisClient.is_available():
-        from app.core.copilot.exceptions import CopilotSessionError
-
-        redis_status = "not configured" if not settings.redis_url else "connection failed"
-        log.error(f"Redis {redis_status} - Cannot retrieve Copilot session")
-        raise CopilotSessionError(
-            f"Redis {redis_status}. Copilot feature requires Redis to be running.", data={"redis_status": redis_status}
-        )
-
-    # Get session data from Redis
-    session_data = await RedisClient.get_copilot_session(session_id)
-
-    if not session_data:
-        # Session not found in Redis (either completed or never existed)
-        return {
-            "session_id": session_id,
-            "status": None,
-            "content": None,
-            "result": None,
-            "created_at": None,
-            "updated_at": None,
-        }
-
-    # For generating sessions, return Redis content and cached result if any
-    if session_data["status"] == CopilotSessionStatus.GENERATING:
-        now = utc_now().isoformat()
-        return {
-            "session_id": session_id,
-            "status": session_data["status"],
-            "content": session_data.get("content", ""),
-            "result": session_data.get("result"),
-            "created_at": now,
-            "updated_at": now,
-        }
-
-    # For completed/failed sessions, Redis data is temporary
-    # History should be loaded from database via graph_id
-    now = utc_now().isoformat()
-    out = {
-        "session_id": session_id,
-        "status": session_data["status"],
-        "content": None,  # Completed sessions are in database
-        "result": session_data.get("result"),
-        "created_at": now,
-        "updated_at": now,
-    }
-    if session_data["status"] == CopilotSessionStatus.FAILED:
-        out["error"] = session_data.get("error")
-    return out

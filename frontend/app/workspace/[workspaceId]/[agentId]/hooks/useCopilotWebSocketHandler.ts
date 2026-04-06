@@ -3,7 +3,7 @@
  *
  * Architecture: Backend is the single writer for graph state. On "result" we only
  * do optimistic render (applyAIChanges, no save). On "done" we invalidate caches
- * and clear session. Message queue in use-copilot-websocket ensures onResult
+ * and clear session. The callback system ensures onResult
  * completes before onDone runs.
  *
  * The handleCopilotEvent bridge receives ChatStreamEvent from the shared chat WS
