@@ -567,7 +567,6 @@ class ChatTurnExecutor:
                 task_entry = handler._task_supervisor.get(request_id)
                 agent_run_id = task_entry.run_id if task_entry else None
                 tolerate_disconnect = bool(task_entry and task_entry.persist_on_disconnect)
-                assistant_message_id = f"msg-assistant-{uuid_lib.uuid4()}"
 
             if agent_run_id is not None:
                 await handler._mark_run_status(

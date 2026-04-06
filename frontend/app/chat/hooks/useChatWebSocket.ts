@@ -62,7 +62,6 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
   const activeByThreadRef = useRef(new Map<string, string>())
   const activeThreadIdRef = useRef<string | null>(null)
   const currentRequestIdRef = useRef<string | null>(null)
-  const chatRunIdRef = useRef<string | null>(null)
   const [isConnected, setIsConnected] = useState(clientRef.current.getConnectionState().isConnected)
   const [activeRequestId, setActiveRequestIdState] = useState<string | null>(null)
   const [chatRunId, setChatRunId] = useState<string | null>(null)
@@ -450,7 +449,6 @@ export function useChatWebSocket(dispatch: React.Dispatch<ChatAction>): UseChatW
           } catch (err) {
             console.warn('[Chat] Failed to create chat run, proceeding without persistence', err)
           }
-          chatRunIdRef.current = newChatRunId
           setChatRunId(newChatRunId)
           const chatExtension: ChatExtension | undefined = newChatRunId
             ? { kind: 'chat' as const, runId: newChatRunId }

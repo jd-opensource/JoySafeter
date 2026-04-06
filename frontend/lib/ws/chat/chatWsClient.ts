@@ -414,15 +414,15 @@ function serializeExtension(extension?: SkillCreatorExtension | ChatExtension | 
   if (extension.kind === 'skill_creator') {
     return {
       kind: extension.kind,
-      run_id: (extension as SkillCreatorExtension).runId ?? null,
-      edit_skill_id: (extension as SkillCreatorExtension).editSkillId ?? null,
+      run_id: extension.runId ?? null,
+      edit_skill_id: extension.editSkillId ?? null,
     }
   }
 
   if (extension.kind === 'chat') {
     return {
       kind: extension.kind,
-      run_id: (extension as ChatExtension).runId ?? null,
+      run_id: extension.runId ?? null,
     }
   }
 
