@@ -9,6 +9,9 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 
 import { useToast } from '@/hooks/use-toast'
+import type { RunEventFrame, RunStatusFrame } from '@/lib/ws/runs/types'
+import { getRunWsClient } from '@/lib/ws/runs/runWsClient'
+import type { ChatStreamEvent } from '@/services/chatBackend'
 import { runService } from '@/services/runService'
 
 import { hasCurrentMessage } from '../utils/copilotUtils'
@@ -21,6 +24,14 @@ interface UseCopilotEffectsOptions {
   refs: CopilotRefs
   graphId?: string
   handleSendWithInput: (input: string) => Promise<void>
+  handleCopilotEvent: (evt: ChatStreamEvent) => void
+}
+
+/** Map a persisted RunEventFrame back to the ChatStreamEvent shape that handleCopilotEvent expects. */
+function runEventToChatEvent(frame: RunEventFrame): ChatStreamEvent {
+  // _mirror_run_stream_event stores "content" as "content_delta"; reverse it
+  const type = frame.event_type === 'content_delta' ? 'content' : frame.event_type
+  return { type, data: frame.data } as ChatStreamEvent
 }
 
 export function useCopilotEffects({
@@ -28,11 +39,23 @@ export function useCopilotEffects({
   actions,
   refs,
   handleSendWithInput,
+  handleCopilotEvent,
 }: UseCopilotEffectsOptions) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { toast } = useToast()
   const lastRestoredSessionIdRef = useRef<string | null>(null)
+  const activeSubscriptionRef = useRef<string | null>(null)
+
+  // Cleanup run subscription on unmount
+  useEffect(() => {
+    return () => {
+      if (activeSubscriptionRef.current) {
+        getRunWsClient().unsubscribe(activeSubscriptionRef.current)
+        activeSubscriptionRef.current = null
+      }
+    }
+  }, [])
 
   // Session recovery: restore state from run snapshot when runId is restored
   useEffect(() => {
@@ -62,7 +85,7 @@ export function useCopilotEffects({
         const status = snapshot.status as string
 
         if (status === 'running' || status === 'queued') {
-          // Run still active -- show last known state
+          // Run still active -- show last known state from snapshot
           if (projection) {
             const content = projection.content as string | undefined
             if (content) {
@@ -72,7 +95,54 @@ export function useCopilotEffects({
             actions.setCurrentStage({ stage: (stage || 'processing') as any, message: 'Processing...' })
             if (!hasCurrentMessage(state.messages, false)) actions.setThinkingMessage()
           }
-          // TODO: subscribe to /ws/runs for live event replay (future enhancement)
+
+          // Subscribe to /ws/runs for live event replay from where snapshot left off
+          const afterSeq = snapshot.last_seq ?? 0
+          activeSubscriptionRef.current = currentRunId
+          getRunWsClient()
+            .subscribe(currentRunId, afterSeq, {
+              onEvent: (frame: RunEventFrame) => {
+                if (!refs.isMountedRef.current) return
+                handleCopilotEvent(runEventToChatEvent(frame))
+              },
+              onStatus: (frame: RunStatusFrame) => {
+                if (!refs.isMountedRef.current) return
+                if (frame.status === 'completed' || frame.status === 'failed') {
+                  getRunWsClient().unsubscribe(currentRunId)
+                  activeSubscriptionRef.current = null
+                  // Re-fetch final snapshot to get complete projection
+                  runService.getRunSnapshot(currentRunId).then((finalSnapshot) => {
+                    if (!refs.isMountedRef.current || !finalSnapshot) return
+                    const fp = finalSnapshot.projection as Record<string, unknown> | undefined
+                    if (frame.status === 'completed' && fp) {
+                      const resultMessage = (fp.result_message as string) ?? ''
+                      const resultActions = fp.result_actions as Array<Record<string, unknown>> | undefined
+                      actions.clearStreaming()
+                      actions.finalizeCurrentMessage(resultMessage, resultActions as any)
+                      if (resultActions && resultActions.length > 0) {
+                        actions.executeActions(resultActions as any)
+                      }
+                    } else if (frame.status === 'failed') {
+                      actions.clearStreaming()
+                      actions.finalizeCurrentMessage(
+                        (fp?.error as string) || frame.error_message || 'Copilot task failed',
+                      )
+                    }
+                    actions.clearSession()
+                    actions.setLoading(false)
+                  }).catch(() => {
+                    actions.clearSession()
+                    actions.setLoading(false)
+                  })
+                }
+              },
+              onError: (message: string) => {
+                console.warn('[useCopilotEffects] Run subscription error:', message)
+              },
+            })
+            .catch((err) => {
+              console.warn('[useCopilotEffects] Failed to subscribe to run events:', err)
+            })
         } else if (status === 'completed') {
           if (projection) {
             const resultMessage = (projection.result_message as string) ?? ''
@@ -100,7 +170,7 @@ export function useCopilotEffects({
 
     restoreSession()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.currentRunId, actions, refs])
+  }, [state.currentRunId, actions, refs, handleCopilotEvent])
 
   // Update page title to show loading status
   useEffect(() => {

@@ -73,6 +73,7 @@ export function CopilotPanel() {
     refs,
     graphId,
     handleSendWithInput,
+    handleCopilotEvent: webSocketCallbacks.handleCopilotEvent,
   })
 
   // Stage config
