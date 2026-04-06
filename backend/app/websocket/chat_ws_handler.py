@@ -208,11 +208,18 @@ class ChatWsHandler:
         async def runner() -> None:
             await self._turn_executor.run_resume_turn(request_id=request_id, thread_id=thread_id, command=command)
 
+        # Inherit run_id from the previous task entry for this thread (if persisted)
+        existing_entry = self._task_supervisor.get_by_thread(thread_id)
+        resume_run_id = existing_entry.run_id if existing_entry else None
+        resume_persist = existing_entry.persist_on_disconnect if existing_entry else False
+
         self._task_supervisor.create_task(
             request_id,
             runner(),
             name=f"chat-ws-resume:{request_id}",
             thread_id=thread_id,
+            run_id=resume_run_id,
+            persist_on_disconnect=resume_persist,
         )
 
     async def _handle_stop(self, frame: dict[str, Any]) -> None:
@@ -509,7 +516,7 @@ class ChatWsHandler:
                         run_id=agent_run_id,
                         status=AgentRunStatus.FAILED,
                         error_code="stream_error",
-                        error_message="Skill Creator run failed",
+                        error_message="Agent run failed",
                         result_summary=result_summary,
                     )
                 else:

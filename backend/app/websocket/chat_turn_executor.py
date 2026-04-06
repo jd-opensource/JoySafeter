@@ -15,7 +15,7 @@ from app.common.exceptions import ModelConfigError
 from app.models.agent_run import AgentRunStatus
 from app.schemas.chat import ChatRequest
 from app.utils.stream_event_handler import StreamState
-from app.websocket.chat_commands import ChatTurnCommand, SkillCreatorTurnCommand
+from app.websocket.chat_commands import ChatRunTurnCommand, ChatTurnCommand, SkillCreatorTurnCommand
 from app.websocket.chat_task_supervisor import ChatTaskEntry
 
 
@@ -77,6 +77,9 @@ class ChatTurnExecutor:
             persist_on_disconnect = run_id is not None
             if command.edit_skill_id and "edit_skill_id" not in metadata:
                 metadata["edit_skill_id"] = command.edit_skill_id
+        elif isinstance(command, ChatRunTurnCommand):
+            run_id = self._parse_uuid(command.run_id)
+            persist_on_disconnect = run_id is not None
 
         return PreparedStandardTurn(
             request_id=str(command.request_id or ""),
@@ -474,6 +477,9 @@ class ChatTurnExecutor:
         config = None
         stream_handler = None
         ws_command = None
+        agent_run_id: uuid_lib.UUID | None = None
+        tolerate_disconnect = False
+        assistant_message_id = f"msg-assistant-{uuid_lib.uuid4()}"
 
         try:
             async with module.AsyncSessionLocal() as db:
@@ -560,16 +566,44 @@ class ChatTurnExecutor:
 
                 task_entry = handler._task_supervisor.get(request_id)
                 agent_run_id = task_entry.run_id if task_entry else None
+                tolerate_disconnect = bool(task_entry and task_entry.persist_on_disconnect)
                 assistant_message_id = f"msg-assistant-{uuid_lib.uuid4()}"
+
+            if agent_run_id is not None:
+                await handler._mark_run_status(
+                    run_id=agent_run_id,
+                    status=AgentRunStatus.RUNNING,
+                    runtime_owner_id=handler._runtime_owner_id,
+                )
+                heartbeat_task = asyncio.create_task(
+                    handler._run_persisted_run_heartbeat(agent_run_id),
+                    name=f"run-heartbeat:{agent_run_id}",
+                )
+                handler._task_supervisor.update(request_id, heartbeat_task=heartbeat_task)
+                await handler._append_run_event(
+                    run_id=agent_run_id,
+                    event_type="assistant_message_started",
+                    payload={
+                        "message": {
+                            "id": assistant_message_id,
+                            "role": "assistant",
+                            "content": "",
+                            "timestamp": int(time.time() * 1000),
+                            "tool_calls": [],
+                        }
+                    },
+                )
 
             await handler._send(
                 {
                     "type": "accepted",
                     "request_id": request_id,
                     "thread_id": thread_id,
+                    "run_id": str(agent_run_id) if agent_run_id is not None else None,
                     "timestamp": int(time.time() * 1000),
                     "data": {"status": "accepted"},
-                }
+                },
+                tolerate_disconnect=tolerate_disconnect,
             )
 
             stream_handler = module.StreamEventHandler()
@@ -578,6 +612,7 @@ class ChatTurnExecutor:
             await handler._send_event_from_sse(
                 stream_handler.format_sse("status", {"status": "resumed", "_meta": {"node_name": "system"}}, thread_id),
                 request_id,
+                tolerate_disconnect=tolerate_disconnect,
                 agent_run_id=agent_run_id,
                 assistant_message_id=assistant_message_id,
             )
@@ -591,6 +626,7 @@ class ChatTurnExecutor:
                     await handler._send_event_from_sse(
                         sse_str,
                         request_id,
+                        tolerate_disconnect=tolerate_disconnect,
                         agent_run_id=agent_run_id,
                         assistant_message_id=assistant_message_id,
                     )
@@ -606,10 +642,9 @@ class ChatTurnExecutor:
                 if snap.tasks:
                     next_node = snap.tasks[0].target if snap.tasks else None
                     current_state = snap.values or {}
-                    await handler._send(
+                    await handler._emit_event(
                         {
                             "type": "interrupt",
-                            "request_id": request_id,
                             "thread_id": thread_id,
                             "node_name": next_node or "unknown",
                             "node_label": next_node.replace("_", " ").title() if next_node else "Unknown Node",
@@ -619,7 +654,11 @@ class ChatTurnExecutor:
                                 "state": current_state,
                                 "thread_id": thread_id,
                             },
-                        }
+                        },
+                        request_id=request_id,
+                        tolerate_disconnect=tolerate_disconnect,
+                        agent_run_id=agent_run_id,
+                        assistant_message_id=assistant_message_id,
                     )
                     state.interrupted = True
                     state.interrupt_node = next_node
@@ -649,44 +688,53 @@ class ChatTurnExecutor:
                 return
 
             if state.stopped:
-                await handler._send(
+                await handler._emit_event(
                     {
                         "type": "error",
-                        "request_id": request_id,
                         "thread_id": thread_id,
                         "node_name": "system",
                         "run_id": "",
                         "timestamp": int(time.time() * 1000),
                         "data": {"message": "Stopped by user", "code": "stopped"},
-                    }
+                    },
+                    request_id=request_id,
+                    tolerate_disconnect=tolerate_disconnect,
+                    agent_run_id=agent_run_id,
+                    assistant_message_id=assistant_message_id,
                 )
 
-            await handler._send(
+            await handler._emit_event(
                 {
                     "type": "done",
-                    "request_id": request_id,
                     "thread_id": thread_id,
                     "node_name": "system",
                     "run_id": "",
                     "timestamp": int(time.time() * 1000),
                     "data": {},
-                }
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
             )
 
         except asyncio.CancelledError:
             if state is not None:
                 state.stopped = True
             try:
-                await handler._send(
+                await handler._emit_event(
                     {
                         "type": "done",
-                        "request_id": request_id,
                         "thread_id": thread_id,
                         "node_name": "system",
                         "run_id": "",
                         "timestamp": int(time.time() * 1000),
                         "data": {},
-                    }
+                    },
+                    request_id=request_id,
+                    tolerate_disconnect=tolerate_disconnect,
+                    agent_run_id=agent_run_id,
+                    assistant_message_id=assistant_message_id,
                 )
             except Exception:
                 _logger.debug("error during turn cleanup", exc_info=True)
@@ -694,27 +742,33 @@ class ChatTurnExecutor:
         except Exception as exc:
             if state is not None and not (module.GraphBubbleUp is not None and type(exc) is module.GraphBubbleUp):
                 state.has_error = True
-            await handler._send(
+            await handler._emit_event(
                 {
                     "type": "error",
-                    "request_id": request_id,
                     "thread_id": thread_id,
                     "node_name": "system",
                     "run_id": "",
                     "timestamp": int(time.time() * 1000),
                     "data": {"message": str(exc)},
-                }
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
             )
-            await handler._send(
+            await handler._emit_event(
                 {
                     "type": "done",
-                    "request_id": request_id,
                     "thread_id": thread_id,
                     "node_name": "system",
                     "run_id": "",
                     "timestamp": int(time.time() * 1000),
                     "data": {},
-                }
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
             )
         finally:
             await _release_graph_sandbox(built_graph)

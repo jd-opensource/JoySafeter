@@ -86,6 +86,13 @@ class ChatTaskSupervisor:
         """Look up a task entry by request_id."""
         return self._tasks.get(request_id)
 
+    def get_by_thread(self, thread_id: str) -> ChatTaskEntry | None:
+        """Look up the most recent task entry for a thread."""
+        for entry in reversed(list(self._tasks.values())):
+            if entry.thread_id == thread_id:
+                return entry
+        return None
+
     def update(
         self,
         request_id: str,
