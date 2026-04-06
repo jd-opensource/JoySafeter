@@ -2,6 +2,7 @@
 
 from app.services.agent_registry import AgentDefinition, agent_registry
 
+from .chat import apply_chat_event, make_initial_projection as chat_make_initial_projection
 from .skill_creator import apply_skill_creator_event, make_initial_projection
 
 agent_registry.register(
@@ -14,4 +15,20 @@ agent_registry.register(
     )
 )
 
-__all__ = ["agent_registry", "apply_skill_creator_event", "make_initial_projection"]
+agent_registry.register(
+    AgentDefinition(
+        agent_name="chat",
+        display_name="Chat",
+        run_type="chat_turn",
+        reducer=apply_chat_event,
+        make_initial_projection=chat_make_initial_projection,
+    )
+)
+
+__all__ = [
+    "agent_registry",
+    "apply_chat_event",
+    "apply_skill_creator_event",
+    "chat_make_initial_projection",
+    "make_initial_projection",
+]
