@@ -6,7 +6,7 @@ import uuid as uuid_lib
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from app.websocket.chat_protocol import ParsedChatExtension, ParsedCopilotExtension, ParsedChatStartFrame
+from app.websocket.chat_protocol import ParsedChatExtension, ParsedChatStartFrame, ParsedCopilotExtension
 
 
 @dataclass(frozen=True)

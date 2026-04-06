@@ -175,7 +175,7 @@ def require_org_role(min_role: OrgRole):
 
     def _rank(r: str) -> int:
         try:
-            return role_order.index(r)
+            return role_order.index(OrgRole(r))
         except ValueError:
             return -1
 

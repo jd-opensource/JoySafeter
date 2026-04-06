@@ -22,7 +22,7 @@ class SandboxHandle:
     Usage::
 
         async with await sandbox_service.ensure_sandbox_running(user_id) as handle:
-            handle.adapter.write_overwrite("/workspace/uploads/f.txt", b"hello")
+            handle.adapter.write_overwrite("/workspace/uploads/f.txt", "hello")
         # active_count decremented automatically
 
     Does NOT use ``__del__`` as a safety net: Python's ``__del__`` is unreliable

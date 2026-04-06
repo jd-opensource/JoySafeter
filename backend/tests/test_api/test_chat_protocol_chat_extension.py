@@ -39,6 +39,7 @@ def test_parse_chat_extension_with_no_run_id():
 
 def test_unsupported_extension_kind_still_rejected():
     import pytest
+
     from app.websocket.chat_protocol import ChatProtocolError
 
     with pytest.raises(ChatProtocolError, match="unsupported extension kind"):

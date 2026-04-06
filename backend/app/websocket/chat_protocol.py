@@ -138,7 +138,9 @@ def _parse_chat_start_frame(frame: dict[str, Any]) -> ParsedChatStartFrame:
     )
 
 
-def _parse_extension(raw_extension: Any, request_id: str) -> ParsedSkillCreatorExtension | ParsedChatExtension | ParsedCopilotExtension | None:
+def _parse_extension(
+    raw_extension: Any, request_id: str
+) -> ParsedSkillCreatorExtension | ParsedChatExtension | ParsedCopilotExtension | None:
     if raw_extension is None:
         return None
     if not isinstance(raw_extension, dict):
@@ -159,7 +161,11 @@ def _parse_extension(raw_extension: Any, request_id: str) -> ParsedSkillCreatorE
         if not isinstance(graph_context, dict):
             raise ChatProtocolError("copilot extension requires graph_context object", request_id=request_id)
         conversation_history_raw = raw_extension.get("conversation_history")
-        conversation_history = [item for item in conversation_history_raw if isinstance(item, dict)] if isinstance(conversation_history_raw, list) else []
+        conversation_history = (
+            [item for item in conversation_history_raw if isinstance(item, dict)]
+            if isinstance(conversation_history_raw, list)
+            else []
+        )
         mode = str(raw_extension.get("mode") or "deepagents")
         return ParsedCopilotExtension(
             kind="copilot",

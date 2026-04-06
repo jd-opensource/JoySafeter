@@ -20,11 +20,10 @@ from typing import Any, Dict, Optional
 import docker
 import httpx
 from loguru import logger
-
-from app.core.agent.backends.docker_check import get_docker_client
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.agent.backends.docker_check import get_docker_client
 from app.models.enums import InstanceStatus
 from app.models.openclaw_instance import OpenClawInstance
 from app.services.base import BaseService
@@ -298,7 +297,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                         logger.info(f"OpenClaw gateway ready on port {instance.gateway_port}")
                         return
             except Exception:
-                logger.debug("Failed to poll OpenClaw gateway readiness on port %s", instance.gateway_port, exc_info=True)
+                logger.debug(
+                    "Failed to poll OpenClaw gateway readiness on port %s", instance.gateway_port, exc_info=True
+                )
             await asyncio.sleep(GATEWAY_READY_POLL_INTERVAL)
 
         # Last resort: check if container is still running
@@ -476,7 +477,9 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
                     container = await asyncio.to_thread(client.containers.get, container_id)
                     await asyncio.to_thread(container.exec_run, cmd=["mkdir", "-p", "/workspace/skills"])
                 except Exception:
-                    logger.debug("Failed to create /workspace/skills directory in container %s", container_id, exc_info=True)
+                    logger.debug(
+                        "Failed to create /workspace/skills directory in container %s", container_id, exc_info=True
+                    )
                 return 0
 
             client = get_docker_client()

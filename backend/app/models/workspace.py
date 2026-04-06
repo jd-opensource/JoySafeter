@@ -114,9 +114,7 @@ class WorkspaceMember(BaseModel):
         back_populates="workspace_memberships",
     )
 
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "user_id", name="uq_workspace_member"),
-    )
+    __table_args__ = (UniqueConstraint("workspace_id", "user_id", name="uq_workspace_member"),)
 
 
 class WorkspaceFolder(BaseModel, SoftDeleteMixin):

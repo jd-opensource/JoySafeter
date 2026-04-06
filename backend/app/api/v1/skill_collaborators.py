@@ -45,7 +45,7 @@ async def list_collaborators(
     )
 
     user_service = UserService(db)
-    owner = await user_service.get_user_by_id(skill.owner_id)
+    owner = await user_service.get_user_by_id(skill.owner_id) if skill.owner_id else None
 
     return {
         "success": True,
@@ -55,7 +55,9 @@ async def list_collaborators(
                 "id": owner.id,
                 "name": owner.name,
                 "email": owner.email,
-            } if owner else {"id": skill.owner_id, "name": None, "email": None},
+            }
+            if owner
+            else {"id": skill.owner_id, "name": None, "email": None},
         },
     }
 
@@ -75,6 +77,9 @@ async def add_collaborator(
         if not user:
             raise NotFoundException("User not found")
         target_user_id = user.id
+
+    if not target_user_id:
+        raise NotFoundException("User not found")
 
     service = SkillCollaboratorService(db)
     collaborator = await service.add_collaborator(

@@ -23,7 +23,10 @@ def upgrade() -> None:
     op.add_column(
         "model_credential",
         sa.Column(
-            "provider_name", sa.String(length=100), nullable=True, comment="Template provider name, used when provider_id is null"
+            "provider_name",
+            sa.String(length=100),
+            nullable=True,
+            comment="Template provider name, used when provider_id is null",
         ),
     )
     op.alter_column(
@@ -47,7 +50,10 @@ def upgrade() -> None:
     op.add_column(
         "model_instance",
         sa.Column(
-            "provider_name", sa.String(length=100), nullable=True, comment="Template provider name, used when provider_id is null"
+            "provider_name",
+            sa.String(length=100),
+            nullable=True,
+            comment="Template provider name, used when provider_id is null",
         ),
     )
     op.drop_constraint("uq_model_instance_user_provider_model", "model_instance", type_="unique")

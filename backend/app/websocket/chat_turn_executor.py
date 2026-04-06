@@ -900,7 +900,6 @@ class ChatTurnExecutor:
 
                     # Collect for persistence
                     if event_type == "result":
-                        final_message = event.get("message", "")
                         final_actions = event.get("actions", [])
 
                     # Emit to WS + run events

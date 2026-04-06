@@ -144,7 +144,7 @@ def _resolve_docker_context_host() -> Optional[str]:
                 continue
             meta = json.loads(meta_file.read_text())
             if meta.get("Name") == context_name:
-                host = meta.get("Endpoints", {}).get("docker", {}).get("Host")
+                host: str | None = meta.get("Endpoints", {}).get("docker", {}).get("Host")
                 if host:
                     logger.debug(f"Resolved Docker host from context '{context_name}': {host}")
                     return host

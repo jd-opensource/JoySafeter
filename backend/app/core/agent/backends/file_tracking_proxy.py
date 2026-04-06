@@ -31,17 +31,17 @@ class FileTrackingProxy(SandboxBackendProtocol):
 
     # ── Write operations (intercepted) ──────────────────────────────────
 
-    def write(self, file_path: str, content: str | bytes) -> WriteResult:
+    def write(self, file_path: str, content: str) -> WriteResult:
         result = self._backend.write(file_path, content)
         if not getattr(result, "error", None):
-            size = len(content) if isinstance(content, bytes) else len(content.encode("utf-8"))
+            size = len(content.encode("utf-8"))
             self._emitter.emit("write", file_path, size)
         return result
 
-    def write_overwrite(self, file_path: str, content: str | bytes) -> WriteResult:
+    def write_overwrite(self, file_path: str, content: str) -> WriteResult:
         result: WriteResult = getattr(self._backend, "write_overwrite")(file_path, content)
         if not getattr(result, "error", None):
-            size = len(content) if isinstance(content, bytes) else len(content.encode("utf-8"))
+            size = len(content.encode("utf-8"))
             self._emitter.emit("write", file_path, size)
         return result
 

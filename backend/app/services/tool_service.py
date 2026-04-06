@@ -585,7 +585,9 @@ async def initialize_mcp_tools_on_startup(
                         await asyncio.sleep(delay)
                     else:
                         # Max retries reached
-                        await server_service.update_connection_status(server.id, McpConnectionStatus.ERROR, result.error)
+                        await server_service.update_connection_status(
+                            server.id, McpConnectionStatus.ERROR, result.error
+                        )
                         failed_servers += 1
                         logger.error(
                             f"Failed to load tools from MCP server {server.name} after {max_retries} retries: "

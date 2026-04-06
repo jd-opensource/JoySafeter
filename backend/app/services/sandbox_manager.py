@@ -346,7 +346,9 @@ class SandboxManagerService:
                 if not adapter.is_started():
                     adapter.start()
                     container_id = adapter.get_container_id()
-                    await self._update_status(sandbox_id, InstanceStatus.RUNNING, container_id=container_id, error_message=None)
+                    await self._update_status(
+                        sandbox_id, InstanceStatus.RUNNING, container_id=container_id, error_message=None
+                    )
                 # Always release the active_count from pool.get()
                 await _sandbox_pool.release(sandbox_id)
                 return True
@@ -412,7 +414,9 @@ class SandboxManagerService:
 
         if evicted_ids:
             logger.info(f"Syncing status for evicted sandboxes: {evicted_ids}")
-            await self.db.execute(update(UserSandbox).where(UserSandbox.id.in_(evicted_ids)).values(status=InstanceStatus.STOPPED))
+            await self.db.execute(
+                update(UserSandbox).where(UserSandbox.id.in_(evicted_ids)).values(status=InstanceStatus.STOPPED)
+            )
             await self.db.commit()
 
         return len(evicted_ids)

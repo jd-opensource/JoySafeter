@@ -26,7 +26,9 @@ class ModelInstanceCreate(BaseModel):
     provider_name: str = Field(description="Provider name", examples=["openaiapicompatible"])
     model_name: str = Field(description="Model name", examples=["gpt-4o"])
     model_type: str = Field(default="chat", description="Model type: chat, llm, embedding, etc.", examples=["chat"])
-    model_parameters: Optional[Dict[str, Any]] = Field(default=None, description="Model parameter configuration", examples=[{}])
+    model_parameters: Optional[Dict[str, Any]] = Field(
+        default=None, description="Model parameter configuration", examples=[{}]
+    )
 
 
 class ModelInstanceUpdate(BaseModel):

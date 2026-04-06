@@ -1,6 +1,12 @@
 """Tests for copilot command dispatch."""
-from app.websocket.chat_commands import build_command_from_parsed_frame, CopilotTurnCommand, ChatRunTurnCommand, SkillCreatorTurnCommand
-from app.websocket.chat_protocol import ParsedChatStartFrame, ParsedChatInput, ParsedCopilotExtension
+
+from app.websocket.chat_commands import (
+    ChatRunTurnCommand,
+    CopilotTurnCommand,
+    SkillCreatorTurnCommand,
+    build_command_from_parsed_frame,
+)
+from app.websocket.chat_protocol import ParsedChatInput, ParsedChatStartFrame, ParsedCopilotExtension
 
 
 def test_copilot_extension_produces_copilot_turn_command():
@@ -43,6 +49,7 @@ def test_no_extension_still_standard():
 
 def test_chat_extension_still_chat_run():
     from app.websocket.chat_protocol import ParsedChatExtension
+
     frame = ParsedChatStartFrame(
         request_id="req-3",
         thread_id=None,

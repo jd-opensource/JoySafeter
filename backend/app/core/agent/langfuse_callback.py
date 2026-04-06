@@ -88,8 +88,7 @@ def get_langfuse_callbacks(enabled: bool = True, **kwargs: Any) -> list[Any]:
 
         trace_id = get_trace_id()
         handler = LangfuseCallbackHandler(
-            trace_id=trace_id or None,
-            trace_name="graph_execution",
+            trace_context={"trace_id": trace_id} if trace_id else None,
         )
         logger.info(f"[langfuse] Langfuse callback handler created successfully (host: {host})")
         return [handler]

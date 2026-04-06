@@ -22,7 +22,9 @@ class ModelProvider(BaseModel):
     name: Mapped[str] = mapped_column(
         String(100), nullable=False, unique=True, comment="unique provider identifier, e.g. 'openai', 'anthropic'"
     )
-    display_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="display name, e.g. 'OpenAI', 'Anthropic'")
+    display_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="display name, e.g. 'OpenAI', 'Anthropic'"
+    )
     icon: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="icon URL")
     description: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="provider description")
 

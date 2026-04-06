@@ -100,9 +100,7 @@ class EmailService:
         reset_link = f"{url}/reset-password?token={reset_token}"
 
         subject = "[JoySafeter] Password Reset Request"
-        html_content = _render(
-            "email/password_reset.html", username=username, reset_link=reset_link
-        )
+        html_content = _render("email/password_reset.html", username=username, reset_link=reset_link)
         text_content = f"""\
 Hello, {username}!
 
@@ -132,9 +130,7 @@ JoySafeter Team"""
         verify_link = f"{url}/verify-email?token={verify_token}"
 
         subject = "[JoySafeter] Verify Your Email"
-        html_content = _render(
-            "email/email_verification.html", username=username, verify_link=verify_link
-        )
+        html_content = _render("email/email_verification.html", username=username, verify_link=verify_link)
         text_content = f"""\
 Welcome to JoySafeter!
 

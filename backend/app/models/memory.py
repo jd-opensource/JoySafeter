@@ -48,7 +48,9 @@ class Memory(Base):
     topics: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True, comment="topic list (JSON array)")
 
     # timestamps (Unix epoch, BigInteger)
-    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True, comment="created at (Unix timestamp)")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, index=True, comment="created at (Unix timestamp)"
+    )
     updated_at: Mapped[Optional[int]] = mapped_column(
         BigInteger, nullable=True, index=True, comment="updated at (Unix timestamp)"
     )

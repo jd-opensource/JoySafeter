@@ -16,9 +16,8 @@ from fastapi import APIRouter, Depends
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.agent.backends.docker_check import get_docker_client
-
 from app.common.dependencies import get_current_user
+from app.core.agent.backends.docker_check import get_docker_client
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
 from app.models.enums import InstanceStatus

@@ -370,10 +370,10 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
 
     # Dangerous command patterns (defense-in-depth, not sole security boundary)
     _DANGEROUS_PATTERNS = [
-        r"rm\s+-rf\s+/\s*$",       # rm -rf /
-        r"mkfs\.",                   # format disk
-        r"dd\s+.*of=/dev/",         # write to device
-        r":\(\)\s*\{",              # fork bomb :(){ :|:& };:
+        r"rm\s+-rf\s+/\s*$",  # rm -rf /
+        r"mkfs\.",  # format disk
+        r"dd\s+.*of=/dev/",  # write to device
+        r":\(\)\s*\{",  # fork bomb :(){ :|:& };:
     ]
     _DANGEROUS_RE = None  # Lazy-compiled combined regex
 
@@ -381,6 +381,7 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
     def _get_dangerous_re(cls):
         if cls._DANGEROUS_RE is None:
             import re
+
             cls._DANGEROUS_RE = re.compile("|".join(f"(?:{p})" for p in cls._DANGEROUS_PATTERNS))
         return cls._DANGEROUS_RE
 

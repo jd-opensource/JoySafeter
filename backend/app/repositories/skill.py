@@ -42,8 +42,8 @@ class SkillRepository(BaseRepository[Skill]):
                         Skill.id.in_(collab_subquery),
                         Skill.is_public.is_(True),
                         Skill.owner_id.is_(None),  # system-level public skill
+                    )
                 )
-            )
         else:
             # if user_id is None and include_public is False, return no results
             conditions.append(Skill.id.is_(None))  # condition that never matches

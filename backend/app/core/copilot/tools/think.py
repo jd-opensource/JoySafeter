@@ -104,7 +104,9 @@ def think(
 
         # if nodes/connections were provided, perform consistency check
         if nodes is not None:
-            logger.debug(f"[think] node consistency check: provided {len(nodes)} nodes, actual {len(actual_node_names)} nodes")
+            logger.debug(
+                f"[think] node consistency check: provided {len(nodes)} nodes, actual {len(actual_node_names)} nodes"
+            )
             # check whether provided nodes exist in actually created nodes
             provided_nodes_lower = {n.lower() for n in nodes}
             actual_nodes_lower = {n.lower() for n in actual_node_names}
@@ -121,12 +123,16 @@ def think(
                 logger.warning(
                     f"[think] consistency check: actual nodes '{', '.join(missing_in_provided)}' not mentioned in provided params"
                 )
-                consistency_issues.append(f"Actual nodes '{', '.join(missing_in_provided)}' not mentioned in provided params")
+                consistency_issues.append(
+                    f"Actual nodes '{', '.join(missing_in_provided)}' not mentioned in provided params"
+                )
             if not missing_in_actual and not missing_in_provided:
                 logger.debug("[think] node consistency check passed: provided nodes match actual nodes")
         else:
             # if not provided, use actual nodes
-            logger.info(f"[think] nodes param not provided, auto-using {len(actual_node_names)} nodes from graph_context")
+            logger.info(
+                f"[think] nodes param not provided, auto-using {len(actual_node_names)} nodes from graph_context"
+            )
             nodes = actual_node_names
             auto_read_used = True
 
@@ -151,7 +157,9 @@ def think(
                 logger.warning(
                     f"[think] consistency check: actual edges '{', '.join(missing_in_provided)}' not mentioned in provided params"
                 )
-                consistency_issues.append(f"Actual edges '{', '.join(missing_in_provided)}' not mentioned in provided params")
+                consistency_issues.append(
+                    f"Actual edges '{', '.join(missing_in_provided)}' not mentioned in provided params"
+                )
             if not missing_in_actual and not missing_in_provided:
                 logger.debug("[think] edge consistency check passed: provided edges match actual edges")
         else:
@@ -197,7 +205,9 @@ def think(
             # 1.3 single responsibility check
             for node in nodes:
                 if " and " in node.lower() or "&" in node:
-                    issues.append(f"Role '{node}' has ambiguous responsibilities, consider splitting into two separate Agents")
+                    issues.append(
+                        f"Role '{node}' has ambiguous responsibilities, consider splitting into two separate Agents"
+                    )
 
     # ---------- 2. VALIDATION stage: topology validation ----------
     elif stage == "validation":
@@ -240,7 +250,9 @@ def think(
             for sa in subagents:
                 if conn_map.get(sa.lower()):
                     subagent_with_children.append(sa)
-                    issues.append(f"Non-star connection detected: {sa} has downstream nodes, let Manager coordinate instead")
+                    issues.append(
+                        f"Non-star connection detected: {sa} has downstream nodes, let Manager coordinate instead"
+                    )
 
             if subagent_with_children:
                 logger.warning(
@@ -263,7 +275,9 @@ def think(
     # ---------- 4. generate feedback ----------
     passed = len(issues) == 0
     if passed:
-        logger.info(f"[think] validation passed: stage={stage}, nodes={len(nodes)}, connections={len(connections or [])}")
+        logger.info(
+            f"[think] validation passed: stage={stage}, nodes={len(nodes)}, connections={len(connections or [])}"
+        )
         recommendations = [
             "Structure follows DeepAgents best practices",
             "Ready to proceed to next stage" if stage == "planning" else "Ready to deliver results",

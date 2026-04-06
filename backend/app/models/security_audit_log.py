@@ -61,7 +61,9 @@ class SecurityAuditLog(Base, TimestampMixin):
     country: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
 
     # details (JSON)
-    details: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, comment="extra info such as error reason, target entity, etc.")
+    details: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, comment="extra info such as error reason, target entity, etc."
+    )
 
     # timestamps (inherited from TimestampMixin)
     # created_at records when the event occurred

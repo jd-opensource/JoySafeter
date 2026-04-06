@@ -73,10 +73,12 @@ def apply_copilot_event(
         return next_p
 
     if event_type == "tool_call":
-        next_p["tool_calls"].append({
-            "tool": payload.get("tool", ""),
-            "input": payload.get("input", {}),
-        })
+        next_p["tool_calls"].append(
+            {
+                "tool": payload.get("tool", ""),
+                "input": payload.get("input", {}),
+            }
+        )
         return next_p
 
     if event_type == "tool_result":

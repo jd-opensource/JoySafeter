@@ -32,7 +32,8 @@ def upgrade() -> None:
         ),
     )
     op.add_column(
-        "model_provider", sa.Column("template_name", sa.String(length=100), nullable=True, comment="Name of the referenced template")
+        "model_provider",
+        sa.Column("template_name", sa.String(length=100), nullable=True, comment="Name of the referenced template"),
     )
     op.add_column(
         "model_provider",

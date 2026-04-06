@@ -56,15 +56,61 @@ router = APIRouter(prefix="/v1/files", tags=["Files"])
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50MB
 MAX_STORAGE_PER_USER = 5 * 1024 * 1024 * 1024  # 5GB per user
 ALLOWED_EXTENSIONS = {
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".odt", ".ods", ".odp", ".rtf", ".epub",
-    ".txt", ".csv", ".md", ".html", ".css",
-    ".js", ".ts", ".py", ".java", ".c", ".cpp", ".h", ".hpp",
-    ".cs", ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala",
-    ".sh", ".sql", ".yaml", ".yml", ".toml", ".xml", ".json",
-    ".jsx", ".tsx", ".vue", ".svelte",
-    ".jpeg", ".jpg", ".png", ".gif", ".webp",
-    ".zip", ".tar", ".gz", ".7z", ".rar", ".apk",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".odt",
+    ".ods",
+    ".odp",
+    ".rtf",
+    ".epub",
+    ".txt",
+    ".csv",
+    ".md",
+    ".html",
+    ".css",
+    ".js",
+    ".ts",
+    ".py",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".go",
+    ".rs",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".sh",
+    ".sql",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".json",
+    ".jsx",
+    ".tsx",
+    ".vue",
+    ".svelte",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".7z",
+    ".rar",
+    ".apk",
 }
 
 
@@ -205,7 +251,9 @@ async def upload_file(
 
         safe_filename, err = _validate_file_upload(original_filename, content, file.content_type)
         if err:
-            logger.warning(f"File upload rejected: user={current_user.id}, filename={original_filename}, ip={client_ip}")
+            logger.warning(
+                f"File upload rejected: user={current_user.id}, filename={original_filename}, ip={client_ip}"
+            )
             raise err
 
         assert safe_filename is not None
@@ -389,9 +437,7 @@ async def clear_all_files(request: Request, current_user: CurrentUser) -> BaseRe
 
     try:
         async with await _get_sandbox_handle(str(current_user.id)) as handle:
-            await asyncio.to_thread(
-                handle.adapter.execute, f"rm -rf {CONTAINER_UPLOADS_PATH}/*"
-            )
+            await asyncio.to_thread(handle.adapter.execute, f"rm -rf {CONTAINER_UPLOADS_PATH}/*")
             await asyncio.to_thread(handle.adapter.mkdir, CONTAINER_UPLOADS_PATH)
 
         logger.info(f"All files cleared: user={current_user.id}, ip={client_ip}")

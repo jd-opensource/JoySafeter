@@ -87,9 +87,7 @@ def setup_logging():
         # if unable to create logs directory (e.g. insufficient permissions in Docker), use console only
         pass
     logger.configure(
-        patcher=lambda record: record["extra"].update(
-            trace_id=get_trace_id() or record["extra"].get("trace_id", "-")
-        ),
+        patcher=lambda record: record["extra"].update(trace_id=get_trace_id() or record["extra"].get("trace_id", "-")),
         extra={"trace_id": "-", "method": "-", "path": "-", "client": "-"},
     )
 

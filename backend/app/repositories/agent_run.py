@@ -8,7 +8,8 @@ import uuid
 from datetime import datetime
 from typing import Optional, Sequence
 
-from sqlalchemy import and_, delete as sa_delete, desc, or_, select
+from sqlalchemy import and_, desc, or_, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_run import AgentRun, AgentRunEvent, AgentRunSnapshot, AgentRunStatus
@@ -131,7 +132,7 @@ class AgentRunRepository(BaseRepository[AgentRun]):
             )
         )
         await self.db.commit()
-        return result.rowcount
+        return getattr(result, "rowcount", 0) or 0
 
     async def list_recoverable_stale_runs(
         self,

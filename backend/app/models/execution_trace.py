@@ -79,7 +79,9 @@ class ExecutionTrace(Base):
     graph_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True, index=True, comment="Graph ID"
     )
-    thread_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True, comment="conversation thread ID")
+    thread_id: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, index=True, comment="conversation thread ID"
+    )
     user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True, comment="user ID")
 
     # basic info

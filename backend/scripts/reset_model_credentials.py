@@ -116,7 +116,9 @@ async def reset_model_credentials(dry_run: bool = True) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=("Reset the model credentials table (model_credential). Runs in dry-run preview mode by default; use --force for actual deletion.")
+        description=(
+            "Reset the model credentials table (model_credential). Runs in dry-run preview mode by default; use --force for actual deletion."
+        )
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(

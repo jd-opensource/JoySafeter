@@ -51,7 +51,9 @@ class McpServer(BaseModel, SoftDeleteMixin):
     # Status
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_connected: Mapped[Optional[datetime]] = mapped_column(nullable=True)
-    connection_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default=McpConnectionStatus.DISCONNECTED)
+    connection_status: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, default=McpConnectionStatus.DISCONNECTED
+    )
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Tool statistics

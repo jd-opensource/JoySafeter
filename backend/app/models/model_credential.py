@@ -50,11 +50,15 @@ class ModelCredential(BaseModel):
     )
 
     # credential validation state
-    is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="whether credential is valid")
+    is_valid: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, comment="whether credential is valid"
+    )
     last_validated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, comment="last validation time"
     )
-    validation_error: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True, comment="validation error message")
+    validation_error: Mapped[Optional[str]] = mapped_column(
+        String(1000), nullable=True, comment="validation error message"
+    )
 
     # relationships
     provider: Mapped[Optional["ModelProvider"]] = relationship(

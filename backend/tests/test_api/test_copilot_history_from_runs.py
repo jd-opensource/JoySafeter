@@ -1,9 +1,8 @@
 """Tests for copilot history built from agent_run snapshots."""
 
+import uuid
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
-
-import uuid
 
 
 def _make_run(*, graph_id: str, title: str, status: str = "completed") -> MagicMock:
@@ -17,8 +16,13 @@ def _make_run(*, graph_id: str, title: str, status: str = "completed") -> MagicM
     return run
 
 
-def _make_snapshot(*, result_message: str, result_actions: list | None = None,
-                   thought_steps: list | None = None, tool_calls: list | None = None) -> MagicMock:
+def _make_snapshot(
+    *,
+    result_message: str,
+    result_actions: list | None = None,
+    thought_steps: list | None = None,
+    tool_calls: list | None = None,
+) -> MagicMock:
     snap = MagicMock()
     snap.projection = {
         "result_message": result_message,
@@ -35,11 +39,13 @@ def test_build_history_messages_from_runs():
     graph_id = str(uuid.uuid4())
     # DB returns newest-first; reversed() produces oldest-first for the response
     runs = [
-        _make_run(graph_id=graph_id, title="Build RAG"),   # newest
-        _make_run(graph_id=graph_id, title="Hello"),        # oldest
+        _make_run(graph_id=graph_id, title="Build RAG"),  # newest
+        _make_run(graph_id=graph_id, title="Hello"),  # oldest
     ]
     snapshots = {
-        runs[0].id: _make_snapshot(result_message="Here is your RAG pipeline.", result_actions=[{"type": "add_node", "payload": {}}]),
+        runs[0].id: _make_snapshot(
+            result_message="Here is your RAG pipeline.", result_actions=[{"type": "add_node", "payload": {}}]
+        ),
         runs[1].id: _make_snapshot(result_message="Hi! How can I help?"),
     }
 
@@ -49,19 +55,23 @@ def test_build_history_messages_from_runs():
         if not snap or not snap.projection:
             continue
         p = snap.projection
-        messages.append({
-            "role": "user",
-            "content": run.title or "",
-            "created_at": run.created_at.isoformat(),
-        })
-        messages.append({
-            "role": "assistant",
-            "content": p.get("result_message") or p.get("content", ""),
-            "created_at": run.updated_at.isoformat(),
-            "actions": p.get("result_actions", []),
-            "thought_steps": p.get("thought_steps", []),
-            "tool_calls": p.get("tool_calls", []),
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": run.title or "",
+                "created_at": run.created_at.isoformat(),
+            }
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": p.get("result_message") or p.get("content", ""),
+                "created_at": run.updated_at.isoformat(),
+                "actions": p.get("result_actions", []),
+                "thought_steps": p.get("thought_steps", []),
+                "tool_calls": p.get("tool_calls", []),
+            }
+        )
 
     assert len(messages) == 4
     assert messages[0]["role"] == "user"

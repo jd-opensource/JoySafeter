@@ -67,7 +67,6 @@ __all__ = [
     "WorkspaceFolder",
     "UserSandbox",
     "Chat",
-
     "Organization",
     "Member",
     "PermissionType",

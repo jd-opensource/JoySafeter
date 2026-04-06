@@ -254,7 +254,6 @@ app.add_middleware(
 )
 
 
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Global exception handler"""

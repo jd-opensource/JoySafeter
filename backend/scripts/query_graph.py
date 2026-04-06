@@ -162,7 +162,9 @@ def query_graph(graph_id: str):
                     print(f"  ID: {node_info['id']}")
                     print(f"  Type: {node_info['type']}")
                     print(f"  Position: ({node_info['position']['x']}, {node_info['position']['y']})")
-                    print(f"  Absolute position: ({node_info['position_absolute']['x']}, {node_info['position_absolute']['y']})")
+                    print(
+                        f"  Absolute position: ({node_info['position_absolute']['x']}, {node_info['position_absolute']['y']})"
+                    )
                     print(f"  Size: {node_info['width']} x {node_info['height']}")
                     prompt_preview = node_info["prompt"][:100] if node_info["prompt"] else "(none)"
                     print(f"  Prompt: {prompt_preview}{'...' if len(node_info['prompt']) > 100 else ''}")

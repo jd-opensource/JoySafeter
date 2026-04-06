@@ -21,7 +21,7 @@ def extract_token_from_cookies(cookies: Mapping[str, Any]) -> Optional[str]:
     Checks ``settings.cookie_name`` first, then common legacy names.
     """
     for name in _ALL_COOKIE_NAMES:
-        value = cookies.get(name)
+        value: str | None = cookies.get(name)
         if value:
             return value
     return None

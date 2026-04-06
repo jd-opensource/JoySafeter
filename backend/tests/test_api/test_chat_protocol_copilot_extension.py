@@ -1,6 +1,8 @@
 """Tests for copilot extension parsing in chat protocol."""
-from app.websocket.chat_protocol import parse_client_frame, ChatProtocolError
+
 import pytest
+
+from app.websocket.chat_protocol import ChatProtocolError, parse_client_frame
 
 
 def _make_copilot_frame(*, graph_context=None, mode=None, run_id=None, conversation_history=None):

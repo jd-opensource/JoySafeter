@@ -450,10 +450,7 @@ def _enrich_message(message: str, metadata: dict, *, is_new_thread: bool, log, e
     if files:
         log.info(f"[{endpoint}] found {len(files)} attached file(s): {files}")
         file_lines = "\n".join([f"- {f['filename']}: {f['path']}" for f in files])
-        enriched += (
-            f"\n\nAttached files:\n{file_lines}\n"
-            f"Use the read_file tool to read the content of these files."
-        )
+        enriched += f"\n\nAttached files:\n{file_lines}\nUse the read_file tool to read the content of these files."
         log.info(f"[{endpoint}] message enriched with file paths, length={len(enriched)}")
 
     return enriched

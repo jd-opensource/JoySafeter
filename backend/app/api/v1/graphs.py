@@ -597,19 +597,23 @@ async def get_copilot_history(
         if not snapshot or not snapshot.projection:
             continue
         p = snapshot.projection
-        messages.append({
-            "role": "user",
-            "content": run.title or "",
-            "created_at": run.created_at.isoformat() if run.created_at else None,
-        })
-        messages.append({
-            "role": "assistant",
-            "content": p.get("result_message") or p.get("content", ""),
-            "created_at": run.updated_at.isoformat() if run.updated_at else None,
-            "actions": p.get("result_actions", []),
-            "thought_steps": p.get("thought_steps", []),
-            "tool_calls": p.get("tool_calls", []),
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": run.title or "",
+                "created_at": run.created_at.isoformat() if run.created_at else None,
+            }
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": p.get("result_message") or p.get("content", ""),
+                "created_at": run.updated_at.isoformat() if run.updated_at else None,
+                "actions": p.get("result_actions", []),
+                "thought_steps": p.get("thought_steps", []),
+                "tool_calls": p.get("tool_calls", []),
+            }
+        )
 
     log.info(f"copilot.history.get success messages_count={len(messages)}")
     return {"data": {"graph_id": str(graph_id), "messages": messages}}

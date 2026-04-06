@@ -26,7 +26,9 @@ class RequirementSpec(BaseModel):
 
     goal: str = Field(..., description="core user goal")
     complexity: ComplexityLevel = Field(default="moderate", description="complexity level")
-    mode: OperationMode = Field(default="create", description="operation mode: create=new graph, update=modify existing graph")
+    mode: OperationMode = Field(
+        default="create", description="operation mode: create=new graph, update=modify existing graph"
+    )
     target_nodes: Optional[List[str]] = Field(default=None, description="node IDs to modify in update mode")
     use_deep_agents: bool = Field(default=False, description="whether DeepAgents mode is needed")
     patterns: List[str] = Field(default_factory=list, description="identified workflow patterns")
@@ -50,7 +52,9 @@ class NodeConfig(BaseModel):
     """Node configuration - corresponds to ReactFlow node.data.config"""
 
     systemPrompt: Optional[str] = Field(default=None, description="system prompt (required for agent nodes)")
-    description: Optional[str] = Field(default=None, description="node description (required for DeepAgents sub-agents)")
+    description: Optional[str] = Field(
+        default=None, description="node description (required for DeepAgents sub-agents)"
+    )
     useDeepAgents: Optional[bool] = Field(default=None, description="enable DeepAgents mode")
     model: Optional[str] = Field(default=None, description="model name")
     tools: Optional[Dict[str, List[str]]] = Field(default=None, description="tool config {builtin:[], mcp:[]}")

@@ -747,9 +747,9 @@ This means `ChatRunTurnCommand` gets the same `persist_on_disconnect` and `run_i
 
 - [ ] **Step 2: Wire resume turns to persist under the same `run_id`**
 
-Per spec Section 2.4, resume turns (`chat.resume` frames) must also be persisted under the same `run_id` from the original turn. 
+Per spec Section 2.4, resume turns (`chat.resume` frames) must also be persisted under the same `run_id` from the original turn.
 
-In `backend/app/websocket/chat_ws_handler.py`, the `_handle_resume` method (around line 208) creates a task via `_task_supervisor.create_task(...)`. Currently, resume tasks do **not** set `persist_on_disconnect` or `run_id`. 
+In `backend/app/websocket/chat_ws_handler.py`, the `_handle_resume` method (around line 208) creates a task via `_task_supervisor.create_task(...)`. Currently, resume tasks do **not** set `persist_on_disconnect` or `run_id`.
 
 Update `_handle_resume` — before calling `_task_supervisor.create_task`, look up the existing task entry for the thread to get the `run_id`:
 

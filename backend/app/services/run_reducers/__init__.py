@@ -2,8 +2,10 @@
 
 from app.services.agent_registry import AgentDefinition, agent_registry
 
-from .chat import apply_chat_event, make_initial_projection as chat_make_initial_projection
-from .copilot import apply_copilot_event, make_initial_projection as copilot_make_initial_projection
+from .chat import apply_chat_event
+from .chat import make_initial_projection as chat_make_initial_projection
+from .copilot import apply_copilot_event
+from .copilot import make_initial_projection as copilot_make_initial_projection
 from .skill_creator import apply_skill_creator_event, make_initial_projection
 
 agent_registry.register(

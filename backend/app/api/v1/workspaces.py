@@ -287,7 +287,10 @@ async def update_member_role(
     from app.services.workspace_permission import check_workspace_access
 
     has_access = await check_workspace_access(
-        db, payload.workspaceId, current_user, WorkspaceMemberRole.admin,
+        db,
+        payload.workspaceId,
+        current_user,
+        WorkspaceMemberRole.admin,
     )
     if not has_access:
         raise ForbiddenException("Insufficient workspace permission")
@@ -320,7 +323,10 @@ async def remove_member(
         from app.services.workspace_permission import check_workspace_access
 
         has_access = await check_workspace_access(
-            db, payload.workspaceId, current_user, WorkspaceMemberRole.admin,
+            db,
+            payload.workspaceId,
+            current_user,
+            WorkspaceMemberRole.admin,
         )
         if not has_access:
             raise ForbiddenException("Insufficient workspace permission")
