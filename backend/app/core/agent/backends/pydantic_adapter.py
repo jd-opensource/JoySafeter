@@ -342,9 +342,9 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
         upstream_container = getattr(self._sandbox, "_container", None)
         if self._saved_container_id and upstream_container is None:
             try:
-                import docker
+                from app.core.agent.backends.docker_check import get_docker_client
 
-                client = docker.from_env()
+                client = get_docker_client()
                 container = client.containers.get(self._saved_container_id)
                 container.start()
                 self._sandbox._container = container
@@ -929,9 +929,9 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
     def _force_remove_container(container_id: str) -> None:
         """Force-remove a Docker container by ID, ignoring all errors."""
         try:
-            import docker
+            from app.core.agent.backends.docker_check import get_docker_client
 
-            docker.from_env().containers.get(container_id).remove(force=True)
+            get_docker_client().containers.get(container_id).remove(force=True)
             logger.info(f"Force-removed stale container {container_id[:12]}")
         except Exception as e:
             logger.warning(f"Could not remove stale container {container_id[:12]}: {e}")
@@ -996,9 +996,9 @@ class PydanticSandboxAdapter(SandboxBackendProtocol):
                 container.remove(force=True)
                 logger.info(f"Sandbox {self._id} container removed (direct ref)")
             elif container_id_to_remove:
-                import docker
+                from app.core.agent.backends.docker_check import get_docker_client
 
-                client = docker.from_env()
+                client = get_docker_client()
                 client.containers.get(container_id_to_remove).remove(force=True)
                 logger.info(f"Sandbox {self._id} container removed (by id={container_id_to_remove[:12]})")
             elif hasattr(self._sandbox, "remove"):

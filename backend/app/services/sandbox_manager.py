@@ -19,6 +19,7 @@ from app.core.agent.backends.constants import (
     DEFAULT_USER_SANDBOX_IDLE_TIMEOUT,
     DEFAULT_USER_SANDBOX_IMAGE,
     DEFAULT_USER_SANDBOX_MEMORY_LIMIT,
+    DOCKER_UNAVAILABLE_MSG,
 )
 from app.core.agent.backends.pydantic_adapter import PydanticSandboxAdapter
 from app.models.enums import InstanceStatus
@@ -32,6 +33,29 @@ _sandbox_pool = SandboxPool()
 # Key: user_id -> asyncio.Lock
 _user_locks: Dict[str, asyncio.Lock] = {}
 _user_locks_guard = asyncio.Lock()  # Protects _user_locks dict itself
+
+
+def _classify_sandbox_error(exc: Exception) -> str:
+    """Map Docker-connectivity exceptions to DOCKER_UNAVAILABLE_MSG; others get a generic fallback."""
+    exc_str = str(exc).lower()
+
+    # Check known Docker-unavailable exception types first
+    try:
+        import docker.errors
+
+        if isinstance(exc, docker.errors.DockerException):
+            return DOCKER_UNAVAILABLE_MSG
+    except ImportError:
+        pass
+
+    if (
+        isinstance(exc, (FileNotFoundError, ConnectionRefusedError))
+        or "no such file or directory" in exc_str
+        or "connection refused" in exc_str
+        or "connection aborted" in exc_str
+    ):
+        return DOCKER_UNAVAILABLE_MSG
+    return f"沙箱启动失败，请稍后重试。/ Sandbox startup failed: {exc}"
 
 
 async def _get_user_lock(user_id: str) -> asyncio.Lock:
@@ -217,16 +241,17 @@ class SandboxManagerService:
             logger.error(f"Failed to start sandbox for user {user_id}: {e}")
             await self._update_status(sandbox_record.id, InstanceStatus.FAILED, error_message=str(e))
             raise AppException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, message=f"Failed to start sandbox: {str(e)}"
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                message=_classify_sandbox_error(e),
             )
 
     @staticmethod
     def _force_remove_container(container_id: str) -> None:
         """Force-remove a Docker container, ignoring all errors (for cleaning up orphan containers)."""
         try:
-            import docker
+            from app.core.agent.backends.docker_check import get_docker_client
 
-            docker.from_env().containers.get(container_id).remove(force=True)
+            get_docker_client().containers.get(container_id).remove(force=True)
             logger.info(f"Force-removed stale container {container_id[:12]}")
         except Exception as e:
             logger.warning(f"Could not force-remove container {container_id[:12]}: {e}")
@@ -239,9 +264,9 @@ class SandboxManagerService:
             PydanticSandboxAdapter on success, None on failure
         """
         try:
-            import docker
+            from app.core.agent.backends.docker_check import get_docker_client
 
-            client = docker.from_env()
+            client = get_docker_client()
             container = client.containers.get(sandbox_record.container_id)
             container_status = container.status  # "running", "exited", "created", etc.
 

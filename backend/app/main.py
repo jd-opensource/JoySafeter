@@ -2,6 +2,7 @@
 FastAPI Main Application
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator
@@ -55,6 +56,20 @@ async def _check_redis_connection():
         logger.opt(exception=True).error(f"   Redis connection check failed: {e}")
 
 
+async def _check_docker_availability():
+    """Check Docker daemon availability on startup."""
+    from app.core.agent.backends.docker_check import is_docker_available
+
+    docker_ok = await asyncio.to_thread(is_docker_available)
+    if docker_ok:
+        logger.info("   Docker connection check: OK")
+    else:
+        logger.warning(
+            "   ⚠️  Docker is not available. Code execution sandboxes and "
+            "skill preloading will be disabled until Docker Desktop is started."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     """Application Lifecycle"""
@@ -89,6 +104,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     # Check Redis connection (if configured)
     await _check_redis_connection()
+
+    # Check Docker availability (non-blocking, just warn)
+    await _check_docker_availability()
 
     # Recover stale in-process durable runs that lost their executing runtime.
     try:

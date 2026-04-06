@@ -6,10 +6,14 @@ No inheritance — uses composition of dedicated resolvers.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, List, Optional
 
 from loguru import logger
 
+from app.common.exceptions import AppException
+from app.core.agent.backends.constants import DOCKER_UNAVAILABLE_MSG
+from app.core.agent.backends.docker_check import is_docker_available
 from app.core.graph.deep_agents.agent_factory import (
     build_a2a_worker,
     build_code_agent_worker,
@@ -70,15 +74,28 @@ async def build_deep_agents_graph(
     backend = None
     sandbox_handle = None
     all_configs = [root_config] + child_configs
-    needs_docker = _any_needs_docker(all_configs)
+    hard_docker = _any_requires_docker(all_configs)
+    soft_docker = _any_wants_docker(all_configs)
 
-    if needs_docker and user_id:
-        sandbox_handle = await _get_user_sandbox(user_id)
-        backend = sandbox_handle.adapter
-        if backend and file_emitter:
-            from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
+    if (hard_docker or soft_docker) and user_id:
+        docker_ok = await asyncio.to_thread(is_docker_available)
 
-            backend = FileTrackingProxy(backend, file_emitter)
+        if not docker_ok and hard_docker:
+            raise AppException(status_code=503, message=DOCKER_UNAVAILABLE_MSG)
+
+        if docker_ok:
+            sandbox_handle = await _get_user_sandbox(user_id)
+            backend = sandbox_handle.adapter
+            if backend and file_emitter:
+                from app.core.agent.backends.file_tracking_proxy import FileTrackingProxy
+
+                backend = FileTrackingProxy(backend, file_emitter)
+        elif soft_docker:
+            # Docker wanted but not required — degrade gracefully
+            logger.warning(
+                f"{LOG_PREFIX} Docker is not available. "
+                f"Skipping skills preloading; agent will continue without sandbox."
+            )
 
     try:
         # --- 3. Preload skills (once per node, deduplicated) ---
@@ -233,12 +250,30 @@ def _finalize(agent: Any, backend: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _any_needs_docker(configs: List[NodeConfig]) -> bool:
-    """Check if any node needs a Docker backend."""
+def _any_requires_docker(configs: List[NodeConfig]) -> bool:
+    """Check if any node REQUIRES Docker (hard dependency).
+
+    Only ``code_agent`` with explicit ``executor_type="docker"`` truly requires
+    Docker — the agent literally executes code inside the container and has no
+    local fallback.
+    """
+    for cfg in configs:
+        if cfg.node_type == "code_agent" and cfg.executor_type == "docker":
+            return True
+    return False
+
+
+def _any_wants_docker(configs: List[NodeConfig]) -> bool:
+    """Check if any node WANTS Docker (soft dependency, can degrade gracefully).
+
+    Skills preloading and ``code_agent`` with ``executor_type="auto"`` benefit
+    from Docker but can fall back to running without it (skills are skipped,
+    code_agent uses LocalPythonExecutor).
+    """
     for cfg in configs:
         if has_valid_skills(cfg.skill_ids):
             return True
-        if cfg.node_type == "code_agent" and cfg.executor_type in ("docker", "auto"):
+        if cfg.node_type == "code_agent" and cfg.executor_type == "auto":
             return True
     return False
 

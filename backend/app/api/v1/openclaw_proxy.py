@@ -19,6 +19,8 @@ from fastapi import APIRouter, Depends, Request, Response
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.agent.backends.docker_check import get_docker_client
+
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.core.settings import settings
@@ -64,7 +66,7 @@ async def _poll_approve_devices(container_id: str) -> None:
         return
 
     try:
-        client = docker.from_env()
+        client = get_docker_client()
         container = await asyncio.to_thread(client.containers.get, container_id)
     except Exception as e:
         logger.warning(f"[Auto-Pair] Failed to get container {container_id}: {e}")

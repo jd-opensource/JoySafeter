@@ -20,6 +20,8 @@ from typing import Any, Dict, Optional
 import docker
 import httpx
 from loguru import logger
+
+from app.core.agent.backends.docker_check import get_docker_client
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -153,7 +155,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         )
 
         try:
-            client = docker.from_env()
+            client = get_docker_client()
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Docker daemon: {e}")
 
@@ -301,7 +303,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         # Last resort: check if container is still running
         try:
-            client = docker.from_env()
+            client = get_docker_client()
             container = await asyncio.to_thread(client.containers.get, instance.container_id)
             if container.status != "running":
                 logs = await asyncio.to_thread(container.logs, tail=30)
@@ -331,7 +333,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         if instance.container_id:
             try:
-                client = docker.from_env()
+                client = get_docker_client()
                 container = await asyncio.to_thread(client.containers.get, instance.container_id)
                 await asyncio.to_thread(container.stop, timeout=10)
             except docker.errors.NotFound:
@@ -355,7 +357,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
         # Remove container
         if instance.container_id:
             try:
-                client = docker.from_env()
+                client = get_docker_client()
                 container = await asyncio.to_thread(client.containers.get, instance.container_id)
                 await asyncio.to_thread(container.remove, force=True)
             except docker.errors.NotFound:
@@ -423,7 +425,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             return False
 
         try:
-            client = docker.from_env()
+            client = get_docker_client()
             container = await asyncio.to_thread(client.containers.get, instance.container_id)
 
             # List devices
@@ -470,14 +472,14 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
             if not skills:
                 # Still create the directory even if there are no skills
                 try:
-                    client = docker.from_env()
+                    client = get_docker_client()
                     container = await asyncio.to_thread(client.containers.get, container_id)
                     await asyncio.to_thread(container.exec_run, cmd=["mkdir", "-p", "/workspace/skills"])
                 except Exception:
                     logger.debug("Failed to create /workspace/skills directory in container %s", container_id, exc_info=True)
                 return 0
 
-            client = docker.from_env()
+            client = get_docker_client()
             container = await asyncio.to_thread(client.containers.get, container_id)
 
             # Ensure the skills directory exists
@@ -531,7 +533,7 @@ class OpenClawInstanceService(BaseService[OpenClawInstance]):
 
         try:
             folder_name = sanitize_skill_name(skill_name)
-            client = docker.from_env()
+            client = get_docker_client()
             container = await asyncio.to_thread(client.containers.get, container_id)
 
             # Execute rm -rf directly in the container

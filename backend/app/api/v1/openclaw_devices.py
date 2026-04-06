@@ -16,6 +16,8 @@ from fastapi import APIRouter, Depends
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.agent.backends.docker_check import get_docker_client
+
 from app.common.dependencies import get_current_user
 from app.core.database import get_db
 from app.models.auth import AuthUser as User
@@ -36,7 +38,7 @@ async def _get_running_instance(db: AsyncSession, user_id: str):
 async def _docker_exec(container_id: str, cmd: list[str]) -> str:
     """Run a command inside the user's OpenClaw container."""
     try:
-        client = docker.from_env()
+        client = get_docker_client()
         container = await asyncio.to_thread(client.containers.get, container_id)
         exit_code, output = await asyncio.to_thread(container.exec_run, cmd=cmd)
         output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)

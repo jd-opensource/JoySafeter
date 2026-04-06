@@ -31,6 +31,12 @@ MAX_SANDBOX_POOL_SIZE = 100
 # File size defaults
 DEFAULT_MAX_FILE_SIZE_MB = 10
 
+# User-facing error messages (bilingual)
+DOCKER_UNAVAILABLE_MSG = (
+    "代码执行沙箱不可用，请确认 Docker Desktop 已启动后重试。"
+    " / Code execution sandbox unavailable. Please start Docker Desktop and try again."
+)
+
 __all__ = [
     # Command execution
     "DEFAULT_COMMAND_TIMEOUT",
@@ -52,4 +58,6 @@ __all__ = [
     # Sandbox host directory
     "DEFAULT_SANDBOX_HOST_ROOT",
     "SANDBOX_UPLOADS_SUBDIR",
+    # User-facing error messages
+    "DOCKER_UNAVAILABLE_MSG",
 ]
