@@ -123,10 +123,10 @@ class ChatWsHandler:
             return
 
         frame_type = str(parsed_frame.get("type") or "")
-        if frame_type in {"chat.resume", "resume"}:
+        if frame_type == "chat.resume":
             await self._handle_resume(parsed_frame)
             return
-        if frame_type in {"chat.stop", "stop"}:
+        if frame_type == "chat.stop":
             await self._handle_stop(parsed_frame)
             return
         if frame_type == "ping":

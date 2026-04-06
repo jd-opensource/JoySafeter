@@ -9,12 +9,9 @@ from typing import Any, Literal
 RESERVED_METADATA_KEYS = {"mode", "run_id", "edit_skill_id", "extension", "kind", "files"}
 ALLOWED_CLIENT_FRAME_TYPES = {
     "ping",
-    "chat",
     "chat.start",
     "chat.resume",
     "chat.stop",
-    "resume",
-    "stop",
 }
 
 
@@ -89,11 +86,6 @@ def parse_client_frame(frame: dict[str, Any]) -> ParsedChatStartFrame | dict[str
     frame_type = str(frame.get("type") or "")
     if frame_type not in ALLOWED_CLIENT_FRAME_TYPES:
         raise ChatProtocolError(f"unknown frame type: {frame_type or '<missing>'}")
-    if frame_type == "chat":
-        raise ChatProtocolError(
-            "legacy metadata control fields are no longer supported",
-            request_id=_coerce_request_id(frame.get("request_id")),
-        )
     if frame_type == "chat.start":
         return _parse_chat_start_frame(frame)
     return frame

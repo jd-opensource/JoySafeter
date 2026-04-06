@@ -308,7 +308,7 @@ async def test_input_files_are_forwarded_into_metadata() -> None:
 async def test_handle_stop_noop_for_unknown_request() -> None:
     handler, ws = make_handler()
     # Should not raise
-    await handler._handle_frame(json.dumps({"type": "stop", "request_id": "unknown-req"}))
+    await handler._handle_frame(json.dumps({"type": "chat.stop", "request_id": "unknown-req"}))
     assert ws.sent == [], "stop for unknown request should send nothing"
 
 
@@ -364,7 +364,7 @@ async def test_handle_stop_cancels_known_task() -> None:
 
     with patch("app.websocket.chat_ws_handler.task_manager") as mock_tm:
         mock_tm.stop_task = AsyncMock()
-        await handler._handle_frame(json.dumps({"type": "stop", "request_id": "req-stop"}))
+        await handler._handle_frame(json.dumps({"type": "chat.stop", "request_id": "req-stop"}))
         mock_tm.stop_task.assert_awaited_once_with("thread-1")
 
     # Give event loop a tick to propagate cancellation
