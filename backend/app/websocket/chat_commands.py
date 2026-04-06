@@ -6,7 +6,7 @@ import uuid as uuid_lib
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from app.websocket.chat_protocol import ParsedChatStartFrame
+from app.websocket.chat_protocol import ParsedChatExtension, ParsedChatStartFrame
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,14 @@ class SkillCreatorTurnCommand(StandardChatTurnCommand):
     edit_skill_id: str | None
 
 
-ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand
+@dataclass(frozen=True)
+class ChatRunTurnCommand(StandardChatTurnCommand):
+    """Command for a Chat run turn, extending the standard command."""
+
+    run_id: str | None = None
+
+
+ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand | ChatRunTurnCommand
 
 
 def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnCommand:
@@ -50,6 +57,19 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
             files=files,
         )
 
+    if isinstance(extension, ParsedChatExtension):
+        return ChatRunTurnCommand(
+            request_id=frame.request_id,
+            message=frame.input.message,
+            thread_id=frame.thread_id,
+            graph_id=frame.graph_id,
+            model=model,
+            metadata=metadata,
+            files=files,
+            run_id=extension.run_id,
+        )
+
+    # skill_creator path
     if extension.edit_skill_id:
         metadata["edit_skill_id"] = extension.edit_skill_id
 

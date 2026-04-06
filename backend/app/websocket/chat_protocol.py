@@ -46,6 +46,14 @@ class ParsedSkillCreatorExtension:
 
 
 @dataclass(frozen=True)
+class ParsedChatExtension:
+    """Extension payload for Chat run turns."""
+
+    kind: Literal["chat"]
+    run_id: str | None
+
+
+@dataclass(frozen=True)
 class ParsedChatStartFrame:
     """Fully validated chat.start frame ready for command construction."""
 
@@ -53,7 +61,7 @@ class ParsedChatStartFrame:
     thread_id: str | None
     graph_id: uuid_lib.UUID | None
     input: ParsedChatInput
-    extension: ParsedSkillCreatorExtension | None
+    extension: ParsedSkillCreatorExtension | ParsedChatExtension | None
     metadata: dict[str, Any]
 
 
@@ -119,22 +127,26 @@ def _parse_chat_start_frame(frame: dict[str, Any]) -> ParsedChatStartFrame:
     )
 
 
-def _parse_extension(raw_extension: Any, request_id: str) -> ParsedSkillCreatorExtension | None:
+def _parse_extension(raw_extension: Any, request_id: str) -> ParsedSkillCreatorExtension | ParsedChatExtension | None:
     if raw_extension is None:
         return None
     if not isinstance(raw_extension, dict):
         raise ChatProtocolError("extension must be an object", request_id=request_id)
 
     kind = raw_extension.get("kind")
-    if kind != "skill_creator":
-        raise ChatProtocolError(
-            f"unsupported extension kind: {kind or '<missing>'}",
-            request_id=request_id,
-        )
-
     run_id = _coerce_request_id(raw_extension.get("run_id"))
-    edit_skill_id = _coerce_request_id(raw_extension.get("edit_skill_id"))
-    return ParsedSkillCreatorExtension(kind="skill_creator", run_id=run_id, edit_skill_id=edit_skill_id)
+
+    if kind == "skill_creator":
+        edit_skill_id = _coerce_request_id(raw_extension.get("edit_skill_id"))
+        return ParsedSkillCreatorExtension(kind="skill_creator", run_id=run_id, edit_skill_id=edit_skill_id)
+
+    if kind == "chat":
+        return ParsedChatExtension(kind="chat", run_id=run_id)
+
+    raise ChatProtocolError(
+        f"unsupported extension kind: {kind or '<missing>'}",
+        request_id=request_id,
+    )
 
 
 def _coerce_request_id(value: Any) -> str | None:
