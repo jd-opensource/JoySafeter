@@ -129,11 +129,8 @@ export function useCopilotActions({
           extension,
           onEvent: (evt) => onCopilotEvent?.(evt),
         })
-
-        activeRequestIdRef.current = null
       } catch (e: unknown) {
         console.error('[CopilotPanel] Failed to send copilot message:', e)
-        activeRequestIdRef.current = null
 
         if (!refs.isMountedRef.current) return
 
@@ -159,6 +156,8 @@ export function useCopilotActions({
         actions.finalizeCurrentMessage(`${t('workspace.systemError')}: ${errorMessage}`)
         refs.isCreatingSessionRef.current = false
         actions.clearSession()
+      } finally {
+        activeRequestIdRef.current = null
       }
     },
     [state.loading, state.messages, actions, refs, graphId, copilotMode, selectedModel, getGraphContext, t, onCopilotEvent],
