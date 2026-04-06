@@ -74,16 +74,17 @@ class AgentRunRepository(BaseRepository[AgentRun]):
         *,
         user_id: str,
         agent_name: str,
-        graph_id: uuid.UUID,
+        graph_id: Optional[uuid.UUID] = None,
         thread_id: Optional[str] = None,
     ) -> Optional[AgentRun]:
         active_statuses = (AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.INTERRUPT_WAIT)
         query = select(AgentRun).where(
             AgentRun.user_id == user_id,
             AgentRun.agent_name == agent_name,
-            AgentRun.graph_id == graph_id,
             AgentRun.status.in_(active_statuses),
         )
+        if graph_id is not None:
+            query = query.where(AgentRun.graph_id == graph_id)
         if thread_id:
             query = query.where(AgentRun.thread_id == thread_id)
         result = await self.db.execute(query.order_by(desc(AgentRun.updated_at)).limit(1))

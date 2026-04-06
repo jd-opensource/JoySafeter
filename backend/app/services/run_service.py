@@ -288,7 +288,7 @@ class RunService:
         *,
         user_id: str,
         agent_name: str,
-        graph_id: uuid.UUID,
+        graph_id: Optional[uuid.UUID] = None,
         thread_id: Optional[str] = None,
     ) -> Optional[AgentRun]:
         """Find the most recent active run for a given agent, user, and graph.
