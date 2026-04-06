@@ -1,19 +1,17 @@
 name: Release
 
 on:
-  release:
-    types: [published, created]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version (e.g., v1.0.0)'
-        required: true
-        type: string
+  push:
+    tags:
+      - 'v*.*.*'
 
 jobs:
   create-release:
-    name: Create Release
+    name: Create GitHub Release
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.TAG }}
+      version: ${{ steps.version.outputs.VERSION }}
     permissions:
       contents: write
 
@@ -23,27 +21,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate changelog
-        id: changelog
-        uses: metcalfc/changelog-generator@v4.3.1
-        with:
-          myToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "TAG=${TAG}" >> $GITHUB_OUTPUT
+          echo "VERSION=${TAG#v}" >> $GITHUB_OUTPUT
 
-      - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Extract the section for this version from CHANGELOG.md
+          BODY=$(awk -v tag="## ${TAG}" '
+            $0 ~ tag { found=1; next }
+            found && /^## / { exit }
+            found && /^---$/ { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$BODY" ]; then
+            BODY="See [CHANGELOG.md](CHANGELOG.md) for details."
+          fi
+          # Use delimiter to handle multiline output
+          echo "body<<CHANGELOG_EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "CHANGELOG_EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.release.tag_name || github.event.inputs.version }}
-          release_name: Release ${{ github.event.release.tag_name || github.event.inputs.version }}
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: Release ${{ steps.version.outputs.TAG }}
           body: |
             ## What's Changed
 
-            ${{ steps.changelog.outputs.changelog }}
-
-            **Full Changelog**: ${{ github.event.repository.html_url }}/compare/${{ github.event.release.target_commitish }}...${{ github.event.release.tag_name || github.event.inputs.version }}
+            ${{ steps.changelog.outputs.body }}
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-and-push:
     name: Build and Push Release Images
@@ -68,6 +84,9 @@ jobs:
           - name: joysafeter-openclaw
             context: ./deploy/openclaw
             dockerfile: ./deploy/openclaw/Dockerfile
+          - name: joysafeter-sandbox
+            context: ./deploy/docker
+            dockerfile: ./deploy/docker/sandbox.Dockerfile
 
     steps:
       - name: Checkout code
@@ -92,17 +111,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
-        id: version
-        run: |
-          if [ "${{ github.event.release.tag_name }}" != "" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
-          else
-            VERSION="${{ github.event.inputs.version }}"
-          fi
-          echo "VERSION=${VERSION#v}" >> $GITHUB_OUTPUT
-          echo "TAG=${VERSION}" >> $GITHUB_OUTPUT
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -111,9 +119,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            docker.io/jdopensource/${{ matrix.image.name }}:${{ steps.version.outputs.TAG }}
+            docker.io/jdopensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.tag }}
+            docker.io/jdopensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.version }}
             docker.io/jdopensource/${{ matrix.image.name }}:latest
-            ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ steps.version.outputs.TAG }}
+            ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.tag }}
+            ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.version }}
             ghcr.io/jd-opensource/${{ matrix.image.name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

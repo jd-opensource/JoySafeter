@@ -2,9 +2,11 @@
 
 All notable changes to JoySafeter are documented in this file.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
+
 ---
 
-## 2026-03-31 — Model Management Overhaul
+## v0.2.0 — 2026-03-31
 
 ### Model Settings — Master-Detail Redesign
 
@@ -35,7 +37,7 @@ All notable changes to JoySafeter are documented in this file.
 
 ---
 
-## 2026-03 — Skill Platform & Enterprise Identity
+## v0.1.0 — 2026-03
 
 ### Core Capabilities
 
