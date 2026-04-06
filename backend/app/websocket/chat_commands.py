@@ -58,6 +58,8 @@ def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnComm
         )
 
     if isinstance(extension, ParsedChatExtension):
+        # run_id lives on the command field; no metadata injection needed
+        # (unlike skill_creator which injects edit_skill_id into metadata)
         return ChatRunTurnCommand(
             request_id=frame.request_id,
             message=frame.input.message,
