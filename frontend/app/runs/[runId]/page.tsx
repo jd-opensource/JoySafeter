@@ -44,6 +44,21 @@ function renderEventPayload(payload: Record<string, unknown>): string {
   }
 }
 
+interface CopilotTurnProjection {
+  run_type: string
+  status: string
+  stage?: string | null
+  content?: string
+  thought_steps?: Array<{ index: number; content: string }>
+  tool_calls?: Array<{ tool: string; input?: Record<string, unknown> }>
+  tool_results?: Array<{ type: string; payload: Record<string, unknown>; reasoning?: string }>
+  result_message?: string | null
+  result_actions?: Array<{ type: string; payload: Record<string, unknown>; reasoning?: string }>
+  error?: string | null
+  graph_id?: string | null
+  mode?: string | null
+}
+
 interface ChatTurnProjection {
   run_type: 'chat_turn'
   user_message?: { content: string }
@@ -134,6 +149,102 @@ function ChatTurnOverview({ projection: p, t }: { projection: Record<string, unk
             ))}
           </ul>
         </Card>
+      )}
+    </div>
+  )
+}
+
+function CopilotTurnOverview({ projection, t }: { projection: CopilotTurnProjection; t: (key: string, fallback: string) => string }) {
+
+  return (
+    <div className="space-y-4">
+      {/* Stage indicator */}
+      {projection.stage && (
+        <div className="rounded-md border p-3">
+          <p className="text-sm font-medium">{t('runs.stage', 'Stage')}</p>
+          <p className="text-sm text-muted-foreground">{projection.stage}</p>
+        </div>
+      )}
+
+      {/* Mode */}
+      {projection.mode && (
+        <div className="rounded-md border p-3">
+          <p className="text-sm font-medium">{t('runs.mode', 'Mode')}</p>
+          <p className="text-sm text-muted-foreground">{projection.mode}</p>
+        </div>
+      )}
+
+      {/* Content */}
+      {projection.content && (
+        <div className="rounded-md border p-3">
+          <p className="text-sm font-medium">{t('runs.content', 'Content')}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm">{projection.content}</p>
+        </div>
+      )}
+
+      {/* Thought Steps (collapsible) */}
+      {projection.thought_steps && projection.thought_steps.length > 0 && (
+        <details className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            {t('runs.thoughtSteps', 'Thought Steps')} ({projection.thought_steps.length})
+          </summary>
+          <div className="mt-2 space-y-2">
+            {projection.thought_steps.map((step, i) => (
+              <div key={i} className="text-sm text-muted-foreground">
+                <span className="font-mono text-xs">#{step.index}</span> {step.content}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {/* Tool Calls (collapsible) */}
+      {projection.tool_calls && projection.tool_calls.length > 0 && (
+        <details className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            {t('runs.toolCalls', 'Tool Calls')} ({projection.tool_calls.length})
+          </summary>
+          <div className="mt-2 space-y-2">
+            {projection.tool_calls.map((tc, i) => (
+              <div key={i} className="text-sm">
+                <span className="font-medium">{tc.tool}</span>
+                {tc.input && (
+                  <pre className="mt-1 overflow-x-auto text-xs text-muted-foreground">
+                    {JSON.stringify(tc.input, null, 2)}
+                  </pre>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {/* Result */}
+      {projection.result_message && (
+        <div className="rounded-md border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
+          <p className="text-sm font-medium">{t('runs.result', 'Result')}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm">{projection.result_message}</p>
+          {projection.result_actions && projection.result_actions.length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                {projection.result_actions.length} action(s)
+              </p>
+              {projection.result_actions.map((action, i) => (
+                <div key={i} className="mt-1 text-xs text-muted-foreground">
+                  {action.type}{action.reasoning ? ` — ${action.reasoning}` : ''}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Error */}
+      {projection.error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950">
+          <p className="text-sm font-medium text-red-700 dark:text-red-400">{t('runs.error', 'Error')}</p>
+          <p className="mt-1 text-sm text-red-600 dark:text-red-300">{projection.error}</p>
+        </div>
       )}
     </div>
   )
@@ -487,6 +598,9 @@ export default function RunDetailPage() {
 
                   {snapshot?.projection && (snapshot.projection as Record<string, unknown>).run_type === 'chat_turn' && (
                     <ChatTurnOverview projection={snapshot.projection as Record<string, unknown>} t={t} />
+                  )}
+                  {snapshot?.projection && (snapshot.projection as Record<string, unknown>).run_type === 'copilot_turn' && (
+                    <CopilotTurnOverview projection={snapshot.projection as unknown as CopilotTurnProjection} t={t} />
                   )}
                 </div>
               </TabsContent>

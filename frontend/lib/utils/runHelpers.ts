@@ -57,6 +57,9 @@ export function buildRunHref(run: { run_id: string; run_type?: string; agent_nam
   if (run.agent_name === 'chat' || run.run_type === 'chat_turn') {
     return `/runs/${encodeURIComponent(run.run_id)}`
   }
+  if (run.agent_name === 'copilot' || run.run_type === 'copilot_turn') {
+    return `/runs/${encodeURIComponent(run.run_id)}`
+  }
   return '#'
 }
 
