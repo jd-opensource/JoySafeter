@@ -2,7 +2,7 @@
 
 Feature removed — will be redesigned later.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: 87be2dfd4240
 Revises: t5u6v7w8x9y0
 Create Date: 2026-04-05 00:00:00.000000
 """
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "a1b2c3d4e5f6"
+revision: str = "87be2dfd4240"
 down_revision: Union[str, None] = "t5u6v7w8x9y0"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
