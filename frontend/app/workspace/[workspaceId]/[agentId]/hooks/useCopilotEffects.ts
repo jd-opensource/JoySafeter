@@ -36,21 +36,21 @@ export function useCopilotEffects({
 
   // Session recovery: restore state and content when sessionId is restored
   useEffect(() => {
-    const { currentSessionId } = state
+    const currentRunId = state.currentRunId
     if (
-      !currentSessionId ||
+      !currentRunId ||
       refs.isCreatingSessionRef.current ||
-      lastRestoredSessionIdRef.current === currentSessionId
+      lastRestoredSessionIdRef.current === currentRunId
     )
       return
 
     const restoreSession = async () => {
-      console.warn('[useCopilotEffects] Restoring session:', currentSessionId)
-      lastRestoredSessionIdRef.current = currentSessionId
+      console.warn('[useCopilotEffects] Restoring from run snapshot:', currentRunId)
+      lastRestoredSessionIdRef.current = currentRunId
 
       try {
         actions.setLoading(true)
-        const sessionData = await copilotService.getSession(currentSessionId)
+        const sessionData = await copilotService.getSession(currentRunId)
         if (!refs.isMountedRef.current) return
 
         if (!sessionData || sessionData.status == null) {
@@ -90,7 +90,7 @@ export function useCopilotEffects({
 
     restoreSession()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.currentSessionId, actions, refs])
+  }, [state.currentRunId, actions, refs])
 
   // Update page title to show loading status
   useEffect(() => {

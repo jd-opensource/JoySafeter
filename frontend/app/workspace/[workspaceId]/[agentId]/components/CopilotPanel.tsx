@@ -77,7 +77,7 @@ export function CopilotPanel() {
 
   // WebSocket connection
   useCopilotWebSocket({
-    sessionId: state.currentSessionId,
+    sessionId: state.currentRunId,
     callbacks: webSocketCallbacks,
     autoReconnect: true,
   })

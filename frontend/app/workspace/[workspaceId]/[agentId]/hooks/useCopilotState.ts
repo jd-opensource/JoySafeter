@@ -34,8 +34,8 @@ export interface CopilotState {
   // Action execution state
   executingActions: boolean
 
-  // Session state
-  currentSessionId: string | null
+  // Session state (run_id via Run Center)
+  currentRunId: string | null
 
   // Local UI state
   input: string
@@ -159,7 +159,7 @@ export function useCopilotState(graphId?: string) {
       toolResults: streamingHook.toolResults,
       expandedToolTypes: streamingHook.expandedToolTypes,
       executingActions: actionExecutorHook.executingActions,
-      currentSessionId: sessionHook.currentSessionId,
+      currentRunId: sessionHook.currentRunId,
       input,
       loading,
       expandedItems,
@@ -174,7 +174,7 @@ export function useCopilotState(graphId?: string) {
       streamingHook.toolResults,
       streamingHook.expandedToolTypes,
       actionExecutorHook.executingActions,
-      sessionHook.currentSessionId,
+      sessionHook.currentRunId,
       input,
       loading,
       expandedItems,

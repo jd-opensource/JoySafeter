@@ -1,42 +1,44 @@
 /**
- * useCopilotSession - Hook for managing Copilot session state
+ * useCopilotSession - Hook for managing Copilot run state
+ *
+ * Tracks the current run_id (formerly session_id) via Run Center.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
 export function useCopilotSession(graphId?: string) {
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null)
   const hasProcessedUrlInputRef = useRef(false)
 
-  // Read initial session from localStorage on mount
+  // Read initial run_id from localStorage on mount
   useEffect(() => {
     if (!graphId) return
-    const storedSessionId = localStorage.getItem(`copilot_session_${graphId}`)
-    if (storedSessionId) {
+    const storedRunId = localStorage.getItem(`copilot_run_${graphId}`)
+    if (storedRunId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCurrentSessionId(storedSessionId)
+      setCurrentRunId(storedRunId)
     }
   }, [graphId])
 
   const setSession = useCallback(
-    (sessionId: string) => {
-      setCurrentSessionId(sessionId)
+    (runId: string) => {
+      setCurrentRunId(runId)
       if (graphId) {
-        localStorage.setItem(`copilot_session_${graphId}`, sessionId)
+        localStorage.setItem(`copilot_run_${graphId}`, runId)
       }
     },
     [graphId],
   )
 
   const clearSession = useCallback(() => {
-    setCurrentSessionId(null)
+    setCurrentRunId(null)
     if (graphId) {
-      localStorage.removeItem(`copilot_session_${graphId}`)
+      localStorage.removeItem(`copilot_run_${graphId}`)
     }
   }, [graphId])
 
   return {
-    currentSessionId,
+    currentRunId,
     hasProcessedUrlInputRef,
     setSession,
     clearSession,
