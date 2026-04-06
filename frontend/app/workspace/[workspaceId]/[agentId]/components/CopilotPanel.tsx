@@ -64,6 +64,7 @@ export function CopilotPanel() {
       graphId,
       copilotMode,
       selectedModel,
+      onCopilotEvent: webSocketCallbacks.handleCopilotEvent,
     })
 
   // Side effects (session recovery, auto-scroll, URL params, etc.)
