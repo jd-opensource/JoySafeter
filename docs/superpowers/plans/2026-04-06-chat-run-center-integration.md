@@ -655,9 +655,26 @@ Update union type:
 ChatTurnCommand = StandardChatTurnCommand | SkillCreatorTurnCommand | ChatRunTurnCommand
 ```
 
-Update `build_command_from_parsed_frame` — add a branch after the `extension is None` check, before skill_creator:
+Update `build_command_from_parsed_frame` — replace the entire body after `_sanitize_metadata_files` with properly ordered `isinstance` checks. The **critical ordering** is: check `None` → check `ParsedChatExtension` → check `ParsedSkillCreatorExtension`. The chat branch MUST come before any `extension.edit_skill_id` access (line 53 of current code), otherwise `ParsedChatExtension` (which has no `edit_skill_id` attribute) will cause `AttributeError`.
 
 ```python
+def build_command_from_parsed_frame(frame: ParsedChatStartFrame) -> ChatTurnCommand:
+    """Convert a validated ParsedChatStartFrame into a ChatTurnCommand."""
+    metadata, files = _sanitize_metadata_files(frame.metadata, frame.input.files)
+    model = frame.input.model
+
+    extension = frame.extension
+    if extension is None:
+        return StandardChatTurnCommand(
+            request_id=frame.request_id,
+            message=frame.input.message,
+            thread_id=frame.thread_id,
+            graph_id=frame.graph_id,
+            model=model,
+            metadata=metadata,
+            files=files,
+        )
+
     if isinstance(extension, ParsedChatExtension):
         return ChatRunTurnCommand(
             request_id=frame.request_id,
@@ -669,6 +686,22 @@ Update `build_command_from_parsed_frame` — add a branch after the `extension i
             files=files,
             run_id=extension.run_id,
         )
+
+    # skill_creator path
+    if extension.edit_skill_id:
+        metadata["edit_skill_id"] = extension.edit_skill_id
+
+    return SkillCreatorTurnCommand(
+        request_id=frame.request_id,
+        message=frame.input.message,
+        thread_id=frame.thread_id,
+        graph_id=frame.graph_id,
+        model=model,
+        metadata=metadata,
+        files=files,
+        run_id=extension.run_id,
+        edit_skill_id=extension.edit_skill_id,
+    )
 ```
 
 - [ ] **Step 8: Run all command tests**
@@ -712,7 +745,43 @@ In `prepare_standard_turn`, after the `SkillCreatorTurnCommand` branch (line 74-
 
 This means `ChatRunTurnCommand` gets the same `persist_on_disconnect` and `run_id` behavior as `SkillCreatorTurnCommand`. The rest of the execution path (heartbeat, event mirroring, finalization) is driven by `task_entry.run_id` and `task_entry.persist_on_disconnect`, which are set from `PreparedStandardTurn`.
 
-- [ ] **Step 2: Generalize error message in `_finalize_task`**
+- [ ] **Step 2: Wire resume turns to persist under the same `run_id`**
+
+Per spec Section 2.4, resume turns (`chat.resume` frames) must also be persisted under the same `run_id` from the original turn. 
+
+In `backend/app/websocket/chat_ws_handler.py`, the `_handle_resume` method (around line 208) creates a task via `_task_supervisor.create_task(...)`. Currently, resume tasks do **not** set `persist_on_disconnect` or `run_id`. 
+
+Update `_handle_resume` — before calling `_task_supervisor.create_task`, look up the existing task entry for the thread to get the `run_id`:
+
+```python
+        # Inherit run_id from the previous task entry for this thread (if persisted)
+        existing_entry = self._task_supervisor.get_by_thread(thread_id)
+        resume_run_id = existing_entry.run_id if existing_entry else None
+        resume_persist = existing_entry.persist_on_disconnect if existing_entry else False
+
+        self._task_supervisor.create_task(
+            request_id,
+            runner(),
+            name=f"chat-ws-resume:{request_id}",
+            thread_id=thread_id,
+            run_id=resume_run_id,
+            persist_on_disconnect=resume_persist,
+        )
+```
+
+Also verify `ChatTaskSupervisor.create_task` accepts `run_id` and `persist_on_disconnect` kwargs (it does for standard turns — check the `ChatTaskEntry` creation path). If `create_task` doesn't pass these through, update it to do so.
+
+In `backend/app/websocket/chat_turn_executor.py`, `execute_resume_turn` (or `run_resume_turn`) must also read `task_entry.run_id` and `task_entry.persist_on_disconnect` from the supervisor to set `tolerate_disconnect` and `agent_run_id`, the same way `execute_standard_turn` does at lines 121-123:
+
+```python
+        task_entry = handler._task_supervisor.get(request_id)
+        agent_run_id = task_entry.run_id if task_entry else None
+        tolerate_disconnect = bool(task_entry and task_entry.persist_on_disconnect)
+```
+
+This ensures the resume turn mirrors events to the durable run log and survives WS disconnects.
+
+- [ ] **Step 3: Generalize error message in `_finalize_task`**
 
 In `backend/app/websocket/chat_ws_handler.py`, find line 512:
 
@@ -919,7 +988,6 @@ In `frontend/services/runService.ts`, after `findActiveSkillCreatorRun` (line 15
   async findActiveChatRun(params: { threadId: string }): Promise<RunSummary | null> {
     return this.findActiveRun({
       agentName: 'chat',
-      graphId: '',  // graph_id is now optional on backend
       threadId: params.threadId,
     })
   },
@@ -951,19 +1019,19 @@ import { runService } from '@/services/runService'
 import type { ChatExtension } from '@/lib/ws/chat/types'
 ```
 
-In the `sendMessage` callback, before the `chatWs.sendChat(...)` call, add run creation logic. The pattern follows skill_creator:
+In the `sendMessage` callback, before the `chatWs.sendChat(...)` call, add run creation logic. The `graphId` and `threadId` are available from the `sendMessage` function parameters (passed via opts from the session context), NOT from refs:
 
 ```typescript
 // Inside sendMessage, after building requestId and before chatWs.sendChat:
+// graphId and threadId come from the sendMessage opts/params, not refs
 let chatRunId: string | null = null
 try {
-  const graphId = graphIdRef.current
   if (graphId) {
     const runResponse = await runService.createRun({
       agent_name: 'chat',
       graph_id: graphId,
       message: input.message,
-      thread_id: threadIdRef.current || undefined,
+      thread_id: threadId || undefined,
     })
     chatRunId = runResponse.run_id
   }
@@ -981,16 +1049,14 @@ const extension: ChatExtension | undefined = chatRunId
 
 await chatWs.sendChat({
   requestId,
-  threadId: threadIdRef.current,
-  graphId: graphIdRef.current,
+  threadId,
+  graphId,
   input,
   extension,
   metadata,
   // ... existing onEvent and onAccepted callbacks
 })
 ```
-
-Note: `graphIdRef` and `threadIdRef` need to be available — check that the hook has refs to the current graphId and threadId from the session context. If not present, add them.
 
 - [ ] **Step 3: Add `runId` to ChatStreamContext**
 
