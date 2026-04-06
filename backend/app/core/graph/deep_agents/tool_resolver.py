@@ -25,6 +25,7 @@ async def resolve_tools(
     # Create a minimal shim
     class _NodeShim:
         def __init__(self, tools: list) -> None:
+            self.id = "deep_agents_shim"
             self.data = {"config": {"tools": tools}}
 
     try:
