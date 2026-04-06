@@ -38,3 +38,11 @@ export const HEARTBEAT = {
   /** Max time to wait for pong before considering connection dead (ms) */
   PONG_TIMEOUT_MS: 60_000,
 } as const
+
+/** Reconnect configuration */
+export const RECONNECT = {
+  /** Maximum delay between reconnect attempts (ms) */
+  MAX_DELAY_MS: 15_000,
+  /** Default max reconnect attempts before giving up */
+  DEFAULT_MAX_ATTEMPTS: 20,
+} as const
