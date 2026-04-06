@@ -10,7 +10,7 @@ from .factory import (
     get_provider,
     validate_provider_credentials,
 )
-from .models import (
+from .wrappers import (
     BaseModelWrapper,
     ChatModelWrapper,
 )

@@ -18,7 +18,7 @@ from pydantic import SecretStr
 
 from app.common.exceptions import ModelConfigError
 from app.core.agent.backends.filesystem_sandbox import FilesystemSandboxBackend
-from app.core.agent.midware import LoggingMiddleware
+from app.core.agent.middleware import LoggingMiddleware
 from app.services.model_service import MODEL_NAME_REQUIRED, MODEL_NO_CREDENTIALS
 
 load_dotenv()
