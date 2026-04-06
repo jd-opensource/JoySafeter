@@ -15,7 +15,7 @@ from app.common.exceptions import ModelConfigError
 from app.models.agent_run import AgentRunStatus
 from app.schemas.chat import ChatRequest
 from app.utils.stream_event_handler import StreamState
-from app.websocket.chat_commands import ChatRunTurnCommand, ChatTurnCommand, SkillCreatorTurnCommand
+from app.websocket.chat_commands import ChatRunTurnCommand, ChatTurnCommand, CopilotTurnCommand, SkillCreatorTurnCommand
 from app.websocket.chat_task_supervisor import ChatTaskEntry
 
 
@@ -78,6 +78,9 @@ class ChatTurnExecutor:
             if command.edit_skill_id and "edit_skill_id" not in metadata:
                 metadata["edit_skill_id"] = command.edit_skill_id
         elif isinstance(command, ChatRunTurnCommand):
+            run_id = self._parse_uuid(command.run_id)
+            persist_on_disconnect = run_id is not None
+        elif isinstance(command, CopilotTurnCommand):
             run_id = self._parse_uuid(command.run_id)
             persist_on_disconnect = run_id is not None
 
@@ -781,6 +784,228 @@ class ChatTurnExecutor:
                 graph_id=str(graph_id) if graph_id else None,
                 workspace_id=graph_workspace_id,
                 graph_name=graph_display_name,
+            )
+
+    async def execute_copilot_turn(
+        self,
+        request_id: str,
+        payload: ChatRequest,
+        graph_context: dict[str, Any],
+        conversation_history: list[dict[str, Any]],
+        mode: str,
+    ) -> None:
+        """Execute a copilot turn: consume CopilotService stream and emit events."""
+        from app.core.trace_context import set_trace_id
+
+        set_trace_id(request_id)
+        handler = self._handler
+        module = self._module
+        state: StreamState | None = None
+        thread_id: str | None = None
+        task_entry = handler._task_supervisor.get(request_id)
+        agent_run_id = task_entry.run_id if task_entry else None
+        tolerate_disconnect = bool(task_entry and task_entry.persist_on_disconnect)
+        assistant_message_id = f"msg-assistant-{uuid_lib.uuid4()}"
+
+        # Collection vars for graph persistence
+        final_actions: list[dict[str, Any]] = []
+
+        try:
+            async with module.AsyncSessionLocal() as db:
+                # Get or create thread for this copilot turn
+                thread_id, _ = await module.get_or_create_conversation(
+                    payload.thread_id,
+                    payload.message,
+                    handler.user_id,
+                    payload.metadata,
+                    db,
+                )
+                await module.save_user_message(thread_id, payload.message, payload.metadata, db)
+
+            state = module.StreamState(thread_id)
+            current_task = asyncio.current_task()
+            if current_task is None:
+                raise RuntimeError("missing current asyncio task")
+            if handler._task_supervisor.get(request_id) is None:
+                handler._task_supervisor.register(
+                    request_id,
+                    ChatTaskEntry(
+                        request_id=request_id,
+                        thread_id=thread_id,
+                        task=current_task,
+                        run_id=agent_run_id,
+                        persist_on_disconnect=tolerate_disconnect,
+                    ),
+                )
+            else:
+                handler._task_supervisor.update(
+                    request_id,
+                    thread_id=thread_id,
+                    task=current_task,
+                    run_id=agent_run_id,
+                    persist_on_disconnect=tolerate_disconnect,
+                )
+            await module.task_manager.register_task(thread_id, current_task)
+
+            # Start heartbeat if persisted run
+            if agent_run_id is not None:
+                await handler._mark_run_status(
+                    run_id=agent_run_id,
+                    status=AgentRunStatus.RUNNING,
+                    runtime_owner_id=handler._runtime_owner_id,
+                )
+                heartbeat_task = asyncio.create_task(
+                    handler._run_persisted_run_heartbeat(agent_run_id),
+                    name=f"run-heartbeat:{agent_run_id}",
+                )
+                handler._task_supervisor.update(request_id, heartbeat_task=heartbeat_task)
+
+            # Emit accepted
+            await handler._send(
+                {
+                    "type": "accepted",
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                    "run_id": str(agent_run_id) if agent_run_id is not None else None,
+                    "timestamp": int(time.time() * 1000),
+                    "data": {"status": "accepted"},
+                },
+                tolerate_disconnect=tolerate_disconnect,
+            )
+
+            # Create CopilotService and get stream
+            from app.services.copilot_service import CopilotService
+
+            async with module.AsyncSessionLocal() as db:
+                # payload.model carries the frontend-selected model (e.g. "anthropic:claude-3-7-sonnet")
+                service = CopilotService(
+                    user_id=handler.user_id,
+                    llm_model=payload.model,
+                    db=db,
+                )
+                stream = service._get_copilot_stream(
+                    prompt=payload.message,
+                    graph_context=graph_context,
+                    conversation_history=conversation_history,
+                    mode=mode,
+                    graph_id=str(payload.graph_id) if payload.graph_id else None,
+                )
+
+                async for event in stream:
+                    if await module.task_manager.is_stopped(thread_id):
+                        state.stopped = True
+                        break
+
+                    event_type = event.get("type", "")
+
+                    # Collect for persistence
+                    if event_type == "result":
+                        final_message = event.get("message", "")
+                        final_actions = event.get("actions", [])
+
+                    # Emit to WS + run events
+                    await handler._emit_event(
+                        {
+                            "type": event_type,
+                            "thread_id": thread_id,
+                            "node_name": "copilot",
+                            "timestamp": int(time.time() * 1000),
+                            "data": event,
+                        },
+                        request_id=request_id,
+                        tolerate_disconnect=tolerate_disconnect,
+                        agent_run_id=agent_run_id,
+                        assistant_message_id=assistant_message_id,
+                    )
+
+            # Persist graph changes
+            # _persist_graph_from_actions creates its own DB session internally,
+            # so we only need user_id set on the service.
+            if payload.graph_id and final_actions:
+                persist_service = CopilotService(user_id=handler.user_id)
+                await persist_service._persist_graph_from_actions(
+                    graph_id=str(payload.graph_id),
+                    final_actions=final_actions,
+                )
+
+            # Emit done
+            await handler._emit_event(
+                {
+                    "type": "done",
+                    "thread_id": thread_id,
+                    "node_name": "copilot",
+                    "timestamp": int(time.time() * 1000),
+                    "data": {},
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
+            )
+
+        except asyncio.CancelledError:
+            if state is not None:
+                state.stopped = True
+            try:
+                await handler._emit_event(
+                    {
+                        "type": "done",
+                        "thread_id": thread_id or "",
+                        "node_name": "copilot",
+                        "timestamp": int(time.time() * 1000),
+                        "data": {},
+                    },
+                    request_id=request_id,
+                    tolerate_disconnect=tolerate_disconnect,
+                    agent_run_id=agent_run_id,
+                    assistant_message_id=assistant_message_id,
+                )
+            except Exception:
+                _logger.debug("error during copilot turn cleanup", exc_info=True)
+            raise
+        except Exception as exc:
+            if state is not None:
+                state.has_error = True
+            error_data: dict[str, object] = {"message": str(exc)}
+            if isinstance(exc, ModelConfigError):
+                error_data["error_code"] = exc.error_code
+                error_data["params"] = exc.params
+            await handler._emit_event(
+                {
+                    "type": "error",
+                    "thread_id": thread_id or "",
+                    "node_name": "copilot",
+                    "timestamp": int(time.time() * 1000),
+                    "data": error_data,
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
+            )
+            await handler._emit_event(
+                {
+                    "type": "done",
+                    "thread_id": thread_id or "",
+                    "node_name": "copilot",
+                    "timestamp": int(time.time() * 1000),
+                    "data": {},
+                },
+                request_id=request_id,
+                tolerate_disconnect=tolerate_disconnect,
+                agent_run_id=agent_run_id,
+                assistant_message_id=assistant_message_id,
+            )
+        finally:
+            await handler._finalize_task(
+                request_id=request_id,
+                thread_id=thread_id,
+                state=state,
+                built_graph=None,
+                artifact_collector=None,
+                graph_id=str(payload.graph_id) if payload.graph_id else None,
+                workspace_id=None,
+                graph_name=None,
             )
 
     @staticmethod

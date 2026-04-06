@@ -53,6 +53,7 @@ from app.utils.stream_event_handler import StreamState
 from app.utils.task_manager import task_manager
 from app.websocket.chat_commands import (
     ChatTurnCommand,
+    CopilotTurnCommand,
     build_command_from_parsed_frame,
 )
 from app.websocket.chat_protocol import ChatProtocolError, ParsedChatStartFrame, parse_client_frame
@@ -167,7 +168,16 @@ class ChatWsHandler:
         set_trace_id(prepared.request_id)
 
         async def runner() -> None:
-            await self._turn_executor.run_standard_turn(prepared)
+            if isinstance(command, CopilotTurnCommand):
+                await self._turn_executor.execute_copilot_turn(
+                    request_id=prepared.request_id,
+                    payload=prepared.payload,
+                    graph_context=command.graph_context,
+                    conversation_history=command.conversation_history,
+                    mode=command.mode,
+                )
+            else:
+                await self._turn_executor.run_standard_turn(prepared)
 
         self._task_supervisor.create_task(
             request_id,
