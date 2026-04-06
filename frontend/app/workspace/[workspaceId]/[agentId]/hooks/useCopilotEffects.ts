@@ -2,14 +2,14 @@
  * useCopilotEffects - Side effects hook for Copilot
  *
  * Handles UI side effects: page title, auto-scroll, URL parameter cleanup.
- * Session restoration is handled by useCopilotSession (init) and this hook (fetch).
+ * Run restoration is handled by useCopilotSession (init) and this hook (fetch via Run Center).
  */
 
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 
 import { useToast } from '@/hooks/use-toast'
-import { copilotService } from '@/services/copilotService'
+import { runService } from '@/services/runService'
 
 import { hasCurrentMessage } from '../utils/copilotUtils'
 
@@ -34,7 +34,7 @@ export function useCopilotEffects({
   const { toast } = useToast()
   const lastRestoredSessionIdRef = useRef<string | null>(null)
 
-  // Session recovery: restore state and content when sessionId is restored
+  // Session recovery: restore state from run snapshot when runId is restored
   useEffect(() => {
     const currentRunId = state.currentRunId
     if (
@@ -50,39 +50,49 @@ export function useCopilotEffects({
 
       try {
         actions.setLoading(true)
-        const sessionData = await copilotService.getSession(currentRunId)
+        const snapshot = await runService.getRunSnapshot(currentRunId)
         if (!refs.isMountedRef.current) return
 
-        if (!sessionData || sessionData.status == null) {
+        if (!snapshot) {
           actions.clearSession()
           return
         }
 
-        if (sessionData.status === 'generating') {
-          if (sessionData.result?.actions?.length) {
-            await actions.executeActions(sessionData.result.actions)
-            actions.finalizeCurrentMessage(
-              sessionData.result.message ?? '',
-              sessionData.result.actions,
-            )
-          } else if (sessionData.content) {
-            actions.setStreamingContent(sessionData.content)
-            actions.setCurrentStage({ stage: 'processing', message: 'Processing...' })
+        const projection = snapshot.projection as Record<string, unknown> | undefined
+        const status = snapshot.status as string
+
+        if (status === 'running' || status === 'queued') {
+          // Run still active -- show last known state
+          if (projection) {
+            const content = projection.content as string | undefined
+            if (content) {
+              actions.setStreamingContent(content)
+            }
+            const stage = projection.stage as string | undefined
+            actions.setCurrentStage({ stage: (stage || 'processing') as any, message: 'Processing...' })
             if (!hasCurrentMessage(state.messages, false)) actions.setThinkingMessage()
           }
-        } else if (sessionData.status === 'completed') {
+          // TODO: subscribe to /ws/runs for live event replay (future enhancement)
+        } else if (status === 'completed') {
+          if (projection) {
+            const resultMessage = (projection.result_message as string) ?? ''
+            const resultActions = projection.result_actions as Array<Record<string, unknown>> | undefined
+            if (resultMessage || (resultActions && resultActions.length > 0)) {
+              actions.finalizeCurrentMessage(resultMessage, resultActions as any)
+            }
+          }
           actions.clearSession()
           actions.clearStreaming()
-        } else if (sessionData.status === 'failed') {
+        } else if (status === 'failed') {
           toast({
             title: 'Copilot task failed',
-            description: sessionData.error || 'An error occurred during execution. Please retry.',
+            description: (projection?.error as string) || 'An error occurred during execution. Please retry.',
             variant: 'destructive',
           })
           actions.clearSession()
         }
       } catch (error) {
-        console.warn('[CopilotPanel] Failed to restore session:', error)
+        console.warn('[CopilotPanel] Failed to restore from run snapshot:', error)
       } finally {
         if (refs.isMountedRef.current) actions.setLoading(false)
       }
