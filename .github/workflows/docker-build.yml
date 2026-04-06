@@ -17,7 +17,7 @@ env:
 
 jobs:
   # =============================================================================
-  # Main application images (backend, frontend, init)
+  # Main application images (backend, frontend, openclaw)
   # Triggered on all pushes/PRs to main/develop branches
   # =============================================================================
   build-and-push:
@@ -123,11 +123,9 @@ jobs:
     # Build sandbox only when:
     # 1. Sandbox-related files changed (push/PR)
     # 2. Manual trigger (workflow_dispatch)
-    # 3. Tag push (for releases)
     if: |
       needs.check-sandbox-changes.outputs.sandbox_changed == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/')
+      github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write

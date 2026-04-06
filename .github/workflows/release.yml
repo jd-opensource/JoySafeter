@@ -78,9 +78,9 @@ jobs:
           - name: joysafeter-frontend
             context: ./frontend
             dockerfile: ./deploy/docker/frontend.Dockerfile
-          - name: joysafeter-init
+          - name: joysafeter-mcp
             context: ./backend
-            dockerfile: ./deploy/docker/init.Dockerfile
+            dockerfile: ./deploy/docker/mcp.Dockerfile
           - name: joysafeter-openclaw
             context: ./deploy/openclaw
             dockerfile: ./deploy/openclaw/Dockerfile
