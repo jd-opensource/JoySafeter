@@ -83,7 +83,7 @@ Register in `backend/app/services/run_reducers/__init__.py` alongside `skill_cre
 ```
 
 Key differences from skill_creator projection:
-- No `preview_data`, `file_tree`, or `preview_version` fields
+- No `preview_data` or `file_tree` fields
 - Has `user_message` with the triggering message
 - `tool_calls` stored inline on `assistant_message`
 - `node_execution_log` for graph node tracking
@@ -152,11 +152,26 @@ In `prepare_standard_turn`, detect `ChatRunTurnCommand`:
 
 This logic is largely shared with `SkillCreatorTurnCommand` — extract a common helper for "persisted run" setup.
 
-### 2.4 API Endpoint
+### 2.4 Resume Turn Handling
+
+When a chat turn ends with a graph interrupt and the user resumes via `chat.resume`, the resume turn must also be persisted under the **same `run_id`**. Changes needed in `execute_resume_turn`:
+
+- Accept `run_id` from the original task's metadata (stored in `ChatTaskSupervisor` task entry)
+- Set `persist_on_disconnect = True`
+- Start heartbeat and mirror events, same as the initial turn
+- The run status transitions: `INTERRUPT_WAIT → RUNNING → COMPLETED/FAILED`
+
+This ensures the full interrupt-resume cycle is captured in a single run's event stream.
+
+### 2.5 `chat.stop` Frame Interaction
+
+When a user sends `chat.stop` for a persisted chat run, the existing `ChatTaskSupervisor.stop_by_request_id()` sets `state.stopped = True`, causing the turn to end with a `done` event. The finalization path in `_finalize_task` already transitions the run to `CANCELLED` when stopped. No additional changes needed.
+
+### 2.6 API Endpoint
 
 Use the existing generic `POST /v1/runs` endpoint with `agent_name: "chat"`. No new alias endpoint needed (unlike skill-creator's convenience endpoint).
 
-### 2.5 WS Frame Example
+### 2.7 WS Frame Example
 
 ```json
 {
@@ -242,6 +257,8 @@ When user refreshes `/chat`:
 2. If active run exists → subscribe `/ws/runs`, restore UI from snapshot + event replay
 3. If run completed → load from `conversations` + `messages` tables (existing flow)
 
+**Required API change:** The current `GET /v1/runs/active` endpoint requires `graph_id` as a mandatory query parameter. Chat conversations may not always have a `graph_id` (users can chat with the default agent). Make `graph_id` optional on this endpoint — when omitted, query only by `agent_name` + `thread_id`.
+
 ### 4.3 Stale Run Recovery
 
 Reuse existing `recover_stale_incomplete_runs()` — runs with heartbeat timeout are marked `FAILED`.
@@ -271,7 +288,8 @@ Chat run `title` = first 80 characters of user message content. Truncated with `
 | `backend/app/services/run_reducers/__init__.py` | Import and register chat reducer |
 | `backend/app/websocket/chat_protocol.py` | Accept `extension.kind = "chat"`, add `ParsedChatExtension` |
 | `backend/app/websocket/chat_commands.py` | Add `ChatRunTurnCommand`, update union type and routing |
-| `backend/app/websocket/chat_turn_executor.py` | Extract shared persisted-run setup, handle `ChatRunTurnCommand` |
+| `backend/app/websocket/chat_turn_executor.py` | Extract shared persisted-run setup, handle `ChatRunTurnCommand`, wire resume turns |
+| `backend/app/api/v1/runs.py` | Make `graph_id` optional on `GET /v1/runs/active` endpoint |
 
 ### Frontend (modified files)
 
