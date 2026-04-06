@@ -1017,8 +1017,8 @@ const en = {
     skillCollaborators: {
       title: 'Collaborators',
       add: 'Add Collaborator',
-      userId: 'User ID',
-      userIdPlaceholder: 'Enter user ID',
+      emailAddress: 'Email Address',
+      emailPlaceholder: 'user@example.com',
       role: 'Role',
       owner: 'owner',
       viewer: 'viewer',

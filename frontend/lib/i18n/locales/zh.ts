@@ -993,8 +993,8 @@ const zh = {
     skillCollaborators: {
       title: '协作者',
       add: '添加协作者',
-      userId: '用户 ID',
-      userIdPlaceholder: '输入用户 ID',
+      emailAddress: '邮箱地址',
+      emailPlaceholder: '输入邮箱地址',
       role: '角色',
       owner: '所有者',
       viewer: '查看者',

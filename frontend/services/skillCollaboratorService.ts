@@ -11,6 +11,14 @@ export interface SkillCollaborator {
   role: CollaboratorRole
   invitedBy: string
   createdAt: string | null
+  userName: string | null
+  userEmail: string | null
+}
+
+export interface SkillOwnerInfo {
+  id: string
+  name: string | null
+  email: string | null
 }
 
 // ---------- Normalizer ----------
@@ -23,6 +31,8 @@ interface BackendCollaborator {
   role: CollaboratorRole
   invited_by: string
   created_at: string | null
+  user_name: string | null
+  user_email: string | null
   [key: string]: unknown
 }
 
@@ -34,18 +44,29 @@ function normalizeCollaborator(raw: BackendCollaborator): SkillCollaborator {
     role: raw.role,
     invitedBy: raw.invited_by,
     createdAt: raw.created_at ?? null,
+    userName: raw.user_name ?? null,
+    userEmail: raw.user_email ?? null,
   }
 }
 
 // ---------- Service ----------
 
 export const skillCollaboratorService = {
-  async listCollaborators(skillId: string): Promise<SkillCollaborator[]> {
-    const data = await apiGet<BackendCollaborator[]>(`skills/${skillId}/collaborators`)
-    return (Array.isArray(data) ? data : []).map(normalizeCollaborator)
+  async listCollaborators(skillId: string): Promise<{
+    collaborators: SkillCollaborator[]
+    owner: SkillOwnerInfo
+  }> {
+    const data = await apiGet<{
+      collaborators: BackendCollaborator[]
+      owner: { id: string; name: string | null; email: string | null }
+    }>(`skills/${skillId}/collaborators`)
+    return {
+      collaborators: (Array.isArray(data.collaborators) ? data.collaborators : []).map(normalizeCollaborator),
+      owner: data.owner ?? { id: '', name: null, email: null },
+    }
   },
 
-  async addCollaborator(skillId: string, payload: { user_id: string; role: CollaboratorRole }): Promise<SkillCollaborator> {
+  async addCollaborator(skillId: string, payload: { email: string; role: CollaboratorRole }): Promise<SkillCollaborator> {
     const data = await apiPost<BackendCollaborator>(`skills/${skillId}/collaborators`, payload)
     return normalizeCollaborator(data)
   },

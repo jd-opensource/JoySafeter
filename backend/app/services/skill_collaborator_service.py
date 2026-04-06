@@ -26,7 +26,7 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
         skill_id: uuid.UUID,
         current_user_id: str,
         is_superuser: bool = False,
-    ) -> List[SkillCollaborator]:
+    ) -> tuple[List[SkillCollaborator], Skill]:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
             self.db,
@@ -35,7 +35,8 @@ class SkillCollaboratorService(BaseService[SkillCollaborator]):
             CollaboratorRole.viewer,
             is_superuser=is_superuser,
         )
-        return await self.repo.list_by_skill(skill_id)  # type: ignore[return-value,no-any-return]
+        collaborators = await self.repo.list_by_skill(skill_id)
+        return collaborators, skill  # type: ignore[return-value]
 
     async def add_collaborator(
         self,

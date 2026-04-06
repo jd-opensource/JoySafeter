@@ -122,7 +122,8 @@ export default function SkillsManager({ requestedAction, onActionConsumed }: Ski
 
   // Derive user role from session + collaborators
   const { data: session } = useSession()
-  const { data: collaborators = [] } = useSkillCollaborators(selectedSkill?.id ?? '')
+  const { data: collabData } = useSkillCollaborators(selectedSkill?.id ?? '')
+  const collaborators = collabData?.collaborators ?? []
   const currentUserId = session?.user?.id
 
   const userRole = useMemo(() => {

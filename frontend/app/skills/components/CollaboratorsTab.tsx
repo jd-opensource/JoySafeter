@@ -1,6 +1,6 @@
 'use client'
 
-import { Plus, User, UserPlus, Users, X } from 'lucide-react'
+import { Crown, Edit, Eye, Plus, Shield, UserPlus, Users, X } from 'lucide-react'
 import React, { useState } from 'react'
 
 import {
@@ -50,12 +50,20 @@ interface CollaboratorsTabProps {
 
 const ROLES: CollaboratorRole[] = ['viewer', 'editor', 'publisher', 'admin']
 
+const ROLE_ICONS = {
+  owner: Crown,
+  admin: Shield,
+  editor: Edit,
+  publisher: Users,
+  viewer: Eye,
+}
+
 export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTabProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
 
   const [showAddForm, setShowAddForm] = useState(false)
-  const [newUserId, setNewUserId] = useState('')
+  const [newEmail, setNewEmail] = useState('')
   const [newRole, setNewRole] = useState<CollaboratorRole>('viewer')
   const [removeTarget, setRemoveTarget] = useState<{ userId: string; open: boolean }>({
     userId: '',
@@ -64,7 +72,9 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
   const [transferDialog, setTransferDialog] = useState(false)
   const [transferTargetId, setTransferTargetId] = useState('')
 
-  const { data: collaborators = [], isLoading } = useSkillCollaborators(skillId)
+  const { data, isLoading } = useSkillCollaborators(skillId)
+  const collaborators = data?.collaborators ?? []
+  const ownerInfo = data?.owner
   const addMutation = useAddCollaborator(skillId)
   const updateRoleMutation = useUpdateCollaboratorRole(skillId)
   const removeMutation = useRemoveCollaborator(skillId)
@@ -74,11 +84,11 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
   const isOwner = userRole === 'owner'
 
   const handleAdd = async () => {
-    if (!newUserId.trim()) return
+    if (!newEmail.trim()) return
     try {
-      await addMutation.mutateAsync({ user_id: newUserId.trim(), role: newRole })
+      await addMutation.mutateAsync({ email: newEmail.trim(), role: newRole })
       toast({ title: t('skillCollaborators.addedSuccess') })
-      setNewUserId('')
+      setNewEmail('')
       setNewRole('viewer')
       setShowAddForm(false)
     } catch (error: unknown) {
@@ -125,6 +135,9 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
     )
   }
 
+  const ownerDisplayName = ownerInfo?.name || ownerInfo?.email || ownerId
+  const ownerDisplayEmail = ownerInfo?.email
+
   return (
     <div className="flex flex-col gap-4 p-4">
       {/* Add collaborator button */}
@@ -143,11 +156,12 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
           {showAddForm && (
             <div className="mt-3 flex items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
               <div className="flex-1">
-                <Label className="text-xs">{t('skillCollaborators.userId')}</Label>
+                <Label className="text-xs">{t('skillCollaborators.emailAddress')}</Label>
                 <Input
-                  value={newUserId}
-                  onChange={(e) => setNewUserId(e.target.value)}
-                  placeholder={t('skillCollaborators.userIdPlaceholder')}
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder={t('skillCollaborators.emailPlaceholder')}
                   className="mt-1"
                 />
               </div>
@@ -181,56 +195,92 @@ export function CollaboratorsTab({ skillId, ownerId, userRole }: CollaboratorsTa
       <div className="space-y-1">
         {/* Owner row (always first) */}
         <div className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--surface-5)]">
-            <User size={12} className="text-[var(--text-tertiary)]" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-600)] text-xs font-semibold text-white shadow-sm">
+            {(ownerDisplayName || '?').slice(0, 2).toUpperCase()}
           </div>
-          <span className="flex-1 text-sm font-medium">{ownerId}</span>
-          <span className="text-xs text-[var(--text-muted)]">({t('skillCollaborators.owner')})</span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+              {ownerDisplayName}
+            </p>
+            {ownerDisplayEmail && ownerInfo?.name && (
+              <p className="truncate text-xs text-[var(--text-tertiary)]">
+                {ownerDisplayEmail}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-yellow-100">
+              <Crown size={12} className="text-yellow-700" />
+            </div>
+            <span className="text-xs text-[var(--text-muted)]">
+              {t('skillCollaborators.owner')}
+            </span>
+          </div>
         </div>
 
         {/* Collaborator rows */}
-        {collaborators.map((c) => (
-          <div
-            key={c.userId}
-            className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2"
-          >
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--surface-5)]">
-              <User size={12} className="text-[var(--text-tertiary)]" />
+        {collaborators.map((c) => {
+          const displayName = c.userName || c.userEmail || c.userId
+          const displayEmail = c.userEmail
+          const RoleIcon = ROLE_ICONS[c.role] || Eye
+
+          return (
+            <div
+              key={c.userId}
+              className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand-500)] to-[var(--brand-600)] text-xs font-semibold text-white shadow-sm">
+                {(displayName || '?').slice(0, 2).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                  {displayName}
+                </p>
+                {displayEmail && c.userName && (
+                  <p className="truncate text-xs text-[var(--text-tertiary)]">
+                    {displayEmail}
+                  </p>
+                )}
+              </div>
+              {canManage ? (
+                <Select
+                  value={c.role}
+                  onValueChange={(v) => handleRoleChange(c.userId, v as CollaboratorRole)}
+                >
+                  <SelectTrigger className="h-7 w-28 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ROLES.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {t(`skillCollaborators.${r}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--surface-3)]">
+                    <RoleIcon size={12} className="text-[var(--text-secondary)]" />
+                  </div>
+                  <span className="text-xs text-[var(--text-tertiary)]">
+                    {t(`skillCollaborators.${c.role}`)}
+                  </span>
+                </div>
+              )}
+              {canManage && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-red-500"
+                  onClick={() => setRemoveTarget({ userId: c.userId, open: true })}
+                >
+                  <X size={14} />
+                </Button>
+              )}
             </div>
-            <span className="flex-1 text-sm">{c.userId}</span>
-            {canManage ? (
-              <Select
-                value={c.role}
-                onValueChange={(v) => handleRoleChange(c.userId, v as CollaboratorRole)}
-              >
-                <SelectTrigger className="h-7 w-28 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ROLES.map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {t(`skillCollaborators.${r}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <span className="text-xs text-[var(--text-tertiary)]">
-                {t(`skillCollaborators.${c.role}`)}
-              </span>
-            )}
-            {canManage && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-red-500"
-                onClick={() => setRemoveTarget({ userId: c.userId, open: true })}
-              >
-                <X size={14} />
-              </Button>
-            )}
-          </div>
-        ))}
+          )
+        })}
 
         {collaborators.length === 0 && (
           <p className="py-4 text-center text-xs text-[var(--text-muted)]">
