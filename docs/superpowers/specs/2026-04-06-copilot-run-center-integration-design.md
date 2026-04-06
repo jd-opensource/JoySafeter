@@ -113,11 +113,13 @@ Note: `content` is stored as `content_delta` in run events (aligning with chat r
 
 #### Initial Projection
 
+Signature matches `AgentDefinition.make_initial_projection: Callable[[dict, str], dict]`:
+
 ```python
-def make_initial_projection() -> dict:
+def make_initial_projection(payload: dict[str, Any], status: str) -> dict[str, Any]:
     return {
         "run_type": "copilot_turn",
-        "status": "running",
+        "status": status,
         "stage": None,
         "content": "",
         "thought_steps": [],
@@ -126,8 +128,8 @@ def make_initial_projection() -> dict:
         "result_message": None,
         "result_actions": [],
         "error": None,
-        "graph_id": None,
-        "mode": None,
+        "graph_id": payload.get("graph_id"),
+        "mode": payload.get("mode"),
     }
 ```
 
@@ -420,7 +422,7 @@ Response format matches existing `CopilotHistoryResponse` so frontend `useCopilo
 
 #### DELETE /{graph_id}/copilot/history
 
-Soft-delete: marks matching copilot runs as hidden (add a `hidden` flag or simply delete the runs). Implementation detail to be decided during planning.
+Hard-delete: removes all copilot `agent_run` rows (and their events/snapshots via CASCADE) for the given `(graph_id, user_id)`. No schema migration needed — uses existing `AgentRunRepository` delete capabilities. This matches the current behavior of `CopilotChatRepository.delete_by_graph_and_user` (which deletes the entire row).
 
 ### 6. Run Center Visibility
 
@@ -454,8 +456,11 @@ New component in `/runs/[runId]/page.tsx` for `run_type === 'copilot_turn'`:
 | `app/models/chat.py` `CopilotChat` class | Delete model |
 | `app/core/redis.py` copilot methods | Delete ~12 methods and key constants |
 | `app/api/v1/graphs.py` `POST /copilot/actions/create` | Delete endpoint |
+| `app/api/v1/graphs.py` `POST /{graph_id}/copilot/messages` | Delete endpoint (writes to deleted copilot_chats) |
 | `app/api/v1/graphs.py` `GET /copilot/sessions/{session_id}` | Delete endpoint |
 | `app/services/copilot_service.py` Redis/persist methods | Delete `generate_actions_async`, `_consume_stream_and_publish_to_redis`, `_persist_conversation`, `save_messages`, `save_conversation_from_stream` |
+
+Note: Dropping the `copilot_chats` table requires an Alembic migration (`op.drop_table('copilot_chats')`). The existing index migration (`20260108_000001`) will be superseded.
 
 #### Frontend
 
