@@ -544,7 +544,7 @@ class ChatWsHandler:
             except Exception as exc:
                 logger.warning(f"Failed to update persisted run status | run_id={agent_run_id} | error={exc}")
 
-    async def _send_event_from_sse(
+    async def _send_stream_event(
         self,
         sse_str: str | None,
         request_id: str,
@@ -554,7 +554,7 @@ class ChatWsHandler:
         assistant_message_id: str | None = None,
     ) -> None:
         """Parse an SSE-formatted string and emit it as a WebSocket event."""
-        event = self._parse_sse_event(sse_str)
+        event = self._parse_stream_event(sse_str)
         if not event:
             return
         await self._emit_event(
@@ -565,7 +565,7 @@ class ChatWsHandler:
             assistant_message_id=assistant_message_id,
         )
 
-    def _parse_sse_event(self, sse_str: str | None) -> dict[str, Any] | None:
+    def _parse_stream_event(self, sse_str: str | None) -> dict[str, Any] | None:
         """Extract the JSON payload from an SSE data line."""
         if not sse_str:
             return None

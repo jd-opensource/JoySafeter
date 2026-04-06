@@ -255,7 +255,7 @@ class ChatTurnExecutor:
             stream_handler = module.StreamEventHandler()
             artifact_collector.ensure_run_dir(handler.user_id, thread_id, state.artifact_run_id)
 
-            await handler._send_event_from_sse(
+            await handler._send_stream_event(
                 stream_handler.format_sse(
                     "status",
                     {"status": "connected", "_meta": {"node_name": "system"}},
@@ -286,7 +286,7 @@ class ChatTurnExecutor:
                     break
 
                 async for sse_str in module._dispatch_stream_event(event, stream_handler, state, file_emitter):
-                    await handler._send_event_from_sse(
+                    await handler._send_stream_event(
                         sse_str,
                         request_id,
                         tolerate_disconnect=tolerate_disconnect,
@@ -611,7 +611,7 @@ class ChatTurnExecutor:
             stream_handler = module.StreamEventHandler()
             ws_command = Command(update=command.get("update") or {}, goto=command.get("goto") or None)
 
-            await handler._send_event_from_sse(
+            await handler._send_stream_event(
                 stream_handler.format_sse("status", {"status": "resumed", "_meta": {"node_name": "system"}}, thread_id),
                 request_id,
                 tolerate_disconnect=tolerate_disconnect,
@@ -625,7 +625,7 @@ class ChatTurnExecutor:
                     state.stopped = True
                     break
                 async for sse_str in module._dispatch_stream_event(event, stream_handler, state):
-                    await handler._send_event_from_sse(
+                    await handler._send_stream_event(
                         sse_str,
                         request_id,
                         tolerate_disconnect=tolerate_disconnect,

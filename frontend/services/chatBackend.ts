@@ -225,7 +225,7 @@ export interface CodeAgentErrorEventData {
 }
 
 // --- Shared envelope fields (excluding type and data) ---
-interface StreamEventEnvelopeBase {
+interface ChatWsFrameBase {
   node_name: string
   run_id: string
   timestamp: number
@@ -237,36 +237,36 @@ interface StreamEventEnvelopeBase {
 }
 
 /**
- * Discriminated union SSE event envelope.
+ * Discriminated union WebSocket event frame.
  * TypeScript narrows `data` automatically when you switch on `type`.
  */
-export type StreamEventEnvelope =
-  | (StreamEventEnvelopeBase & { type: 'content'; data: ContentEventData })
-  | (StreamEventEnvelopeBase & { type: 'tool_start'; data: ToolStartEventData })
-  | (StreamEventEnvelopeBase & { type: 'tool_end'; data: ToolEndEventData })
-  | (StreamEventEnvelopeBase & { type: 'node_start'; data: NodeStartEventData })
-  | (StreamEventEnvelopeBase & { type: 'node_end'; data: NodeEndEventData })
-  | (StreamEventEnvelopeBase & { type: 'status'; data: StatusEventData })
-  | (StreamEventEnvelopeBase & { type: 'error'; data: ErrorEventData })
-  | (StreamEventEnvelopeBase & { type: 'done'; data: Record<string, unknown> })
-  | (StreamEventEnvelopeBase & { type: 'thread_id'; data: ThreadIdEventData })
-  | (StreamEventEnvelopeBase & { type: 'model_input'; data: ModelInputEventData })
-  | (StreamEventEnvelopeBase & { type: 'model_output'; data: ModelOutputEventData })
-  | (StreamEventEnvelopeBase & { type: 'interrupt'; data: InterruptEventData })
-  | (StreamEventEnvelopeBase & { type: 'command'; data: CommandEventData })
-  | (StreamEventEnvelopeBase & { type: 'route_decision'; data: RouteDecisionEventData })
-  | (StreamEventEnvelopeBase & { type: 'loop_iteration'; data: LoopIterationEventData })
-  | (StreamEventEnvelopeBase & { type: 'parallel_task'; data: ParallelTaskEventData })
-  | (StreamEventEnvelopeBase & { type: 'state_update'; data: StateUpdateEventData })
-  | (StreamEventEnvelopeBase & { type: 'code_agent_thought'; data: CodeAgentThoughtEventData })
-  | (StreamEventEnvelopeBase & { type: 'code_agent_code'; data: CodeAgentCodeEventData })
-  | (StreamEventEnvelopeBase & { type: 'code_agent_observation'; data: CodeAgentObservationEventData })
-  | (StreamEventEnvelopeBase & { type: 'code_agent_final_answer'; data: CodeAgentFinalAnswerEventData })
-  | (StreamEventEnvelopeBase & { type: 'code_agent_planning'; data: CodeAgentPlanningEventData })
-  | (StreamEventEnvelopeBase & { type: 'code_agent_error'; data: CodeAgentErrorEventData })
-  | (StreamEventEnvelopeBase & { type: 'file_event'; data: FileEventData })
+export type ChatWsFrame =
+  | (ChatWsFrameBase & { type: 'content'; data: ContentEventData })
+  | (ChatWsFrameBase & { type: 'tool_start'; data: ToolStartEventData })
+  | (ChatWsFrameBase & { type: 'tool_end'; data: ToolEndEventData })
+  | (ChatWsFrameBase & { type: 'node_start'; data: NodeStartEventData })
+  | (ChatWsFrameBase & { type: 'node_end'; data: NodeEndEventData })
+  | (ChatWsFrameBase & { type: 'status'; data: StatusEventData })
+  | (ChatWsFrameBase & { type: 'error'; data: ErrorEventData })
+  | (ChatWsFrameBase & { type: 'done'; data: Record<string, unknown> })
+  | (ChatWsFrameBase & { type: 'thread_id'; data: ThreadIdEventData })
+  | (ChatWsFrameBase & { type: 'model_input'; data: ModelInputEventData })
+  | (ChatWsFrameBase & { type: 'model_output'; data: ModelOutputEventData })
+  | (ChatWsFrameBase & { type: 'interrupt'; data: InterruptEventData })
+  | (ChatWsFrameBase & { type: 'command'; data: CommandEventData })
+  | (ChatWsFrameBase & { type: 'route_decision'; data: RouteDecisionEventData })
+  | (ChatWsFrameBase & { type: 'loop_iteration'; data: LoopIterationEventData })
+  | (ChatWsFrameBase & { type: 'parallel_task'; data: ParallelTaskEventData })
+  | (ChatWsFrameBase & { type: 'state_update'; data: StateUpdateEventData })
+  | (ChatWsFrameBase & { type: 'code_agent_thought'; data: CodeAgentThoughtEventData })
+  | (ChatWsFrameBase & { type: 'code_agent_code'; data: CodeAgentCodeEventData })
+  | (ChatWsFrameBase & { type: 'code_agent_observation'; data: CodeAgentObservationEventData })
+  | (ChatWsFrameBase & { type: 'code_agent_final_answer'; data: CodeAgentFinalAnswerEventData })
+  | (ChatWsFrameBase & { type: 'code_agent_planning'; data: CodeAgentPlanningEventData })
+  | (ChatWsFrameBase & { type: 'code_agent_error'; data: CodeAgentErrorEventData })
+  | (ChatWsFrameBase & { type: 'file_event'; data: FileEventData })
 
 /**
  * Unified streaming event type (using standardized envelope structure)
  */
-export type ChatStreamEvent = StreamEventEnvelope
+export type ChatStreamEvent = ChatWsFrame
